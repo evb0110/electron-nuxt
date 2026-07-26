@@ -505,14 +505,6 @@ function createFlight(
     }
 
     const key = createFlightKey(logicalRef, entry.registrationId);
-    const existingFlight = flights.get(key);
-    if (existingFlight) {
-        if (backgroundLease) {
-            existingFlight.backgroundLease = true;
-        }
-        return existingFlight;
-    }
-
     const lifecycleOperation = registerMainOperation({
         kind: 'abortable-work',
         ...(entry.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: entry.ownerWebContentsId}),
@@ -596,6 +588,8 @@ function getOrCreateFlight(
         }
         return existingFlight;
     }
+    // A registration left materializing without a flight behind it is the
+    // remains of a run that died; recover it rather than refusing forever.
     if (entry.backingState === 'materializing') {
         transitionWorkingCopyBackingState(
             logicalRef,
@@ -669,6 +663,12 @@ function waitForFlight(
             }
             flight.demandWaiters -= 1;
             demandOperation.complete();
+            // A flight belongs to whoever is still waiting for it. Copying a
+            // large original is work nobody has asked for once the last waiter
+            // is gone, so it stops there — and a caller that arrives while it is
+            // stopping starts a fresh flight rather than adopting this one's
+            // cancellation, which is what used to leave the viewer blank or
+            // stuck at 0%.
             if (
                 flight.demandWaiters === 0
                 && !flight.backgroundLease
@@ -708,17 +708,31 @@ export async function ensureWorkingCopyMaterialized(
     if (!normalizedRef) {
         throw new Error('Invalid working copy path');
     }
-    const existingResult = alreadyMaterializedResult(normalizedRef, options.ownerWebContentsId);
-    if (existingResult) {
-        return existingResult;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const existingResult = alreadyMaterializedResult(normalizedRef, options.ownerWebContentsId);
+        if (existingResult) {
+            return existingResult;
+        }
+        const flight = getOrCreateFlight(
+            normalizedRef,
+            options.ownerWebContentsId,
+            options.reason,
+            false,
+        );
+        // A flight that is already tearing down has nothing to hand this
+        // caller. Wait for it to release the registration and start a new one,
+        // instead of adopting its cancellation as this request's answer.
+        if (flight.controller.signal.aborted) {
+            await flight.promise.catch(() => undefined);
+            continue;
+        }
+        return waitForFlight(flight, options);
     }
-    const flight = getOrCreateFlight(
-        normalizedRef,
-        options.ownerWebContentsId,
-        options.reason,
-        false,
+    throw new WorkingCopyMaterializationError(
+        'WORKING_COPY_MATERIALIZATION_FAILED',
+        'Working-copy materialization could not be restarted',
+        {retryable: true},
     );
-    return waitForFlight(flight, options);
 }
 
 export function startBackgroundWorkingCopyMaterialization(

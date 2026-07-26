@@ -272,9 +272,11 @@ describe('electron e2e Vitest project topology', () => {
         expect(packageScripts['test:e2e:electron'])
             .toContain('pnpm run build:native:e2e');
         expect(packageScripts['test:e2e:electron'])
-            .toContain('vitest run --project e2e-regression');
+            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project e2e-regression');
         expect(packageScripts['test:e2e:electron:regression'])
             .toContain('pnpm run build:native:e2e');
+        expect(packageScripts['test:e2e:electron:regression'])
+            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project e2e-regression');
         expect(packageScripts['test:e2e:electron:smoke:no-build']).toBeUndefined();
         expect(packageScripts['test:e2e:electron:watch'])
             .toBe('vitest --project e2e-regression --reporter verbose');
@@ -290,6 +292,6 @@ describe('electron e2e quarantine Vitest project', () => {
 
         expect(quarantineProject.test?.include).toEqual(electronE2EQuarantineTestFiles);
         expect(packageScripts['test:e2e:electron:quarantine'])
-            .toContain('vitest run --project e2e-quarantine --passWithNoTests');
+            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project e2e-quarantine --passWithNoTests');
     });
 });

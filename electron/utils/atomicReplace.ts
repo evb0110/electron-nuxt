@@ -96,9 +96,23 @@ export function makeSiblingTempPath(targetPath: string) {
 export async function atomicReplace(
     srcTemp: string,
     dst: string,
-    options: {markMutationCommitStarted?: boolean} = {},
+    options: {
+        /**
+         * Whether the replacement has to survive a crash. A within-run cache
+         * publishes into a scratch directory that is discarded when the process
+         * exits, so it takes the same replace semantics — a reader of the
+         * destination keeps reading a complete file, and Windows never fails
+         * the rename against an open handle — without paying for two fsyncs it
+         * has nothing to recover.
+         */
+        durable?: boolean;
+        markMutationCommitStarted?: boolean;
+    } = {},
 ) {
-    await fsyncPath(srcTemp);
+    const durable = options.durable !== false;
+    if (durable) {
+        await fsyncPath(srcTemp);
+    }
     if (options.markMutationCommitStarted !== false) {
         markActiveWorkingCopyMutationCommitStarted();
     }
@@ -118,7 +132,9 @@ export async function atomicReplace(
 
     if (process.platform !== 'win32') {
         await rename(srcTemp, dst);
-        await fsyncParentDirectory(dst);
+        if (durable) {
+            await fsyncParentDirectory(dst);
+        }
         return;
     }
 

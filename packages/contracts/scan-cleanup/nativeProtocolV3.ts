@@ -185,6 +185,8 @@ export interface INativeScanCleanupManifestV3 {
     documentCanvas?: {
         widthPoints: number;
         heightPoints: number;
+        widthPx: number;
+        heightPx: number;
     };
     /**
      * Physical memory of this host. The sidecar has no portable way to read it,

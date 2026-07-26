@@ -3,6 +3,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
+    TScanCleanupLayoutByPage,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
@@ -145,6 +146,105 @@ export function resolveScanCleanupPageLayout(
         return override;
     }
     return layoutMode;
+}
+
+/**
+ * The layouts a run is told to expect, as a plain record the bridge can carry.
+ * Matched page size is measured over the pages a run produces, and this is what
+ * the preview and the run are both measured against.
+ */
+export function toScanCleanupLayoutByPage(
+    classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>,
+): TScanCleanupLayoutByPage {
+    const layouts: TScanCleanupLayoutByPage = {};
+    for (const [
+        pageNumber,
+        classification,
+    ] of classifications) {
+        layouts[String(pageNumber)] = classification;
+    }
+    return layouts;
+}
+
+/**
+ * What a cached preview has to be revalidated against when detection lands: the
+ * spread pages, run-length encoded.
+ *
+ * That is the whole of it, because a spread is the only classification the
+ * matched canvas reads — every other page is measured as the whole sheet it is,
+ * classified or not (see resolveScanCleanupDocumentCanvas). Classifying another
+ * page as anything but a spread therefore cannot move the rectangle a preview
+ * was drawn on, and keying on the number of classifications would throw away
+ * every cached page, cancel the render in flight and redraw it, for each of the
+ * hundreds of pages a detection pass settles.
+ */
+export function scanCleanupLayoutSignature(layouts: TScanCleanupLayoutByPage) {
+    const spreads = Object.entries(layouts)
+        .filter(entry => entry[1] === 'two-page-spread')
+        .map(entry => Number(entry[0]))
+        .sort((left, right) => left - right);
+    const ranges: string[] = [];
+    for (let index = 0; index < spreads.length;) {
+        const start = spreads[index]!;
+        let end = start;
+        while (index + 1 < spreads.length && spreads[index + 1] === end + 1) {
+            index += 1;
+            end = spreads[index]!;
+        }
+        index += 1;
+        ranges.push(start === end ? String(start) : `${String(start)}-${String(end)}`);
+    }
+    return ranges.join(',');
+}
+
+/**
+ * The rest of what a cached preview has to be revalidated against when matched
+ * page size is on: the document-wide inputs the matched canvas is measured
+ * from, which no single page's cache key carries.
+ *
+ * `resolveScanCleanupDocumentCanvas` reads the whole document to answer one
+ * rectangle — which pages are produced at all (`excluded`), how many outputs
+ * each sheet is cut into (`layoutOverride`, including keep-left/right, and
+ * whether a `manualSplit` exists), and whether any page can be rendered in
+ * continuous tone, which halves the pixel budget the grid is held inside
+ * (`outputModeOverride`). Excluding page 40 therefore changes the canvas page 1
+ * was drawn on, and without this the renderer would keep serving page 1 from a
+ * cache measured against the old document.
+ *
+ * Only the non-default overrides are visited — the record holds nothing else —
+ * so this is proportional to what the user has actually touched rather than to
+ * the document's length, and it is derived once per settings change rather than
+ * once per cache key.
+ *
+ * Each field is reduced to what the canvas can actually read: the split's
+ * position and the exact tone of a page's output mode do not move the
+ * rectangle, and keying on them would throw away every cached page of the
+ * document for an edit that cannot have changed it.
+ *
+ * Every entry is read through `getScanCleanupPageOverride`, because the record
+ * also arrives from disk and from the bridge, where a partially written entry
+ * leaves a field absent rather than at its default. The canvas resolves those
+ * entries the same way, so a signature taken off the raw record would distinguish
+ * two documents the canvas cannot tell apart and drop the whole preview cache.
+ */
+export function scanCleanupMatchedCanvasOverridesSignature(overrides: TScanCleanupPageOverrides) {
+    return Object.keys(overrides)
+        .map(pageKey => {
+            const override = getScanCleanupPageOverride(overrides, Number(pageKey));
+            const canvasInputs = [
+                override.excluded ? 'excluded' : '',
+                override.layoutOverride,
+                override.manualSplit ? 'split' : '',
+                // Only whether the page can leave the bilevel pixel budget.
+                override.outputModeOverride === undefined
+                    ? ''
+                    : override.outputModeOverride === 'bw' ? 'bw' : 'tonal',
+            ].join(':');
+            return canvasInputs === ':auto::' ? '' : `${pageKey}=${canvasInputs}`;
+        })
+        .filter(entry => entry !== '')
+        .sort()
+        .join(',');
 }
 
 function automaticOutputCount(

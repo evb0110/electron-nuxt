@@ -5,7 +5,7 @@ export interface IScanCleanupPreviewPrefetchCandidate<TRequest> {
 
 export interface IScanCleanupPreviewPrefetchDependencies<TRequest, TResult> {
     isCached: (key: string) => boolean;
-    preview: (request: TRequest) => Promise<TResult>;
+    preview: (request: TRequest) => Promise<TResult | null>;
     store: (key: string, result: TResult) => void;
 }
 
@@ -39,7 +39,10 @@ export function createScanCleanupPreviewPrefetcher<TRequest, TResult>(
                     // page and the options that produced it, so a late entry is
                     // never stale, and discarding it threw away the whole cost
                     // of the request for nothing.
-                    dependencies.store(candidate.key, await dependencies.preview(candidate.request));
+                    // A cancelled or dropped prefetch answers with nothing;
+                    // the page is requested again when the user reaches it.
+                    const prefetched = await dependencies.preview(candidate.request);
+                    if (prefetched !== null) dependencies.store(candidate.key, prefetched);
                 } catch {
                     // Aborted or failed: the next schedule re-queues whatever
                     // the user still wants.

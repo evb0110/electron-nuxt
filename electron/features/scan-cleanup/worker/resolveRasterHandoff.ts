@@ -88,6 +88,27 @@ export async function resolveRasterHandoff(
     };
 }
 
+// Rasterizing a page is the pipeline's dominant cost and each one holds a full
+// page bitmap, so the pages move through a fixed number of workers the runtime
+// policy sizes rather than all at once.
+export async function mapScanCleanupRasterPages<T, R>(
+    values: readonly T[],
+    concurrency: number,
+    task: (value: T, index: number) => Promise<R>,
+) {
+    const results = new Array<R>(values.length);
+    let nextIndex = 0;
+    const workers = Array.from({length: Math.min(Math.max(1, concurrency), values.length)}, async () => {
+        while (nextIndex < values.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            results[index] = await task(values[index]!, index);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
 export function logRasterHandoff(
     log: TWorkerLog,
     scope: string,

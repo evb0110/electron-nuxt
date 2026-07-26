@@ -3,6 +3,7 @@ import type {
     IScanCleanupDocumentPrior,
     IScanCleanupManualZones,
     IScanCleanupPageOverride,
+    TScanCleanupLayoutByPage,
     TScanCleanupPageAlignment,
 } from '@contracts/scan-cleanup/domain';
 import {
@@ -473,6 +474,19 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
     };
 }
 
+function decodeLayoutByPage(value: unknown) {
+    if (
+        !isRecord(value)
+        || Object.entries(value).some(([
+            pageNumber,
+            layout,
+        ]) => !/^[1-9]\d*$/u.test(pageNumber) || !isLayoutClassification(layout))
+    ) {
+        throw new Error('invalid scan-cleanup layout classifications');
+    }
+    return value as TScanCleanupLayoutByPage;
+}
+
 function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
     if (!isRecord(value) || typeof value.sourcePdfPath !== 'string' || value.sourcePdfPath.trim().length === 0) {
         throw new Error('invalid scan-cleanup request');
@@ -512,19 +526,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
         options: decodeOptions(value.options),
         ...(sourcePageNumbers === undefined ? {} : {sourcePageNumbers}),
         ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
-    };
-}
-
-export function decodeDocumentCanvasPlan(value: unknown) {
-    if (!isRecord(value)) throw new Error('invalid scan-cleanup document canvas plan');
-    const widthPoints = decodeFiniteNumber(value.widthPoints, 'document canvas width');
-    const heightPoints = decodeFiniteNumber(value.heightPoints, 'document canvas height');
-    if (widthPoints <= 0 || heightPoints <= 0) {
-        throw new Error('invalid scan-cleanup document canvas plan');
-    }
-    return {
-        widthPoints,
-        heightPoints,
+        ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
     };
 }
 
@@ -583,9 +585,7 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         pageNumber: Number(value.pageNumber),
         options: decodeOptions(value.options),
         ...(value.documentPrior === undefined ? {} : {documentPrior: decodeDocumentPrior(value.documentPrior)}),
-        ...(value.documentCanvasPlan === undefined
-            ? {}
-            : {documentCanvasPlan: decodeDocumentCanvasPlan(value.documentCanvasPlan)}),
+        ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
         ...(detail === undefined ? {} : {detail}),
         ...(value.visible === undefined ? {} : {visible: value.visible}),
     };

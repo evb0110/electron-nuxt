@@ -62,7 +62,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         documentRevision,
-        documentCanvasPlan: computed(() => detection.documentCanvasPlan.value),
         documentPriorByPage: detection.documentPriorByPage,
         initialViewMode: options.initialPreviewViewMode?.(),
         lifecycleDocumentKey,
@@ -75,6 +74,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     });
     const run = useScanCleanupRunSession({
         active: options.active,
+        authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         beforeRun: () => previewResult?.cancel(false),
         cancelDetectionBeforeRun: detection.cancelAndWaitForTerminal,
         detectionPending: detection.pending,

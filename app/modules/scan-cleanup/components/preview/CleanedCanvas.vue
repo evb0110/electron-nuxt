@@ -21,6 +21,8 @@
                             'is-drag-placeholder': activePlacementHalf === output.metadata.half,
                         }"
                         :style="output.imageStyle"
+                        :data-content-width="output.placement.contentWidthPx"
+                        :data-content-height="output.placement.contentHeightPx"
                     >
                         <img
                             v-if="output.pixelSwap.outgoingUrl"

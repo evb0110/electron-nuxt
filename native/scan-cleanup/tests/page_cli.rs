@@ -46,6 +46,15 @@ impl Drop for Scratch {
     }
 }
 
+/// Matched page size is on by default, and it now requires the document canvas
+/// its owner measured. A test that is not about matching says so.
+fn unmatched_options() -> CleanupOptions {
+    CleanupOptions {
+        match_page_size: false,
+        ..CleanupOptions::default()
+    }
+}
+
 #[test]
 fn manifest_v3_emits_typed_progress_and_terminal_result() {
     let scratch = Scratch::new("v3");
@@ -199,7 +208,7 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
     fs::write(&input, encode_gray(&GrayImage::new(80, 60, 255)).unwrap()).unwrap();
     let grayscale_options = CleanupOptions {
         output_mode: evb_scan_cleanup::OutputMode::Grayscale,
-        ..CleanupOptions::default()
+        ..unmatched_options()
     };
     let payload = serde_json::json!({
         "version": 3,
@@ -211,7 +220,7 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
                 "inputPath": input,
                 "sourcePageIndex": 0,
                 "pageMetadataPath": bw_page_metadata,
-                "options": CleanupOptions::default(),
+                "options": unmatched_options(),
                 "outputs": [{
                     "outputPath": bw_output,
                     "metadataPath": bw_metadata,
@@ -448,6 +457,12 @@ fn matched_canvas_repads_the_published_pbm_without_a_composite() {
         "operation": "render",
         "renderMode": "final",
         "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 24.0,
+            "heightPoints": 21.6,
+            "widthPx": 100,
+            "heightPx": 90
+        },
         "pages": [
             {
                 "inputPath": small_input,
@@ -511,8 +526,8 @@ fn matched_canvas_repads_the_published_pbm_without_a_composite() {
     );
     let offset_x = metadata["placementOffsetXPx"].as_u64().unwrap() as usize;
     let offset_y = metadata["placementOffsetYPx"].as_u64().unwrap() as usize;
-    let intrinsic_width = metadata["outputWidthPx"].as_u64().unwrap() as usize;
-    let intrinsic_height = metadata["outputHeightPx"].as_u64().unwrap() as usize;
+    let intrinsic_width = metadata["matchedCanvasContentWidthPx"].as_u64().unwrap() as usize;
+    let intrinsic_height = metadata["matchedCanvasContentHeightPx"].as_u64().unwrap() as usize;
     assert!(offset_x + intrinsic_width <= small_padded.width());
     assert!(offset_y + intrinsic_height <= small_padded.height());
     let mut ink_inside_payload = 0usize;
@@ -554,7 +569,7 @@ fn failed_bilevel_publication_falls_back_to_the_composite() {
             "inputPath": input,
             "sourcePageIndex": 0,
             "pageMetadataPath": page_metadata,
-            "options": CleanupOptions::default(),
+            "options": unmatched_options(),
             "outputs": [{
                 "outputPath": output,
                 "metadataPath": metadata,
@@ -628,7 +643,7 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
         normalize_illumination: false,
         crop_content: false,
         layout: evb_scan_cleanup::LayoutMode::Single,
-        ..CleanupOptions::default()
+        ..unmatched_options()
     };
     let payload = serde_json::json!({
         "version": 3,
@@ -841,6 +856,14 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
         "operation": "render",
         "renderMode": "final",
         "canvasScope": "document",
+        // The document of this spread: each half is 100 x 320 of the rotated
+        // sheet, which is the paper a reader ends up holding.
+        "documentCanvas": {
+            "widthPoints": 48.0,
+            "heightPoints": 153.6,
+            "widthPx": 100,
+            "heightPx": 320
+        },
         "pages": [{
             "inputPath": input,
             "sourcePageIndex": 7,
@@ -869,6 +892,7 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
         String::from_utf8_lossy(&result.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&result.stderr), "");
+    let mut content_sizes = Vec::new();
     for (path, metadata_path, expected_half) in [
         (&output_left, &metadata_left, "left"),
         (&output_right, &metadata_right, "right"),
@@ -883,6 +907,32 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
         assert_eq!(metadata_json["rotationDegrees"], 90);
         assert!(metadata_json["forwardTransform"]["matrix"].is_array());
         assert!(metadata_json["inverseTransform"]["matrix"].is_array());
+        // Matched page size is on, as it is by default: both halves carry the
+        // document's half-sheet canvas rather than the sheet they were cut from,
+        // so neither is a page with an empty half beside it.
+        assert_eq!(
+            (output.width(), output.height()),
+            (100, 320),
+            "{expected_half} half is not the document canvas"
+        );
+        assert_eq!(metadata_json["canvasWidthPx"], 100);
+        assert_eq!(metadata_json["canvasHeightPx"], 320);
+        assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
+        content_sizes.push((
+            metadata_json["matchedCanvasContentWidthPx"]
+                .as_u64()
+                .unwrap(),
+            metadata_json["matchedCanvasContentHeightPx"]
+                .as_u64()
+                .unwrap(),
+        ));
+    }
+    // Each half fills the sheet it was normalized onto rather than half of it.
+    for (content_width, content_height) in content_sizes {
+        assert!(
+            content_width * 2 > 100 && content_height * 2 > 320,
+            "a half was padded into the canvas instead of filling it ({content_width}x{content_height})"
+        );
     }
 }
 
@@ -1124,6 +1174,7 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
                     "dpi": 150,
                     "layout": "force-single",
                     "cropContent": false,
+                    "matchPageSize": false,
                     "outputMode": "bw"
                 },
                 "outputs": [{"outputPath": output, "metadataPath": metadata}]
@@ -1314,6 +1365,12 @@ fn batch_applies_per_output_placement_over_document_default() {
         "operation": "render",
         "renderMode": "final",
         "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 24.0,
+            "heightPoints": 21.6,
+            "widthPx": 100,
+            "heightPx": 90
+        },
         "pages": [
             {
                 "inputPath": input_small,
@@ -1365,19 +1422,23 @@ fn batch_applies_per_output_placement_over_document_default() {
     assert_eq!((matched_large.width(), matched_large.height()), (100, 90));
     assert!(matched_small.get(25, 37) < 200);
     assert_eq!(matched_small.get(5, 7), 255);
+    // The smaller page was scaled to the document's width and placed at the
+    // bottom of the rectangle its own override asked for.
 
     let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata_small).unwrap()).unwrap();
     assert_eq!(
         metadata_json["softMarginsPx"],
-        serde_json::json!([20, 30, 0, 0])
+        serde_json::json!([0, 15, 0, 0])
     );
     assert_eq!(metadata_json["uniformCanvas"], true);
-    assert_eq!(metadata_json["outputWidthPx"], 80);
-    assert_eq!(metadata_json["outputHeightPx"], 60);
+    assert_eq!(metadata_json["outputWidthPx"], 100);
+    assert_eq!(metadata_json["outputHeightPx"], 75);
+    assert_eq!(metadata_json["matchedCanvasContentWidthPx"], 100);
+    assert_eq!(metadata_json["matchedCanvasContentHeightPx"], 75);
     assert_eq!(metadata_json["canvasWidthPx"], 100);
     assert_eq!(metadata_json["canvasHeightPx"], 90);
-    assert_eq!(metadata_json["placementOffsetXPx"], 20);
-    assert_eq!(metadata_json["placementOffsetYPx"], 30);
+    assert_eq!(metadata_json["placementOffsetXPx"], 0);
+    assert_eq!(metadata_json["placementOffsetYPx"], 15);
     assert_eq!(metadata_json["forwardTransform"]["matrix"][0][2], 0.0);
     assert_eq!(metadata_json["forwardTransform"]["matrix"][1][2], 0.0);
 
@@ -1412,25 +1473,30 @@ fn batch_applies_per_output_placement_over_document_default() {
         serde_json::from_slice(&fs::read(&metadata_small).unwrap()).unwrap();
     assert_eq!(preview_metadata["canvasWidthPx"], 100);
     assert_eq!(preview_metadata["canvasHeightPx"], 90);
-    assert_eq!(preview_metadata["placementOffsetXPx"], 20);
-    assert_eq!(preview_metadata["placementOffsetYPx"], 30);
+    assert_eq!(preview_metadata["placementOffsetXPx"], 0);
+    assert_eq!(preview_metadata["placementOffsetYPx"], 15);
+    // A preview keeps the raster it rendered and reports the box it belongs
+    // in, which is the box the final run resampled its own raster into.
+    assert_eq!(preview_metadata["outputWidthPx"], 80);
+    assert_eq!(preview_metadata["matchedCanvasContentWidthPx"], 100);
+    assert_eq!(preview_metadata["matchedCanvasContentHeightPx"], 75);
     for metadata_path in [&metadata_small, &metadata_large] {
         let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
-        let intrinsic_width = metadata["outputWidthPx"].as_u64().unwrap();
-        let intrinsic_height = metadata["outputHeightPx"].as_u64().unwrap();
+        let content_width = metadata["matchedCanvasContentWidthPx"].as_u64().unwrap();
+        let content_height = metadata["matchedCanvasContentHeightPx"].as_u64().unwrap();
         let canvas_width = metadata["canvasWidthPx"].as_u64().unwrap();
         let canvas_height = metadata["canvasHeightPx"].as_u64().unwrap();
         let offset_x = metadata["placementOffsetXPx"].as_u64().unwrap();
         let offset_y = metadata["placementOffsetYPx"].as_u64().unwrap();
-        assert!(canvas_width >= intrinsic_width);
-        assert!(canvas_height >= intrinsic_height);
-        assert!(offset_x + intrinsic_width <= canvas_width);
-        assert!(offset_y + intrinsic_height <= canvas_height);
+        assert!(canvas_width >= content_width);
+        assert!(canvas_height >= content_height);
+        assert!(offset_x + content_width <= canvas_width);
+        assert!(offset_y + content_height <= canvas_height);
     }
 }
 
 #[test]
-fn matched_canvas_strictly_uses_the_largest_outlier() {
+fn matched_canvas_normalizes_every_page_onto_one_rectangle_and_one_grid() {
     let scratch = Scratch::new("matched-quantile");
     let manifest = scratch.path("matched-quantile-manifest.json");
     let mut pages = Vec::new();
@@ -1473,6 +1539,13 @@ fn matched_canvas_strictly_uses_the_largest_outlier() {
         "operation": "render",
         "renderMode": "final",
         "canvasScope": "document",
+        // The largest page the document carries, at its own resolution.
+        "documentCanvas": {
+            "widthPoints": 33.6,
+            "heightPoints": 24.0,
+            "widthPx": 140,
+            "heightPx": 100
+        },
         "pages": pages
     });
     fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
@@ -1490,31 +1563,59 @@ fn matched_canvas_strictly_uses_the_largest_outlier() {
         let image = decode_gray(&fs::read(&output_paths[index]).unwrap(), 20_000, 200).unwrap();
         let metadata: Value =
             serde_json::from_slice(&fs::read(&metadata_paths[index]).unwrap()).unwrap();
-        assert_eq!((image.width(), image.height()), (140, 100));
+        assert_eq!(
+            (image.width(), image.height()),
+            (140, 100),
+            "page {index} did not land on the document's pixel grid"
+        );
         assert_eq!(metadata["matchedCanvasTargetWidthPx"], 140);
         assert_eq!(metadata["matchedCanvasTargetHeightPx"], 100);
+        assert_eq!(metadata["matchedCanvasTargetWidthPoints"], 33.6);
+        assert_eq!(metadata["matchedCanvasTargetHeightPoints"], 24.0);
         assert_eq!(metadata["canvasPolicy"], "strict-maximum");
         assert_eq!(metadata["canvasOverflow"], false);
         assert_eq!(metadata["uniformCanvas"], true);
         assert_eq!(metadata["canvasWidthPx"], 140);
         assert_eq!(metadata["canvasHeightPx"], 100);
+        let content_width = metadata["matchedCanvasContentWidthPx"].as_f64().unwrap();
+        let content_height = metadata["matchedCanvasContentHeightPx"].as_f64().unwrap();
+        assert_eq!(metadata["outputWidthPx"].as_f64().unwrap(), content_width);
+        assert_eq!(metadata["outputHeightPx"].as_f64().unwrap(), content_height);
+        if index == 9 {
+            assert_eq!((content_width, content_height), (140.0, 100.0));
+            continue;
+        }
+        // The smaller page is scaled up to the canvas, not padded into a
+        // corner of it: it fills the axis that constrains it, and keeps the
+        // 4:3 shape it arrived with.
+        assert_eq!(content_height, 100.0);
+        assert!(
+            (content_width / content_height - 80.0 / 60.0).abs() < 0.02,
+            "page {index} lost its aspect ratio ({content_width}x{content_height})"
+        );
     }
 }
 
 #[test]
-fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
+fn matched_canvas_resamples_a_lower_resolution_scan_of_the_same_paper() {
     let scratch = Scratch::new("matched-physical");
     let manifest = scratch.path("matched-physical-manifest.json");
     let mut pages = Vec::new();
     let mut outputs = Vec::new();
     let mut metadata_paths = Vec::new();
-    for (index, (dimension, dpi)) in [(100, 100), (200, 200)].into_iter().enumerate() {
+    // The same one-inch-square page scanned at 100 and at 200 DPI. Their PDF
+    // rectangles agree; only the pixels the scanner produced differ.
+    for (index, (dimension, dpi)) in [(100usize, 100), (200usize, 200)].into_iter().enumerate() {
         let input = scratch.path(&format!("matched-physical-input-{index}.png"));
         let output = scratch.path(&format!("matched-physical-output-{index}.png"));
         let metadata = scratch.path(&format!("matched-physical-metadata-{index}.json"));
         let mut image = GrayImage::new(dimension, dimension, 255);
-        for coordinate in 10..dimension.saturating_sub(10) {
-            image.set(coordinate, dimension / 2, 0);
+        // A bar covering the middle fifth of the page, in page-relative terms,
+        // so a normalized document puts it at the same place on every page.
+        for y in (dimension * 2 / 5)..(dimension * 3 / 5) {
+            for x in (dimension / 10)..(dimension * 9 / 10) {
+                image.set(x, y, 0);
+            }
         }
         fs::write(&input, encode_gray(&image).unwrap()).unwrap();
         pages.push(serde_json::json!({
@@ -1541,6 +1642,12 @@ fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
             "operation": "render",
             "renderMode": "final",
             "canvasScope": "document",
+            "documentCanvas": {
+                "widthPoints": 72.0,
+                "heightPoints": 72.0,
+                "widthPx": 200,
+                "heightPx": 200
+            },
             "pages": pages
         }))
         .unwrap(),
@@ -1556,17 +1663,410 @@ fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    for (index, expected_dimension) in [100, 200].into_iter().enumerate() {
+    let mut ink_rows = Vec::new();
+    for index in 0..2 {
         let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 50_000, 300).unwrap();
         let metadata: Value =
             serde_json::from_slice(&fs::read(&metadata_paths[index]).unwrap()).unwrap();
         assert_eq!(
             (image.width(), image.height()),
-            (expected_dimension, expected_dimension)
+            (200, 200),
+            "the low-resolution scan must be resampled onto the document grid"
         );
         assert_eq!(metadata["canvasPolicy"], "strict-maximum");
         assert_eq!(metadata["canvasOverflow"], false);
+        assert_eq!(metadata["matchedCanvasContentWidthPx"], 200);
+        assert_eq!(metadata["matchedCanvasContentHeightPx"], 200);
+        ink_rows.push(
+            (0..image.height())
+                .filter(|&y| (0..image.width()).any(|x| image.get(x, y) < 128))
+                .collect::<Vec<_>>(),
+        );
     }
+    let first = ink_rows[0].clone();
+    let second = ink_rows[1].clone();
+    assert!(!first.is_empty() && !second.is_empty(), "the bar was lost");
+    // Same ink, same place, same size: the 100 DPI page was scaled rather than
+    // dropped into the corner of a 200 DPI sheet.
+    for (low, high) in [
+        (first.first(), second.first()),
+        (first.last(), second.last()),
+    ] {
+        let difference = *low.unwrap() as i64 - *high.unwrap() as i64;
+        assert!(
+            difference.abs() <= 2,
+            "normalized bars disagree by {difference} rows ({first:?} vs {second:?})"
+        );
+    }
+}
+
+#[test]
+fn matched_canvas_fits_an_oversized_page_instead_of_growing_the_document() {
+    let scratch = Scratch::new("matched-oversized");
+    let manifest = scratch.path("matched-oversized-manifest.json");
+    let mut pages = Vec::new();
+    let mut outputs = Vec::new();
+    let mut metadata_paths = Vec::new();
+    // A portrait canvas page and a landscape page half again as wide as the
+    // canvas: neither may resize the document.
+    for (index, (width, height)) in [(100usize, 140usize), (210usize, 100usize)]
+        .into_iter()
+        .enumerate()
+    {
+        let input = scratch.path(&format!("matched-oversized-input-{index}.png"));
+        let output = scratch.path(&format!("matched-oversized-output-{index}.png"));
+        let metadata = scratch.path(&format!("matched-oversized-metadata-{index}.json"));
+        let mut image = GrayImage::new(width, height, 255);
+        for y in (height / 4)..(height / 2) {
+            for x in (width / 4)..(width / 2) {
+                image.set(x, y, 0);
+            }
+        }
+        fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+        pages.push(serde_json::json!({
+            "inputPath": input,
+            "sourcePageIndex": index,
+            "pageMetadataPath": scratch.path(&format!("matched-oversized-page-{index}.json")),
+            "options": {
+                "dpi": 300,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                "cropContent": false,
+                "outputMode": "grayscale",
+                "matchPageSize": true,
+                "pageAlignment": "center"
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata}]
+        }));
+        outputs.push(output);
+        metadata_paths.push(metadata);
+    }
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "documentCanvas": {
+                "widthPoints": 24.0,
+                "heightPoints": 33.6,
+                "widthPx": 100,
+                "heightPx": 140
+            },
+            "pages": pages
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    for (index, metadata_path) in metadata_paths.iter().enumerate() {
+        let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 50_000, 300).unwrap();
+        let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
+        assert_eq!(
+            (image.width(), image.height()),
+            (100, 140),
+            "page {index} resized the document"
+        );
+        assert_eq!(metadata["canvasWidthPx"], 100);
+        assert_eq!(metadata["canvasHeightPx"], 140);
+        let content_width = metadata["matchedCanvasContentWidthPx"].as_f64().unwrap();
+        let content_height = metadata["matchedCanvasContentHeightPx"].as_f64().unwrap();
+        assert!(content_width <= 100.0 && content_height <= 140.0);
+        if index == 1 {
+            // The landscape page is fitted by its width and padded above and
+            // below; its shape survives the fit.
+            assert_eq!(content_width, 100.0);
+            assert!(
+                (content_width / content_height - 210.0 / 100.0).abs() < 0.05,
+                "the oversized page lost its aspect ratio ({content_width}x{content_height})"
+            );
+            assert!(metadata["placementOffsetYPx"].as_f64().unwrap() > 0.0);
+        }
+    }
+}
+
+#[test]
+fn matched_canvas_keeps_rotation_and_margins_inside_the_document_rectangle() {
+    let scratch = Scratch::new("matched-rotation");
+    let manifest = scratch.path("matched-rotation-manifest.json");
+    let mut pages = Vec::new();
+    let mut outputs = Vec::new();
+    let mut metadata_paths = Vec::new();
+    for index in 0..2 {
+        let input = scratch.path(&format!("matched-rotation-input-{index}.png"));
+        let output = scratch.path(&format!("matched-rotation-output-{index}.png"));
+        let metadata = scratch.path(&format!("matched-rotation-metadata-{index}.json"));
+        let mut image = GrayImage::new(240, 320, 250);
+        for y in (40..280).step_by(12) {
+            for x in 30..210 {
+                image.set(x, y, 12);
+                image.set(x, y + 1, 12);
+            }
+        }
+        fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+        pages.push(serde_json::json!({
+            "inputPath": input,
+            "sourcePageIndex": index,
+            "pageMetadataPath": scratch.path(&format!("matched-rotation-page-{index}.json")),
+            "options": {
+                "dpi": 300,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                // Cropping with the default 5 mm margins on every side: the
+                // margins are laid out inside the rectangle, never around it.
+                "cropContent": true,
+                "margins": {"leftMm": 5, "topMm": 5, "rightMm": 5, "bottomMm": 5},
+                "outputMode": "grayscale",
+                "matchPageSize": true,
+                "pageAlignment": "center",
+                "rotationDegrees": if index == 1 { 90 } else { 0 }
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata}]
+        }));
+        outputs.push(output);
+        metadata_paths.push(metadata);
+    }
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "documentCanvas": {
+                "widthPoints": 57.6,
+                "heightPoints": 76.8,
+                "widthPx": 240,
+                "heightPx": 320
+            },
+            "pages": pages
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    for (index, metadata_path) in metadata_paths.iter().enumerate() {
+        let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 200_000, 400).unwrap();
+        let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
+        assert_eq!(
+            (image.width(), image.height()),
+            (240, 320),
+            "page {index} was resized by its rotation or its margins"
+        );
+        assert_eq!(metadata["canvasWidthPx"], 240);
+        assert_eq!(metadata["canvasHeightPx"], 320);
+        assert!(metadata["matchedCanvasContentWidthPx"].as_f64().unwrap() <= 240.0);
+        assert!(metadata["matchedCanvasContentHeightPx"].as_f64().unwrap() <= 320.0);
+    }
+}
+
+#[test]
+fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
+    let scratch = Scratch::new("matched-preview");
+    let manifest = scratch.path("matched-preview-manifest.json");
+    let input = scratch.path("matched-preview-input.png");
+    let output = scratch.path("matched-preview-output.png");
+    let metadata_path = scratch.path("matched-preview-metadata.json");
+    let mut image = GrayImage::new(80, 60, 255);
+    for y in 12..40 {
+        for x in 10..70 {
+            if y % 6 < 2 {
+                image.set(x, y, 15);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 33.6,
+            "heightPoints": 24.0,
+            "widthPx": 140,
+            "heightPx": 100
+        },
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": scratch.path("matched-preview-page.json"),
+            "options": {
+                "dpi": 300,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                "cropContent": false,
+                "outputMode": "grayscale",
+                "matchPageSize": true,
+                "pageAlignment": "center"
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata_path}]
+        }]
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+    let run = || {
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "stderr={}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let metadata: Value = serde_json::from_slice(&fs::read(&metadata_path).unwrap()).unwrap();
+        let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
+        (metadata, (image.width(), image.height()))
+    };
+    let (final_metadata, final_dimensions) = run();
+
+    let mut preview_payload = payload;
+    preview_payload["renderMode"] = Value::String("preview".into());
+    preview_payload["canvasScope"] = Value::String("page".into());
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&preview_payload).unwrap(),
+    )
+    .unwrap();
+    let (preview_metadata, preview_dimensions) = run();
+
+    for field in [
+        "canvasWidthPx",
+        "canvasHeightPx",
+        "matchedCanvasTargetWidthPoints",
+        "matchedCanvasTargetHeightPoints",
+        "matchedCanvasContentWidthPx",
+        "matchedCanvasContentHeightPx",
+        "placementOffsetXPx",
+        "placementOffsetYPx",
+    ] {
+        assert_eq!(
+            preview_metadata[field], final_metadata[field],
+            "preview and final disagree about {field}"
+        );
+    }
+    // The final run owns the pixels the assembler embeds, so it publishes the
+    // canvas; the preview publishes the raster it rendered and the box the
+    // renderer has to present it in.
+    assert_eq!(final_dimensions, (140, 100));
+    assert_eq!(preview_dimensions, (80, 60));
+    assert_eq!(
+        final_metadata["outputWidthPx"],
+        final_metadata["matchedCanvasContentWidthPx"]
+    );
+    assert_eq!(preview_metadata["outputWidthPx"], 80);
+}
+
+/// `maxPixels` is a limit the matched canvas may reach and never pass. The
+/// owner measures the grid in `resolveScanCleanupDocumentCanvas` and this
+/// process is what enforces it, so the two have to agree on where the boundary
+/// is: a grid whose area is exactly the budget renders, and one pixel more is
+/// refused outright rather than trimmed. The budget is scaled down to a grid a
+/// test can actually render; the comparison it exercises is the same one an A4
+/// document at 1200 dpi lands on.
+#[test]
+fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() {
+    let scratch = Scratch::new("matched-canvas-budget");
+    let input = scratch.path("budget-input.png");
+    let mut image = GrayImage::new(80, 60, 255);
+    for y in 12..40 {
+        for x in 10..70 {
+            if y % 6 < 2 {
+                image.set(x, y, 15);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    // 140 x 100 = 14_000 pixels, which is exactly the budget the accepting run
+    // is given and one pixel more than the refusing one is.
+    let run = |label: &str, max_pixels: u64| {
+        let manifest = scratch.path(&format!("budget-{label}-manifest.json"));
+        let output = scratch.path(&format!("budget-{label}-output.png"));
+        let metadata_path = scratch.path(&format!("budget-{label}-metadata.json"));
+        fs::write(
+            &manifest,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 3,
+                "operation": "render",
+                "renderMode": "final",
+                "canvasScope": "document",
+                "documentCanvas": {
+                    "widthPoints": 33.6,
+                    "heightPoints": 24.0,
+                    "widthPx": 140,
+                    "heightPx": 100
+                },
+                "pages": [{
+                    "inputPath": input,
+                    "sourcePageIndex": 0,
+                    "pageMetadataPath": scratch.path(&format!("budget-{label}-page.json")),
+                    "options": {
+                        "dpi": 300,
+                        "layout": "force-single",
+                        "normalizeIllumination": false,
+                        "cropContent": false,
+                        "outputMode": "grayscale",
+                        "matchPageSize": true,
+                        "pageAlignment": "center",
+                        "maxPixels": max_pixels
+                    },
+                    "outputs": [{"outputPath": output, "metadataPath": metadata_path}]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        (result, output, metadata_path)
+    };
+
+    let (accepted, accepted_output, accepted_metadata) = run("exact", 14_000);
+    assert!(
+        accepted.status.success(),
+        "a canvas of exactly maxPixels has to render; stderr={}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    let rendered = decode_gray(&fs::read(&accepted_output).unwrap(), 14_000, 400).unwrap();
+    assert_eq!((rendered.width(), rendered.height()), (140, 100));
+    let metadata: Value = serde_json::from_slice(&fs::read(&accepted_metadata).unwrap()).unwrap();
+    assert_eq!(metadata["canvasWidthPx"], 140);
+    assert_eq!(metadata["canvasHeightPx"], 100);
+
+    let (refused, refused_output, refused_metadata) = run("over", 13_999);
+    assert!(
+        !refused.status.success(),
+        "a canvas one pixel past maxPixels has to be refused"
+    );
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        stderr.contains("140x100") && stderr.contains("exceeds cleanup guardrails"),
+        "stderr={stderr}"
+    );
+    // A refused canvas leaves nothing half-written behind.
+    assert!(!refused_output.exists());
+    assert!(!refused_metadata.exists());
 }
 
 #[test]
@@ -1666,7 +2166,7 @@ fn final_render_publishes_each_page_without_a_whole_document_analysis_pass() {
                 "inputPath": page_input,
                 "sourcePageIndex": index,
                 "pageMetadataPath": scratch.path(&format!("incremental-page-{index}.json")),
-                "options": CleanupOptions::default(),
+                "options": unmatched_options(),
                 "outputs": [{
                     "outputPath": scratch.path(&format!("incremental-{index}.png")),
                     "metadataPath": scratch.path(&format!("incremental-{index}-output.json")),
@@ -1728,4 +2228,565 @@ fn final_render_publishes_each_page_without_a_whole_document_analysis_pass() {
     assert!(child.wait().unwrap().success());
     reader.join().unwrap();
     assert!(scratch.path("incremental-1.png").exists());
+}
+
+/// Matched page size means one output page size *and* one scale. A book page
+/// scanned on its own and the same page scanned as half of a spread have to
+/// land at the same size, or the document carries a scale difference that came
+/// from nothing but how the sheets were fed through the scanner.
+#[test]
+fn matched_canvas_places_a_spread_half_at_the_same_scale_as_an_unsplit_page() {
+    let scratch = Scratch::new("matched-spread");
+    let manifest = scratch.path("matched-spread-manifest.json");
+    // One page-sized block of ink, drawn page-relative, so every output that
+    // carries one book page has to show the same bar in the same place.
+    let draw_page = |image: &mut GrayImage, left: usize, width: usize| {
+        for y in (image.height() * 2 / 5)..(image.height() * 3 / 5) {
+            for x in (left + width / 10)..(left + (width * 9 / 10)) {
+                image.set(x, y, 0);
+            }
+        }
+    };
+
+    let single_input = scratch.path("matched-spread-single.png");
+    let mut single = GrayImage::new(100, 100, 255);
+    draw_page(&mut single, 0, 100);
+    fs::write(&single_input, encode_gray(&single).unwrap()).unwrap();
+
+    let spread_input = scratch.path("matched-spread-spread.png");
+    let mut spread = GrayImage::new(200, 100, 255);
+    draw_page(&mut spread, 0, 100);
+    draw_page(&mut spread, 100, 100);
+    // A gutter the splitter can find between the two book pages.
+    for y in 0..spread.height() {
+        for x in 96..104 {
+            spread.set(x, y, 255);
+        }
+    }
+    fs::write(&spread_input, encode_gray(&spread).unwrap()).unwrap();
+
+    let single_output = scratch.path("matched-spread-single-out.png");
+    let left_output = scratch.path("matched-spread-left.png");
+    let right_output = scratch.path("matched-spread-right.png");
+    let page_options = |layout: &str| {
+        serde_json::json!({
+            "dpi": 100,
+            "layout": layout,
+            "normalizeIllumination": false,
+            "cropContent": false,
+            "outputMode": "grayscale",
+            "matchPageSize": true,
+            "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+        })
+    };
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "documentCanvas": {
+                "widthPoints": 72.0,
+                "heightPoints": 72.0,
+                "widthPx": 100,
+                "heightPx": 100
+            },
+            "pages": [
+                {
+                    "inputPath": single_input,
+                    "sourcePageIndex": 0,
+                    "pageMetadataPath": scratch.path("matched-spread-page-0.json"),
+                    "options": page_options("force-single"),
+                    "outputs": [{
+                        "outputPath": single_output,
+                        "metadataPath": scratch.path("matched-spread-single-out.json")
+                    }]
+                },
+                {
+                    "inputPath": spread_input,
+                    "sourcePageIndex": 1,
+                    "pageMetadataPath": scratch.path("matched-spread-page-1.json"),
+                    "options": page_options("force-two-page"),
+                    "outputs": [
+                        {
+                            "outputPath": left_output,
+                            "metadataPath": scratch.path("matched-spread-left.json")
+                        },
+                        {
+                            "outputPath": right_output,
+                            "metadataPath": scratch.path("matched-spread-right.json")
+                        }
+                    ]
+                }
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let mut ink_columns = Vec::new();
+    for path in [&single_output, &left_output, &right_output] {
+        let image = decode_gray(&fs::read(path).unwrap(), 50_000, 300).unwrap();
+        assert_eq!(
+            (image.width(), image.height()),
+            (100, 100),
+            "every matched output is the document grid"
+        );
+        let columns = (0..image.width())
+            .filter(|&x| (0..image.height()).any(|y| image.get(x, y) < 128))
+            .collect::<Vec<_>>();
+        assert!(!columns.is_empty(), "the bar was lost");
+        ink_columns.push((*columns.first().unwrap(), *columns.last().unwrap()));
+    }
+    // The unsplit page and both spread halves carry the bar at the same width:
+    // the halves were scaled by their own share of the sheet, not by the whole
+    // spread, so nothing shrank to half size.
+    let (single_first, single_last) = ink_columns[0];
+    for (first, last) in &ink_columns[1..] {
+        assert!(
+            (*first as i64 - single_first as i64).abs() <= 4
+                && (*last as i64 - single_last as i64).abs() <= 4,
+            "spread half ink {first}..{last} disagrees with the unsplit page {single_first}..{single_last}"
+        );
+    }
+}
+
+#[test]
+fn matched_canvas_measures_a_kept_half_by_the_paper_it_kept() {
+    // Keeping one side of a spread produces a single output that carries half a
+    // sheet. Deriving its share from how many outputs the page produced would
+    // call that half a whole sheet and scale it down to fit the document, which
+    // is the same defect as padding a spread half onto its source sheet.
+    let scratch = Scratch::new("matched-keep");
+    let manifest = scratch.path("matched-keep-manifest.json");
+    let draw_page = |image: &mut GrayImage, left: usize, width: usize| {
+        for y in (image.height() * 2 / 5)..(image.height() * 3 / 5) {
+            for x in (left + width / 10)..(left + (width * 9 / 10)) {
+                image.set(x, y, 0);
+            }
+        }
+    };
+
+    let single_input = scratch.path("matched-keep-single.png");
+    let mut single = GrayImage::new(100, 100, 255);
+    draw_page(&mut single, 0, 100);
+    fs::write(&single_input, encode_gray(&single).unwrap()).unwrap();
+
+    let spread_input = scratch.path("matched-keep-spread.png");
+    let mut spread = GrayImage::new(200, 100, 255);
+    draw_page(&mut spread, 0, 100);
+    draw_page(&mut spread, 100, 100);
+    fs::write(&spread_input, encode_gray(&spread).unwrap()).unwrap();
+
+    let single_output = scratch.path("matched-keep-single-out.png");
+    let kept_output = scratch.path("matched-keep-left-out.png");
+    let page_options = |layout: &str| {
+        serde_json::json!({
+            "dpi": 100,
+            "layout": layout,
+            "normalizeIllumination": false,
+            "cropContent": false,
+            "outputMode": "grayscale",
+            "matchPageSize": true,
+            "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+        })
+    };
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "documentCanvas": {
+                "widthPoints": 72.0,
+                "heightPoints": 72.0,
+                "widthPx": 100,
+                "heightPx": 100
+            },
+            "pages": [
+                {
+                    "inputPath": single_input,
+                    "sourcePageIndex": 0,
+                    "pageMetadataPath": scratch.path("matched-keep-page-0.json"),
+                    "options": page_options("force-single"),
+                    "outputs": [{
+                        "outputPath": single_output,
+                        "metadataPath": scratch.path("matched-keep-single-out.json")
+                    }]
+                },
+                {
+                    "inputPath": spread_input,
+                    "sourcePageIndex": 1,
+                    "pageMetadataPath": scratch.path("matched-keep-page-1.json"),
+                    "options": page_options("keep-left"),
+                    "outputs": [{
+                        "outputPath": kept_output,
+                        "metadataPath": scratch.path("matched-keep-left-out.json")
+                    }]
+                }
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let mut ink_columns = Vec::new();
+    for path in [&single_output, &kept_output] {
+        let image = decode_gray(&fs::read(path).unwrap(), 50_000, 300).unwrap();
+        assert_eq!(
+            (image.width(), image.height()),
+            (100, 100),
+            "every matched output is the document grid"
+        );
+        let columns = (0..image.width())
+            .filter(|&x| (0..image.height()).any(|y| image.get(x, y) < 128))
+            .collect::<Vec<_>>();
+        assert!(!columns.is_empty(), "the bar was lost");
+        ink_columns.push((*columns.first().unwrap(), *columns.last().unwrap()));
+    }
+    let (single_first, single_last) = ink_columns[0];
+    let (kept_first, kept_last) = ink_columns[1];
+    assert!(
+        (kept_first as i64 - single_first as i64).abs() <= 4
+            && (kept_last as i64 - single_last as i64).abs() <= 4,
+        "kept half ink {kept_first}..{kept_last} disagrees with the unsplit page {single_first}..{single_last}"
+    );
+}
+
+#[test]
+fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
+    // The canvas grid is rounded up from points the way Poppler rounds a page
+    // into pixels, so the page the canvas was measured from arrives exactly on
+    // it. A one-pixel disagreement must not put the page through a resample or
+    // report it as a page that could not hold the document's scale.
+    let scratch = Scratch::new("matched-tolerance");
+    let manifest = scratch.path("matched-tolerance-manifest.json");
+    let input = scratch.path("matched-tolerance-input.png");
+    let output = scratch.path("matched-tolerance-out.png");
+    let metadata = scratch.path("matched-tolerance-out.json");
+    let mut image = GrayImage::new(101, 100, 255);
+    for y in 40..60 {
+        for x in 10..90 {
+            image.set(x, y, 0);
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            // A grid one pixel narrower than the raster of the page it was
+            // measured from, which is what a fractional page rectangle leaves
+            // behind: the renderer rounds 100.5 points up to 101 pixels.
+            "documentCanvas": {
+                "widthPoints": 72.0,
+                "heightPoints": 72.0,
+                "widthPx": 100,
+                "heightPx": 100
+            },
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("matched-tolerance-page.json"),
+                "options": {
+                    "dpi": 100,
+                    "layout": "force-single",
+                    "normalizeIllumination": false,
+                    "cropContent": false,
+                    "outputMode": "grayscale",
+                    "matchPageSize": true,
+                    "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+                },
+                "outputs": [{"outputPath": output, "metadataPath": metadata}]
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
+    assert_eq!(
+        metadata_json["warnings"],
+        serde_json::json!([]),
+        "a page within a pixel of the grid is not reported as fitted below it"
+    );
+    let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
+    assert_eq!((image.width(), image.height()), (100, 100));
+}
+
+#[test]
+fn matched_canvas_reports_a_page_it_had_to_fit_below_the_document_scale() {
+    // Margins can push content past the paper it was measured on. The page is
+    // fitted rather than clipped, and the run says which page and how far,
+    // because a page smaller than its neighbours is a visible result.
+    let scratch = Scratch::new("matched-overflow-warning");
+    let manifest = scratch.path("matched-overflow-manifest.json");
+    let input = scratch.path("matched-overflow-input.png");
+    let output = scratch.path("matched-overflow-out.png");
+    let metadata = scratch.path("matched-overflow-out.json");
+    let mut image = GrayImage::new(100, 100, 255);
+    for y in 40..60 {
+        for x in 10..90 {
+            image.set(x, y, 0);
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "documentCanvas": {
+                "widthPoints": 72.0,
+                "heightPoints": 72.0,
+                "widthPx": 100,
+                "heightPx": 100
+            },
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("matched-overflow-page.json"),
+                "options": {
+                    "dpi": 100,
+                    "layout": "force-single",
+                    "normalizeIllumination": false,
+                    // Cropping to this page's ink and then laying 6 mm of paper
+                    // around it asks for more room than the page has.
+                    "cropContent": true,
+                    "outputMode": "grayscale",
+                    "matchPageSize": true,
+                    "margins": {"leftMm": 6, "topMm": 6, "rightMm": 6, "bottomMm": 6}
+                },
+                "outputs": [{"outputPath": output, "metadataPath": metadata}]
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(true));
+    let warnings = metadata_json["warnings"].as_array().unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|warning| warning.as_str().unwrap_or("").contains("document canvas")),
+        "warnings={warnings:?}"
+    );
+    let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
+    assert_eq!((image.width(), image.height()), (100, 100));
+    // Nothing was clipped: the ink is still there, just smaller.
+    assert!((0..image.width()).any(|x| (0..image.height()).any(|y| image.get(x, y) < 128)));
+}
+
+#[test]
+fn matched_canvas_reports_a_sheet_larger_than_the_rectangle_it_was_measured_for() {
+    // The quiet way a page ends up below the document's scale: the canvas was
+    // measured for half sheets — the run expected this page to be a spread —
+    // and the page is then cut as one whole sheet. Nothing overflows and
+    // nothing is clipped, the grid stays uniform, and the page is simply
+    // letterboxed at half the scale of every page around it, which is only
+    // visible if the run says so.
+    let scratch = Scratch::new("matched-undersized-paper");
+    let manifest = scratch.path("matched-undersized-manifest.json");
+    let input = scratch.path("matched-undersized-input.png");
+    let output = scratch.path("matched-undersized-out.png");
+    let metadata = scratch.path("matched-undersized-out.json");
+    let mut image = GrayImage::new(100, 100, 255);
+    for y in 40..60 {
+        for x in 10..90 {
+            image.set(x, y, 0);
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            // Half of this page's sheet, at the same 100 DPI grid.
+            "documentCanvas": {
+                "widthPoints": 36.0,
+                "heightPoints": 72.0,
+                "widthPx": 50,
+                "heightPx": 100
+            },
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("matched-undersized-page.json"),
+                "options": {
+                    "dpi": 100,
+                    "layout": "force-single",
+                    "normalizeIllumination": false,
+                    "cropContent": false,
+                    "outputMode": "grayscale",
+                    "matchPageSize": true,
+                    "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+                },
+                "outputs": [{"outputPath": output, "metadataPath": metadata}]
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+    // The page fits the canvas it was placed on; it is the paper that did not.
+    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
+    assert_eq!(metadata_json["matchedCanvasContentWidthPx"], 50);
+    assert_eq!(metadata_json["matchedCanvasContentHeightPx"], 50);
+    let warnings = metadata_json["warnings"].as_array().unwrap();
+    assert!(
+        warnings.iter().any(|warning| warning
+            .as_str()
+            .unwrap_or("")
+            .contains("at 50.0% of the document's scale")),
+        "warnings={warnings:?}"
+    );
+    let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
+    assert_eq!((image.width(), image.height()), (50, 100));
+}
+
+/// The same overflow, previewed. A preview keeps the raster it rendered — the
+/// renderer scales it — so its intrinsic size stays larger than the canvas
+/// while the box it is placed in stays inside it. Every consumer of this
+/// metadata reads the placement from the content box, so this is the shape the
+/// bridge has to accept rather than reject as an impossible placement.
+#[test]
+fn matched_canvas_preview_reports_an_overflowing_page_inside_the_canvas() {
+    let scratch = Scratch::new("matched-overflow-preview");
+    let manifest = scratch.path("matched-overflow-preview-manifest.json");
+    let input = scratch.path("matched-overflow-preview-input.png");
+    let output = scratch.path("matched-overflow-preview-out.png");
+    let metadata = scratch.path("matched-overflow-preview-out.json");
+    let mut image = GrayImage::new(200, 180, 255);
+    for y in 4..176 {
+        for x in 4..196 {
+            image.set(x, y, 40);
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            // The page's own paper, which is the document's: 5 mm of margin
+            // around content that already reaches the edge asks for more.
+            "documentCanvas": {
+                "widthPoints": 96.0,
+                "heightPoints": 86.4,
+                "widthPx": 200,
+                "heightPx": 180
+            },
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("matched-overflow-preview-page.json"),
+                "options": {
+                    "dpi": 150,
+                    "layout": "force-single",
+                    "normalizeIllumination": false,
+                    "cropContent": true,
+                    "outputMode": "grayscale",
+                    "matchPageSize": true,
+                    "pageAlignment": "top-center",
+                    "margins": {"leftMm": 5, "topMm": 5, "rightMm": 5, "bottomMm": 5}
+                },
+                "outputs": [{"outputPath": output, "metadataPath": metadata}]
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+    let canvas_width = metadata_json["canvasWidthPx"].as_u64().unwrap();
+    let canvas_height = metadata_json["canvasHeightPx"].as_u64().unwrap();
+    let content_width = metadata_json["matchedCanvasContentWidthPx"]
+        .as_u64()
+        .unwrap();
+    let content_height = metadata_json["matchedCanvasContentHeightPx"]
+        .as_u64()
+        .unwrap();
+    let offset_x = metadata_json["placementOffsetXPx"].as_u64().unwrap();
+    let offset_y = metadata_json["placementOffsetYPx"].as_u64().unwrap();
+    assert_eq!((canvas_width, canvas_height), (200, 180));
+    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(true));
+    // The page was fitted, and the box it was fitted into is on the canvas.
+    assert!(offset_x + content_width <= canvas_width);
+    assert!(offset_y + content_height <= canvas_height);
+    // Its raster is the one the preview rendered, which is larger than the
+    // canvas — the fact the placement invariant must not be read from.
+    assert!(metadata_json["outputWidthPx"].as_u64().unwrap() > canvas_width);
+    // The preview publishes that raster untouched, so the renderer scales it
+    // into the content box rather than presenting a resampled copy.
+    let published = decode_gray(&fs::read(&output).unwrap(), 200_000, 400).unwrap();
+    assert_eq!(
+        u64::try_from(published.width()).unwrap(),
+        metadata_json["outputWidthPx"].as_u64().unwrap()
+    );
 }

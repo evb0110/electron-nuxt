@@ -60,6 +60,80 @@ impl RgbImage {
     pub fn set(&mut self, x: usize, y: usize, value: [u8; 3]) {
         self.data[(y * self.width + x) * 3..(y * self.width + x + 1) * 3].copy_from_slice(&value);
     }
+
+    /// Resamples to the exact requested dimensions: area averaging where the
+    /// image shrinks, bilinear interpolation where it grows.
+    pub fn resample_to_dimensions(&self, out_width: usize, out_height: usize) -> Self {
+        assert!(out_width > 0);
+        assert!(out_height > 0);
+        if self.width == out_width && self.height == out_height {
+            return self.clone();
+        }
+        if out_width <= self.width && out_height <= self.height {
+            return self.area_average_to_dimensions(out_width, out_height);
+        }
+        let intermediate = if out_width < self.width {
+            self.area_average_to_dimensions(out_width, self.height)
+        } else if out_height < self.height {
+            self.area_average_to_dimensions(self.width, out_height)
+        } else {
+            self.clone()
+        };
+        let x_map = crate::gray::axis_samples(intermediate.width, out_width);
+        let y_map = crate::gray::axis_samples(intermediate.height, out_height);
+        let mut output = Self::new(out_width, out_height, [255; 3]);
+        for (output_y, &(y0, y1, wy)) in y_map.iter().enumerate() {
+            for (output_x, &(x0, x1, wx)) in x_map.iter().enumerate() {
+                let top_left = intermediate.get(x0, y0);
+                let top_right = intermediate.get(x1, y0);
+                let bottom_left = intermediate.get(x0, y1);
+                let bottom_right = intermediate.get(x1, y1);
+                let mut pixel = [0u8; 3];
+                for (channel, target) in pixel.iter_mut().enumerate() {
+                    let top = f64::from(top_left[channel]) * (1.0 - wx)
+                        + f64::from(top_right[channel]) * wx;
+                    let bottom = f64::from(bottom_left[channel]) * (1.0 - wx)
+                        + f64::from(bottom_right[channel]) * wx;
+                    *target = (top * (1.0 - wy) + bottom * wy).round().clamp(0.0, 255.0) as u8;
+                }
+                output.set(output_x, output_y, pixel);
+            }
+        }
+        output
+    }
+
+    fn area_average_to_dimensions(&self, out_width: usize, out_height: usize) -> Self {
+        let mut output = Self::new(out_width, out_height, [255; 3]);
+        for output_y in 0..out_height {
+            let y0 = output_y * self.height / out_height;
+            let y1 = ((output_y + 1) * self.height / out_height)
+                .max(y0 + 1)
+                .min(self.height);
+            for output_x in 0..out_width {
+                let x0 = output_x * self.width / out_width;
+                let x1 = ((output_x + 1) * self.width / out_width)
+                    .max(x0 + 1)
+                    .min(self.width);
+                let mut sums = [0u64; 3];
+                let mut count = 0u64;
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        let pixel = self.get(x, y);
+                        for (channel, sum) in sums.iter_mut().enumerate() {
+                            *sum += u64::from(pixel[channel]);
+                        }
+                        count += 1;
+                    }
+                }
+                output.set(
+                    output_x,
+                    output_y,
+                    sums.map(|sum| (sum / count.max(1)) as u8),
+                );
+            }
+        }
+        output
+    }
 }
 
 #[cfg(test)]

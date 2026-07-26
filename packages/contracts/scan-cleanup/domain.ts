@@ -32,6 +32,16 @@ export type TScanCleanupLayoutClassification =
     | 'page-with-offcut'
     | 'two-page-spread';
 
+/**
+ * What the renderer already knows about how each page will be cut, keyed by
+ * page number. Matched page size is measured over the pages a run *produces*,
+ * so a spread that becomes two half-sheet pages has to be measured as such, and
+ * the only place that knows a page is a spread before it is rendered is the
+ * detection the user has already watched run. Passing it to the preview and to
+ * the run alike is what makes the two agree on one rectangle.
+ */
+export type TScanCleanupLayoutByPage = Partial<Record<string, TScanCleanupLayoutClassification>>;
+
 export const SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES = -15;
 export const SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES = 15;
 export const SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN = 0.5;

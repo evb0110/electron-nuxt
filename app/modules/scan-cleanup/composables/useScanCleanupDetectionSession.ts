@@ -39,8 +39,6 @@ interface IUseScanCleanupDetectionSessionOptions {
     totalPages: ComputedRef<number>;
 }
 
-
-
 function resolveManualLayoutClassification(
     options: Pick<IScanCleanupOptions, 'layoutMode'>,
     pageOverride: IScanCleanupPageOverride,
@@ -86,7 +84,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const detectedLayoutByPage = reactive(new Map<number, TScanCleanupLayoutClassification>());
     const confidenceByPage = reactive(new Map<number, number>());
     const documentPriorByPage = reactive(new Map<number, NonNullable<IScanCleanupDetectionResult['documentPrior']>>());
-    const documentCanvasPlan = shallowRef<TScanCleanupDetectionJobState['documentCanvasPlan']>();
     const textAxisByPage = reactive(new Map<number, NonNullable<IScanCleanupDetectionResult['textAxis']>>());
     const recommendedOutputModeByPage = reactive(
         new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputMode']>>(),
@@ -186,7 +183,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // Page evidence signature: only inputs that change what detection computes
     // (layout classification and the output-mode recommendation). The configured
     // output mode is deliberately absent — the recommendation is a page
-    // diagnostic and survives mode changes while the evidence is unchanged.
+    // diagnostic and survives mode changes while the evidence is unchanged. So
+    // is matchPageSize: the canvas is measured from the document's own page
+    // geometry, so toggling it no longer changes anything detection reports and
+    // must not throw a whole document's evidence away.
     function pageSignature(pageNumber: number) {
         const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
         const lossless = options.settings.preserveOriginalQuality === true;
@@ -196,7 +196,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             preserveOriginalQuality: lossless,
             crop: options.settings.crop,
             marginsMm: options.settings.marginsMm,
-            matchPageSize: options.settings.matchPageSize,
             normalizeIllumination: !lossless && (options.settings.normalizeIllumination ?? true),
             autoDewarp: !lossless && (options.settings.autoDewarp ?? false),
             autoDewarpDepth: options.settings.autoDewarpDepth,
@@ -265,9 +264,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobState.value = state;
         for (const pageNumber of state.progress.completedPageNumbers ?? []) settledPages.add(pageNumber);
         const completedWithCurrentEvidence = state.status === 'completed' && evidenceIsCurrent();
-        if (completedWithCurrentEvidence) {
-            documentCanvasPlan.value = state.documentCanvasPlan;
-        }
         applyScanCleanupDetectionResults(
             state.results,
             detectedLayoutByPage,
@@ -347,7 +343,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
-        documentCanvasPlan.value = undefined;
         settledPages.clear();
         textAxisByPage.clear();
         clearOutputModeRecommendations();
@@ -499,7 +494,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return false;
         }
         jobState.value = structuredClone(cached.state);
-        documentCanvasPlan.value = cached.state.documentCanvasPlan;
         signatures.clear();
         for (const [
             pageNumber,
@@ -572,7 +566,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
-        documentCanvasPlan.value = undefined;
         settledPages.clear();
         textAxisByPage.clear();
         clearOutputModeRecommendations();
@@ -629,7 +622,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 recommendedOutputModeConfidenceByPage.delete(pageNumber);
                 recommendedOutputModeReasonByPage.delete(pageNumber);
             }
-            documentCanvasPlan.value = undefined;
             if (!isDetecting.value) {
                 jobState.value = null;
                 scheduleAutoDetect();
@@ -660,7 +652,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         cancelRequested,
         confidenceByPage,
         detectAllPages,
-        documentCanvasPlan,
         documentPriorByPage,
         error,
         isDetecting,

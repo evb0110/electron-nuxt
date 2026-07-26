@@ -79,6 +79,281 @@ fn set_page_box(page: &mut Dictionary, key: &str, rect: PdfRect) {
     );
 }
 
+fn validate_content_transform(transform: SplitContentTransform) -> Result<SplitContentTransform> {
+    if !transform.scale.is_finite()
+        || transform.scale <= 0.0
+        || !transform.translate_x.is_finite()
+        || !transform.translate_y.is_finite()
+    {
+        return Err(
+            "split-pages contentTransform must be a finite positive scale with finite translation"
+                .into(),
+        );
+    }
+    Ok(transform)
+}
+
+/// A legal `/Contents` is a stream or an array of streams, and either of those
+/// — and every entry of the array — may be reached through an indirect
+/// reference. Four levels is past every shape PDF defines and stops a document
+/// whose arrays point at each other from recursing without end; lopdf's own
+/// dereference limit stops a chain of references before that.
+const MAX_CONTENTS_NESTING: usize = 4;
+
+/// What one `/Contents` value turned out to be, resolved and detached from the
+/// document so the collector can borrow it mutably again.
+enum ContentsEntry {
+    /// A content stream, by the id it already has in the document.
+    Stream(ObjectId),
+    /// A list of content streams to resolve in turn.
+    List(Vec<Object>),
+}
+
+/// The page's content streams as indirect objects, materializing a directly
+/// embedded stream so the transform can wrap it without rewriting it.
+///
+/// A reference is not a stream id by assumption: qpdf writes the page's list of
+/// streams as one indirect array, and treating that array as a stream would put
+/// it between the transform and its restore, where every reader sees a page
+/// whose contents are not a stream and draws nothing at all.
+fn content_stream_ids(document: &mut Document, page: &Dictionary) -> Result<Vec<ObjectId>> {
+    let contents = match page.get(b"Contents") {
+        Ok(value) => value.clone(),
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut ids = Vec::new();
+    collect_content_streams(document, contents, &mut ids, 0)?;
+    Ok(ids)
+}
+
+fn collect_content_streams(
+    document: &mut Document,
+    object: Object,
+    ids: &mut Vec<ObjectId>,
+    depth: usize,
+) -> Result<()> {
+    if depth > MAX_CONTENTS_NESTING {
+        return Err("split-pages found a Contents entry nested past any legal shape".into());
+    }
+    let object_id = match object {
+        Object::Stream(stream) => {
+            ids.push(document.add_object(Object::Stream(stream)));
+            return Ok(());
+        }
+        Object::Array(items) => {
+            for item in items {
+                collect_content_streams(document, item, ids, depth + 1)?;
+            }
+            return Ok(());
+        }
+        Object::Reference(object_id) => object_id,
+        _ => return Err("split-pages found an unsupported Contents entry".into()),
+    };
+    let reference = Object::Reference(object_id);
+    let entry = match document.dereference(&reference) {
+        Ok((resolved_id, Object::Stream(_))) => {
+            ContentsEntry::Stream(resolved_id.unwrap_or(object_id))
+        }
+        Ok((_, Object::Array(items))) => ContentsEntry::List(items.clone()),
+        // A reference this document cannot resolve — a missing object, or a
+        // chain of references past lopdf's limit — is carried across exactly as
+        // it was, rather than failing a split over an object the source itself
+        // is missing.
+        Err(_) => ContentsEntry::Stream(object_id),
+        Ok(_) => return Err("split-pages found an unsupported Contents entry".into()),
+    };
+    match entry {
+        ContentsEntry::Stream(stream_id) => ids.push(stream_id),
+        ContentsEntry::List(items) => {
+            for item in items {
+                collect_content_streams(document, item, ids, depth + 1)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The annotation entries that are page coordinates: every one of them is a
+/// flat list of (x, y) pairs in the same user space as the content.
+///
+/// `Rect` carries the box an appearance stream is mapped into, so an annotation
+/// that has an `/AP` follows its rectangle without its stream being touched.
+/// The rest are the geometry an annotation with no appearance stream is drawn
+/// from — which is what the app writes — and leaving them behind would put an
+/// ink stroke or a line somewhere its own rectangle no longer is.
+/// Whether an array of this length is the shape PDF defines for its key.
+type AnnotationArrayShape = fn(usize) -> bool;
+
+const ANNOTATION_POINT_KEYS: [(&[u8], AnnotationArrayShape); 5] = [
+    (b"Rect", |len| len == 4),
+    (b"QuadPoints", |len| len % 8 == 0),
+    // Line endpoints, and the leader line of a callout: four numbers, or six
+    // when the callout bends once.
+    (b"L", |len| len == 4),
+    (b"CL", |len| len == 4 || len == 6),
+    (b"Vertices", |len| len % 2 == 0),
+];
+
+/// One coordinate array, scaled and translated as (x, y) pairs. An array whose
+/// shape is not the one PDF defines for its key — an odd length, a non-numeric
+/// entry — is refused rather than half-transformed: the annotation is left
+/// exactly as it was instead of being corrupted into a shape no reader accepts.
+fn transformed_point_array(
+    document: &Document,
+    values: &[Object],
+    transform: SplitContentTransform,
+    shape_is_valid: impl Fn(usize) -> bool,
+) -> Option<Vec<Object>> {
+    if values.is_empty() || values.len() % 2 != 0 || !shape_is_valid(values.len()) {
+        return None;
+    }
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            // A coordinate is allowed to be an indirect object of its own, and
+            // reading only the direct form would refuse the whole annotation.
+            let (_, value) = document.dereference(value).ok()?;
+            let number = f64::from(value.as_float().ok()?);
+            if !number.is_finite() {
+                return None;
+            }
+            let offset = if index % 2 == 0 {
+                transform.translate_x
+            } else {
+                transform.translate_y
+            };
+            Some(number_object(number * transform.scale + offset))
+        })
+        .collect()
+}
+
+/// `InkList` is a list of strokes, each its own flat list of points, so it is
+/// transformed one stroke at a time. A stroke this tool cannot read leaves the
+/// whole list alone: a half-moved drawing is worse than one that did not move.
+fn transformed_ink_list(
+    document: &Document,
+    strokes: &[Object],
+    transform: SplitContentTransform,
+) -> Option<Vec<Object>> {
+    if strokes.is_empty() {
+        return None;
+    }
+    strokes
+        .iter()
+        .map(|stroke| {
+            let (_, stroke) = document.dereference(stroke).ok()?;
+            let points =
+                transformed_point_array(document, stroke.as_array().ok()?, transform, |_| true)?;
+            Some(Object::Array(points))
+        })
+        .collect()
+}
+
+/// One coordinate entry of an annotation, read through however many references
+/// the writer put between the annotation and its numbers. qpdf and the app both
+/// write indirect arrays, and reading only the direct form leaves those
+/// coordinates where the untransformed content used to be.
+fn annotation_array(
+    document: &Document,
+    annotation: &Dictionary,
+    key: &[u8],
+) -> Option<Vec<Object>> {
+    let (_, resolved) = document.dereference(annotation.get(key).ok()?).ok()?;
+    resolved.as_array().ok().cloned()
+}
+
+/// The page's annotation list, whether the page holds the array itself or
+/// points at one. qpdf writes the indirect form, and reading only the direct
+/// one leaves every coordinate array on such a page unscaled — the annotations
+/// stay where the untransformed content used to be.
+fn page_annotation_array(document: &Document, page: &Dictionary) -> Option<Vec<Object>> {
+    let annotations = page.get(b"Annots").ok()?;
+    // lopdf's dereference is bounded, so a reference that points at itself
+    // answers an error rather than looping; a page whose list cannot be read is
+    // left exactly as it is.
+    let (_, resolved) = document.dereference(annotations).ok()?;
+    resolved.as_array().ok().cloned()
+}
+
+/// Annotations live in the same user space as the content they mark, so a
+/// content transform that leaves them alone silently moves every note off its
+/// target. The annotation objects can be shared with the source page and with
+/// the other half of a split, so each output gets its own copy.
+fn transform_annotations(
+    document: &mut Document,
+    page: &mut Dictionary,
+    transform: SplitContentTransform,
+) -> Result<()> {
+    let Some(source) = page_annotation_array(document, page) else {
+        return Ok(());
+    };
+    let mut transformed = Vec::with_capacity(source.len());
+    for annotation in source {
+        // An entry this tool cannot read as an annotation dictionary — a
+        // reference the source is missing, or an object that is not a
+        // dictionary at all — is carried over exactly as it was. Dropping it
+        // would delete a note the source page still shows, which is a worse
+        // answer than one note left at the coordinates it already had.
+        let resolved = document
+            .dereference(&annotation)
+            .ok()
+            .and_then(|(_, object)| object.as_dict().ok())
+            .cloned();
+        let Some(dictionary) = resolved else {
+            transformed.push(annotation);
+            continue;
+        };
+        let mut copy = dictionary;
+        for (key, shape_is_valid) in ANNOTATION_POINT_KEYS {
+            let Some(values) = annotation_array(document, &copy, key) else {
+                continue;
+            };
+            if let Some(points) =
+                transformed_point_array(document, &values, transform, shape_is_valid)
+            {
+                copy.set(key.to_vec(), Object::Array(points));
+            }
+        }
+        if let Some(strokes) = annotation_array(document, &copy, b"InkList") {
+            if let Some(ink) = transformed_ink_list(document, &strokes, transform) {
+                copy.set(b"InkList".to_vec(), Object::Array(ink));
+            }
+        }
+        transformed.push(Object::Reference(document.add_object(copy)));
+    }
+    page.set("Annots", Object::Array(transformed));
+    Ok(())
+}
+
+/// Wraps the page's own content in the transform, leaving every content stream,
+/// font and image object untouched: the output carries the source bytes at a
+/// different scale rather than a resampled copy of them.
+fn apply_content_transform(
+    document: &mut Document,
+    page: &mut Dictionary,
+    transform: SplitContentTransform,
+) -> Result<()> {
+    let mut streams = vec![document.add_object(Object::Stream(Stream::new(
+        Dictionary::new(),
+        format!(
+            "q {} 0 0 {} {} {} cm\n",
+            transform.scale, transform.scale, transform.translate_x, transform.translate_y
+        )
+        .into_bytes(),
+    )))];
+    streams.extend(content_stream_ids(document, page)?);
+    streams.push(document.add_object(Object::Stream(Stream::new(
+        Dictionary::new(),
+        b"\nQ\n".to_vec(),
+    ))));
+    page.set(
+        "Contents",
+        Object::Array(streams.into_iter().map(Object::Reference).collect()),
+    );
+    transform_annotations(document, page, transform)
+}
+
 fn object_graph_is_complete(
     document: &Document,
     object: &Object,
@@ -180,6 +455,13 @@ pub(crate) fn split_pages(
         for output_instruction in &instruction.outputs {
             let crop = validate_crop_rect(output_instruction.crop_rect)?;
             let mut page = materialized_page_dictionary(&document, source_page_id)?;
+            if let Some(transform) = output_instruction.content_transform {
+                apply_content_transform(
+                    &mut document,
+                    &mut page,
+                    validate_content_transform(transform)?,
+                )?;
+            }
             set_page_box(&mut page, "MediaBox", crop);
             set_page_box(&mut page, "CropBox", crop);
             page.remove(b"BleedBox");

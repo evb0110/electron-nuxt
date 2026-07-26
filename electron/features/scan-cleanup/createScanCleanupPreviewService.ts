@@ -16,6 +16,7 @@ import {
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDetectionResult,
+    IScanCleanupDocumentCanvasPlan,
     IScanCleanupOwnerContext,
     IScanCleanupNormalizedRect,
     IScanCleanupPixelPoint,
@@ -35,8 +36,25 @@ import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupPlacementOffset,
+    scanCleanupLayoutSignature,
 } from '@contracts/scanCleanupPageOverrides';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
+import {
+    readPdfPageSizes,
+    type IPdfPageSize,
+} from '@electron/pdf/pdfPageSizes';
+import {
+    CANVAS_CONTENT_SCALE_EPSILON,
+    resolveMatchedCanvasResamplePages,
+    resolveScanCleanupCanvasFitScale,
+    resolveScanCleanupDocumentCanvas,
+    SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+} from '@electron/features/scan-cleanup/policy/documentCanvas';
+import {
+    isNativePageOpsDisabled,
+    resolveNativePageOpsPath,
+} from '@electron/features/page-ops/public';
+import {atomicReplace} from '@electron/utils/atomicReplace';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {
@@ -70,7 +88,10 @@ import {
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
-import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
+import {
+    getWorkingCopyBackingEntry,
+    getWorkingCopyBackingMetadata,
+} from '@electron/file-access/workingCopyStore';
 
 const PREVIEW_DPI = 150;
 const DETAIL_TILE_MAX_PIXELS = 4_000_000;
@@ -78,13 +99,42 @@ const DEFAULT_SOURCE_DPI = 300;
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
 const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
+// How long a background prefetch may wait for the machine before it is dropped.
+// A prefetch is an optimisation, so it must never be the reason a page the user
+// later opens is already committed to a reservation nothing can grant.
+const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
+const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
 const logger = createLogger('scan-cleanup-preview');
+
+/**
+ * Where the document keeps its own pixels. `detected` is false when pdfimages
+ * is unavailable, which means every page has to be treated as one that carries
+ * a raster: there is no evidence that it does not.
+ */
+export interface IScanCleanupDocumentRasterPages {
+    detected: boolean;
+    pages: ReadonlySet<number>;
+}
 
 interface IRetainedDocument {
     dir: Promise<string>;
     documentRevision: string;
+    // Aborted when the document is discarded. Every measurement of this
+    // document runs under it, so closing the session stops the native work
+    // nobody is waiting for any more, without any one caller's cancellation
+    // reaching work the others share.
+    lifetime: AbortController;
     mtimeMs: number;
     pageCount: Promise<number> | null;
+    // The paper rectangle of every page, measured once from the source: see
+    // resolveDocumentMeasurement. The canvas a matched page is normalized onto
+    // is derived from it alone.
+    pageSizes: Promise<IPdfPageSize[]> | null;
+    // Which pages carry a raster of their own, and whether that could be
+    // detected at all. A matched lossless run has to re-render a document whose
+    // rasters would otherwise sit on the shared sheet at two resolutions, so a
+    // preview that promises lossless needs the same answer the run will reach.
+    rasterPages: Promise<IScanCleanupDocumentRasterPages> | null;
     pinned: number;
     removeWhenIdle: boolean;
     sourcePdfPath: string;
@@ -129,17 +179,25 @@ interface IBasePreviewAnalysis {
     outputs: Partial<Record<IScanCleanupPreviewMetadata['half'], INativePreviewOutputMetadata>>;
 }
 
+// A run's admission is mutable for as long as it is still waiting for one: a
+// prefetch the user navigates onto becomes the visible page and must be
+// readmitted as one, because the reservation a background run asks for can be
+// ungrantable for as long as detection holds the machine.
+interface IPreviewAdmission {
+    granted: boolean;
+    reissue: (() => void) | null;
+    visibility: TPreviewVisibility;
+}
+
 interface IPreviewEntry {
+    admission: IPreviewAdmission;
     controller: AbortController;
     generation: number;
     pageNumber: number;
     tail: Promise<TScanCleanupPreviewWireResult>;
 }
 
-interface IDetectionResult {
-    documentCanvasPlan?: TScanCleanupDetectionJobState['documentCanvasPlan'];
-    results: TScanCleanupDetectionJobState['results'];
-}
+interface IDetectionResult {results: TScanCleanupDetectionJobState['results'];}
 
 type TDetectionError = IMainJobErrorEnvelope<TScanCleanupErrorCode>;
 type TDetectionSnapshot = TMainJobSnapshot<TScanCleanupDetectionJobState, IDetectionResult, TDetectionError>;
@@ -149,13 +207,19 @@ type TPreviewVisibility = 'visible' | 'prefetch';
 
 export interface IScanCleanupPreviewDependencies {
     getPageCount: typeof getPdfPageCount;
+    getPageSizes: typeof readPdfPageSizes;
+    prefetchLeaseTimeoutMs?: number;
+    publishRaster: typeof atomicReplace;
     renderPage: typeof renderPdfPageToPng;
     renderPagePpm: typeof renderPdfPageToPpm;
     runSidecar: typeof runScanCleanupSidecar;
     resolveBinary: () => string | null;
+    resolvePageOpsBinary: () => string | null;
+    resolvePdfInfoBinary?: () => string | undefined;
     getTempDir: () => string;
     getPdftoppmBinary: () => string;
     detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
+    detectRasterPages?: (sourcePdfPath: string, signal: AbortSignal) => Promise<IScanCleanupDocumentRasterPages>;
     acquireDetectionLease?: (jobId: string, signal: AbortSignal) => Promise<{release: () => boolean}>;
     acquirePreviewLease?: (
         ownerId: string,
@@ -168,10 +232,14 @@ export interface IScanCleanupPreviewDependencies {
 
 const defaultDependencies: IScanCleanupPreviewDependencies = {
     getPageCount: getPdfPageCount,
+    getPageSizes: readPdfPageSizes,
+    publishRaster: atomicReplace,
     renderPage: renderPdfPageToPng,
     renderPagePpm: renderPdfPageToPpm,
     runSidecar: runScanCleanupSidecar,
     resolveBinary: resolveScanCleanupPath,
+    resolvePageOpsBinary: () => (isNativePageOpsDisabled() ? null : resolveNativePageOpsPath()),
+    resolvePdfInfoBinary: () => getPdfNativeToolPaths().pdfinfo,
     getTempDir: getAppTempDir,
     getPdftoppmBinary: () => getPdfNativeToolPaths().pdftoppm,
     detectSourceDpi: async (sourcePdfPath, pageNumber, signal) => {
@@ -185,6 +253,20 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
             [pageNumber],
         );
         return result.pageDpiByNumber.get(pageNumber) ?? null;
+    },
+    detectRasterPages: async (sourcePdfPath, signal) => {
+        const paths = getPdfNativeToolPaths();
+        const result = await detectSourceDpiDetails(
+            sourcePdfPath,
+            paths.pdfimages,
+            (level, message) => logger[level](message),
+            undefined,
+            signal,
+        );
+        return {
+            detected: paths.pdfimages !== undefined,
+            pages: new Set(result.pageRasterByNumber.keys()),
+        };
     },
     acquireDetectionLease: (jobId, signal) => {
         const rasterConcurrency = resolveScanCleanupRasterConcurrency();
@@ -226,11 +308,17 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
     },
     getSourceMtimeMs: async sourcePdfPath => (await stat(sourcePdfPath)).mtimeMs,
     materializeWorkingCopy: (logicalRef, options) => {
-        // Preview work is queued, so the owning tab can close before the tail
-        // runs. Once the registration is retired the request is moot; report it
-        // as a cancellation rather than letting the materializer raise an
-        // ownership error out of the IPC handler.
-        if (!getWorkingCopyBackingEntry(logicalRef, options.ownerWebContentsId)) {
+        // Preview work is queued, so the owning tab can close or reopen the
+        // document before the tail runs. A registration this owner held and
+        // that has since been retired or replaced makes the request moot, and
+        // it is reported as a cancellation rather than letting the materializer
+        // raise an ownership error out of the IPC handler. A path this owner
+        // never held is a real failure and keeps its error, so an unmanaged or
+        // wrong-owner source is not hidden behind a spinner.
+        if (
+            !getWorkingCopyBackingEntry(logicalRef, options.ownerWebContentsId)
+            && getWorkingCopyBackingMetadata(logicalRef, options.ownerWebContentsId)?.retired === true
+        ) {
             return Promise.reject(new DOMException(
                 'Scan cleanup source is no longer available',
                 'AbortError',
@@ -239,6 +327,16 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         return ensureWorkingCopyMaterialized(logicalRef, options);
     },
 };
+
+// Turning a page cancels the render of the page being left. That is the normal
+// course of a session, not a failure, so it answers the invoke instead of
+// rejecting it: a rejected invoke is logged by Electron as a handler error and
+// would bury the failures worth reading.
+function isPreviewCancellation(error: unknown) {
+    return error instanceof Error
+        && (error.name === 'AbortError'
+            || (error as {code?: unknown}).code === 'WORKING_COPY_MATERIALIZATION_CANCELLED');
+}
 
 async function materializeScanCleanupPreviewRequest<
     T extends IScanCleanupPreviewRequest | IScanCleanupDetectionRequest,
@@ -281,6 +379,15 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
             recursive: true,
         }).catch(error => logger.warn(`Failed to drop a retained scan cleanup raster: ${getErrorMessage(error)}`));
     };
+    // A raster is a function of the document identity, the page and the DPI
+    // alone, so it has exactly one path inside the document's directory. A
+    // re-render publishes over that path through atomicReplace, which is the
+    // same replace-in-place the rest of the app commits files with: a consumer
+    // that captured the path for a sidecar manifest keeps reading a complete
+    // raster with the bytes it asked for instead of finding the file another
+    // request unlinked underneath it, and on Windows a live destination is
+    // moved aside rather than failing the rename with EPERM/EACCES.
+    const stableRasterPath = (dir: string, pageNumber: number, dpi: number) => join(dir, `page-${pageNumber}-${dpi}.png`);
     const rasterKey = (document: IRetainedDocument, pageNumber: number, dpi: number) => JSON.stringify([
         document.sourcePdfPath,
         document.documentRevision,
@@ -321,6 +428,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
             if (raster.document === document) forget(key, raster);
         }
         if (documents.get(document.sourcePdfPath) === document) documents.delete(document.sourcePdfPath);
+        document.lifetime.abort(new DOMException('Scan cleanup document was closed', 'AbortError'));
         // A request from another window may still be rendering into this
         // directory or feeding one of its rasters to a sidecar, so the files
         // outlive the invalidation that dropped them from the index.
@@ -365,8 +473,11 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
                 return dir;
             }),
             documentRevision: request.documentRevision,
+            lifetime: new AbortController(),
             mtimeMs,
             pageCount: null,
+            pageSizes: null,
+            rasterPages: null,
             pinned: 1,
             removeWhenIdle: false,
             sourcePdfPath: request.sourcePdfPath,
@@ -374,6 +485,117 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
         documents.set(request.sourcePdfPath, document);
         return document;
     };
+
+    // A measurement of the document is shared by everyone who asks for it, so
+    // it must not carry any one caller's cancellation. It runs under the
+    // document's own lifetime instead, and each awaiter races it against its
+    // own signal: a dropped prefetch that started the measurement stops waiting
+    // for it while the visible page it was measuring for still gets the answer,
+    // and closing the document stops the native process for everyone. A failed
+    // measurement is forgotten so the next request measures again; a successful
+    // one is kept for the life of the document.
+    const resolveDocumentMeasurement = <TValue>(
+        slot: {
+            read: () => Promise<TValue> | null;
+            write: (value: Promise<TValue> | null) => void;
+        },
+        signal: AbortSignal,
+        measure: () => Promise<TValue>,
+    ) => {
+        signal.throwIfAborted();
+        let pending = slot.read();
+        if (!pending) {
+            pending = measure();
+            slot.write(pending);
+            const started = pending;
+            void started.catch(() => {
+                if (slot.read() === started) slot.write(null);
+            });
+        }
+        const shared = pending;
+        return new Promise<TValue>((resolve, reject) => {
+            const onAbort = () => {
+                reject(signal.reason instanceof Error
+                    ? signal.reason
+                    : new DOMException('Scan cleanup document measurement was abandoned', 'AbortError'));
+            };
+            signal.addEventListener('abort', onAbort, {once: true});
+            shared.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+        });
+    };
+    const resolvePageCount = (document: IRetainedDocument, signal: AbortSignal) => resolveDocumentMeasurement(
+        {
+            read: () => document.pageCount,
+            write: value => {
+                document.pageCount = value;
+            },
+        },
+        signal,
+        () => dependencies.getPageCount(document.sourcePdfPath, {signal: document.lifetime.signal}),
+    );
+    // The paper rectangle of every page, which is what a matched canvas is
+    // measured from. It answers from page metadata before a single page has
+    // been rendered and is the same for every page and for the final run, so
+    // the frame does not move as pages are previewed — with one exception the
+    // preview names rather than hides: the canvas is also measured from the
+    // layouts detection has settled, and a pass that turns a page into a spread
+    // does change the rectangle every page is drawn on. That is why a preview
+    // is keyed by the spread layouts it was measured against, and why the
+    // preview pane says so while detection is still running.
+    //
+    // A measurement that fails is *not* an answer: it is rejected and
+    // forgotten, so the next request measures again instead of the session
+    // holding a failure. Its caller drops matching for that request and warns.
+    const resolvePageSizes = (document: IRetainedDocument, signal: AbortSignal) => resolveDocumentMeasurement(
+        {
+            read: () => document.pageSizes,
+            write: value => {
+                document.pageSizes = value;
+            },
+        },
+        signal,
+        async () => {
+            try {
+                const pdfPageOpsBinary = dependencies.resolvePageOpsBinary();
+                const pdfinfoBinary = dependencies.resolvePdfInfoBinary?.();
+                if (!pdfPageOpsBinary && !pdfinfoBinary) {
+                    throw new Error('no PDF tool is available to read page geometry');
+                }
+                return await dependencies.getPageSizes(document.sourcePdfPath, {
+                    ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
+                    ...(pdfinfoBinary ? {pdfinfoBinary} : {}),
+                    tempDir: await document.dir,
+                    signal: document.lifetime.signal,
+                    log: (level, message) => logger[level](message),
+                });
+            } catch (error) {
+                logger.warn(`Scan cleanup could not measure the document canvas: ${getErrorMessage(error)}`);
+                throw new Error(
+                    `Scan cleanup could not measure this document's page sizes, which matched page size needs: ${getErrorMessage(error)}`,
+                );
+            }
+        },
+    );
+
+    // Where the document's own rasters are, measured once per document. Only a
+    // matched lossless preview asks: it is the one case where the answer decides
+    // whether the run this preview is standing in for can stay lossless at all.
+    const resolveRasterPages = (document: IRetainedDocument, signal: AbortSignal) => resolveDocumentMeasurement(
+        {
+            read: () => document.rasterPages,
+            write: value => {
+                document.rasterPages = value;
+            },
+        },
+        signal,
+        async () => await dependencies.detectRasterPages?.(
+            document.sourcePdfPath,
+            document.lifetime.signal,
+        ) ?? {
+            detected: false,
+            pages: new Set<number>(),
+        },
+    );
 
     return {
         // Serialized per source path so two concurrent requests cannot each
@@ -388,33 +610,22 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
         },
         // qpdf --show-npages costs over a second on a cold document for a value
         // that cannot change while the revision and the mtime hold.
-        async pageCount(document: IRetainedDocument, signal: AbortSignal) {
-            const shared = document.pageCount;
-            if (shared) {
-                try {
-                    return await shared;
-                } catch {
-                    signal.throwIfAborted();
-                }
-            }
-            const pending = dependencies.getPageCount(document.sourcePdfPath, {signal});
-            document.pageCount = pending;
-            try {
-                return await pending;
-            } catch (error) {
-                if (document.pageCount === pending) document.pageCount = null;
-                throw error;
-            }
-        },
-        async rasterPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
-            return join(await document.dir, `page-${pageNumber}-${dpi}-${randomUUID()}.png`);
+        pageCount: resolvePageCount,
+        pageSizes: resolvePageSizes,
+        rasterPages: resolveRasterPages,
+        // Where a render writes before it is published: private to the render,
+        // so an abandoned or failed one leaves the page's retained raster alone.
+        // pdftoppm derives its own output name by dropping the extension, so
+        // this stays a .png path with the run's identity in front of it.
+        async rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
+            return join(await document.dir, `page-${pageNumber}-${dpi}.${randomUUID()}.part.png`);
         },
         // Which of these pages the index can hand over as a file, without
         // reading a byte. A raster is a function of the source, the revision,
         // the mtime, the page and the DPI alone, so a caller that re-renders a
         // page held here would produce the same file it already has.
         async retainedPaths(document: IRetainedDocument, pageNumbers: readonly number[], dpi: number) {
-            const paths = new Map<number, string>();
+            const retained = new Map<number, IRetainedRawRaster>();
             for (const pageNumber of pageNumbers) {
                 const key = rasterKey(document, pageNumber, dpi);
                 const raster = rasters.get(key);
@@ -431,9 +642,9 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
                 // the budget sweep drops a colder page first.
                 rasters.delete(key);
                 rasters.set(key, raster);
-                paths.set(pageNumber, raster.path);
+                retained.set(pageNumber, raster);
             }
-            return paths;
+            return retained;
         },
         async read(document: IRetainedDocument, pageNumber: number, dpi: number) {
             const key = rasterKey(document, pageNumber, dpi);
@@ -458,13 +669,27 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
                 return null;
             }
         },
-        async retain(raster: IRetainedRawRaster) {
-            const key = rasterKey(raster.document, raster.pageNumber, raster.dpi);
+        // Publishes a rendered scratch raster onto the page's stable path. The
+        // previous file at that path is replaced, never unlinked, so a manifest
+        // another request is still feeding to a sidecar stays readable.
+        async retain(rendered: Omit<IRetainedRawRaster, 'path'> & {scratchPath: string}) {
+            const path = stableRasterPath(await rendered.document.dir, rendered.pageNumber, rendered.dpi);
+            await dependencies.publishRaster(rendered.scratchPath, path, {
+                durable: false,
+                markMutationCommitStarted: false,
+            });
+            const key = rasterKey(rendered.document, rendered.pageNumber, rendered.dpi);
             const previous = rasters.get(key);
-            if (previous) {
-                forget(key, previous);
-                remove(previous.path);
-            }
+            if (previous) forget(key, previous);
+            const raster: IRetainedRawRaster = {
+                document: rendered.document,
+                dpi: rendered.dpi,
+                height: rendered.height,
+                pageNumber: rendered.pageNumber,
+                path,
+                sizeBytes: rendered.sizeBytes,
+                width: rendered.width,
+            };
             rasters.set(key, raster);
             retainedBytes += raster.sizeBytes;
             await prune();
@@ -514,20 +739,20 @@ async function materializeRawRaster(
     }
     const totalPages = knownTotalPages ?? await retention.pageCount(document, signal);
     if (pageNumber > totalPages) throw new Error('Scan cleanup preview page is out of range');
-    const path = await retention.rasterPath(document, pageNumber, dpi);
+    const scratchPath = await retention.rasterScratchPath(document, pageNumber, dpi);
     await dependencies.renderPage(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
         (level, message) => logger[level](message),
         pageNumber,
         document.sourcePdfPath,
-        path,
+        scratchPath,
         dpi,
         undefined,
         signal,
     );
-    const bytes = await readPreviewBytes(path);
+    const bytes = await readPreviewBytes(scratchPath);
     if (signal.aborted) {
-        retention.remove(path);
+        retention.remove(scratchPath);
         throw signal.reason;
     }
     const raster = await retention.retain({
@@ -535,7 +760,7 @@ async function materializeRawRaster(
         dpi,
         ...readPngDimensions(bytes),
         pageNumber,
-        path,
+        scratchPath,
         sizeBytes: bytes.byteLength,
     });
     return {
@@ -545,16 +770,37 @@ async function materializeRawRaster(
     };
 }
 
-function baseAnalysisKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>) {
+/**
+ * The page and the settings that decide what a render would produce — including
+ * the layouts the matched canvas is measured from, because a request that would
+ * be placed on another rectangle is not the same request.
+ */
+function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>) {
     return JSON.stringify({
         sourcePdfPath: request.sourcePdfPath,
         documentRevision: request.documentRevision,
         pageNumber: request.pageNumber,
         options: request.options,
         documentPrior: request.documentPrior ?? null,
-        // The plan reaches the sidecar only under matchPageSize (:1117-1123), so a
-        // plan the render cannot consume must not re-key the stored geometry.
-        documentCanvasPlan: request.options.matchPageSize ? request.documentCanvasPlan ?? null : null,
+        layouts: request.options.matchPageSize
+            ? scanCleanupLayoutSignature(request.layoutByPage ?? {})
+            : '',
+    });
+}
+
+/**
+ * The identity above plus the rectangle and grid the page was actually
+ * normalized onto. The canvas is derived from the document alone, so it rarely
+ * moves — but an entry is keyed by what the render placed the page on rather
+ * than by the reasoning that produced it.
+ */
+function baseAnalysisKey(
+    request: Omit<IScanCleanupPreviewRequest, 'detail'>,
+    documentCanvas: IScanCleanupDocumentCanvasPlan | null,
+) {
+    return JSON.stringify({
+        identity: previewIdentityKey(request),
+        documentCanvas,
     });
 }
 
@@ -562,6 +808,7 @@ function resolveFallbackDetailDpi(
     request: IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>},
     raw: Pick<IRawPreview, 'width' | 'height'>,
     sourceDpi: number,
+    documentCanvas: IScanCleanupDocumentCanvasPlan | null,
 ) {
     const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
     const swapsAxes = pageOverride.rotationDegrees === 90 || pageOverride.rotationDegrees === 270;
@@ -570,12 +817,8 @@ function resolveFallbackDetailDpi(
         + (margins.leftMm + margins.rightMm) / 25.4 * PREVIEW_DPI;
     const heightAtPreviewDpi = (swapsAxes ? raw.width : raw.height)
         + (margins.topMm + margins.bottomMm) / 25.4 * PREVIEW_DPI;
-    const canvasWidth = request.options.matchPageSize && request.documentCanvasPlan
-        ? request.documentCanvasPlan.widthPoints / 72 * PREVIEW_DPI
-        : 0;
-    const canvasHeight = request.options.matchPageSize && request.documentCanvasPlan
-        ? request.documentCanvasPlan.heightPoints / 72 * PREVIEW_DPI
-        : 0;
+    const canvasWidth = request.options.matchPageSize && documentCanvas ? documentCanvas.widthPx : 0;
+    const canvasHeight = request.options.matchPageSize && documentCanvas ? documentCanvas.heightPx : 0;
     const budgetDpi = PREVIEW_DPI * Math.sqrt(
         DETAIL_TILE_MAX_PIXELS * 0.98
         / (Math.max(1, widthAtPreviewDpi, canvasWidth)
@@ -1116,8 +1359,14 @@ async function runPreview(
 ): Promise<TScanCleanupPreviewWireResult> {
     if (!isAbsolute(request.sourcePdfPath)) throw new Error('Scan cleanup preview requires an absolute source path');
     if (signal.aborted) throw signal.reason;
-    const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-preview-'));
     const document = await retention.openDocument(request);
+    // Created after the document is open, so a failed open does not leave a
+    // scratch directory behind with nothing to remove it.
+    const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-preview-'))
+        .catch(async (error: unknown) => {
+            await retention.release(document);
+            throw error;
+        });
     try {
         const baseRaw = await materializeRawRaster(
             document,
@@ -1144,6 +1393,40 @@ async function runPreview(
             });
         }
         const rawImage = streamedRaw ? {} : {rawImageData: baseRaw.bytes};
+        // Measured from the document's own geometry and the layouts the caller
+        // has observed, at the resolution the preview renders with: every
+        // matched page of this session is presented on one rectangle and one
+        // pixel grid — the same rectangle the final run writes, from the same
+        // inputs, at its own resolution — from the first page of a cold session
+        // onwards.
+        //
+        // Geometry is what matching needs, and nothing else about cleaning a
+        // page depends on it. A document no tool here can measure therefore
+        // previews with matching dropped and says so, rather than answering a
+        // page the user asked to clean with an error about page sizes.
+        const previewWarnings: string[] = [];
+        let pageSizes: IPdfPageSize[] | null = null;
+        if (request.options.matchPageSize) {
+            try {
+                pageSizes = await retention.pageSizes(document, signal);
+            } catch (error) {
+                if (signal.aborted) throw error;
+                const detail = getErrorMessage(error);
+                previewWarnings.push(
+                    'Matched page size is off for this document: its page geometry could not be measured '
+                    + `(${detail}). Pages are previewed and cleaned at their own size.`,
+                );
+                logger.warn(`Scan cleanup preview dropped matched page size: ${detail}`);
+            }
+        }
+        const documentCanvas = pageSizes
+            ? resolveScanCleanupDocumentCanvas(
+                pageSizes,
+                PREVIEW_DPI,
+                request.options,
+                request.layoutByPage,
+            )
+            : null;
         let inputPath = baseRaw.path;
         let renderDpi = PREVIEW_DPI;
         let requestedRenderDpi = PREVIEW_DPI;
@@ -1154,7 +1437,7 @@ async function runPreview(
                 detail: _detail,
                 ...baseRequest
             } = request;
-            const analysis = baseAnalysisCache.get(baseAnalysisKey(baseRequest));
+            const analysis = baseAnalysisCache.get(baseAnalysisKey(baseRequest, documentCanvas));
             if (!analysis || analysis.mtimeMs !== baseRaw.document.mtimeMs) {
                 throw new Error('Scan cleanup detail geometry is unavailable; rebuild the base preview');
             }
@@ -1191,7 +1474,7 @@ async function runPreview(
             ({
                 renderDpi,
                 requestedRenderDpi,
-            } = resolveFallbackDetailDpi(detailRequest, baseRaw, sourceDpi));
+            } = resolveFallbackDetailDpi(detailRequest, baseRaw, sourceDpi, documentCanvas));
             if (renderDpi !== PREVIEW_DPI) {
                 ({path: inputPath} = await materializeRawRaster(
                     document,
@@ -1217,11 +1500,31 @@ async function runPreview(
         const manifestPath = join(scratch, 'manifest.json');
         const pageMetadataPath = join(scratch, 'page.json');
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
-        const lossless = request.options.preserveOriginalQuality === true;
-        const documentCanvas = (!request.detail || fallbackDetail) && request.options.matchPageSize
-            ? request.documentCanvasPlan
-            : undefined;
-        const effectiveOptions = (documentCanvas === undefined && request.options.matchPageSize)
+        // Matching a document onto one rectangle also means one pixel grid, and
+        // the lossless assembler cannot give a page that carries its own raster
+        // the document's grid without resampling it. Where the two collide the
+        // final run renders the whole document — so this preview renders it too,
+        // rather than presenting the untouched page a lossless run would have
+        // produced and calling it what the user will get.
+        const rasterPages = request.options.preserveOriginalQuality === true && pageSizes?.length
+            ? await retention.rasterPages(document, signal)
+            : null;
+        const rasterizedByMatching = pageSizes !== null
+            && rasterPages !== null
+            && resolveMatchedCanvasResamplePages(
+                pageSizes,
+                pageSizes.map(pageSize => pageSize.pageNumber),
+                request.options,
+                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+                rasterPages.pages,
+                rasterPages.detected,
+                request.layoutByPage,
+            ).length > 0;
+        const lossless = request.options.preserveOriginalQuality === true && !rasterizedByMatching;
+        // Every detail request that reaches this far fell back to a full
+        // render, so this is the base render's canvas in both cases.
+        const matchedCanvas = documentCanvas ?? undefined;
+        const effectiveOptions = (matchedCanvas === undefined && request.options.matchPageSize)
             ? {
                 ...request.options,
                 matchPageSize: false,
@@ -1239,7 +1542,7 @@ async function runPreview(
                     ? {}
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
-            ...(documentCanvas === undefined ? {} : {documentCanvas}),
+            ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
             pages: [{
                 inputPath,
                 pageNumber: request.pageNumber,
@@ -1259,12 +1562,16 @@ async function runPreview(
         const pageMetadata = JSON.parse(await readFile(pageMetadataPath, 'utf8')) as ILosslessPreviewPageMetadata;
         if (lossless) {
             const analyzedOutputs = pageMetadata.outputs ?? [];
-            const canvasWidthPx = documentCanvas === undefined
+            // The plan already carries the grid it was measured on, so a
+            // preview at that resolution reports the plan's own pixels rather
+            // than a second rounding of them.
+            const canvasGridScale = renderDpi / PREVIEW_DPI;
+            const canvasWidthPx = matchedCanvas === undefined
                 ? null
-                : Math.max(1, Math.ceil(documentCanvas.widthPoints / 72 * renderDpi));
-            const canvasHeightPx = documentCanvas === undefined
+                : Math.max(1, Math.round(matchedCanvas.widthPx * canvasGridScale));
+            const canvasHeightPx = matchedCanvas === undefined
                 ? null
-                : Math.max(1, Math.ceil(documentCanvas.heightPoints / 72 * renderDpi));
+                : Math.max(1, Math.round(matchedCanvas.heightPx * canvasGridScale));
             return {
                 pageNumber: request.pageNumber,
                 totalPages: baseRaw.totalPages,
@@ -1283,11 +1590,50 @@ async function runPreview(
                 outputs: analyzedOutputs.map(output => {
                     const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
                     const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
-                    const resolvedCanvasWidth = Math.max(canvasWidthPx ?? outputWidthPx, outputWidthPx);
-                    const resolvedCanvasHeight = Math.max(canvasHeightPx ?? outputHeightPx, outputHeightPx);
+                    // The canvas is strict: it already contains every page's
+                    // content and margins, measured document-wide before this
+                    // page was rendered, so growing it here for one output
+                    // would be the per-page frame drift it exists to prevent.
+                    const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
+                    const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
+                    // The assembler scales this output's own objects from the
+                    // paper it was cut from onto the canvas, so the preview
+                    // presents it at the same scale. Measuring from the paper
+                    // and not from the cropped content is what makes a spread
+                    // half and a page scanned on its own land the same size.
+                    const paperScale = canvasWidthPx === null || canvasHeightPx === null
+                        ? 1
+                        : resolveScanCleanupCanvasFitScale({
+                            widthPoints: canvasWidthPx,
+                            heightPoints: canvasHeightPx,
+                        }, {
+                            widthPoints: Math.max(1, output.sourceRegion.widthPx),
+                            heightPoints: Math.max(1, output.sourceRegion.heightPx),
+                        });
+                    // Margins laid around cropped content can ask for more room
+                    // than the paper the scale was measured on. The rectangle
+                    // does not grow, so the page is fitted inside it whole — the
+                    // same policy the raster path applies, reported the same way
+                    // — rather than having its margins clipped at the box edge.
+                    const contentScale = paperScale * Math.min(1, resolveScanCleanupCanvasFitScale({
+                        widthPoints: resolvedCanvasWidth,
+                        heightPoints: resolvedCanvasHeight,
+                    }, {
+                        widthPoints: Math.max(1, outputWidthPx * paperScale),
+                        heightPoints: Math.max(1, outputHeightPx * paperScale),
+                    }));
+                    const contentWidthPx = Math.min(
+                        resolvedCanvasWidth,
+                        Math.max(1, Math.round(outputWidthPx * contentScale)),
+                    );
+                    const contentHeightPx = Math.min(
+                        resolvedCanvasHeight,
+                        Math.max(1, Math.round(outputHeightPx * contentScale)),
+                    );
+                    const canvasOverflow = contentScale < paperScale * (1 - CANVAS_CONTENT_SCALE_EPSILON);
                     const placement = resolveScanCleanupPlacementOffset(
-                        resolvedCanvasWidth - outputWidthPx,
-                        resolvedCanvasHeight - outputHeightPx,
+                        resolvedCanvasWidth - contentWidthPx,
+                        resolvedCanvasHeight - contentHeightPx,
                         pageOverride.placementOverrides?.[output.half] ?? request.options.pageAlignment,
                     );
                     return {
@@ -1320,13 +1666,27 @@ async function runPreview(
                             renderDpi,
                             requestedRenderDpi,
                             rasterScaleLimited: false,
-                            canvasPolicy: documentCanvas === undefined ? 'intrinsic' : 'strict-maximum',
-                            canvasOverflow: false,
+                            canvasPolicy: matchedCanvas === undefined ? 'intrinsic' : 'strict-maximum',
+                            canvasOverflow,
                             matchedCanvasTargetWidthPx: canvasWidthPx,
                             matchedCanvasTargetHeightPx: canvasHeightPx,
-                            matchedCanvasTargetWidthPoints: documentCanvas?.widthPoints ?? null,
-                            matchedCanvasTargetHeightPoints: documentCanvas?.heightPoints ?? null,
-                            warnings: [],
+                            matchedCanvasTargetWidthPoints: matchedCanvas?.widthPoints ?? null,
+                            matchedCanvasTargetHeightPoints: matchedCanvas?.heightPoints ?? null,
+                            // A lossless run hands the original page objects to
+                            // the assembler, which scales them onto the canvas
+                            // without resampling them: the content changes size
+                            // with the sheet, and the renderer presents it at
+                            // exactly the size the output page will carry.
+                            matchedCanvasContentWidthPx: contentWidthPx,
+                            matchedCanvasContentHeightPx: contentHeightPx,
+                            warnings: [
+                                ...previewWarnings,
+                                ...(canvasOverflow
+                                    ? [`Matched page size fitted this page to ${String(contentWidthPx)}x${String(contentHeightPx)} px `
+                                        + `inside the ${String(resolvedCanvasWidth)}x${String(resolvedCanvasHeight)} px document canvas, `
+                                        + 'below the document\'s scale']
+                                    : []),
+                            ],
                         },
                     };
                 }),
@@ -1347,6 +1707,13 @@ async function runPreview(
                         ...(nativeMetadata.dewarpModel === undefined
                             ? {}
                             : {dewarpApplied: nativeMetadata.dewarpModel !== null}),
+                        // What Electron decided before the render — matching
+                        // dropped for want of geometry — belongs beside what
+                        // the engine reported about the page itself.
+                        warnings: [
+                            ...previewWarnings,
+                            ...nativeMetadata.warnings ?? [],
+                        ],
                     },
                 });
             } catch (error) {
@@ -1398,7 +1765,7 @@ async function runPreview(
         };
         if (!fallbackDetail) {
             signal.throwIfAborted();
-            const analysisKey = baseAnalysisKey(request);
+            const analysisKey = baseAnalysisKey(request, documentCanvas);
             baseAnalysisCache.delete(analysisKey);
             baseAnalysisCache.set(analysisKey, {
                 sourcePdfPath: request.sourcePdfPath,
@@ -1453,9 +1820,14 @@ async function runDetection(
     dependencies: IScanCleanupPreviewDependencies,
     publish: (results: IScanCleanupDetectionResult[], progress: TScanCleanupProgress) => void,
 ) {
-    const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-detect-'));
+    // The document opens first: a scratch directory created before it has
+    // nothing to release it if opening throws, and the only thing that ever
+    // removed it was this function's own success path.
     const document = await retention.openDocument(request);
+    let scratchDir: string | null = null;
     try {
+        const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-detect-'));
+        scratchDir = scratch;
         const totalPages = await retention.pageCount(document, signal);
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
         // The scan-cleanup options never reach pdftoppm: rotating a page or
@@ -1463,9 +1835,9 @@ async function runDetection(
         // pixels. So a re-detect rasterizes only the pages retention cannot
         // already hand over, and the sidecar still sees every page — the
         // manifest a full re-detect would have written, over the same files.
-        const retainedPaths = await retention.retainedPaths(document, pageNumbers, PREVIEW_DPI);
-        const rasterScope = pageNumbers.filter(pageNumber => !retainedPaths.has(pageNumber));
-        const rasterizedPageNumbers = new Set<number>(retainedPaths.keys());
+        const retained = await retention.retainedPaths(document, pageNumbers, PREVIEW_DPI);
+        const rasterScope = pageNumbers.filter(pageNumber => !retained.has(pageNumber));
+        const rasterizedPageNumbers = new Set<number>(retained.keys());
         const publishRasterizing = () => publish([], {
             stage: 'rasterizing',
             completedUnits: rasterizedPageNumbers.size,
@@ -1477,31 +1849,31 @@ async function runDetection(
         const renderedPaths = new Map<number, string>();
         await mapDetectionPages(rasterScope, async pageNumber => {
             if (signal.aborted) throw signal.reason;
-            const inputPath = await retention.rasterPath(document, pageNumber, PREVIEW_DPI);
+            const scratchPath = await retention.rasterScratchPath(document, pageNumber, PREVIEW_DPI);
             const dimensions = await renderRasterToDisk(
                 request.sourcePdfPath,
                 pageNumber,
-                inputPath,
+                scratchPath,
                 signal,
                 dependencies,
                 PREVIEW_DPI,
             );
-            await retention.retain({
+            const raster = await retention.retain({
                 document,
                 dpi: PREVIEW_DPI,
                 height: dimensions.height,
                 pageNumber,
-                path: inputPath,
-                sizeBytes: (await stat(inputPath)).size,
+                scratchPath,
+                sizeBytes: (await stat(scratchPath)).size,
                 width: dimensions.width,
             });
-            renderedPaths.set(pageNumber, inputPath);
+            renderedPaths.set(pageNumber, raster.path);
         }, pageNumber => {
             rasterizedPageNumbers.add(pageNumber);
             publishRasterizing();
         });
         const manifestPages = pageNumbers.map(pageNumber => ({
-            inputPath: renderedPaths.get(pageNumber) ?? retainedPaths.get(pageNumber)!,
+            inputPath: renderedPaths.get(pageNumber) ?? retained.get(pageNumber)!.path,
             pageNumber,
             dpi: PREVIEW_DPI,
             pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
@@ -1591,33 +1963,15 @@ async function runDetection(
         if (results.length !== totalPages) {
             throw new Error(`evb-scan-cleanup returned ${results.length} classifications for ${totalPages} pages`);
         }
-        const cropDimensions = (
-            await Promise.all(manifestPages.map(async page => {
-                const metadata = JSON.parse(
-                    await readFile(page.pageMetadataPath, 'utf8'),
-                ) as ILosslessPreviewPageMetadata;
-                return (metadata.outputs ?? []).map(output => ({
-                    widthPoints: output.cropRect.widthPx / PREVIEW_DPI * 72,
-                    heightPoints: output.cropRect.heightPx / PREVIEW_DPI * 72,
-                }));
-            }))
-        ).flat();
-        const documentCanvasPlan = cropDimensions.length === 0
-            ? undefined
-            : {
-                widthPoints: Math.max(...cropDimensions.map(dimension => dimension.widthPoints)),
-                heightPoints: Math.max(...cropDimensions.map(dimension => dimension.heightPoints)),
-            };
-        return {
-            results,
-            ...(documentCanvasPlan === undefined ? {} : {documentCanvasPlan}),
-        };
+        return {results};
     } finally {
         await retention.release(document);
-        await rm(scratch, {
-            recursive: true,
-            force: true,
-        });
+        if (scratchDir !== null) {
+            await rm(scratchDir, {
+                recursive: true,
+                force: true,
+            });
+        }
     }
 }
 
@@ -1686,9 +2040,6 @@ export function createScanCleanupPreviewService(
                     completedPageNumbers: result.results.map(item => item.pageNumber),
                 },
                 results: result.results,
-                ...(result.documentCanvasPlan === undefined
-                    ? {}
-                    : {documentCanvasPlan: result.documentCanvasPlan}),
                 updatedAtMs: Date.now(),
             }),
             canceled: latest => ({
@@ -1733,6 +2084,11 @@ export function createScanCleanupPreviewService(
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupOwnerContext & {sourcePdfPath: string},
     ) => `${previewOwnerPrefix(sender, request)}${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`;
+    // The page the user navigated onto, named by the request that streams its
+    // raw raster back, so the adjacent prefetches that do not are admitted
+    // behind it. One entry per document an owner is working on, dropped when
+    // that owner moves on or cancels the document.
+    const visiblePages = new Map<string, number>();
     const abortStalePreviewRequests = (
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupOwnerContext & {sourcePdfPath: string},
@@ -1747,24 +2103,44 @@ export function createScanCleanupPreviewService(
                 entry.controller.abort(new DOMException('Stale scan cleanup preview document', 'AbortError'));
             }
         }
+        // The owner moved to another document or revision, so the page it was
+        // looking at in the old one is not a visible page any more. Without
+        // this the map keeps one entry per document a session ever opened.
+        for (const key of visiblePages.keys()) {
+            if (key.startsWith(ownerPrefix) && key !== documentPrefix) visiblePages.delete(key);
+        }
         return documentPrefix;
     };
     const previewLanePrefix = (
         documentPrefix: string,
         request: IScanCleanupPreviewRequest,
     ) => `${documentPrefix}${request.detail === undefined ? 'base' : 'detail'}\u0000`;
-    // The page the user navigated onto, named by the request that streams its
-    // raw raster back, so the adjacent prefetches that do not are admitted
-    // behind it.
-    const visiblePages = new Map<string, number>();
     const withPreviewLease = async <T>(
         documentPrefix: string,
-        visibility: TPreviewVisibility,
+        admission: IPreviewAdmission,
         signal: AbortSignal,
         run: () => Promise<T>,
     ) => {
         const acquire = dependencies.acquirePreviewLease ?? defaultDependencies.acquirePreviewLease!;
-        const lease = await acquire(documentPrefix, visibility, signal);
+        let lease: {release: () => boolean};
+        for (;;) {
+            const attempt = new AbortController();
+            const abortAttempt = () => attempt.abort(signal.reason);
+            signal.addEventListener('abort', abortAttempt, {once: true});
+            admission.reissue = () => attempt.abort(PREVIEW_ADMISSION_REISSUED);
+            try {
+                lease = await acquire(documentPrefix, admission.visibility, attempt.signal);
+                admission.granted = true;
+                break;
+            } catch (error) {
+                signal.throwIfAborted();
+                // Anything but a readmission is the request's own failure.
+                if (attempt.signal.reason !== PREVIEW_ADMISSION_REISSUED) throw error;
+            } finally {
+                signal.removeEventListener('abort', abortAttempt);
+                admission.reissue = null;
+            }
+        }
         try {
             return await run();
         } finally {
@@ -1779,7 +2155,7 @@ export function createScanCleanupPreviewService(
             detail,
             ...base
         } = request;
-        return `${previewLanePrefix(documentPrefix, request)}${baseAnalysisKey(base)}\u0000${
+        return `${previewLanePrefix(documentPrefix, request)}${previewIdentityKey(base)}\u0000${
             detail === undefined ? '' : JSON.stringify(detail)
         }`;
     };
@@ -1792,9 +2168,18 @@ export function createScanCleanupPreviewService(
             const activeKey = previewRequestKey(documentPrefix, request);
             // Navigating onto a page whose prefetch is still running adopts that
             // run: no second raster, no second sidecar, and the caller inherits
-            // the progress already made rather than restarting it.
+            // the progress already made rather than restarting it. A run that
+            // has already been aborted has nothing to inherit and is left to
+            // retire; this request starts its own.
             const adopted = active.get(activeKey);
-            if (adopted) {
+            if (adopted && !adopted.controller.signal.aborted) {
+                // The adopted run was admitted as background work. It is now the
+                // page the user is waiting on, so it is readmitted as one rather
+                // than holding its place in a queue behind detection.
+                if (request.visible === true && adopted.admission.visibility === 'prefetch') {
+                    adopted.admission.visibility = 'visible';
+                    adopted.admission.reissue?.();
+                }
                 return adopted.tail;
             }
             // A base request only supersedes work for its own page: a stale
@@ -1817,25 +2202,34 @@ export function createScanCleanupPreviewService(
                 }
             }
             const controller = new AbortController();
-            const generation = (superseded[0]?.generation ?? 0) + 1;
+            // The generation counts replacements of *this* key. Taking it from
+            // whichever superseded entry the lane happened to iterate first
+            // could hand a live entry the generation an older one is still
+            // carrying, and that entry's late tail would then delete the
+            // replacement out of the index.
+            const generation = (active.get(activeKey)?.generation ?? 0) + 1;
             const priorTail = Promise.all(superseded.map(entry => entry.tail.catch(() => undefined)));
             // A detail tile is the viewport the user is looking at, and a page
             // the raw lane has not named is the first page of a session that has
             // no visible page yet. Everything else is an adjacent prefetch.
             const visiblePage = visiblePages.get(documentPrefix);
-            const visibility: TPreviewVisibility = request.detail !== undefined
-                || visiblePage === undefined
-                || visiblePage === request.pageNumber
-                ? 'visible'
-                : 'prefetch';
-            const tail = priorTail.then(async () => {
+            const admission: IPreviewAdmission = {
+                granted: false,
+                reissue: null,
+                visibility: request.detail !== undefined
+                    || visiblePage === undefined
+                    || visiblePage === request.pageNumber
+                    ? 'visible'
+                    : 'prefetch',
+            };
+            const tail: Promise<TScanCleanupPreviewWireResult> = priorTail.then(async () => {
                 const materialized = await materializeScanCleanupPreviewRequest(
                     request,
                     sender.id,
                     controller.signal,
                     dependencies,
                 );
-                return withPreviewLease(documentPrefix, visibility, controller.signal, () => runPreview(
+                return withPreviewLease(documentPrefix, admission, controller.signal, () => runPreview(
                     materialized,
                     controller.signal,
                     rawRasterRetention,
@@ -1843,13 +2237,28 @@ export function createScanCleanupPreviewService(
                     dependencies,
                     raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
                 ));
+            }).catch(error => {
+                if (isPreviewCancellation(error)) {
+                    return {canceled: true} as const;
+                }
+                throw error;
             });
             active.set(activeKey, {
+                admission,
                 controller,
                 generation,
                 pageNumber: request.pageNumber,
                 tail,
             });
+            if (admission.visibility === 'prefetch') {
+                const drop = setTimeout(() => {
+                    if (admission.granted || admission.visibility !== 'prefetch') {
+                        return;
+                    }
+                    controller.abort(new DOMException('Dropped scan cleanup preview prefetch', 'AbortError'));
+                }, dependencies.prefetchLeaseTimeoutMs ?? PREVIEW_PREFETCH_LEASE_TIMEOUT_MS);
+                void tail.catch(() => undefined).finally(() => clearTimeout(drop));
+            }
             void tail.finally(() => {
                 if (active.get(activeKey)?.generation === generation) active.delete(activeKey);
             }).catch(() => undefined);
@@ -1951,12 +2360,7 @@ export function createScanCleanupPreviewService(
                                 updatedAtMs: Date.now(),
                             }),
                         );
-                        return {
-                            results: detection.results,
-                            ...(detection.documentCanvasPlan === undefined
-                                ? {}
-                                : {documentCanvasPlan: detection.documentCanvasPlan}),
-                        };
+                        return {results: detection.results};
                     } finally {
                         lease?.release();
                     }

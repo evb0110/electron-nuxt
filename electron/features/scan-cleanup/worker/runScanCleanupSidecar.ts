@@ -1,4 +1,9 @@
 import {spawn} from 'child_process';
+import {constants as fsConstants} from 'fs';
+import {
+    access,
+    stat,
+} from 'fs/promises';
 import {basename} from 'path';
 import {createInterface} from 'readline';
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
@@ -206,4 +211,23 @@ async function streamScanCleanupSidecar(
             ...describeStageTotals(stageTotalsMs),
         ].join(' '));
     }
+}
+
+// The sidecar publishes exactly one raster per output and records which one in
+// its metadata, so a declared payload that is missing here is a broken run
+// rather than a case to degrade around.
+export async function requirePublishedRaster(path: string | undefined, pageNumber: number, role: string) {
+    if (path === undefined) {
+        throw new Error(`Page ${pageNumber} declared a ${role} without an output destination`);
+    }
+    const stats = await stat(path).catch((error: NodeJS.ErrnoException) => {
+        throw new Error(`Page ${pageNumber} ${role} is unavailable: ${error.message}`);
+    });
+    if (!stats.isFile()) {
+        throw new Error(`Page ${pageNumber} ${role} is not a file: ${path}`);
+    }
+    await access(path, fsConstants.R_OK).catch((error: NodeJS.ErrnoException) => {
+        throw new Error(`Page ${pageNumber} ${role} is unreadable: ${error.message}`);
+    });
+    return path;
 }

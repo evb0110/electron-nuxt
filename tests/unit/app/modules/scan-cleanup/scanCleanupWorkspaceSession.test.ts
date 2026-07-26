@@ -22,6 +22,7 @@ import type {
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
+import type * as scanCleanupPageOverridesModule from '@contracts/scanCleanupPageOverrides';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {
@@ -35,7 +36,23 @@ import {
 import {scanCleanupRun} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
+// Counts the real reduction rather than replacing it: the document's layouts
+// are a pass over every page, and how often a session performs it is the thing
+// under test in `derives the document's layouts once per change`.
+const layoutReductions = vi.hoisted(() => ({count: 0}));
 
+vi.mock('@contracts/scanCleanupPageOverrides', async importOriginal => {
+    const original = await importOriginal<typeof scanCleanupPageOverridesModule>();
+    return {
+        ...original,
+        toScanCleanupLayoutByPage: (
+            ...args: Parameters<typeof original.toScanCleanupLayoutByPage>
+        ) => {
+            layoutReductions.count += 1;
+            return original.toScanCleanupLayoutByPage(...args);
+        },
+    };
+});
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
     key: string,
@@ -477,6 +494,32 @@ describe('scan cleanup workspace session detection guidance', () => {
         failed.unmount();
     });
 
+    it('derives the document\'s layouts once per change, not once per request', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(
+            async request => previewResult(request.pageNumber, 'single-uncut-page'),
+        );
+        capability.value = harness.value;
+        const mounted = mountSession(`layout-reductions-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+        // Each page previewed also queues its neighbours and keys them, and each
+        // of those asked the whole document for its layouts before this was
+        // derived once per change of them.
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.length)
+            .toBeGreaterThan(1));
+        const afterFirstPage = layoutReductions.count;
+
+        mounted.session.preview.navigate(1);
+        await vi.waitFor(() => expect(mounted.session.preview.result.value?.pageNumber).toBe(2));
+        mounted.session.preview.navigate(1);
+        await vi.waitFor(() => expect(mounted.session.preview.result.value?.pageNumber).toBe(3));
+
+        // Nothing classified a page in between, so navigating cost no further
+        // pass over the document.
+        expect(layoutReductions.count).toBe(afterFirstPage);
+        mounted.unmount();
+    });
+
     it('lets a cached detail viewport supersede an older in-flight detail render', async () => {
         const harness = capabilityHarness();
         const olderDetail = Promise.withResolvers<IScanCleanupPreviewResult>();
@@ -817,6 +860,82 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(harness.value.cancelDetection).toHaveBeenCalledOnce();
         expect(harness.value.start).toHaveBeenCalledOnce();
         expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
+        mounted.unmount();
+    });
+
+    it('abandons a run stopped while it is still cancelling detection', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`stop-before-start-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const canceling = {
+            ...detectionState('detect-1', 'queued'),
+            status: 'canceling' as const,
+            updatedAtMs: Date.now() + 1,
+        };
+        vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledOnce());
+        // The click already started work, so the run reads as running and the
+        // cancel affordance is the one the toolbar offers.
+        expect(mounted.session.run.isRunning.value).toBe(true);
+
+        await mounted.session.run.cancel();
+        expect(mounted.session.run.cancelRequested.value).toBe(true);
+        harness.emitDetection({
+            ...detectionState('detect-1', 'canceled'),
+            results: [],
+            progress: canceling.progress,
+            updatedAtMs: canceling.updatedAtMs + 1,
+        });
+        await run;
+
+        // Nothing was handed to the main process, and the workspace is left
+        // able to run again rather than stuck mid-attempt.
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(mounted.session.run.isRunning.value).toBe(false);
+        expect(mounted.session.run.cancelRequested.value).toBe(false);
+        expect(mounted.session.run.canRun.value).toBe(true);
+        expect(mounted.session.run.inlineError.value).toBe('');
+        mounted.unmount();
+    });
+
+    it('cancels the job a stop asked for while the start request was in flight', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`stop-during-start-${Date.now()}`);
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'canceled'));
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+
+        const started = Promise.withResolvers<{
+            started: true;
+            jobId: string;
+            outputPdfPath: string;
+        }>();
+        vi.mocked(harness.value.start).mockReturnValue(started.promise);
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.start).toHaveBeenCalledOnce());
+
+        // The job has no id yet: the stop has to outlive the start request
+        // instead of being dropped, or a run the user stopped finishes and
+        // replaces the document they were reading with its output.
+        await mounted.session.run.cancel();
+        expect(mounted.session.run.cancelRequested.value).toBe(true);
+        expect(harness.value.cancel).not.toHaveBeenCalled();
+        started.resolve({
+            started: true,
+            jobId: 'stopped-cleanup',
+            outputPdfPath: '/managed/stopped-cleanup.pdf',
+        });
+        await run;
+
+        expect(harness.value.cancel).toHaveBeenCalledWith('stopped-cleanup', {
+            ownerId: mounted.session.run.ownerId,
+            documentRevision: expect.any(String),
+        });
+        expect(mounted.session.run.inlineError.value).toBe('');
         mounted.unmount();
     });
 
@@ -1288,42 +1407,6 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('invalidates the detected document canvas when layout or quality mode changes', async () => {
-        const harness = capabilityHarness();
-        capability.value = harness.value;
-        const mounted = mountSession(`canvas-plan-invalidation-${Date.now()}`);
-
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
-        const completed = {
-            ...detectionState('detect-1', 'completed'),
-            documentCanvasPlan: {
-                widthPoints: 420,
-                heightPoints: 612,
-            },
-        };
-        harness.emitDetection(completed);
-        await vi.waitFor(() => expect(mounted.session.detection.documentCanvasPlan.value)
-            .toEqual(completed.documentCanvasPlan));
-
-        mounted.session.settings.values.layoutMode = 'force-single';
-        await nextTick();
-        expect(mounted.session.detection.documentCanvasPlan.value).toBeUndefined();
-
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
-        await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledTimes(2));
-        harness.emitDetection({
-            ...detectionState('detect-2', 'completed'),
-            documentCanvasPlan: completed.documentCanvasPlan,
-            updatedAtMs: Date.now() + 1,
-        });
-        await vi.waitFor(() => expect(mounted.session.detection.documentCanvasPlan.value)
-            .toEqual(completed.documentCanvasPlan));
-        mounted.session.settings.values.preserveOriginalQuality = true;
-        await nextTick();
-        expect(mounted.session.detection.documentCanvasPlan.value).toBeUndefined();
-        mounted.unmount();
-    });
-
     it('re-detects for each reopened owner and after detection settings change', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
@@ -1553,5 +1636,33 @@ describe('scan cleanup workspace session detection guidance', () => {
             vi.useRealTimers();
             mounted.unmount();
         }
+    });
+
+    it('redraws the shown page when another page leaves the matched canvas', async () => {
+        // Matched page size measures one rectangle over the whole document, so
+        // excluding page 3 can change the sheet page 1 is presented on. The
+        // page the user is looking at has to be re-rendered against it rather
+        // than served from a cache measured against the document as it was.
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => (
+            previewResult(request.pageNumber, 'single-uncut-page')
+        ));
+        capability.value = harness.value;
+        const mounted = mountSession(`canvas-rekey-${Date.now()}`);
+
+        await vi.waitFor(() => expect(mounted.session.preview.result.value?.pageNumber).toBe(1));
+        const pageOnePreviewCalls = () => vi.mocked(harness.value.preview).mock.calls
+            .filter(([request]) => request?.pageNumber === 1).length;
+        const callsBeforeExclusion = pageOnePreviewCalls();
+
+        mounted.session.selection.updatePageOverride(3, {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: true,
+            manualSplit: null,
+        });
+
+        await vi.waitFor(() => expect(pageOnePreviewCalls()).toBeGreaterThan(callsBeforeExclusion));
+        mounted.unmount();
     });
 });

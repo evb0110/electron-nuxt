@@ -103,9 +103,22 @@ pub use crate::domain::geometry::CanvasScope;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// The one rectangle and pixel grid every matched output of this document is
+/// normalized onto. The owning process measures it from the source page
+/// geometry so a preview and the final run place their pages identically.
 pub struct DocumentCanvas {
     pub width_points: f64,
     pub height_points: f64,
+    pub width_px: usize,
+    pub height_px: usize,
+}
+
+impl DocumentCanvas {
+    /// Pixels per inch of the canvas grid, which is the one output resolution
+    /// every page of the document is resampled to.
+    pub fn dpi(&self) -> f64 {
+        self.width_px as f64 / self.width_points * 72.0
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -199,9 +212,11 @@ impl ManifestV3 {
                 || canvas.width_points <= 0.0
                 || !canvas.height_points.is_finite()
                 || canvas.height_points <= 0.0
+                || canvas.width_px == 0
+                || canvas.height_px == 0
         }) {
             return Err(invalid(
-                "Document canvas dimensions must be positive finite points",
+                "Document canvas dimensions must be positive finite points and pixels",
             ));
         }
         if self.host_memory_bytes == Some(0) {

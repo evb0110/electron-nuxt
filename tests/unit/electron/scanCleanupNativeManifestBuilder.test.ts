@@ -282,6 +282,8 @@ describe('native scan-cleanup manifest builder', () => {
             documentCanvas: {
                 widthPoints: 420.25,
                 heightPoints: 612.5,
+                widthPx: 1751,
+                heightPx: 2552,
             },
             options: populatedOptions,
             pages: [{
@@ -360,6 +362,8 @@ describe('native scan-cleanup manifest builder', () => {
             documentCanvas: {
                 widthPoints: 420.25,
                 heightPoints: 612.5,
+                widthPx: 1751,
+                heightPx: 2552,
             },
             qualityPath: 'raster',
             options,
@@ -380,6 +384,8 @@ describe('native scan-cleanup manifest builder', () => {
             documentCanvas: {
                 widthPoints: 420.25,
                 heightPoints: 612.5,
+                widthPx: 1751,
+                heightPx: 2552,
             },
         });
     });

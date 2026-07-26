@@ -440,14 +440,54 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toMatch(/nightly_pdf_tabs_diagnostics:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run diag:pdf-tabs:ci/u);
         expect(workflow).toContain('run: pnpm run diag:pdf-tabs:ci');
+        // Both Electron lanes exercise scan cleanup, which measures its matched
+        // page canvas with evb-pdf-page-ops and assembles a lossless run with
+        // it: they build every native tool that work needs through the shared
+        // e2e native build and run with the tool enabled, on the project the
+        // lane owns.
         const packageScripts = JSON.parse(packageJson).scripts as Record<string, string>;
-        expect(packageScripts['test:e2e:electron:regression']).toContain('pnpm run build:native:e2e');
-        expect(packageScripts['test:e2e:electron:regression']).toContain('vitest run --project e2e-regression');
-        expect(packageJson).not.toContain('"test:e2e:electron:smoke:no-build"');
-        expect(packageScripts['test:e2e:electron:quarantine']).toContain('pnpm run build:native:e2e');
+
+        expect(packageScripts['build:native:e2e']).toContain('pdf-page-ops');
+        for (const [
+            script,
+            project,
+        ] of [
+                [
+                    'test:e2e:electron:regression',
+                    'e2e-regression',
+                ],
+                [
+                    'test:e2e:electron:quarantine',
+                    'e2e-quarantine',
+                ],
+            ]) {
+            const command = packageScripts[script!]!;
+
+            for (const required of [
+                'pnpm run build:native:e2e',
+                'pnpm run build:electron',
+                'EVB_PDF_PAGE_OPS_ENABLE=1',
+                `--project ${project!}`,
+            ]) {
+                expect(command, `${script!} is missing ${required}`).toContain(required);
+            }
+        }
         expect(packageScripts['test:e2e:electron:quarantine']).toContain(
             'vitest run --project e2e-quarantine --passWithNoTests',
         );
+        // The matched page canvas is a whole-app contract — geometry measured
+        // in the main process, a rectangle presented by the renderer, and an
+        // assembled PDF whose pages carry it — so it is proved by running the
+        // real app rather than by any unit layer. It lives in the isolated
+        // quarantine lane, and this is what keeps the file that proves it in a
+        // lane something actually runs.
+        const matchedCanvasSpec = 'tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts';
+
+        expect(await readProjectFile(matchedCanvasSpec))
+            .toContain('describe(\'scan cleanup matched page canvas\'');
+        expect(sharedVitestConfig)
+            .toContain('const electronE2EQuarantineTestFiles = [\'tests/e2e/electron/quarantine/**/*.e2e.test.ts\']');
+        expect(packageJson).not.toContain('"test:e2e:electron:smoke:no-build"');
         expect(sharedVitestConfig).toContain('condition: /\\[INFRA\\]/u');
         expect(sharedVitestConfig).toContain('count: 2');
         expect(sharedVitestConfig).toContain('electronE2ERegression: \'e2e-regression\'');

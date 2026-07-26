@@ -28,18 +28,22 @@
                 </span>
                 <span class="scan-cleanup-scope-label">{{ item.label }}</span>
                 <span
-                    v-if="customizedCounts[item.value] > 0 && item.value !== 'page'"
+                    v-if="item.value !== 'page'"
                     class="scan-cleanup-scope-customized"
-                    :data-customized-scope="item.value"
+                    :class="{'is-placeholder': customizedCounts[item.value] <= 0}"
+                    :data-customized-scope="customizedCounts[item.value] > 0 ? item.value : undefined"
+                    :aria-hidden="customizedCounts[item.value] <= 0"
                 >
                     {{ t('scanCleanup.settings.scope.customized', {
-                        count: customizedCounts[item.value],
+                        count: Math.max(1, customizedCounts[item.value]),
                     }) }}
                 </span>
                 <span
-                    v-else-if="customizedCounts[item.value] > 0"
+                    v-else
                     class="scan-cleanup-scope-page-customized"
-                    data-customized-scope="page"
+                    :class="{'is-placeholder': customizedCounts[item.value] <= 0}"
+                    :data-customized-scope="customizedCounts[item.value] > 0 ? 'page' : undefined"
+                    :aria-hidden="customizedCounts[item.value] <= 0"
                 >
                     <span aria-hidden="true" />
                     <span class="sr-only">{{ t('scanCleanup.settings.scope.pageCustomized') }}</span>
@@ -162,6 +166,11 @@ const scopeItems = computed(() => [
     font-size: var(--app-text-size-kicker);
     font-weight: 700;
     white-space: nowrap;
+}
+
+.scan-cleanup-scope-customized.is-placeholder,
+.scan-cleanup-scope-page-customized.is-placeholder {
+    visibility: hidden;
 }
 
 .scan-cleanup-scope-page-customized {

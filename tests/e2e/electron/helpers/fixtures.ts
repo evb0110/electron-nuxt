@@ -601,6 +601,239 @@ export async function createMixedSizeTextFixturePdf(filename: string) {
 }
 
 
+/**
+ * A scanned document whose pages carry the same paper size but visibly
+ * different ink extents, so content cropping produces a different intrinsic
+ * page for every variant. Matching page size has nothing to prove on a fixture
+ * whose pages all crop alike.
+ */
+export async function createVariedContentScannedFixturePdf(filename: string, pageCount: number) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const cacheKey = createHash('sha256')
+        .update(`varied-content-scanned-v1:${pageCount}`)
+        .digest('hex');
+    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
+    if (existsSync(cachePath)) {
+        copyFileSync(cachePath, filePath);
+        return filePath;
+    }
+    const variants = [
+        {
+            inset: 80,
+            lines: 30,
+        },
+        {
+            inset: 200,
+            lines: 22,
+        },
+        {
+            inset: 140,
+            lines: 26,
+        },
+        {
+            inset: 260,
+            lines: 16,
+        },
+    ];
+    const doc = await PDFDocument.create();
+    const images = await Promise.all(variants.map(async variant => {
+        const canvas = createCanvas(1224, 1584);
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, 1224, 1584);
+        context.fillStyle = '#1a1a1a';
+        context.font = '30px serif';
+        for (let line = 0; line < variant.lines; line += 1) {
+            context.fillText(
+                'Scanned body text measured by the content detector',
+                variant.inset,
+                variant.inset + (line * 44),
+            );
+        }
+        return doc.embedJpg(canvas.toBuffer('image/jpeg', 0.82));
+    }));
+    for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.drawImage(images[pageNumber % images.length]!, {
+            x: 0,
+            y: 0,
+            width: 612,
+            height: 792,
+        });
+    }
+    const bytes = await doc.save();
+    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+    writeFileSync(cachePath, bytes);
+    copyFileSync(cachePath, filePath);
+    return filePath;
+}
+
+/**
+ * A book scanned as spreads: every sheet is two Letter pages side by side, with
+ * a clear gutter between them and the same page-relative ink on each side. The
+ * document it should produce is Letter pages — half the sheet — so a matched
+ * canvas taken from the sheet leaves every output page half empty and twice as
+ * wide as the book.
+ */
+export async function createSpreadScannedFixturePdf(filename: string, pageCount: number) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const cacheKey = createHash('sha256')
+        .update(`spread-scanned-v1:${pageCount}`)
+        .digest('hex');
+    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
+    if (existsSync(cachePath)) {
+        copyFileSync(cachePath, filePath);
+        return filePath;
+    }
+    const sheetWidthPx = 2_448;
+    const sheetHeightPx = 1_584;
+    const halfWidthPx = sheetWidthPx / 2;
+    const doc = await PDFDocument.create();
+    const canvas = createCanvas(sheetWidthPx, sheetHeightPx);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, sheetWidthPx, sheetHeightPx);
+    context.fillStyle = '#1a1a1a';
+    context.font = '34px serif';
+    for (const halfLeft of [
+        0,
+        halfWidthPx,
+    ]) {
+        // Body text drawn page-relative, so each half's ink covers the same
+        // share of the page it belongs to.
+        for (let line = 0; line < 26; line += 1) {
+            context.fillText(
+                'Scanned body text on one page of the spread',
+                halfLeft + 150,
+                160 + (line * 52),
+            );
+        }
+    }
+    // The gutter: paper the splitter can cut along, with the shadow a bound
+    // book leaves at the fold.
+    context.fillStyle = '#ffffff';
+    context.fillRect(halfWidthPx - 60, 0, 120, sheetHeightPx);
+    context.fillStyle = '#8a8a8a';
+    context.fillRect(halfWidthPx - 2, 0, 4, sheetHeightPx);
+    const image = await doc.embedJpg(canvas.toBuffer('image/jpeg', 0.85));
+    for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
+        const page = doc.addPage([
+            1_224,
+            792,
+        ]);
+        page.drawImage(image, {
+            x: 0,
+            y: 0,
+            width: 1_224,
+            height: 792,
+        });
+    }
+    const bytes = await doc.save();
+    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+    writeFileSync(cachePath, bytes);
+    copyFileSync(cachePath, filePath);
+    return filePath;
+}
+
+/**
+ * A scan of one original at three settings, which is what a mixed scanning
+ * session leaves in a PDF: Letter at 288 DPI, the same Letter paper at 144, and
+ * the same original again at 144 carried as a physically half-size page. The
+ * document therefore differs in source resolution *and* in page rectangle, and
+ * the two differ independently — the second page is the document's rectangle
+ * already and is only short of its grid.
+ *
+ * Every page draws the same markers in page-relative coordinates — a bar from
+ * 10% to 90% of the width and a block in the upper left quarter — so the three
+ * page kinds are indistinguishable *after* a document-wide scale
+ * normalization, and unmistakably different if a smaller page is merely padded
+ * onto the larger sheet or left on its own coarser grid.
+ */
+export async function createMixedScaleScannedFixturePdf(filename: string, pageCount: number) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const cacheKey = createHash('sha256')
+        .update(`mixed-scale-scanned-v2:${pageCount}`)
+        .digest('hex');
+    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
+    if (existsSync(cachePath)) {
+        copyFileSync(cachePath, filePath);
+        return filePath;
+    }
+    const doc = await PDFDocument.create();
+    const drawVariant = (widthPx: number, heightPx: number) => {
+        const canvas = createCanvas(widthPx, heightPx);
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, widthPx, heightPx);
+        context.fillStyle = '#111111';
+        context.fillRect(widthPx * 0.1, heightPx * 0.4, widthPx * 0.8, heightPx * 0.05);
+        context.fillRect(widthPx * 0.12, heightPx * 0.12, widthPx * 0.24, heightPx * 0.18);
+        context.font = `${Math.round(heightPx * 0.03)}px serif`;
+        for (let line = 0; line < 8; line += 1) {
+            context.fillText(
+                'Scanned body text at the document scale',
+                widthPx * 0.1,
+                heightPx * (0.55 + line * 0.045),
+            );
+        }
+        return canvas.toBuffer('image/jpeg', 0.85);
+    };
+    const variants = await Promise.all([
+        {
+            // Letter at 288 DPI: the finest scan in the document, and therefore
+            // the pixel grid every page of it has to end up on.
+            widthPoints: 612,
+            heightPoints: 792,
+            widthPx: 2_448,
+            heightPx: 3_168,
+        },
+        {
+            // The same Letter paper scanned at half that resolution. Its
+            // rectangle already matches the document's, so the only thing
+            // matching has to fix is its grid.
+            widthPoints: 612,
+            heightPoints: 792,
+            widthPx: 1_224,
+            heightPx: 1_584,
+        },
+        {
+            // And the same original again at 144 DPI, carried as a physically
+            // half-size page, which is how a mixed scanning session leaves one.
+            widthPoints: 306,
+            heightPoints: 396,
+            widthPx: 612,
+            heightPx: 792,
+        },
+    ].map(async variant => ({
+        ...variant,
+        image: await doc.embedJpg(drawVariant(variant.widthPx, variant.heightPx)),
+    })));
+    for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
+        const variant = variants[pageNumber % variants.length]!;
+        const page = doc.addPage([
+            variant.widthPoints,
+            variant.heightPoints,
+        ]);
+        page.drawImage(variant.image, {
+            x: 0,
+            y: 0,
+            width: variant.widthPoints,
+            height: variant.heightPoints,
+        });
+    }
+    const bytes = await doc.save();
+    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+    writeFileSync(cachePath, bytes);
+    copyFileSync(cachePath, filePath);
+    return filePath;
+}
+
 export async function createLargeScannedFixturePdf(
     filename: string,
     pageCount = 431,

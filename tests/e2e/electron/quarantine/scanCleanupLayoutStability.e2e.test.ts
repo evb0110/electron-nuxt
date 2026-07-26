@@ -269,28 +269,48 @@ describe('scan cleanup layout stability', () => {
         }
 
         // SCUI7 — the deskew tag, and SCUI8 — a reachable positive angle.
-        const deskewInput = '.scan-cleanup-auto-value-entry input';
+        const deskewInput = '.scan-cleanup-manual-skew-input input';
         const readDeskew = () => evaluateInPage(page, (selector: string) =>
             document.querySelector<HTMLInputElement>(selector)?.value ?? null, deskewInput);
-        const stepDeskew = (direction: 'increment' | 'decrement') => evaluateInPage(page, (
-            selector: string,
-            slot: string,
+        const centerDeskew = async () => {
+            await evaluateInPage(page, (selector: string) => {
+                document.querySelector(selector)?.scrollIntoView({block: 'center'});
+                return true;
+            }, deskewInput);
+            await settle();
+        };
+        const pointerClick = async (selector: string) => {
+            const target = await page.$(selector);
+            const bounds = await target?.boundingBox();
+            if (target === null || target === undefined || bounds === null || bounds === undefined) {
+                return false;
+            }
+            await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+            return true;
+        };
+        const stepDeskew = async (
+            direction: 'increment' | 'decrement',
+            expected: number,
         ) => {
-            const entry = document.querySelector(selector)?.closest('[data-slot="root"]');
-            const button = entry?.querySelector<HTMLButtonElement>(`[data-slot="${slot}"] button`);
-            button?.click();
-            return button !== null && button !== undefined;
-        }, deskewInput, direction);
+            if (!await pointerClick(
+                `.scan-cleanup-manual-skew-input [data-slot="${direction}"] button`,
+            )) {
+                return false;
+            }
+            await waitForFunctionInPage(page, (
+                selector: string,
+                target: number,
+            ) => Number(document.querySelector<HTMLInputElement>(selector)?.value) === target, {timeout: 10_000}, deskewInput, expected);
+            return true;
+        };
 
+        await centerDeskew();
         const deskewBefore = await readDeskew();
-        await transition('deskew: automatic -> manual (increment)', () => stepDeskew('increment'));
+        await transition('deskew: automatic -> manual (increment)', () => stepDeskew('increment', 0.1));
         const deskewAfterIncrement = await readDeskew();
-        await transition('deskew: manual -> reset', () => evaluateInPage(page, () => {
-            const reset = document.querySelector<HTMLButtonElement>('.scan-cleanup-auto-value-reset');
-            reset?.click();
-            return reset !== null;
-        }));
-        await transition('deskew: automatic -> manual (decrement)', () => stepDeskew('decrement'));
+        await transition('deskew: manual -> reset', () =>
+            pointerClick('.scan-cleanup-auto-value-reset'));
+        await transition('deskew: automatic -> manual (decrement)', () => stepDeskew('decrement', -0.1));
         const deskewAfterDecrement = await readDeskew();
 
         // SCUI4/SCUI5 — the detection status line and its stop control.

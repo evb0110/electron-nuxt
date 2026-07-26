@@ -155,6 +155,7 @@
                     :error="previewError"
                     :source="pageSource"
                     :layout-classification="authoritativeLayoutByPage.get(previewPage)"
+                    :layout-detection-pending="detectionPending"
                     :rotation-degrees="currentPageOverride.rotationDegrees"
                     :view-mode="previewViewMode"
                     :match-page-size="settings.matchPageSize"
@@ -903,12 +904,17 @@ watch(isRunning, running => {
 .scan-cleanup-selection-hint {
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-body);
 }
 
 /* Help text that is gated by another setting keeps its line reserved, so
    ticking a checkbox or changing scope never moves the controls below it. */
 .scan-cleanup-selection-hint.is-reserved {
     min-height: calc(var(--app-text-size-kicker) * var(--app-line-height-body));
+}
+
+.scan-cleanup-selection-hint.is-reserved.is-two-lines {
+    min-height: calc(var(--app-text-size-kicker) * var(--app-line-height-body) * 2);
 }
 
 /* A control whose value no longer applies stays in place and dims, matching

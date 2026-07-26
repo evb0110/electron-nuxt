@@ -6,6 +6,7 @@ import type {
     IScanCleanupTextAxis,
     TScanCleanupBinarizationMethod,
     TScanCleanupCanvasScope,
+    TScanCleanupLayoutByPage,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
@@ -44,7 +45,12 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     pageNumber: number;
     options: IScanCleanupOptions;
     documentPrior?: IScanCleanupDocumentPrior;
-    documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
+    /**
+     * How the caller expects each page of the document to be cut. Matched page
+     * size is measured over produced pages, so the preview and the run derive
+     * one rectangle only if they are told the same thing about the document.
+     */
+    layoutByPage?: TScanCleanupLayoutByPage;
     detail?: {
         /** Renderer-visible regions keyed by final output half; drives crop rendering and tile identity. */
         viewports: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
@@ -82,9 +88,18 @@ export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerConte
 
 export type TScanCleanupCanvasPolicy = 'intrinsic' | 'strict-maximum';
 
+/**
+ * The single rectangle and pixel grid every matched output of a document is
+ * normalized onto: the same absolute PDF points and the same pixel dimensions
+ * for every page, so the run has one output resolution rather than one per
+ * page. A page whose paper is smaller than the rectangle is resampled up to it;
+ * only the residual aspect-ratio difference is padded.
+ */
 export interface IScanCleanupDocumentCanvasPlan {
     widthPoints: number;
     heightPoints: number;
+    widthPx: number;
+    heightPx: number;
 }
 
 export interface IScanCleanupContentSideConfidence {
@@ -183,6 +198,14 @@ export interface IScanCleanupPreviewMetadata {
     matchedCanvasTargetHeightPx?: number | null;
     matchedCanvasTargetWidthPoints?: number | null;
     matchedCanvasTargetHeightPoints?: number | null;
+    /**
+     * Size the intrinsic raster occupies on the matched canvas, in canvas
+     * pixels. It differs from the intrinsic size whenever the page was scaled
+     * to the document's common visual scale, which a final run applies to the
+     * raster it publishes and a preview leaves for the renderer to apply.
+     */
+    matchedCanvasContentWidthPx?: number | null;
+    matchedCanvasContentHeightPx?: number | null;
     /** Intrinsic raster origin within the logical canvas. */
     placementOffsetXPx: number;
     placementOffsetYPx: number;
@@ -246,10 +269,18 @@ export interface IScanCleanupPreviewResult {
  * What `preview` puts on the wire. A base preview leaves `rawImageData` out:
  * those bytes reached the renderer over `onPreviewRaw` a sidecar run earlier,
  * and the renderer reattaches them. A detail tile still carries them.
+ *
+ * A superseded or cancelled request answers with `canceled`. Cancellation is
+ * the ordinary outcome of turning a page, so it is a result rather than a
+ * rejection: an invoke that rejects is logged by Electron as a handler failure,
+ * which would bury the failures that are real.
  */
 export type TScanCleanupPreviewWireResult =
-    Omit<IScanCleanupPreviewResult, 'rawImageData'>
-    & {rawImageData?: Uint8Array};
+    | (Omit<IScanCleanupPreviewResult, 'rawImageData'> & {
+        rawImageData?: Uint8Array;
+        canceled?: undefined;
+    })
+    | {canceled: true};
 
 export interface IScanCleanupDetectionRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;
@@ -272,7 +303,6 @@ interface IScanCleanupDetectionJobBase {
     jobId: string;
     progress: TScanCleanupProgress;
     results: IScanCleanupDetectionResult[];
-    documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
     updatedAtMs: number;
 }
 
@@ -302,6 +332,8 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     /** Ordered one-based source pages included in this output. Omitted means the full document. */
     sourcePageNumbers?: number[];
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
+    /** The layouts the preview was measured against, so this run matches the same rectangle. */
+    layoutByPage?: TScanCleanupLayoutByPage;
 }
 
 const s = runtimeSchema;

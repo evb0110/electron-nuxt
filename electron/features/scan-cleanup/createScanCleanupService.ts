@@ -32,7 +32,10 @@ import {
     pruneScanCleanupGeneratedOutputs,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
 import {allowOpenPath} from '@electron/file-access/openPathCapabilities';
-import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
+import {
+    isNativePageOpsDisabled,
+    resolveNativePageOpsPath,
+} from '@electron/features/page-ops/public';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {
     createMainJobRegistry,
@@ -295,11 +298,25 @@ export function createScanCleanupService(): IScanCleanupService {
                         const pdfPaths = getPdfNativeToolPaths();
                         const scanCleanupBinary = resolveScanCleanupPath();
                         const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
-                        const pdfPageOpsBinary = request.options.preserveOriginalQuality
+                        // Page geometry is what matched page size is measured
+                        // from, so the raster path asks for this tool too — and
+                        // takes Poppler's answer when it is missing, rather than
+                        // dropping matching without telling anyone. Only the
+                        // lossless assembler needs the tool itself.
+                        const requiresPageOps = request.options.preserveOriginalQuality === true
+                            || request.options.matchPageSize;
+                        const pdfPageOpsBinary = requiresPageOps && !isNativePageOpsDisabled()
                             ? resolveNativePageOpsPath()
                             : null;
-                        if (!scanCleanupBinary || !pdfImageCombineBinary || (request.options.preserveOriginalQuality && !pdfPageOpsBinary)) {
-                            throw new Error('Scan cleanup native tools are unavailable');
+                        const missingTools = [
+                            scanCleanupBinary ? null : 'evb-scan-cleanup',
+                            pdfImageCombineBinary ? null : 'evb-pdf-image-combine',
+                            request.options.preserveOriginalQuality === true && !pdfPageOpsBinary
+                                ? 'evb-pdf-page-ops'
+                                : null,
+                        ].filter((name): name is string => name !== null);
+                        if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
+                            throw new Error(`Scan cleanup native tools are unavailable: ${missingTools.join(', ')}`);
                         }
                         const summary = await runScanCleanupWorkerTask(
                             {
@@ -314,6 +331,7 @@ export function createScanCleanupService(): IScanCleanupService {
                                 qpdfBinary: pdfPaths.qpdf,
                                 pdftoppmBinary: pdfPaths.pdftoppm,
                                 ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
+                                pdfinfoBinary: pdfPaths.pdfinfo,
                                 scanCleanupBinary,
                                 pdfImageCombineBinary,
                                 ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),

@@ -25,10 +25,16 @@ import type {
     IScanCleanupPreviewRequest,
 } from '@contracts/electronApiScanCleanup';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {atomicReplace} from '@electron/utils/atomicReplace';
+import {
+    forgetRetiredWorkingCopyOriginal,
+    rememberRetiredWorkingCopyOriginal,
+} from '@electron/file-access/workingCopyStore';
 import {
     createScanCleanupPreviewService,
     type IScanCleanupDetectionSubscriber,
     type IScanCleanupPreviewDependencies,
+    type IScanCleanupPreviewService,
 } from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
 import {
     decodeScanCleanupDetectionJobState,
@@ -167,6 +173,26 @@ function sender(id = 1) {
     } satisfies IScanCleanupDetectionSubscriber;
 }
 
+// Cancellation is a result rather than a rejection on this service, so a test
+// that expects a rendered preview says so once instead of narrowing everywhere.
+function previewOf(
+    service: IScanCleanupPreviewService,
+    subscriber: IScanCleanupDetectionSubscriber,
+    previewRequest: IScanCleanupPreviewRequest,
+) {
+    const pending = (async () => {
+        const result = await service.preview(subscriber, previewRequest);
+        // Cancellation is reported to the renderer as a result; a test that
+        // asked for a rendered preview still wants to see it as the abort it is.
+        if (result.canceled === true) throw new DOMException('Canceled scan cleanup preview', 'AbortError');
+        return result;
+    })();
+    // The service holds its own handler on the underlying run, so this derived
+    // promise carries one too: a test attaches its assertion a turn later.
+    void pending.catch(() => undefined);
+    return pending;
+}
+
 async function retainedRasterCount(dir: string) {
     const entries = await readdir(dir, {recursive: true});
     return entries.filter(entry => entry.split(sep)[0]?.startsWith('scan-cleanup-rasters-') === true
@@ -194,14 +220,47 @@ async function waitForRelease(release: Promise<unknown>, signal: AbortSignal) {
     });
 }
 
+// The paper the source pages carry. The request's 5 mm margins are added
+// around a cropped content box, so the canvas a matched preview and a matched
+// run both place their output on is that paper plus the room those margins can
+// ever need.
+const DOCUMENT_PAGE_SIZES = [
+    1,
+    2,
+    3,
+].map(pageNumber => ({
+    pageNumber,
+    xPoints: 0,
+    yPoints: 0,
+    widthPoints: 612,
+    heightPoints: 792,
+    rotation: 0,
+}));
+// The rectangle the document actually carries, on the grid a 150 DPI preview
+// renders it at. Margins are laid out inside it, so they no longer grow it.
+const PREVIEW_DPI = 150;
+const DOCUMENT_CANVAS = {
+    widthPoints: 612,
+    heightPoints: 792,
+    widthPx: Math.floor(612 / 72 * PREVIEW_DPI),
+    heightPx: Math.floor(792 / 72 * PREVIEW_DPI),
+};
+
 function dependencies(dir: string): IScanCleanupPreviewDependencies {
     return {
         getPageCount: vi.fn(async () => 3),
+        getPageSizes: vi.fn(async () => DOCUMENT_PAGE_SIZES),
+        publishRaster: atomicReplace,
+        // pdftoppm names its own output by dropping the extension and adding
+        // the format's, so a caller that asks for anything else gets nothing.
         renderPage: vi.fn(async (_paths, _log, _page, _source, outputPath) => {
-            await writeFile(outputPath, PNG);
+            await writeFile(`${outputPath.replace(/\.png$/u, '')}.png`, PNG);
         }),
         renderPagePpm: vi.fn(async (_paths, _log, _page, _source, outputPath, _dpi, _env, _signal, crop) => {
-            await writeFile(outputPath, ppmWithDimensions(crop?.width ?? 1, crop?.height ?? 1));
+            await writeFile(
+                `${outputPath.replace(/\.ppm$/u, '')}.ppm`,
+                ppmWithDimensions(crop?.width ?? 1, crop?.height ?? 1),
+            );
         }),
         runSidecar: vi.fn(async (_binary, manifestPath) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
@@ -355,6 +414,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
             }));
         }),
         resolveBinary: () => '/cleanup',
+        resolvePageOpsBinary: () => '/page-ops',
         getTempDir: () => dir,
         getPdftoppmBinary: () => '/pdftoppm',
         materializeWorkingCopy: vi.fn(async sourcePdfPath => ({
@@ -686,7 +746,7 @@ describe('scan cleanup preview', () => {
             sourceFingerprint: 'source-fingerprint',
         });
 
-        await createScanCleanupPreviewService(deps).preview(sender(), request);
+        await previewOf(createScanCleanupPreviewService(deps), sender(), request);
 
         expect(deps.materializeWorkingCopy).toHaveBeenCalledWith(request.sourcePdfPath, {
             ownerWebContentsId: 1,
@@ -705,10 +765,25 @@ describe('scan cleanup preview', () => {
         );
     });
 
-    it('cancels preview work whose working copy is no longer registered', async () => {
+    it('cancels preview work whose working copy registration was retired', async () => {
+        const previewSender = sender();
+        rememberRetiredWorkingCopyOriginal(request.sourcePdfPath, '/original.pdf', previewSender.id);
+        try {
+            const service = createScanCleanupPreviewService();
+
+            await expect(service.preview(previewSender, request)).resolves.toEqual({canceled: true});
+        } finally {
+            forgetRetiredWorkingCopyOriginal(request.sourcePdfPath);
+        }
+    });
+
+    it('reports preview work for a source this owner never held as a failure', async () => {
         const service = createScanCleanupPreviewService();
 
-        await expect(service.preview(sender(), request)).rejects.toMatchObject({name: 'AbortError'});
+        // A path nothing registered is not a page the user navigated away from:
+        // reporting it as a cancellation would leave the renderer spinning on a
+        // request that will never be answered.
+        await expect(service.preview(sender(), request)).rejects.toThrow(/not managed by this owner/u);
     });
 
     it('skips materialization for queued preview work canceled before it dequeues', async () => {
@@ -725,9 +800,9 @@ describe('scan cleanup preview', () => {
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
 
-        const first = service.preview(previewSender, request);
+        const first = previewOf(service, previewSender, request);
         await firstEntered.promise;
-        const queued = service.preview(previewSender, {
+        const queued = previewOf(service, previewSender, {
             ...request,
             pageNumber: 2,
         });
@@ -747,7 +822,7 @@ describe('scan cleanup preview', () => {
         const dir = await setup();
         const deps = dependencies(dir);
 
-        await createScanCleanupPreviewService(deps).preview(sender(), request);
+        await previewOf(createScanCleanupPreviewService(deps), sender(), request);
 
         expect(deps.renderPage).toHaveBeenCalledWith(
             expect.anything(),
@@ -781,13 +856,9 @@ describe('scan cleanup preview', () => {
             previewDocumentPrior = manifest.pages[0]?.documentPrior;
             await runSidecar(binary, manifestPath, signal, log, onProgress);
         });
-        const result = await createScanCleanupPreviewService(deps).preview(sender(), {
+        const result = await previewOf(createScanCleanupPreviewService(deps), sender(), {
             ...request,
             documentPrior,
-            documentCanvasPlan: {
-                widthPoints: 1,
-                heightPoints: 1,
-            },
         });
         expect(deps.runSidecar).toHaveBeenCalledOnce();
         expect(previewMatchPageSize).toBe(true);
@@ -940,8 +1011,8 @@ describe('scan cleanup preview', () => {
 
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        await service.preview(previewSender, request);
-        const result = await service.preview(previewSender, {
+        await previewOf(service, previewSender, request);
+        const result = await previewOf(service, previewSender, {
             ...request,
             detail: {
                 viewports: {full: {
@@ -1008,7 +1079,7 @@ describe('scan cleanup preview', () => {
             },
         });
 
-        const budgetedResult = await service.preview(previewSender, {
+        const budgetedResult = await previewOf(service, previewSender, {
             ...request,
             detail: {
                 viewports: {full: {
@@ -1046,7 +1117,7 @@ describe('scan cleanup preview', () => {
             },
         });
 
-        const mixedFallback = await service.preview(previewSender, {
+        const mixedFallback = await previewOf(service, previewSender, {
             ...request,
             detail: {
                 viewports: {full: {
@@ -1059,10 +1130,10 @@ describe('scan cleanup preview', () => {
                 outputMode: 'mixed',
             },
         });
-        expect(renderCalls[3]).toEqual({dpi: 231});
+        expect(renderCalls[3]).toEqual({dpi: 204});
         expect(detailPlan).toBeUndefined();
         expect(manifestOptions).toMatchObject({
-            dpi: 231,
+            dpi: 204,
             sourceDpi: 300,
             requestedRenderDpi: 300,
             outputMode: 'mixed',
@@ -1102,11 +1173,11 @@ describe('scan cleanup preview', () => {
                 },
             }},
         };
-        await service.preview(previewSender, {
+        await previewOf(service, previewSender, {
             ...request,
             options: manualZoneOptions,
         });
-        const manualZoneFallback = await service.preview(previewSender, {
+        const manualZoneFallback = await previewOf(service, previewSender, {
             ...request,
             options: manualZoneOptions,
             detail: {
@@ -1123,7 +1194,7 @@ describe('scan cleanup preview', () => {
         expect(renderCalls).toHaveLength(4);
         expect(detailPlan).toBeUndefined();
         expect(manifestOptions).toMatchObject({
-            dpi: 231,
+            dpi: 204,
             outputMode: 'bw',
         });
         expect(manualZoneFallback.outputs[0]?.metadata.renderRegion).toBeUndefined();
@@ -1131,7 +1202,7 @@ describe('scan cleanup preview', () => {
 
     it('accepts unbounded nonnegative skew evidence and rejects invalid values at both metadata boundaries', async () => {
         const dir = await setup();
-        const result = await createScanCleanupPreviewService(dependencies(dir)).preview(sender(), request);
+        const result = await previewOf(createScanCleanupPreviewService(dependencies(dir)), sender(), request);
         expect(decodeScanCleanupPreviewResult(result)).toMatchObject({
             outputs: [{metadata: {skewConfidence: 2.4}}],
             pageMetadata: {skewConfidence: 2.4},
@@ -1164,7 +1235,7 @@ describe('scan cleanup preview', () => {
 
     it('validates additive render-region metadata against the full intrinsic output', async () => {
         const dir = await setup();
-        const result = await createScanCleanupPreviewService(dependencies(dir)).preview(sender(), request);
+        const result = await previewOf(createScanCleanupPreviewService(dependencies(dir)), sender(), request);
         const withRegion = {
             ...result,
             outputs: result.outputs.map(output => ({
@@ -1185,7 +1256,9 @@ describe('scan cleanup preview', () => {
             })),
         };
 
-        expect(decodeScanCleanupPreviewResult(withRegion).outputs[0]?.metadata.renderRegion)
+        const decodedWithRegion = decodeScanCleanupPreviewResult(withRegion);
+        if (decodedWithRegion.canceled === true) throw new Error('unexpected canceled preview');
+        expect(decodedWithRegion.outputs[0]?.metadata.renderRegion)
             .toEqual({
                 xPx: 2,
                 yPx: 3,
@@ -1274,8 +1347,8 @@ describe('scan cleanup preview', () => {
 
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        await service.preview(previewSender, request);
-        const result = await service.preview(previewSender, {
+        await previewOf(service, previewSender, request);
+        const result = await previewOf(service, previewSender, {
             ...request,
             detail: {
                 viewports: {full: {
@@ -1310,9 +1383,10 @@ describe('scan cleanup preview', () => {
         expect(result.outputs[0]?.metadata.renderRegion).toEqual(detailPlan?.renderRegion);
     });
 
-    it('uses an intrinsic provisional frame before detect-all supplies a canvas plan', async () => {
+    it('keeps intrinsic page canvases when the document geometry cannot be read', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
+        deps.getPageSizes = vi.fn(async () => []);
         const originalSidecar = deps.runSidecar;
         let matchPageSize: boolean | undefined;
         let documentCanvas: unknown;
@@ -1326,7 +1400,7 @@ describe('scan cleanup preview', () => {
             await originalSidecar(binary, manifestPath, signal, log, onProgress);
         });
 
-        const result = await createScanCleanupPreviewService(deps).preview(sender(), request);
+        const result = await previewOf(createScanCleanupPreviewService(deps), sender(), request);
 
         expect(matchPageSize).toBe(false);
         expect(documentCanvas).toBeUndefined();
@@ -1334,6 +1408,138 @@ describe('scan cleanup preview', () => {
             canvasWidthPx: 1,
             canvasHeightPx: 1,
         });
+    });
+
+    it('presents a spread page on the half sheet the run will produce', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        // A document of spread sheets: every sheet carries two book pages.
+        deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(pageSize => ({
+            ...pageSize,
+            widthPoints: 1_224,
+        })));
+        const originalSidecar = deps.runSidecar;
+        let documentCanvas: unknown;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {documentCanvas?: unknown};
+            documentCanvas = manifest.documentCanvas;
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+        const service = createScanCleanupPreviewService(deps);
+
+        // Nothing has classified the document yet, so no page is assumed to be
+        // cut and the sheet is the page.
+        await previewOf(service, sender(), request);
+        expect(documentCanvas).toMatchObject({
+            widthPoints: 1_224,
+            heightPoints: 792,
+        });
+
+        // Once the caller knows these are spreads, the frame is the half sheet
+        // each output actually carries — the same rectangle the run will use,
+        // because it is measured from the same two things.
+        await previewOf(service, sender(), {
+            ...request,
+            pageNumber: 2,
+            layoutByPage: {
+                '1': 'two-page-spread',
+                '2': 'two-page-spread',
+                '3': 'two-page-spread',
+            },
+        });
+        expect(documentCanvas).toEqual({
+            widthPoints: 612,
+            heightPoints: 792,
+            widthPx: Math.ceil(612 / 72 * PREVIEW_DPI),
+            heightPx: Math.ceil(792 / 72 * PREVIEW_DPI),
+        });
+    });
+
+    it('renders a matched lossless page the final run cannot keep lossless', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        // The document was scanned at two scales, and both pages carry their own
+        // raster: matched page size cannot put them on one grid without
+        // re-rendering, so the run will render — and so must the preview.
+        deps.getPageSizes = vi.fn(async () => [
+            {
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+            },
+            {
+                pageNumber: 2,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 306,
+                heightPoints: 396,
+                rotation: 0,
+            },
+        ]);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([
+                1,
+                2,
+            ]),
+        }));
+        const originalSidecar = deps.runSidecar;
+        const operations: Array<string | undefined> = [];
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {operation?: string};
+            operations.push(manifest.operation);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+        const losslessRequest = {
+            ...request,
+            options: {
+                ...request.options,
+                preserveOriginalQuality: true,
+            },
+        };
+
+        const result = await previewOf(createScanCleanupPreviewService(deps), sender(), losslessRequest);
+
+        // A cleaned raster, not an analysis-only answer that shows the page as
+        // it arrived and calls that the output.
+        expect(operations).toEqual(['render']);
+        expect(result.outputs[0]?.metadata).toMatchObject({canvasScope: 'page'});
+        expect(deps.detectRasterPages).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a matched lossless page lossless when the document shares one grid', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([
+                1,
+                2,
+                3,
+            ]),
+        }));
+        const originalSidecar = deps.runSidecar;
+        const operations: Array<string | undefined> = [];
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {operation?: string};
+            operations.push(manifest.operation);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+
+        await previewOf(createScanCleanupPreviewService(deps), sender(), {
+            ...request,
+            options: {
+                ...request.options,
+                preserveOriginalQuality: true,
+            },
+        });
+
+        // Every page of this document is the canvas already, so nothing has to
+        // be resampled and the original pixels are what the run will publish.
+        expect(operations).toEqual(['analyze']);
     });
 
     it('uses analysis-only output metadata for the lossless original-page preview', async () => {
@@ -1418,12 +1624,8 @@ describe('scan cleanup preview', () => {
             }));
         });
 
-        const result = await createScanCleanupPreviewService(deps).preview(sender(), {
+        const result = await previewOf(createScanCleanupPreviewService(deps), sender(), {
             ...request,
-            documentCanvasPlan: {
-                widthPoints: 0.1,
-                heightPoints: 0.1,
-            },
             options: {
                 ...request.options,
                 preserveOriginalQuality: true,
@@ -1440,13 +1642,23 @@ describe('scan cleanup preview', () => {
             skipBlankPages: false,
             experimental: {autoDewarp: false},
         });
+        // The matched canvas is the document-wide plan at preview DPI, the same
+        // rectangle for both halves and for every other page.
         expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [
             {metadata: {
                 half: 'left',
-                canvasWidthPx: 120,
-                canvasHeightPx: 80,
+                canvasWidthPx: DOCUMENT_CANVAS.widthPx,
+                canvasHeightPx: DOCUMENT_CANVAS.heightPx,
                 outputWidthPx: 120,
                 outputHeightPx: 80,
+                // A lossless run scales the original page objects onto the
+                // canvas without resampling them, so the preview presents the
+                // content at the size the output page will carry: this half's
+                // paper is 120x80 of a 1275x1650 canvas, so its content is
+                // scaled by 1275/120 and the sheet is filled rather than the
+                // page sitting unscaled in a corner of it.
+                matchedCanvasContentWidthPx: 1_275,
+                matchedCanvasContentHeightPx: 850,
                 resamplePasses: 0,
             }},
             {metadata: {
@@ -1454,6 +1666,75 @@ describe('scan cleanup preview', () => {
                 resamplePasses: 0,
             }},
         ]});
+    });
+
+    it('fits a lossless preview whose margins overflow the document rectangle and says so', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.runSidecar = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>;};
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                canvasScope: 'page',
+                layoutClassification: 'single-uncut-page',
+                layoutConfidence: 0.9,
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+                outputs: [{
+                    half: 'full',
+                    // The page's own paper, and content cropped to its ink and
+                    // then laid out with a tenth of the page in margins around
+                    // it, which asks for more room than the paper has.
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 120,
+                        heightPx: 80,
+                    },
+                    contentBox: null,
+                    cropRect: {
+                        xPx: -6,
+                        yPx: -4,
+                        widthPx: 132,
+                        heightPx: 88,
+                    },
+                    appliedMargins: {
+                        leftPx: 6,
+                        topPx: 4,
+                        rightPx: 6,
+                        bottomPx: 4,
+                    },
+                    inputWidthPx: 120,
+                    inputHeightPx: 80,
+                }],
+            }));
+        });
+
+        const result = await previewOf(createScanCleanupPreviewService(deps), sender(), {
+            ...request,
+            options: {
+                ...request.options,
+                preserveOriginalQuality: true,
+            },
+        });
+
+        const metadata = decodeScanCleanupPreviewResult(result);
+        const output = 'outputs' in metadata ? metadata.outputs[0]!.metadata : null;
+        // The page is fitted inside the document rectangle whole, keeping the
+        // shape it asked for, rather than having its margins clipped at the
+        // edge of the box — the policy the raster path applies to the same
+        // overflow, reported the same way.
+        expect(output).toMatchObject({
+            canvasWidthPx: DOCUMENT_CANVAS.widthPx,
+            canvasHeightPx: DOCUMENT_CANVAS.heightPx,
+            canvasOverflow: true,
+            warnings: [expect.stringContaining('below the document\'s scale')],
+        });
+        expect(output!.matchedCanvasContentWidthPx).toBe(DOCUMENT_CANVAS.widthPx);
+        expect(output!.matchedCanvasContentHeightPx! / output!.matchedCanvasContentWidthPx!)
+            .toBeCloseTo(88 / 132, 2);
     });
 
     it('lets a visible request run beside the adjacent prefetch instead of aborting it', async () => {
@@ -1473,12 +1754,12 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const prefetch = service.preview(previewSender, {
+        const prefetch = previewOf(service, previewSender, {
             ...request,
             pageNumber: 2,
         });
         await entered.promise;
-        const visible = service.preview(previewSender, {
+        const visible = previewOf(service, previewSender, {
             ...request,
             options: {
                 ...request.options,
@@ -1505,12 +1786,12 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const prefetch = service.preview(previewSender, {
+        const prefetch = previewOf(service, previewSender, {
             ...request,
             pageNumber: 2,
         });
         await entered.promise;
-        const navigatedTo = service.preview(previewSender, {
+        const navigatedTo = previewOf(service, previewSender, {
             ...request,
             pageNumber: 2,
         });
@@ -1520,72 +1801,6 @@ describe('scan cleanup preview', () => {
         await expect(navigatedTo).resolves.toMatchObject({pageNumber: 2});
         expect(deps.renderPage).toHaveBeenCalledOnce();
         expect(deps.runSidecar).toHaveBeenCalledOnce();
-    });
-
-    it('adopts across a document canvas plan the options make irrelevant, and supersedes when it matters', async () => {
-        const adoption = async (matchPageSize: boolean) => {
-            const dir = await setup();
-            const deps = dependencies(dir);
-            const entered = Promise.withResolvers<undefined>();
-            const release = Promise.withResolvers<undefined>();
-            const originalRenderPage = deps.renderPage;
-            let calls = 0;
-            deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
-                calls += 1;
-                if (calls === 1) {
-                    entered.resolve(undefined);
-                    await release.promise;
-                }
-                await originalRenderPage(...args);
-            });
-            const service = createScanCleanupPreviewService(deps);
-            const previewSender = sender();
-            const planned = {
-                ...request,
-                options: {
-                    ...request.options,
-                    matchPageSize,
-                },
-                documentCanvasPlan: {
-                    widthPoints: 595,
-                    heightPoints: 842,
-                },
-            };
-            const first = service.preview(previewSender, planned);
-            await entered.promise;
-            const second = service.preview(previewSender, {
-                ...planned,
-                documentCanvasPlan: {
-                    widthPoints: 612,
-                    heightPoints: 792,
-                },
-            });
-
-            release.resolve(undefined);
-            const settled = await Promise.allSettled([
-                first,
-                second,
-            ]);
-            return {
-                renderPageCalls: calls,
-                settled,
-            };
-        };
-
-        const irrelevant = await adoption(false);
-        expect(irrelevant.renderPageCalls).toBe(1);
-        expect(irrelevant.settled.map(entry => entry.status)).toEqual([
-            'fulfilled',
-            'fulfilled',
-        ]);
-
-        const significant = await adoption(true);
-        expect(significant.renderPageCalls).toBe(2);
-        expect(significant.settled[0]).toMatchObject({
-            status: 'rejected',
-            reason: {name: 'AbortError'},
-        });
-        expect(significant.settled[1]).toMatchObject({status: 'fulfilled'});
     });
 
     it('supersedes a stale options generation for the page it is rendering', async () => {
@@ -1605,9 +1820,9 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const stale = service.preview(previewSender, request);
+        const stale = previewOf(service, previewSender, request);
         await entered.promise;
-        const current = service.preview(previewSender, {
+        const current = previewOf(service, previewSender, {
             ...request,
             options: {
                 ...request.options,
@@ -1643,7 +1858,7 @@ describe('scan cleanup preview', () => {
             1,
             2,
             3,
-        ].map(pageNumber => service.preview(previewSender, {
+        ].map(pageNumber => previewOf(service, previewSender, {
             ...request,
             pageNumber,
         }));
@@ -1678,7 +1893,7 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const raw = service.preview(previewSender, {
+        const raw = previewOf(service, previewSender, {
             ...request,
             visible: true,
         });
@@ -1729,8 +1944,8 @@ describe('scan cleanup preview', () => {
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
 
-        await service.preview(previewSender, request);
-        const pendingBase = service.preview(previewSender, {
+        await previewOf(service, previewSender, request);
+        const pendingBase = previewOf(service, previewSender, {
             ...request,
             options: {
                 ...request.options,
@@ -1738,7 +1953,7 @@ describe('scan cleanup preview', () => {
             },
         });
         await baseRenderEntered.promise;
-        const detail = service.preview(previewSender, {
+        const detail = previewOf(service, previewSender, {
             ...request,
             detail: {
                 viewports: {full: {
@@ -1775,13 +1990,13 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const pending = service.preview(previewSender, request);
+        const pending = previewOf(service, previewSender, request);
         await rasterEntered.promise;
 
         expect(service.cancel(previewSender, request)).toBe(true);
         releaseRaster.resolve(undefined);
         await expect(pending).rejects.toMatchObject({name: 'AbortError'});
-        await expect(service.preview(previewSender, request)).resolves.toMatchObject({pageNumber: 1});
+        await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
 
         expect(deps.renderPage).toHaveBeenCalledTimes(2);
     });
@@ -1799,13 +2014,13 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const pending = service.preview(previewSender, request);
+        const pending = previewOf(service, previewSender, request);
         await sidecarEntered.promise;
 
         expect(service.cancel(previewSender, request)).toBe(true);
         releaseSidecar.resolve(undefined);
         await expect(pending).rejects.toMatchObject({name: 'AbortError'});
-        await expect(service.preview(previewSender, {
+        await expect(previewOf(service, previewSender, {
             ...request,
             detail: {
                 viewports: {full: {
@@ -1844,13 +2059,13 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const stale = service.preview(previewSender, request);
+        const stale = previewOf(service, previewSender, request);
         await staleEntered.promise;
         const currentRequest = {
             ...request,
             sourcePdfPath: '/replacement.pdf',
         };
-        const current = service.preview(previewSender, currentRequest);
+        const current = previewOf(service, previewSender, currentRequest);
         await currentEntered.promise;
 
         await expect(stale).rejects.toMatchObject({name: 'AbortError'});
@@ -1877,9 +2092,9 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const stale = service.preview(previewSender, request);
+        const stale = previewOf(service, previewSender, request);
         await staleEntered.promise;
-        const current = service.preview(previewSender, {
+        const current = previewOf(service, previewSender, {
             ...request,
             documentRevision: 'revision-2',
         });
@@ -1893,12 +2108,12 @@ describe('scan cleanup preview', () => {
         const deps = dependencies(dir);
         const service = createScanCleanupPreviewService(deps);
 
-        await service.preview(sender(), request);
+        await previewOf(service, sender(), request);
         service.cancel(sender(), {
             ...request,
             invalidateRawCache: false,
         });
-        await service.preview(sender(), {
+        await previewOf(service, sender(), {
             ...request,
             options: {
                 ...request.options,
@@ -1910,7 +2125,7 @@ describe('scan cleanup preview', () => {
         expect(deps.runSidecar).toHaveBeenCalledTimes(2);
 
         service.cancel(sender(), request);
-        await service.preview(sender(), {
+        await previewOf(service, sender(), {
             ...request,
             options: {
                 ...request.options,
@@ -1929,7 +2144,7 @@ describe('scan cleanup preview', () => {
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
 
-        await expect(service.preview(previewSender, {
+        await expect(previewOf(service, previewSender, {
             ...request,
             visible: true,
         })).rejects.toThrow('invalid cleaned preview');
@@ -1950,8 +2165,8 @@ describe('scan cleanup preview', () => {
         const deps = dependencies(dir);
         const service = createScanCleanupPreviewService(deps);
 
-        await service.preview(sender(), request);
-        await service.preview(sender(), {
+        await previewOf(service, sender(), request);
+        await previewOf(service, sender(), {
             ...request,
             documentRevision: 'revision-2',
         });
@@ -1981,9 +2196,9 @@ describe('scan cleanup preview', () => {
         const service = createScanCleanupPreviewService(deps);
         const firstSender = sender(1);
         const secondSender = sender(2);
-        const first = service.preview(firstSender, request);
+        const first = previewOf(service, firstSender, request);
         await firstEntered.promise;
-        const second = service.preview(secondSender, {
+        const second = previewOf(service, secondSender, {
             ...request,
             ownerId: 'preview-owner-2',
         });
@@ -2021,7 +2236,7 @@ describe('scan cleanup preview', () => {
 
     it('rejects layout confidence outside the unit interval at the IPC boundary', async () => {
         const dir = await setup();
-        const result = await createScanCleanupPreviewService(dependencies(dir)).preview(sender(), request);
+        const result = await previewOf(createScanCleanupPreviewService(dependencies(dir)), sender(), request);
 
         expect(() => decodeScanCleanupPreviewResult({
             ...result,
@@ -2037,7 +2252,7 @@ describe('scan cleanup preview', () => {
 
     it('rejects malformed cleanup diagnostic flags at the IPC boundary', async () => {
         const dir = await setup();
-        const result = await createScanCleanupPreviewService(dependencies(dir)).preview(sender(), request);
+        const result = await previewOf(createScanCleanupPreviewService(dependencies(dir)), sender(), request);
 
         expect(() => decodeScanCleanupPreviewResult({
             ...result,
@@ -2077,7 +2292,7 @@ describe('scan cleanup preview', () => {
 
     it('requires named finite applied margins at the IPC boundary', async () => {
         const dir = await setup();
-        const result = await createScanCleanupPreviewService(dependencies(dir)).preview(sender(), request);
+        const result = await previewOf(createScanCleanupPreviewService(dependencies(dir)), sender(), request);
         const withMargins = (appliedMargins: unknown) => ({
             ...result,
             outputs: result.outputs.map(output => ({
@@ -2267,10 +2482,6 @@ describe('scan cleanup preview', () => {
             detectionRequest,
         )?.status).toBe('completed'));
         expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)).toMatchObject({
-            documentCanvasPlan: {
-                widthPoints: 57.6,
-                heightPoints: 105.6,
-            },
             progress: {
                 stage: 'detecting',
                 completedUnits: 3,
@@ -2440,7 +2651,7 @@ describe('scan cleanup preview', () => {
             2,
             3,
         ]) {
-            await expect(service.preview(sender(), pageRequest(pageNumber))).resolves.toMatchObject({
+            await expect(previewOf(service, sender(), pageRequest(pageNumber))).resolves.toMatchObject({
                 pageNumber,
                 totalPages: 3,
                 rawWidthPx: 1,
@@ -2450,7 +2661,7 @@ describe('scan cleanup preview', () => {
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
         expect(deps.getPageCount).toHaveBeenCalledOnce();
 
-        await service.preview(sender(), pageRequest(1, 'revision-2'));
+        await previewOf(service, sender(), pageRequest(1, 'revision-2'));
         expect(deps.renderPage).toHaveBeenCalledTimes(4);
         expect(deps.getPageCount).toHaveBeenCalledTimes(2);
 
@@ -2543,7 +2754,7 @@ describe('scan cleanup preview', () => {
             }
         });
         const service = createScanCleanupPreviewService(deps);
-        await service.preview(sender(), request);
+        await previewOf(service, sender(), request);
         const started = await service.detectAll(sender(), {
             ...detectionRequest,
             options: {
@@ -2616,11 +2827,11 @@ describe('scan cleanup preview', () => {
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
         expect(peakRasters).toBe(2);
 
-        await service.preview(sender(), {
+        await previewOf(service, sender(), {
             ...request,
             pageNumber: 2,
         });
-        await service.preview(sender(), request);
+        await previewOf(service, sender(), request);
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
     });
 
@@ -2670,6 +2881,210 @@ describe('scan cleanup preview', () => {
             resources: expect.objectContaining({nativeProcesses: peakRasters}),
         }));
         acquire.mockRestore();
+    });
+
+    it('presents one document canvas before, during and after detection', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const analysis = Promise.withResolvers<undefined>();
+        const previewCanvases: unknown[] = [];
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                documentCanvas?: unknown;
+                pages: unknown[];
+            };
+            // The detect-all manifest reads every page at once; anything else
+            // is a preview of the page the user is looking at.
+            if (manifest.pages.length > 1) {
+                await waitForRelease(analysis.promise, signal);
+                await writeDetectionMetadata(manifestPath);
+                for (const pageNumber of [
+                    1,
+                    2,
+                    3,
+                ]) {
+                    onProgress({
+                        stage: 'detecting',
+                        completedUnits: pageNumber,
+                        totalUnits: 3,
+                        percent: pageNumber / 3 * 100,
+                        completedPageNumbers: Array.from({length: pageNumber}, (_value, index) => index + 1),
+                    }, {
+                        stage: 'page-complete',
+                        completedPages: pageNumber,
+                        totalPages: 3,
+                        pageNumber,
+                        classification: 'single-uncut-page',
+                        confidence: 0.9,
+                    });
+                }
+                return;
+            }
+            previewCanvases.push(manifest.documentCanvas);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const matched = {
+            ...request,
+            options: {
+                ...request.options,
+                matchPageSize: true,
+            },
+        };
+
+        // Before any detection has been asked for.
+        await previewOf(service, owner, matched);
+        const started = await service.detectAll(owner, {
+            ...detectionRequest,
+            options: matched.options,
+        });
+        await vi.waitFor(() => expect(
+            service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status,
+        ).toBe('running'));
+        // While the job is still reading the scan.
+        await previewOf(service, owner, {
+            ...matched,
+            pageNumber: 2,
+        });
+        analysis.resolve(undefined);
+        await vi.waitFor(() => expect(
+            service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status,
+        ).toBe('completed'));
+        // And once it has measured every content crop.
+        await previewOf(service, owner, {
+            ...matched,
+            pageNumber: 3,
+        });
+
+        expect(previewCanvases).toEqual([
+            DOCUMENT_CANVAS,
+            DOCUMENT_CANVAS,
+            DOCUMENT_CANVAS,
+        ]);
+        expect(deps.getPageSizes).toHaveBeenCalledOnce();
+    });
+
+    it('leaves every page its own crop when page sizes are not matched', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const previewCanvases: unknown[] = [];
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {documentCanvas?: unknown};
+            previewCanvases.push(manifest.documentCanvas);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        await previewOf(service, owner, {
+            ...request,
+            options: {
+                ...request.options,
+                matchPageSize: false,
+            },
+        });
+
+        expect(previewCanvases).toEqual([undefined]);
+        expect(deps.getPageSizes).not.toHaveBeenCalled();
+    });
+
+    it('previews without matching when it cannot measure, and measures again next time', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        let measurements = 0;
+        deps.getPageSizes = vi.fn(async () => {
+            measurements += 1;
+            if (measurements === 1) throw new Error('evb-pdf-page-ops is unavailable');
+            return DOCUMENT_PAGE_SIZES;
+        });
+        const canvases: unknown[] = [];
+        const matched: Array<boolean | undefined> = [];
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                documentCanvas?: unknown;
+                pages: Array<{options: {matchPageSize: boolean}}>;
+            };
+            canvases.push(manifest.documentCanvas);
+            matched.push(manifest.pages[0]?.options.matchPageSize);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        // Geometry is what matching needs and the only thing that needs it, so
+        // a document nothing can measure is still cleaned and previewed — with
+        // matching off for the request and the page saying so, rather than the
+        // whole preview failing over page sizes.
+        const unmatched = await previewOf(service, owner, request);
+
+        expect(unmatched.pageNumber).toBe(1);
+        expect(matched).toEqual([false]);
+        expect(canvases).toEqual([undefined]);
+        expect(unmatched.outputs[0]?.metadata.warnings.some(warning => /Matched page size is off/u.test(warning)))
+            .toBe(true);
+
+        // The failure is not remembered: it was the measurement's, not the
+        // document's, so the next request measures again and matches.
+        const recovered = await previewOf(service, owner, request);
+
+        expect(recovered.pageNumber).toBe(1);
+        expect(canvases).toEqual([
+            undefined,
+            DOCUMENT_CANVAS,
+        ]);
+        expect(matched).toEqual([
+            false,
+            true,
+        ]);
+        expect(recovered.outputs[0]?.metadata.warnings.some(warning => /Matched page size is off/u.test(warning)))
+            .toBe(false);
+        expect(measurements).toBe(2);
+    });
+
+    it('measures under the document rather than under the request that asked first', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const measuring = Promise.withResolvers<undefined>();
+        const releaseMeasurement = Promise.withResolvers<undefined>();
+        let measurementSignal: AbortSignal | undefined;
+        deps.getPageSizes = vi.fn(async (_path, measureOptions) => {
+            measurementSignal = measureOptions?.signal;
+            measuring.resolve(undefined);
+            await releaseMeasurement.promise;
+            return DOCUMENT_PAGE_SIZES;
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const documentRequest = {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+        };
+
+        const pending = previewOf(service, owner, {
+            ...request,
+            visible: true,
+        });
+        await measuring.promise;
+        // The caller goes away; the shared measurement does not, because it is
+        // the document's work rather than this request's.
+        service.cancel(owner, {
+            ...documentRequest,
+            invalidateRawCache: false,
+            retainPages: [],
+        });
+        await expect(pending).rejects.toMatchObject({name: 'AbortError'});
+        expect(measurementSignal?.aborted).toBe(false);
+
+        // Closing the document is what stops it, for everyone at once, without
+        // any one caller having had to own the cancellation.
+        service.cancel(owner, documentRequest);
+        expect(measurementSignal?.aborted).toBe(true);
+        releaseMeasurement.resolve(undefined);
     });
 
     it.each([
@@ -2806,57 +3221,363 @@ describe('scan cleanup preview', () => {
             started.jobId,
             detectRequest,
         )?.status).toBe('completed'));
-        const documentCanvasPlan = service.getDetectionJobState(
-            owner,
-            started.jobId,
-            detectRequest,
-        )?.documentCanvasPlan;
-        expect(documentCanvasPlan).toEqual({
-            widthPoints: 48,
-            heightPoints: 67.2,
-        });
-        if (!documentCanvasPlan) {
-            throw new Error('Expected detect-all to publish a document canvas plan');
-        }
 
-        const second = await service.preview(owner, {
+        const second = await previewOf(service, owner, {
             ...request,
             pageNumber: 2,
-            documentCanvasPlan,
             options: detectRequest.options,
         });
-        const first = await service.preview(owner, {
+        const first = await previewOf(service, owner, {
             ...request,
             pageNumber: 1,
-            documentCanvasPlan,
             options: detectRequest.options,
         });
 
+        // The raster path reads the canvas the sidecar wrote; the lossless path
+        // places the analysed crop on the same document rectangle itself.
+        const matchedCanvas = lossless
+            ? {
+                canvasWidthPx: DOCUMENT_CANVAS.widthPx,
+                canvasHeightPx: DOCUMENT_CANVAS.heightPx,
+            }
+            : {
+                canvasWidthPx: 100,
+                canvasHeightPx: 140,
+            };
         expect([
             first.outputs[0]?.metadata,
             second.outputs[0]?.metadata,
         ]).toEqual([
             expect.objectContaining({
-                canvasWidthPx: 100,
-                canvasHeightPx: 140,
+                ...matchedCanvas,
                 canvasScope: 'page',
             }),
             expect.objectContaining({
-                canvasWidthPx: 100,
-                canvasHeightPx: 140,
+                ...matchedCanvas,
                 canvasScope: 'page',
             }),
         ]);
         expect(previewManifests).toEqual([
             {
                 canvasScope: 'page',
-                documentCanvas: documentCanvasPlan,
+                documentCanvas: DOCUMENT_CANVAS,
             },
             {
                 canvasScope: 'page',
-                documentCanvas: documentCanvasPlan,
+                documentCanvas: DOCUMENT_CANVAS,
             },
         ]);
+    });
+
+    it('carries a page the engine fitted below the document scale across the bridge', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{outputs: Array<{metadataPath: string}>}>};
+            const output = manifest.pages[0]!.outputs[0]!;
+            const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
+            // What the engine writes for a page whose margins reach past the
+            // paper they were measured on: the raster the preview rendered,
+            // which is larger than the canvas because the renderer scales it,
+            // and the box that raster occupies on the canvas, which is inside
+            // it. Reading the placement from the raster instead of the box is
+            // what used to make this page an impossible placement.
+            await writeFile(output.metadataPath, JSON.stringify({
+                ...metadata,
+                outputWidthPx: 252,
+                outputHeightPx: 232,
+                canvasWidthPx: 200,
+                canvasHeightPx: 180,
+                canvasPolicy: 'strict-maximum',
+                canvasOverflow: true,
+                matchedCanvasTargetWidthPx: 200,
+                matchedCanvasTargetHeightPx: 180,
+                matchedCanvasTargetWidthPoints: 96,
+                matchedCanvasTargetHeightPoints: 86.4,
+                matchedCanvasContentWidthPx: 196,
+                matchedCanvasContentHeightPx: 180,
+                placementOffsetXPx: 2,
+                placementOffsetYPx: 0,
+                warnings: ['Matched page size fitted this page to 196x180 px inside the 200x180 px document canvas, '
+                    + 'below the document\'s scale'],
+            }));
+        });
+
+        const result = await previewOf(createScanCleanupPreviewService(deps), sender(), request);
+
+        // The page arrives whole — no blank frame, no error — and it still
+        // says that it had to be fitted.
+        expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [{metadata: {
+            outputWidthPx: 252,
+            outputHeightPx: 232,
+            canvasWidthPx: 200,
+            canvasHeightPx: 180,
+            matchedCanvasContentWidthPx: 196,
+            matchedCanvasContentHeightPx: 180,
+            placementOffsetXPx: 2,
+            canvasOverflow: true,
+            warnings: [expect.stringContaining('below the document\'s scale')],
+        }}]});
+    });
+
+    it('rejects a matched page whose content box does not fit the canvas it names', () => {
+        const metadata = {
+            half: 'full',
+            layoutClassification: 'single-uncut-page',
+            layoutConfidence: 0.9,
+            sourceRegion: {
+                xPx: 0,
+                yPx: 0,
+                widthPx: 200,
+                heightPx: 180,
+            },
+            contentBox: null,
+            cropRect: {
+                xPx: 0,
+                yPx: 0,
+                widthPx: 252,
+                heightPx: 232,
+            },
+            appliedMargins: {
+                leftPx: 0,
+                topPx: 0,
+                rightPx: 0,
+                bottomPx: 0,
+            },
+            outputWidthPx: 252,
+            outputHeightPx: 232,
+            canvasWidthPx: 200,
+            canvasHeightPx: 180,
+            canvasPolicy: 'strict-maximum',
+            canvasOverflow: true,
+            // The box the page is placed in is wider than the canvas it is
+            // placed on, which no producer can mean: the content box is what
+            // every consumer lays out from.
+            matchedCanvasContentWidthPx: 220,
+            matchedCanvasContentHeightPx: 180,
+            placementOffsetXPx: 0,
+            placementOffsetYPx: 0,
+            forwardTransform: null,
+            cutterXPx: null,
+            inputWidthPx: 200,
+            inputHeightPx: 180,
+            rotationDegrees: 0,
+            canvasScope: 'page',
+            resamplePasses: 1,
+            rasterScaleLimited: false,
+            warnings: [],
+        };
+
+        expect(() => decodeScanCleanupPreviewResult({
+            pageNumber: 1,
+            totalPages: 1,
+            rawImageData: PNG,
+            rawWidthPx: 200,
+            rawHeightPx: 180,
+            pageMetadata: {
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            },
+            outputs: [{
+                imageData: PNG,
+                metadata,
+            }],
+        })).toThrow(/intrinsic\/canvas placement/u);
+    });
+
+    it('answers the visible page when the prefetch that started the measurement is dropped', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const measuring = Promise.withResolvers<undefined>();
+        const releaseMeasurement = Promise.withResolvers<undefined>();
+        let measurements = 0;
+        // The real reader passes its caller's signal to the native command, so
+        // a measurement that carries one dies with that caller.
+        deps.getPageSizes = vi.fn(async (_path, options) => {
+            measurements += 1;
+            measuring.resolve(undefined);
+            if (options?.signal) await waitForRelease(releaseMeasurement.promise, options.signal);
+            else await releaseMeasurement.promise;
+            return DOCUMENT_PAGE_SIZES;
+        });
+        const canvases = new Map<number, unknown>();
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                documentCanvas?: unknown;
+                pages: Array<{sourcePageIndex: number}>;
+            };
+            canvases.set(manifest.pages[0]!.sourcePageIndex + 1, manifest.documentCanvas);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        const prefetch = previewOf(service, owner, {
+            ...request,
+            pageNumber: 2,
+        });
+        await measuring.promise;
+        const visible = previewOf(service, owner, {
+            ...request,
+            visible: true,
+        });
+        // The prefetch that started the measurement is retired while the page
+        // the user is on is still waiting for it.
+        service.cancel(owner, {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            invalidateRawCache: false,
+            retainPages: [1],
+        });
+        releaseMeasurement.resolve(undefined);
+
+        await expect(prefetch).rejects.toMatchObject({name: 'AbortError'});
+        await expect(visible).resolves.toMatchObject({pageNumber: 1});
+        // And it got the measured canvas, not the empty answer a cancelled
+        // measurement would have left behind.
+        expect(canvases.get(1)).toEqual(DOCUMENT_CANVAS);
+        expect(measurements).toBe(1);
+    });
+
+    it('keeps the shared measurement alive when a later awaiter is cancelled', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const measuring = Promise.withResolvers<undefined>();
+        const releaseMeasurement = Promise.withResolvers<undefined>();
+        let measurements = 0;
+        // The real reader passes its caller's signal to the native command, so
+        // a measurement that carries one dies with that caller.
+        deps.getPageSizes = vi.fn(async (_path, options) => {
+            measurements += 1;
+            measuring.resolve(undefined);
+            if (options?.signal) await waitForRelease(releaseMeasurement.promise, options.signal);
+            else await releaseMeasurement.promise;
+            return DOCUMENT_PAGE_SIZES;
+        });
+        const canvases = new Map<number, unknown>();
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                documentCanvas?: unknown;
+                pages: Array<{sourcePageIndex: number}>;
+            };
+            canvases.set(manifest.pages[0]!.sourcePageIndex + 1, manifest.documentCanvas);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        const visible = previewOf(service, owner, {
+            ...request,
+            visible: true,
+        });
+        await measuring.promise;
+        const neighbour = previewOf(service, owner, {
+            ...request,
+            pageNumber: 2,
+        });
+        service.cancel(owner, {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            invalidateRawCache: false,
+            retainPages: [1],
+        });
+        releaseMeasurement.resolve(undefined);
+
+        await expect(neighbour).rejects.toMatchObject({name: 'AbortError'});
+        await expect(visible).resolves.toMatchObject({pageNumber: 1});
+        expect(canvases.get(1)).toEqual(DOCUMENT_CANVAS);
+        expect(measurements).toBe(1);
+    });
+
+    it('keeps a live replacement reachable when an older generation retires late', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalRenderPage = deps.renderPage;
+        const gate = Promise.withResolvers<undefined>();
+        let renders = 0;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            renders += 1;
+            await gate.promise;
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const previewWith = (thickness: number) => previewOf(service, owner, {
+            ...request,
+            options: {
+                ...request.options,
+                thickness,
+            },
+        });
+
+        // Three lingering keys for the same page, each superseding the ones
+        // before it, and then a replacement that reuses the second key. The
+        // lane now holds an older entry carrying the generation a counter taken
+        // from the superseded list would hand to the live one.
+        const first = previewWith(0);
+        const second = previewWith(1);
+        const third = previewWith(2);
+        const replacement = previewWith(1);
+        await expect(first).rejects.toMatchObject({name: 'AbortError'});
+        await expect(second).rejects.toMatchObject({name: 'AbortError'});
+        await expect(third).rejects.toMatchObject({name: 'AbortError'});
+        await vi.waitFor(() => expect(renders).toBe(1));
+
+        // The retired generation must not have taken the live replacement out
+        // of the registry with it: an identical request adopts the run in
+        // flight instead of starting a second render of the same page.
+        const adopting = previewWith(1);
+        await new Promise(resolve => {
+            setTimeout(resolve, 0);
+        });
+        expect(renders).toBe(1);
+        gate.resolve(undefined);
+        await expect(replacement).resolves.toMatchObject({pageNumber: 1});
+        await expect(adopting).resolves.toMatchObject({pageNumber: 1});
+        expect(renders).toBe(1);
+    });
+
+    it('publishes a re-rendered raster over a destination another request still holds', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const published: Array<[string, string]> = [];
+        deps.publishRaster = vi.fn(async (source: string, destination: string, options) => {
+            published.push([
+                source,
+                destination,
+            ]);
+            await atomicReplace(source, destination, options);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        await previewOf(service, owner, request);
+        service.cancel(owner, {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+        });
+        await previewOf(service, owner, request);
+
+        // Every publication is a replace of the page's stable path rather than
+        // a raw rename, so a destination another request has open is moved
+        // aside instead of failing the write on Windows.
+        expect(published.length).toBeGreaterThanOrEqual(2);
+        expect(published.every(([
+            source,
+            destination,
+        ]) => source.includes('.part.png') && !destination.includes('.part.'))).toBe(true);
+        expect(vi.mocked(deps.publishRaster).mock.calls.every(call => call[2]?.durable === false)).toBe(true);
     });
 
     it('streams every detection classification to the subscriber exactly once', async () => {
@@ -3054,8 +3775,192 @@ describe('scan cleanup preview', () => {
             3,
         ]);
         expect(scoped.results).toEqual(cold.results);
-        expect(scoped.documentCanvasPlan).toEqual(cold.documentCanvasPlan);
-        expect(scoped.documentCanvasPlan).toBeDefined();
+    });
+
+    it('keeps a raster its sidecar is reading when the same page is retained again', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.getPageCount = vi.fn(async () => 2);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        // Preview and detection both reach page 1 while neither has retained
+        // it yet, so both render it and both publish it under the same key.
+        const bothRendering = Promise.withResolvers<undefined>();
+        let coldRenders = 0;
+        const originalRenderPage = deps.renderPage;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            if (args[2] === 1) {
+                coldRenders += 1;
+                if (coldRenders >= 2) bothRendering.resolve(undefined);
+                await bothRendering.promise;
+            }
+            await originalRenderPage(...args);
+        });
+        // Neither sidecar opens its manifest until both rasters have been
+        // published, which is exactly when one used to unlink the other's.
+        const bothPublished = Promise.withResolvers<undefined>();
+        let entered = 0;
+        const readable: Record<string, boolean> = {};
+        const originalSidecar = deps.runSidecar;
+        const allExist = async (paths: readonly string[]) => {
+            const found = await Promise.all(paths.map(async path => {
+                try {
+                    await stat(path);
+                    return true;
+                } catch {
+                    return false;
+                }
+            }));
+            return found.every(Boolean);
+        };
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{inputPath: string}>};
+            const detecting = manifest.pages.length > 1;
+            entered += 1;
+            if (entered >= 2) bothPublished.resolve(undefined);
+            await bothPublished.promise;
+            readable[detecting ? 'detection' : 'preview'] = await allExist(
+                manifest.pages.map(page => page.inputPath),
+            );
+            if (!detecting) {
+                await originalSidecar(binary, manifestPath, signal, log, onProgress);
+                return;
+            }
+            await writeDetectionMetadata(manifestPath);
+            for (const pageNumber of [
+                1,
+                2,
+            ]) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 2,
+                    percent: pageNumber * 50,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_value, index) => index + 1),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: 2,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        const previewed = previewOf(service, owner, request);
+        const started = await service.detectAll(owner, detectionRequest);
+        await previewed;
+        await vi.waitFor(() => expect(
+            service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status,
+        ).toBe('completed'));
+
+        expect(coldRenders).toBe(2);
+        expect(readable).toEqual({
+            detection: true,
+            preview: true,
+        });
+    });
+
+    it('readmits an adopted prefetch as the visible page and drops one nothing can admit', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.prefetchLeaseTimeoutMs = 30_000;
+        const admissions: Array<{
+            visibility: string;
+            granted: boolean;
+        }> = [];
+        const granted = Promise.withResolvers<undefined>();
+        // One native process is free, which is what a detection run at
+        // capacity-1 leaves behind: a visible request fits, a prefetch does not.
+        deps.acquirePreviewLease = vi.fn(async (_ownerId, visibility, signal) => {
+            const admission = {
+                visibility,
+                granted: false,
+            };
+            admissions.push(admission);
+            if (visibility === 'prefetch') {
+                return new Promise<{release: () => boolean}>((_resolve, reject) => {
+                    signal.addEventListener('abort', () => reject(
+                        signal.reason instanceof Error
+                            ? signal.reason
+                            : new DOMException('aborted', 'AbortError'),
+                    ), {once: true});
+                });
+            }
+            admission.granted = true;
+            granted.resolve(undefined);
+            return {release: vi.fn(() => true)};
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        // Page 1 is what the user is looking at, so page 2 is a prefetch.
+        await previewOf(service, owner, {
+            ...request,
+            visible: true,
+        });
+        const prefetch = previewOf(service, owner, {
+            ...request,
+            pageNumber: 2,
+        });
+        await vi.waitFor(() => expect(admissions).toHaveLength(2));
+        // Navigating onto the prefetched page adopts its run, which is then
+        // readmitted as the page the user is waiting on rather than left in a
+        // queue behind detection.
+        const navigated = previewOf(service, owner, {
+            ...request,
+            pageNumber: 2,
+            visible: true,
+        });
+        await granted.promise;
+
+        await expect(prefetch).resolves.toMatchObject({pageNumber: 2});
+        await expect(navigated).resolves.toMatchObject({pageNumber: 2});
+        expect(admissions.map(admission => admission.visibility)).toEqual([
+            'visible',
+            'prefetch',
+            'visible',
+        ]);
+    });
+
+    it('drops a prefetch nothing admits instead of leaving the page committed to it', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.prefetchLeaseTimeoutMs = 20;
+        deps.acquirePreviewLease = vi.fn((_ownerId, visibility, signal) => {
+            if (visibility === 'prefetch') {
+                return new Promise<{release: () => boolean}>((_resolve, reject) => {
+                    signal.addEventListener('abort', () => reject(
+                        signal.reason instanceof Error
+                            ? signal.reason
+                            : new DOMException('aborted', 'AbortError'),
+                    ), {once: true});
+                });
+            }
+            return Promise.resolve({release: vi.fn(() => true)});
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        await previewOf(service, owner, {
+            ...request,
+            visible: true,
+        });
+        const prefetch = service.preview(owner, {
+            ...request,
+            pageNumber: 2,
+        });
+
+        await expect(prefetch).resolves.toEqual({canceled: true});
+        // The dropped run is not adopted by the page turn that follows it: the
+        // visible request renders page 2 for itself.
+        await expect(previewOf(service, owner, {
+            ...request,
+            pageNumber: 2,
+            visible: true,
+        })).resolves.toMatchObject({pageNumber: 2});
     });
 
     it('rasterizes only the pages retention no longer holds and still reconciles over the whole document', async () => {
@@ -3193,7 +4098,7 @@ describe('scan cleanup preview', () => {
         const started = await service.detectAll(owner, detectionRequest);
         await vi.waitFor(() => expect(liveNatives).toBe(capacity.nativeProcesses - 1));
 
-        const previewPage = (pageNumber: number, visible = false) => service.preview(owner, {
+        const previewPage = (pageNumber: number, visible = false) => previewOf(service, owner, {
             ...request,
             pageNumber,
             ...(visible ? {visible: true} : {}),
@@ -3239,11 +4144,11 @@ describe('scan cleanup preview', () => {
         const acquire = vi.spyOn(mainJobBroker, 'acquire');
         const service = createScanCleanupPreviewService(deps);
         const owner = sender();
-        await service.preview(owner, {
+        await previewOf(service, owner, {
             ...request,
             visible: true,
         });
-        await service.preview(owner, {
+        await previewOf(service, owner, {
             ...request,
             pageNumber: 2,
         });

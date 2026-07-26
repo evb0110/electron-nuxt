@@ -179,6 +179,21 @@ pub(crate) struct SplitPageInstruction {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SplitPageOutput {
     pub(crate) crop_rect: SplitCropRect,
+    #[serde(default)]
+    pub(crate) content_transform: Option<SplitContentTransform>,
+}
+
+/// Scales the source page's own content into the output page box, so a page
+/// that is physically smaller than the document it belongs to is enlarged
+/// rather than parked in a corner of an enlarged sheet. `cropRect` is read in
+/// the transformed space when this is present, which is where the caller
+/// already laid the output out.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SplitContentTransform {
+    pub(crate) scale: f64,
+    pub(crate) translate_x: f64,
+    pub(crate) translate_y: f64,
 }
 
 #[derive(Clone, Copy, Deserialize)]

@@ -13,7 +13,30 @@ const ACTIVE_JOB_KEY = 'evb.scanCleanup.activeJobId';
 const ACTIVE_JOB_DOCUMENT_KEY = 'evb.scanCleanup.activeDocumentRef';
 const ACTIVE_JOB_OWNER_KEY = 'evb.scanCleanup.activeOwnerId';
 const ACTIVE_JOB_REVISION_KEY = 'evb.scanCleanup.activeDocumentRevision';
+/**
+ * The jobs whose terminal state this window has already acted on, so a state
+ * replayed by a reconnect or delivered twice by the bridge does not open the
+ * output, toast, or report the failure a second time.
+ *
+ * It is bounded because a long session runs many jobs and each one is only
+ * worth remembering for as long as a duplicate of its terminal state can still
+ * arrive — which is while it is the job the coordinator is talking about. The
+ * oldest entry is dropped once the set is full: a job that far back cannot be
+ * the active one, so it has nothing left to suppress.
+ */
 const terminalJobs = new Set<string>();
+const TERMINAL_JOB_MEMORY = 32;
+
+function rememberTerminalJob(jobId: string) {
+    terminalJobs.add(jobId);
+    while (terminalJobs.size > TERMINAL_JOB_MEMORY) {
+        const oldest = terminalJobs.values().next();
+        if (oldest.done) {
+            return;
+        }
+        terminalJobs.delete(oldest.value);
+    }
+}
 
 interface IScanCleanupRunError {
     error: string;
@@ -170,7 +193,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     if (!terminalDependencies || terminalJobs.has(state.jobId)) {
         return;
     }
-    terminalJobs.add(state.jobId);
+    rememberTerminalJob(state.jobId);
 
     if (state.status === 'completed') {
         dismissScanCleanupFirstRunGuidanceInStore();
@@ -287,7 +310,6 @@ async function startScanCleanupRequest(
         clearRunGuard();
         return result;
     }
-    terminalJobs.delete(result.jobId);
     activeStartResult = result;
     scanCleanupRun.activeJobId = result.jobId;
     scanCleanupRun.ownerDocumentRef = request.sourcePdfPath;
@@ -301,6 +323,17 @@ async function startScanCleanupRequest(
     });
     if (restored) acceptScanCleanupJobState(restored);
     return result;
+}
+
+/**
+ * Retires the previous run's state as the click that starts a new attempt is
+ * handled. Progress belongs to a job, and the attempt does not have one yet:
+ * leaving the last job's terminal snapshot in place is what made a run started
+ * after a cancelled one open its meter at the percentage the cancelled run
+ * stopped at, and its pages already marked processed.
+ */
+export function beginScanCleanupAttempt() {
+    if (!scanCleanupRun.activeJobId) scanCleanupRun.jobState = null;
 }
 
 export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TScanCleanupStartResult> {

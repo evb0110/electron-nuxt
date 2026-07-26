@@ -83,6 +83,38 @@ describe('scan cleanup run coordinator', () => {
         expect(capability.value.start).toHaveBeenCalledOnce();
     });
 
+    it('retires the previous job state when a new attempt begins', async () => {
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const canceled: TScanCleanupJobState = {
+            jobId: 'canceled-job',
+            status: 'canceled',
+            progress: progress(3),
+            updatedAtMs: Date.now(),
+        };
+        coordinator.scanCleanupRun.jobState = canceled;
+
+        // The run the user starts after cancelling one has no progress of its
+        // own yet; reading the cancelled job's would show its percentage and
+        // its processed pages as this attempt's.
+        coordinator.beginScanCleanupAttempt();
+
+        expect(coordinator.scanCleanupRun.jobState).toBeNull();
+
+        // A job that is still live owns the state: an attempt cannot begin over
+        // one that is running, so its progress is never discarded.
+        coordinator.scanCleanupRun.activeJobId = 'live-job';
+        coordinator.scanCleanupRun.jobState = {
+            ...canceled,
+            jobId: 'live-job',
+            status: 'running',
+        };
+        coordinator.beginScanCleanupAttempt();
+
+        expect(coordinator.scanCleanupRun.jobState?.jobId).toBe('live-job');
+        coordinator.scanCleanupRun.activeJobId = null;
+        coordinator.scanCleanupRun.jobState = null;
+    });
+
     it('exposes a run error only to its owning surface', async () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
 
@@ -609,6 +641,114 @@ describe('scan cleanup run coordinator', () => {
         expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
         expect(coordinator.scanCleanupRun.jobState).toEqual(completed);
         expect(subscribeJob).not.toHaveBeenCalled();
+        cleanup();
+    });
+
+    it('remembers a terminal job only while it can still suppress a duplicate', async () => {
+        // A session cleans document after document, and every finished job used
+        // to be remembered forever so its terminal state could not be handled
+        // twice. The memory is bounded now, so this pins both halves: a job the
+        // coordinator is still talking about is never handled twice, and a job
+        // far enough behind it is forgotten rather than accumulated.
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        let nextJobId = 'job-0';
+        const openGeneratedPdf = vi.fn(async () => true);
+        capability.value = {
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(async () => ({
+                started: true as const,
+                jobId: nextJobId,
+                outputPdfPath: `/managed/${nextJobId}.pdf`,
+            })),
+            cancel: vi.fn(async () => true),
+            getJobState: vi.fn(async () => null),
+            subscribeJob: vi.fn(async () => null),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(async () => 0),
+            onPreviewRaw: vi.fn(() => () => undefined),
+            onJobState: vi.fn(callback => {
+                listener = callback;
+                return () => undefined;
+            }),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(),
+            getOpenPdfPaths: () => [],
+            t: ((key: string) => key) as never,
+            toast: {add: vi.fn()},
+        });
+        const completed = (jobId: string): TScanCleanupJobState => ({
+            jobId,
+            status: 'completed',
+            outputPdfPath: `/managed/${jobId}.pdf`,
+            summary: {
+                inputPages: 1,
+                outputPages: 1,
+                spreadsSplit: 0,
+                offcutsDiscarded: 0,
+                deskewSkipped: 0,
+                cropSkipped: 0,
+                excludedPages: 0,
+                blankPagesSkipped: 0,
+                warnings: [],
+            },
+            partial: false,
+            progress: progress(1, 1),
+            updatedAtMs: Date.now(),
+        });
+        const runJobToCompletion = async (jobId: string) => {
+            nextJobId = jobId;
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: `/source/${jobId}.pdf`,
+                options: expect.anything() as never,
+            });
+            // The bridge replays the state a reconnect answers, so every job's
+            // terminal state arrives more than once.
+            listener(completed(jobId));
+            listener(completed(jobId));
+            await vi.waitFor(() => expect(coordinator.scanCleanupRun.activeJobId).toBeNull());
+        };
+
+        await runJobToCompletion('job-0');
+        expect(openGeneratedPdf).toHaveBeenCalledOnce();
+
+        // Still the job the coordinator last handled: its id is remembered, so
+        // a start that answers it is a job already finished, not a new run.
+        nextJobId = 'job-0';
+        await coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/job-0.pdf',
+            options: expect.anything() as never,
+        });
+        expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+        expect(coordinator.isScanCleanupRunning.value).toBe(false);
+
+        for (let index = 1; index <= 32; index += 1) {
+            await runJobToCompletion(`job-${String(index)}`);
+        }
+        // Every completed run opened its own output exactly once, duplicates
+        // and all.
+        expect(openGeneratedPdf).toHaveBeenCalledTimes(33);
+
+        // And the first job is far enough behind that it can no longer be
+        // confused with a live one: the coordinator has forgotten it rather
+        // than holding every id the session ever produced.
+        nextJobId = 'job-0';
+        await coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/job-0.pdf',
+            options: expect.anything() as never,
+        });
+        expect(coordinator.scanCleanupRun.activeJobId).toBe('job-0');
         cleanup();
     });
 

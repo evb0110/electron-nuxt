@@ -5,13 +5,23 @@ import {
 } from 'vitest';
 import type {
     IScanCleanupOptions,
+    IScanCleanupPageOverride,
     IScanCleanupPreviewResult,
+    TScanCleanupLayoutByPage,
+    TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
+import {
+    scanCleanupLayoutSignature,
+    scanCleanupMatchedCanvasOverridesSignature,
+} from '@contracts/scanCleanupPageOverrides';
 import {
     createScanCleanupDetailTileCacheKey,
     createScanCleanupPreviewCacheKey,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
-import {createScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
+import {
+    createScanCleanupPreviewCache,
+    SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR,
+} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 
 const previewOptions: IScanCleanupOptions = {
     preserveOriginalQuality: false,
@@ -32,6 +42,22 @@ const previewOptions: IScanCleanupOptions = {
     skipBlankPages: false,
     pageOverrides: {},
 };
+
+function override(value: Partial<IScanCleanupPageOverride>): IScanCleanupPageOverride {
+    return {
+        rotationDegrees: 0,
+        layoutOverride: 'auto',
+        excluded: false,
+        manualSplit: null,
+        ...value,
+    };
+}
+
+// An entry the way it can actually arrive from disk or across the bridge:
+// carrying only the fields it was ever given, while the type says it is whole.
+function sparse(value: Partial<IScanCleanupPageOverride>): IScanCleanupPageOverride {
+    return value as IScanCleanupPageOverride;
+}
 
 function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResult {
     return {
@@ -239,21 +265,6 @@ describe('scan cleanup renderer preview cache', () => {
         expect(withOutputModeOverride).not.toBe(base);
     });
 
-    it('leaves a plan the render cannot consume out of the key', () => {
-        const plan = {
-            widthPoints: 595,
-            heightPoints: 842,
-        };
-        const withoutMatchedPages = {
-            ...previewOptions,
-            matchPageSize: false,
-        };
-        expect(createScanCleanupPreviewCacheKey(1, withoutMatchedPages, '/tmp/source.pdf', 'rev', null, plan))
-            .toBe(createScanCleanupPreviewCacheKey(1, withoutMatchedPages, '/tmp/source.pdf', 'rev', null, null));
-        expect(createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null, plan))
-            .not.toBe(createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null, null));
-    });
-
     it('revalidates every cached page across the detection-completed transition instead of orphaning it', () => {
         const pages = [
             200,
@@ -274,17 +285,12 @@ describe('scan cleanup renderer preview cache', () => {
             },
             agreementStrength: 0.74,
         };
-        const plan = {
-            widthPoints: 595,
-            heightPoints: 842,
-        };
         const keyFor = (pageNumber: number, detected: boolean) => createScanCleanupPreviewCacheKey(
             pageNumber,
             previewOptions,
             '/tmp/source.pdf',
             'rev',
             detected ? prior : null,
-            detected ? plan : null,
         );
 
         const cache = createScanCleanupPreviewCache();
@@ -292,7 +298,7 @@ describe('scan cleanup renderer preview cache', () => {
         expect(cache.size).toBe(pages.length);
         const bytesBeforeDetection = cache.byteLength;
 
-        // Detection completes: the prior and the plan land for the whole
+        // Detection completes: the document prior lands for the whole
         // document in one burst, so every key changes at once.
         for (const pageNumber of pages) {
             expect(cache.has(keyFor(pageNumber, true))).toBe(false);
@@ -311,6 +317,164 @@ describe('scan cleanup renderer preview cache', () => {
             expect(cache.has(keyFor(pageNumber, true))).toBe(true);
             expect(cache.has(keyFor(pageNumber, false))).toBe(false);
         }
+    });
+
+    it('revalidates a matched preview against the layouts its canvas was measured from', () => {
+        const spreads = {
+            '1': 'two-page-spread',
+            '2': 'two-page-spread',
+        } as const;
+        const unclassified = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null);
+        const classified = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null, scanCleanupLayoutSignature(spreads));
+        const separator = SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR;
+
+        // Learning that the document is spreads halves the sheet every page is
+        // presented on, so a preview drawn before that is no longer current —
+        // but it is the same page, so it is revalidated rather than orphaned.
+        expect(classified).not.toBe(unclassified);
+        expect(classified.split(separator)[0]).toBe(unclassified.split(separator)[0]);
+        // The same layouts answer the same key, whatever order they arrived in.
+        expect(createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null, scanCleanupLayoutSignature({
+            '2': 'two-page-spread',
+            '1': 'two-page-spread',
+        }))).toBe(classified);
+        // Without matching there is no canvas for a layout to move.
+        const unmatched = {
+            ...previewOptions,
+            matchPageSize: false,
+        };
+        expect(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null, scanCleanupLayoutSignature(spreads)))
+            .toBe(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null));
+    });
+
+    it('keeps a matched preview across the classifications that cannot move its canvas', () => {
+        const keyFor = (layouts: TScanCleanupLayoutByPage) => createScanCleanupPreviewCacheKey(
+            1,
+            previewOptions,
+            '/tmp/source.pdf',
+            'rev',
+            null,
+            scanCleanupLayoutSignature(layouts),
+        );
+
+        // A detection pass settles one page at a time, for hundreds of pages.
+        // Every page it finds is measured as the whole sheet it is — the same
+        // measurement an unclassified page gets — so none of these move the
+        // rectangle any page was drawn on, and re-keying on them would cancel
+        // and redraw the whole document once per page.
+        const single = keyFor({'1': 'single-uncut-page'});
+        expect(single).toBe(keyFor({}));
+        expect(keyFor({
+            '1': 'single-uncut-page',
+            '2': 'page-with-offcut',
+            '3': 'single-uncut-page',
+        })).toBe(single);
+        // A page that turns out to be a spread does move it: the document is
+        // measured by the half sheets that page produces.
+        expect(keyFor({
+            '1': 'single-uncut-page',
+            '2': 'two-page-spread',
+        })).not.toBe(single);
+    });
+
+    it('revalidates a matched preview against every page\'s canvas inputs, not just its own', () => {
+        // The canvas is one rectangle measured over the whole document, so an
+        // edit on page 40 changes the sheet page 1 was drawn on. Page 1's own
+        // key carries page 1's override alone, which is why the document-wide
+        // inputs are reduced separately and folded in here.
+        const keyFor = (overrides: TScanCleanupPageOverrides) => createScanCleanupPreviewCacheKey(
+            1,
+            previewOptions,
+            '/tmp/source.pdf',
+            'rev',
+            null,
+            '',
+            scanCleanupMatchedCanvasOverridesSignature(overrides),
+        );
+        const untouched = keyFor({});
+        const separator = SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR;
+
+        // Excluding another page takes it off the sheet, so the largest
+        // rectangle the document produces can be a different one.
+        const excludedElsewhere = keyFor({'40': override({excluded: true})});
+        expect(excludedElsewhere).not.toBe(untouched);
+        // Still page 1, so its entry is revalidated rather than orphaned.
+        expect(excludedElsewhere.split(separator)[0]).toBe(untouched.split(separator)[0]);
+
+        // The other inputs the canvas reads on another page: how many outputs
+        // its sheet is cut into, and whether it can leave the bilevel budget.
+        for (const canvasInput of [
+            {layoutOverride: 'spread' as const},
+            {layoutOverride: 'keep-left' as const},
+            {layoutOverride: 'keep-right' as const},
+            {layoutOverride: 'single' as const},
+            {manualSplit: {
+                xNormalized: 0.5,
+                rotationDegrees: 0 as const,
+            }},
+            {outputModeOverride: 'color' as const},
+        ]) {
+            expect(keyFor({'40': override(canvasInput)})).not.toBe(untouched);
+        }
+        // Every distinct layout choice is a distinct canvas: keeping the left
+        // half and forcing a spread cut the same sheet, but declaring the sheet
+        // a single page does not.
+        expect(keyFor({'40': override({layoutOverride: 'keep-left'})}))
+            .not.toBe(keyFor({'40': override({layoutOverride: 'single'})}));
+
+        // What the canvas cannot read stays cached: where a split falls, an
+        // output mode that is still bilevel, and everything that is not a
+        // canvas input at all.
+        expect(keyFor({'40': override({manualSplit: {
+            xNormalized: 0.5,
+            rotationDegrees: 0,
+        }})})).toBe(keyFor({'40': override({manualSplit: {
+            xNormalized: 0.31,
+            rotationDegrees: 0,
+        }})}));
+        expect(keyFor({'40': override({outputModeOverride: 'bw'})})).not.toBe(untouched);
+        expect(keyFor({'40': override({outputModeOverride: 'color'})}))
+            .toBe(keyFor({'40': override({outputModeOverride: 'grayscale'})}));
+        expect(keyFor({'40': override({rotationDegrees: 90})})).toBe(untouched);
+
+        // The same document answers the same key whatever order its overrides
+        // were recorded in.
+        expect(keyFor({
+            '40': override({excluded: true}),
+            '7': override({layoutOverride: 'spread'}),
+        })).toBe(keyFor({
+            '7': override({layoutOverride: 'spread'}),
+            '40': override({excluded: true}),
+        }));
+
+        // And without matching there is no shared canvas for any of it to move.
+        const unmatched = {
+            ...previewOptions,
+            matchPageSize: false,
+        };
+        expect(createScanCleanupPreviewCacheKey(
+            1,
+            unmatched,
+            '/tmp/source.pdf',
+            'rev',
+            null,
+            '',
+            scanCleanupMatchedCanvasOverridesSignature({'40': override({excluded: true})}),
+        )).toBe(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null));
+    });
+
+    it('reads a partially written override the way the canvas reads it', () => {
+        // The record also arrives from disk and across the bridge, where an
+        // entry can be missing the fields it was never given. The canvas fills
+        // those in from the defaults, so a signature that read the raw entry
+        // would answer a different key for a document the canvas measures
+        // identically — and throw away every cached page of it.
+        expect(scanCleanupMatchedCanvasOverridesSignature({'40': sparse({excluded: true})}))
+            .toBe(scanCleanupMatchedCanvasOverridesSignature({'40': override({excluded: true})}));
+        // An entry with nothing the canvas reads still reduces away entirely,
+        // whether it is written whole or not at all.
+        expect(scanCleanupMatchedCanvasOverridesSignature({'40': sparse({rotationDegrees: 90})})).toBe('');
+        expect(scanCleanupMatchedCanvasOverridesSignature({'40': sparse({})})).toBe('');
     });
 
     it('lets the byte budget bind before the entry count', () => {

@@ -5,7 +5,9 @@
   "canvasScope": "document",
   "documentCanvas": {
     "widthPoints": 420.25,
-    "heightPoints": 612.5
+    "heightPoints": 612.5,
+    "widthPx": 1751,
+    "heightPx": 2552
   },
   "pages": [
     {

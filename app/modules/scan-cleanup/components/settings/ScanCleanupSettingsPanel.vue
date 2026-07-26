@@ -267,6 +267,7 @@
             >
                 <template #entry>
                     <UInputNumber
+                        class="scan-cleanup-manual-skew-input"
                         :model-value="manualSkewEntryValue"
                         :min="SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES"
                         :max="SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES"
@@ -345,7 +346,7 @@
                         @click="$emit('update-placement', item.value)"
                     />
                 </div>
-                <p class="scan-cleanup-selection-hint is-reserved">
+                <p class="scan-cleanup-selection-hint is-reserved is-two-lines">
                     {{ settings.matchPageSize ? '' : t('scanCleanup.settings.enableMatchPageSize') }}&nbsp;
                 </p>
             </div>
@@ -479,6 +480,11 @@
                 :label="t('scanCleanup.pageSize.match')"
                 @update:model-value="updateDocument('matchPageSize', $event === true)"
             />
+            <p class="scan-cleanup-selection-hint is-reserved is-two-lines">
+                {{ settings.preserveOriginalQuality && settings.matchPageSize
+                    ? t('scanCleanup.pageSize.matchLosslessNote')
+                    : '' }}&nbsp;
+            </p>
             <UCheckbox
                 :model-value="settings.skipBlankPages"
                 :label="t('scanCleanup.crop.skipBlank')"

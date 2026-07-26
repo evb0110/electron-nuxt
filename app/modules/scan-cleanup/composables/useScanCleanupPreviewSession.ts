@@ -1,7 +1,6 @@
 import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
-    IScanCleanupDocumentCanvasPlan,
     IScanCleanupRawPreviewEvent,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
@@ -9,7 +8,12 @@ import type {
     TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {
+    getScanCleanupPageOverride,
+    scanCleanupLayoutSignature,
+    scanCleanupMatchedCanvasOverridesSignature,
+    toScanCleanupLayoutByPage,
+} from '@contracts/scanCleanupPageOverrides';
 import type {
     ComputedRef,
     Ref,
@@ -32,13 +36,17 @@ type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata'
  * and only ever applied while a preview is already rendering.
  */
 const SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS = 600;
+// How many times a page may re-ask for a preview that answered `canceled`
+// before it stops. Two covers losing the run to a supersede and then to the
+// prefetch drop behind it; beyond that something is wrong that retrying will
+// not fix.
+const PREVIEW_CANCELLATION_RETRY_LIMIT = 2;
 
 interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
     documentRevision: ComputedRef<string>;
     documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
-    documentCanvasPlan: ComputedRef<IScanCleanupDocumentCanvasPlan | undefined>;
     initialViewMode?: 'original' | 'cleaned' | undefined;
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
@@ -55,17 +63,29 @@ export function createScanCleanupPreviewCacheKey(
     previewSourcePath: TDocumentRef | null,
     documentRevision: string | null = null,
     documentPrior: IScanCleanupDocumentPrior | null = null,
-    documentCanvasPlan: IScanCleanupDocumentCanvasPlan | null = null,
+    // Already reduced by scanCleanupLayoutSignature: a cache key is asked for
+    // once per page on every schedule and every prefetch candidate, and
+    // reducing the whole document's layouts inside each of those turns one
+    // navigation into a pass over every page of the document, repeatedly.
+    layoutSignature = '',
+    // Likewise already reduced, by scanCleanupMatchedCanvasOverridesSignature.
+    // This one cannot be derived here at all: `previewOptions` carries only the
+    // keyed page's override, and the canvas is measured from every page's.
+    matchedCanvasOverridesSignature = '',
 ) {
     const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
     // Detection's contribution is keyed separately from the page's identity: it
     // lands for the whole document at once, and the cache revalidates an entry
-    // against it instead of orphaning it. The plan reaches the sidecar only
-    // under matchPageSize (createScanCleanupPreviewService.ts:1117-1123), so a
-    // plan the render cannot consume must not re-key the page.
+    // against it instead of orphaning it. The matched canvas belongs here too:
+    // the main process measures it from the document's geometry, from these
+    // layouts and from every page's own overrides, so a detection pass that
+    // changes which pages are spreads — or an exclusion, a layout choice, a
+    // manual split or an output mode set on some other page — changes the
+    // rectangle every page was drawn on.
     const validity = JSON.stringify({
         documentPrior,
-        documentCanvasPlan: previewOptions.matchPageSize ? documentCanvasPlan : null,
+        layouts: previewOptions.matchPageSize ? layoutSignature : '',
+        canvasOverrides: previewOptions.matchPageSize ? matchedCanvasOverridesSignature : '',
     });
     const identity = JSON.stringify({
         sourcePath: previewSourcePath,
@@ -122,7 +142,7 @@ export function createScanCleanupDetailTileCacheKey(
 }
 
 function carriesRaster(value: TScanCleanupPreviewWireResult): value is IScanCleanupPreviewResult {
-    return value.rawImageData !== undefined;
+    return value.canceled !== true && value.rawImageData !== undefined;
 }
 
 export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSessionOptions) => {
@@ -149,6 +169,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let detailRetriesRemaining = 0;
     let scheduledPage: number | null = null;
     let scheduledKey: string | null = null;
+    let cancellationRetryKey: string | null = null;
+    let cancellationRetries = 0;
     const inFlightPreviewPages: number[] = [];
     // A base preview pushes its page's raster the moment it exists and leaves
     // it out of the result it resolves with, so the bytes cross once. They wait
@@ -208,9 +230,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     /**
      * Puts the streamed raster back on the result it was rendered from. A
-     * detail tile answers with its own raster and needs nothing.
+     * detail tile answers with its own raster and needs nothing. A cancelled
+     * request has no result at all and answers with null.
      */
-    function withStreamedRaw(previewResult: TScanCleanupPreviewWireResult): IScanCleanupPreviewResult {
+    function withStreamedRaw(previewResult: TScanCleanupPreviewWireResult): IScanCleanupPreviewResult | null {
+        if (previewResult.canceled === true) {
+            return null;
+        }
         if (carriesRaster(previewResult)) {
             return previewResult;
         }
@@ -240,9 +266,28 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             previewSourcePath,
             options.documentRevision.value,
             options.documentPriorByPage.get(pageNumber) ?? null,
-            options.documentCanvasPlan.value ?? null,
+            layoutSignature.value,
+            matchedCanvasOverridesSignature.value,
         );
     }
+
+    // The layouts the main process measures the matched canvas from. They are
+    // the renderer's own view of the document — the detection the user watched
+    // run, plus their manual layout choices — so the preview it draws and the
+    // run it starts are measured against the same document.
+    //
+    // Both are derived once per change of that view rather than once per
+    // request: every preview, prefetch candidate and cache key of a burst reads
+    // the same record and the same signature.
+    const layoutByPage = computed(() => toScanCleanupLayoutByPage(options.authoritativeLayoutByPage.value));
+    const layoutSignature = computed(() => scanCleanupLayoutSignature(layoutByPage.value));
+    // The other half of what the canvas is measured from: the page overrides of
+    // the whole document, which a single page's cache key cannot see. Derived
+    // once per settings change for the same reason — a burst reads it, it does
+    // not recompute it.
+    const matchedCanvasOverridesSignature = computed(
+        () => scanCleanupMatchedCanvasOverridesSignature(options.settings.pageOverrides),
+    );
 
     function cachePreview(key: string, previewResult: IScanCleanupPreviewResult) {
         cache.set(key, previewResult);
@@ -316,9 +361,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     pageNumber,
                     options: previewOptions,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
-                    ...(options.documentCanvasPlan.value === undefined
-                        ? {}
-                        : {documentCanvasPlan: options.documentCanvasPlan.value}),
+                    layoutByPage: layoutByPage.value,
                 },
             };
         }));
@@ -349,6 +392,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // every page's work stale and keeps no window.
         const navigated = scheduledPage !== null
             && scheduledKey === cacheKey(scheduledPage, requestOptions, requestSourcePath);
+        // Turning to another page starts a new attempt at whatever page the
+        // user lands on, including the one that gave up earlier.
+        if (scheduledPage !== requestPage) {
+            cancellationRetryKey = null;
+            cancellationRetries = 0;
+        }
         scheduledPage = requestPage;
         scheduledKey = key;
         const activeDetailSourceKey = detailSourceKey(key, resolveDetailOutputMode(requestPage));
@@ -406,10 +455,35 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     options: requestOptions,
                     visible: true,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
-                    ...(options.documentCanvasPlan.value === undefined
-                        ? {}
-                        : {documentCanvasPlan: options.documentCanvasPlan.value}),
+                    layoutByPage: layoutByPage.value,
                 })));
+                // A cancelled request has no result to keep or display. When the
+                // page it was rendering is still the page the user is on, the
+                // run was retired by something that has since finished — a
+                // superseded generation, a prefetch whose lease was dropped —
+                // so the page is asked for again instead of being left on a
+                // spinner that nothing will ever answer. The budget is per key,
+                // so a page that keeps losing its run stops rather than looping.
+                if (previewResult === null) {
+                    if (requestSequence === sequence) {
+                        if (cancellationRetryKey !== key) {
+                            cancellationRetryKey = key;
+                            cancellationRetries = 0;
+                        }
+                        if (cancellationRetries < PREVIEW_CANCELLATION_RETRY_LIMIT) {
+                            cancellationRetries += 1;
+                            timer = setTimeout(schedule, 0);
+                            return;
+                        }
+                        // Out of budget. Saying so puts the page on the same
+                        // recoverable footing a failed render has — the error
+                        // surface carries a Retry — instead of leaving a blank
+                        // frame that nothing will ever fill.
+                        error.value = t('scanCleanup.preview.canceledRepeatedly');
+                    }
+                    return;
+                }
+                cancellationRetryKey = null;
                 // Cached before the staleness check: the key names the page and
                 // the options that produced this result, so a preview that
                 // outlived the navigation that asked for it is still exactly
@@ -470,6 +544,20 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         });
     }
 
+    function scheduleDetailRetry(
+        viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+        requestSequence: number,
+    ) {
+        if (requestSequence !== detailSequence || detailRetriesRemaining <= 0) {
+            return;
+        }
+        detailRetriesRemaining -= 1;
+        detailRetryTimer = setTimeout(() => {
+            detailRetryTimer = null;
+            void requestDetail(viewports, true);
+        }, 1_000);
+    }
+
     async function requestDetail(
         viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
         isRetry = false,
@@ -518,9 +606,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 pageNumber: requestPage,
                 options: requestOptions,
                 ...(documentPrior === undefined ? {} : {documentPrior}),
-                ...(options.documentCanvasPlan.value === undefined
-                    ? {}
-                    : {documentCanvasPlan: options.documentCanvasPlan.value}),
+                layoutByPage: layoutByPage.value,
                 detail: {
                     viewports,
                     outputMode,
@@ -529,20 +615,21 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
                 return;
             }
+            // A cancelled tile has no result; the viewport is stationary, so it
+            // takes the same bounded retry a failed one does rather than
+            // waiting for a gesture that is not coming.
+            if (next === null) {
+                scheduleDetailRetry(viewports, requestSequence);
+                return;
+            }
             detailSourceCache.set(tileKey, next);
             detailResult.value = next;
             displayedDetailSourceKey = sourceKey;
         } catch (caught) {
+            // A failed detail render retries on its own: the viewport is
+            // stationary, so no user gesture would otherwise re-request it.
             if (!(caught instanceof Error && caught.name === 'AbortError')) {
-                // A failed detail render retries on its own: the viewport is
-                // stationary, so no user gesture would otherwise re-request it.
-                if (requestSequence === detailSequence && detailRetriesRemaining > 0) {
-                    detailRetriesRemaining -= 1;
-                    detailRetryTimer = setTimeout(() => {
-                        detailRetryTimer = null;
-                        void requestDetail(viewports, true);
-                    }, 1_000);
-                }
+                scheduleDetailRetry(viewports, requestSequence);
             }
         } finally {
             if (requestSequence === detailSequence) {
@@ -552,6 +639,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }
 
     function retry() {
+        // The user asking again is a fresh start: the budget that gave up is
+        // theirs to spend again.
+        cancellationRetryKey = null;
+        cancellationRetries = 0;
         cache.delete(cacheKey(options.previewPage.value));
         schedule();
     }
@@ -569,6 +660,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }, {immediate: true});
     watch(options.lifecycleDocumentKey, () => {
         invalidateDetailRequest();
+        cancellationRetryKey = null;
+        cancellationRetries = 0;
+        error.value = '';
         cache.clear();
         detailSourceCache.clear();
         metadataByPage.clear();

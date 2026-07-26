@@ -77,11 +77,7 @@ const LOSSLESS_STAGE_WEIGHTS = [
     ],
 ] as const satisfies TStageWeights;
 
-export function createScanCleanupProgressReporter(
-    callback: (progress: TScanCleanupProgress) => void,
-    preserveOriginalQuality: boolean,
-): TEmitScanCleanupProgress {
-    const weights: TStageWeights = preserveOriginalQuality ? LOSSLESS_STAGE_WEIGHTS : RASTER_STAGE_WEIGHTS;
+function resolveBands(weights: TStageWeights) {
     const totalWeight = weights.reduce((sum, [
         , weight,
     ]) => sum + weight, 0);
@@ -100,10 +96,28 @@ export function createScanCleanupProgressReporter(
         });
         consumedWeight += weight;
     }
+    return bands;
+}
 
+// Both profiles are fixed tables, so they are laid out once rather than on
+// every progress report a run emits.
+const RASTER_BANDS = resolveBands(RASTER_STAGE_WEIGHTS);
+const LOSSLESS_BANDS = resolveBands(LOSSLESS_STAGE_WEIGHTS);
+
+/**
+ * `isLossless` is read per report rather than captured: a matched run that
+ * cannot keep a page's own pixels starts on the lossless profile and then
+ * renders, and a profile fixed at the first report would leave the meter frozen
+ * through the longest stage of the run it actually performed. The percentage
+ * only ever moves forward, so the switch can hold it but never rewind it.
+ */
+export function createScanCleanupProgressReporter(
+    callback: (progress: TScanCleanupProgress) => void,
+    isLossless: () => boolean,
+): TEmitScanCleanupProgress {
     let lastPercent = 0;
     return (stage, completedUnits, totalUnits, completedPageNumbers) => {
-        const band = bands.get(stage);
+        const band = (isLossless() ? LOSSLESS_BANDS : RASTER_BANDS).get(stage);
         const fraction = totalUnits > 0 ? Math.min(1, completedUnits / totalUnits) : 0;
         const percent = band === undefined ? lastPercent : band.start + (band.span * fraction);
         lastPercent = Math.min(100, Math.max(lastPercent, percent));

@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type {WebContents} from 'electron';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import type * as TPageOpsModule from '@electron/features/page-ops/public';
 import type * as TJobBrokerModule from '@electron/resources/jobBroker';
 import {decodeScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
@@ -44,6 +45,7 @@ const mocks = vi.hoisted(() => {
         acquire,
         host,
         hostProfile: () => host as IHostResourceProfileSnapshot,
+        pageOpsDisabled: false,
         runWorker,
     };
 });
@@ -66,10 +68,16 @@ vi.mock('@electron/pdf/nativeToolPaths', () => {
     const getPdfNativeToolPaths = () => ({
         qpdf: '/qpdf',
         pdftoppm: '/pdftoppm',
+        pdfinfo: '/pdfinfo',
     });
     return {getPdfNativeToolPaths};
 });
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/scan-cleanup'}));
+vi.mock('@electron/features/page-ops/public', async importOriginal => ({
+    ...await importOriginal<typeof TPageOpsModule>(),
+    isNativePageOpsDisabled: () => mocks.pageOpsDisabled,
+    resolveNativePageOpsPath: () => '/page-ops',
+}));
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
     {resolveNativePdfImageCombinePath: () => '/pdf-image-combine'}
 ));
@@ -98,6 +106,7 @@ const startRequest = {
     ...owner,
     sourcePdfPath: '/source.pdf',
     sourcePageNumbers: [3],
+    layoutByPage: {'3': 'two-page-spread' as const},
     options: {
         preserveOriginalQuality: false,
         layoutMode: 'auto' as const,
@@ -134,6 +143,7 @@ describe('scan cleanup service', () => {
     beforeEach(() => {
         mocks.acquire.mockClear();
         mocks.runWorker.mockClear();
+        mocks.pageOpsDisabled = false;
         Object.assign(mocks.host, {
             logicalCpus: 11,
             totalRamBytes: 32 * 1024 ** 3,
@@ -204,6 +214,77 @@ describe('scan cleanup service', () => {
             priority: 'user',
             resources: leased,
         })).resolves.toBeDefined();
+    });
+
+    it('gives a default raster run the page-ops tool its matched canvas is measured with', async () => {
+        const service = createScanCleanupService();
+        await service.start(sender(), startRequest);
+
+        await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
+        // The default run is a raster run with matching on. Resolving page-ops
+        // only for lossless runs is how matching used to be dropped without
+        // telling anyone.
+        expect(mocks.runWorker.mock.calls[0]![0]).toMatchObject({options: {
+            preserveOriginalQuality: false,
+            matchPageSize: true,
+        }});
+        expect(mocks.runWorker.mock.calls[0]![1]).toMatchObject({pdfPageOpsBinary: '/page-ops'});
+        // And the layouts the preview measured its canvas from reach the run, so
+        // the run measures the same rectangle.
+        expect(mocks.runWorker.mock.calls[0]![0]).toMatchObject({layoutByPage: {'3': 'two-page-spread'}});
+    });
+
+    it('leaves page-ops out of a run that needs no page geometry', async () => {
+        const service = createScanCleanupService();
+        await service.start(sender(), {
+            ...startRequest,
+            options: {
+                ...startRequest.options,
+                matchPageSize: false,
+            },
+        });
+
+        await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
+        expect(mocks.runWorker.mock.calls[0]![1]).not.toHaveProperty('pdfPageOpsBinary');
+    });
+
+    it('keeps a matched raster run going on Poppler geometry when page-ops is disabled', async () => {
+        mocks.pageOpsDisabled = true;
+        const service = createScanCleanupService();
+        await service.start(sender(), startRequest);
+
+        // Matching is a default setting and the geometry it needs is something
+        // Poppler reports too, so disabling page-ops does not take the feature
+        // away — the worker is handed pdfinfo instead.
+        await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
+        expect(mocks.runWorker.mock.calls[0]![1]).not.toHaveProperty('pdfPageOpsBinary');
+        expect(mocks.runWorker.mock.calls[0]![1]).toMatchObject({pdfinfoBinary: expect.any(String)});
+        expect(mocks.runWorker.mock.calls[0]![0]).toMatchObject({options: {matchPageSize: true}});
+    });
+
+    it('names the tool a lossless run cannot start without', async () => {
+        mocks.pageOpsDisabled = true;
+        const service = createScanCleanupService();
+        const webContents = sender();
+        const started = await service.start(webContents, {
+            ...startRequest,
+            options: {
+                ...startRequest.options,
+                preserveOriginalQuality: true,
+            },
+        });
+        if (!started.started) throw new Error('Expected scan cleanup to start');
+
+        // The lossless path assembles with evb-pdf-page-ops itself, so there is
+        // nothing to fall back to and the run says which tool is missing.
+        await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
+            .toMatchObject({
+                status: 'failed',
+                errorCode: 'internal',
+            }));
+        const terminal = service.getState(webContents, started.jobId, owner);
+        expect(terminal?.status === 'failed' ? terminal.error : '').toContain('evb-pdf-page-ops');
+        expect(mocks.runWorker).not.toHaveBeenCalled();
     });
 
     it('treats cancellation of an already-terminal owned job as a successful no-op', async () => {

@@ -35,7 +35,7 @@
                         class="scan-cleanup-run-meter-phase"
                         role="status"
                         aria-live="polite"
-                    >{{ progressPhaseText }}</span>
+                    >{{ transitionText || progressPhaseText }}</span>
                     <span
                         v-if="progressCountText"
                         class="scan-cleanup-run-meter-count"
@@ -138,7 +138,7 @@
                         color="primary"
                         size="sm"
                         icon="i-ph-play"
-                        :label="transitionText || runLabel"
+                        :label="runLabel"
                         :disabled="!canRun"
                         @click="emit('run')"
                     />

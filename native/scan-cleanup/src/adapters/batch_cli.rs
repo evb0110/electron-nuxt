@@ -43,6 +43,14 @@ struct WrittenOutput {
     half: crate::pipeline::PageHalf,
     width: usize,
     height: usize,
+    /// The paper this output is responsible for: the region of the rotated
+    /// sheet it was cut from, in the pixels the page was rendered at. Matching
+    /// scales by the paper rather than by the cropped raster, and a spread half
+    /// owns half a sheet — scaling both halves by the whole sheet leaves a
+    /// document where a page scanned alone is twice the size of the same page
+    /// scanned as half of a spread, on a sheet that is half empty.
+    paper_width: f64,
+    paper_height: f64,
 }
 
 #[derive(Serialize)]
@@ -1073,6 +1081,8 @@ fn run_page(
                 half: output.metadata.half,
                 width: output.image.width(),
                 height: output.image.height(),
+                paper_width: output.metadata.source_region.width,
+                paper_height: output.metadata.source_region.height,
             });
         }
         Ok(())
@@ -1238,6 +1248,86 @@ fn run_classification(
     })
 }
 
+/// Where one output lands on the document canvas: the size its intrinsic
+/// raster takes on the canvas grid, and the origin it takes it at.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CanvasPlacement {
+    content_width: usize,
+    content_height: usize,
+    left: usize,
+    top: usize,
+    /// The page could not hold the document's scale and was fitted below it,
+    /// which happens when margins push content past the paper it was measured
+    /// on. Nothing is clipped; the page is simply smaller than its neighbours.
+    overflow: bool,
+    /// What the paper this output was cut from is worth on the canvas. Above 1
+    /// a smaller sheet is resampled up to the document's scale, which is the
+    /// point of matching; below 1 the sheet is larger than the rectangle the
+    /// document was measured onto, so this page alone lands below that scale.
+    paper_scale: f64,
+    /// The paper is larger than the canvas by more than the grid's rounding:
+    /// the sheet was cut into fewer pages than the rectangle was measured for,
+    /// so this page is letterboxed below the document's scale while the grid
+    /// and every neighbouring page stay exactly as they were.
+    undersized_paper: bool,
+}
+
+/// A rectangle rounded onto the canvas grid can land a pixel outside a grid
+/// derived from the same rectangle in points. Fitting a page for that pixel
+/// would resample a page that already matches the document, so the grid carries
+/// a one-pixel tolerance and only a real difference is fitted.
+const CANVAS_GRID_TOLERANCE_PX: f64 = 1.0;
+
+/// Normalizes one output onto the canvas: the scale that takes the *paper* it
+/// was cut from to the canvas rectangle, expressed on the canvas pixel grid.
+///
+/// Scaling by the paper rather than by the cropped raster is what keeps a
+/// document at one visual scale. A page cropped to a small content box is not
+/// zoomed to fill the sheet because its margins were trimmed; a page whose
+/// paper is half the size of the canvas — a lower-resolution scan of the same
+/// original, a genuinely smaller sheet, or one half of a spread — is resampled
+/// up until its ink matches everything around it.
+fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> CanvasPlacement {
+    let paper_width_points = output.paper_width.max(1.0) / output.options.dpi * 72.0;
+    let paper_height_points = output.paper_height.max(1.0) / output.options.dpi * 72.0;
+    let paper_scale =
+        (canvas.width_points / paper_width_points).min(canvas.height_points / paper_height_points);
+    // Paper rounded onto the canvas grid, against the grid itself: a page
+    // measured to the pixel of the canvas is the page the canvas was measured
+    // from, and only paper that needs more grid than there is — a sheet cut
+    // into fewer pages than the rectangle expected — is a real difference.
+    let undersized_paper = paper_width_points / canvas.width_points * canvas.width_px as f64
+        > canvas.width_px as f64 + CANVAS_GRID_TOLERANCE_PX
+        || paper_height_points / canvas.height_points * canvas.height_px as f64
+            > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
+    let pixel_scale = paper_scale * canvas.dpi() / output.options.dpi;
+    let mut scaled_width = output.width as f64 * pixel_scale;
+    let mut scaled_height = output.height as f64 * pixel_scale;
+    let overflow = scaled_width > canvas.width_px as f64 + CANVAS_GRID_TOLERANCE_PX
+        || scaled_height > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
+    if overflow {
+        let fit = (canvas.width_px as f64 / scaled_width.max(1.0))
+            .min(canvas.height_px as f64 / scaled_height.max(1.0));
+        scaled_width *= fit;
+        scaled_height *= fit;
+    }
+    let content_width = (scaled_width.round() as usize).clamp(1, canvas.width_px);
+    let content_height = (scaled_height.round() as usize).clamp(1, canvas.height_px);
+    let (left, top) = output.options.placement_for(output.half).offset(
+        canvas.width_px - content_width,
+        canvas.height_px - content_height,
+    );
+    CanvasPlacement {
+        content_width,
+        content_height,
+        left,
+        top,
+        overflow,
+        paper_scale,
+        undersized_paper,
+    }
+}
+
 fn match_page_sizes(
     outputs: &[WrittenOutput],
     preview_mode: bool,
@@ -1250,64 +1340,87 @@ fn match_page_sizes(
     if eligible.is_empty() {
         return Ok(());
     }
-
-    let target_width_points = document_canvas.map_or_else(
-        || {
-            eligible
-                .iter()
-                .map(|output| output.width as f64 / output.options.dpi * 72.0)
-                .fold(0.0, f64::max)
-        },
-        |canvas| canvas.width_points,
-    );
-    let target_height_points = document_canvas.map_or_else(
-        || {
-            eligible
-                .iter()
-                .map(|output| output.height as f64 / output.options.dpi * 72.0)
-                .fold(0.0, f64::max)
-        },
-        |canvas| canvas.height_points,
-    );
+    // Without a plan there is no document-wide answer to derive here: this
+    // process sees one manifest, and a canvas invented from the outputs it
+    // happens to hold is a different rectangle for every window and for the
+    // preview. The caller has to measure it and say so.
+    let Some(canvas) = document_canvas else {
+        return Err(invalid(
+            "Matched page size requires a documentCanvas plan; the manifest carried none",
+        )
+        .into());
+    };
+    let target_width = canvas.width_px;
+    let target_height = canvas.height_px;
 
     for output in eligible {
         let repad_result = (|| -> Result<(), Box<dyn Error>> {
-            let target_width = ((target_width_points / 72.0) * output.options.dpi)
-                .ceil()
-                .max(output.width as f64) as usize;
-            let target_height = ((target_height_points / 72.0) * output.options.dpi)
-                .ceil()
-                .max(output.height as f64) as usize;
             validate_canvas(target_width, target_height, output)?;
-            let available_width = target_width - output.width;
-            let available_height = target_height - output.height;
-            let (left, top) = output
-                .options
-                .placement_for(output.half)
-                .offset(available_width, available_height);
-            let right = available_width - left;
-            let bottom = available_height - top;
+            let placement = plan_canvas_placement(output, &canvas);
+            let CanvasPlacement {
+                content_width,
+                content_height,
+                left,
+                top,
+                ..
+            } = placement;
+            let right = target_width - content_width - left;
+            let bottom = target_height - content_height - top;
             let mut metadata: CleanupMetadata =
                 serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
             metadata.soft_margins_pixels = [left, top, right, bottom];
             metadata.uniform_canvas = true;
             metadata.canvas_policy = MatchedCanvasPolicy::StrictMaximum;
-            metadata.canvas_overflow = false;
+            metadata.canvas_overflow = placement.overflow;
             metadata.matched_canvas_target_width = Some(target_width);
             metadata.matched_canvas_target_height = Some(target_height);
-            metadata.matched_canvas_target_width_points = Some(target_width_points);
-            metadata.matched_canvas_target_height_points = Some(target_height_points);
+            metadata.matched_canvas_target_width_points = Some(canvas.width_points);
+            metadata.matched_canvas_target_height_points = Some(canvas.height_points);
+            metadata.matched_canvas_content_width = Some(content_width);
+            metadata.matched_canvas_content_height = Some(content_height);
             metadata.canvas_width = target_width;
             metadata.canvas_height = target_height;
             metadata.placement_offset_x = left;
             metadata.placement_offset_y = top;
+            // A page that cannot hold the document's scale is a visible result,
+            // not a diagnostic: it ends up smaller than its neighbours, so the
+            // run says which page and by how much rather than leaving the user
+            // to find it.
+            if placement.overflow {
+                metadata.warnings.push(format!(
+                    "Matched page size fitted this page to {content_width}x{content_height} px \
+                     inside the {target_width}x{target_height} px document canvas, \
+                     below the document's scale"
+                ));
+            }
+            // The other way a page ends up below the document's scale, and the
+            // quieter one: its paper is larger than the canvas, so it is scaled
+            // down into a rectangle the document was measured onto for a
+            // differently cut sheet. The grid stays uniform and nothing is
+            // clipped, which is exactly why this has to be said rather than
+            // seen.
+            if placement.undersized_paper {
+                let percent = placement.paper_scale * 100.0;
+                metadata.warnings.push(format!(
+                    "Matched page size placed this page at {percent:.1}% of the document's scale \
+                     because its paper is larger than the \
+                     {target_width}x{target_height} px document canvas, \
+                     which was measured from a different layout for this page"
+                ));
+            }
 
-            // Repad whichever raster actually carries the page. Only one of the
-            // three is on disk, so this decodes each page at most once.
-            if !preview_mode
-                && !metadata.layered_written
-                && (available_width != 0 || available_height != 0)
-            {
+            // A preview leaves its raster at the resolution it was rendered at
+            // and reports the box it occupies, because the renderer scales it
+            // to the frame anyway. A final run owns the pixels the assembler
+            // embeds, so it resamples them onto the canvas grid here.
+            let rewrite_raster = !preview_mode
+                && (content_width != output.width
+                    || content_height != output.height
+                    || content_width != target_width
+                    || content_height != target_height);
+            // Resample whichever raster actually carries the page. Only one of
+            // the three is on disk, so this decodes each page at most once.
+            if rewrite_raster && !metadata.layered_written {
                 if metadata.bilevel_written {
                     let bilevel_path = output.bilevel_output_path.as_ref().ok_or_else(|| {
                         invalid("Bilevel cleanup metadata is missing its output destination")
@@ -1318,9 +1431,14 @@ fn match_page_sizes(
                         output.options.max_dimension,
                     )
                     .map_err(map_image_error)?;
-                    let canvas =
-                        place_on_white_canvas(&image, target_width, target_height, left, top);
-                    pbm::write_p4_atomic(bilevel_path, &canvas)
+                    let canvas_image = place_on_white_canvas(
+                        &resample_bilevel(&image, content_width, content_height),
+                        target_width,
+                        target_height,
+                        left,
+                        top,
+                    );
+                    pbm::write_p4_atomic(bilevel_path, &canvas_image)
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                 } else if output.is_color {
                     let image = raster::read_image(
@@ -1329,9 +1447,14 @@ fn match_page_sizes(
                         output.options.max_dimension,
                     )?
                     .rgb;
-                    let canvas =
-                        place_rgb_on_white_canvas(&image, target_width, target_height, left, top);
-                    png::write_rgb_atomic(&output.output_path, &canvas)
+                    let canvas_image = place_rgb_on_white_canvas(
+                        &image.resample_to_dimensions(content_width, content_height),
+                        target_width,
+                        target_height,
+                        left,
+                        top,
+                    );
+                    png::write_rgb_atomic(&output.output_path, &canvas_image)
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                 } else {
                     let image = raster::read_gray(
@@ -1340,11 +1463,23 @@ fn match_page_sizes(
                         output.options.max_dimension,
                     )
                     .map_err(map_image_error)?;
-                    let canvas =
-                        place_on_white_canvas(&image, target_width, target_height, left, top);
-                    png::write_gray_atomic(&output.output_path, &canvas)
+                    let canvas_image = place_on_white_canvas(
+                        &image.resample_to_dimensions(content_width, content_height),
+                        target_width,
+                        target_height,
+                        left,
+                        top,
+                    );
+                    png::write_gray_atomic(&output.output_path, &canvas_image)
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                 }
+            }
+            if !preview_mode {
+                // The published raster is the canvas now, so the intrinsic
+                // dimensions the assembler and the renderer read are the ones
+                // it actually carries.
+                metadata.output_width = content_width;
+                metadata.output_height = content_height;
             }
             if !preview_mode && metadata.layered_written {
                 let layer_result = (|| -> Result<(), Box<dyn Error>> {
@@ -1364,25 +1499,35 @@ fn match_page_sizes(
                         output.options.max_dimension,
                     )
                     .map_err(map_image_error)?;
-                    let mask = if available_width == 0 && available_height == 0 {
-                        mask
-                    } else {
-                        place_on_white_canvas(&mask, target_width, target_height, left, top)
-                    };
+                    let mask = place_on_white_canvas(
+                        &resample_bilevel(&mask, content_width, content_height),
+                        target_width,
+                        target_height,
+                        left,
+                        top,
+                    );
                     pbm::write_p4_atomic(mask_path, &mask)
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
 
+                    // The background carries the same page at a coarser grid,
+                    // so it is normalized on its own grid rather than on the
+                    // mask's: the pair keeps the ratio the assembler expects.
                     let background_dpi = metadata
                         .layered_background_dpi
                         .unwrap_or(output.options.source_dpi().min(output.options.dpi));
-                    let background_width = ((target_width as f64 * background_dpi
-                        / output.options.dpi)
-                        .round() as usize)
-                        .max(1);
-                    let background_height = ((target_height as f64 * background_dpi
-                        / output.options.dpi)
-                        .round() as usize)
-                        .max(1);
+                    let background_ratio = background_dpi / output.options.dpi;
+                    let on_background_grid =
+                        |value: usize| ((value as f64 * background_ratio).round() as usize).max(1);
+                    let background_width = on_background_grid(target_width);
+                    let background_height = on_background_grid(target_height);
+                    let background_content_width =
+                        on_background_grid(content_width).min(background_width);
+                    let background_content_height =
+                        on_background_grid(content_height).min(background_height);
+                    let background_left = ((left as f64 * background_ratio).round() as usize)
+                        .min(background_width - background_content_width);
+                    let background_top = ((top as f64 * background_ratio).round() as usize)
+                        .min(background_height - background_content_height);
                     if output.is_color {
                         let background = raster::read_image(
                             background_path,
@@ -1390,21 +1535,15 @@ fn match_page_sizes(
                             output.options.max_dimension,
                         )?
                         .rgb;
-                        let background = if available_width == 0 && available_height == 0 {
-                            background
-                        } else {
-                            place_rgb_on_white_canvas(
-                                &background,
-                                target_width,
-                                target_height,
-                                left,
-                                top,
-                            )
-                        };
-                        let background = downscale_rgb_to_dimensions(
-                            &background,
+                        let background = place_rgb_on_white_canvas(
+                            &background.resample_to_dimensions(
+                                background_content_width,
+                                background_content_height,
+                            ),
                             background_width,
                             background_height,
+                            background_left,
+                            background_top,
                         );
                         png::write_rgb_atomic(background_path, &background)
                             .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
@@ -1415,19 +1554,16 @@ fn match_page_sizes(
                             output.options.max_dimension,
                         )
                         .map_err(map_image_error)?;
-                        let background = if available_width == 0 && available_height == 0 {
-                            background
-                        } else {
-                            place_on_white_canvas(
-                                &background,
-                                target_width,
-                                target_height,
-                                left,
-                                top,
-                            )
-                        };
-                        let background =
-                            background.downscale_to_dimensions(background_width, background_height);
+                        let background = place_on_white_canvas(
+                            &background.resample_to_dimensions(
+                                background_content_width,
+                                background_content_height,
+                            ),
+                            background_width,
+                            background_height,
+                            background_left,
+                            background_top,
+                        );
                         png::write_gray_atomic(background_path, &background)
                             .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                     }
@@ -1478,6 +1614,18 @@ fn robust_quantile_dimension(values: impl Iterator<Item = usize>) -> usize {
     values.sort_unstable();
     let rank = values.len().saturating_mul(9).div_ceil(10).max(1);
     values[rank - 1]
+}
+
+/// Resamples a bilevel page and keeps it bilevel: the interpolated edge is
+/// resolved back to ink or paper, because P4 carries nothing in between.
+fn resample_bilevel(source: &GrayImage, width: usize, height: usize) -> GrayImage {
+    let mut resampled = source.resample_to_dimensions(width, height);
+    for y in 0..resampled.height() {
+        for x in 0..resampled.width() {
+            resampled.set(x, y, if resampled.get(x, y) < 128 { 0 } else { 255 });
+        }
+    }
+    resampled
 }
 
 fn place_on_white_canvas(

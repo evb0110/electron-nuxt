@@ -199,11 +199,16 @@
                     <span
                         class="preview-viewport-caption"
                         :class="{'is-cleaning': cleaningNoticeVisible}"
-                        :aria-hidden="!cleaningNoticeVisible"
+                        :aria-hidden="!cleaningNoticeVisible && canvasNotice === ''"
+                        :data-canvas-notice="canvasNoticeKind"
                     >
                         <template v-if="cleaningNoticeVisible">
                             <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
                             {{ t('scanCleanup.preview.cleaningPage', {page: pageNumber}) }}
+                        </template>
+                        <template v-else-if="canvasNotice">
+                            <UIcon name="i-ph-info" class="size-4" />
+                            {{ canvasNotice }}
                         </template>
                     </span>
                 </div>
@@ -476,6 +481,7 @@ const props = defineProps<{
     lossless?: boolean;
     source?: IDocumentPageSource | null;
     layoutClassification?: IScanCleanupPreviewMetadata['layoutClassification'] | undefined;
+    layoutDetectionPending?: boolean;
     rotationDegrees?: TScanCleanupPageRotation;
 }>();
 const emit = defineEmits<{
@@ -636,6 +642,35 @@ const rawCleaningVisible = computed(() => effectiveViewMode.value === 'cleaned'
 const rawLayerVisible = computed(() => Boolean(props.rawResult)
     && (effectiveViewMode.value === 'original' || rawCleaningVisible.value));
 const cleaningNoticeVisible = computed(() => rawCleaningVisible.value && props.loading);
+/**
+ * Why the page the user is looking at may not be on the size they asked for.
+ * Matched page size draws every page on one rectangle, measured from the
+ * document's geometry and from the layouts detection has settled, so two things
+ * can move it — and each is named here rather than left to be discovered as an
+ * unexplained relayout. It shares the caption line the cleaning notice uses,
+ * which is always laid out, so saying this costs no shift.
+ */
+const canvasNoticeKind = computed(() => {
+    if (!props.matchPageSize || !props.result) {
+        return '';
+    }
+    // The main process could not measure this document, so it dropped matching
+    // for the request and drew the page at its own size.
+    if (props.result.outputs.some(output => output.metadata.canvasPolicy === 'intrinsic')) {
+        return 'unavailable';
+    }
+    // Nothing that turns a page into a spread has landed yet. A spread produces
+    // half sheets, so the rectangle every page is drawn on is still open.
+    return props.layoutDetectionPending === true ? 'provisional' : '';
+});
+const canvasNotice = computed(() => {
+    if (canvasNoticeKind.value === 'unavailable') {
+        return t('scanCleanup.preview.matchedCanvasUnavailable');
+    }
+    return canvasNoticeKind.value === 'provisional'
+        ? t('scanCleanup.preview.matchedCanvasProvisional')
+        : '';
+});
 const staleContentVisible = computed(() => isStalePage.value && !rawCleaningVisible.value);
 const viewModes = computed(() => props.lossless ? [{
     value: 'original' as const,
@@ -983,9 +1018,13 @@ function sourcePointFromClient(
     output: IRenderedScanCleanupOutput,
     rect: IScanCleanupDragRect,
 ) {
+    // Back through the normalization the page is presented under, so a pointer
+    // lands on the raster pixel the metadata is written in.
     return previewPointToSourceHalf(output.metadata, {
-        x: (clientX - rect.x) / rect.width * output.placement.canvasWidthPx - output.placement.left,
-        y: (clientY - rect.y) / rect.height * output.placement.canvasHeightPx - output.placement.top,
+        x: ((clientX - rect.x) / rect.width * output.placement.canvasWidthPx - output.placement.left)
+            / output.placement.scaleX,
+        y: ((clientY - rect.y) / rect.height * output.placement.canvasHeightPx - output.placement.top)
+            / output.placement.scaleY,
     });
 }
 
@@ -1125,8 +1164,8 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
     if (!props.matchPageSize || canvasClientRect.width <= 0 || canvasClientRect.height <= 0) {
         return;
     }
-    const maxLeft = Math.max(0, output.placement.canvasWidthPx - output.metadata.outputWidthPx);
-    const maxTop = Math.max(0, output.placement.canvasHeightPx - output.metadata.outputHeightPx);
+    const maxLeft = Math.max(0, output.placement.canvasWidthPx - output.placement.contentWidthPx);
+    const maxTop = Math.max(0, output.placement.canvasHeightPx - output.placement.contentHeightPx);
     const canonicalGeometry: IPlacementDragGeometry = {
         kind: 'placement',
         half: output.metadata.half,
@@ -1260,9 +1299,9 @@ function scheduleDetailRequest() {
                     + output.placement.left / output.placement.canvasWidthPx * canvasRect.width,
                 y: canvasRect.y
                     + output.placement.top / output.placement.canvasHeightPx * canvasRect.height,
-                width: output.metadata.outputWidthPx
+                width: output.placement.contentWidthPx
                     / output.placement.canvasWidthPx * canvasRect.width,
-                height: output.metadata.outputHeightPx
+                height: output.placement.contentHeightPx
                     / output.placement.canvasHeightPx * canvasRect.height,
             };
             const left = Math.max(0, Math.min(1, (surfaceRect.left - imageRect.x) / imageRect.width));

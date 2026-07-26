@@ -23,6 +23,16 @@ export interface ISourceDpiDetectionResult {
     pageRasterByNumber: Map<number, IDetectedPageRaster>;
 }
 
+// Detection reports nothing for a page it could not probe and can report a
+// nonsensical value for one it could, so a caller that has to name a render DPI
+// resolves both cases against the DPI it would have used anyway.
+export function resolveSourceDpi(value: number | null | undefined, fallback = 300) {
+    const candidate = value ?? fallback;
+    return Number.isFinite(candidate) && candidate > 0
+        ? Math.max(1, Math.round(candidate))
+        : fallback;
+}
+
 interface IPdfImagesProbe {
     args: string[];
     timeoutMs: number;

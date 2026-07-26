@@ -1,8 +1,15 @@
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
+import type {
+    IScanCleanupOptions,
+    TScanCleanupLayoutClassification,
+} from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {ComputedRef} from 'vue';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
+    getScanCleanupPageOverride,
+    toScanCleanupLayoutByPage,
+} from '@contracts/scanCleanupPageOverrides';
+import {
+    beginScanCleanupAttempt,
     cancelScanCleanup,
     getScanCleanupRunError,
     isScanCleanupRunning,
@@ -19,6 +26,12 @@ import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
+    /**
+     * How each page is expected to be cut. The run measures its matched canvas
+     * over the pages it produces, so it needs the same layouts the preview the
+     * user has been looking at was measured against.
+     */
+    authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
     beforeRun: () => void;
     cancelDetectionBeforeRun: () => Promise<void>;
     detectionPending: ComputedRef<boolean>;
@@ -35,10 +48,20 @@ interface IUseScanCleanupRunSessionOptions {
 
 export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptions) => {
     const {t} = useTypedI18n();
-    const isRunning = isScanCleanupRunning;
     const transition = ref<'idle' | 'canceling-detection' | 'starting-cleanup'>('idle');
-    const cancelRequested = computed(() => scanCleanupRun.ownerId === options.ownerId
-        && scanCleanupRun.jobState?.status === 'canceling');
+    // The user asked to stop an attempt that has no job to cancel yet: cleanup
+    // is still cancelling detection, or its start is still crossing the bridge.
+    // The ask outlives that window, so the attempt either never starts or is
+    // cancelled the moment it has an id. Dropping it let a run the user had
+    // already stopped finish and replace their document with its output.
+    const stopRequested = ref(false);
+    // A run is under way from the click, not from the job id: everything the
+    // click set in motion — cancelling detection, the start request itself — is
+    // work the user must be able to stop.
+    const isRunning = computed(() => isScanCleanupRunning.value || transition.value !== 'idle');
+    const cancelRequested = computed(() => (stopRequested.value && isRunning.value)
+        || (scanCleanupRun.ownerId === options.ownerId
+            && scanCleanupRun.jobState?.status === 'canceling'));
     const inlineError = computed(() => options.active() ? getScanCleanupRunError(options.ownerId) : '');
     const runPageNumbers = computed(() => options.sourcePageNumbers.value
         ?? Array.from(
@@ -67,7 +90,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     ));
     const canRun = computed(() => Boolean(options.sourcePath.value)
         && !isRunning.value
-        && transition.value === 'idle'
         && hasIncludedPage.value
         && marginsAreValid.value
         && getScanCleanupCapability() !== null);
@@ -76,10 +98,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         : transition.value === 'starting-cleanup'
             ? t('scanCleanup.startingCleanup')
             : '');
+    // Only ever read on the run affordance, which an engaged run replaces with
+    // the cancel affordance, so the transition explains itself in the meter
+    // rather than here.
     const runDisabledReason = computed(() => {
-        if (transition.value !== 'idle') {
-            return transitionText.value;
-        }
         if (!options.sourcePath.value) {
             return t('scanCleanup.runDisabled.noSource');
         }
@@ -120,11 +142,17 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             ...(options.recommendedOutputModeByPage.size === 0 ? {} : {outputModeRecommendations: Object.fromEntries(
                 options.recommendedOutputModeByPage,
             )}),
+            layoutByPage: toScanCleanupLayoutByPage(options.authoritativeLayoutByPage.value),
         };
+        stopRequested.value = false;
+        beginScanCleanupAttempt();
         try {
             if (options.detectionPending.value) {
                 transition.value = 'canceling-detection';
                 await options.cancelDetectionBeforeRun();
+            }
+            if (stopRequested.value) {
+                return;
             }
             if (
                 request.sourcePdfPath !== options.sourcePath.value
@@ -141,7 +169,16 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             await nextTick();
             options.beforeRun();
             setScanCleanupRunError(options.ownerId, '');
+            if (stopRequested.value) {
+                return;
+            }
             const result = await startScanCleanup(request);
+            if (stopRequested.value) {
+                // The stop arrived while the start was in flight. The job it
+                // came back with is the one the user already asked to stop.
+                if (result.started) await cancelScanCleanup();
+                return;
+            }
             if (!result.started) {
                 reportScanCleanupRunError(
                     options.ownerId,
@@ -161,11 +198,18 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     }
 
     async function cancel() {
-        if (!cancelRequested.value) await cancelScanCleanup();
+        if (cancelRequested.value || !isRunning.value) {
+            return;
+        }
+        if (!scanCleanupRun.activeJobId) {
+            stopRequested.value = true;
+            return;
+        }
+        await cancelScanCleanup();
     }
 
     watch(options.active, active => setScanCleanupWorkspaceOwnerOpen(options.ownerId, active), {immediate: true});
-    watch(isRunning, running => {
+    watch(isScanCleanupRunning, running => {
         if (!running && scanCleanupRun.jobState?.status === 'completed') options.onCompleted();
     });
     onBeforeUnmount(() => setScanCleanupWorkspaceOwnerOpen(options.ownerId, false));

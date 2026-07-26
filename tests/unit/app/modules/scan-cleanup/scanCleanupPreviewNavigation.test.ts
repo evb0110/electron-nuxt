@@ -192,7 +192,6 @@ function previewBackend() {
         request.pageNumber,
         request.options,
         request.documentPrior ?? null,
-        request.documentCanvasPlan ?? null,
         request.detail ?? null,
     ]);
     const preview = (request: IScanCleanupPreviewRequest) => {
@@ -228,9 +227,11 @@ function previewBackend() {
                 counters.completed += 1;
                 settled.resolve(previewResult(request.pageNumber));
             },
+            // Cancellation answers the request; the service reports it as a
+            // result so a page turn is not logged as a handler failure.
             reject: () => {
                 counters.aborted += 1;
-                settled.reject(new DOMException('Canceled scan cleanup preview', 'AbortError'));
+                settled.resolve({canceled: true});
             },
         };
         pending.push(entry);
@@ -272,6 +273,15 @@ function previewBackend() {
             return pending.map(entry => entry.pageNumber);
         },
         startedAtMsFor: (pageNumber: number) => pending.find(entry => entry.pageNumber === pageNumber)?.startedAtMs,
+        // Retires a run the way the main process does when its generation is
+        // superseded or its prefetch lease is dropped: the invoke answers
+        // `canceled` without the renderer having asked for anything.
+        retire(pageNumber: number) {
+            const doomed = pending.filter(entry => entry.pageNumber === pageNumber);
+            pending = pending.filter(entry => entry.pageNumber !== pageNumber);
+            for (const entry of doomed) entry.reject();
+            return doomed.length;
+        },
         // Advances the virtual clock, settling every preview whose modelled cost
         // has elapsed and letting the awaiting composable run between each.
         async advanceBy(durationMs: number) {
@@ -308,7 +318,6 @@ function mountPreviewSession(
             authoritativeLayoutByPage: computed(() => new Map()),
             documentRevision: computed(() => 'revision-1'),
             documentPriorByPage,
-            documentCanvasPlan: computed(() => undefined),
             ...(initialViewMode === undefined ? {} : {initialViewMode}),
             lifecycleDocumentKey: computed(() => 'reference.pdf'),
             ownerId: 'owner-1',
@@ -656,6 +665,152 @@ describe('scan cleanup preview navigation', () => {
         expect(mounted.session.rawResult.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
         expect(requestsFor(100)).toBe(1);
         expect(rastersFor(100)).toBe(1);
+        mounted.unmount();
+        capability.value = null;
+    });
+
+    it('stops loading when a page is canceled and re-requests it on the next visit', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const mounted = mountPreviewSession(previewPage, reactive(new Map()));
+
+        await backend.advanceBy(PREVIEW_MS + 500);
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+
+        previewPage.value = 400;
+        await nextTick();
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        expect(mounted.session.loading.value).toBe(true);
+        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
+            .filter(([request]) => request.pageNumber === pageNumber).length;
+        expect(requestsFor(400)).toBe(1);
+
+        // The whole document is canceled underneath the page being rendered,
+        // which is what a settings change or a closing workspace does.
+        mounted.session.cancel();
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        expect(mounted.session.loading.value).toBe(false);
+        expect(mounted.session.error.value).toBe('');
+        expect(backend.counters.aborted).toBeGreaterThan(0);
+
+        // Revisiting the page asks for it again rather than waiting on the run
+        // that was thrown away.
+        previewPage.value = 401;
+        await nextTick();
+        previewPage.value = 400;
+        await nextTick();
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        expect(requestsFor(400)).toBeGreaterThan(1);
+        expect(mounted.session.result.value?.pageNumber).toBe(400);
+        expect(mounted.session.loading.value).toBe(false);
+        mounted.unmount();
+        capability.value = null;
+    });
+
+    it('re-requests the page it is on when its run answers canceled', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const mounted = mountPreviewSession(previewPage, reactive(new Map()));
+
+        await backend.advanceBy(PREVIEW_MS + 500);
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+
+        previewPage.value = 400;
+        await nextTick();
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
+            .filter(([request]) => request.pageNumber === pageNumber).length;
+        expect(requestsFor(400)).toBe(1);
+
+        // The run for the page the user is on is retired underneath it. Nothing
+        // navigated, so nothing else would ever ask for this page again.
+        expect(backend.retire(400)).toBe(1);
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        expect(requestsFor(400)).toBe(2);
+        expect(mounted.session.result.value?.pageNumber).toBe(400);
+        expect(mounted.session.loading.value).toBe(false);
+        expect(mounted.session.error.value).toBe('');
+        mounted.unmount();
+        capability.value = null;
+    });
+
+    it('stops re-requesting a page whose run keeps answering canceled', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const mounted = mountPreviewSession(previewPage, reactive(new Map()));
+
+        await backend.advanceBy(PREVIEW_MS + 500);
+        previewPage.value = 400;
+        await nextTick();
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+
+        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
+            .filter(([request]) => request.pageNumber === pageNumber).length;
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+            backend.retire(400);
+            await backend.advanceBy(100);
+        }
+
+        // Two retries and then it stops, rather than spinning against a page
+        // that cannot be rendered.
+        expect(requestsFor(400)).toBe(3);
+        // And the page says so: a recoverable error with the Retry the shell
+        // already renders, rather than a blank frame and no spinner.
+        expect(mounted.session.loading.value).toBe(false);
+        expect(mounted.session.resultCurrent.value).toBe(false);
+        expect(mounted.session.error.value).not.toBe('');
+
+        // Retrying spends a fresh budget and renders.
+        mounted.session.retry();
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        expect(requestsFor(400)).toBe(4);
+        expect(mounted.session.error.value).toBe('');
+        expect(mounted.session.result.value?.pageNumber).toBe(400);
+        mounted.unmount();
+        capability.value = null;
+    });
+
+    it('gives a page that gave up a fresh budget when the user turns back to it', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const mounted = mountPreviewSession(previewPage, reactive(new Map()));
+
+        await backend.advanceBy(PREVIEW_MS + 500);
+        previewPage.value = 400;
+        await nextTick();
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
+            .filter(([request]) => request.pageNumber === pageNumber).length;
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+            backend.retire(400);
+            await backend.advanceBy(100);
+        }
+        expect(requestsFor(400)).toBe(3);
+
+        previewPage.value = 100;
+        await nextTick();
+        await backend.advanceBy(PREVIEW_MS + 500);
+        previewPage.value = 400;
+        await nextTick();
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        // The page renders again instead of inheriting the budget the last
+        // visit exhausted.
+        expect(requestsFor(400)).toBeGreaterThan(3);
+        expect(mounted.session.result.value?.pageNumber).toBe(400);
+        expect(mounted.session.error.value).toBe('');
         mounted.unmount();
         capability.value = null;
     });

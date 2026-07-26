@@ -12,7 +12,6 @@ import type {
     TScanCleanupJobState,
 } from '@contracts/scan-cleanup/ipc';
 import {
-    decodeDocumentCanvasPlan,
     decodeDocumentPrior,
     decodeFiniteNumber,
     isLayoutClassification,
@@ -319,6 +318,14 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             || value.matchedCanvasTargetHeightPoints === undefined
             ? null
             : decodePositiveFiniteNumber(value.matchedCanvasTargetHeightPoints, 'matched canvas target height points'),
+        matchedCanvasContentWidthPx: value.matchedCanvasContentWidthPx === null
+            || value.matchedCanvasContentWidthPx === undefined
+            ? null
+            : decodePositiveInteger(value.matchedCanvasContentWidthPx, 'matched canvas content width'),
+        matchedCanvasContentHeightPx: value.matchedCanvasContentHeightPx === null
+            || value.matchedCanvasContentHeightPx === undefined
+            ? null
+            : decodePositiveInteger(value.matchedCanvasContentHeightPx, 'matched canvas content height'),
         placementOffsetXPx: decodeNonNegativeInteger(value.placementOffsetXPx, 'placement offset x'),
         placementOffsetYPx: decodeNonNegativeInteger(value.placementOffsetYPx, 'placement offset y'),
         forwardTransform: decodePreviewAffine(value.forwardTransform),
@@ -366,11 +373,19 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         rasterScaleLimited: value.rasterScaleLimited === true,
         warnings: value.warnings as string[],
     };
+    // What is placed on the canvas is the *content* box: the size the intrinsic
+    // raster takes once the page has been normalized to the document's scale. A
+    // matched preview keeps the raster it rendered — the renderer scales it —
+    // so its intrinsic dimensions are the page's own pixels and say nothing
+    // about whether it fits the canvas. A page nothing normalized carries no
+    // content box, and there the two are the same thing.
+    const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
     if (
-        metadata.canvasWidthPx < metadata.outputWidthPx
-        || metadata.canvasHeightPx < metadata.outputHeightPx
-        || metadata.placementOffsetXPx + metadata.outputWidthPx > metadata.canvasWidthPx
-        || metadata.placementOffsetYPx + metadata.outputHeightPx > metadata.canvasHeightPx
+        metadata.canvasWidthPx < contentWidthPx
+        || metadata.canvasHeightPx < contentHeightPx
+        || metadata.placementOffsetXPx + contentWidthPx > metadata.canvasWidthPx
+        || metadata.placementOffsetYPx + contentHeightPx > metadata.canvasHeightPx
     ) {
         throw new Error('invalid scan-cleanup preview intrinsic/canvas placement');
     }
@@ -397,6 +412,9 @@ function decodeUnitInterval(value: unknown, label: string) {
 }
 
 export function decodeScanCleanupPreviewResult(value: unknown): TScanCleanupPreviewWireResult {
+    if (isRecord(value) && value.canceled === true) {
+        return {canceled: true};
+    }
     if (
         !isRecord(value)
         || !Array.isArray(value.outputs)
@@ -797,9 +815,6 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         jobId: value.jobId,
         progress,
         results,
-        ...(value.documentCanvasPlan === undefined
-            ? {}
-            : {documentCanvasPlan: decodeDocumentCanvasPlan(value.documentCanvasPlan)}),
         updatedAtMs: value.updatedAtMs,
     };
     if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'completed' || value.status === 'canceled') {

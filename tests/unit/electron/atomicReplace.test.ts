@@ -117,4 +117,42 @@ describe('atomicReplace', () => {
             .rejects
             .toThrow(/Promotion error: promotion failed.*Restore error: restore failed.*Backup path: "C:\\out\\extract\.pdf\.bak-.*Destination exists: no/u);
     });
+
+    it('moves a live Windows destination aside for a non-durable cache publication', async () => {
+        setPlatform('win32');
+        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+
+        // A retained scan-cleanup raster is republished over a path a sidecar
+        // manifest may still be reading. A bare rename onto that destination
+        // fails EPERM/EACCES on Windows; the replace moves it aside first.
+        await expect(atomicReplace('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png', {
+            durable: false,
+            markMutationCommitStarted: false,
+        })).resolves.toBeUndefined();
+
+        expect(mocks.rename).toHaveBeenNthCalledWith(
+            1,
+            'C:\\scratch\\page-1-150.png',
+            expect.stringContaining('C:\\scratch\\page-1-150.png.bak-'),
+        );
+        expect(mocks.rename).toHaveBeenNthCalledWith(2, 'C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
+        // A within-run cache lives in a scratch directory that is discarded on
+        // exit, so it never pays for the durability fsyncs.
+        expect(mocks.sync).not.toHaveBeenCalled();
+    });
+
+    it('keeps the destination readable when Windows cannot remove the moved-aside file', async () => {
+        setPlatform('win32');
+        mocks.unlink.mockRejectedValueOnce(Object.assign(new Error('in use'), { code: 'EBUSY' }));
+        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+
+        // The reader still holding the old bytes keeps them; the new raster is
+        // in place regardless.
+        await expect(atomicReplace('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png', {
+            durable: false,
+            markMutationCommitStarted: false,
+        })).resolves.toBeUndefined();
+
+        expect(mocks.rename).toHaveBeenNthCalledWith(2, 'C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
+    });
 });

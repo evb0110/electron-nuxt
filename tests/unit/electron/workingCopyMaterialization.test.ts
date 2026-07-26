@@ -200,6 +200,124 @@ describe('workingCopyMaterialization', () => {
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
     }, 15_000);
 
+    it('lets a document consumer finish the copy a cancelled scan cleanup request started', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 24));
+        const {
+            ensureWorkingCopyMaterialized,
+            onWorkingCopyMaterializationProgress,
+        } = await import('@electron/file-access/workingCopyMaterialization');
+        const cleanupController = new AbortController();
+        let documentWaiter: Promise<unknown> | null = null;
+        const removeProgressListener = onWorkingCopyMaterializationProgress(event => {
+            if (event.phase !== 'copying' || event.bytesCopied < 1 || documentWaiter) {
+                return;
+            }
+            // The scan cleanup preview that started the flight is cancelled the
+            // moment the document itself asks for the same copy. The document
+            // joined an existing flight, so it must not inherit that abort.
+            cleanupController.abort();
+            documentWaiter = ensureWorkingCopyMaterialized(fixture.workingPath, {
+                ownerWebContentsId: 7,
+                reason: 'page-operation',
+            });
+        });
+
+        const cleanupWaiter = ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'scan-cleanup',
+            signal: cleanupController.signal,
+        });
+        await expect(cleanupWaiter).rejects.toMatchObject({code: 'WORKING_COPY_MATERIALIZATION_CANCELLED'});
+        await expect(documentWaiter).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
+
+        removeProgressListener();
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)).toMatchObject({backingState: 'materialized'});
+        expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
+        expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
+    }, 15_000);
+
+    it('stops a joined flight once the last waiter is gone', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 31));
+        const {
+            ensureWorkingCopyMaterialized,
+            getWorkingCopyMaterializationFlightCountForTests,
+            onWorkingCopyMaterializationProgress,
+        } = await import('@electron/file-access/workingCopyMaterialization');
+        const starterController = new AbortController();
+        const joinerController = new AbortController();
+        let joiner: Promise<unknown> | null = null;
+        const removeProgressListener = onWorkingCopyMaterializationProgress(event => {
+            if (event.phase !== 'copying' || event.bytesCopied < 1) {
+                return;
+            }
+            if (!joiner) {
+                // Somebody else joins the copy the first caller started, and the
+                // first caller leaves: the copy is still owned.
+                joiner = ensureWorkingCopyMaterialized(fixture.workingPath, {
+                    ownerWebContentsId: 7,
+                    reason: 'page-operation',
+                    signal: joinerController.signal,
+                });
+                starterController.abort();
+                return;
+            }
+            // Now the joiner leaves too. Copying gigabytes for nobody is work
+            // the machine should not still be doing, and the caller that started
+            // it is long gone, so the flight cannot wait for it to clean up.
+            joinerController.abort();
+        });
+
+        await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'scan-cleanup',
+            signal: starterController.signal,
+        })).rejects.toMatchObject({code: 'WORKING_COPY_MATERIALIZATION_CANCELLED'});
+        await expect(joiner).rejects.toMatchObject({code: 'WORKING_COPY_MATERIALIZATION_CANCELLED'});
+        removeProgressListener();
+
+        await vi.waitFor(() => expect(getWorkingCopyMaterializationFlightCountForTests()).toBe(0));
+        expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)).toMatchObject({backingState: 'lazy-original'});
+        // And the document can still be materialized afterwards.
+        await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'page-operation',
+        })).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
+        expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
+    }, 15_000);
+
+    it('recovers a registration left materializing and a flight already tearing down', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 25));
+        const {
+            ensureWorkingCopyMaterialized,
+            getWorkingCopyMaterializationFlightCountForTests,
+            onWorkingCopyMaterializationProgress,
+        } = await import('@electron/file-access/workingCopyMaterialization');
+        const abandonedController = new AbortController();
+        const removeProgressListener = onWorkingCopyMaterializationProgress(event => {
+            if (event.phase === 'copying' && event.bytesCopied > 0) abandonedController.abort();
+        });
+
+        // The only waiter leaves, so its own flight is torn down and the
+        // registration is handed back.
+        await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'scan-cleanup',
+            signal: abandonedController.signal,
+        })).rejects.toMatchObject({code: 'WORKING_COPY_MATERIALIZATION_CANCELLED'});
+        removeProgressListener();
+
+        await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'page-operation',
+        })).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
+        expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
+        expect(getWorkingCopyMaterializationFlightCountForTests()).toBe(0);
+        expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
+    }, 15_000);
+
     it('keeps a flight background-leased when the lease attaches after a demand waiter', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 27));
         const {

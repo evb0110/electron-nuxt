@@ -249,7 +249,7 @@ describe('package scripts', () => {
         ]);
         expect(scripts['build:native']).toContain('build-native-tool.mjs --all');
         expect(scripts['build:native:e2e']).toContain(
-            'build-native-tool.mjs pdf-image-combine scan-cleanup',
+            'build-native-tool.mjs pdf-image-combine pdf-page-ops scan-cleanup',
         );
         expect(scripts['build:strict']).toContain('validation-gates.mjs heavy');
         expect(scripts['build:strict']).toContain('run-build-strict.mjs');
@@ -323,6 +323,40 @@ describe('package scripts', () => {
             expect(buildIndex).toBeGreaterThanOrEqual(0);
             expect(testIndex).toBeGreaterThan(buildIndex);
         }
+
+        // Scan cleanup measures its matched page canvas with evb-pdf-page-ops,
+        // so the lanes that exercise it build and enable that tool.
+        expect(scripts['build:native:e2e']).toContain(
+            'build-native-tool.mjs pdf-image-combine pdf-page-ops scan-cleanup',
+        );
+        for (const scriptName of [
+            'test:e2e:electron',
+            'test:e2e:electron:quarantine',
+            'test:e2e:electron:regression',
+        ]) {
+            const commands = scriptCommands(scripts, scriptName);
+            expect(commands).toContain('pnpm run build:native:e2e');
+            expect(commands.at(-1)).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project');
+        }
+        expect(scriptCommands(scripts, 'test:e2e:electron:blocking-smoke')).toEqual([
+            'pnpm run build:electron',
+            'vitest run --project e2e-blocking-smoke --reporter verbose',
+        ]);
+        expect(scriptCommands(scripts, 'test:e2e:electron:draw-shapes')).toEqual([
+            'pnpm run build:electron',
+            'vitest run --project e2e-draw-shapes --reporter verbose',
+        ]);
+        expect(scriptCommands(scripts, 'test:e2e:electron:rapid-navigation')).toEqual([
+            'pnpm run build:electron',
+            'vitest run --project e2e-rapid-navigation --reporter verbose',
+        ]);
+        expect(scriptCommands(scripts, 'test:e2e:electron:visible-window')).toEqual([
+            'pnpm run build:electron',
+            'vitest run --project e2e-visible-window --reporter verbose',
+        ]);
+        expect(scripts['test:e2e:electron:watch']).toBe(
+            'vitest --project e2e-regression --reporter verbose',
+        );
         expect(scripts['test:e2e:electron:headless']).toBe('bash scripts/test-electron-e2e-headless.sh');
         expect(scripts['test:e2e:electron:blocking-smoke:headless'])
             .toContain('test-electron-e2e-headless.sh test:e2e:electron:blocking-smoke');

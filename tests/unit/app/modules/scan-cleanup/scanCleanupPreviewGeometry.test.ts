@@ -256,8 +256,12 @@ describe('scan cleanup preview geometry', () => {
         expect(placement).toEqual({
             canvasWidthPx: 230,
             canvasHeightPx: 330,
+            contentWidthPx: 210,
+            contentHeightPx: 300,
             left: 20,
             top: 30,
+            scaleX: 1,
+            scaleY: 1,
         });
         expect(toPreviewStyleRect({
             xPx: 0,
@@ -270,6 +274,98 @@ describe('scan cleanup preview geometry', () => {
             width: `${210 / 230 * 100}%`,
             height: `${300 / 330 * 100}%`,
         });
+    });
+
+    it('presents a page the document scaled up at the size the final run will write', () => {
+        // The page is half the document's paper, so the sidecar reports the box
+        // it belongs in and the renderer scales the raster it rendered into it,
+        // instead of showing it a quarter the size of every other page.
+        const scaledMetadata = metadata({
+            outputWidthPx: 105,
+            outputHeightPx: 150,
+            canvasWidthPx: 230,
+            canvasHeightPx: 330,
+            matchedCanvasContentWidthPx: 210,
+            matchedCanvasContentHeightPx: 300,
+            placementOffsetXPx: 10,
+            placementOffsetYPx: 15,
+        });
+        const placement = resolvePreviewMetadataPlacement(scaledMetadata);
+
+        expect(placement).toMatchObject({
+            contentWidthPx: 210,
+            contentHeightPx: 300,
+            scaleX: 2,
+            scaleY: 2,
+        });
+        // The raster fills the box the document normalized it into...
+        expect(toPreviewStyleRect({
+            xPx: 0,
+            yPx: 0,
+            widthPx: 105,
+            heightPx: 150,
+        }, placement)).toEqual({
+            left: `${10 / 230 * 100}%`,
+            top: `${15 / 330 * 100}%`,
+            width: `${210 / 230 * 100}%`,
+            height: `${300 / 330 * 100}%`,
+        });
+        // ...and so does every overlay measured in that raster's own pixels.
+        expect(toPreviewStyleRect({
+            xPx: 5,
+            yPx: 10,
+            widthPx: 50,
+            heightPx: 60,
+        }, placement)).toEqual({
+            left: `${(10 + 10) / 230 * 100}%`,
+            top: `${(20 + 15) / 330 * 100}%`,
+            width: `${100 / 230 * 100}%`,
+            height: `${120 / 330 * 100}%`,
+        });
+    });
+
+    it('measures each axis from the content box side it belongs to', () => {
+        // The main process rounds each side of the content box to a whole
+        // canvas pixel on its own, so the two ratios differ by that rounding.
+        // A single ratio taken from the width would put the bottom of the page
+        // a pixel away from the box the page is actually drawn in.
+        const roundedMetadata = metadata({
+            outputWidthPx: 101,
+            outputHeightPx: 143,
+            canvasWidthPx: 202,
+            canvasHeightPx: 286,
+            matchedCanvasContentWidthPx: 202,
+            matchedCanvasContentHeightPx: 285,
+            placementOffsetXPx: 0,
+            placementOffsetYPx: 1,
+        });
+        const placement = resolvePreviewMetadataPlacement(roundedMetadata);
+
+        expect(placement.scaleX).toBe(202 / 101);
+        expect(placement.scaleY).toBe(285 / 143);
+        // The raster's own rect fills exactly the box the metadata reports,
+        // on both axes.
+        expect(toPreviewStyleRect({
+            xPx: 0,
+            yPx: 0,
+            widthPx: 101,
+            heightPx: 143,
+        }, placement)).toEqual({
+            left: '0%',
+            top: `${1 / 286 * 100}%`,
+            width: '100%',
+            height: `${285 / 286 * 100}%`,
+        });
+        // And the bottom edge of a rect that reaches the raster's last row
+        // still lands on the bottom of that box rather than past it.
+        const bottom = toPreviewStyleRect({
+            xPx: 0,
+            yPx: 142,
+            widthPx: 101,
+            heightPx: 1,
+        }, placement);
+        expect(Number.parseFloat(String(bottom.top)) + Number.parseFloat(String(bottom.height)))
+            .toBeCloseTo((1 + 285) / 286 * 100, 10);
     });
 
     it('changes the frozen-frame signature for paper geometry but not pixel-only refreshes', async () => {

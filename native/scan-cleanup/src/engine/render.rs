@@ -98,6 +98,13 @@ pub struct CleanupMetadata {
     pub matched_canvas_target_width_points: Option<f64>,
     #[serde(default, rename = "matchedCanvasTargetHeightPoints")]
     pub matched_canvas_target_height_points: Option<f64>,
+    /// Size the intrinsic raster takes on the matched canvas. A final run has
+    /// already resampled its raster to it; a preview reports it so the renderer
+    /// presents the page at the document's scale without a second render.
+    #[serde(default, rename = "matchedCanvasContentWidthPx")]
+    pub matched_canvas_content_width: Option<usize>,
+    #[serde(default, rename = "matchedCanvasContentHeightPx")]
+    pub matched_canvas_content_height: Option<usize>,
     pub output_mode: OutputMode,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bilevel_written: bool,
@@ -575,6 +582,8 @@ fn scale_detail_metadata(base: &CleanupMetadata, scale: f64) -> CleanupMetadata 
     metadata.matched_canvas_target_height = None;
     metadata.matched_canvas_target_width_points = None;
     metadata.matched_canvas_target_height_points = None;
+    metadata.matched_canvas_content_width = None;
+    metadata.matched_canvas_content_height = None;
     metadata.canvas_policy = MatchedCanvasPolicy::Intrinsic;
     metadata.canvas_overflow = false;
     metadata
@@ -2314,6 +2323,8 @@ fn clean_region(
             matched_canvas_target_height: None,
             matched_canvas_target_width_points: None,
             matched_canvas_target_height_points: None,
+            matched_canvas_content_width: None,
+            matched_canvas_content_height: None,
             output_mode: options.output_mode,
             bilevel_written: false,
             layered_written: false,

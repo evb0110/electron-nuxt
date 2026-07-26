@@ -2079,6 +2079,56 @@ describe('Scan cleanup components', () => {
             .some(button => button.textContent?.trim() === 'Reset this page…')).toBe(false);
     });
 
+    it('says why a matched page is not on the document size, on the line already reserved', async () => {
+        const canvasPolicy = ref<'intrinsic' | 'strict-maximum'>('strict-maximum');
+        const detecting = ref(true);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: {
+                ...spreadPreviewResult(),
+                outputs: spreadPreviewResult().outputs.map(output => ({
+                    ...output,
+                    metadata: {
+                        ...output.metadata,
+                        canvasPolicy: canvasPolicy.value,
+                    },
+                })),
+            },
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            layoutDetectionPending: detecting.value,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        const caption = () => harness.host.querySelector<HTMLElement>('.preview-viewport-caption');
+
+        // Detection is still running, so the rectangle every page is drawn on
+        // can still change — the preview says so instead of relaying out later
+        // with no explanation.
+        expect(caption()?.dataset.canvasNotice).toBe('provisional');
+        expect(caption()?.textContent).toContain('scanCleanup.preview.matchedCanvasProvisional');
+
+        // The document could not be measured at all: matching is off and the
+        // page carries its own size.
+        canvasPolicy.value = 'intrinsic';
+        await nextTick();
+        expect(caption()?.dataset.canvasNotice).toBe('unavailable');
+        expect(caption()?.textContent).toContain('scanCleanup.preview.matchedCanvasUnavailable');
+
+        // Detection settled and the canvas held: nothing to explain, and the
+        // caption line stays where it was.
+        canvasPolicy.value = 'strict-maximum';
+        detecting.value = false;
+        await nextTick();
+        expect(caption()?.dataset.canvasNotice).toBe('');
+        expect(caption()?.textContent?.trim()).toBe('');
+        expect(caption()).not.toBeNull();
+    });
+
     it('shows a friendly retry state with raw details collapsed', () => {
         const rawError = 'Error: An object could not be cloned.';
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
