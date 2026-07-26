@@ -175,7 +175,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // (layout classification and the output-mode recommendation). The configured
     // output mode is deliberately absent — the recommendation is a page
     // diagnostic and survives mode changes while the evidence is unchanged.
-    function signature(pageNumber: number) {
+    function pageSignature(pageNumber: number) {
         const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
         const lossless = options.settings.preserveOriginalQuality === true;
         return JSON.stringify({
@@ -198,6 +198,21 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 fill: [],
             },
         });
+    }
+
+    // Settings changes are the only thing that invalidates an evidence
+    // signature, so the whole document is signed once per change instead of
+    // once per detection result in every progress event.
+    const signatureByPage = computed(() => new Map(Array.from(
+        {length: options.totalPages.value},
+        (_, index) => [
+            index + 1,
+            pageSignature(index + 1),
+        ] as const,
+    )));
+
+    function signature(pageNumber: number) {
+        return signatureByPage.value.get(pageNumber) ?? pageSignature(pageNumber);
     }
 
     function evidenceIsCurrent(evidenceSignatures: ReadonlyMap<number, string> = signatures) {

@@ -3,8 +3,26 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    computed,
+    reactive,
+} from 'vue';
+import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 import {estimateScanCleanupOutputPages} from '@contracts/scanCleanupPageOverrides';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
+
+function detectionResult(pageNumber: number): IScanCleanupDetectionResult {
+    return {
+        pageNumber,
+        classification: 'single-uncut-page',
+        confidence: 0.9,
+        cutterXPx: null,
+        tier1Verdict: 'single-uncut-page',
+        reconciled: false,
+        clusterAgreement: 0,
+        documentPrior: null,
+    };
+}
 
 describe('scan cleanup detection results', () => {
     it('fills the detected classification and confidence stores', () => {
@@ -83,6 +101,38 @@ describe('scan cleanup detection results', () => {
             confidence: 0.97,
         });
         expect(textAxes.has(2)).toBe(false);
+    });
+
+    it('keeps pages classified by earlier progress events and leaves settled pages untouched', () => {
+        const classifications = reactive(new Map<number, IScanCleanupDetectionResult['classification']>());
+        const confidences = reactive(new Map<number, number>());
+        let firstPageReads = 0;
+        const firstPage = computed(() => {
+            firstPageReads += 1;
+            return classifications.get(1);
+        });
+
+        applyScanCleanupDetectionResults([detectionResult(1)], classifications, confidences);
+        expect(firstPage.value).toBe('single-uncut-page');
+        applyScanCleanupDetectionResults([detectionResult(2)], classifications, confidences);
+        applyScanCleanupDetectionResults([detectionResult(3)], classifications, confidences);
+
+        expect([...classifications.keys()]).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        // A page nobody re-classified must not invalidate what derives from it,
+        // and the terminal replay of the whole document must not either.
+        expect(firstPage.value).toBe('single-uncut-page');
+        expect(firstPageReads).toBe(1);
+        applyScanCleanupDetectionResults([
+            detectionResult(1),
+            detectionResult(2),
+            detectionResult(3),
+        ], classifications, confidences);
+        expect(firstPage.value).toBe('single-uncut-page');
+        expect(firstPageReads).toBe(1);
     });
 
     it('produces an exact estimate with detected layouts, overrides, and exclusions', () => {

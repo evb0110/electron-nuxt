@@ -434,6 +434,61 @@ describe('scan cleanup workspace session detection guidance', () => {
         }
     });
 
+    it('accumulates the classifications a detection streams one progress event at a time', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`incremental-detection-${Date.now()}`);
+
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const classifications = [
+            'two-page-spread',
+            'page-with-offcut',
+            'single-uncut-page',
+        ] as const;
+        classifications.forEach((classification, index) => {
+            const pageNumber = index + 1;
+            harness.emitDetection({
+                jobId: 'detect-1',
+                status: 'running',
+                progress: {
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, page) => page + 1),
+                },
+                results: [{
+                    pageNumber,
+                    classification,
+                    confidence: 0.9,
+                    cutterXPx: null,
+                    tier1Verdict: classification,
+                    reconciled: false,
+                    clusterAgreement: 0,
+                    documentPrior: null,
+                }],
+                updatedAtMs: Date.now() + pageNumber,
+            });
+        });
+        await nextTick();
+
+        expect([...mounted.session.detection.authoritativeLayoutByPage.value]).toEqual([
+            [
+                1,
+                'two-page-spread',
+            ],
+            [
+                2,
+                'page-with-offcut',
+            ],
+            [
+                3,
+                'single-uncut-page',
+            ],
+        ]);
+        mounted.unmount();
+    });
+
     it('auto-detects on open and does not auto-restart a document after user cancellation', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

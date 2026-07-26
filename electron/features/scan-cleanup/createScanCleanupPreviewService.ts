@@ -1245,7 +1245,7 @@ async function runDetection(
             (progress, nativeProgress) => {
                 if (nativeProgress.stage === 'page-analyzed') {
                     analyzedPages = Math.max(analyzedPages, progress.completedUnits);
-                    publish([...results], {
+                    publish(results, {
                         ...progress,
                         stage: 'detecting',
                         completedUnits: analyzedPages,
@@ -1281,7 +1281,7 @@ async function runDetection(
                         : {recommendedOutputModeReason: nativeProgress.recommendedOutputModeReason}),
                 });
                 const completedUnits = Math.max(analyzedPages, progress.completedUnits);
-                publish([...results], {
+                publish(results, {
                     ...progress,
                     stage: 'detecting',
                     completedUnits,
@@ -1338,6 +1338,12 @@ export function createScanCleanupPreviewService(
     const activeRaw = new Map<string, IRawPreviewEntry>();
     const rawCache = new Map<string, IRawPreview>();
     const baseAnalysisCache = new Map<string, IBasePreviewAnalysis>();
+    // Streamed detection events carry only the classifications a subscriber has
+    // not seen yet; the terminal event and getDetectionJobState carry the whole
+    // set. Without this cursor the coalescing pump would ship the growing result
+    // array once per rasterized and analysed page.
+    const deliveredDetectionResults = new Map<string, number>();
+    const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId} ${jobId}`;
     const detectionJobs = createMainJobRegistry<
         TScanCleanupDetectionJobState,
         IDetectionResult,
@@ -1347,6 +1353,24 @@ export function createScanCleanupPreviewService(
         retention: {
             eventReplayTtlMs: 60_000,
             terminalRecordTtlMs: 60_000,
+        },
+        progress: {
+            channel: SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState,
+            getEventKey: state => state.jobId,
+            send: (subscriber, channel, state) => {
+                const deliveryKey = detectionDeliveryKey(subscriber.id, state.jobId);
+                const delivered = deliveredDetectionResults.get(deliveryKey) ?? 0;
+                if (state.status === 'queued' || state.status === 'running' || state.status === 'canceling') {
+                    deliveredDetectionResults.set(deliveryKey, Math.max(delivered, state.results.length));
+                    subscriber.send(channel, {
+                        ...state,
+                        results: state.results.slice(delivered),
+                    });
+                    return;
+                }
+                deliveredDetectionResults.delete(deliveryKey);
+                subscriber.send(channel, state);
+            },
         },
         toError: (cause, kind) => ({
             code: classifyScanCleanupError(cause, kind === 'canceled'),
@@ -1393,14 +1417,16 @@ export function createScanCleanupPreviewService(
         sender: IScanCleanupDetectionSubscriber,
         jobId: string,
         owner: IScanCleanupOwnerContext,
-    ) => detectionJobs.subscribe(jobId, detectionActor(sender, owner), snapshot => {
-        if (!sender.isDestroyed()) {
-            sender.send(
-                SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState,
-                snapshot.progress,
-            );
+    ) => {
+        // The registry pumps every state change to the job owner, so subscribing
+        // only has to authorize the sender and restart its result cursor: the
+        // caller is handed the whole state and must be able to rebuild from it.
+        if (!detectionJobs.get(jobId, detectionActor(sender, owner))) {
+            return false;
         }
-    });
+        deliveredDetectionResults.delete(detectionDeliveryKey(sender.id, jobId));
+        return true;
+    };
     const previewOwnerPrefix = (
         sender: IScanCleanupDetectionSubscriber,
         owner: IScanCleanupOwnerContext,
@@ -1643,10 +1669,9 @@ export function createScanCleanupPreviewService(
             return publicDetectionState(detectionJobs.get(jobId, detectionActor(sender, owner)));
         },
         subscribeDetectionJob(sender, jobId, owner) {
-            const actor = detectionActor(sender, owner);
-            const unsubscribe = subscribeDetection(sender, jobId, owner);
-            const state = publicDetectionState(detectionJobs.get(jobId, actor));
-            return unsubscribe ? state : null;
+            return subscribeDetection(sender, jobId, owner)
+                ? publicDetectionState(detectionJobs.get(jobId, detectionActor(sender, owner)))
+                : null;
         },
     };
 }

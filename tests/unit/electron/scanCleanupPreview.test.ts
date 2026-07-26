@@ -2322,6 +2322,110 @@ describe('scan cleanup preview', () => {
         ]);
     });
 
+    it('streams every detection classification to the subscriber exactly once', async () => {
+        const dir = await setup();
+        const totalPages = 40;
+        const deps = dependencies(dir);
+        deps.getPageCount = vi.fn(async () => totalPages);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        const batches = [
+            {
+                lastPage: 20,
+                entered: Promise.withResolvers<undefined>(),
+                released: Promise.withResolvers<undefined>(),
+            },
+            {
+                lastPage: 30,
+                entered: Promise.withResolvers<undefined>(),
+                released: Promise.withResolvers<undefined>(),
+            },
+            {
+                lastPage: totalPages,
+                entered: Promise.withResolvers<undefined>(),
+                released: Promise.withResolvers<undefined>(),
+            },
+        ];
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            const analyzePage = (pageNumber: number) => {
+                const progress = {
+                    stage: 'detecting' as const,
+                    completedUnits: pageNumber,
+                    totalUnits: totalPages,
+                    percent: pageNumber / totalPages * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
+                };
+                onProgress(progress, {
+                    stage: 'page-analyzed',
+                    completedPages: pageNumber,
+                    totalPages,
+                    pageNumber,
+                });
+                onProgress(progress, {
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            };
+            let nextPage = 1;
+            for (const batch of batches) {
+                for (; nextPage <= batch.lastPage; nextPage += 1) analyzePage(nextPage);
+                batch.entered.resolve(undefined);
+                await batch.released.promise;
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const streamedStates = () => owner.send.mock.calls
+            .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
+            .map(([
+                _channel,
+                state,
+            ]) => decodeScanCleanupDetectionJobState(state)!);
+        const started = await service.detectAll(owner, detectionRequest);
+        service.subscribeDetectionJob(owner, started.jobId, detectionRequest);
+
+        for (const batch of batches) {
+            await batch.entered.promise;
+            await vi.waitFor(() => expect(
+                streamedStates().flatMap(state => state.results),
+            ).toHaveLength(batch.lastPage));
+            batch.released.resolve(undefined);
+        }
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+
+        const streamed = streamedStates();
+        const streamedPages = streamed
+            .filter(state => state.status !== 'completed')
+            .flatMap(state => state.results.map(result => result.pageNumber));
+        const rankedPhases = streamed.map(state => [
+            'queued',
+            'rasterizing',
+            'detecting',
+        ].indexOf(state.progress.stage));
+
+        // Every classification reaches the renderer once: nothing is replayed
+        // while the job runs, nothing is dropped by coalescing.
+        expect(streamedPages).toEqual(Array.from({length: totalPages}, (_, index) => index + 1));
+        expect(streamed.length).toBeLessThan(totalPages);
+        expect(rankedPhases).toEqual([...rankedPhases].sort((left, right) => left - right));
+        expect(streamed.at(-1)).toMatchObject({
+            status: 'completed',
+            progress: {
+                completedUnits: totalPages,
+                totalUnits: totalPages,
+            },
+        });
+        expect(streamed.at(-1)?.results).toHaveLength(totalPages);
+    });
+
     it('cancels detect-all through its signal and removes its scratch artifacts', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
