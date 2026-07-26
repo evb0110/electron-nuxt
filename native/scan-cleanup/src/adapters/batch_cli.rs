@@ -369,8 +369,15 @@ where
     T: Send,
     F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
 {
-    let results = if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
-        let worker_threads = manifest_worker_threads(manifest)?;
+    // One pool per manifest, and the process runs one manifest: since the
+    // discarded classification pass was removed this is built at most once,
+    // and only when it will actually carry more than one page.
+    let worker_threads = if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
+        manifest_worker_threads(manifest)?
+    } else {
+        1
+    };
+    let results = if worker_threads > 1 {
         rayon::ThreadPoolBuilder::new()
             .num_threads(worker_threads)
             .thread_name(|index| format!("scan-cleanup-page-{index}"))
@@ -698,8 +705,8 @@ fn pages_have_disjoint_destinations(manifest: &ManifestV3) -> bool {
 /// application carries `hostMemoryBytes`, so this is a conservative floor for
 /// standalone use rather than a guess about the machine.
 const FALLBACK_SYSTEM_MEMORY_BYTES: u64 = 4 * 1024 * 1024 * 1024;
-const GRAY_PEAK_BYTES_PER_PIXEL: u64 = 12;
-const COLOR_PEAK_BYTES_PER_PIXEL: u64 = 24;
+const GRAY_PEAK_BYTES_PER_PIXEL: u64 = 40;
+const COLOR_PEAK_BYTES_PER_PIXEL: u64 = 80;
 
 fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> {
     let available = std::thread::available_parallelism().map_or(2, usize::from);
@@ -741,11 +748,14 @@ fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> 
     ))
 }
 
-/// Peak accounting follows the full-resolution allocations in `run_page` and
-/// `clean_region`: gray decode, rotation, normalization/background work,
-/// rendered/output copies, and binary/morphology scratch are covered by twelve
-/// bytes per pixel. Color/mixed adds decoded, rotated, normalized, and rendered
-/// RGB rasters, bringing the conservative multiplier to twenty-four.
+/// Calibrated against the resident high-water mark a page actually reaches,
+/// not against a sum of the live buffers `run_page` and `clean_region` name.
+/// Counting only the named buffers modelled a gray page at twelve bytes per
+/// pixel and missed real peak RSS by ~3.3x, because the high-water mark also
+/// carries transient scratch inside the stage pipeline and pages the allocator
+/// has freed but not returned to the OS. A worker budget divided by an
+/// optimistic figure admits threads the host cannot hold, so the multiplier
+/// used for sizing is the measured one.
 fn estimate_peak_page_bytes(width: usize, height: usize, output_mode: OutputMode) -> u64 {
     let pixels = (width as u64).saturating_mul(height as u64);
     let multiplier = if matches!(output_mode, OutputMode::Color | OutputMode::Mixed) {
@@ -1610,6 +1620,23 @@ mod tests {
     }
 
     #[test]
+    fn peak_page_estimate_tracks_measured_resident_high_water() {
+        // Reference document, 2119x3204 gray page, 32-page Bw batch at five
+        // workers, measured peak RSS 1.60 GB (audit-jul-25 U22 / SCP3). The
+        // sizing model is cache budget plus one peak page per worker; it has to
+        // land within +/-25 % of that or the worker budget admits threads the
+        // host cannot hold.
+        const MEASURED_PEAK_BYTES: f64 = 1.60e9;
+        let modelled = (256 * 1024 * 1024) as f64
+            + 5.0 * estimate_peak_page_bytes(2119, 3204, OutputMode::Bw) as f64;
+        let ratio = modelled / MEASURED_PEAK_BYTES;
+        assert!(
+            (0.75..=1.25).contains(&ratio),
+            "modelled {modelled:.0} B is {ratio:.2}x the measured 1.60 GB peak",
+        );
+    }
+
+    #[test]
     fn worker_sizing_follows_the_host_memory_the_manifest_reports() {
         let dir = std::env::temp_dir().join(format!(
             "evb-scan-cleanup-worker-sizing-{}",
@@ -1659,10 +1686,10 @@ mod tests {
 
     #[test]
     fn color_peak_estimate_accounts_for_rgb_working_copies() {
-        assert_eq!(estimate_peak_page_bytes(100, 50, OutputMode::Bw), 60_000);
+        assert_eq!(estimate_peak_page_bytes(100, 50, OutputMode::Bw), 200_000);
         assert_eq!(
             estimate_peak_page_bytes(100, 50, OutputMode::Color),
-            120_000
+            400_000
         );
     }
 
