@@ -11,6 +11,8 @@ import { writeGeneratedFileIfChanged } from '@scripts/writeGeneratedFileIfChange
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const generatedRelativePath = 'scripts/release/generated-release-targets.cjs';
 
+export const PACKAGED_ENTRY_FIELD_SEPARATOR = '\u001f';
+
 export function createReleaseTargetManifest() {
     const families = getPackagedNativeToolFamilies();
     return {
@@ -63,8 +65,8 @@ function renderPackagedEntries(tag) { const platform = tag.slice(0, tag.lastInde
     return [
         ...manifest.families.flatMap(family => family.packagedEntries
         .filter(entry => !entry.skip?.[platform] && (!entry.platforms || entry.platforms.includes(platform)))
-        .map(entry => ['native', family.stagedRootSegments.join('/'), entry.pathSegments.join('/').replaceAll('{exeSuffix}', suffix), entry.type, entry.label, entry.id].join('\\t'))),
-        ...manifest.globalResources.map(resource => ['global', '', resource.stagedSegments.join('/'), resource.type, resource.label, resource.id].join('\\t')),
+        .map(entry => ['native', family.stagedRootSegments.join('/'), entry.pathSegments.join('/').replaceAll('{exeSuffix}', suffix), entry.type, entry.label, entry.id].join('\\u001f'))),
+        ...manifest.globalResources.map(resource => ['global', '', resource.stagedSegments.join('/'), resource.type, resource.label, resource.id].join('\\u001f')),
     ].join('\\n');
 }
 module.exports = {manifest: assertManifest(manifest), renderPackagedEntries, validateReleaseTargetManifest: assertManifest};

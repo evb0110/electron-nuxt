@@ -8,7 +8,10 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
-import { createReleaseTargetManifest } from '@scripts/generateReleaseTargetManifest';
+import {
+    createReleaseTargetManifest,
+    PACKAGED_ENTRY_FIELD_SEPARATOR,
+} from '@scripts/generateReleaseTargetManifest';
 import {
     ELECTRON_BUILDER_PLATFORM_KEYS,
     GLOBAL_PACKAGED_RESOURCES,
@@ -327,7 +330,7 @@ describe('native tool smoke policy', () => {
                         entry.type,
                         entry.label,
                         entry.id,
-                    ].join('\t'))
+                    ].join(PACKAGED_ENTRY_FIELD_SEPARATOR))
             ));
             expectedRows.push(...RELEASE_TARGET_MANIFEST.globalResources.map(resource => [
                 'global',
@@ -336,7 +339,7 @@ describe('native tool smoke policy', () => {
                 resource.type,
                 resource.label,
                 resource.id,
-            ].join('\t')));
+            ].join(PACKAGED_ENTRY_FIELD_SEPARATOR)));
 
             expect(renderPackagedEntries(tag).split('\n')).toEqual(expectedRows);
         }

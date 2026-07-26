@@ -20,8 +20,12 @@ if ! node --import tsx scripts/nativeResourceManifestCli.ts packaged-entries "$p
   echo "Error: Unable to load packaged release targets"
   exit 1
 fi
+if ! awk -F'\037' 'NF != 6 || $1 == "" || $3 == "" || $4 == "" || $5 == "" || $6 == "" { exit 1 }' "$release_entries_file"; then
+  echo "Error: Packaged release targets are not six unit-separated fields per row"
+  exit 1
+fi
 sentinel_family_root=""
-while IFS=$'\t' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
+while IFS=$'\037' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
   if [ "$entry_scope" = "native" ] && [ -n "$staged_root" ]; then
     sentinel_family_root="$staged_root"
     break
@@ -66,7 +70,7 @@ echo "Verifying packaged native tools in: $native_tool_root"
 # release-target manifest (scripts/nativeResourceManifest.ts) so this verifier, the
 # staging generator, and the afterPack hook never drift on their target lists.
 packaged_family_roots=()
-while IFS=$'\t' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
+while IFS=$'\037' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
   if [ "$entry_scope" = "native" ] && [[ " ${packaged_family_roots[*]} " != *" $staged_root "* ]]; then
     packaged_family_roots+=("$staged_root")
   fi
@@ -194,7 +198,7 @@ is_macos_app_adhoc_signed() {
 }
 
 tessdata_dir=""
-while IFS=$'\t' read -r entry_scope staged_root relative_path entry_type entry_label entry_id; do
+while IFS=$'\037' read -r entry_scope staged_root relative_path entry_type entry_label entry_id; do
   if [ "$entry_scope" = "native" ]; then
     entry_path="$native_tool_root/$staged_root/$platform_arch/$relative_path"
   else
@@ -227,7 +231,7 @@ packaged_entry_path() {
   local entry_type
   local entry_label
   local entry_id
-  while IFS=$'\t' read -r entry_scope staged_root relative_path entry_type entry_label entry_id; do
+  while IFS=$'\037' read -r entry_scope staged_root relative_path entry_type entry_label entry_id; do
     if [ "$entry_scope" = "native" ] && [ "$entry_id" = "$requested_id" ]; then
       echo "$native_tool_root/$staged_root/$platform_arch/$relative_path"
       return
