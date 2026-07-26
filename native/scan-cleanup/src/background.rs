@@ -41,7 +41,6 @@ struct SurfaceDiagnostics {
 #[derive(Clone, Debug)]
 struct SurfaceFit {
     coefficients: Vec<f64>,
-    diagnostics: SurfaceDiagnostics,
     mask: Vec<bool>,
 }
 
@@ -79,10 +78,7 @@ pub fn normalize_illumination_rgb_with_picture_mask(
 fn background_model(source: &GrayImage, picture_mask: Option<&BinaryImage>) -> BackgroundModel {
     let (small, candidate) = reconstructed_background(source);
     match fit_masked_surface(&small, &candidate, picture_mask) {
-        Some(fit) => {
-            debug_assert!(validate_surface(fit.diagnostics));
-            select_background_model(&small, candidate, fit)
-        }
+        Some(fit) => select_background_model(&small, candidate, fit),
         None => reconstruction_fallback(candidate),
     }
 }
@@ -417,19 +413,43 @@ fn invert(image: &GrayImage) -> GrayImage {
     output
 }
 
+/// Erosion by a clamped square window, run as a horizontal minimum followed by a
+/// vertical one. `min` is associative and exact on `u8`, so the separable form returns
+/// the same image as the square window it replaces, at `O(radius)` per pixel instead of
+/// `O(radius²)`.
 fn gray_erode(source: &GrayImage, radius: usize) -> GrayImage {
-    let mut output = GrayImage::new(source.width(), source.height(), 0);
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            let mut value = u8::MAX;
-            for sy in y.saturating_sub(radius)..=(y + radius).min(source.height() - 1) {
-                for sx in x.saturating_sub(radius)..=(x + radius).min(source.width() - 1) {
-                    value = value.min(source.get(sx, sy));
+    let (width, height) = (source.width(), source.height());
+    let mut horizontal = GrayImage::new(width, height, 0);
+    horizontal
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let source_row = &source.data()[y * width..(y + 1) * width];
+            for (x, target) in row.iter_mut().enumerate() {
+                *target = source_row[x.saturating_sub(radius)..=(x + radius).min(width - 1)]
+                    .iter()
+                    .copied()
+                    .min()
+                    .unwrap_or(u8::MAX);
+            }
+        });
+    let mut output = GrayImage::new(width, height, 0);
+    output
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let first = y.saturating_sub(radius);
+            let last = (y + radius).min(height - 1);
+            row.copy_from_slice(&horizontal.data()[first * width..(first + 1) * width]);
+            for sample_y in first + 1..=last {
+                let above = &horizontal.data()[sample_y * width..(sample_y + 1) * width];
+                for (target, value) in row.iter_mut().zip(above) {
+                    *target = (*target).min(*value);
                 }
             }
-            output.set(x, y, value);
-        }
-    }
+        });
     output
 }
 
@@ -446,9 +466,14 @@ fn fit_masked_surface(
         return None;
     }
     let mut robust_weights = vec![1.0; mask.len()];
-    let (normal, rhs) =
-        accumulate_surface_system(candidate, &mask, &robust_weights, &x_basis, &y_basis);
-    let mut coefficients = cholesky_solve_regularized(normal, rhs)?;
+    let mut coefficients = cholesky_solve_regularized(accumulate_surface_system(
+        candidate,
+        &mask,
+        &robust_weights,
+        &x_basis,
+        &y_basis,
+        SurfaceColumns::LowerTriangle,
+    ))?;
     for _ in 0..3 {
         update_huber_weights(
             candidate,
@@ -458,9 +483,14 @@ fn fit_masked_surface(
             &coefficients,
             &mut robust_weights,
         );
-        let (normal, rhs) =
-            accumulate_surface_system(candidate, &mask, &robust_weights, &x_basis, &y_basis);
-        coefficients = cholesky_solve_regularized(normal, rhs)?;
+        coefficients = cholesky_solve_regularized(accumulate_surface_system(
+            candidate,
+            &mask,
+            &robust_weights,
+            &x_basis,
+            &y_basis,
+            SurfaceColumns::LowerTriangle,
+        ))?;
     }
     let mut residuals = surface_residuals(candidate, &mask, &x_basis, &y_basis, &coefficients);
     let median_absolute_residual = percentile(&mut residuals, 0.5);
@@ -473,11 +503,7 @@ fn fit_masked_surface(
         minimum,
         maximum,
     };
-    validate_surface(diagnostics).then_some(SurfaceFit {
-        coefficients,
-        diagnostics,
-        mask,
-    })
+    validate_surface(diagnostics).then_some(SurfaceFit { coefficients, mask })
 }
 
 fn select_background_model(
@@ -510,38 +536,35 @@ fn select_background_model(
     }
 }
 
+/// Removal condition: this frozen pre-Stage-F solve exists only for
+/// `normalize_illumination_for_layout`, whose output feeds split calibration
+/// (`PageCalibration::estimate`, `detect_content_and_margins_calibrated`,
+/// `otsu_threshold`, `detect_text_axis` in `engine/render.rs`). Delete it, and fold the
+/// layout normalization onto `fit_masked_surface`, once split calibration is re-derived
+/// against the Cholesky/IRLS model — the two differ in mask refinement, in robust
+/// re-weighting and in solver, so merging them silently would move every calibrated
+/// split. Until then it keeps the full square rather than the mirrored lower triangle:
+/// mirroring reorders each product's factors and perturbs the Gaussian solve, which is
+/// the calibration drift the freeze exists to prevent.
 fn fit_masked_surface_legacy(source: &GrayImage, candidate: &GrayImage) -> Option<Vec<f64>> {
-    let mut normal = vec![vec![0.0; SURFACE_TERMS + 1]; SURFACE_TERMS];
-    let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
-    let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
-    let mut basis = [0.0; SURFACE_TERMS];
-    let mut accepted = 0usize;
-    for (y, y_values) in y_basis.iter().enumerate() {
-        for (x, x_values) in x_basis.iter().enumerate() {
-            let original = source.get(x, y);
-            let background = candidate.get(x, y);
-            if original.saturating_add(18) < background {
-                continue;
-            }
-            fill_surface_basis(&mut basis, x_values, y_values);
-            let border_x = source.width() / 30;
-            let weight = if x < border_x || x + border_x >= source.width() {
-                0.4
-            } else {
-                1.0
-            };
-            for row in 0..SURFACE_TERMS {
-                for column in 0..SURFACE_TERMS {
-                    normal[row][column] += weight * basis[row] * basis[column];
-                }
-                normal[row][SURFACE_TERMS] += weight * basis[row] * f64::from(background);
-            }
-            accepted += 1;
-        }
+    let mask = source
+        .data()
+        .iter()
+        .zip(candidate.data())
+        .map(|(&original, &background)| original.saturating_add(18) >= background)
+        .collect::<Vec<_>>();
+    if mask.iter().filter(|&&included| included).count() < SURFACE_TERMS * 2 {
+        return None;
     }
-    (accepted >= SURFACE_TERMS * 2)
-        .then(|| solve(normal))
-        .flatten()
+    let system = accumulate_surface_system(
+        candidate,
+        &mask,
+        &vec![1.0; mask.len()],
+        &precompute_chebyshev::<X_TERMS>(source.width()),
+        &precompute_chebyshev::<Y_TERMS>(source.height()),
+        SurfaceColumns::FullSquare,
+    );
+    solve(system, SURFACE_TERMS)
 }
 
 fn refined_surface_mask(
@@ -550,25 +573,26 @@ fn refined_surface_mask(
     picture_mask: Option<&BinaryImage>,
 ) -> Vec<bool> {
     let mut mask = vec![false; source.width() * source.height()];
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            let picture = picture_mask.is_some_and(|pictures| {
-                let picture_x = if source.width() <= 1 {
-                    0
-                } else {
-                    x * pictures.width().saturating_sub(1) / (source.width() - 1)
-                };
-                let picture_y = if source.height() <= 1 {
-                    0
-                } else {
-                    y * pictures.height().saturating_sub(1) / (source.height() - 1)
-                };
-                pictures.get(picture_x, picture_y)
-            });
-            mask[y * source.width() + x] =
-                !picture && source.get(x, y).saturating_add(18) >= candidate.get(x, y);
-        }
-    }
+    mask.par_chunks_mut(source.width())
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, kept) in row.iter_mut().enumerate() {
+                let picture = picture_mask.is_some_and(|pictures| {
+                    let picture_x = if source.width() <= 1 {
+                        0
+                    } else {
+                        x * pictures.width().saturating_sub(1) / (source.width() - 1)
+                    };
+                    let picture_y = if source.height() <= 1 {
+                        0
+                    } else {
+                        y * pictures.height().saturating_sub(1) / (source.height() - 1)
+                    };
+                    pictures.get(picture_x, picture_y)
+                });
+                *kept = !picture && source.get(x, y).saturating_add(18) >= candidate.get(x, y);
+            }
+        });
     refine_line_mask(source, &mut mask, true, 3);
     refine_line_mask(source, &mut mask, false, 5);
     mask = erode_mask_3x3(&mask, source.width(), source.height());
@@ -665,21 +689,23 @@ fn fit_line_polynomial(
     line_length: usize,
     terms: usize,
 ) -> Option<Vec<f64>> {
-    let mut normal = vec![vec![0.0; terms + 1]; terms];
+    let stride = terms + 1;
+    let mut normal = vec![0.0; terms * stride];
+    let mut powers = vec![1.0; terms];
     for &(position, value) in samples {
         let coordinate = normalized_coordinate(position, line_length);
-        let mut powers = vec![1.0; terms];
         for power in 1..terms {
             powers[power] = powers[power - 1] * coordinate;
         }
         for row in 0..terms {
-            for column in 0..terms {
-                normal[row][column] += powers[row] * powers[column];
+            let start = row * stride;
+            for (accumulated, factor) in normal[start..start + terms].iter_mut().zip(&powers) {
+                *accumulated += powers[row] * factor;
             }
-            normal[row][terms] += powers[row] * f64::from(value);
+            normal[start + terms] += powers[row] * f64::from(value);
         }
     }
-    solve(normal)
+    solve(normal, terms)
 }
 
 fn evaluate_line_polynomial(coefficients: &[f64], position: usize, length: usize) -> f64 {
@@ -695,12 +721,18 @@ fn erode_mask_3x3(mask: &[bool], width: usize, height: usize) -> Vec<bool> {
     if width < 3 || height < 3 {
         return eroded;
     }
-    for y in 1..height - 1 {
-        for x in 1..width - 1 {
-            eroded[y * width + x] = (y - 1..=y + 1)
-                .all(|sample_y| (x - 1..=x + 1).all(|sample_x| mask[sample_y * width + sample_x]));
-        }
-    }
+    eroded
+        .par_chunks_mut(width)
+        .enumerate()
+        .skip(1)
+        .take(height - 2)
+        .for_each(|(y, row)| {
+            for (x, kept) in row.iter_mut().enumerate().skip(1).take(width - 2) {
+                *kept = (y - 1..=y + 1).all(|sample_y| {
+                    (x - 1..=x + 1).all(|sample_x| mask[sample_y * width + sample_x])
+                });
+            }
+        });
     eroded
 }
 
@@ -734,24 +766,28 @@ fn update_huber_weights(
     weights: &mut [f64],
 ) {
     const HUBER_DELTA: f64 = 10.0;
-    let mut basis = [0.0; SURFACE_TERMS];
-    for (y, y_values) in y_basis.iter().enumerate() {
-        for (x, x_values) in x_basis.iter().enumerate() {
-            let index = y * target.width() + x;
-            if !mask[index] {
-                weights[index] = 0.0;
-                continue;
+    weights
+        .par_chunks_mut(target.width())
+        .zip(mask.par_chunks(target.width()))
+        .zip(y_basis.par_iter())
+        .enumerate()
+        .for_each(|(y, ((weight_row, mask_row), y_values))| {
+            let mut basis = [0.0; SURFACE_TERMS];
+            for (x, x_values) in x_basis.iter().enumerate() {
+                if !mask_row[x] {
+                    weight_row[x] = 0.0;
+                    continue;
+                }
+                fill_surface_basis(&mut basis, x_values, y_values, SURFACE_TERMS);
+                let residual =
+                    (evaluate_surface(coefficients, &basis) - f64::from(target.get(x, y))).abs();
+                weight_row[x] = if residual <= HUBER_DELTA {
+                    1.0
+                } else {
+                    HUBER_DELTA / residual
+                };
             }
-            fill_surface_basis(&mut basis, x_values, y_values);
-            let residual =
-                (evaluate_surface(coefficients, &basis) - f64::from(target.get(x, y))).abs();
-            weights[index] = if residual <= HUBER_DELTA {
-                1.0
-            } else {
-                HUBER_DELTA / residual
-            };
-        }
-    }
+        });
 }
 
 fn masked_model_residual(
@@ -771,7 +807,7 @@ fn masked_model_residual(
                 continue;
             }
             let model_value = if let Some(coefficients) = coefficients {
-                fill_surface_basis(&mut basis, x_values, y_values);
+                fill_surface_basis(&mut basis, x_values, y_values, SURFACE_TERMS);
                 evaluate_surface(coefficients, &basis)
             } else {
                 f64::from(
@@ -787,55 +823,85 @@ fn masked_model_residual(
     residual_sum / count.max(1) as f64
 }
 
+/// One flat allocation for the whole normal system: row-major, `SURFACE_TERMS` rows of
+/// `SURFACE_STRIDE` columns, with the right-hand side living in the last column.
+/// `SURFACE_TERMS` separate heap rows were the difference between a bounds-checked
+/// scalar accumulation and a vectorised one.
+const SURFACE_STRIDE: usize = SURFACE_TERMS + 1;
+
+/// Which half of the normal matrix an accumulation fills. The Stage-F Cholesky path
+/// fills the lower triangle and mirrors it; the frozen pre-Stage-F Gaussian solve
+/// accumulated the full square, and mirroring would reorder its factors.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SurfaceColumns {
+    LowerTriangle,
+    FullSquare,
+}
+
+/// Accumulates the weighted normal equations for the tensor Chebyshev surface.
+///
+/// The **matrix** is split across threads, not the samples: every row walks all accepted
+/// samples in image order, so each element's summation order — and every product's factor
+/// order, `(weight × basis[row]) × basis[column]` — is exactly the single-threaded one.
+/// The fit is therefore bit-identical run to run and independent of the thread count,
+/// which the golden fixture checksums in this module depend on.
 fn accumulate_surface_system(
     target: &GrayImage,
     mask: &[bool],
     robust_weights: &[f64],
     x_basis: &[[f64; X_TERMS]],
     y_basis: &[[f64; Y_TERMS]],
-) -> (Vec<Vec<f64>>, Vec<f64>) {
-    let mut normal = vec![vec![0.0; SURFACE_TERMS]; SURFACE_TERMS];
-    let mut rhs = vec![0.0; SURFACE_TERMS];
-    let mut basis = [0.0; SURFACE_TERMS];
-    for (y, y_values) in y_basis.iter().enumerate() {
-        for (x, x_values) in x_basis.iter().enumerate() {
-            let index = y * target.width() + x;
-            if !mask[index] {
-                continue;
-            }
-            fill_surface_basis(&mut basis, x_values, y_values);
-            let border_x = target.width() / 30;
-            let border_weight = if x < border_x || x + border_x >= target.width() {
-                0.4
-            } else {
-                1.0
+    columns: SurfaceColumns,
+) -> Vec<f64> {
+    let mut system = vec![0.0; SURFACE_TERMS * SURFACE_STRIDE];
+    let border_x = target.width() / 30;
+    system
+        .par_chunks_mut(SURFACE_STRIDE)
+        .enumerate()
+        .for_each(|(row, slots)| {
+            let last = match columns {
+                SurfaceColumns::LowerTriangle => row,
+                SurfaceColumns::FullSquare => SURFACE_TERMS - 1,
             };
-            let weight = border_weight * robust_weights[index];
-            for row in 0..SURFACE_TERMS {
-                for column in 0..=row {
-                    normal[row][column] += weight * basis[row] * basis[column];
+            let mut basis = [0.0; SURFACE_TERMS];
+            for (y, y_values) in y_basis.iter().enumerate() {
+                for (x, x_values) in x_basis.iter().enumerate() {
+                    let index = y * target.width() + x;
+                    if !mask[index] {
+                        continue;
+                    }
+                    fill_surface_basis(&mut basis, x_values, y_values, last + 1);
+                    let border_weight = if x < border_x || x + border_x >= target.width() {
+                        0.4
+                    } else {
+                        1.0
+                    };
+                    let weighted = border_weight * robust_weights[index] * basis[row];
+                    for (accumulated, factor) in slots[..=last].iter_mut().zip(&basis[..=last]) {
+                        *accumulated += weighted * factor;
+                    }
+                    slots[SURFACE_TERMS] += weighted * f64::from(target.get(x, y));
                 }
-                rhs[row] += weight * basis[row] * f64::from(target.get(x, y));
+            }
+        });
+    if columns == SurfaceColumns::LowerTriangle {
+        for row in 0..SURFACE_TERMS {
+            for column in 0..row {
+                system[column * SURFACE_STRIDE + row] = system[row * SURFACE_STRIDE + column];
             }
         }
     }
-    for row in 0..SURFACE_TERMS {
-        for column in 0..row {
-            normal[column][row] = normal[row][column];
-        }
-    }
-    (normal, rhs)
+    system
 }
 
 fn fill_surface_basis(
     basis: &mut [f64; SURFACE_TERMS],
     x_values: &[f64; X_TERMS],
     y_values: &[f64; Y_TERMS],
+    terms: usize,
 ) {
-    for y_term in 0..Y_TERMS {
-        for x_term in 0..X_TERMS {
-            basis[y_term * X_TERMS + x_term] = x_values[x_term] * y_values[y_term];
-        }
+    for (term, value) in basis[..terms].iter_mut().enumerate() {
+        *value = x_values[term % X_TERMS] * y_values[term / X_TERMS];
     }
 }
 
@@ -861,7 +927,7 @@ fn surface_residuals(
             if !mask[y * target.width() + x] {
                 continue;
             }
-            fill_surface_basis(&mut basis, x_values, y_values);
+            fill_surface_basis(&mut basis, x_values, y_values, SURFACE_TERMS);
             residuals
                 .push((evaluate_surface(coefficients, &basis) - f64::from(target.get(x, y))).abs());
         }
@@ -879,7 +945,7 @@ fn surface_range(
     let mut basis = [0.0; SURFACE_TERMS];
     for y_values in y_basis {
         for x_values in x_basis {
-            fill_surface_basis(&mut basis, x_values, y_values);
+            fill_surface_basis(&mut basis, x_values, y_values, SURFACE_TERMS);
             let value = evaluate_surface(coefficients, &basis);
             minimum = minimum.min(value);
             maximum = maximum.max(value);
@@ -932,47 +998,47 @@ fn robust_image_percentile(image: &GrayImage, fraction: f64) -> f64 {
     255.0
 }
 
-fn cholesky_solve_regularized(mut matrix: Vec<Vec<f64>>, rhs: Vec<f64>) -> Option<Vec<f64>> {
-    let size = matrix.len();
-    let trace = matrix
-        .iter()
-        .enumerate()
-        .map(|(index, row)| row[index])
+fn cholesky_solve_regularized(mut system: Vec<f64>) -> Option<Vec<f64>> {
+    const SIZE: usize = SURFACE_TERMS;
+    let trace = (0..SIZE)
+        .map(|index| system[index * SURFACE_STRIDE + index])
         .sum::<f64>();
-    let regularization = 1e-4 * trace / size.max(1) as f64;
-    for (index, row) in matrix.iter_mut().enumerate() {
-        row[index] += regularization;
+    let regularization = 1e-4 * trace / SIZE as f64;
+    for index in 0..SIZE {
+        system[index * SURFACE_STRIDE + index] += regularization;
     }
-    let mut lower = vec![vec![0.0; size]; size];
-    for row in 0..size {
+    let mut lower = vec![0.0; SIZE * SIZE];
+    for row in 0..SIZE {
         for column in 0..=row {
             let previous = (0..column)
-                .map(|index| lower[row][index] * lower[column][index])
+                .map(|index| lower[row * SIZE + index] * lower[column * SIZE + index])
                 .sum::<f64>();
             if row == column {
-                let diagonal = matrix[row][row] - previous;
+                let diagonal = system[row * SURFACE_STRIDE + row] - previous;
                 if !diagonal.is_finite() || diagonal <= 1e-12 {
                     return None;
                 }
-                lower[row][column] = diagonal.sqrt();
+                lower[row * SIZE + column] = diagonal.sqrt();
             } else {
-                lower[row][column] = (matrix[row][column] - previous) / lower[column][column];
+                lower[row * SIZE + column] = (system[row * SURFACE_STRIDE + column] - previous)
+                    / lower[column * SIZE + column];
             }
         }
     }
-    let mut intermediate = vec![0.0; size];
-    for row in 0..size {
+    let mut intermediate = [0.0; SIZE];
+    for row in 0..SIZE {
         let previous = (0..row)
-            .map(|column| lower[row][column] * intermediate[column])
+            .map(|column| lower[row * SIZE + column] * intermediate[column])
             .sum::<f64>();
-        intermediate[row] = (rhs[row] - previous) / lower[row][row];
+        intermediate[row] =
+            (system[row * SURFACE_STRIDE + SURFACE_TERMS] - previous) / lower[row * SIZE + row];
     }
-    let mut solution = vec![0.0; size];
-    for row in (0..size).rev() {
-        let previous = (row + 1..size)
-            .map(|column| lower[column][row] * solution[column])
+    let mut solution = vec![0.0; SIZE];
+    for row in (0..SIZE).rev() {
+        let previous = (row + 1..SIZE)
+            .map(|column| lower[column * SIZE + row] * solution[column])
             .sum::<f64>();
-        solution[row] = (intermediate[row] - previous) / lower[row][row];
+        solution[row] = (intermediate[row] - previous) / lower[row * SIZE + row];
     }
     solution
         .iter()
@@ -1029,30 +1095,37 @@ fn precompute_chebyshev<const TERMS: usize>(length: usize) -> Vec<[f64; TERMS]> 
         .collect()
 }
 
-fn solve(mut matrix: Vec<Vec<f64>>) -> Option<Vec<f64>> {
-    let size = matrix.len();
+/// Gauss-Jordan with partial pivoting over a row-major augmented matrix of `size` rows
+/// and `size + 1` columns, the right-hand side in the last column.
+fn solve(mut matrix: Vec<f64>, size: usize) -> Option<Vec<f64>> {
+    let stride = size + 1;
     for pivot in 0..size {
-        let best = (pivot..size)
-            .max_by(|&a, &b| matrix[a][pivot].abs().total_cmp(&matrix[b][pivot].abs()))?;
-        if matrix[best][pivot].abs() < 1e-9 {
+        let best = (pivot..size).max_by(|&a, &b| {
+            matrix[a * stride + pivot]
+                .abs()
+                .total_cmp(&matrix[b * stride + pivot].abs())
+        })?;
+        if matrix[best * stride + pivot].abs() < 1e-9 {
             return None;
         }
-        matrix.swap(pivot, best);
-        let divisor = matrix[pivot][pivot];
-        for column in pivot..=size {
-            matrix[pivot][column] /= divisor;
+        for column in 0..stride {
+            matrix.swap(pivot * stride + column, best * stride + column);
+        }
+        let divisor = matrix[pivot * stride + pivot];
+        for column in pivot..stride {
+            matrix[pivot * stride + column] /= divisor;
         }
         for row in 0..size {
             if row == pivot {
                 continue;
             }
-            let factor = matrix[row][pivot];
-            for column in pivot..=size {
-                matrix[row][column] -= factor * matrix[pivot][column];
+            let factor = matrix[row * stride + pivot];
+            for column in pivot..stride {
+                matrix[row * stride + column] -= factor * matrix[pivot * stride + column];
             }
         }
     }
-    Some(matrix.into_iter().map(|row| row[size]).collect())
+    Some((0..size).map(|row| matrix[row * stride + size]).collect())
 }
 
 pub(crate) fn smooth_for_binarization(source: &GrayImage, dpi: f64) -> GrayImage {
@@ -1089,18 +1162,21 @@ pub(crate) fn smooth_for_binarization(source: &GrayImage, dpi: f64) -> GrayImage
 
 fn smoothing_coefficients(radius: usize, degree: usize) -> Vec<f64> {
     let terms = degree + 1;
-    let mut normal = vec![vec![0.0; terms + 1]; terms];
+    let stride = terms + 1;
+    let mut normal = vec![0.0; terms * stride];
     for offset in -(radius as isize)..=radius as isize {
         let x = offset as f64;
         let powers: Vec<f64> = (0..terms).map(|power| x.powi(power as i32)).collect();
         for row in 0..terms {
-            for column in 0..terms {
-                normal[row][column] += powers[row] * powers[column];
+            let start = row * stride;
+            for (accumulated, factor) in normal[start..start + terms].iter_mut().zip(&powers) {
+                *accumulated += powers[row] * factor;
             }
-            normal[row][terms] += if row == 0 { 1.0 } else { 0.0 };
+            normal[start + terms] += f64::from(row == 0);
         }
     }
-    let polynomial = solve(normal).unwrap_or_else(|| vec![1.0 / (radius * 2 + 1) as f64; terms]);
+    let polynomial =
+        solve(normal, terms).unwrap_or_else(|| vec![1.0 / (radius * 2 + 1) as f64; terms]);
     (-(radius as isize)..=radius as isize)
         .map(|offset| {
             polynomial
@@ -1176,9 +1252,13 @@ mod tests {
             }
         }
         let fit = fit_masked_surface(&source, &candidate, None).expect("smooth surface must fit");
-        assert_eq!(fit.diagnostics.accepted_samples, 118 * 78);
-        assert!(fit.diagnostics.median_absolute_residual < 0.75);
-        assert!(fit.diagnostics.p90_absolute_residual < 1.5);
+        let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
+        let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
+        let mut residuals =
+            surface_residuals(&candidate, &fit.mask, &x_basis, &y_basis, &fit.coefficients);
+        assert_eq!(fit.mask.iter().filter(|&&kept| kept).count(), 118 * 78);
+        assert!(percentile(&mut residuals, 0.5) < 0.75);
+        assert!(percentile(&mut residuals, 0.9) < 1.5);
 
         let sparse = GrayImage::new(8, 8, 220);
         assert!(fit_masked_surface(&sparse, &sparse, None).is_none());
@@ -1199,14 +1279,15 @@ mod tests {
         let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
         let mask = refined_surface_mask(&source, &candidate, None);
         let accepted = mask.iter().filter(|&&included| included).count();
-        let (normal, rhs) = accumulate_surface_system(
+        let system = accumulate_surface_system(
             &candidate,
             &mask,
             &vec![1.0; mask.len()],
             &x_basis,
             &y_basis,
+            SurfaceColumns::LowerTriangle,
         );
-        let coefficients = cholesky_solve_regularized(normal, rhs)
+        let coefficients = cholesky_solve_regularized(system)
             .expect("ridge must solve a quadrant-only sample distribution");
         let (minimum, maximum) = surface_range(&x_basis, &y_basis, &coefficients);
 
@@ -1354,6 +1435,104 @@ mod tests {
         let threshold_input = smooth_for_binarization(&normalized, 300.0);
         assert_ne!(normalized, threshold_input);
         assert!(normalized.get(15, 14).abs_diff(normalized.get(15, 15)) > 20);
+    }
+
+    fn gutter_fixture() -> GrayImage {
+        crate::png::decode_image(
+            include_bytes!("../tests/fixtures/split/spread-luther-soft-gutter-p00001.png"),
+            crate::DEFAULT_MAX_PIXELS,
+            crate::DEFAULT_MAX_DIMENSION,
+        )
+        .expect("gutter fixture decodes")
+        .gray
+    }
+
+    fn surface_at(coefficients: &[f64], u: f64, v: f64) -> f64 {
+        let mut basis = [0.0; SURFACE_TERMS];
+        fill_surface_basis(
+            &mut basis,
+            &chebyshev_basis::<X_TERMS>(u * 2.0 - 1.0),
+            &chebyshev_basis::<Y_TERMS>(v * 2.0 - 1.0),
+            SURFACE_TERMS,
+        );
+        evaluate_surface(coefficients, &basis)
+    }
+
+    const SURFACE_PROBES: [(f64, f64); 5] = [
+        (0.0, 0.0),
+        (0.25, 0.5),
+        (0.5, 0.5),
+        (0.75, 0.25),
+        (1.0, 1.0),
+    ];
+
+    /// Both fits are pinned to the values the pre-flattening `Vec<Vec<f64>>` accumulation
+    /// produced for this page. The flattened accumulator forms every product in the same
+    /// order, so the model must not move at all; the tolerance is there for the platform
+    /// FMA contraction the two solvers are allowed, not for a re-derived model.
+    #[test]
+    fn both_surface_fits_reproduce_their_pre_flattening_models() {
+        const CHOLESKY: [f64; 5] = [
+            256.505283631078,
+            255.894672768757,
+            253.836236216943,
+            250.488668187166,
+            256.092520277839,
+        ];
+        const GAUSSIAN: [f64; 5] = [
+            254.965646558837,
+            253.771107792774,
+            252.505474184266,
+            253.285006782184,
+            257.269583508447,
+        ];
+        let (small, candidate) = reconstructed_background(&gutter_fixture());
+        let fit = fit_masked_surface(&small, &candidate, None).expect("gutter fixture must fit");
+        let legacy =
+            fit_masked_surface_legacy(&small, &candidate).expect("legacy fit must converge");
+        for (index, (u, v)) in SURFACE_PROBES.into_iter().enumerate() {
+            let cholesky = surface_at(&fit.coefficients, u, v);
+            let gaussian = surface_at(&legacy, u, v);
+            assert!(
+                (cholesky - CHOLESKY[index]).abs() < 1e-9,
+                "cholesky probe {index}: {cholesky} vs {}",
+                CHOLESKY[index]
+            );
+            assert!(
+                (gaussian - GAUSSIAN[index]).abs() < 1e-9,
+                "gaussian probe {index}: {gaussian} vs {}",
+                GAUSSIAN[index]
+            );
+        }
+    }
+
+    /// The accumulation splits the normal matrix, not the samples, so every element is
+    /// summed over the page in the same order however many threads run it. A sample-split
+    /// accumulator reduces per-thread partials in a work-stealing order and fails here.
+    #[test]
+    fn surface_fit_does_not_depend_on_the_thread_count() {
+        let (small, candidate) = reconstructed_background(&gutter_fixture());
+        let single = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("single-threaded pool")
+            .install(|| fit_masked_surface(&small, &candidate, None))
+            .expect("gutter fixture must fit");
+        let parallel = rayon::ThreadPoolBuilder::new()
+            .num_threads(8)
+            .build()
+            .expect("eight-threaded pool")
+            .install(|| fit_masked_surface(&small, &candidate, None))
+            .expect("gutter fixture must fit");
+        assert_eq!(single.coefficients, parallel.coefficients);
+        assert_eq!(
+            fit_masked_surface_legacy(&small, &candidate),
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build()
+                .expect("single-threaded pool")
+                .install(|| fit_masked_surface_legacy(&small, &candidate))
+        );
     }
 
     fn reference_surface(
