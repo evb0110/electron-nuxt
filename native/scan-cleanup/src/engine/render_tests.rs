@@ -2701,4 +2701,186 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn colour_pages_publish_rgb_without_rendering_the_gray_twin_nobody_writes() {
+        let mut gray = GrayImage::new(220, 160, 238);
+        let mut color = RgbImage::new(220, 160, [238, 232, 224]);
+        for y in 40..96 {
+            for x in 36..184 {
+                gray.set(x, y, 74);
+                color.set(x, y, [196, 48, 52]);
+            }
+        }
+        let base = CleanupOptions {
+            dpi: 300.0,
+            manual_skew_degrees: Some(1.6),
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            match_page_size: false,
+            ..CleanupOptions::default()
+        };
+        let colored = clean_page_with_color(
+            &gray,
+            Some(&color),
+            &CleanupOptions {
+                output_mode: OutputMode::Color,
+                ..base.clone()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let published = colored
+            .color_image
+            .as_ref()
+            .expect("a colour page publishes an RGB raster");
+        assert!(
+            published.data().iter().any(|&value| value < 160),
+            "the published colour raster must carry the page"
+        );
+        let twin = colored.image.into_gray();
+        assert_eq!(
+            (twin.width(), twin.height()),
+            (published.width(), published.height())
+        );
+        assert!(
+            twin.data().iter().all(|&value| value == 255),
+            "a colour page must not pay for a full-resolution gray render nobody encodes"
+        );
+
+        let grayscale = clean_page(
+            &gray,
+            &CleanupOptions {
+                output_mode: OutputMode::Grayscale,
+                ..base
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0)
+        .image
+        .into_gray();
+        assert_eq!(
+            (grayscale.width(), grayscale.height()),
+            (twin.width(), twin.height())
+        );
+        assert!(
+            grayscale.data().iter().any(|&value| value < 160),
+            "the same page in grayscale mode still resamples its ink at full resolution"
+        );
+    }
+
+    #[test]
+    fn a_rotated_resample_keeps_the_per_sample_transform_result_on_every_pixel() {
+        let (source, _) = thin_stroke_fixture();
+        let width = source.width();
+        let height = source.height();
+        let cx = width as f64 * 0.5;
+        let cy = height as f64 * 0.5;
+        let inverse = Affine::translation(-cx, -cy)
+            .then(Affine::rotation_radians(1.4_f64.to_radians()))
+            .then(Affine::translation(cx, cy));
+        let offsets = adaptive_sample_offsets(inverse);
+        assert_eq!(
+            offsets.len(),
+            4,
+            "a rotation mixes the axes, so it must still supersample 2x2"
+        );
+
+        let matrix = inverse.matrix;
+        let row = height / 2;
+        let starts = offsets
+            .iter()
+            .map(|&(offset_x, offset_y)| {
+                let source_y = row as f64 + offset_y;
+                (
+                    matrix[0][0] * offset_x + matrix[0][1] * source_y + matrix[0][2],
+                    matrix[1][0] * offset_x + matrix[1][1] * source_y + matrix[1][2],
+                )
+            })
+            .collect::<Vec<_>>();
+        let (interior_start, interior_end) = interior_column_span(
+            &starts,
+            matrix[0][0],
+            matrix[1][0],
+            width,
+            source.width(),
+            source.height(),
+        );
+        assert!(
+            interior_end.saturating_sub(interior_start) * 10 >= width * 9,
+            "the unchecked interior must carry the row, not a sliver: {interior_start}..{interior_end} of {width}"
+        );
+        assert!(
+            interior_start > 0 && interior_end < width,
+            "a rotated row must keep bounds-checked borders: {interior_start}..{interior_end} of {width}"
+        );
+
+        let color = {
+            let mut image = RgbImage::new(width, height, [255; 3]);
+            for y in 0..height {
+                for x in 0..width {
+                    let value = source.get(x, y);
+                    image.set(
+                        x,
+                        y,
+                        [value, value.saturating_sub(9), value.saturating_add(6)],
+                    );
+                }
+            }
+            image
+        };
+        let gray_actual = render_affine_gray(&source, width, height, inverse);
+        let color_actual = render_affine_rgb(&color, width, height, inverse);
+
+        let mut off_by_one = 0usize;
+        for y in 0..height {
+            for x in 0..width {
+                let mapped = offsets
+                    .iter()
+                    .map(|&(offset_x, offset_y)| {
+                        inverse.apply(Point::new(x as f64 + offset_x, y as f64 + offset_y))
+                    })
+                    .collect::<Vec<_>>();
+                let gray_expected = (mapped
+                    .iter()
+                    .map(|point| u32::from(sample_bilinear_white(&source, point.x, point.y)))
+                    .sum::<u32>()
+                    / offsets.len() as u32) as u8;
+                let difference = gray_actual.get(x, y).abs_diff(gray_expected);
+                assert!(
+                    difference <= 1,
+                    "gray pixel ({x},{y}) drifted from the per-sample transform: {} vs {gray_expected}",
+                    gray_actual.get(x, y)
+                );
+                off_by_one += usize::from(difference);
+
+                let mut color_expected = [0u32; 3];
+                for point in &mapped {
+                    let sample = sample_bilinear_rgb_white(&color, point.x, point.y);
+                    for (total, value) in color_expected.iter_mut().zip(sample) {
+                        *total += u32::from(value);
+                    }
+                }
+                let actual = color_actual.get(x, y);
+                for (channel, total) in color_expected.iter().enumerate() {
+                    let expected = (total / offsets.len() as u32) as u8;
+                    assert!(
+                        actual[channel].abs_diff(expected) <= 1,
+                        "colour pixel ({x},{y}) channel {channel} drifted: {} vs {expected}",
+                        actual[channel]
+                    );
+                }
+            }
+        }
+        assert!(
+            off_by_one * 1_000 <= width * height,
+            "the f32 interior accumulation must round with the f64 sampler on all but a handful of pixels: {off_by_one} of {}",
+            width * height
+        );
+    }
 }
