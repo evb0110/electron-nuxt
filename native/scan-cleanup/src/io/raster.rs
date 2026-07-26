@@ -1,7 +1,10 @@
 //! Format-sniffing readers for cleanup raster inputs: PNG for browser-visible
 //! surfaces and raw PPM P6 for pipeline-internal Poppler handoffs.
 use super::decode_limits;
-use evb_raster_io::{decode_png, decode_ppm, read_png_dimensions, read_ppm_dimensions};
+use evb_raster_io::{
+    decode_png, decode_png_gray, decode_ppm, decode_ppm_gray, read_png_dimensions,
+    read_ppm_dimensions,
+};
 use scan_primitives::GrayImage;
 use std::{
     fs::File,
@@ -12,7 +15,14 @@ use std::{
 pub use evb_raster_io::DecodedRaster;
 
 pub fn read_gray(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
-    Ok(read_image(path, max_pixels, max_dimension)?.gray)
+    let (file, is_ppm) = open_sniffed(path)?;
+    let limits = decode_limits(max_pixels, max_dimension);
+    if is_ppm {
+        decode_ppm_gray(file, limits)
+    } else {
+        decode_png_gray(file, limits)
+    }
+    .map_err(|error| error.to_string())
 }
 
 pub fn read_image(
@@ -88,6 +98,39 @@ mod tests {
         let decoded = read_image(&ppm_path, 16, 16).unwrap();
         assert_eq!(decoded.rgb.get(0, 0), [0, 0, 0]);
         assert_eq!(decoded.rgb.get(1, 0), [255, 255, 255]);
+
+        fs::remove_file(&png_path).unwrap();
+        fs::remove_file(&ppm_path).unwrap();
+    }
+
+    #[test]
+    fn gray_reads_carry_the_same_plane_as_full_reads_for_both_formats() {
+        let mut source = GrayImage::new(5, 4, 255);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source.set(x, y, (x * 37 + y * 91) as u8);
+            }
+        }
+        let png_path = temp_path("plane.png");
+        fs::write(&png_path, encode_gray(&source).unwrap()).unwrap();
+        let ppm_path = temp_path("plane.ppm");
+        let mut ppm = b"P6\n5 4\n255\n".to_vec();
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                ppm.extend_from_slice(&[(x * 11) as u8, (y * 53) as u8, (x * 7 + y) as u8]);
+            }
+        }
+        fs::write(&ppm_path, ppm).unwrap();
+
+        for path in [&png_path, &ppm_path] {
+            assert_eq!(
+                read_gray(path, 64, 64).unwrap(),
+                read_image(path, 64, 64).unwrap().gray,
+                "gray plane diverged for {}",
+                path.display()
+            );
+        }
+        assert_eq!(read_gray(&png_path, 64, 64).unwrap(), source);
 
         fs::remove_file(&png_path).unwrap();
         fs::remove_file(&ppm_path).unwrap();
