@@ -36,25 +36,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reject prohibited commit attribution
+      - name: Reject prohibited attribution and local-only artifacts
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_HEAD_SHA: ${{ github.sha }}
+        # This widens to the pushed head's complete history when the before SHA is
+        # absent or unreachable. That is the fail-closed force-push behavior; see
+        # the publication-policy runbook in docs/releasing.md.
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            base_sha="$PR_BASE_SHA"
-            head_sha="$PR_HEAD_SHA"
+            node scripts/check-commit-attribution.mjs --pushed-range "$PR_BASE_SHA" "$PR_HEAD_SHA"
           else
-            base_sha="$PUSH_BEFORE_SHA"
-            head_sha="$PUSH_HEAD_SHA"
-          fi
-          if [ -z "$base_sha" ] || [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
-            node scripts/check-commit-attribution.mjs --range "$head_sha"
-          else
-            node scripts/check-commit-attribution.mjs --range "$base_sha..$head_sha"
+            node scripts/check-commit-attribution.mjs --pushed-range "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA"
           fi
 
   pr_quality:

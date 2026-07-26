@@ -1,6 +1,7 @@
 import {
     mkdir,
     mkdtemp,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -60,6 +61,51 @@ describe('web deploy source policy', () => {
             'resources/',
             'coverage/',
         ])).toThrow('.vercelignore is missing web deploy exclusions: coverage/');
+    });
+
+    // localArtifactPolicy.test.ts owns the canonical list; this proves the walker
+    // actually skips those names at any depth and in any ASCII case, and that the
+    // repository's own .vercelignore still declares them.
+    it('keeps local-only artifacts out of the deploy source in any case', async () => {
+        const vercelIgnoreContent = await readFile(
+            path.join(process.cwd(), '.vercelignore'),
+            'utf8',
+        );
+        expect(() => validateVercelIgnoreEntries(vercelIgnoreContent)).not.toThrow();
+
+        const tempRoot = await createTempProject();
+        try {
+            await mkdir(path.join(tempRoot, '.agents', 'rules'), {recursive: true});
+            await mkdir(path.join(tempRoot, '.devkit', 'plans'), {recursive: true});
+            await mkdir(path.join(tempRoot, 'docs-site'), {recursive: true});
+            for (const relativePath of [
+                path.join('.agents', 'rules', 'review.md'),
+                path.join('.devkit', 'plans', 'ledger.md'),
+                'AGENTS.MD',
+                path.join('app', 'Claude.Md'),
+                // Local scratch, excluded at any depth by exact basename even
+                // though it is committable.
+                path.join('app', 'MEMORIES.md'),
+                // Near misses: ordinary documents that only resemble the policy
+                // names and must still ship.
+                'AGENTS.mdx',
+                'MEMORIES.mdx',
+                path.join('docs-site', 'memories-overview.md'),
+            ]) {
+                await writeFile(path.join(tempRoot, relativePath), '# notes\n', 'utf8');
+            }
+
+            const stats = await collectWebDeploySourceStats({projectRoot: tempRoot});
+
+            // .vercelignore, app/index.ts, AGENTS.mdx, MEMORIES.mdx,
+            // docs-site/memories-overview.md.
+            expect(stats.fileCount).toBe(5);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('does not count excluded local artifacts in the deploy source budget', async () => {

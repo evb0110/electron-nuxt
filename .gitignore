@@ -9,13 +9,28 @@ dist-electron/
 dist/
 coverage/
 /release/
-.devkit/
 
 .idea/
+.vscode/
+
+# Local-only artifacts: agent-harness instruction files and configuration, plus
+# the .devkit/ working material. scripts/lib/local-artifact-policy.mjs is the
+# canonical list, and these entries mirror it literally.
+#
+# These are developer convenience only: Git matches them case-sensitively, so a
+# stray `Claude.Md` is not ignored here. The pre-commit and pre-push checks are
+# the deterministic gate and reject every case variant at any depth.
+AGENTS.md
+CLAUDE.md
+GEMINI.md
 .agents/
 .claude/
 .codex/
-.vscode/
+.devkit/
+
+# A local scratch note some contributors keep. Not part of the canonical
+# local-only artifact policy: it is ignored as a convenience, and nothing rejects
+# it from history if someone deliberately tracks one.
 MEMORIES.md
 
 # Local env files
@@ -50,6 +65,9 @@ auto-imports.d.ts
 # intentionally excluded from git, Electron packages, and web deploys.
 tests/fixtures/electron/large-pdf-fixtures/*
 !tests/fixtures/electron/large-pdf-fixtures/README.md
+
+# Local scratch output and package-manager cache. `.env*` is not repeated here:
+# a second, broader env pattern after `!.env.example` would re-ignore the tracked
+# example file.
 /output/
-.env*
 .pnpm-store/

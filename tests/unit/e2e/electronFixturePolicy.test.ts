@@ -56,7 +56,11 @@ import {
 import { assertOcrPdfSemanticOutput } from '@tests/e2e/electron/helpers/electronApiHelpers';
 
 const ELECTRON_FIXTURE_ROOT = join(process.cwd(), 'tests/fixtures/electron');
+const ELECTRON_E2E_SOURCE_ROOT = join(process.cwd(), 'tests/e2e/electron');
 const MAX_TRACKED_ELECTRON_BINARY_FIXTURE_BYTES = 2 * 1024 * 1024;
+// Home directories of a single machine. A suite that writes its evidence there
+// silently produces nothing on any other checkout, CI runner, or worktree.
+const MACHINE_HOME_PATH_PATTERN = /(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+/u;
 
 async function collectFiles(directory: string): Promise<string[]> {
     const entries = await readdir(directory, { withFileTypes: true });
@@ -488,6 +492,21 @@ describe('Electron E2E fixture policy', () => {
                 && !relativePath.endsWith('.md')
             ) {
                 offenders.push(`${relativePath} (large native-preview PDFs must stay local-only)`);
+            }
+        }
+
+        expect(offenders).toEqual([]);
+    });
+
+    it('writes every E2E artifact under the repository instead of one machine home', async () => {
+        const files = (await collectFiles(ELECTRON_E2E_SOURCE_ROOT)).filter(file => file.endsWith('.ts'));
+        const offenders: string[] = [];
+
+        expect(files.length).toBeGreaterThan(0);
+        for (const file of files) {
+            const match = MACHINE_HOME_PATH_PATTERN.exec(await readFile(file, 'utf8'));
+            if (match) {
+                offenders.push(`${file.replace(`${process.cwd()}/`, '')} (${match[0]})`);
             }
         }
 

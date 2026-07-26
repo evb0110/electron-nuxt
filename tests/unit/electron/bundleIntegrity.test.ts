@@ -10,6 +10,7 @@ import {
     join,
 } from 'path';
 import { promisify } from 'util';
+import { pathToFileURL } from 'url';
 import {
     beforeAll,
     describe,
@@ -22,7 +23,24 @@ import type { Metafile } from 'esbuild';
 
 const execFileAsync = promisify(execFile);
 
+interface IDynamicCodeAnalysis {
+    allowedIdioms: string[];
+    violations: Array<{
+        excerpt: string;
+        kind: string;
+    }>;
+}
+
+interface IWorkerDynamicCodePolicyModule {analyzeDynamicCodeConstruction: (content: string) => IDynamicCodeAnalysis}
+
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
+
+// Resolved from this file, not the working directory, so the suite behaves the
+// same however the runner was launched.
+const {analyzeDynamicCodeConstruction} = await import(
+    pathToFileURL(join(REPO_ROOT, 'scripts/lib/worker-dynamic-code-policy.mjs')).href
+) as IWorkerDynamicCodePolicyModule;
+
 const DIST_DIR = join(REPO_ROOT, 'dist-electron');
 const MAIN_METAFILE = 'main.meta.json';
 const PRELOAD_METAFILE = 'preload.meta.json';
@@ -131,6 +149,7 @@ const PRELOAD_FORBIDDEN_INPUT_SUBSTRINGS = [
 let latestSourceMtimeMs = 0;
 let mainBundleFixture: IElectronBundleMetafileFixture;
 
+const WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES.map(bundle => bundle.fileName));
 const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES
     .filter(bundle => bundle.id === 'search' || bundle.id === 'djvu-pdf' || bundle.id === 'ocr')
     .map(bundle => bundle.fileName));
@@ -363,6 +382,26 @@ describe('Electron bundle static integrity', () => {
                 });
             }
 
+            if (WORKER_BUNDLE_FILES.has(check.file)) {
+                it('has no bare eval or Function construction call site outside the vendored allowlist', async () => {
+                    if (!existsSync(bundlePath)) {
+                        throw new Error(`${check.file} not found — run "pnpm run build:electron"`);
+                    }
+                    const content = await readFile(bundlePath, 'utf-8');
+                    const {violations} = analyzeDynamicCodeConstruction(content);
+
+                    expect(
+                        violations.map(({
+                            excerpt,
+                            kind,
+                        }) => `${kind} — ${excerpt}`),
+                        `${check.file} contains a bare or explicitly prefixed eval/Function call site `
+                        + 'outside the vendored allowlist. This is a textual tripwire over this bundle '
+                        + 'only, not a proof that the bundle constructs no code at runtime.',
+                    ).toEqual([]);
+                });
+            }
+
             if (ELECTRON_FREE_WORKER_BUNDLE_FILES.has(check.file)) {
                 it('does not statically import Electron runtime APIs', async () => {
                     if (!existsSync(bundlePath)) {
@@ -378,6 +417,30 @@ describe('Electron bundle static integrity', () => {
             }
         });
     }
+
+    // The allowlist exists only for idioms the dependencies actually ship. If a
+    // dependency upgrade drops one, shrink the allowlist instead of leaving
+    // standing permission behind.
+    it('keeps every vendored runtime-code allowance load-bearing', async () => {
+        const justifications = new Set<string>();
+
+        for (const fileName of WORKER_BUNDLE_FILES) {
+            const bundlePath = join(DIST_DIR, fileName);
+            if (!existsSync(bundlePath)) {
+                throw new Error(`${fileName} not found — run "pnpm run build:electron"`);
+            }
+            for (const justification of analyzeDynamicCodeConstruction(
+                await readFile(bundlePath, 'utf-8'),
+            ).allowedIdioms) {
+                justifications.add(justification);
+            }
+        }
+
+        expect([...justifications].sort()).toEqual([
+            'core-js Node built-in module fallback',
+            'core-js/whatwg globalThis polyfill',
+        ]);
+    });
 
     describe('split ESM main graph', () => {
         it('emits the main entry and every chunk in the dist-electron root', () => {

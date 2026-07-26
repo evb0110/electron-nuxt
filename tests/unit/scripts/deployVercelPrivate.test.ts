@@ -137,6 +137,49 @@ describe('private Vercel deployment source', () => {
         }
     });
 
+    // The copy filter shares its entry predicate with check-web-deploy-source.mjs,
+    // so a case variant an editor produced is excluded here exactly as it is from
+    // the measured deploy source.
+    it('never copies local-only artifacts in any case, while near misses ship', () => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+
+        try {
+            mkdirSync(path.join(projectRoot, '.devkit', 'plans'), {recursive: true});
+            writeFileSync(path.join(projectRoot, '.devkit', 'plans', 'ledger.md'), '# local\n');
+            writeFileSync(path.join(projectRoot, 'AGENTS.MD'), '# instructions\n');
+            writeFileSync(path.join(projectRoot, 'Claude.Md'), '# instructions\n');
+            writeFileSync(path.join(projectRoot, 'app', 'gemini.md'), '# instructions\n');
+            writeFileSync(path.join(projectRoot, 'app', 'MEMORIES.md'), '# local scratch\n');
+            writeFileSync(path.join(projectRoot, 'AGENTS.mdx'), '# ordinary document\n');
+            writeFileSync(path.join(projectRoot, 'app', 'memories-overview.md'), '# ordinary document\n');
+
+            prepared = preparePrivateDeploySource({projectRoot});
+
+            for (const relativePath of [
+                '.devkit',
+                'AGENTS.MD',
+                'Claude.Md',
+                path.join('app', 'gemini.md'),
+                path.join('app', 'MEMORIES.md'),
+            ]) {
+                expect(existsSync(path.join(prepared.sourceRoot, relativePath))).toBe(false);
+            }
+            for (const relativePath of [
+                'AGENTS.mdx',
+                path.join('app', 'memories-overview.md'),
+            ]) {
+                expect(existsSync(path.join(prepared.sourceRoot, relativePath))).toBe(true);
+            }
+        } finally {
+            prepared?.cleanup();
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('uses archive uploads and non-interactive confirmation by default', () => {
         expect(buildPrivateDeployArgs('/tmp/source', [
             '--prod',

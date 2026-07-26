@@ -18,13 +18,24 @@ pnpm typecheck
 pnpm run test:unit
 ```
 
-For release, packaging, Electron runtime, native-tool, OCR, DjVu, worker, or cross-architecture changes, also run:
+Use `pnpm validate` for the full maintenance gate when the change touches shared architecture, build tooling, or release-critical behavior.
+
+For Electron runtime, native binaries or tools, OCR/DjVu paths, workers, or
+packaging changes, also run:
 
 ```bash
 pnpm run check:resources:matrix
 ```
 
-Use `pnpm validate` for the full maintenance gate when the change touches shared architecture, build tooling, or release-critical behavior.
+Once a packaged build exists, verify the packaged tools too:
+
+```bash
+scripts/verify-packaged-native-tools.sh <mac|win|linux> <x64|arm64>
+```
+
+See [Design Principles](docs/architecture/design-principles.md) for the
+architectural criteria that reviews apply and that these checks only partly
+mechanize.
 
 ## Pull Requests
 

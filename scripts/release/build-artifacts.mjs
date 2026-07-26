@@ -9,9 +9,9 @@ import {
     assertCleanWorktree,
     assertGitHubCliReady,
     assertNodeProjectBaseline,
-    getHeadSha,
     getUpstream,
     MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
+    pushReleaseBranch,
     requireNamedBranch,
     run,
 } from './shared.mjs';
@@ -37,8 +37,8 @@ export function getReleaseArtifactsWorkflowDispatchArgs({
 function dispatchReleaseArtifactsWorkflow({
     branch,
     targetSha,
-}) {
-    const dispatchOutput = run('gh', getReleaseArtifactsWorkflowDispatchArgs({
+}, runCommand = run) {
+    const dispatchOutput = runCommand('gh', getReleaseArtifactsWorkflowDispatchArgs({
         branch,
         targetSha,
     }));
@@ -69,29 +69,40 @@ async function printReleaseArtifactsWorkflowHandoff({
     process.stdout.write(`Expected artifact groups: ${formatArtifactGroupList()}\n`);
 }
 
+/**
+ * Publishes the branch and dispatches the artifact workflow against exactly the
+ * SHA that was pushed. `release:artifacts` runs with `HUSKY=0`, so the pre-push
+ * hook never sees this push; `pushReleaseBranch` runs the same publication policy
+ * scan as part of the same command before the push and throws on a violation,
+ * leaving both the push and the dispatch undone.
+ */
+export async function publishReleaseArtifactsCommit({upstream}, {
+    dispatchWorkflow = dispatchReleaseArtifactsWorkflow,
+    printHandoff = printReleaseArtifactsWorkflowHandoff,
+    runCommand = run,
+} = {}) {
+    const targetSha = pushReleaseBranch({upstream}, {runCommand});
+
+    const dispatchStartedAt = new Date().toISOString();
+    dispatchWorkflow({
+        branch: upstream.branch,
+        targetSha,
+    }, runCommand);
+    await printHandoff({
+        dispatchStartedAt,
+        targetSha,
+    });
+
+    return targetSha;
+}
+
 export async function buildReleaseArtifacts() {
     assertNodeProjectBaseline('Release artifact build');
     await assertGitHubCliReady('Release artifact build');
     assertCleanWorktree({ ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
     requireNamedBranch('Release artifact build');
-    const upstream = getUpstream('Release artifact build');
-    const targetSha = getHeadSha();
 
-    run('git', [
-        'push',
-        upstream.remote,
-        `HEAD:${upstream.branch}`,
-    ], {stdio: 'inherit'});
-
-    const dispatchStartedAt = new Date().toISOString();
-    dispatchReleaseArtifactsWorkflow({
-        branch: upstream.branch,
-        targetSha,
-    });
-    await printReleaseArtifactsWorkflowHandoff({
-        dispatchStartedAt,
-        targetSha,
-    });
+    await publishReleaseArtifactsCommit({upstream: getUpstream('Release artifact build')});
 }
 
 const isDirectCliRun = process.argv[1]

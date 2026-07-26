@@ -23,15 +23,26 @@ nuxt-output/
 electron/
 build/
 tests/
-tests/fixtures/electron/large-pdf-fixtures/
 landing/
+
+# Local-only artifacts (never deployed).
+# scripts/lib/local-artifact-policy.mjs is the canonical list; check-web-deploy-source.mjs
+# enforces it and additionally skips case variants of the instruction file names.
+.agents/
+.claude/
+.codex/
+.devkit/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# Local scratch note. Outside the canonical policy — it may be committed — but it
+# is never product content, so the deploy filter drops it by exact basename.
+MEMORIES.md
 
 # IDE / tooling
 .cache/
 .pnpm-store/
-.claude/
-.codex/
-.devkit/
 .fallow/
 .git/
 .github/

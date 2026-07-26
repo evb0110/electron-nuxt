@@ -4,9 +4,9 @@ Decision update: the dormant Python page-processor was removed after the native 
 
 Unlike the 2026-07-03/05 audits (correctness/fragility), this audit answers the owner's
 question: *is ~678k authored LOC justified, and can substantial parts be rewritten more
-logically and elegantly?* Six Codex (gpt-5.6-sol @ high) area auditors + one correctness
-auditor for the uncommitted working tree, plus git-history mining, fallow metrics, and
-taste review/synthesis by the orchestrating session (Claude Fable). Working tree at
+logically and elegantly?* Six area auditors and one correctness auditor for the
+uncommitted working tree, plus git-history mining, fallow metrics, and independent
+review and synthesis. Working tree at
 `c6cebbc27` plus uncommitted changes.
 
 ## Verdict
@@ -80,9 +80,10 @@ algorithms are essential complexity.
 - **Fix-forward monoculture**: 24% of 2,128 commits are "Fix …"; ~4% are
   refactor/consolidation; 4 reverts total. Problems are patched by adding machinery.
   The July remediation added +74.5k/−15.2k in 5 days.
-- **No parsimony pressure**: prior CLAUDE.md/AGENTS.md were 100% operational
-  (verification lanes, packaging); zero design guidance. The one architecture rule
-  ("define shapes in packages/contracts") encouraged surface growth.
+- **No parsimony pressure**: prior automation guidance was 100% operational
+  (verification lanes, packaging) and had zero design guidance. The one
+  architecture rule ("define shapes in packages/contracts") encouraged surface
+  growth.
 - **The wrong gate**: the only size gate is a per-file 1,200-line cap — which launders
   complexity into fragmentation (splitting satisfies the gate while multiplying
   interfaces, barrels, and mocks).
@@ -183,13 +184,14 @@ replay, fail-closed release gates).
 
 - Every refactor PR reports net LOC and file-count delta; consolidation PRs should be
   net-negative.
-- Bounded Codex tasks with precise specs; fresh-session review on every structural PR;
-  taste review (Opus/Fable) for public surfaces.
+- Structural changes receive an independent fresh-context review; public surfaces
+  receive a product and interaction review.
 - Revert is a first-class outcome — a failed approach gets rolled back, not patched
   forward.
 - Fix the cause, then ask "what does this fix let us delete?"
-- The design rules that prevent regrowth live in `CLAUDE.md` (Design section) and
-  `AGENTS.md` (Architecture section); they were added as part of this audit.
+- The review criteria that prevent regrowth live in
+  [`docs/architecture/design-principles.md`](architecture/design-principles.md);
+  mechanical subsets remain in the architecture boundary and dependency checks.
 
 ## Leave alone (consensus across auditors)
 
@@ -368,8 +370,8 @@ scan-cleanup e2e tests and one scan-cleanup corpus size envelope fail; all three
 reproduced unchanged on a clean `origin/main` worktree with none of this program's
 commits present, so they are inherited from the concurrent scan-cleanup rewrite rather
 than caused here. The corpus passes 52 of 53 assertions, including every semantic and
-rendered check. `.devkit/analysis/consolidation-remaining-program-ledger.md` records
-the reproductions and the exact evidence paths.
+rendered check. The clean-baseline reproductions establish that these failures
+predate this program.
 
 Two `release:verify` failures surfaced during closure and were fixed at their cause,
 not waited out: an AbortSignal listener subscribed after an `await` could never

@@ -5,7 +5,7 @@ This project uses a single source icon at `resources/icon.svg`.
 Generate all platform assets with:
 
 ```bash
-pnpm run build:icons
+bash scripts/build-icons.sh
 ```
 
 That script regenerates:

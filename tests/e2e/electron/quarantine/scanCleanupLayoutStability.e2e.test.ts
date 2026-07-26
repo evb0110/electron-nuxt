@@ -3,6 +3,10 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {
+    join,
+    resolve,
+} from 'node:path';
+import {
     describe,
     expect,
     it,
@@ -22,7 +26,12 @@ import {
 import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const REFERENCE_PAGE_COUNT = 392;
-const EVIDENCE_DIR = '/Users/evb/WebstormProjects/evb-viewer/.devkit/_tasks/audit-jul-25/u19-evidence';
+const EVIDENCE_BASE_DIR = resolve(
+    process.cwd(),
+    '.devkit',
+    'test',
+    'electron-e2e-artifacts',
+);
 
 // Elements that must hold still while scan-cleanup state changes. They sit
 // below or beside the controls the user operates, which is exactly where the
@@ -294,9 +303,10 @@ describe('scan cleanup layout stability', () => {
             };
         });
 
-        mkdirSync(EVIDENCE_DIR, {recursive: true});
+        const evidenceDir = join(EVIDENCE_BASE_DIR, session.name);
+        mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(
-            `${EVIDENCE_DIR}/u19-layout-stability.json`,
+            join(evidenceDir, 'layout-stability.json'),
             `${JSON.stringify({
                 pageCount: REFERENCE_PAGE_COUNT,
                 transitions: Object.keys(samples).length,
@@ -312,7 +322,7 @@ describe('scan cleanup layout stability', () => {
             }, null, 2)}\n`,
             'utf8',
         );
-        await page.screenshot({path: `${EVIDENCE_DIR}/u19-after-scan-cleanup-surface.png`});
+        await page.screenshot({path: join(evidenceDir, 'after-scan-cleanup-surface.png')});
 
         expect(deskewBefore).toBe('0');
         // Pre-fix, a null number field stepped straight to its minimum, so both

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -5,6 +6,111 @@ import {
     expect,
     it,
 } from 'vitest';
+
+// Documented commands must be runnable. Only pnpm invocations inside code spans
+// or fenced blocks count, so prose that merely mentions pnpm is never treated as
+// a command.
+//
+// An explicit `pnpm run <name>` always names a package script. A bare
+// `pnpm <name>` is ambiguous with pnpm's own subcommands, so it is only checked
+// when the token follows this repository's `group:detail` script convention —
+// no pnpm builtin uses a colon. Workspace-scoped invocations resolve against a
+// different package.json and are out of scope.
+const WORKSPACE_SCOPE_FLAGS = new Set([
+    '--dir',
+    '-C',
+    '--filter',
+    '-F',
+    '--recursive',
+    '-r',
+    '--workspace-root',
+    '-w',
+]);
+
+const SCRIPT_NAME_PATTERN = /^[a-z][a-z0-9-]*(?::[a-z0-9-]+)*$/u;
+const NAMESPACED_SCRIPT_NAME_PATTERN = /^[a-z][a-z0-9-]*(?::[a-z0-9-]+)+$/u;
+
+function extractCodeSnippets(markdown: string) {
+    const snippets: string[] = [];
+    const withoutFences = markdown.replace(/```[^\n]*\n([\s\S]*?)```/gu, (_match, body: string) => {
+        snippets.push(body);
+        return '\n';
+    });
+
+    for (const match of withoutFences.matchAll(/`([^`\n]+)`/gu)) {
+        snippets.push(match[1] ?? '');
+    }
+
+    return snippets;
+}
+
+function readPnpmScriptName(tokens: string[], pnpmIndex: number) {
+    let index = pnpmIndex + 1;
+
+    while (index < tokens.length && tokens[index]?.startsWith('-')) {
+        if (WORKSPACE_SCOPE_FLAGS.has(tokens[index]?.split('=')[0] ?? '')) {
+            return null;
+        }
+        index += 1;
+    }
+
+    const token = tokens[index];
+    if (token === undefined) {
+        return null;
+    }
+    if (token === 'run' || token === 'run-script') {
+        const scriptName = tokens[index + 1] ?? '';
+        return SCRIPT_NAME_PATTERN.test(scriptName) ? scriptName : null;
+    }
+
+    return NAMESPACED_SCRIPT_NAME_PATTERN.test(token) ? token : null;
+}
+
+function extractPnpmScriptNames(markdown: string) {
+    const scriptNames = new Set<string>();
+
+    for (const snippet of extractCodeSnippets(markdown)) {
+        for (const command of snippet.split(/\r?\n|&&|\|\||[|;]/u)) {
+            const tokens = command.trim().split(/\s+/u).filter(Boolean);
+            for (const [
+                index,
+                token,
+            ] of tokens.entries()) {
+                const scriptName = token === 'pnpm' ? readPnpmScriptName(tokens, index) : null;
+                if (scriptName) {
+                    scriptNames.add(scriptName);
+                }
+            }
+        }
+    }
+
+    return scriptNames;
+}
+
+async function readTrackedMarkdownFiles() {
+    const tracked = spawnSync('git', [
+        'ls-files',
+        '-z',
+        '*.md',
+    ], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+    });
+
+    if (tracked.status !== 0) {
+        throw new Error(`git ls-files failed: ${tracked.stderr}`);
+    }
+
+    const files = tracked.stdout.split('\0').filter(Boolean);
+    return (await Promise.all(files.map(async (file) => {
+        // A tracked file can be deleted in the working tree mid-change.
+        const markdown = await readFile(path.join(process.cwd(), file), 'utf8').catch(() => null);
+        return markdown === null ? [] : [{
+            file,
+            markdown,
+        }];
+    }))).flat();
+}
 
 const unitTestProjects = [
     'unit-core',
@@ -64,6 +170,67 @@ describe('package scripts', () => {
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);
+    });
+
+    it('keeps every pnpm script cited by tracked documentation runnable', async () => {
+        const scripts = await readPackageScripts();
+        const documents = await readTrackedMarkdownFiles();
+
+        expect(documents.length).toBeGreaterThan(20);
+
+        const citations = documents.map(({
+            file,
+            markdown,
+        }) => ({
+            file,
+            scriptNames: extractPnpmScriptNames(markdown),
+        }));
+
+        expect(citations.flatMap(({
+            file,
+            scriptNames,
+        }) => [...scriptNames]
+            .filter(scriptName => !(scriptName in scripts))
+            .map(scriptName => `${file}: pnpm run ${scriptName}`))).toEqual([]);
+
+        // Non-vacuity: the extractor must actually reach commands documented in
+        // the contributor and release guides, in both the `pnpm run x` and bare
+        // `pnpm group:detail` spellings.
+        const citedScriptNames = new Set(citations.flatMap(({scriptNames}) => [...scriptNames]));
+        for (const scriptName of [
+            'test:unit',
+            'release:cut',
+            'electron:run:headless',
+        ]) {
+            expect(citedScriptNames, `${scriptName} should be extracted from tracked documentation`)
+                .toContain(scriptName);
+        }
+    });
+
+    it('extracts documented script names without turning prose into commands', () => {
+        const markdown = [
+            'Corepack/pnpm must already be available, and pnpm dev is prose here.',
+            '',
+            'Run `pnpm run check:dev-env -- --strict` or `pnpm validate`.',
+            'Workspace commands such as `pnpm --dir landing run lint` and',
+            '`pnpm --filter landing build:web` are out of scope, as are',
+            '`pnpm install`, `pnpm exec vitest run`, `pnpm dlx tsx x.ts`,',
+            'and the `pnpm run <script>` placeholder.',
+            '',
+            '```bash',
+            'xvfb-run -a pnpm electron:run:headless -- start',
+            'pnpm run does:not:exist -- --flag',
+            'pnpm run build && pnpm dist -- --mac',
+            '```',
+            '',
+        ].join('\n');
+
+        expect([...extractPnpmScriptNames(markdown)].sort()).toEqual([
+            'build',
+            'check:dev-env',
+            'does:not:exist',
+            'electron:run:headless',
+        ]);
     });
 
     it('keeps build generation, pruning, and native staging ordered behind heavy-gate coordination', async () => {

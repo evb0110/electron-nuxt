@@ -7,14 +7,14 @@ Releases are cut locally and published by dispatching the GitHub Release workflo
 1. Run `pnpm run release:cut -- patch`, `pnpm run release:cut -- minor`, or `pnpm run release:cut -- major`.
    The release script now fails before the version bump unless it is running under the Node major pinned in `package.json` `engines.node`, which is the project's current latest-LTS baseline (currently `24.x`).
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree. The gate is split into the CI-mode lint/static/test phase (`release:verify:checks`) and the current-platform package phase (`release:verify:package:local`). In a combined run, the checks phase performs the strict build once and writes a source/toolchain/target/output receipt; packaging reuses it only after recomputing and matching every fingerprint. The standalone package command remains correct by rebuilding when no exact receipt is supplied.
-3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, pushes the branch update, and dispatches the GitHub [`Release`](../.github/workflows/release.yml) workflow with the intended tag and target ref.
+3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, scans the exact upstream-to-`HEAD` publication range, pushes the branch update, and dispatches the GitHub [`Release`](../.github/workflows/release.yml) workflow with the intended tag and target ref.
 4. The release workflow reruns the focused release checks, packages the main artifacts, creates the matching `v*` tag, and publishes the release in one run.
 5. The local command exits after the GitHub Actions run is visible. It prints the run URL, the future artifact section URL, the future release URL, and the expected artifact group names.
 
 ## Artifact-only flow
 
 - Run `pnpm run release:artifacts` from a clean worktree when you want GitHub to build the release artifacts without cutting a release.
-- The command uses the same Node/GitHub CLI preflight, clean-worktree check, named-branch/upstream check, and branch push handoff as the release cutter, then dispatches [`Build Release Artifacts`](../.github/workflows/release-artifacts.yml) for the exact pushed commit.
+- The command uses the same Node/GitHub CLI preflight, clean-worktree check, named-branch/upstream check, and guarded branch-push handoff as the release cutter, including the publication-policy scan. It then dispatches [`Build Release Artifacts`](../.github/workflows/release-artifacts.yml) for the exact pushed commit.
 - The artifact-only workflow reruns the focused release checks, packages the same core release matrix, runs the supplemental macOS Intel and Windows 7 legacy lanes, and builds Store AppX packages with `submit: false`. Each Store package is extracted and passed through the same packaged native-tool and ASAR/content verification used by the regular Windows release lane.
 - It never creates a tag, creates or updates a GitHub Release, uploads release assets, or submits Store packages. Downloads live as GitHub Actions artifacts on the workflow run.
 
@@ -39,7 +39,7 @@ Store AppX packages must declare every shipped UI locale in `electron-builder.ym
 - `pnpm run release:verify:package:local` owns the current-platform package proof: it accepts an exact verified build receipt from the combined verifier or performs a fresh strict build when invoked alone, then packages as the release workflow would, validates artifacts/updater metadata, verifies packaged native tools, and verifies packaged startup on macOS. Use `pnpm run test:electron-bundle-static-integrity:no-build` for a no-build static-integrity loop against existing `dist-electron/`.
 - Pull requests that touch landing or its vendored package sources must pass landing vendor sync, lint, typecheck, and build checks. Native/build and landing path classification comes from the single changed-area policy in `scripts/release/policy.mjs`; manual CI quality lanes remain available on demand, while nightly maintenance keeps broader deterministic coverage running outside the local patch-cut path.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Broad maintenance checks (`typecheck:coverage`, `fallow`, the coverage zero-execution tripwire, and OCR model registry) remain part of scheduled nightly CI, but they do not block every local release cut. The dormant Python page-processor was removed in July 2026 after the native scan-cleanup pipeline superseded it; its implementation remains recoverable from git history.
+- Broad maintenance checks (`typecheck:coverage`, `fallow`, and the coverage zero-execution tripwire) remain part of scheduled nightly CI, but they do not block every local release cut. The dormant Python page-processor was removed in July 2026 after the native scan-cleanup pipeline superseded it; its implementation remains recoverable from git history.
 - Release-critical tests should stay deterministic and fast. Long serial Electron E2E and PDF tab diagnostics are available in nightly/manual diagnostics, but they do not block release cutting.
 - Changed or file-scoped local loops, including `pnpm exec vitest run --changed origin/main --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --passWithNoTests`, `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, `pnpm exec fallow dead-code --changed-since origin/main`, and `pnpm run test:electron-bundle-static-integrity:no-build`, are iteration aids. They do not replace `pnpm run release:verify` for release proof.
 - Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
@@ -56,6 +56,36 @@ Store AppX packages must declare every shipped UI locale in `electron-builder.ym
 - Unsigned macOS releases are manual-install only. GitHub builds prune `latest-mac*.yml` and `.blockmap` for ad-hoc mac bundles so the updater feed cannot mix signed and ad-hoc framework blocks.
 - Unsigned Windows releases are manual-install only too. GitHub builds prune `latest*.yml` and `.blockmap` unless the Windows artifact is the signed x64 updater target.
 - The release publish step must tolerate zero updater metadata files. Some releases are intentionally download-only across every platform.
+- Distribution decisions must remain compatible with an individual, free,
+  non-commercial project. Treat any business identity, paid account, or account
+  conversion requirement as an explicit owner decision rather than an assumed
+  release prerequisite.
+
+## Publication policy gate
+
+`scripts/check-commit-attribution.mjs` is the single gate on what becomes public: the
+pre-commit hook checks the staged tree, the pre-push hook checks everything a push would
+newly publish (including annotated tag objects), the release cutter and the artifact-only
+flow run it as part of the same command before their push, and CI reruns it for pushes and
+pull requests.
+It rejects prohibited commit attribution and the local-only artifacts listed in
+`scripts/lib/local-artifact-policy.mjs`.
+
+In CI, `--pushed-range <before> <head>` scans `before..head` when the before SHA is
+reachable, and otherwise scans the complete history of the pushed head. An absent SHA, a
+zero OID, and — after a force history rewrite — an unreachable SHA all take that wider
+path. This is intentional and fail-closed. The authorized public-history rewrite must
+remove agent instruction files and local-only directories from every public head and tag.
+After that rewrite has been validated and published, a full-history scan of a rewritten
+branch passes, and keeping it full prevents the purged content from re-entering public
+history through a later force push.
+
+Until the rewrite is published, a complete-history scan is expected to report the legacy
+artifacts. After publication, a local branch created from the old history still contains
+them and will fail the gate. Rebase or cherry-pick its work onto the rewritten `main`, or
+rewrite the branch itself (`git rebase --onto`, `git filter-repo`) so no reachable commit
+adds those paths. Do not narrow the scanned range, skip the hook, or otherwise bypass the
+gate to push such a branch.
 
 ## Critical-path rule
 

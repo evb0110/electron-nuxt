@@ -13,9 +13,9 @@ import {
     assertNodeProjectBaseline,
     assertTagAbsent,
     bumpVersion,
-    getHeadSha,
     getUpstream,
     MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
+    pushReleaseBranch,
     readVersion,
     requireNamedBranch,
     restoreVersionIfChanged,
@@ -95,8 +95,8 @@ function dispatchReleaseWorkflow({
     branch,
     tag,
     targetSha,
-}) {
-    const dispatchOutput = run('gh', getReleaseWorkflowDispatchArgs({
+}, runCommand = run) {
+    const dispatchOutput = runCommand('gh', getReleaseWorkflowDispatchArgs({
         branch,
         tag,
         targetSha,
@@ -104,6 +104,37 @@ function dispatchReleaseWorkflow({
     if (dispatchOutput.length > 0) {
         process.stdout.write(`${dispatchOutput}\n`);
     }
+}
+
+/**
+ * Publishes the release commit and dispatches the release workflow against
+ * exactly the SHA that was pushed. `pushReleaseBranch` runs the publication
+ * policy scan first and throws on a violation, so a failing scan leaves both the
+ * push and the dispatch undone.
+ */
+export async function publishReleaseCommit({
+    tag,
+    upstream,
+}, {
+    dispatchWorkflow = dispatchReleaseWorkflow,
+    printHandoff = printReleaseWorkflowHandoff,
+    runCommand = run,
+} = {}) {
+    const targetSha = pushReleaseBranch({upstream}, {runCommand});
+
+    const dispatchStartedAt = new Date().toISOString();
+    dispatchWorkflow({
+        branch: upstream.branch,
+        tag,
+        targetSha,
+    }, runCommand);
+    await printHandoff({
+        dispatchStartedAt,
+        tag,
+        targetSha,
+    });
+
+    return targetSha;
 }
 
 function getReleaseUrl({
@@ -155,22 +186,9 @@ async function resumeRelease() {
     const tag = `v${currentVersion}`;
 
     await assertTagAbsent(tag, upstream.remote);
-    const targetSha = getHeadSha();
-    run('git', [
-        'push',
-        upstream.remote,
-        `HEAD:${upstream.branch}`,
-    ], {stdio: 'inherit'});
-    const dispatchStartedAt = new Date().toISOString();
-    dispatchReleaseWorkflow({
-        branch: upstream.branch,
+    await publishReleaseCommit({
         tag,
-        targetSha,
-    });
-    await printReleaseWorkflowHandoff({
-        dispatchStartedAt,
-        tag,
-        targetSha,
+        upstream,
     });
 }
 
@@ -215,22 +233,9 @@ async function cutRelease(level) {
             'package.json',
         ], {stdio: 'inherit'});
         committed = true;
-        const targetSha = getHeadSha();
-        run('git', [
-            'push',
-            upstream.remote,
-            `HEAD:${upstream.branch}`,
-        ], {stdio: 'inherit'});
-        const dispatchStartedAt = new Date().toISOString();
-        dispatchReleaseWorkflow({
-            branch: upstream.branch,
+        await publishReleaseCommit({
             tag,
-            targetSha,
-        });
-        await printReleaseWorkflowHandoff({
-            dispatchStartedAt,
-            tag,
-            targetSha,
+            upstream,
         });
     } catch (error) {
         if (!committed) {

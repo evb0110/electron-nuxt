@@ -15,13 +15,11 @@ import {
     pathToFileURL,
 } from 'node:url';
 import {
-    WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES,
-    WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES,
+    isExcludedWebDeploySourceDirectoryName,
+    isExcludedWebDeploySourceFileName,
 } from './check-web-deploy-source.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const excludedDirectoryNames = new Set(WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES);
-const excludedFileNames = new Set(WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES);
 const supportedDeployTargets = new Set([
     'landing',
     'viewer',
@@ -31,14 +29,10 @@ const landingBuildCommand = [
     'node scripts/deployVercelPrivate.mjs --promote-landing-output',
 ].join(' && ');
 
-function isExcludedEnvFileName(fileName) {
-    if (fileName === '.env' || fileName.startsWith('.env.')) {
-        return !/\.(example|sample|template)$/iu.test(fileName);
-    }
-
-    return false;
-}
-
+// The copy filter and the `check-web-deploy-source.mjs` walker share one entry
+// predicate, so what this deploy uploads is what that check measured: local-only
+// artifacts (in any ASCII case, at any depth), env files that are not templates,
+// and the deploy-specific build files are all excluded from both.
 export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget = 'viewer') {
     const relativePath = path.relative(projectRoot, sourcePath);
 
@@ -49,15 +43,13 @@ export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarge
     const segments = relativePath.split(/[\\/]+/u);
 
     if (segments.some(segment => (
-        excludedDirectoryNames.has(segment)
+        isExcludedWebDeploySourceDirectoryName(segment)
         && !(deployTarget === 'landing' && segment === 'landing')
     ))) {
         return false;
     }
 
-    const fileName = path.basename(sourcePath);
-
-    return !excludedFileNames.has(fileName) && !isExcludedEnvFileName(fileName);
+    return !isExcludedWebDeploySourceFileName(path.basename(sourcePath));
 }
 
 function shouldKeepVercelIgnoreLine(line, sourceRoot) {

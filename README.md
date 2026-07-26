@@ -171,11 +171,11 @@ pnpm build:desktop
 # Best used after: pnpm build:desktop
 pnpm start
 
-# Package installers for the current host / selected target
+# Package installers for the current host, or for a selected electron-builder target
 pnpm dist
-pnpm dist:mac
-pnpm dist:win
-pnpm dist:linux
+pnpm dist --mac
+pnpm dist --win
+pnpm dist --linux
 ```
 
 ### Landing Site Setup
@@ -276,8 +276,9 @@ such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
 `dist-electron/` already exists. Direct pushes to `main` run
-`pnpm lint`, `pnpm typecheck`, and `pnpm run test:release`; native and landing
-changes also get path-filtered checks. The dormant Python page-processor was
+`pnpm lint`, `pnpm typecheck`, and `pnpm run test:coverage` (which executes the
+unit suite with coverage);
+native and landing changes also get path-filtered checks. The dormant Python page-processor was
 removed after the native scan-cleanup pipeline superseded it and remains
 recoverable from git history. Electron E2E
 and PDF tab diagnostics run in nightly/manual diagnostics until they are stable
@@ -343,6 +344,7 @@ Architecture boundaries are enforced in CI and local validation:
 
 ## More Docs
 
+- [Design principles](docs/architecture/design-principles.md)
 - [Web build notes](docs/web-build.md)
 - [Vercel deploy notes](docs/vercel-deploy.md)
 - [Release process](docs/releasing.md)

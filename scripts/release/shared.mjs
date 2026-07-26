@@ -4,6 +4,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
     compact,
     difference,
@@ -278,13 +279,6 @@ export function bumpVersion(version, level) {
     throw new Error(`Unsupported release level "${level}"`);
 }
 
-export function getHeadSha(ref = 'HEAD') {
-    return run('git', [
-        'rev-parse',
-        ref,
-    ]);
-}
-
 export function getUpstream(context = 'Release') {
     try {
         const upstream = run('git', [
@@ -308,6 +302,124 @@ export function getUpstream(context = 'Release') {
             `${context} requires the current branch to track a remote branch (${errorMessage(error)})`,
         );
     }
+}
+
+// Resolved from this module, so the gate does not depend on the caller's cwd.
+export const PUBLICATION_POLICY_SCRIPT = fileURLToPath(
+    new URL('../check-commit-attribution.mjs', import.meta.url),
+);
+
+/**
+ * Arguments for the publication policy scan over everything a push would make
+ * public. `--pushed-range` falls back to the full history of the head when the
+ * before SHA is empty or unreachable, which is the fail-closed direction. For a
+ * release push, an unreachable before SHA is rejected earlier
+ * (`assertUpstreamBeforeShaPresent`) so the widened scan cannot be mistaken for
+ * a clean gate over a stale checkout.
+ */
+export function getPublicationPolicyCheckArgs(beforeSha, headSha) {
+    return [
+        PUBLICATION_POLICY_SCRIPT,
+        '--pushed-range',
+        beforeSha,
+        headSha,
+    ];
+}
+
+// The remote's live advertisement, not a tracking ref: a tracking ref can be
+// stale in either direction, and the range to scan has to start where the branch
+// actually is on the remote. A branch the remote does not have yet advertises
+// nothing, so the before SHA is empty and the scan widens to the head's full
+// history; an unreachable remote makes `ls-remote` fail and aborts the push.
+function readUpstreamBeforeSha({
+    branch,
+    remote,
+}, runCommand) {
+    const output = runCommand('git', [
+        'ls-remote',
+        remote,
+        `refs/heads/${branch}`,
+    ]);
+
+    return output.split('\n')[0]?.split(/\s+/u)[0]?.trim() ?? '';
+}
+
+function hasLocalCommit(oid, runCommand) {
+    try {
+        runCommand('git', [
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            `${oid}^{commit}`,
+        ]);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * A commit the remote advertises but this checkout does not contain means the
+ * checkout is stale: someone else pushed since the last fetch. The scan itself
+ * would still run — it cannot exclude an object it does not have, so it widens
+ * to the head's whole history and reports every artifact any historical commit
+ * ever touched, which reads as a policy failure rather than as "fetch first".
+ *
+ * Fail closed here instead, before the scan, with the remedy named. Fetching is
+ * deliberately left to the operator: a release must publish the history the
+ * operator verified, not one this script silently moved underneath them.
+ */
+export function assertUpstreamBeforeShaPresent(beforeSha, {
+    branch,
+    remote,
+}, runCommand) {
+    // A branch the remote does not have yet advertises nothing; the scan then
+    // covers the head's full history, which is correct for a new branch.
+    if (!beforeSha || hasLocalCommit(beforeSha, runCommand)) {
+        return;
+    }
+
+    throw new Error(
+        `Release cannot verify what this push would publish: ${remote}/${branch} is at ${beforeSha}, `
+        + 'which is missing from this checkout, so the publication scan has no starting point. '
+        + `Run \`git fetch ${remote} ${branch}\`, reconcile HEAD with the fetched tip, and retry.`,
+    );
+}
+
+/**
+ * The single publication gate: scans the range this push would make public, then
+ * pushes `HEAD` to the upstream branch. Returns the pushed SHA so callers can
+ * dispatch a workflow against exactly what was published.
+ *
+ * Every release entry point runs with `HUSKY=0`, so the pre-push hook never sees
+ * these pushes, and the version-bump commit `cut-release` creates carries
+ * `[skip ci]`, so the CI attribution job does not see it either. This scan is
+ * therefore the only check standing between the local branch and the public one.
+ * A failing scan throws out of here, so the push — and any dispatch a caller
+ * would run afterwards — cannot happen.
+ */
+export function pushReleaseBranch({upstream}, {runCommand = run} = {}) {
+    const targetSha = runCommand('git', [
+        'rev-parse',
+        'HEAD',
+    ]);
+
+    const beforeSha = readUpstreamBeforeSha(upstream, runCommand);
+    assertUpstreamBeforeShaPresent(beforeSha, upstream, runCommand);
+
+    runCommand(
+        'node',
+        getPublicationPolicyCheckArgs(beforeSha, targetSha),
+        {stdio: 'inherit'},
+    );
+
+    runCommand('git', [
+        'push',
+        upstream.remote,
+        `HEAD:${upstream.branch}`,
+    ], {stdio: 'inherit'});
+
+    return targetSha;
 }
 
 function normalizeGitPath(filePath) {

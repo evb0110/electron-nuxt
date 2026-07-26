@@ -5,8 +5,10 @@ import {
 } from 'vitest';
 import {
     chmodSync,
+    existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -214,6 +216,8 @@ interface IMacDmgNotarizationModule {
 }
 
 interface IReleaseSharedModule {
+    PUBLICATION_POLICY_SCRIPT: string;
+    getPublicationPolicyCheckArgs: (beforeSha: string, headSha: string) => string[];
     assertGitHubCliReady: (
         workflowName: string,
         options: {
@@ -243,6 +247,17 @@ interface ICutReleaseArgs {
     resume: boolean;
 }
 
+interface IUpstream {
+    branch: string;
+    remote: string;
+}
+
+interface IPublishDependencies {
+    dispatchWorkflow?: (options: unknown) => void;
+    printHandoff?: (options: unknown) => Promise<void>;
+    runCommand?: (command: string, args: string[], options?: unknown) => string;
+}
+
 interface ICutReleaseModule {
     getReleaseWorkflowDispatchArgs: (options: {
         branch: string;
@@ -250,6 +265,13 @@ interface ICutReleaseModule {
         targetSha: string;
     }) => string[];
     parseCutReleaseArgs: (argv: string[]) => ICutReleaseArgs;
+    publishReleaseCommit: (
+        options: {
+            tag: string;
+            upstream: IUpstream;
+        },
+        dependencies: IPublishDependencies,
+    ) => Promise<string>;
 }
 
 interface IReleaseArtifactsDispatchOptions {
@@ -257,7 +279,13 @@ interface IReleaseArtifactsDispatchOptions {
     targetSha: string;
 }
 
-interface IReleaseArtifactsModule { getReleaseArtifactsWorkflowDispatchArgs: (options: IReleaseArtifactsDispatchOptions) => string[]; }
+interface IReleaseArtifactsModule {
+    getReleaseArtifactsWorkflowDispatchArgs: (options: IReleaseArtifactsDispatchOptions) => string[];
+    publishReleaseArtifactsCommit: (
+        options: {upstream: IUpstream},
+        dependencies: IPublishDependencies,
+    ) => Promise<string>;
+}
 
 function getPackageScripts(): Record<string, string> {
     const packageJson = JSON.parse(
@@ -304,17 +332,23 @@ const {
     updateMacUpdaterMetadataArtifactInfo,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/notarize-macos-dmgs.mjs')).href) as IMacDmgNotarizationModule;
 const {
+    PUBLICATION_POLICY_SCRIPT,
     assertGitHubCliReady,
     assertTagAbsent,
     filterIgnoredFiles,
+    getPublicationPolicyCheckArgs,
     isTransientGitHubAuthError,
     isTransientRemoteGitError,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href) as IReleaseSharedModule;
 const {
     getReleaseWorkflowDispatchArgs,
     parseCutReleaseArgs,
+    publishReleaseCommit,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/cut-release.mjs')).href) as ICutReleaseModule;
-const { getReleaseArtifactsWorkflowDispatchArgs } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/build-artifacts.mjs')).href) as IReleaseArtifactsModule;
+const {
+    getReleaseArtifactsWorkflowDispatchArgs,
+    publishReleaseArtifactsCommit,
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/build-artifacts.mjs')).href) as IReleaseArtifactsModule;
 
 function writeExecutable(filePath: string, lines: string[]): void {
     writeFileSync(filePath, `${lines.join('\n')}\n`);
@@ -881,6 +915,299 @@ describe('release policy', () => {
             'scripts/ci/classify-changed-areas.mjs',
             'scripts/release/policy.mjs',
         ]));
+    });
+
+    // Every release entry point runs with HUSKY=0, and the release commit carries
+    // `[skip ci]`, so this scan — run as part of the same command before push — is
+    // the only publication gate: neither the pre-push hook nor the CI attribution
+    // job sees these pushes.
+    describe('release publication gate', () => {
+        const upstream = {
+            branch: 'main',
+            remote: 'origin',
+        };
+
+        function createRunCommandRecorder(failingCommand?: string, {
+            lsRemoteError,
+            lsRemoteOutput = 'beforesha\trefs/heads/main\n',
+            missingLocalOids = [],
+        }: {
+            lsRemoteError?: string;
+            lsRemoteOutput?: string;
+            missingLocalOids?: string[];
+        } = {}) {
+            const calls: Array<{
+                args: string[];
+                command: string;
+            }> = [];
+
+            return {
+                calls,
+                runCommand(command: string, args: string[]) {
+                    calls.push({
+                        args,
+                        command,
+                    });
+                    if (command === failingCommand) {
+                        throw new Error('prohibited attribution was found');
+                    }
+                    if (command === 'git' && args[0] === 'ls-remote') {
+                        if (lsRemoteError != null) {
+                            throw new Error(lsRemoteError);
+                        }
+                        return lsRemoteOutput;
+                    }
+                    // `git rev-parse --verify --quiet <oid>^{commit}` exits non-zero
+                    // when the object is absent from this checkout.
+                    if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--verify') {
+                        const oid = String(args.at(-1)).replace('^{commit}', '');
+                        if (missingLocalOids.includes(oid)) {
+                            throw new Error(`fatal: ${oid} is not a valid object name`);
+                        }
+                        return oid;
+                    }
+                    if (command === 'git' && args[0] === 'rev-parse') {
+                        return 'headsha';
+                    }
+                    return '';
+                },
+            };
+        }
+
+        const publishers = [
+            [
+                'release:cut / release:resume',
+                async (dependencies: IPublishDependencies) => await publishReleaseCommit({
+                    tag: 'v1.2.3',
+                    upstream,
+                }, dependencies),
+            ],
+            [
+                'release:artifacts',
+                async (dependencies: IPublishDependencies) => await publishReleaseArtifactsCommit(
+                    {upstream},
+                    dependencies,
+                ),
+            ],
+        ] as const;
+
+        function publish(
+            publisher: (dependencies: IPublishDependencies) => Promise<string>,
+            failingCommand?: string,
+            recorderOptions?: Parameters<typeof createRunCommandRecorder>[1],
+        ) {
+            const recorder = createRunCommandRecorder(failingCommand, recorderOptions);
+
+            return {
+                calls: recorder.calls,
+                result: publisher({
+                    // Recorded like a command so the ordering assertion covers the
+                    // workflow dispatch too.
+                    dispatchWorkflow: () => recorder.calls.push({
+                        args: [],
+                        command: 'dispatch',
+                    }),
+                    printHandoff: async () => undefined,
+                    runCommand: recorder.runCommand,
+                }),
+            };
+        }
+
+        it.each(publishers)('%s scans the upstream-before SHA through HEAD before pushing', async (
+            _label,
+            publisher,
+        ) => {
+            const {
+                calls,
+                result,
+            } = publish(publisher);
+
+            await expect(result).resolves.toBe('headsha');
+            expect(calls.map(({
+                args,
+                command,
+            }) => [
+                command,
+                ...args.slice(0, 2),
+            ])).toEqual([
+                [
+                    'git',
+                    'rev-parse',
+                    'HEAD',
+                ],
+                [
+                    'git',
+                    'ls-remote',
+                    'origin',
+                ],
+                [
+                    'git',
+                    'rev-parse',
+                    '--verify',
+                ],
+                [
+                    'node',
+                    PUBLICATION_POLICY_SCRIPT,
+                    '--pushed-range',
+                ],
+                [
+                    'git',
+                    'push',
+                    'origin',
+                ],
+                ['dispatch'],
+            ]);
+            expect(calls[2]?.args.at(-1)).toBe('beforesha^{commit}');
+            expect(calls[3]?.args).toEqual(getPublicationPolicyCheckArgs('beforesha', 'headsha'));
+            // The scanned script has to be the real checker, resolved from the
+            // module rather than from the caller's working directory.
+            expect(PUBLICATION_POLICY_SCRIPT)
+                .toBe(resolve(process.cwd(), 'scripts/check-commit-attribution.mjs'));
+            expect(existsSync(PUBLICATION_POLICY_SCRIPT)).toBe(true);
+        });
+
+        // A stale checkout cannot exclude the advertised upstream tip from the
+        // scan, so the scan would widen to the head's whole history and report
+        // every artifact any historical commit ever touched. That reads as a
+        // policy failure when the real remedy is `git fetch`, so publishing has
+        // to stop before the scan and say so.
+        it.each(publishers)('%s fails closed when the advertised upstream tip is missing locally', async (
+            _label,
+            publisher,
+        ) => {
+            const {
+                calls,
+                result,
+            } = publish(publisher, undefined, {missingLocalOids: ['beforesha']});
+
+            await expect(result).rejects.toThrow(
+                /origin\/main is at beforesha, which is missing from this checkout.*git fetch origin main/su,
+            );
+            expect(calls.some(({command}) => command === 'node')).toBe(false);
+            expect(calls.some(({
+                args,
+                command,
+            }) => command === 'git' && args[0] === 'push')).toBe(false);
+            expect(calls.some(({command}) => command === 'dispatch')).toBe(false);
+            // Fetching is the operator's call: the gate must not move refs itself.
+            expect(calls.some(({
+                args,
+                command,
+            }) => command === 'git' && [
+                'fetch',
+                'remote',
+                'update-ref',
+            ].includes(String(args[0])))).toBe(false);
+        });
+
+        it.each(publishers)('%s scans the advertised range when the upstream tip is present locally', async (
+            _label,
+            publisher,
+        ) => {
+            const {
+                calls,
+                result,
+            } = publish(publisher);
+
+            await expect(result).resolves.toBe('headsha');
+            expect(calls.find(({command}) => command === 'node')?.args)
+                .toEqual(getPublicationPolicyCheckArgs('beforesha', 'headsha'));
+        });
+
+        // A branch the remote does not have yet advertises nothing; the empty
+        // before SHA keeps the checker's full-history scan for a new branch.
+        it.each(publishers)('%s scans the full history when the upstream advertises nothing', async (
+            _label,
+            publisher,
+        ) => {
+            const {
+                calls,
+                result,
+            } = publish(publisher, undefined, {lsRemoteOutput: ''});
+
+            await expect(result).resolves.toBe('headsha');
+            expect(calls.find(({command}) => command === 'node')?.args)
+                .toEqual(getPublicationPolicyCheckArgs('', 'headsha'));
+            // Nothing to look up locally, so no presence probe is issued.
+            expect(calls.some(({
+                args,
+                command,
+            }) => command === 'git' && args[1] === '--verify')).toBe(false);
+        });
+
+        it.each(publishers)('%s aborts when the remote advertisement cannot be read', async (
+            _label,
+            publisher,
+        ) => {
+            const {
+                calls,
+                result,
+            } = publish(publisher, undefined, {lsRemoteError: 'fatal: Could not resolve host: github.com'});
+
+            await expect(result).rejects.toThrow('Could not resolve host');
+            expect(calls.some(({command}) => command === 'node')).toBe(false);
+            expect(calls.some(({
+                args,
+                command,
+            }) => command === 'git' && args[0] === 'push')).toBe(false);
+            expect(calls.some(({command}) => command === 'dispatch')).toBe(false);
+        });
+
+        it.each(publishers)('%s propagates a failing scan and never pushes or dispatches', async (
+            _label,
+            publisher,
+        ) => {
+            const {
+                calls,
+                result,
+            } = publish(publisher, 'node');
+
+            await expect(result).rejects.toThrow('prohibited attribution was found');
+            expect(calls.some(({
+                args,
+                command,
+            }) => command === 'git' && args[0] === 'push')).toBe(false);
+            expect(calls.some(({command}) => command === 'dispatch')).toBe(false);
+        });
+
+        // The runtime tests above prove that the publishers scan before pushing.
+        // What they cannot observe is a *second* push written elsewhere in
+        // scripts/release/, which would publish without a scan. Every `git push`
+        // in these scripts spells the subcommand as a string literal in the
+        // argument array whatever the surrounding formatting, so count those:
+        // exactly one, in the module that owns the scanned publisher.
+        it('routes every release push through the scanned publisher', () => {
+            const releaseDirectory = resolve(process.cwd(), 'scripts/release');
+            const sources = new Map(readdirSync(releaseDirectory)
+                .filter(fileName => fileName.endsWith('.mjs'))
+                .map(fileName => [
+                    fileName,
+                    readFileSync(join(releaseDirectory, fileName), 'utf8'),
+                ]));
+
+            expect(sources.size).toBeGreaterThan(1);
+            expect([...sources]
+                .map(([
+                    fileName,
+                    source,
+                ]) => ({
+                    fileName,
+                    pushes: source.match(/(['"])push\1/gu)?.length ?? 0,
+                }))
+                .filter(({pushes}) => pushes > 0)).toEqual([{
+                fileName: 'shared.mjs',
+                pushes: 1,
+            }]);
+
+            // Both release entry-point modules reach that publisher instead of
+            // pushing themselves.
+            for (const fileName of [
+                'cut-release.mjs',
+                'build-artifacts.mjs',
+            ]) {
+                expect(sources.get(fileName), fileName).toMatch(/\bpushReleaseBranch\s*\(/u);
+            }
+        });
     });
 
     it('supports release resume without requiring a new version bump level', () => {

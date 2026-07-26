@@ -5,18 +5,25 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    AGENT_INSTRUCTION_FILE_NAMES,
+    findAgentInstructionFileName,
+    LOCAL_ONLY_DIRECTORY_NAMES,
+} from './lib/local-artifact-policy.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const MAX_WEB_DEPLOY_SOURCE_FILES = 14_000;
 export const MAX_WEB_DEPLOY_SOURCE_BYTES = 128 * 1024 * 1024;
 
+// The local-only artifact names — the harness directories, `.devkit/`, and the
+// instruction file names — come from the canonical policy, so the deploy filter,
+// the ignore rules, and the push checks cannot drift apart. The rest of this list
+// is deploy-specific.
 export const WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES = [
+    ...LOCAL_ONLY_DIRECTORY_NAMES,
     '.angular',
     '.cache',
-    '.claude',
-    '.codex',
-    '.devkit',
     '.fallow',
     '.git',
     '.github',
@@ -50,8 +57,14 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES = [
     'tests',
 ];
 
+// `MEMORIES.md` is the local scratch note `.gitignore` describes: not part of the
+// canonical artifact policy, so nothing rejects it from history, but it is never
+// product content and must not reach the sanitized deploy source. Matched by exact
+// basename, so `MEMORIES.mdx` and `memories.md` stay ordinary documents.
 export const WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES = [
+    ...AGENT_INSTRUCTION_FILE_NAMES,
     '.DS_Store',
+    'MEMORIES.md',
     'electron-builder.yml',
     'eslint-plugin-custom.mjs',
 ];
@@ -103,13 +116,35 @@ export function validateVercelIgnoreEntries(content, requiredEntries = REQUIRED_
     };
 }
 
+/**
+ * Directory names excluded from the deploy source at any depth. Compared exactly:
+ * the tooling that creates these directories always spells them in lower case.
+ */
+export function isExcludedWebDeploySourceDirectoryName(directoryName) {
+    return WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES.includes(directoryName);
+}
+
+/**
+ * File basenames excluded from the deploy source at any depth.
+ *
+ * Instruction files reuse the canonical policy's predicate, so `AGENTS.MD` and
+ * `Claude.Md` are skipped exactly as the commit and push checks reject them. The
+ * other listed names are literal build-time files and the local scratch note,
+ * each of which only ever has one spelling, and env files carry real secrets
+ * unless they are an example template.
+ */
+export function isExcludedWebDeploySourceFileName(fileName) {
+    return findAgentInstructionFileName(fileName) !== null
+        || WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES.includes(fileName)
+        || isExcludedEnvFileName(fileName);
+}
+
 function shouldSkipSourcePath(dirent) {
     if (dirent.isDirectory()) {
-        return WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES.includes(dirent.name);
+        return isExcludedWebDeploySourceDirectoryName(dirent.name);
     }
 
-    return WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES.includes(dirent.name)
-        || isExcludedEnvFileName(dirent.name);
+    return isExcludedWebDeploySourceFileName(dirent.name);
 }
 
 export async function collectWebDeploySourceStats({projectRoot = defaultProjectRoot} = {}) {

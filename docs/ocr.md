@@ -17,6 +17,13 @@ first use, verified by SHA-256, and stored in the app's user-data tessdata
 directory. Development resources contain every registered model, but packaging
 filters continue to ship only English and Russian.
 
+Any language-model change must update the canonical OCR registry, pinned model
+metadata, development resources, and packaging selection together. The OCR
+resource generator (`pnpm run generate:build-artifacts`, whose OCR step is
+`scripts/generateElectronBuilderResources.ts`) enforces agreement between the
+registry, development resources, and bundled packaging selection. Pinned download
+metadata is verified separately by its policy tests.
+
 The current on-demand expansion covers widely used Latin and Cyrillic languages.
 Portuguese also serves Brazilian Portuguese because upstream has one Portuguese
 model.
@@ -40,14 +47,14 @@ Use `--dry-run` to validate the selected tools, tessdata models, pages, and
 profile matrix without rendering or running OCR.
 
 The script renders selected PDF pages to PNG, or uses PNG/JPEG/TIFF inputs
-directly, then compares the same profile names exposed by the app:
+directly, then compares the app-exposed profiles:
 
 - `balanced`: current EVB language ordering, spacing, and dictionary settings
 - `accurate`: EVB ordering and spacing while preserving Tesseract dictionaries
 - `poor-scan`: balanced settings plus `unpaper` cleanup and adaptive thresholding
 
-The benchmark can also include internal comparison baselines, such as `stock`
-for Tesseract without EVB wrapper options. Those baselines are not app-exposed
+By default, the benchmark also runs the internal `stock` comparison baseline:
+Tesseract without EVB wrapper options. Internal baselines are not app-exposed
 quality profiles.
 
 Artifacts are written under `.devkit/tmp/ocr-profile-benchmark/<timestamp>/`.
