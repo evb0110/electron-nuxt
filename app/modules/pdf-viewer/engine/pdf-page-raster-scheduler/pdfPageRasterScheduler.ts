@@ -210,14 +210,6 @@ function createDemandIdentity(sourceId: string, targetId: string, pageNumber: nu
     return `${sourceId}\0${targetId}\0${String(pageNumber)}`;
 }
 
-function isCancellation(error: unknown) {
-    return error instanceof Error
-        && (
-            error.name === 'AbortError'
-            || error.name === 'RenderingCancelledException'
-        );
-}
-
 export function createPdfPageRasterScheduler(
     options: ICreatePdfPageRasterSchedulerOptions,
 ): IPdfPageRasterScheduler {
@@ -549,7 +541,7 @@ export function createPdfPageRasterScheduler(
                 discardPrepared(work);
             }
             releaseReservation(work);
-            if (isCancellation(error) || !isDemandCurrent(work)) {
+            if (!isDemandCurrent(work)) {
                 settleWork(work, {
                     status: 'cancelled',
                     demand: work.demand,
