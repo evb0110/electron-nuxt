@@ -260,6 +260,17 @@ export default defineNuxtConfig({
         client: false,
     },
 
+    // TypeScript 6 enables noUncheckedSideEffectImports by default. The SFC lane
+    // cannot satisfy it because `vite` is not a resolvable root dependency under
+    // pnpm's strict layout, so the `import "vite/client"` in Nuxt's generated
+    // .nuxt/types/builder-env.d.ts never loads its `declare module '*.css'` and
+    // '*.scss' wildcards. Bundler resolution, Stylelint/asset checks, and the
+    // strict build continue to validate that these stylesheets exist.
+    // Remove when `vite/client` resolves in the main app type environment (a
+    // declared root `vite` dependency, or Nuxt emitting the style declarations
+    // itself); then this lane inherits the TS6 default again.
+    typescript: {tsConfig: {compilerOptions: {noUncheckedSideEffectImports: false}}},
+
     i18n: {
         restructureDir: 'app',
         locales: LOCALE_DEFINITIONS,

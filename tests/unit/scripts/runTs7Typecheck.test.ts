@@ -18,7 +18,7 @@ function readPackageVersion(packageName: string) {
 }
 
 describe('TypeScript compiler separation', () => {
-    it('runs the native TypeScript 7 alias while preserving TypeScript 5 for compiler API consumers', () => {
+    it('runs the native TypeScript 7 alias while preserving TypeScript 6 for compiler API consumers', () => {
         const runnerOutput = execFileSync(process.execPath, [
             path.resolve(process.cwd(), 'scripts/run-ts7-typecheck.mjs'),
             '--version-check',
@@ -26,6 +26,18 @@ describe('TypeScript compiler separation', () => {
 
         expect(runnerOutput).toMatch(/Using TypeScript 7\.\d+\.\d+ native compiler/u);
         expect(readPackageVersion('typescript7')).toMatch(/^7\./u);
-        expect(readPackageVersion('typescript')).toMatch(/^5\./u);
+
+        // TypeScript 6 is the supported compiler-API bridge for vue-tsc/Volar,
+        // typescript-eslint, and the local AST scripts while TypeScript 7 has no
+        // stable API. Widen this only when those consumers can target TS7.
+        expect(readPackageVersion('typescript')).toMatch(/^6\./u);
+    });
+
+    it('exposes the compiler API from the compatibility compiler but not the native alias', async () => {
+        const compatibilityCompiler = await import('typescript');
+        const nativeCompiler = await import('typescript7');
+
+        expect(typeof compatibilityCompiler.default.createSourceFile).toBe('function');
+        expect((nativeCompiler.default as Record<string, unknown>).createSourceFile).toBeUndefined();
     });
 });

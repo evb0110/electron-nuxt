@@ -132,7 +132,7 @@ docs/       Project-specific implementation and release notes
 ## Tech Stack
 
 - Electron 42
-- Nuxt 4 + Vue 3 + TypeScript 5
+- Nuxt 4 + Vue 3 + TypeScript 6 (TypeScript 7 native compiler for plain-TypeScript checks)
 - Nuxt UI 4 + Tailwind CSS 4
 - PDF.js 5 for rendering
 - `pdf-lib` for document rewriting and page operations
