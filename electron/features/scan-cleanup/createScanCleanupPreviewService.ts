@@ -415,6 +415,32 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
         async rasterPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
             return join(await document.dir, `page-${pageNumber}-${dpi}-${randomUUID()}.png`);
         },
+        // Which of these pages the index can hand over as a file, without
+        // reading a byte. A raster is a function of the source, the revision,
+        // the mtime, the page and the DPI alone, so a caller that re-renders a
+        // page held here would produce the same file it already has.
+        async retainedPaths(document: IRetainedDocument, pageNumbers: readonly number[], dpi: number) {
+            const paths = new Map<number, string>();
+            for (const pageNumber of pageNumbers) {
+                const key = rasterKey(document, pageNumber, dpi);
+                const raster = rasters.get(key);
+                if (!raster) {
+                    continue;
+                }
+                try {
+                    await stat(raster.path);
+                } catch {
+                    forget(key, raster);
+                    continue;
+                }
+                // Re-insert so a reused raster counts as the most recent use and
+                // the budget sweep drops a colder page first.
+                rasters.delete(key);
+                rasters.set(key, raster);
+                paths.set(pageNumber, raster.path);
+            }
+            return paths;
+        },
         async read(document: IRetainedDocument, pageNumber: number, dpi: number) {
             const key = rasterKey(document, pageNumber, dpi);
             const raster = rasters.get(key);
@@ -1448,15 +1474,24 @@ async function runDetection(
     try {
         const totalPages = await retention.pageCount(document, signal);
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
-        publish([], {
+        // The scan-cleanup options never reach pdftoppm: rotating a page or
+        // drawing a split changes what the sidecar makes of the pixels, not the
+        // pixels. So a re-detect rasterizes only the pages retention cannot
+        // already hand over, and the sidecar still sees every page — the
+        // manifest a full re-detect would have written, over the same files.
+        const retainedPaths = await retention.retainedPaths(document, pageNumbers, PREVIEW_DPI);
+        const rasterScope = pageNumbers.filter(pageNumber => !retainedPaths.has(pageNumber));
+        const rasterizedPageNumbers = new Set<number>(retainedPaths.keys());
+        const publishRasterizing = () => publish([], {
             stage: 'rasterizing',
-            completedUnits: 0,
+            completedUnits: rasterizedPageNumbers.size,
             totalUnits: totalPages,
-            percent: 0,
-            completedPageNumbers: [],
+            percent: totalPages === 0 ? 100 : rasterizedPageNumbers.size / totalPages * 100,
+            completedPageNumbers: [...rasterizedPageNumbers],
         });
-        const rasterizedPageNumbers = new Set<number>();
-        const manifestPages = await mapDetectionPages(pageNumbers, async pageNumber => {
+        publishRasterizing();
+        const renderedPaths = new Map<number, string>();
+        await mapDetectionPages(rasterScope, async pageNumber => {
             if (signal.aborted) throw signal.reason;
             const inputPath = await retention.rasterPath(document, pageNumber, PREVIEW_DPI);
             const dimensions = await renderRasterToDisk(
@@ -1476,22 +1511,17 @@ async function runDetection(
                 sizeBytes: (await stat(inputPath)).size,
                 width: dimensions.width,
             });
-            return {
-                inputPath,
-                pageNumber,
-                dpi: PREVIEW_DPI,
-                pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
-            };
-        }, (pageNumber, completedPages) => {
+            renderedPaths.set(pageNumber, inputPath);
+        }, pageNumber => {
             rasterizedPageNumbers.add(pageNumber);
-            publish([], {
-                stage: 'rasterizing',
-                completedUnits: completedPages,
-                totalUnits: totalPages,
-                percent: totalPages === 0 ? 100 : completedPages / totalPages * 100,
-                completedPageNumbers: [...rasterizedPageNumbers],
-            });
+            publishRasterizing();
         });
+        const manifestPages = pageNumbers.map(pageNumber => ({
+            inputPath: renderedPaths.get(pageNumber) ?? retainedPaths.get(pageNumber)!,
+            pageNumber,
+            dpi: PREVIEW_DPI,
+            pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
+        }));
         if (signal.aborted) throw signal.reason;
         // Every page goes into one analyze manifest, and the rasterization
         // barrier above it stays. The sidecar reconciles classification by

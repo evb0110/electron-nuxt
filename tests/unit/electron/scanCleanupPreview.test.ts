@@ -2608,8 +2608,10 @@ describe('scan cleanup preview', () => {
             ],
         });
         expect(deps.acquireDetectionLease).toHaveBeenCalledWith(started.jobId, expect.any(AbortSignal));
-        expect(deps.renderPage).toHaveBeenCalledTimes(4);
-        expect(peakRasters).toBe(3);
+        // The preview above already read page 1 at the detection DPI, so
+        // detection rasterizes the other two and runs them side by side.
+        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+        expect(peakRasters).toBe(2);
 
         const rawRequest = (pageNumber: number) => ({
             ownerId: request.ownerId,
@@ -2619,7 +2621,7 @@ describe('scan cleanup preview', () => {
         });
         await service.previewRaw(sender(), rawRequest(2));
         await service.previewRaw(sender(), rawRequest(1));
-        expect(deps.renderPage).toHaveBeenCalledTimes(4);
+        expect(deps.renderPage).toHaveBeenCalledTimes(3);
     });
 
     it('rasterizes detection pages as wide as the 11-core host allows and leases that width', async () => {
@@ -2959,6 +2961,160 @@ describe('scan cleanup preview', () => {
             },
         });
         expect(streamed.at(-1)?.results).toHaveLength(totalPages);
+    });
+
+    it('re-detects a changed page over the rasters it already holds, page for page', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
+            await writeFile(outputPath, pngWithDimensions(pageNumber, 1));
+        });
+        const manifests: Array<Array<{
+            pageNumber: number;
+            inputPath: string;
+            rasterWidthPx: number;
+        }>> = [];
+        // The classification each page gets is read out of the pixels the
+        // manifest points at, so a run that rasterized a page differently — or
+        // left it out of the batch the sidecar reconciles over — cannot produce
+        // the same results as the run before it.
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                inputPath: string;
+                sourcePageIndex: number;
+            }>};
+            const pages = await Promise.all(manifest.pages.map(async page => {
+                const raster = await readFile(page.inputPath);
+                return {
+                    pageNumber: page.sourcePageIndex + 1,
+                    inputPath: page.inputPath,
+                    rasterWidthPx: raster.readUInt32BE(16),
+                };
+            }));
+            manifests.push(pages);
+            for (const [
+                index,
+                page,
+            ] of pages.entries()) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: index + 1,
+                    totalUnits: pages.length,
+                    percent: (index + 1) / pages.length * 100,
+                    completedPageNumbers: pages.slice(0, index + 1).map(item => item.pageNumber),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: pages.length,
+                    pageNumber: page.pageNumber,
+                    classification: page.rasterWidthPx > 1 ? 'two-page-spread' : 'single-uncut-page',
+                    confidence: 0.5 + page.rasterWidthPx / 10,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const detect = async (request_: IScanCleanupDetectionRequest) => {
+            const started = await service.detectAll(owner, request_);
+            await vi.waitFor(() => expect(service.getDetectionJobState(
+                owner,
+                started.jobId,
+                request_,
+            )?.status).toBe('completed'));
+            return service.getDetectionJobState(owner, started.jobId, request_)!;
+        };
+
+        const cold = await detect(detectionRequest);
+        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+
+        const rotated: IScanCleanupDetectionRequest = {
+            ...detectionRequest,
+            options: {
+                ...detectionRequest.options,
+                pageOverrides: {'2': {
+                    rotationDegrees: 90,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                }},
+            },
+        };
+        const scoped = await detect(rotated);
+
+        // The page override never reaches pdftoppm, so re-detecting after it
+        // spawns nothing: every page comes out of retention.
+        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+        expect(manifests).toHaveLength(2);
+        expect(manifests[1]).toEqual(manifests[0]);
+        expect(manifests[1]?.map(page => page.pageNumber)).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        expect(scoped.results).toEqual(cold.results);
+        expect(scoped.documentCanvasPlan).toEqual(cold.documentCanvasPlan);
+        expect(scoped.documentCanvasPlan).toBeDefined();
+    });
+
+    it('rasterizes only the pages retention no longer holds and still reconciles over the whole document', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        const manifestPageCounts: number[] = [];
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
+            manifestPageCounts.push(manifest.pages.length);
+            for (const [
+                index,
+                page,
+            ] of manifest.pages.entries()) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: index + 1,
+                    totalUnits: manifest.pages.length,
+                    percent: (index + 1) / manifest.pages.length * 100,
+                    completedPageNumbers: [page.sourcePageIndex + 1],
+                }, {
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: page.sourcePageIndex + 1,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+
+        const rasters = (await readdir(dir, {recursive: true}))
+            .filter(entry => entry.endsWith('.png'))
+            .map(entry => join(dir, entry));
+        expect(rasters).toHaveLength(3);
+        await rm(rasters[0]!);
+
+        const resumed = await service.detectAll(owner, detectionRequest);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            resumed.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+
+        expect(deps.renderPage).toHaveBeenCalledTimes(4);
+        expect(manifestPageCounts).toEqual([
+            3,
+            3,
+        ]);
     });
 
     it('schedules a page switch during detection instead of piling native processes onto the host', async () => {
