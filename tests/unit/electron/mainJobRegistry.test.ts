@@ -110,12 +110,16 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
             run: context => context.scratch.using('pdfExport-', async scratchPath => {
                 paths.push(scratchPath); await writeFile(join(scratchPath, 'work'), 'data');
                 if (mode === 'failure') throw new Error('scratch failure');
-                if (mode === 'cancel') await new Promise<void>((_resolve, reject) => context.signal.addEventListener('abort', () => reject(context.signal.reason), {once: true}));
+                if (mode === 'cancel') await new Promise<void>((_resolve, reject) => {
+                    const abort = () => reject(context.signal.reason);
+                    if (context.signal.aborted) abort();
+                    else context.signal.addEventListener('abort', abort, {once: true});
+                });
                 return {value: 'done'};
             }),
         }));
         await vi.waitFor(() => expect(paths).toHaveLength(4)); handles[2]!.cancel(); senders[3]!.emit('destroyed');
         await Promise.all(handles.map(handle => handle.settled)); expect(paths.every(path => !existsSync(path))).toBe(true);
         const unmanaged = mkdtempSync(join(mocks.appTempDir, 'unmanaged-')); expect(existsSync(unmanaged)).toBe(true); await jobs.clearForTests();
-    }, 60_000);
+    });
 });
