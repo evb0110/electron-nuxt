@@ -21,10 +21,10 @@ import type {
     IScanCleanupPixelPoint,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewCancelRequest,
-    IScanCleanupRawPreviewRequest,
-    IScanCleanupRawPreviewResult,
+    IScanCleanupRawPreviewEvent,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
+    TScanCleanupPreviewWireResult,
     TScanCleanupDetectionStartResult,
     TScanCleanupDetectionJobState,
     TScanCleanupErrorCode,
@@ -133,13 +133,7 @@ interface IPreviewEntry {
     controller: AbortController;
     generation: number;
     pageNumber: number;
-    tail: Promise<IScanCleanupPreviewResult>;
-}
-
-interface IRawPreviewEntry {
-    controller: AbortController;
-    generation: number;
-    tail: Promise<IScanCleanupRawPreviewResult>;
+    tail: Promise<TScanCleanupPreviewWireResult>;
 }
 
 interface IDetectionResult {
@@ -151,6 +145,8 @@ type TDetectionError = IMainJobErrorEnvelope<TScanCleanupErrorCode>;
 type TDetectionSnapshot = TMainJobSnapshot<TScanCleanupDetectionJobState, IDetectionResult, TDetectionError>;
 export interface IScanCleanupDetectionSubscriber extends IMainJobSender {id: number;}
 
+type TPreviewVisibility = 'visible' | 'prefetch';
+
 export interface IScanCleanupPreviewDependencies {
     getPageCount: typeof getPdfPageCount;
     renderPage: typeof renderPdfPageToPng;
@@ -161,6 +157,11 @@ export interface IScanCleanupPreviewDependencies {
     getPdftoppmBinary: () => string;
     detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
     acquireDetectionLease?: (jobId: string, signal: AbortSignal) => Promise<{release: () => boolean}>;
+    acquirePreviewLease?: (
+        ownerId: string,
+        visibility: TPreviewVisibility,
+        signal: AbortSignal,
+    ) => Promise<{release: () => boolean}>;
     getSourceMtimeMs?: (sourcePdfPath: string) => Promise<number>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
 }
@@ -201,6 +202,28 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
         });
     },
+    acquirePreviewLease: (ownerId, visibility, signal) => {
+        const {capacity} = mainJobBroker.getSnapshot();
+        // A preview run rasterizes a page and then hands it to one sidecar; it
+        // never runs both at once, so a single native process is its true peak.
+        // A prefetch additionally claims the slot the raster concurrency leaves
+        // free (SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE), so background work
+        // only starts when the machine has room beyond the one process a page
+        // switch must always be able to start immediately.
+        const nativeProcesses = visibility === 'visible' ? 1 : Math.min(2, capacity.nativeProcesses);
+        return mainJobBroker.acquire({
+            ownerId,
+            kind: 'scan-cleanup-preview',
+            priority: visibility === 'visible' ? 'visible' : 'background',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
+                nativeProcesses,
+                ioWeight: 1,
+            },
+            signal,
+        });
+    },
     getSourceMtimeMs: async sourcePdfPath => (await stat(sourcePdfPath)).mtimeMs,
     materializeWorkingCopy: (logicalRef, options) => {
         // Preview work is queued, so the owning tab can close before the tail
@@ -218,7 +241,7 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
 };
 
 async function materializeScanCleanupPreviewRequest<
-    T extends IScanCleanupRawPreviewRequest | IScanCleanupPreviewRequest | IScanCleanupDetectionRequest,
+    T extends IScanCleanupPreviewRequest | IScanCleanupDetectionRequest,
 >(
     request: T,
     senderId: number,
@@ -385,6 +408,32 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
         },
         async rasterPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
             return join(await document.dir, `page-${pageNumber}-${dpi}-${randomUUID()}.png`);
+        },
+        // Which of these pages the index can hand over as a file, without
+        // reading a byte. A raster is a function of the source, the revision,
+        // the mtime, the page and the DPI alone, so a caller that re-renders a
+        // page held here would produce the same file it already has.
+        async retainedPaths(document: IRetainedDocument, pageNumbers: readonly number[], dpi: number) {
+            const paths = new Map<number, string>();
+            for (const pageNumber of pageNumbers) {
+                const key = rasterKey(document, pageNumber, dpi);
+                const raster = rasters.get(key);
+                if (!raster) {
+                    continue;
+                }
+                try {
+                    await stat(raster.path);
+                } catch {
+                    forget(key, raster);
+                    continue;
+                }
+                // Re-insert so a reused raster counts as the most recent use and
+                // the budget sweep drops a colder page first.
+                rasters.delete(key);
+                rasters.set(key, raster);
+                paths.set(pageNumber, raster.path);
+            }
+            return paths;
         },
         async read(document: IRetainedDocument, pageNumber: number, dpi: number) {
             const key = rasterKey(document, pageNumber, dpi);
@@ -1063,7 +1112,8 @@ async function runPreview(
     retention: TRawRasterRetention,
     baseAnalysisCache: Map<string, IBasePreviewAnalysis>,
     dependencies: IScanCleanupPreviewDependencies,
-): Promise<IScanCleanupPreviewResult> {
+    emitRawRaster: (raw: IScanCleanupRawPreviewEvent) => void,
+): Promise<TScanCleanupPreviewWireResult> {
     if (!isAbsolute(request.sourcePdfPath)) throw new Error('Scan cleanup preview requires an absolute source path');
     if (signal.aborted) throw signal.reason;
     const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-preview-'));
@@ -1076,6 +1126,24 @@ async function runPreview(
             retention,
             dependencies,
         );
+        // A base preview pushes its raster the moment it exists — a whole
+        // sidecar run ahead of the cleaned outputs — and then leaves those
+        // bytes out of its result, because the renderer already holds them.
+        // A detail tile renders from geometry the base run established and
+        // still answers with the raster its caller keyed the tile against.
+        const streamedRaw = request.detail === undefined;
+        if (streamedRaw) {
+            emitRawRaster({
+                ownerId: request.ownerId,
+                documentRevision: request.documentRevision,
+                pageNumber: request.pageNumber,
+                totalPages: baseRaw.totalPages,
+                rawImageData: baseRaw.bytes,
+                rawWidthPx: baseRaw.width,
+                rawHeightPx: baseRaw.height,
+            });
+        }
+        const rawImage = streamedRaw ? {} : {rawImageData: baseRaw.bytes};
         let inputPath = baseRaw.path;
         let renderDpi = PREVIEW_DPI;
         let requestedRenderDpi = PREVIEW_DPI;
@@ -1200,7 +1268,7 @@ async function runPreview(
             return {
                 pageNumber: request.pageNumber,
                 totalPages: baseRaw.totalPages,
-                rawImageData: baseRaw.bytes,
+                ...rawImage,
                 rawWidthPx: baseRaw.width,
                 rawHeightPx: baseRaw.height,
                 pageMetadata: {
@@ -1286,10 +1354,10 @@ async function runPreview(
             }
         }
         const diagnosticMetadata = cleaned[0]?.metadata;
-        const result: IScanCleanupPreviewResult = {
+        const result: TScanCleanupPreviewWireResult = {
             pageNumber: request.pageNumber,
             totalPages: baseRaw.totalPages,
-            rawImageData: baseRaw.bytes,
+            ...rawImage,
             rawWidthPx: baseRaw.width,
             rawHeightPx: baseRaw.height,
             pageMetadata: {
@@ -1355,35 +1423,6 @@ async function runPreview(
     }
 }
 
-async function runRawPreview(
-    request: IScanCleanupRawPreviewRequest,
-    signal: AbortSignal,
-    retention: TRawRasterRetention,
-    dependencies: IScanCleanupPreviewDependencies,
-): Promise<IScanCleanupRawPreviewResult> {
-    if (!isAbsolute(request.sourcePdfPath)) throw new Error('Scan cleanup preview requires an absolute source path');
-    if (signal.aborted) throw signal.reason;
-    const document = await retention.openDocument(request);
-    try {
-        const raw = await materializeRawRaster(
-            document,
-            request.pageNumber,
-            signal,
-            retention,
-            dependencies,
-        );
-        return {
-            pageNumber: request.pageNumber,
-            totalPages: raw.totalPages,
-            rawImageData: raw.bytes,
-            rawWidthPx: raw.width,
-            rawHeightPx: raw.height,
-        };
-    } finally {
-        await retention.release(document);
-    }
-}
-
 async function mapDetectionPages<T>(
     pages: readonly number[],
     task: (pageNumber: number) => Promise<T>,
@@ -1419,15 +1458,24 @@ async function runDetection(
     try {
         const totalPages = await retention.pageCount(document, signal);
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
-        publish([], {
+        // The scan-cleanup options never reach pdftoppm: rotating a page or
+        // drawing a split changes what the sidecar makes of the pixels, not the
+        // pixels. So a re-detect rasterizes only the pages retention cannot
+        // already hand over, and the sidecar still sees every page — the
+        // manifest a full re-detect would have written, over the same files.
+        const retainedPaths = await retention.retainedPaths(document, pageNumbers, PREVIEW_DPI);
+        const rasterScope = pageNumbers.filter(pageNumber => !retainedPaths.has(pageNumber));
+        const rasterizedPageNumbers = new Set<number>(retainedPaths.keys());
+        const publishRasterizing = () => publish([], {
             stage: 'rasterizing',
-            completedUnits: 0,
+            completedUnits: rasterizedPageNumbers.size,
             totalUnits: totalPages,
-            percent: 0,
-            completedPageNumbers: [],
+            percent: totalPages === 0 ? 100 : rasterizedPageNumbers.size / totalPages * 100,
+            completedPageNumbers: [...rasterizedPageNumbers],
         });
-        const rasterizedPageNumbers = new Set<number>();
-        const manifestPages = await mapDetectionPages(pageNumbers, async pageNumber => {
+        publishRasterizing();
+        const renderedPaths = new Map<number, string>();
+        await mapDetectionPages(rasterScope, async pageNumber => {
             if (signal.aborted) throw signal.reason;
             const inputPath = await retention.rasterPath(document, pageNumber, PREVIEW_DPI);
             const dimensions = await renderRasterToDisk(
@@ -1447,22 +1495,17 @@ async function runDetection(
                 sizeBytes: (await stat(inputPath)).size,
                 width: dimensions.width,
             });
-            return {
-                inputPath,
-                pageNumber,
-                dpi: PREVIEW_DPI,
-                pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
-            };
-        }, (pageNumber, completedPages) => {
+            renderedPaths.set(pageNumber, inputPath);
+        }, pageNumber => {
             rasterizedPageNumbers.add(pageNumber);
-            publish([], {
-                stage: 'rasterizing',
-                completedUnits: completedPages,
-                totalUnits: totalPages,
-                percent: totalPages === 0 ? 100 : completedPages / totalPages * 100,
-                completedPageNumbers: [...rasterizedPageNumbers],
-            });
+            publishRasterizing();
         });
+        const manifestPages = pageNumbers.map(pageNumber => ({
+            inputPath: renderedPaths.get(pageNumber) ?? retainedPaths.get(pageNumber)!,
+            pageNumber,
+            dpi: PREVIEW_DPI,
+            pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
+        }));
         if (signal.aborted) throw signal.reason;
         // Every page goes into one analyze manifest, and the rasterization
         // barrier above it stays. The sidecar reconciles classification by
@@ -1579,8 +1622,7 @@ async function runDetection(
 }
 
 export interface IScanCleanupPreviewService {
-    previewRaw: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupRawPreviewRequest) => Promise<IScanCleanupRawPreviewResult>;
-    preview: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewResult>;
+    preview: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<TScanCleanupPreviewWireResult>;
     cancel: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewCancelRequest) => boolean;
     detectAll: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupDetectionRequest) => Promise<TScanCleanupDetectionStartResult>;
     cancelDetection: (sender: IScanCleanupDetectionSubscriber, jobId: string, owner: IScanCleanupOwnerContext) => boolean;
@@ -1592,7 +1634,6 @@ export function createScanCleanupPreviewService(
     dependencies: IScanCleanupPreviewDependencies = defaultDependencies,
 ): IScanCleanupPreviewService {
     const active = new Map<string, IPreviewEntry>();
-    const activeRaw = new Map<string, IRawPreviewEntry>();
     const rawRasterRetention = createRawRasterRetention(dependencies);
     const baseAnalysisCache = new Map<string, IBasePreviewAnalysis>();
     // Streamed detection events carry only the classifications a subscriber has
@@ -1692,45 +1733,44 @@ export function createScanCleanupPreviewService(
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupOwnerContext & {sourcePdfPath: string},
     ) => `${previewOwnerPrefix(sender, request)}${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`;
-    const abortStalePreviewEntries = (
-        entries: ReadonlyMap<string, {controller: AbortController}>,
-        ownerPrefix: string,
-        documentPrefix: string,
-        message: string,
-    ) => {
-        for (const [
-            key,
-            entry,
-        ] of entries) {
-            if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
-                entry.controller.abort(new DOMException(message, 'AbortError'));
-            }
-        }
-    };
     const abortStalePreviewRequests = (
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupOwnerContext & {sourcePdfPath: string},
     ) => {
         const ownerPrefix = previewOwnerPrefix(sender, request);
         const documentPrefix = previewDocumentPrefix(sender, request);
-        abortStalePreviewEntries(
-            active,
-            ownerPrefix,
-            documentPrefix,
-            'Stale scan cleanup preview document',
-        );
-        abortStalePreviewEntries(
-            activeRaw,
-            ownerPrefix,
-            documentPrefix,
-            'Stale scan cleanup raw preview document',
-        );
+        for (const [
+            key,
+            entry,
+        ] of active) {
+            if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
+                entry.controller.abort(new DOMException('Stale scan cleanup preview document', 'AbortError'));
+            }
+        }
         return documentPrefix;
     };
     const previewLanePrefix = (
         documentPrefix: string,
         request: IScanCleanupPreviewRequest,
     ) => `${documentPrefix}${request.detail === undefined ? 'base' : 'detail'}\u0000`;
+    // The page the user navigated onto, named by the request that streams its
+    // raw raster back, so the adjacent prefetches that do not are admitted
+    // behind it.
+    const visiblePages = new Map<string, number>();
+    const withPreviewLease = async <T>(
+        documentPrefix: string,
+        visibility: TPreviewVisibility,
+        signal: AbortSignal,
+        run: () => Promise<T>,
+    ) => {
+        const acquire = dependencies.acquirePreviewLease ?? defaultDependencies.acquirePreviewLease!;
+        const lease = await acquire(documentPrefix, visibility, signal);
+        try {
+            return await run();
+        } finally {
+            lease.release();
+        }
+    };
     // Request identity is the page and the content that would be rendered, not
     // just the document and the lane. Two requests that would produce the same
     // result now share one run instead of the second aborting the first.
@@ -1744,37 +1784,11 @@ export function createScanCleanupPreviewService(
         }`;
     };
     return {
-        previewRaw(sender, request) {
-            const documentPrefix = abortStalePreviewRequests(sender, request);
-            const activeKey = `${documentPrefix}raw`;
-            const previous = activeRaw.get(activeKey);
-            previous?.controller.abort(new DOMException('Superseded scan cleanup raw preview', 'AbortError'));
-            const controller = new AbortController();
-            const generation = (previous?.generation ?? 0) + 1;
-            const priorTail = previous?.tail.catch(() => undefined) ?? Promise.resolve();
-            const tail = priorTail.then(async () => runRawPreview(
-                await materializeScanCleanupPreviewRequest(
-                    request,
-                    sender.id,
-                    controller.signal,
-                    dependencies,
-                ),
-                controller.signal,
-                rawRasterRetention,
-                dependencies,
-            ));
-            activeRaw.set(activeKey, {
-                controller,
-                generation,
-                tail,
-            });
-            void tail.finally(() => {
-                if (activeRaw.get(activeKey)?.generation === generation) activeRaw.delete(activeKey);
-            }).catch(() => undefined);
-            return tail;
-        },
         preview(sender, request) {
             const documentPrefix = abortStalePreviewRequests(sender, request);
+            // The renderer names the page the user is looking at on the request
+            // that will display it; everything else is an adjacent prefetch.
+            if (request.visible === true) visiblePages.set(documentPrefix, request.pageNumber);
             const activeKey = previewRequestKey(documentPrefix, request);
             // Navigating onto a page whose prefetch is still running adopts that
             // run: no second raster, no second sidecar, and the caller inherits
@@ -1805,18 +1819,31 @@ export function createScanCleanupPreviewService(
             const controller = new AbortController();
             const generation = (superseded[0]?.generation ?? 0) + 1;
             const priorTail = Promise.all(superseded.map(entry => entry.tail.catch(() => undefined)));
-            const tail = priorTail.then(async () => runPreview(
-                await materializeScanCleanupPreviewRequest(
+            // A detail tile is the viewport the user is looking at, and a page
+            // the raw lane has not named is the first page of a session that has
+            // no visible page yet. Everything else is an adjacent prefetch.
+            const visiblePage = visiblePages.get(documentPrefix);
+            const visibility: TPreviewVisibility = request.detail !== undefined
+                || visiblePage === undefined
+                || visiblePage === request.pageNumber
+                ? 'visible'
+                : 'prefetch';
+            const tail = priorTail.then(async () => {
+                const materialized = await materializeScanCleanupPreviewRequest(
                     request,
                     sender.id,
                     controller.signal,
                     dependencies,
-                ),
-                controller.signal,
-                rawRasterRetention,
-                baseAnalysisCache,
-                dependencies,
-            ));
+                );
+                return withPreviewLease(documentPrefix, visibility, controller.signal, () => runPreview(
+                    materialized,
+                    controller.signal,
+                    rawRasterRetention,
+                    baseAnalysisCache,
+                    dependencies,
+                    raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
+                ));
+            });
             active.set(activeKey, {
                 controller,
                 generation,
@@ -1845,20 +1872,10 @@ export function createScanCleanupPreviewService(
                     canceled = true;
                 }
             }
-            // The raw lane holds at most the visible page's raster, and a
-            // windowed cancellation is always issued for a navigation that still
-            // wants it, so only a whole-document cancellation retires it.
-            if (request.retainPages === undefined) {
-                for (const [
-                    key,
-                    entry,
-                ] of activeRaw) {
-                    if (key.startsWith(documentPrefix)) {
-                        entry.controller.abort(new DOMException('Canceled scan cleanup raw preview', 'AbortError'));
-                        canceled = true;
-                    }
-                }
-            }
+            // A windowed cancellation is always issued for a navigation that
+            // still wants the visible page, so only a whole-document
+            // cancellation forgets which page that is.
+            if (request.retainPages === undefined) visiblePages.delete(documentPrefix);
             if (request.invalidateRawCache !== false) {
                 rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);
                 for (const [

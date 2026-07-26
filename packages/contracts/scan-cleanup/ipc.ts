@@ -50,11 +50,11 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
         viewports: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
         outputMode: TScanCleanupOutputMode;
     };
-}
-
-export interface IScanCleanupRawPreviewRequest extends IScanCleanupOwnerContext {
-    sourcePdfPath: string;
-    pageNumber: number;
+    /**
+     * Set by the request for the page the user is looking at, which is what
+     * preview admission ranks against. A prefetch never sets it.
+     */
+    visible?: boolean;
 }
 
 export interface IScanCleanupRawPreviewResult {
@@ -64,6 +64,9 @@ export interface IScanCleanupRawPreviewResult {
     rawWidthPx: number;
     rawHeightPx: number;
 }
+
+/** The raw raster pushed ahead of the cleaned outputs of the request that asked for it. */
+export interface IScanCleanupRawPreviewEvent extends IScanCleanupRawPreviewResult, IScanCleanupOwnerContext {}
 
 export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;
@@ -238,6 +241,15 @@ export interface IScanCleanupPreviewResult {
     pageMetadata: IScanCleanupPreviewPageMetadata;
     outputs: IScanCleanupPreviewOutput[];
 }
+
+/**
+ * What `preview` puts on the wire. A base preview leaves `rawImageData` out:
+ * those bytes reached the renderer over `onPreviewRaw` a sidecar run earlier,
+ * and the renderer reattaches them. A detail tile still carries them.
+ */
+export type TScanCleanupPreviewWireResult =
+    Omit<IScanCleanupPreviewResult, 'rawImageData'>
+    & {rawImageData?: Uint8Array};
 
 export interface IScanCleanupDetectionRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;

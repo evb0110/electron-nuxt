@@ -3,7 +3,6 @@ import type {
     IScanCleanupOwnerContext,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
-    IScanCleanupRawPreviewRequest,
     IScanCleanupStartRequest,
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
@@ -14,7 +13,6 @@ import {
     decodeOwnedJobId,
     decodePreviewArgs,
     decodePreviewCancelArgs,
-    decodeRawPreviewArgs,
     decodeStartArgs,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
@@ -22,7 +20,7 @@ import {
     decodeScanCleanupDetectionJobState,
     decodeScanCleanupJobState,
     decodeScanCleanupPreviewResult,
-    decodeScanCleanupRawPreviewResult,
+    decodeScanCleanupRawPreviewEvent,
     decodeStartResult,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
 import {
@@ -57,13 +55,10 @@ const options = {
     skipBlankPages: false,
     pageOverrides: {},
 };
-const rawRequest: IScanCleanupRawPreviewRequest = {
+const previewRequest: IScanCleanupPreviewRequest = {
     ...owner,
     sourcePdfPath: '/tmp/source.pdf',
     pageNumber: 1,
-};
-const previewRequest: IScanCleanupPreviewRequest = {
-    ...rawRequest,
     options,
 };
 const cancelPreviewRequest: IScanCleanupPreviewCancelRequest = {
@@ -103,7 +98,6 @@ const nonNegativeInteger = s.number({
 });
 const decodeArgs = <T>(decode: (value: readonly unknown[]) => T) =>
     (value: unknown) => decode(Array.isArray(value) ? value : []);
-const rawPreviewArgs = s.fromParser(decodeArgs(decodeRawPreviewArgs), () => [rawRequest]);
 const previewArgs = s.fromParser(decodeArgs(decodePreviewArgs), () => [previewRequest]);
 const cancelPreviewArgs = s.fromParser(decodeArgs(decodePreviewCancelArgs), () => [cancelPreviewRequest]);
 const detectionArgs = s.fromParser(decodeArgs(decodeDetectionArgs), () => [detectionRequest]);
@@ -113,7 +107,8 @@ const ownedJobArgs = s.fromParser(decodeArgs(decodeOwnedJobId), () => [
     owner,
 ] as [string, IScanCleanupOwnerContext]);
 const openPathsArgs = s.fromParser(decodeArgs(decodeOpenPdfPaths), () => [['/tmp/source.pdf']]);
-const rawPreviewResult = s.fromParser(decodeScanCleanupRawPreviewResult, () => ({
+const rawPreviewEvent = s.fromParser(decodeScanCleanupRawPreviewEvent, () => ({
+    ...owner,
     pageNumber: 1,
     totalPages: 1,
     rawImageData: new Uint8Array([1]),
@@ -172,13 +167,6 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
         electron: true,
     },
     methods: {
-        previewRaw: method({
-            name: 'previewRaw',
-            channel: 'scan-cleanup:preview:raw',
-            args: rawPreviewArgs,
-            result: rawPreviewResult,
-            main: 'previewRaw',
-        }),
         preview: method({
             name: 'preview',
             channel: 'scan-cleanup:preview',
@@ -272,6 +260,13 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
         },
     },
     events: {
+        onPreviewRaw: {
+            kind: 'event',
+            channel: 'scan-cleanup:preview:raw',
+            payload: rawPreviewEvent,
+            browser: {method: 'onPreviewRaw'},
+            lazy: 'forwarded',
+        },
         onJobState: {
             kind: 'event',
             channel: 'scan-cleanup:job:state',

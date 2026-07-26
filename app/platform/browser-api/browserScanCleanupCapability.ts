@@ -4,9 +4,6 @@ import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 const BROWSER_SCAN_CLEANUP_UNAVAILABLE = 'Scan Cleanup is unavailable in the browser; use the desktop app.';
 
 export const browserScanCleanupCapability: IScanCleanupCapability = {
-    previewRaw() {
-        return Promise.reject(new Error(BROWSER_SCAN_CLEANUP_UNAVAILABLE));
-    },
     preview() {
         return Promise.reject(new Error(BROWSER_SCAN_CLEANUP_UNAVAILABLE));
     },
@@ -53,6 +50,7 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     pruneGeneratedOutputs() {
         return Promise.resolve(0);
     },
+    onPreviewRaw: noopUnsubscribe,
     onJobState: noopUnsubscribe,
     onDetectionJobState: noopUnsubscribe,
 };

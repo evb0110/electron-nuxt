@@ -20,7 +20,6 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewMetadata,
-    IScanCleanupRawPreviewRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupStartRequest,
 } from '@contracts/scan-cleanup/ipc';
@@ -73,26 +72,6 @@ export function decodePreviewCancelArgs(args: readonly unknown[]) {
         ...(value.invalidateRawCache === undefined ? {} : {invalidateRawCache: value.invalidateRawCache}),
         ...(retainPages === undefined ? {} : {retainPages}),
     }] as [IScanCleanupPreviewCancelRequest];
-}
-
-export function decodeRawPreviewArgs(args: readonly unknown[]) {
-    requireIpcArgumentCount(args, {
-        min: 1,
-        max: 1,
-    });
-    const value = args[0];
-    if (
-        !isRecord(value)
-        || typeof value.sourcePdfPath !== 'string'
-        || value.sourcePdfPath.trim().length === 0
-        || !Number.isSafeInteger(value.pageNumber)
-        || Number(value.pageNumber) < 1
-    ) throw new Error('invalid scan-cleanup raw preview request');
-    return [{
-        sourcePdfPath: value.sourcePdfPath,
-        ...decodeOwnerContext(value),
-        pageNumber: Number(value.pageNumber),
-    }] as [IScanCleanupRawPreviewRequest];
 }
 
 export function decodeOwnedJobId(args: readonly unknown[]) {
@@ -556,6 +535,7 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         || value.sourcePdfPath.trim().length === 0
         || !Number.isSafeInteger(value.pageNumber)
         || Number(value.pageNumber) < 1
+        || (value.visible !== undefined && typeof value.visible !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview request');
     const detail = value.detail === undefined
         ? undefined
@@ -607,6 +587,7 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
             ? {}
             : {documentCanvasPlan: decodeDocumentCanvasPlan(value.documentCanvasPlan)}),
         ...(detail === undefined ? {} : {detail}),
+        ...(value.visible === undefined ? {} : {visible: value.visible}),
     };
 }
 

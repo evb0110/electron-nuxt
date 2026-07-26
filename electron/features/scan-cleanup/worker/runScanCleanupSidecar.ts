@@ -18,6 +18,7 @@ import {
     parseNativeScanCleanupStderr,
 } from '@electron/features/scan-cleanup/native/protocolCodec';
 import {verifyNativeToolProtocol} from '@electron/native-tools/runNativeToolCommand';
+import {acquireNativeCommandAdmission} from '@electron/native-tools/runNativeCommand';
 
 export class NativeScanCleanupError extends Error {
     constructor(readonly code: TNativeErrorCode, message: string) {
@@ -76,6 +77,24 @@ export async function runScanCleanupSidecar(
         signal,
         log,
     });
+    // The sidecar is a long-lived native process that fans out over rayon, so it
+    // is admitted through the same gate as pdftoppm and qpdf instead of spawning
+    // beside them unaccounted.
+    const releaseAdmission = await acquireNativeCommandAdmission(signal);
+    try {
+        await streamScanCleanupSidecar(binaryPath, manifestPath, signal, log, onProgress);
+    } finally {
+        releaseAdmission();
+    }
+}
+
+async function streamScanCleanupSidecar(
+    binaryPath: string,
+    manifestPath: string,
+    signal: AbortSignal,
+    log: TWorkerLog,
+    onProgress: (progress: TScanCleanupProgress, nativeProgress: TNativeScanCleanupProgressV3) => void,
+) {
     const child = spawn(binaryPath, [
         '--manifest',
         manifestPath,

@@ -190,7 +190,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const ocrOnCompleteMethod = lazyEvent(pathDescriptors.ocr.onComplete.path);
     const ocrPreprocessingValidateMethod = lazyAsync(pathDescriptors.ocr.preprocessing.validate.path);
     const ocrPreprocessingPreprocessPageMethod = lazyAsync(pathDescriptors.ocr.preprocessing.preprocessPage.path);
-    const scanCleanupPreviewRawMethod = lazyAsync(pathDescriptors.scanCleanup.previewRaw.path);
     const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
     const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
     const scanCleanupDetectAllMethod = lazyAsync(pathDescriptors.scanCleanup.detectAll.path);
@@ -203,6 +202,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const scanCleanupSubscribeJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeJob.path);
     const scanCleanupReconnectJobMethod = lazyAsync(pathDescriptors.scanCleanup.reconnectJob.path);
     const scanCleanupPruneGeneratedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.pruneGeneratedOutputs.path);
+    const scanCleanupOnPreviewRawMethod = lazyEvent(pathDescriptors.scanCleanup.onPreviewRaw.path);
     const scanCleanupOnJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onJobState.path);
     const scanCleanupOnDetectionJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onDetectionJobState.path);
     const imageExportExportPdfToImagesMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToImages.path);
@@ -455,7 +455,6 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuConvertToPdf: djvuOnMenuConvertToPdfMethod,
     },
     scanCleanup: {
-        previewRaw: scanCleanupPreviewRawMethod,
         preview: scanCleanupPreviewMethod,
         cancelPreview: scanCleanupCancelPreviewMethod,
         detectAll: scanCleanupDetectAllMethod,
@@ -468,6 +467,7 @@ export function createLazyBrowserPlatformApiGenerated({
         subscribeJob: scanCleanupSubscribeJobMethod,
         reconnectJob: scanCleanupReconnectJobMethod,
         pruneGeneratedOutputs: scanCleanupPruneGeneratedOutputsMethod,
+        onPreviewRaw: scanCleanupOnPreviewRawMethod,
         onJobState: scanCleanupOnJobStateMethod,
         onDetectionJobState: scanCleanupOnDetectionJobStateMethod,
     },

@@ -74,7 +74,14 @@ function disposePreviewImageSwap(state: IScanCleanupPreviewImageSwap, revoke: (u
 }
 
 function pngUrl(bytes: Uint8Array) {
-    return URL.createObjectURL(new Blob([new Uint8Array(bytes)], {type: 'image/png'}));
+    // Blob already copies what it is handed, so the page-sized copy that used
+    // to be made first was pure waste. The branch narrows rather than copies:
+    // bytes off the IPC boundary are always ArrayBuffer-backed, and the view
+    // shares them.
+    const view = bytes.buffer instanceof ArrayBuffer
+        ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+        : new Uint8Array(bytes);
+    return URL.createObjectURL(new Blob([view], {type: 'image/png'}));
 }
 
 export const useScanCleanupPreviewImages = (

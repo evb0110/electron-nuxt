@@ -127,13 +127,6 @@ function capabilityHarness() {
     let detectionListener: (state: TScanCleanupDetectionJobState) => void = () => undefined;
     let runListener: (state: TScanCleanupJobState) => void = () => undefined;
     const value: IScanCleanupCapability = {
-        previewRaw: vi.fn(async request => ({
-            pageNumber: request.pageNumber,
-            totalPages: 3,
-            rawImageData: new Uint8Array([1]),
-            rawWidthPx: 1,
-            rawHeightPx: 1,
-        })),
         preview: vi.fn(async () => {
             throw new DOMException('Superseded', 'AbortError');
         }),
@@ -151,6 +144,7 @@ function capabilityHarness() {
         subscribeJob: vi.fn(),
         reconnectJob: vi.fn(),
         pruneGeneratedOutputs: vi.fn(),
+        onPreviewRaw: vi.fn(() => () => undefined),
         onJobState: vi.fn(listener => {
             runListener = listener;
             return () => { runListener = () => undefined; };
