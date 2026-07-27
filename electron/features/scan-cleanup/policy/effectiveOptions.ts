@@ -149,7 +149,7 @@ export const SCAN_CLEANUP_SIZE_PROBE_DPI = 72;
  * inside the pixel budget its output mode allows and the largest dimension the
  * engine accepts, measured from a raster of that page at a known resolution.
  */
-export function resolveSafeRenderDpi(
+function resolveSafeRenderDpi(
     requestedRenderDpi: number,
     maxPixels: number,
     probe: {
@@ -201,7 +201,7 @@ export function resolveScanCleanupDocumentGuardrail(
 // A page with no measurable raster that may still be cleaned to a binary layer
 // is synthesized rather than resampled, and 1-bit text needs finer sampling
 // than the paper itself asks for to keep its edges.
-export const SCAN_CLEANUP_BILEVEL_FALLBACK_DPI = 600;
+const SCAN_CLEANUP_BILEVEL_FALLBACK_DPI = 600;
 
 export interface IResolveScanCleanupPlannedDpiInput {
     sourceDpi: number;

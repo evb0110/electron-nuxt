@@ -142,18 +142,10 @@ function runProjectAudit(project: IAuditProject) {
 }
 
 export function runProductionDependencyAudits() {
-    for (const project of [
-        {
-            cwd: PROJECT_ROOT,
-            label: 'root',
-        },
-        {
-            cwd: path.join(PROJECT_ROOT, 'landing'),
-            label: 'landing',
-        },
-    ]) {
-        runProjectAudit(project);
-    }
+    runProjectAudit({
+        cwd: PROJECT_ROOT,
+        label: 'workspace',
+    });
 }
 
 function isDirectExecution() {
