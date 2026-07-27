@@ -467,6 +467,9 @@ export function startStreamingWorkerTask<T>(
         workerData,
         createStartupError,
     } = options;
+    if (options.signal?.aborted) {
+        throw getAbortReason(options.signal);
+    }
     if (!existsSync(workerPath)) {
         throw createStartupError(`Worker unavailable at path: ${workerPath}`);
     }

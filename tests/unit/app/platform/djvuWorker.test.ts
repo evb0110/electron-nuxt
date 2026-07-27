@@ -158,6 +158,22 @@ describe('createDjvuWorkerFromPath', () => {
         mocks.nativeOnTextSearchProgress.mockReturnValue(() => undefined);
     });
 
+    it('does not load DjVu.js or construct a worker after cancellation', async () => {
+        const { createDjvuWorkerFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const controller = new AbortController();
+        controller.abort(new DOMException('Superseded DjVu load', 'AbortError'));
+
+        await expect(createDjvuWorkerFromPath(
+            'browser://documents/source/canceled.djvu',
+            {signal: controller.signal},
+        )).rejects.toThrow('DjVu conversion canceled');
+
+        expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
+        expect(mocks.createDocument).not.toHaveBeenCalled();
+        expect(mocks.terminate).not.toHaveBeenCalled();
+    });
+
     it('caps browser same-page search progress batches at the shared contract limit', async () => {
         const {searchDjvuWorkerText} =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');

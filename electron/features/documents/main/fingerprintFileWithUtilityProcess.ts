@@ -20,6 +20,9 @@ export async function runDocumentSaveUtilityProcess(options: {
     request: unknown;
     signal?: AbortSignal;
 }) {
+    if (options.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
     const workerPath = resolveUnpackedWorkerPath(
         __dirname,
         WORKER_BUNDLES_BY_ID['document-save-utility'].fileName,

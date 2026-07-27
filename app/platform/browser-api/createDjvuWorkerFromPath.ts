@@ -390,7 +390,9 @@ export async function createDjvuWorkerFromPath(
     djvuPath: TDocumentRef,
     options: IDjvuWorkerReadOptions = {},
 ) {
+    throwIfCanceled(options.signal);
     const djvuGlobal = await loadDjvuJs();
+    throwIfCanceled(options.signal);
     const worker = new djvuGlobal.Worker();
     const isBrowserRef = isBrowserDocumentRef(djvuPath);
     let abortHandler: (() => void) | null = null;

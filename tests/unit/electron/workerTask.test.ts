@@ -132,6 +132,23 @@ describe('workerTask', () => {
         expect(mocks.workerCtor).not.toHaveBeenCalled();
     });
 
+    it('rejects already aborted streaming tasks before constructing a worker', async () => {
+        const abortController = new AbortController();
+        const abortReason = new Error('stream canceled before start');
+        abortController.abort(abortReason);
+        const { startStreamingWorkerTask } = await import('@electron/utils/workerTask');
+
+        expect(() => startStreamingWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: { ok: true },
+            invalidPayloadMessage: 'invalid payload',
+            createStartupError: message => new Error(`startup: ${message}`),
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+            signal: abortController.signal,
+        })).toThrow(abortReason);
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+    });
+
     it('rejects already aborted result tasks before constructing a worker', async () => {
         const abortController = new AbortController();
         const abortReason = new Error('canceled before start');
