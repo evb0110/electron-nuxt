@@ -1299,11 +1299,17 @@ describe('Electron E2E - Viewer Smoke', () => {
         await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>(
             '.scan-thumbnail-overlay[data-classification]',
         )).some(item => item.dataset.classification !== 'unclassified'), {timeout: 60_000});
-        const classifiedBadges = await session.page.$$eval(
-            '.scan-thumbnail-overlay:not([data-classification="unclassified"]) .scan-thumbnail-classification-badge',
-            badges => badges.filter(badge => (badge.textContent ?? '').trim() !== '').length,
+        const classifiedRows = await session.page.$$eval(
+            '.scan-thumbnail-rail .document-thumbnail-list__item',
+            rows => rows.filter(row => {
+                const classification = row.querySelector<HTMLElement>('.scan-thumbnail-overlay')?.dataset.classification;
+                const status = row.querySelector<HTMLElement>('.scan-thumbnail-status')?.textContent ?? '';
+                return classification !== undefined
+                    && classification !== 'unclassified'
+                    && status.trim() !== '';
+            }).length,
         );
-        expect(classifiedBadges).toBeGreaterThan(0);
+        expect(classifiedRows).toBeGreaterThan(0);
 
         const workspaceTitle = await session.page.$eval('.scan-cleanup-surface', workspace => workspace.getAttribute('aria-label') ?? '');
         expect(workspaceTitle).toContain('Scan cleanup');

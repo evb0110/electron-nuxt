@@ -197,7 +197,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // diagnostic and survives mode changes while the evidence is unchanged. So
     // is matchPageSize: the canvas is measured from the document's own page
     // geometry, so toggling it no longer changes anything detection reports and
-    // must not throw a whole document's evidence away.
+    // must not throw a whole document's evidence away. So is excluded: it only
+    // decides whether the analyzed page reaches the output, so toggling it must
+    // not drop the page back to a pending spinner.
     function pageSignature(pageNumber: number) {
         const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
         const lossless = options.settings.preserveOriginalQuality === true;
@@ -211,7 +213,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             autoDewarp: !lossless && (options.settings.autoDewarp ?? false),
             autoDewarpDepth: options.settings.autoDewarpDepth,
             rotationDegrees: pageOverride.rotationDegrees,
-            excluded: pageOverride.excluded,
             manualSplit: pageOverride.manualSplit,
             manualSkewDegrees: pageOverride.manualSkewDegrees,
             manualContentBoxes: pageOverride.manualContentBoxes ?? {},

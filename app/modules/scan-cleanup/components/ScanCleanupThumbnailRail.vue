@@ -61,260 +61,55 @@
                     :data-classification="classificationKind(naturalPage(position))"
                 >
                     <div
-                        class="scan-thumbnail-statuses"
+                        class="scan-thumbnail-actions"
                         @click.stop
                         @pointerdown.stop
                     >
-                        <UBadge class="scan-thumbnail-classification-badge" color="neutral" variant="soft" size="sm">
-                            <span
-                                v-if="isDetectionPending(naturalPage(position))"
-                                class="scan-thumbnail-detection-pending"
-                                role="status"
-                                :aria-label="t('scanCleanup.pages.detectionPending', {page: naturalPage(position)})"
-                            >
-                                <UIcon name="i-ph-circle-notch" class="is-spinning" aria-hidden="true" />
-                            </span>
-                            <template v-else>{{ statusLabel(naturalPage(position)) }}</template>
-                        </UBadge>
                         <UPopover
-                            v-if="diagnosticsFor(naturalPage(position))"
-                            :open="diagnosticsPopoverPage === naturalPage(position)"
+                            :open="optionsPopoverPage === naturalPage(position)"
                             portal="body"
                             :content="{side: 'right', align: 'start'}"
-                            @update:open="updateDiagnosticsPopover(naturalPage(position), $event)"
+                            @update:open="updateOptionsPopover(naturalPage(position), $event)"
                         >
                             <UButton
                                 type="button"
-                                class="scan-thumbnail-diagnostics"
+                                class="scan-thumbnail-options-toggle"
+                                :class="{'is-customized': isCustomized(naturalPage(position))}"
                                 color="neutral"
                                 variant="soft"
                                 size="xs"
                                 square
-                                icon="i-ph-info"
-                                :aria-label="t('scanCleanup.pages.diagnostics.open', {page: naturalPage(position)})"
-                                :aria-expanded="diagnosticsPopoverPage === naturalPage(position)"
+                                :icon="needsAttention(naturalPage(position))
+                                    ? 'i-ph-warning'
+                                    : 'i-ph-sliders-horizontal'"
+                                :aria-label="t('scanCleanup.pages.options', {page: naturalPage(position)})"
+                                :aria-expanded="optionsPopoverPage === naturalPage(position)"
                                 aria-haspopup="dialog"
                                 :disabled="disabled"
                             />
+
                             <template #content>
                                 <div
-                                    class="scan-thumbnail-diagnostics-popover"
+                                    class="scan-thumbnail-options"
                                     @click.stop
                                     @pointerdown.stop
-                                    @keydown.esc.stop.prevent="closeDiagnosticsPopover(naturalPage(position))"
+                                    @keydown.esc.stop.prevent="closeOptionsPopover(naturalPage(position))"
                                 >
-                                    <strong>{{ t('scanCleanup.pages.diagnostics.title', {
+                                    <strong>{{ t('scanCleanup.pages.optionsTitle', {
                                         page: naturalPage(position),
                                     }) }}</strong>
-                                    <dl>
-                                        <div class="scan-thumbnail-diagnostic-group">
-                                            <h4>{{ t('scanCleanup.pages.diagnostics.modeDecision') }}</h4>
-                                            <div class="scan-thumbnail-diagnostic-row">
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.recommendedMode') }}</dt>
-                                                <dd>{{ diagnosticRecommendation(naturalPage(position)) }}</dd>
-                                            </div>
-                                            <div class="scan-thumbnail-diagnostic-row">
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.reason') }}</dt>
-                                                <dd>{{ diagnosticRecommendationReason(naturalPage(position)) }}</dd>
-                                            </div>
-                                            <div class="scan-thumbnail-diagnostic-row">
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.binarization') }}</dt>
-                                                <dd>{{ diagnosticBinarization(naturalPage(position)) }}</dd>
-                                            </div>
-                                            <template v-if="diagnosticBinarizationEvidence(naturalPage(position))">
-                                                <div class="scan-thumbnail-diagnostic-row">
-                                                    <dt>{{ t('scanCleanup.pages.diagnostics.contrastIllumination') }}</dt>
-                                                    <dd>{{ diagnosticBinarizationEvidence(naturalPage(position))?.contrast }}</dd>
-                                                </div>
-                                                <div class="scan-thumbnail-diagnostic-row">
-                                                    <dt>{{ t('scanCleanup.pages.diagnostics.edgeStroke') }}</dt>
-                                                    <dd>{{ diagnosticBinarizationEvidence(naturalPage(position))?.edge }}</dd>
-                                                </div>
-                                                <div class="scan-thumbnail-diagnostic-row">
-                                                    <dt>{{ t('scanCleanup.pages.diagnostics.borderAgreement') }}</dt>
-                                                    <dd>{{ diagnosticBinarizationEvidence(naturalPage(position))?.border }}</dd>
-                                                </div>
-                                            </template>
-                                            <div class="scan-thumbnail-diagnostic-row">
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.despeckleFallback') }}</dt>
-                                                <dd>{{ diagnosticDespeckleFallback(naturalPage(position)) }}</dd>
-                                            </div>
-                                        </div>
-                                        <div class="scan-thumbnail-diagnostic-group">
-                                            <h4>{{ t('scanCleanup.pages.diagnostics.contentTrim') }}</h4>
-                                            <template
-                                                v-for="output in diagnosticOutputs(naturalPage(position))"
-                                                :key="output.half"
-                                            >
-                                                <div
-                                                    v-if="diagnosticOutputs(naturalPage(position)).length > 1"
-                                                    class="scan-thumbnail-diagnostic-note"
-                                                >{{ outputHalfLabel(output.half) }}</div>
-                                                <div
-                                                    v-for="(trim, trimIndex) in output.contentDiagnostics?.acceptedTrims ?? []"
-                                                    :key="`${output.half}-trim-${trimIndex}`"
-                                                    class="scan-thumbnail-diagnostic-row"
-                                                >
-                                                    <dt>{{ t('scanCleanup.pages.diagnostics.acceptedTrim') }}</dt>
-                                                    <dd>{{ diagnosticTrim(trim) }}</dd>
-                                                </div>
-                                                <div
-                                                    v-for="(block, blockIndex) in removedBlocks(output)"
-                                                    :key="`${output.half}-removed-${blockIndex}`"
-                                                    class="scan-thumbnail-diagnostic-row"
-                                                >
-                                                    <dt>{{ t('scanCleanup.pages.diagnostics.removedBounds') }}</dt>
-                                                    <dd>{{ diagnosticBlock(block) }}</dd>
-                                                </div>
-                                                <div
-                                                    v-for="(block, blockIndex) in output.contentDiagnostics?.protectedBlocks ?? []"
-                                                    :key="`${output.half}-protected-${blockIndex}`"
-                                                    class="scan-thumbnail-diagnostic-row"
-                                                >
-                                                    <dt>{{ t('scanCleanup.pages.diagnostics.protectedBounds') }}</dt>
-                                                    <dd>{{ diagnosticBlock(block) }}</dd>
-                                                </div>
-                                                <div
-                                                    v-if="!(output.contentDiagnostics?.acceptedTrims?.length)
-                                                        && !(output.contentDiagnostics?.protectedBlocks?.length)"
-                                                    class="scan-thumbnail-diagnostic-row"
-                                                >
-                                                    <dt>{{ t('scanCleanup.pages.diagnostics.trimResult') }}</dt>
-                                                    <dd>{{ t('scanCleanup.pages.diagnostics.noTrim') }}</dd>
-                                                </div>
-                                            </template>
-                                            <div
-                                                v-if="diagnosticOutputs(naturalPage(position)).length === 0"
-                                                class="scan-thumbnail-diagnostic-row"
-                                            >
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.trimResult') }}</dt>
-                                                <dd>{{ t('scanCleanup.pages.diagnostics.unavailable') }}</dd>
-                                            </div>
-                                        </div>
-                                        <div class="scan-thumbnail-diagnostic-group">
-                                            <h4>{{ t('scanCleanup.pages.diagnostics.geometry') }}</h4>
-                                            <div class="scan-thumbnail-diagnostic-row">
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.layout') }}</dt>
-                                                <dd>{{ diagnosticLayout(naturalPage(position)) }}</dd>
-                                            </div>
-                                            <div
-                                                v-if="diagnosticsFor(naturalPage(position))?.reconciled"
-                                                class="scan-thumbnail-diagnostic-note"
-                                            >{{ t('scanCleanup.pages.diagnostics.reconciled') }}</div>
-                                            <div
-                                                v-if="diagnosticsFor(naturalPage(position))?.splitAbstained"
-                                                class="scan-thumbnail-diagnostic-note"
-                                            >{{ t('scanCleanup.pages.diagnostics.splitAbstained') }}</div>
-                                            <div class="scan-thumbnail-diagnostic-row">
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.deskew') }}</dt>
-                                                <dd>{{ diagnosticDeskew(naturalPage(position)) }}</dd>
-                                            </div>
-                                            <div
-                                                v-if="diagnosticSideConfidence(naturalPage(position))"
-                                                class="scan-thumbnail-diagnostic-row"
-                                            >
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.sideConfidence') }}</dt>
-                                                <dd>{{ diagnosticSideConfidence(naturalPage(position)) }}</dd>
-                                            </div>
-                                            <div
-                                                v-if="diagnosticsFor(naturalPage(position))?.autoDewarpAttempted"
-                                                class="scan-thumbnail-diagnostic-row"
-                                            >
-                                                <dt>{{ t('scanCleanup.pages.diagnostics.dewarp') }}</dt>
-                                                <dd>{{ diagnosticDewarp(naturalPage(position)) }}</dd>
-                                            </div>
-                                        </div>
-                                    </dl>
-                                </div>
-                            </template>
-                        </UPopover>
-                        <UPopover
-                            v-if="displayedOutputMode(naturalPage(position))"
-                            :open="outputModePopoverPage === naturalPage(position)"
-                            portal="body"
-                            :content="{side: 'right', align: 'start'}"
-                            @update:open="updateOutputModePopover(naturalPage(position), $event)"
-                        >
-                            <button
-                                type="button"
-                                class="scan-thumbnail-output-mode"
-                                :class="{
-                                    'is-override': isOutputModeOverride(naturalPage(position)),
-                                    'is-recommendation': outputModeBadgeKind(naturalPage(position)) === 'recommendation',
-                                    'is-effective': outputModeBadgeKind(naturalPage(position)) === 'effective',
-                                }"
-                                :aria-label="outputModeAriaLabel(naturalPage(position))"
-                                :aria-expanded="outputModePopoverPage === naturalPage(position)"
-                                aria-haspopup="dialog"
-                                :disabled="disabled || preserveOriginalQuality"
-                                @click="openOutputModePopover(naturalPage(position))"
-                                @keydown.esc.stop.prevent="closeOutputModePopover(naturalPage(position))"
-                            >
-                                <span
-                                    v-if="isOutputModeOverride(naturalPage(position))"
-                                    class="scan-thumbnail-output-mode-marker"
-                                    aria-hidden="true"
-                                />
-                                {{ outputModeShortLabel(displayedOutputMode(naturalPage(position))) }}
-                            </button>
-
-                            <template #content>
-                                <div
-                                    class="scan-thumbnail-output-mode-popover"
-                                    @click.stop
-                                    @pointerdown.stop
-                                    @keydown.esc.stop.prevent="closeOutputModePopover(naturalPage(position))"
-                                >
-                                    <p>{{ outputModeHint(naturalPage(position)) }}</p>
-                                    <USelect
-                                        class="scan-thumbnail-popover-output-mode-select"
-                                        :model-value="pageOverride(naturalPage(position)).outputModeOverride ?? 'auto'"
-                                        :items="outputModeItems"
-                                        value-key="value"
-                                        size="xs"
-                                        portal="body"
-                                        :content="{position: 'popper', side: 'bottom', align: 'start'}"
-                                        :ui="overrideSelectUi"
-                                        :aria-label="t('scanCleanup.pages.outputModeFor', {page: naturalPage(position)})"
-                                        :disabled="disabled || preserveOriginalQuality"
-                                        @keydown.esc.stop.prevent="closeOutputModePopover(naturalPage(position))"
-                                        @update:model-value="updateOutputModeOverride(naturalPage(position), $event)"
-                                    />
-                                </div>
-                            </template>
-                        </UPopover>
-                        <AppTooltip
-                            v-if="isLowConfidence(naturalPage(position))"
-                            :text="lowConfidenceHint(naturalPage(position))"
-                            usefulness="always"
-                        >
-                            <UPopover
-                                :open="lowConfidencePopoverPage === naturalPage(position)"
-                                portal="body"
-                                :content="{side: 'right', align: 'start'}"
-                                @update:open="updateLowConfidencePopover(naturalPage(position), $event)"
-                            >
-                                <button
-                                    type="button"
-                                    class="scan-thumbnail-low-confidence"
-                                    :aria-label="lowConfidenceHint(naturalPage(position))"
-                                    :aria-expanded="lowConfidencePopoverPage === naturalPage(position)"
-                                    aria-haspopup="dialog"
-                                    :disabled="disabled"
-                                    @click="openLowConfidencePopover(naturalPage(position))"
-                                    @keydown.esc.stop.prevent="closeLowConfidencePopover(naturalPage(position))"
-                                >?</button>
-
-                                <template #content>
-                                    <div
-                                        class="scan-thumbnail-low-confidence-popover"
-                                        @click.stop
-                                        @pointerdown.stop
-                                        @keydown.esc.stop.prevent="closeLowConfidencePopover(naturalPage(position))"
+                                    <p
+                                        v-for="hint in attentionHints(naturalPage(position))"
+                                        :key="hint"
+                                        class="scan-thumbnail-options-notice"
                                     >
-                                        <p>{{ lowConfidenceHint(naturalPage(position)) }}</p>
+                                        <UIcon name="i-ph-warning" aria-hidden="true" />
+                                        <span>{{ hint }}</span>
+                                    </p>
+                                    <div class="scan-thumbnail-options-field">
+                                        <span>{{ t('scanCleanup.layout.label') }}</span>
                                         <USelect
-                                            class="scan-thumbnail-popover-override-select"
+                                            class="scan-thumbnail-layout-select"
                                             :model-value="pageOverride(naturalPage(position)).layoutOverride"
                                             :items="overrideItems"
                                             value-key="value"
@@ -324,47 +119,13 @@
                                             :ui="overrideSelectUi"
                                             :aria-label="t('scanCleanup.pages.overrideFor', {page: naturalPage(position)})"
                                             :disabled="disabled"
-                                            @keydown.esc.stop.prevent="closeLowConfidencePopover(naturalPage(position))"
                                             @update:model-value="updateOverride(naturalPage(position), {layoutOverride: $event})"
                                         />
                                     </div>
-                                </template>
-                            </UPopover>
-                        </AppTooltip>
-                        <AppTooltip
-                            v-if="showsSidewaysHint(naturalPage(position))"
-                            :text="t('scanCleanup.pages.textAxisHint')"
-                            usefulness="always"
-                        >
-                            <UPopover
-                                :open="textAxisPopoverPage === naturalPage(position)"
-                                portal="body"
-                                :content="{side: 'right', align: 'start'}"
-                                @update:open="updateTextAxisPopover(naturalPage(position), $event)"
-                            >
-                                <button
-                                    type="button"
-                                    class="scan-thumbnail-text-axis"
-                                    :aria-label="t('scanCleanup.pages.textAxisAria', {page: naturalPage(position)})"
-                                    :aria-expanded="textAxisPopoverPage === naturalPage(position)"
-                                    aria-haspopup="dialog"
-                                    :disabled="disabled"
-                                    @click="openTextAxisPopover(naturalPage(position))"
-                                    @keydown.esc.stop.prevent="closeTextAxisPopover(naturalPage(position))"
-                                >
-                                    <UIcon name="i-ph-arrows-clockwise" aria-hidden="true" />
-                                </button>
-
-                                <template #content>
-                                    <div
-                                        class="scan-thumbnail-text-axis-popover"
-                                        @click.stop
-                                        @pointerdown.stop
-                                        @keydown.esc.stop.prevent="closeTextAxisPopover(naturalPage(position))"
-                                    >
-                                        <p>{{ t('scanCleanup.pages.textAxisHint') }}</p>
+                                    <div class="scan-thumbnail-options-field">
+                                        <span>{{ t('scanCleanup.settings.rotation') }}</span>
                                         <USelect
-                                            class="scan-thumbnail-popover-rotation-select"
+                                            class="scan-thumbnail-rotation-select"
                                             :model-value="pageOverride(naturalPage(position)).rotationDegrees"
                                             :items="rotationItems"
                                             value-key="value"
@@ -374,37 +135,57 @@
                                             :ui="overrideSelectUi"
                                             :aria-label="t('scanCleanup.pages.rotationFor', {page: naturalPage(position)})"
                                             :disabled="disabled"
-                                            @keydown.esc.stop.prevent="closeTextAxisPopover(naturalPage(position))"
                                             @update:model-value="updateRotationOverride(naturalPage(position), $event)"
                                         />
                                     </div>
-                                </template>
-                            </UPopover>
-                        </AppTooltip>
-                        <UBadge
-                            v-if="pageOverride(naturalPage(position)).excluded"
-                            class="scan-thumbnail-excluded-badge"
-                            color="neutral"
-                            variant="soft"
-                            size="sm"
-                            :aria-label="t('scanCleanup.pages.excludedFromOutput')"
-                        >
-                            <UIcon name="i-ph-eye-slash" aria-hidden="true" />
-                            <span>{{ t('scanCleanup.pages.excludedBadge') }}</span>
-                        </UBadge>
-                        <span
-                            v-if="pageOverride(naturalPage(position)).rotationDegrees !== 0"
-                            class="scan-thumbnail-rotation"
-                        >
-                            <UIcon name="i-ph-arrow-clockwise" />
-                            {{ pageOverride(naturalPage(position)).rotationDegrees }}°
-                        </span>
-                        <UIcon
-                            v-if="processedPages?.has(naturalPage(position))"
-                            name="i-ph-check-circle"
-                            class="scan-thumbnail-processed"
-                            :aria-label="t('scanCleanup.pages.processed')"
-                        />
+                                    <div class="scan-thumbnail-options-field">
+                                        <span>{{ t('scanCleanup.output.pageLabel') }}</span>
+                                        <USelect
+                                            class="scan-thumbnail-output-mode-select"
+                                            :model-value="pageOverride(naturalPage(position)).outputModeOverride ?? 'auto'"
+                                            :items="outputModeItems"
+                                            value-key="value"
+                                            size="xs"
+                                            portal="body"
+                                            :content="{position: 'popper', side: 'bottom', align: 'start'}"
+                                            :ui="overrideSelectUi"
+                                            :aria-label="t('scanCleanup.pages.outputModeFor', {page: naturalPage(position)})"
+                                            :disabled="disabled || preserveOriginalQuality"
+                                            @update:model-value="updateOutputModeOverride(naturalPage(position), $event)"
+                                        />
+                                        <p class="scan-thumbnail-options-hint">{{ outputModeHint(naturalPage(position)) }}</p>
+                                    </div>
+                                    <details
+                                        v-if="diagnosticGroups(naturalPage(position)).length > 0"
+                                        class="scan-thumbnail-technical"
+                                    >
+                                        <summary>{{ t('scanCleanup.pages.technicalDetails') }}</summary>
+                                        <dl>
+                                            <div
+                                                v-for="group in diagnosticGroups(naturalPage(position))"
+                                                :key="group.title"
+                                                class="scan-thumbnail-diagnostic-group"
+                                            >
+                                                <h4>{{ group.title }}</h4>
+                                                <div
+                                                    v-for="note in group.notes"
+                                                    :key="note"
+                                                    class="scan-thumbnail-diagnostic-note"
+                                                >{{ note }}</div>
+                                                <div
+                                                    v-for="(row, rowIndex) in group.rows"
+                                                    :key="`${group.title}-${rowIndex}`"
+                                                    class="scan-thumbnail-diagnostic-row"
+                                                >
+                                                    <dt>{{ row.label }}</dt>
+                                                    <dd>{{ row.value }}</dd>
+                                                </div>
+                                            </div>
+                                        </dl>
+                                    </details>
+                                </div>
+                            </template>
+                        </UPopover>
                         <AppTooltip
                             :text="includeLabel(naturalPage(position))"
                             usefulness="always"
@@ -412,10 +193,6 @@
                             <UButton
                                 type="button"
                                 class="scan-thumbnail-exclude-toggle"
-                                :class="{
-                                    'is-visible': selectedPages.has(naturalPage(position))
-                                        || pageOverride(naturalPage(position)).excluded,
-                                }"
                                 :color="pageOverride(naturalPage(position)).excluded ? 'neutral' : 'primary'"
                                 variant="soft"
                                 size="xs"
@@ -435,43 +212,32 @@
             </template>
             <template #label="{pageNumber: position}">
                 <span class="scan-thumbnail-label-band">
-                    <span
-                        class="scan-thumbnail-page-number"
-                        :class="{'is-excluded': pageOverride(naturalPage(position)).excluded}"
-                    >{{ naturalPage(position) }}</span>
-                    <span
-                        v-if="naturalPage(position) === selectionLeader"
-                        class="scan-thumbnail-controls"
-                        @click.stop
-                        @pointerdown.stop
-                    >
-                        <USelect
-                            class="scan-thumbnail-override-select"
-                            :model-value="pageOverride(naturalPage(position)).layoutOverride"
-                            :items="overrideItems"
-                            value-key="value"
-                            size="xs"
-                            portal="body"
-                            :content="{position: 'popper', side: 'bottom', align: 'start'}"
-                            :ui="overrideSelectUi"
-                            :aria-label="t('scanCleanup.pages.overrideFor', {page: naturalPage(position)})"
-                            :disabled="disabled"
-                            @update:model-value="updateOverride(naturalPage(position), {layoutOverride: $event})"
+                    <span class="scan-thumbnail-label-row">
+                        <span
+                            class="scan-thumbnail-page-number"
+                            :class="{'is-excluded': pageOverride(naturalPage(position)).excluded}"
+                        >{{ naturalPage(position) }}</span>
+                        <UIcon
+                            v-if="processedPages?.has(naturalPage(position))"
+                            name="i-ph-check-circle"
+                            class="scan-thumbnail-processed"
+                            :aria-label="t('scanCleanup.pages.processed')"
                         />
-                        <AppTooltip :text="t('scanCleanup.pages.rotateCurrent', {rotation: pageOverride(naturalPage(position)).rotationDegrees})">
-                            <UButton
-                                type="button"
-                                color="neutral"
-                                variant="soft"
-                                size="xs"
-                                square
-                                icon="i-ph-arrow-clockwise"
-                                :aria-label="t('scanCleanup.pages.rotateCurrent', {rotation: pageOverride(naturalPage(position)).rotationDegrees})"
-                                :disabled="disabled"
-                                @click="rotate(naturalPage(position))"
-                            />
-                        </AppTooltip>
                     </span>
+                    <span
+                        v-if="isDetectionPending(naturalPage(position))"
+                        class="scan-thumbnail-status scan-thumbnail-detection-pending"
+                        role="status"
+                        :aria-label="t('scanCleanup.pages.detectionPending', {page: naturalPage(position)})"
+                    >
+                        <UIcon name="i-ph-circle-notch" class="is-spinning" aria-hidden="true" />
+                        <span>{{ t('scanCleanup.pages.detecting') }}</span>
+                    </span>
+                    <span
+                        v-else
+                        class="scan-thumbnail-status"
+                        :class="{'is-excluded': pageOverride(naturalPage(position)).excluded}"
+                    >{{ statusSummary(naturalPage(position)) }}</span>
                 </span>
             </template>
         </DocumentThumbnailList>
@@ -498,6 +264,7 @@ import type {
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
+    isDefaultScanCleanupPageOverride,
 } from '@contracts/scanCleanupPageOverrides';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
@@ -534,10 +301,7 @@ const emit = defineEmits<{
 }>();
 const {t} = useTypedI18n();
 const sortMode = ref<TScanCleanupRailSort>('natural');
-const lowConfidencePopoverPage = ref<number | null>(null);
-const textAxisPopoverPage = ref<number | null>(null);
-const diagnosticsPopoverPage = ref<number | null>(null);
-const outputModePopoverPage = ref<number | null>(null);
+const optionsPopoverPage = ref<number | null>(null);
 const sortItems = computed(() => [
     {
         value: 'natural' as const,
@@ -686,22 +450,15 @@ function pageOverride(page: number) {
     return getScanCleanupPageOverride(props.overrides, page);
 }
 
+function isCustomized(page: number) {
+    return !isDefaultScanCleanupPageOverride(pageOverride(page));
+}
+
 function updateOverride(page: number, patch: Partial<IScanCleanupPageOverride>) {
     emit('update:override', page, createScanCleanupPageOverride({
         ...pageOverride(page),
         ...patch,
     }));
-}
-
-function rotate(page: number) {
-    const rotations: TScanCleanupPageRotation[] = [
-        0,
-        90,
-        180,
-        270,
-    ];
-    const current = pageOverride(page).rotationDegrees;
-    updateOverride(page, {rotationDegrees: rotations[(rotations.indexOf(current) + 1) % rotations.length] ?? 0});
 }
 
 function updateRotationOverride(page: number, value: unknown) {
@@ -715,7 +472,6 @@ function updateRotationOverride(page: number, value: unknown) {
         return;
     }
     updateOverride(page, {rotationDegrees: rotation as TScanCleanupPageRotation});
-    closeTextAxisPopover(page);
 }
 
 function displayedOutputMode(page: number) {
@@ -730,19 +486,6 @@ function displayedOutputMode(page: number) {
         return props.documentOutputMode;
     }
     return props.recommendedOutputModes?.get(page);
-}
-
-function isOutputModeOverride(page: number) {
-    return !props.preserveOriginalQuality
-        && pageOverride(page).outputModeOverride !== undefined;
-}
-
-function outputModeBadgeKind(page: number) {
-    return !props.preserveOriginalQuality
-        && props.documentOutputMode === 'auto'
-        && pageOverride(page).outputModeOverride === undefined
-        ? 'recommendation'
-        : 'effective';
 }
 
 function outputModeShortLabel(mode: TScanCleanupOutputMode | undefined) {
@@ -763,7 +506,7 @@ function outputModeShortLabel(mode: TScanCleanupOutputMode | undefined) {
 
 function outputModeHint(page: number) {
     if (props.preserveOriginalQuality) {
-        return t('scanCleanup.pages.outputModeLosslessHint', {mode: outputModeLabel('color')});
+        return t('scanCleanup.pages.outputModeLosslessControlHint');
     }
     const override = pageOverride(page).outputModeOverride;
     if (override !== undefined) {
@@ -799,13 +542,6 @@ function outputModeLabel(mode: TScanCleanupOutputMode) {
     return t('scanCleanup.output.mixed');
 }
 
-function outputModeAriaLabel(page: number) {
-    return t('scanCleanup.pages.outputModeAria', {
-        page,
-        hint: outputModeHint(page),
-    });
-}
-
 function updateOutputModeOverride(page: number, value: unknown) {
     if (value === 'auto') {
         const {
@@ -813,7 +549,6 @@ function updateOutputModeOverride(page: number, value: unknown) {
             ...withoutOutputMode
         } = pageOverride(page);
         emit('update:override', page, createScanCleanupPageOverride(withoutOutputMode));
-        closeOutputModePopover(page);
         return;
     }
     if ([
@@ -823,26 +558,17 @@ function updateOutputModeOverride(page: number, value: unknown) {
         'color',
     ].includes(String(value))) {
         updateOverride(page, {outputModeOverride: value as TScanCleanupOutputMode});
-        closeOutputModePopover(page);
     }
 }
 
-function openOutputModePopover(page: number) {
-    outputModePopoverPage.value = page;
-}
-
-function closeOutputModePopover(page: number) {
-    if (outputModePopoverPage.value === page) {
-        outputModePopoverPage.value = null;
+function closeOptionsPopover(page: number) {
+    if (optionsPopoverPage.value === page) {
+        optionsPopoverPage.value = null;
     }
 }
 
-function updateOutputModePopover(page: number, open: boolean) {
-    if (open) {
-        outputModePopoverPage.value = page;
-    } else {
-        closeOutputModePopover(page);
-    }
+function updateOptionsPopover(page: number, open: boolean) {
+    optionsPopoverPage.value = open ? page : null;
 }
 
 function classificationKind(page: number) {
@@ -859,31 +585,25 @@ function classificationKind(page: number) {
     return 'unclassified';
 }
 
-function classificationLabel(page: number) {
-    return classificationValueLabel(props.classifications.get(page));
-}
-
 function classificationValueLabel(
     classification: IScanCleanupPreviewMetadata['layoutClassification'] | undefined,
 ) {
-    const kind = classification === 'two-page-spread'
-        ? 'spread'
-        : classification === 'page-with-offcut'
-            ? 'offcut'
-            : classification === 'single-uncut-page' ? 'single' : 'unclassified';
-    if (kind === 'spread') {
+    if (classification === 'two-page-spread') {
         return t('scanCleanup.pages.classification.spread');
     }
-    if (kind === 'offcut') {
+    if (classification === 'page-with-offcut') {
         return t('scanCleanup.pages.classification.offcut');
     }
-    if (kind === 'single') {
+    if (classification === 'single-uncut-page') {
         return t('scanCleanup.pages.classification.single');
     }
     return '—';
 }
 
-function statusLabel(page: number) {
+// The layout a page will actually be cut with: an explicit override wins over
+// what detection reported, and a page detection has not reached yet has nothing
+// truthful to say.
+function layoutLabel(page: number) {
     const override = pageOverride(page).layoutOverride;
     if (override === 'single') {
         return t('scanCleanup.pages.override.single');
@@ -897,7 +617,24 @@ function statusLabel(page: number) {
     if (override === 'keep-right') {
         return t('scanCleanup.pages.override.keepRight');
     }
-    return classificationLabel(page);
+    const classification = props.classifications.get(page);
+    return classification === undefined ? null : classificationValueLabel(classification);
+}
+
+// One sentence per thumbnail instead of a strip of chips: what the page will be
+// cut into, rendered as, and rotated by, dropped to "Excluded" when it will not
+// reach the output at all.
+function statusSummary(page: number) {
+    const override = pageOverride(page);
+    if (override.excluded) {
+        return t('scanCleanup.pages.excludedBadge');
+    }
+    const rotation = override.rotationDegrees;
+    return [
+        layoutLabel(page),
+        outputModeShortLabel(displayedOutputMode(page)),
+        rotation === 0 ? '' : `${rotation}°`,
+    ].filter(Boolean).join(' · ');
 }
 
 function diagnosticsFor(page: number) {
@@ -915,13 +652,13 @@ function diagnosticLayout(page: number) {
             layout: classificationValueLabel(diagnostics.layoutClassification),
             confidence: formatConfidence(diagnostics.layoutConfidence),
         })
-        : t('scanCleanup.pages.diagnostics.unavailable');
+        : null;
 }
 
 function diagnosticDeskew(page: number) {
     const diagnostics = diagnosticsFor(page);
     if (diagnostics?.detectedSkewDegrees === undefined) {
-        return t('scanCleanup.pages.diagnostics.unavailable');
+        return null;
     }
     if (diagnostics.manualSkew === true) {
         return t('scanCleanup.pages.diagnostics.deskewManualValue', {angle: diagnostics.detectedSkewDegrees.toFixed(2)});
@@ -935,9 +672,7 @@ function diagnosticDeskew(page: number) {
 function diagnosticBinarization(page: number) {
     const diagnostics = diagnosticsFor(page);
     const route = diagnostics?.binarizationMode ?? diagnostics?.binarizationDiagnostics?.route;
-    return route
-        ? t(`scanCleanup.advanced.binarization.${route}`)
-        : t('scanCleanup.pages.diagnostics.notApplicable');
+    return route ? t(`scanCleanup.advanced.binarization.${route}`) : null;
 }
 
 function diagnosticRecommendation(page: number) {
@@ -946,7 +681,7 @@ function diagnosticRecommendation(page: number) {
     const confidence = props.recommendedOutputModeConfidences?.get(page)
         ?? diagnostics?.recommendedOutputModeConfidence;
     return mode === undefined
-        ? t('scanCleanup.pages.diagnostics.unavailable')
+        ? null
         : t('scanCleanup.pages.diagnostics.recommendedModeValue', {
             mode: outputModeLabel(mode),
             confidence: formatConfidence(confidence),
@@ -956,9 +691,7 @@ function diagnosticRecommendation(page: number) {
 function diagnosticRecommendationReason(page: number) {
     const reason = props.recommendedOutputModeReasons?.get(page)
         ?? diagnosticsFor(page)?.recommendedOutputModeReason;
-    return reason === undefined
-        ? t('scanCleanup.pages.diagnostics.unavailable')
-        : t(`scanCleanup.pages.diagnostics.modeReason.${reason}`);
+    return reason === undefined ? null : t(`scanCleanup.pages.diagnostics.modeReason.${reason}`);
 }
 
 function diagnosticBinarizationEvidence(page: number) {
@@ -1041,7 +774,7 @@ function diagnosticSideConfidence(page: number) {
 function diagnosticDespeckleFallback(page: number) {
     const fallback = diagnosticsFor(page)?.despeckleFallback;
     return fallback === undefined
-        ? t('scanCleanup.pages.diagnostics.notApplicable')
+        ? null
         : t(fallback
             ? 'scanCleanup.pages.diagnostics.fallbackUsed'
             : 'scanCleanup.pages.diagnostics.fallbackNotUsed');
@@ -1049,19 +782,127 @@ function diagnosticDespeckleFallback(page: number) {
 
 function diagnosticDewarp(page: number) {
     const diagnostics = diagnosticsFor(page);
-    return t(diagnostics?.dewarpApplied
-        ? 'scanCleanup.pages.diagnostics.dewarpApplied'
-        : 'scanCleanup.pages.diagnostics.dewarpGated', {confidence: formatConfidence(diagnostics?.dewarpConfidence)});
-}
-
-function closeDiagnosticsPopover(page: number) {
-    if (diagnosticsPopoverPage.value === page) {
-        diagnosticsPopoverPage.value = null;
+    if (diagnostics?.autoDewarpAttempted !== true) {
+        return null;
     }
+    return t(diagnostics.dewarpApplied
+        ? 'scanCleanup.pages.diagnostics.dewarpApplied'
+        : 'scanCleanup.pages.diagnostics.dewarpGated', {confidence: formatConfidence(diagnostics.dewarpConfidence)});
 }
 
-function updateDiagnosticsPopover(page: number, open: boolean) {
-    diagnosticsPopoverPage.value = open ? page : null;
+function definedRows(rows: ReadonlyArray<readonly [string, string | null]>) {
+    return rows.flatMap(([
+        label,
+        value,
+    ]) => (value === null ? [] : [{
+        label,
+        value,
+    }]));
+}
+
+function trimRows(page: number) {
+    const outputs = diagnosticOutputs(page);
+    return outputs.flatMap(output => {
+        const prefix = outputs.length > 1 ? `${outputHalfLabel(output.half)} · ` : '';
+        const trims = output.contentDiagnostics?.acceptedTrims ?? [];
+        const protectedBlocks = output.contentDiagnostics?.protectedBlocks ?? [];
+        const rows = [
+            ...trims.map(trim => ({
+                label: `${prefix}${t('scanCleanup.pages.diagnostics.acceptedTrim')}`,
+                value: diagnosticTrim(trim),
+            })),
+            ...removedBlocks(output).map(block => ({
+                label: `${prefix}${t('scanCleanup.pages.diagnostics.removedBounds')}`,
+                value: diagnosticBlock(block),
+            })),
+            ...protectedBlocks.map(block => ({
+                label: `${prefix}${t('scanCleanup.pages.diagnostics.protectedBounds')}`,
+                value: diagnosticBlock(block),
+            })),
+        ];
+        return rows.length > 0
+            ? rows
+            : [{
+                label: `${prefix}${t('scanCleanup.pages.diagnostics.trimResult')}`,
+                value: t('scanCleanup.pages.diagnostics.noTrim'),
+            }];
+    });
+}
+
+// Only rows the analysis actually produced: an engineering dump three quarters
+// of which reads "Unavailable" teaches nothing about this page.
+function diagnosticGroups(page: number) {
+    const diagnostics = diagnosticsFor(page);
+    if (!diagnostics) {
+        return [];
+    }
+    const evidence = diagnosticBinarizationEvidence(page);
+    return [
+        {
+            title: t('scanCleanup.pages.diagnostics.modeDecision'),
+            notes: [] as string[],
+            rows: definedRows([
+                [
+                    t('scanCleanup.pages.diagnostics.recommendedMode'),
+                    diagnosticRecommendation(page),
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.reason'),
+                    diagnosticRecommendationReason(page),
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.binarization'),
+                    diagnosticBinarization(page),
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.contrastIllumination'),
+                    evidence?.contrast ?? null,
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.edgeStroke'),
+                    evidence?.edge ?? null,
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.borderAgreement'),
+                    evidence?.border ?? null,
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.despeckleFallback'),
+                    diagnosticDespeckleFallback(page),
+                ],
+            ]),
+        },
+        {
+            title: t('scanCleanup.pages.diagnostics.contentTrim'),
+            notes: [] as string[],
+            rows: trimRows(page),
+        },
+        {
+            title: t('scanCleanup.pages.diagnostics.geometry'),
+            notes: [
+                diagnostics.reconciled === true ? t('scanCleanup.pages.diagnostics.reconciled') : '',
+                diagnostics.splitAbstained === true ? t('scanCleanup.pages.diagnostics.splitAbstained') : '',
+            ].filter(Boolean),
+            rows: definedRows([
+                [
+                    t('scanCleanup.pages.diagnostics.layout'),
+                    diagnosticLayout(page),
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.deskew'),
+                    diagnosticDeskew(page),
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.sideConfidence'),
+                    diagnosticSideConfidence(page),
+                ],
+                [
+                    t('scanCleanup.pages.diagnostics.dewarp'),
+                    diagnosticDewarp(page),
+                ],
+            ]),
+        },
+    ].filter(group => group.rows.length > 0 || group.notes.length > 0);
 }
 
 function isLowConfidence(page: number) {
@@ -1069,48 +910,23 @@ function isLowConfidence(page: number) {
     return confidence !== undefined && confidence < LOW_CONFIDENCE_THRESHOLD;
 }
 
-function lowConfidenceHint(page: number) {
-    return t('scanCleanup.pages.lowConfidenceHint', {classification: statusLabel(page)});
-}
-
-function openLowConfidencePopover(page: number) {
-    lowConfidencePopoverPage.value = page;
-}
-
-function closeLowConfidencePopover(page: number) {
-    if (lowConfidencePopoverPage.value === page) {
-        lowConfidencePopoverPage.value = null;
-    }
-}
-
-function updateLowConfidencePopover(page: number, open: boolean) {
-    if (open) {
-        lowConfidencePopoverPage.value = page;
-    } else {
-        closeLowConfidencePopover(page);
-    }
-}
-
 function showsSidewaysHint(page: number) {
     return pageOverride(page).rotationDegrees === 0 && (props.textAxes?.get(page)?.sideways ?? false);
 }
 
-function openTextAxisPopover(page: number) {
-    textAxisPopoverPage.value = page;
+// The two conditions that used to sit on the thumbnail as separate mystery
+// chips; both are now one marked button that opens the control that fixes them.
+function attentionHints(page: number) {
+    return [
+        isLowConfidence(page)
+            ? t('scanCleanup.pages.lowConfidenceHint', {classification: layoutLabel(page) ?? classificationValueLabel(undefined)})
+            : '',
+        showsSidewaysHint(page) ? t('scanCleanup.pages.textAxisHint') : '',
+    ].filter(Boolean);
 }
 
-function closeTextAxisPopover(page: number) {
-    if (textAxisPopoverPage.value === page) {
-        textAxisPopoverPage.value = null;
-    }
-}
-
-function updateTextAxisPopover(page: number, open: boolean) {
-    if (open) {
-        textAxisPopoverPage.value = page;
-    } else {
-        closeTextAxisPopover(page);
-    }
+function needsAttention(page: number) {
+    return attentionHints(page).length > 0;
 }
 
 // A page keeps its spinner only while its own detection work is outstanding:
@@ -1184,8 +1000,7 @@ function handleKeydown(event: KeyboardEvent) {
 .scan-thumbnail-rail-header,
 .scan-thumbnail-rail-heading,
 .scan-thumbnail-rail-actions,
-.scan-thumbnail-statuses,
-.scan-thumbnail-controls {
+.scan-thumbnail-actions {
     display: flex;
     align-items: center;
 }
@@ -1244,11 +1059,6 @@ function handleKeydown(event: KeyboardEvent) {
     color: var(--ui-error);
 }
 
-.scan-thumbnail-detection-pending {
-    display: inline-flex;
-    align-items: center;
-}
-
 .scan-thumbnail-overlay {
     position: absolute;
     z-index: var(--app-z-local-raised);
@@ -1264,7 +1074,9 @@ function handleKeydown(event: KeyboardEvent) {
     content: '';
 }
 
-.scan-thumbnail-statuses {
+/* Two buttons, always in the same place: nothing appears or disappears under
+   the pointer while a page is being edited. */
+.scan-thumbnail-actions {
     position: relative;
     z-index: var(--app-z-local-raised);
     justify-content: flex-end;
@@ -1272,35 +1084,37 @@ function handleKeydown(event: KeyboardEvent) {
     padding: var(--app-space-sm);
 }
 
-.scan-thumbnail-low-confidence,
-.scan-thumbnail-text-axis {
-    display: inline-grid;
-    width: var(--app-control-height-xs);
-    height: var(--app-control-height-xs);
-    place-items: center;
-    border: 0;
-    border-radius: var(--app-radius-full);
-    background: var(--ui-warning);
-    color: var(--ui-bg);
-    cursor: pointer;
-    padding: 0;
-    pointer-events: auto;
-}
-
-.scan-thumbnail-low-confidence {
-    font: inherit;
-    font-weight: var(--app-font-weight-heading);
-}
-
-.scan-thumbnail-diagnostics {
+.scan-thumbnail-options-toggle,
+.scan-thumbnail-exclude-toggle {
+    position: relative;
     flex: none;
+    opacity: 0.55;
     pointer-events: auto;
+    transition: opacity var(--app-transition-fast);
 }
 
-.scan-thumbnail-diagnostics-popover,
-.scan-thumbnail-low-confidence-popover,
-.scan-thumbnail-text-axis-popover,
-.scan-thumbnail-output-mode-popover {
+.scan-thumbnail-options-toggle.is-customized,
+.scan-thumbnail-list :deep([data-document-thumbnail-item]:hover) .scan-thumbnail-options-toggle,
+.scan-thumbnail-list :deep([data-document-thumbnail-item]:hover) .scan-thumbnail-exclude-toggle,
+.scan-thumbnail-list :deep([data-document-thumbnail-item].is-selected) .scan-thumbnail-options-toggle,
+.scan-thumbnail-list :deep([data-document-thumbnail-item].is-selected) .scan-thumbnail-exclude-toggle,
+.scan-thumbnail-options-toggle:focus-visible,
+.scan-thumbnail-exclude-toggle:focus-visible {
+    opacity: 1;
+}
+
+.scan-thumbnail-options-toggle.is-customized::after {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+    width: var(--app-space-3xl);
+    height: var(--app-space-3xl);
+    border-radius: var(--app-radius-full);
+    background: var(--ui-primary);
+    content: '';
+}
+
+.scan-thumbnail-options {
     display: grid;
     width: var(--app-scan-low-confidence-popover-width);
     gap: var(--app-space-5xl);
@@ -1309,9 +1123,50 @@ function handleKeydown(event: KeyboardEvent) {
     font-size: var(--app-text-size-body-sm);
 }
 
-.scan-thumbnail-diagnostics-popover dl {
+.scan-thumbnail-options-notice {
+    display: flex;
+    align-items: start;
+    gap: var(--app-space-3xl);
+    border-radius: var(--app-radius-md);
+    background: color-mix(in srgb, var(--ui-warning) 12%, var(--ui-bg));
+    padding: var(--app-space-3xl);
+    margin: 0;
+    color: var(--ui-text);
+    line-height: var(--app-line-height-body);
+}
+
+.scan-thumbnail-options-notice > :first-child {
+    flex: none;
+    color: var(--ui-warning);
+}
+
+.scan-thumbnail-options-field {
+    display: grid;
+    gap: var(--app-space-sm);
+}
+
+.scan-thumbnail-options-field > span {
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+}
+
+.scan-thumbnail-options-hint {
+    margin: 0;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-body);
+}
+
+.scan-thumbnail-technical > summary {
+    color: var(--ui-text-muted);
+    cursor: pointer;
+    font-size: var(--app-text-size-kicker);
+}
+
+.scan-thumbnail-technical dl {
     display: grid;
     gap: var(--app-space-5xl);
+    padding-block-start: var(--app-space-3xl);
 }
 
 .scan-thumbnail-diagnostic-group {
@@ -1349,133 +1204,26 @@ function handleKeydown(event: KeyboardEvent) {
     font-size: var(--app-text-size-kicker);
 }
 
-.scan-thumbnail-low-confidence:focus-visible,
-.scan-thumbnail-text-axis:focus-visible,
-.scan-thumbnail-output-mode:focus-visible {
-    outline: var(--app-hairline-height) solid var(--ui-primary);
-    outline-offset: var(--app-space-xs);
-}
-
-.scan-thumbnail-low-confidence-popover p,
-.scan-thumbnail-text-axis-popover p,
-.scan-thumbnail-output-mode-popover p {
-    margin: 0;
-    color: var(--ui-text-muted);
-    line-height: var(--app-line-height-body);
-}
-
-.scan-thumbnail-popover-override-select,
-.scan-thumbnail-popover-rotation-select,
-.scan-thumbnail-popover-output-mode-select {
+.scan-thumbnail-layout-select,
+.scan-thumbnail-rotation-select,
+.scan-thumbnail-output-mode-select {
     width: 100%;
 }
 
-.scan-thumbnail-output-mode {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-sm);
-    border: var(--app-hairline-height) solid var(--ui-border);
-    border-radius: var(--app-radius-full);
-    background: var(--ui-bg-elevated);
-    color: var(--ui-text);
-    cursor: pointer;
-    font-size: var(--app-text-size-kicker);
-    font-weight: var(--app-font-weight-heading);
-    padding: var(--app-space-xs) var(--app-space-xl);
-    pointer-events: auto;
-}
-
-.scan-thumbnail-output-mode.is-recommendation {
-    border-color: var(--ui-border);
-    background: var(--ui-bg-elevated);
-    color: var(--ui-text-muted);
-}
-
-.scan-thumbnail-output-mode.is-effective {
-    border-color: color-mix(in srgb, var(--ui-primary) 28%, var(--ui-border));
-    background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg));
-    color: var(--ui-text);
-}
-
-.scan-thumbnail-output-mode.is-override {
-    border-color: var(--ui-primary);
-    color: var(--ui-primary);
-}
-
-.scan-thumbnail-output-mode-marker {
-    width: var(--app-space-3xl);
-    height: var(--app-space-3xl);
-    flex: none;
-    border-radius: var(--app-radius-full);
-    background: var(--ui-primary);
-}
-
-.scan-thumbnail-excluded-badge,
-.scan-thumbnail-processed,
-.scan-thumbnail-rotation {
-    flex: none;
-}
-
-.scan-thumbnail-excluded-badge {
-    gap: var(--app-space-xs);
-    color: var(--ui-text-muted);
-}
-
-.scan-thumbnail-processed {
-    color: var(--ui-success);
-}
-
-.scan-thumbnail-rotation {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-xs);
-    border-radius: var(--app-radius-full);
-    background: var(--ui-primary);
-    padding-inline: var(--app-space-sm);
-    color: var(--ui-bg);
-    font-size: var(--app-text-size-kicker);
-    font-variant-numeric: tabular-nums;
-}
-
-.scan-thumbnail-controls {
-    width: 100%;
-    box-sizing: border-box;
-    gap: var(--app-space-sm);
-    border: var(--app-hairline-height) solid var(--ui-border);
-    border-radius: var(--app-radius-md);
-    background: var(--ui-bg-elevated);
-    padding: var(--app-space-sm);
-    box-shadow: var(--app-document-page-shadow);
-    pointer-events: auto;
-}
-
+/* Every row carries the same two label lines, so a page never changes height
+   when it is selected, excluded, or finishes detection. */
 .scan-thumbnail-label-band {
     display: grid;
     width: 100%;
-    gap: var(--app-space-sm);
+    gap: var(--app-space-xs);
     line-height: var(--app-thumbnail-min-label-height);
 }
 
-.scan-thumbnail-exclude-toggle {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity var(--app-transition-fast);
-}
-
-.scan-thumbnail-exclude-toggle.is-visible,
-.scan-thumbnail-list :deep([data-document-thumbnail-item]:hover) .scan-thumbnail-exclude-toggle {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.scan-thumbnail-exclude-toggle:focus-visible {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.scan-thumbnail-override-select {
-    min-width: 0;
-    flex: 1;
+.scan-thumbnail-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--app-space-sm);
 }
 
 .scan-thumbnail-page-number {
@@ -1486,6 +1234,27 @@ function handleKeydown(event: KeyboardEvent) {
 .scan-thumbnail-page-number.is-excluded {
     color: var(--ui-text-dimmed);
     text-decoration: line-through;
+}
+
+.scan-thumbnail-processed {
+    flex: none;
+    color: var(--ui-success);
+}
+
+.scan-thumbnail-status {
+    display: flex;
+    min-height: var(--app-thumbnail-min-label-height);
+    align-items: center;
+    gap: var(--app-space-xs);
+    overflow: hidden;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-thumbnail-status.is-excluded {
+    color: var(--ui-text-dimmed);
 }
 
 @container (width <= 10rem) {
@@ -1506,27 +1275,13 @@ function handleKeydown(event: KeyboardEvent) {
         flex: 1;
     }
 
-    .scan-thumbnail-statuses {
-        align-content: flex-start;
-        flex-wrap: wrap;
+    .scan-thumbnail-actions {
         gap: var(--app-space-xs);
         padding: var(--app-space-xs);
     }
 
-    .scan-thumbnail-classification-badge {
-        min-width: 0;
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
     .scan-thumbnail-source-state {
         padding: var(--app-space-lg);
-    }
-
-    .scan-thumbnail-controls {
-        flex-wrap: wrap;
     }
 }
 </style>

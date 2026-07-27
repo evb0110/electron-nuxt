@@ -1369,8 +1369,11 @@ describe('scan cleanup workspace session detection guidance', () => {
             ...mounted.session.settings.values.pageOverrides['1']!,
             excluded: true,
         };
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(5));
-        harness.emitDetection(detectionState('detect-5', 'completed'));
+        await nextTick();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(4);
+        expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1))
+            .toBe('single-uncut-page');
 
         mounted.session.settings.values.pageOverrides['1'] = {
             ...mounted.session.settings.values.pageOverrides['1']!,
@@ -1383,7 +1386,9 @@ describe('scan cleanup workspace session detection guidance', () => {
                 rotationDegrees: 90,
             }},
         };
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(6));
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(5));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(5);
         mounted.unmount();
     });
 
