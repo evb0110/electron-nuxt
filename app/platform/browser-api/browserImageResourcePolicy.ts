@@ -281,6 +281,7 @@ async function probeWithImageDecoder(bytes: Uint8Array, mimeType: string, signal
     if (ImageDecoder.isTypeSupported && !await ImageDecoder.isTypeSupported(mimeType)) {
         return null;
     }
+    throwIfAborted(signal);
     const decoder = new ImageDecoder({
         data: bytes.slice().buffer,
         type: mimeType,

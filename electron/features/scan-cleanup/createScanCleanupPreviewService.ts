@@ -2328,6 +2328,7 @@ export function createScanCleanupPreviewService(
         signal: AbortSignal,
         run: () => Promise<T>,
     ) => {
+        signal.throwIfAborted();
         const acquire = dependencies.acquirePreviewLease ?? defaultDependencies.acquirePreviewLease!;
         let lease: {release: () => boolean};
         for (;;) {

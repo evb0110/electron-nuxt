@@ -234,5 +234,9 @@ export async function runOcr(
                 });
             }
         });
+
+        if (options?.signal?.aborted && abortHandler) {
+            abortHandler();
+        }
     });
 }

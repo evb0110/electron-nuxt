@@ -59,6 +59,9 @@ export async function renderPdfDocumentPageSource(options: {
     });
     const cancelRender = () => renderTask.cancel();
     request.signal.addEventListener('abort', cancelRender, {once: true});
+    if (request.signal.aborted) {
+        cancelRender();
+    }
     try {
         await renderTask.promise;
         request.signal.throwIfAborted();

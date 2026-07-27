@@ -1,7 +1,9 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     ASSISTANT_IMAGE_RESOURCE_LIMITS,
@@ -90,6 +92,10 @@ function gifBytes(frameCount: number) {
 }
 
 describe('browser image resource policy', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
     it('admits dimensions without decoding image pixels', async () => {
         await expect(probeBrowserImageFile(
             fileLike(pngBytes(4_000, 3_000), 'scan.png', 'image/png'),
@@ -135,5 +141,42 @@ describe('browser image resource policy', () => {
             fileLike(new TextEncoder().encode(source), 'dense.svg', 'image/svg+xml'),
             limits,
         )).rejects.toThrow('ERR_BROWSER_IMAGE_SVG_COMPLEXITY_TOO_LARGE');
+    });
+
+    // The support probe is an await between the caller's abort check and the
+    // decoder the probe builds, so a cancelled probe should never construct one.
+    it('builds no image decoder for a probe cancelled while codec support was checked', async () => {
+        const controller = new AbortController();
+        const construct = vi.fn();
+        class StubImageDecoder {
+            static async isTypeSupported() {
+                controller.abort(new DOMException('Probe canceled', 'AbortError'));
+                return true;
+            }
+
+            readonly tracks = {
+                ready: Promise.resolve(),
+                selectedTrack: {
+                    codedWidth: 8,
+                    codedHeight: 8,
+                    frameCount: 1,
+                },
+            };
+
+            constructor() {
+                construct();
+            }
+
+            close() {}
+        }
+        vi.stubGlobal('ImageDecoder', StubImageDecoder);
+
+        await expect(probeBrowserImageFile(
+            fileLike(new Uint8Array(64), 'photo.heic', 'image/heic'),
+            ASSISTANT_IMAGE_RESOURCE_LIMITS,
+            controller.signal,
+        )).rejects.toMatchObject({name: 'AbortError'});
+
+        expect(construct).not.toHaveBeenCalled();
     });
 });

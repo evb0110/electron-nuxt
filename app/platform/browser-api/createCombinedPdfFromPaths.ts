@@ -224,6 +224,7 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
     try {
         let result;
         try {
+            throwIfCombineAborted(signal);
             result = await browserDjvuCapability.convertToPdf(
                 path,
                 outputRef,

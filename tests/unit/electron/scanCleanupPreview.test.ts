@@ -4231,6 +4231,40 @@ describe('scan cleanup preview', () => {
         })).resolves.toMatchObject({pageNumber: 2});
     });
 
+    it('does not queue for a preview lease when the run is canceled while its working copy materializes', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const materializing = Promise.withResolvers<undefined>();
+        const finishMaterializing = Promise.withResolvers<undefined>();
+        // Materialization is the one await between the run's abort check and the
+        // lease it queues for, so a cancellation that lands here is the one the
+        // lease has to see.
+        deps.materializeWorkingCopy = vi.fn(async (sourcePdfPath: string) => {
+            materializing.resolve(undefined);
+            await finishMaterializing.promise;
+            return {
+                logicalRef: sourcePdfPath,
+                physicalWorkingCopyPath: sourcePdfPath,
+                sourceFingerprint: '',
+            };
+        });
+        const acquirePreviewLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.acquirePreviewLease = acquirePreviewLease;
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+
+        const pending = service.preview(owner, {
+            ...request,
+            visible: true,
+        });
+        await materializing.promise;
+        expect(service.cancel(owner, request)).toBe(true);
+        finishMaterializing.resolve(undefined);
+
+        await expect(pending).resolves.toEqual({canceled: true});
+        expect(acquirePreviewLease).not.toHaveBeenCalled();
+    });
+
     it('rasterizes only the pages retention no longer holds and still reconciles over the whole document', async () => {
         const dir = await setup();
         const deps = dependencies(dir);

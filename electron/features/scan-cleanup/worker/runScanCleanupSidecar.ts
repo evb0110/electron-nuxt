@@ -198,6 +198,7 @@ async function streamScanCleanupSidecar(
         void terminateDetachedChildProcess(child, 1_500);
     };
     signal.addEventListener('abort', handleAbort, {once: true});
+    if (signal.aborted) handleAbort();
     try {
         const result = await new Promise<{
             code: number | null;
