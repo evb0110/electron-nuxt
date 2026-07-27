@@ -37,7 +37,9 @@ const DEFAULT_PAGE_METRICS: IDocumentPageMetrics = {
 };
 
 export const useScanCleanupViewportFrame = (options: IUseScanCleanupViewportFrameOptions) => {
+    const initialSource = options.source?.() ?? null;
     const sourceMetrics = shallowRef<IDocumentPageMetrics>(DEFAULT_PAGE_METRICS);
+    const sourceMetricsReady = ref(initialSource === null);
     const frame = ref<{
         signature: string;
         outputs: Partial<Record<TScanCleanupOutputHalf, {
@@ -136,12 +138,19 @@ export const useScanCleanupViewportFrame = (options: IUseScanCleanupViewportFram
     ], _previous, onCleanup) => {
         if (!source) {
             sourceMetrics.value = DEFAULT_PAGE_METRICS;
+            sourceMetricsReady.value = true;
             return;
         }
+        sourceMetricsReady.value = false;
         const controller = new AbortController();
         onCleanup(() => controller.abort());
         try {
-            sourceMetrics.value = await source.getPageMetrics(pageNumber, controller.signal);
+            const metrics = await source.getPageMetrics(pageNumber, controller.signal);
+            if (controller.signal.aborted) {
+                return;
+            }
+            sourceMetrics.value = metrics;
+            sourceMetricsReady.value = true;
         } catch (error) {
             if (!(error instanceof DOMException && error.name === 'AbortError')) {
                 sourceMetrics.value = DEFAULT_PAGE_METRICS;
@@ -164,5 +173,6 @@ export const useScanCleanupViewportFrame = (options: IUseScanCleanupViewportFram
         refresh,
         signature,
         sourceMetrics,
+        sourceMetricsReady,
     };
 };

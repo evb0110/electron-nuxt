@@ -3490,7 +3490,14 @@ describe('Scan cleanup components', () => {
         {
             classification: 'single-uncut-page' as const,
             label: 'single page',
-            result: rotatedSinglePreviewResult(),
+            result: (() => {
+                const result = rotatedSinglePreviewResult();
+                const metadata = result.outputs[0]!.metadata;
+                metadata.sourceRegion.widthPx = 800;
+                metadata.outputWidthPx = 800;
+                metadata.canvasWidthPx = 800;
+                return result;
+            })(),
             rotationDegrees: 90 as const,
         },
         {
@@ -3560,18 +3567,7 @@ describe('Scan cleanup components', () => {
                 width: canvas.style.width,
             }));
 
-            if (classification === 'two-page-spread') {
-                expect(renderedRects).toEqual(skeletonRects);
-            } else {
-                expect(skeletonRects).toEqual([{
-                    height: '760px',
-                    width: '608px',
-                }]);
-                expect(renderedRects).toEqual([{
-                    height: '760px',
-                    width: '304px',
-                }]);
-            }
+            expect(renderedRects).toEqual(skeletonRects);
             expect(renderedRects).toHaveLength(classification === 'two-page-spread' ? 2 : 1);
         } finally {
             resize.restore();
@@ -3628,7 +3624,7 @@ describe('Scan cleanup components', () => {
             .toContain('Preview isn\'t available. You can still run cleanup.');
     });
 
-    it('renders a neutral page skeleton immediately while restored-page metrics are pending', () => {
+    it('reserves the preview stage without painting guessed paper geometry while page metrics are pending', () => {
         const source: IDocumentPageSource = {
             ...previewPageSource(1000, 800),
             getPageMetrics: vi.fn(() => new Promise<never>(() => undefined)),
@@ -3653,6 +3649,7 @@ describe('Scan cleanup components', () => {
         expect(skeleton?.style.width).toBe('auto');
         expect(skeleton?.style.height).toContain('--app-scan-preview-skeleton-height');
         expect(skeleton?.style.aspectRatio).not.toBe('');
+        expect(skeleton?.style.visibility).toBe('hidden');
         expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
             .toBe('Building cleanup preview…');
         harness.unmount();
@@ -4011,6 +4008,15 @@ describe('Scan cleanup components', () => {
         );
         expect(scanCleanupSegmentedSource).not.toMatch(
             /\.scan-cleanup-segmented-option\.is-selected\s*\{[^}]*--ui-primary/,
+        );
+    });
+
+    it('keeps every loading surface flush with the stable paper rectangle', () => {
+        expect(previewShellStyleSource).toMatch(
+            /\.preview-skeleton-page \.preview-skeleton-fill\s*\{[^}]*inset: 0;/,
+        );
+        expect(previewShellStyleSource).toMatch(
+            /\.preview-source-placeholder\s*\{[^}]*inset: 0;/,
         );
     });
 

@@ -730,6 +730,7 @@ const {
     frame: frozenViewportFrame,
     placeholderHalves,
     refresh: refreshFrozenViewportFrame,
+    sourceMetricsReady,
 } = useScanCleanupViewportFrame({
     activeDrag: dragTransaction.active,
     fitAreaSizes: outputFitAreaSizes,
@@ -765,17 +766,20 @@ const loadingFrames = computed(() => {
             && (fitArea?.height ?? 0) > 0
             && width > 0
             && height > 0;
+        const visibility: CSSProperties['visibility'] = sourceMetricsReady.value ? undefined : 'hidden';
         return {
             ...frame,
             style: measured ? {
                 width: `${width}px`,
                 height: `${height}px`,
+                visibility,
             } : {
                 width: 'auto',
                 maxWidth: '100%',
                 height: 'var(--app-scan-preview-skeleton-height)',
                 maxHeight: '100%',
                 aspectRatio: `${frame.width} / ${frame.height}`,
+                visibility,
             },
         };
     });

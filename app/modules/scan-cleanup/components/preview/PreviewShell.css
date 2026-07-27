@@ -573,7 +573,7 @@
 
 .preview-skeleton-page .preview-skeleton-fill {
     position: absolute;
-    inset: var(--app-space-2xl);
+    inset: 0;
     width: auto;
     height: auto;
     background: var(--ui-bg-accented);
@@ -582,7 +582,7 @@
 
 .preview-source-placeholder {
     position: absolute;
-    inset: var(--app-space-2xl);
+    inset: 0;
     overflow: hidden;
     border-radius: inherit;
     background: var(--ui-bg);
