@@ -90,7 +90,7 @@
             @dismiss="djvuDismissBanner"
         />
         <WorkspaceSidebarHost
-            v-show="surfaceMode === 'reader'"
+            v-show="surfaceMode === 'reader' || !scanCleanupWorkspaceMounted"
             :show-sidebar="toolbarShowSidebar"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :is-resizing-sidebar="isResizingSidebar"
@@ -210,21 +210,26 @@
                 </template>
             </WorkspaceViewerHost>
         </WorkspaceSidebarHost>
-        <ScanCleanupWorkspace
+        <div
             v-if="surfaceMode === 'scan-cleanup'"
-            :source-path="workingCopyPath"
-            :page-source="documentPageSource"
-            :page-source-pending="documentPageSource === null && isLoading"
-            :document-key="documentKey"
-            :document-revision="documentRevisionToken"
-            :current-page="currentPage"
-            :total-pages="totalPages"
-            :session-state="scanCleanupSessionState"
-            :toolbar-active="isActive"
-            :can-teleport-toolbar="canTeleportToolbar"
-            @done="closeScanCleanup"
-            @update:session-state="updateScanCleanupSessionState"
-        />
+            class="scan-cleanup-workspace-boundary"
+        >
+            <ScanCleanupWorkspace
+                :source-path="workingCopyPath"
+                :page-source="documentPageSource"
+                :page-source-pending="documentPageSource === null && isLoading"
+                :document-key="documentKey"
+                :document-revision="documentRevisionToken"
+                :current-page="currentPage"
+                :total-pages="totalPages"
+                :session-state="scanCleanupSessionState"
+                :toolbar-active="isActive"
+                :can-teleport-toolbar="canTeleportToolbar"
+                @done="closeScanCleanup"
+                @ready="scanCleanupWorkspaceMounted = true"
+                @update:session-state="updateScanCleanupSessionState"
+            />
+        </div>
         <WorkspacePageOpProgressOverlay
             v-show="surfaceMode === 'reader'"
             :progress="pageOpBatchProgress"
@@ -377,6 +382,7 @@ import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/Wor
 import WorkspaceSaveDialogHost from '@app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue';
 import WorkspaceShell from '@app/modules/workspace-shell/components/layout/WorkspaceShell.vue';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
+import ScanCleanupWorkspaceLoading from '@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
@@ -424,9 +430,12 @@ import {
     useDocumentWorkspaceLifecycle,
 } from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
-const ScanCleanupWorkspace = defineAsyncComponent(
-    () => import('@app/modules/scan-cleanup/public/workspace').then(module => module.ScanCleanupWorkspace),
-);
+const ScanCleanupWorkspace = defineAsyncComponent({
+    loader: () => import('@app/modules/scan-cleanup/public/workspace')
+        .then(module => module.ScanCleanupWorkspace),
+    loadingComponent: ScanCleanupWorkspaceLoading,
+    delay: 0,
+});
 const documentOpenSurface = injectDocumentOpenSurfaceSession();
 if (!documentOpenSurface) {
     throw new Error('DocumentWorkspace requires the host-owned document open surface session');
@@ -463,9 +472,9 @@ const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 const {
-    closeScanCleanup,
+    closeScanCleanup: closeScanCleanupSurface,
     discardScanCleanupState: discardScanCleanupSurfaceState,
-    openScanCleanup,
+    openScanCleanup: openScanCleanupSurface,
     scanCleanupSessionState,
     surfaceMode,
     updateScanCleanupSessionState,
@@ -474,6 +483,20 @@ const {
     documentSession,
     initialViewState,
     readDocumentKey: () => documentKey.value,
+});
+const scanCleanupWorkspaceMounted = ref(false);
+function openScanCleanup() {
+    scanCleanupWorkspaceMounted.value = false;
+    openScanCleanupSurface();
+}
+function closeScanCleanup() {
+    scanCleanupWorkspaceMounted.value = false;
+    closeScanCleanupSurface();
+}
+watch(surfaceMode, mode => {
+    if (mode === 'reader') {
+        scanCleanupWorkspaceMounted.value = false;
+    }
 });
 const emit = defineEmits<IDocumentWorkspaceEmits>();
 const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
@@ -1308,3 +1331,21 @@ useDocumentWorkspaceLifecycle({
 });
 defineExpose(workspaceExpose);
 </script>
+
+<style scoped>
+.scan-cleanup-workspace-boundary {
+    position: absolute;
+    z-index: var(--app-z-local-overlay);
+    inset: 0;
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+}
+
+.scan-cleanup-workspace-boundary :deep(.scan-cleanup-loading-surface),
+.scan-cleanup-workspace-boundary :deep(.scan-cleanup-surface) {
+    min-width: 0;
+    min-height: 0;
+    grid-area: 1 / 1;
+}
+</style>

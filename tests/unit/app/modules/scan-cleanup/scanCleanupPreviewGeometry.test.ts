@@ -606,6 +606,9 @@ describe('scan cleanup preview geometry', () => {
         expect(previewCss).toContain('.preview-comparison-layer.is-visible');
         expect(previewFiles).toContain('.content-overlay:focus-within .content-handle::after');
         expect(previewFiles).not.toMatch(/\.content-handle\.is-n::after,[\s\S]*?display: none;/u);
+        expect(previewCss).toMatch(/\.uniform-canvas \{[\s\S]*?border: 0;/u);
+        expect(previewCss).toMatch(/\.uniform-canvas::after \{[\s\S]*?inset: 0;[\s\S]*?border: var\(--app-hairline-height\) dashed transparent;/u);
+        expect(previewCss).toMatch(/\.uniform-canvas\.has-uniform-canvas::after \{[\s\S]*?border-color: var\(--ui-border\);/u);
         expect(previewFiles).toContain('v-for="output in outputs"');
         expect(previewFiles).toContain('transformPreviewContentBox(metadata)');
         expect(previewFiles.match(/<ScanCleanupSegmented/gu)).toHaveLength(1);

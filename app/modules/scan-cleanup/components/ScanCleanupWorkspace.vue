@@ -244,8 +244,10 @@ const {
 }>();
 const emit = defineEmits<{
     done: [];
+    ready: [];
     'update:session-state': [state: IScanCleanupTabSessionState];
 }>();
+onMounted(() => emit('ready'));
 const workspaceSession = useScanCleanupWorkspaceSession({
     // Losing the source ends the session: detection and preview cancel instead
     // of queueing IPC against a working copy the main process has already

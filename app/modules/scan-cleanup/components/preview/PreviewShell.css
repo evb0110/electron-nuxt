@@ -321,16 +321,30 @@
     position: relative;
     min-height: 0;
     flex: none;
-    border: var(--app-hairline-height) dashed transparent;
+    border: 0;
     border-radius: var(--app-radius-md);
     background: var(--ui-bg);
     box-shadow: var(--app-document-page-shadow);
     overflow: hidden;
 }
 
+.uniform-canvas::after {
+    position: absolute;
+    z-index: var(--app-z-local-raised);
+    inset: 0;
+    box-sizing: border-box;
+    border: var(--app-hairline-height) dashed transparent;
+    border-radius: inherit;
+    content: '';
+    pointer-events: none;
+}
+
 .uniform-canvas.has-uniform-canvas {
-    border-color: var(--ui-border);
     background: var(--ui-bg-elevated);
+}
+
+.uniform-canvas.has-uniform-canvas::after {
+    border-color: var(--ui-border);
 }
 
 .placed-image,
@@ -568,7 +582,11 @@
 
 .preview-skeleton-page {
     background: var(--ui-bg);
-    border: var(--app-hairline-height) solid var(--ui-border);
+}
+
+.preview-skeleton-page::after {
+    border-style: solid;
+    border-color: var(--ui-border);
 }
 
 .preview-skeleton-page .preview-skeleton-fill {

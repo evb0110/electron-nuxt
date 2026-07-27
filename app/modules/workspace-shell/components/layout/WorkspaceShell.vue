@@ -6,6 +6,7 @@
 
 <style scoped>
 .workspace-shell {
+    position: relative;
     display: flex;
     height: 100%;
     min-height: 0;
