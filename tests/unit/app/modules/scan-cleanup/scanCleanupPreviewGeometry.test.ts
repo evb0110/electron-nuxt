@@ -585,9 +585,10 @@ describe('scan cleanup preview geometry', () => {
         const settingsPanel = readFileSync('app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue', 'utf8');
         const scopeSelector = readFileSync('app/modules/scan-cleanup/components/settings/ScanCleanupScopeSelector.vue', 'utf8');
         const previewSession = readFileSync('app/modules/scan-cleanup/composables/useScanCleanupPreviewSession.ts', 'utf8');
+        const previewCss = readFileSync('app/modules/scan-cleanup/components/preview/PreviewShell.css', 'utf8');
         const tokens = readFileSync('app/assets/css/main.css', 'utf8');
 
-        expect(previewFiles).toContain('effectiveViewMode === \'original\'');
+        expect(previewFiles).toContain('effectiveViewMode.value === \'original\'');
         expect(previewFiles).toContain('@keydown.left.prevent');
         expect(previewFiles).not.toContain([
             'zoom',
@@ -600,6 +601,9 @@ describe('scan cleanup preview geometry', () => {
         expect(previewFiles).toContain('cursor: col-resize');
         expect(previewFiles).not.toContain('<Transition name="scan-preview-crossfade">');
         expect(previewFiles).not.toContain('previewTransitionKey');
+        expect(previewFiles).toContain('class="preview-comparison-layer"');
+        expect(previewFiles).toContain(':inert="!cleanedLayerVisible"');
+        expect(previewCss).toContain('.preview-comparison-layer.is-visible');
         expect(previewFiles).toContain('.content-overlay:focus-within .content-handle::after');
         expect(previewFiles).not.toMatch(/\.content-handle\.is-n::after,[\s\S]*?display: none;/u);
         expect(previewFiles).toContain('v-for="output in outputs"');

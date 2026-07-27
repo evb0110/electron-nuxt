@@ -143,21 +143,29 @@
                         :style="previewTransformStyle"
                     >
                         <OriginalCanvas
-                            v-if="effectiveViewMode === 'original' || rawCleaningVisible"
+                            v-if="rawLayerVisible"
+                            class="preview-comparison-layer"
+                            :class="{'is-visible': originalLayerVisible}"
+                            :aria-hidden="!originalLayerVisible"
                             :alt="rawCleaningVisible
                                 ? t('scanCleanup.preview.cleaningAlt', {page: pageNumber})
                                 : t('scanCleanup.preview.originalAlt', {page: result?.pageNumber ?? pageNumber})"
                             :crop-overlay-styles="losslessCropOverlayStyles"
+                            :inert="!originalLayerVisible"
                             :pixel-swap="rawPixelSwap"
                             @complete="completeRawPixelSwap"
                             @load="loadRawPixelSwap"
                         />
                         <CleanedCanvas
-                            v-else-if="result"
+                            v-if="result"
+                            class="preview-comparison-layer"
+                            :class="{'is-visible': cleanedLayerVisible}"
+                            :aria-hidden="!cleanedLayerVisible"
                             :active-placement-half="activePlacementHalf"
                             :alt-by-half="cleanedAltByHalf"
                             :detail-styles="detailRegionStyles"
                             :detail-urls="detailResultMatchesPage ? detailPixelUrls : {}"
+                            :inert="!cleanedLayerVisible"
                             :match-page-size="matchPageSize"
                             :outputs="renderedOutputs"
                             @complete="completeCleanedPixelSwap"
@@ -639,8 +647,12 @@ const rawCleaningVisible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.error === ''
     && props.rawResult?.pageNumber === props.pageNumber
     && props.result?.pageNumber !== props.pageNumber);
-const rawLayerVisible = computed(() => Boolean(props.rawResult)
+// Both comparison canvases stay on the same grid so a completed cleanup can
+// fade over its provisional source instead of replacing it in one paint.
+const rawLayerVisible = computed(() => Boolean(props.rawResult));
+const originalLayerVisible = computed(() => rawLayerVisible.value
     && (effectiveViewMode.value === 'original' || rawCleaningVisible.value));
+const cleanedLayerVisible = computed(() => Boolean(props.result) && !originalLayerVisible.value);
 const cleaningNoticeVisible = computed(() => rawCleaningVisible.value && props.loading);
 /**
  * Why the page the user is looking at may not be on the size they asked for.

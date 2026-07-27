@@ -66,6 +66,20 @@ interface IGeometryFinding {
     after: number;
 }
 
+interface IComparisonLayerSample {
+    className: string;
+    ariaHidden: string | null;
+    inert: boolean;
+    opacity: string;
+    transitionDuration: string;
+    rect: {
+        x: number;
+        y: number;
+        width: number;
+        height: number
+    };
+}
+
 const sessionFixture = createElectronE2ESessionFixture({
     sessionName: () => `e2e-scan-cleanup-layout-${Date.now()}`,
     windowMode: 'hidden',
@@ -108,6 +122,11 @@ describe('scan cleanup layout stability', () => {
         await waitForFunctionInPage(page, () => {
             const zoom = document.querySelector<HTMLButtonElement>('.preview-zoom-value');
             return zoom !== null && !zoom.disabled;
+        }, {timeout: 180_000});
+        await page.waitForSelector('.cleaned-outputs.preview-comparison-layer', {timeout: 180_000});
+        await waitForFunctionInPage(page, () => {
+            const cleaned = document.querySelector<HTMLElement>('.cleaned-outputs.preview-comparison-layer');
+            return cleaned !== null && getComputedStyle(cleaned).opacity === '1';
         }, {timeout: 180_000});
 
         const sample = async (): Promise<IAnchorSample> => evaluateInPage(
@@ -211,6 +230,25 @@ describe('scan cleanup layout stability', () => {
         // SCUI2 — comparison mode, and the divider under the preview.
         await transition('viewMode: cleaned -> original', () => clickByText('.scan-cleanup-segmented-option', 'Original'));
         await transition('viewMode: original -> cleaned', () => clickByText('.scan-cleanup-segmented-option', 'Cleaned'));
+        await new Promise(resolve => setTimeout(resolve, 300));
+        const comparisonLayers = await evaluateInPage(page, () =>
+            Array.from(document.querySelectorAll<HTMLElement>('.preview-comparison-layer')).map(element => {
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return {
+                    className: element.className,
+                    ariaHidden: element.getAttribute('aria-hidden'),
+                    inert: element.hasAttribute('inert'),
+                    opacity: style.opacity,
+                    transitionDuration: style.transitionDuration,
+                    rect: {
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height,
+                    },
+                };
+            })) as IComparisonLayerSample[];
 
         // SCUI1/SCUI2 — the fit control and the zoom readout.
         await transition('zoom: fit -> 100%', () => evaluateInPage(page, () => {
@@ -337,6 +375,7 @@ describe('scan cleanup layout stability', () => {
                     afterDecrement: deskewAfterDecrement,
                 },
                 detectionState,
+                comparisonLayers,
                 missingControls,
                 samples,
             }, null, 2)}\n`,
@@ -350,6 +389,19 @@ describe('scan cleanup layout stability', () => {
         expect(Number(deskewAfterIncrement)).toBeCloseTo(0.1, 5);
         expect(Number(deskewAfterDecrement)).toBeCloseTo(-0.1, 5);
         expect(detectionState.cancelLabel).toContain('pages already detected keep their results');
+        expect(comparisonLayers).toHaveLength(2);
+        expect(comparisonLayers[0]).toMatchObject({
+            ariaHidden: 'true',
+            inert: true,
+            opacity: '0',
+        });
+        expect(comparisonLayers[1]).toMatchObject({
+            ariaHidden: 'false',
+            inert: false,
+            opacity: '1',
+        });
+        expect(comparisonLayers.every(layer => layer.transitionDuration !== '0s')).toBe(true);
+        expect(comparisonLayers[0]?.rect).toEqual(comparisonLayers[1]?.rect);
         expect(missingControls).toEqual([]);
         expect(findings).toEqual([]);
     }, 900_000);
