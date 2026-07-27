@@ -157,7 +157,7 @@
                             @load="loadRawPixelSwap"
                         />
                         <CleanedCanvas
-                            v-if="result"
+                            v-if="result && !lossless"
                             class="preview-comparison-layer"
                             :class="{'is-visible': cleanedLayerVisible}"
                             :aria-hidden="!cleanedLayerVisible"
@@ -215,7 +215,6 @@
                             {{ t('scanCleanup.preview.cleaningPage', {page: pageNumber}) }}
                         </template>
                         <template v-else-if="canvasNotice">
-                            <UIcon name="i-ph-info" class="size-4" />
                             {{ canvasNotice }}
                         </template>
                     </span>
@@ -267,7 +266,13 @@
                                         :data-frame-width="output.width"
                                         :data-frame-height="output.height"
                                     >
-                                        <USkeleton class="preview-skeleton-fill" />
+                                        <div
+                                            v-if="sourcePlaceholderReady && output.half === loadingFrames[0]?.half"
+                                            :ref="element => setSourcePlaceholderHost(element)"
+                                            class="preview-source-placeholder"
+                                            data-testid="scan-cleanup-source-placeholder"
+                                        />
+                                        <USkeleton v-else class="preview-skeleton-fill" />
                                     </div>
                                 </div>
                             </div>
@@ -394,7 +399,10 @@ import type {
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
 import type {CSSProperties} from 'vue';
-import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {
+    IDocumentPageSource,
+    IDocumentSurfaceLease,
+} from '@app/utils/document-viewer/source/documentPageSource';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
@@ -647,9 +655,17 @@ const rawCleaningVisible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.error === ''
     && props.rawResult?.pageNumber === props.pageNumber
     && props.result?.pageNumber !== props.pageNumber);
-// Both comparison canvases stay on the same grid so a completed cleanup can
-// fade over its provisional source instead of replacing it in one paint.
-const rawLayerVisible = computed(() => Boolean(props.rawResult));
+// Keep both comparison canvases on the same grid only after the requested
+// page has both rasters. That permits a crossfade without leaking a stale raw
+// page into cleaned errors or the next page's loading state.
+const rawLayerVisible = computed(() => Boolean(props.rawResult) && (
+    effectiveViewMode.value === 'original'
+    || rawCleaningVisible.value
+    || (
+        props.result?.pageNumber === props.pageNumber
+        && props.rawResult?.pageNumber === props.pageNumber
+    )
+) || Boolean(props.lossless && props.result));
 const originalLayerVisible = computed(() => rawLayerVisible.value
     && (effectiveViewMode.value === 'original' || rawCleaningVisible.value));
 const cleanedLayerVisible = computed(() => Boolean(props.result) && !originalLayerVisible.value);
@@ -764,6 +780,83 @@ const loadingFrames = computed(() => {
         };
     });
 });
+
+const sourcePlaceholderReady = ref(false);
+let sourcePlaceholderGeneration = 0;
+let sourcePlaceholderHost: HTMLElement | null = null;
+let sourcePlaceholderNode: HTMLElement | null = null;
+let sourcePlaceholderLease: IDocumentSurfaceLease | null = null;
+let sourcePlaceholderController: AbortController | null = null;
+
+function attachSourcePlaceholder() {
+    if (sourcePlaceholderHost && sourcePlaceholderNode) {
+        sourcePlaceholderHost.replaceChildren(sourcePlaceholderNode);
+    }
+}
+
+function setSourcePlaceholderHost(element: unknown) {
+    sourcePlaceholderHost = element instanceof HTMLElement ? element : null;
+    attachSourcePlaceholder();
+}
+
+function releaseSourcePlaceholder() {
+    sourcePlaceholderGeneration += 1;
+    sourcePlaceholderController?.abort();
+    sourcePlaceholderController = null;
+    sourcePlaceholderReady.value = false;
+    sourcePlaceholderNode?.remove();
+    sourcePlaceholderNode = null;
+    sourcePlaceholderHost = null;
+    sourcePlaceholderLease?.release();
+    sourcePlaceholderLease = null;
+}
+
+async function renderSourcePlaceholder() {
+    releaseSourcePlaceholder();
+    const source = props.source;
+    if (
+        !source
+        || props.rawResult?.pageNumber === props.pageNumber
+        || props.result?.pageNumber === props.pageNumber
+    ) {
+        return;
+    }
+    const generation = sourcePlaceholderGeneration;
+    const controller = new AbortController();
+    sourcePlaceholderController = controller;
+    try {
+        const lease = await source.renderPage({
+            pageNumber: props.pageNumber,
+            // This is only the immediate continuity surface while Poppler
+            // builds the authoritative raw preview. Thumbnail-scale work gets
+            // pixels on screen quickly without competing with that render.
+            widthPx: 640,
+            priority: 'visible',
+            signal: controller.signal,
+        });
+        if (generation !== sourcePlaceholderGeneration) {
+            lease.release();
+            return;
+        }
+        const node = typeof lease.surface === 'string'
+            ? Object.assign(globalThis.document.createElement('img'), {
+                alt: '',
+                draggable: false,
+                src: lease.surface,
+            })
+            : lease.surface;
+        node.classList.add('preview-source-placeholder-surface');
+        sourcePlaceholderLease = lease;
+        sourcePlaceholderController = null;
+        sourcePlaceholderNode = node;
+        sourcePlaceholderReady.value = true;
+    } catch (error) {
+        if (sourcePlaceholderController === controller) sourcePlaceholderController = null;
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+            sourcePlaceholderReady.value = false;
+        }
+    }
+}
 
 const analysisWidth = computed(() => {
     const metadata = props.result?.pageMetadata;
@@ -1358,11 +1451,21 @@ onMounted(() => {
     watchDevicePixelScale();
 });
 onBeforeUnmount(() => {
+    releaseSourcePlaceholder();
     window.removeEventListener('resize', handleDevicePixelScaleChange);
     devicePixelMediaQuery?.removeEventListener('change', handleDevicePixelScaleChange);
     devicePixelMediaQuery = null;
     if (detailTimer !== null) clearTimeout(detailTimer);
 });
+
+watch([
+    () => props.source,
+    () => props.pageNumber,
+    () => props.rawResult?.pageNumber,
+    () => props.result?.pageNumber,
+], () => {
+    void renderSourcePlaceholder();
+}, {immediate: true});
 
 watch(() => dragTransaction.active.value, active => {
     if (!active) {

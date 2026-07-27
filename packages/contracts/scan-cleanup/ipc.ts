@@ -16,6 +16,7 @@ import type {
 import type {
     IScanCleanupAppliedMargins,
     IScanCleanupNormalizedRect,
+    IScanCleanupNormalizedSplit,
     IScanCleanupPixelRect,
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
@@ -323,6 +324,7 @@ export interface IScanCleanupPagePlanEvidence {
     pageNumber: number;
     rotationDegrees: TScanCleanupPageRotation;
     layoutClassification: TScanCleanupLayoutClassification;
+    automaticSplit?: IScanCleanupNormalizedSplit;
     outputs: Partial<Record<TScanCleanupOutputHalf, {
         contentBox?: IScanCleanupNormalizedRect;
         detectedSkewDegrees?: number;

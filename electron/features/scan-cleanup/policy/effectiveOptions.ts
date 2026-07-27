@@ -49,6 +49,7 @@ export function resolveReusablePagePlan(
         output.detectedSkewDegrees,
     ]]));
     return {
+        ...(evidence.automaticSplit === undefined ? {} : {automaticSplit: evidence.automaticSplit}),
         ...(Object.keys(automaticContentBoxes).length === 0 ? {} : {automaticContentBoxes}),
         ...(Object.keys(automaticSkewDegrees).length === 0 ? {} : {automaticSkewDegrees}),
     };
@@ -72,6 +73,7 @@ export interface IResolveEffectiveScanCleanupOptionsInput {
     renderCrop?: INativeScanCleanupOptionsV3['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
     observedLayout?: TScanCleanupLayoutClassification;
+    automaticSplit?: INativeScanCleanupOptionsV3['automaticSplit'];
     automaticContentBoxes?: INativeScanCleanupOptionsV3['automaticContentBoxes'];
     automaticSkewDegrees?: INativeScanCleanupOptionsV3['automaticSkewDegrees'];
     qualityPath: TScanCleanupQualityPath;
@@ -274,6 +276,7 @@ export function resolveEffectiveScanCleanupOptions({
     renderCrop,
     resolvedOutputMode,
     observedLayout,
+    automaticSplit,
     automaticContentBoxes,
     automaticSkewDegrees,
     qualityPath,
@@ -293,10 +296,13 @@ export function resolveEffectiveScanCleanupOptions({
         ? configuredLayout
         : observedLayout === 'single-uncut-page'
             ? 'force-single'
-            : observedLayout === 'two-page-spread'
+            : observedLayout === 'two-page-spread' && automaticSplit !== undefined
                 ? 'force-two-page'
-                : observedLayout === 'page-with-offcut'
+                : observedLayout === 'page-with-offcut' && automaticSplit !== undefined
                     ? 'page-with-offcut'
+                    // A split label without its normalized cutter is not a render
+                    // plan. Re-running only the label at another DPI can select a
+                    // different gutter and delete real page content.
                     : 'auto';
     return {
         dpi,
@@ -316,6 +322,7 @@ export function resolveEffectiveScanCleanupOptions({
         // manual cutters always win.
         layout,
         manualSplit: pageOverride.manualSplit,
+        ...(automaticSplit === undefined ? {} : {automaticSplit}),
         ...(pageOverride.manualSkewDegrees === undefined
             ? {}
             : {manualSkewDegrees: pageOverride.manualSkewDegrees}),

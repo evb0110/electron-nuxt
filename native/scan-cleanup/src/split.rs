@@ -12,7 +12,7 @@ use scan_primitives::{
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
-const SPLIT_ANALYSIS_DPI: f64 = 150.0;
+pub(crate) const SPLIT_ANALYSIS_DPI: f64 = 150.0;
 const MAX_EVIDENCE_DISAGREEMENT: f64 = 0.04;
 const MAX_OFFCUT_WIDTH_FRACTION: f64 = 0.18;
 const MIN_CUTTER_ANGLE_DEGREES: f64 = -7.0;

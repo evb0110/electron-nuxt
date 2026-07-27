@@ -37,7 +37,7 @@ function resolve(pageOverride = createScanCleanupPageOverride()) {
 }
 
 describe('effective scan cleanup options', () => {
-    it('reuses observed automatic layout while preserving explicit page choices', () => {
+    it('reuses only non-destructive observed layout labels while preserving explicit page choices', () => {
         expect(resolveEffectiveScanCleanupOptions({
             options,
             pageOverride: createScanCleanupPageOverride(),
@@ -56,9 +56,50 @@ describe('effective scan cleanup options', () => {
             options,
             pageOverride: createScanCleanupPageOverride(),
             dpi: 300,
+            observedLayout: 'two-page-spread',
+            qualityPath: 'raster',
+        }).layout).toBe('auto');
+        expect(resolveEffectiveScanCleanupOptions({
+            options,
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
+            observedLayout: 'two-page-spread',
+            automaticSplit: {
+                xNormalized: 0.47,
+                rotationDegrees: 0,
+            },
+            qualityPath: 'raster',
+        })).toMatchObject({
+            layout: 'force-two-page',
+            automaticSplit: {
+                xNormalized: 0.47,
+                rotationDegrees: 0,
+            },
+        });
+        expect(resolveEffectiveScanCleanupOptions({
+            options,
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
             observedLayout: 'page-with-offcut',
             qualityPath: 'raster',
-        }).layout).toBe('page-with-offcut');
+        }).layout).toBe('auto');
+        expect(resolveEffectiveScanCleanupOptions({
+            options,
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
+            observedLayout: 'page-with-offcut',
+            automaticSplit: {
+                xNormalized: 0.08,
+                rotationDegrees: 0,
+            },
+            qualityPath: 'raster',
+        })).toMatchObject({
+            layout: 'page-with-offcut',
+            automaticSplit: {
+                xNormalized: 0.08,
+                rotationDegrees: 0,
+            },
+        });
     });
 
     it('maps the existing despeckle boolean to the native level contract', () => {

@@ -28,6 +28,7 @@ export interface IScanCleanupManifestPageInput {
     renderCrop?: INativeScanCleanupManifestV3['pages'][number]['options']['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
     observedLayout?: TScanCleanupLayoutClassification;
+    automaticSplit?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSplit'];
     automaticContentBoxes?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticContentBoxes'];
     automaticSkewDegrees?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSkewDegrees'];
     pageMetadataPath: string;
@@ -106,6 +107,9 @@ export function buildNativeScanCleanupManifest({
                     ...(page.observedLayout === undefined
                         ? {}
                         : {observedLayout: page.observedLayout}),
+                    ...(page.automaticSplit === undefined
+                        ? {}
+                        : {automaticSplit: page.automaticSplit}),
                     ...(page.automaticContentBoxes === undefined
                         ? {}
                         : {automaticContentBoxes: page.automaticContentBoxes}),

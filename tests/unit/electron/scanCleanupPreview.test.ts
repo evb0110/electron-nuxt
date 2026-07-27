@@ -1503,7 +1503,7 @@ describe('scan cleanup preview', () => {
         });
     });
 
-    it('presents a spread page on the half sheet the run will produce', async () => {
+    it('presents a classified spread on a half-sheet canvas without forcing an unmeasured cut', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         // A document of spread sheets: every sheet carries two book pages.
@@ -1534,8 +1534,9 @@ describe('scan cleanup preview', () => {
         });
 
         // Once the caller knows these are spreads, the frame is the half sheet
-        // each output actually carries — the same rectangle the run will use,
-        // because it is measured from the same two things.
+        // each output actually carries. The classification is sufficient for
+        // document-canvas geometry, but it must not become a destructive
+        // force-two-page instruction without the measured cutter evidence.
         await previewOf(service, sender(), {
             ...request,
             pageNumber: 2,
@@ -1551,7 +1552,7 @@ describe('scan cleanup preview', () => {
             widthPx: 1_241,
             heightPx: 1_606,
         });
-        expect(observedPageLayout).toBe('force-two-page');
+        expect(observedPageLayout).toBe('auto');
     });
 
     it('reuses the detected output mode for an automatic preview', async () => {
@@ -2655,13 +2656,21 @@ describe('scan cleanup preview', () => {
         const deps = dependencies(dir);
         const firstRasterStarted = Promise.withResolvers<undefined>();
         const remainingRasters = Promise.withResolvers<undefined>();
+        let activeRasterizers = 0;
+        let peakActiveRasterizers = 0;
         deps.createRasterPipes = vi.fn(async () => undefined);
         deps.renderPagePpm = vi.fn(async (_paths, _log, pageNumber) => {
-            if (pageNumber === 1) {
-                firstRasterStarted.resolve(undefined);
-                return;
+            activeRasterizers += 1;
+            peakActiveRasterizers = Math.max(peakActiveRasterizers, activeRasterizers);
+            try {
+                if (pageNumber === 1) {
+                    firstRasterStarted.resolve(undefined);
+                    return;
+                }
+                await remainingRasters.promise;
+            } finally {
+                activeRasterizers -= 1;
             }
-            await remainingRasters.promise;
         });
         deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
@@ -2734,7 +2743,7 @@ describe('scan cleanup preview', () => {
             detectionRequest,
         )?.results).toEqual([expect.objectContaining({pageNumber: 1})]));
         expect(deps.createRasterPipes).toHaveBeenCalledOnce();
-        expect(deps.renderPagePpm).toHaveBeenCalled();
+        expect(peakActiveRasterizers).toBe(1);
         expect(deps.renderPage).not.toHaveBeenCalled();
 
         remainingRasters.resolve(undefined);

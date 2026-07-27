@@ -374,11 +374,7 @@ where
     // One pool per manifest, and the process runs one manifest: since the
     // discarded classification pass was removed this is built at most once,
     // and only when it will actually carry more than one page.
-    let worker_threads = if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
-        manifest_worker_threads(manifest)?
-    } else {
-        1
-    };
+    let worker_threads = page_worker_threads(manifest)?;
     let results: Vec<Result<T, NativeError>> = if worker_threads > 1 {
         let processing_threads = std::thread::available_parallelism().map_or(2, usize::from);
         rayon::ThreadPoolBuilder::new()
@@ -415,6 +411,24 @@ where
         .into_iter()
         .collect::<Result<Vec<_>, _>>()
         .map_err(Into::into)
+}
+
+fn page_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> {
+    let has_stream_inputs = manifest.pages.iter().any(|page| {
+        fs::metadata(&page.input_path).is_ok_and(|metadata| !metadata.file_type().is_file())
+    });
+    if has_stream_inputs {
+        // FIFO readers block an OS thread until their producer opens the
+        // matching pipe. Running a page-sized Rayon pool over ordered streams
+        // can occupy the whole pool with future readers while the current page
+        // needs nested Rayon work to finish: a real circular wait observed as
+        // 180-second pdftoppm timeouts near the end of large documents.
+        Ok(1)
+    } else if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
+        manifest_worker_threads(manifest)
+    } else {
+        Ok(1)
+    }
 }
 
 fn reconcile_classification_batch(
@@ -1332,7 +1346,7 @@ fn run_classification(
         candidate_cutter_ratio: result.candidate_cutter_ratio,
         whitespace_score: result.whitespace_score,
         reconciliation_eligible: matches!(options.layout, crate::LayoutMode::Auto)
-            && options.manual_split_x.is_none()
+            && !options.has_split_evidence()
             && !options.excluded,
         tier1_confidence: if result.reconciliation.reconciled
             || result.reconciliation.cluster_agreement != 0.0
@@ -2024,8 +2038,8 @@ fn map_image_error(message: String) -> NativeError {
 mod tests {
     use super::{
         adaptive_thread_count, estimate_peak_page_bytes, manifest_worker_threads,
-        preserve_tier1_provenance_after_rerun, robust_quantile_dimension, PageResultMetadata,
-        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        page_worker_threads, preserve_tier1_provenance_after_rerun, robust_quantile_dimension,
+        PageResultMetadata, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -2120,6 +2134,46 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn streamed_inputs_use_one_page_worker_to_avoid_fifo_pool_deadlock() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-stream-worker-sizing-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("page.fifo");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            pages: (0..8)
+                .map(|index| Page {
+                    input_path: fifo.clone(),
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+
+        assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
+        let _ = fs::remove_file(fifo);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

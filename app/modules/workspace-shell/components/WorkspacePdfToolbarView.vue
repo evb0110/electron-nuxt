@@ -688,6 +688,11 @@ defineExpose<IOcrPopupAgentExpose>({
     background: var(--ui-bg-elevated);
 }
 
+.scan-cleanup-trigger:disabled {
+    color: var(--app-toolbar-control-disabled-fg);
+    opacity: var(--app-toolbar-control-disabled-opacity);
+}
+
 .scan-cleanup-running-dot {
     position: absolute;
     inset-inline-end: var(--app-space-xs);

@@ -69,6 +69,8 @@ interface IPreviewFrame {
     renderDpi: number;
     contentWidth: number;
     contentHeight: number;
+    sourceRegionWidth: number;
+    inputWidth: number;
 }
 
 interface ICanvasSample {
@@ -190,7 +192,9 @@ async function openScanCleanup(page: Page, sourcePath: string) {
 // The cleaned canvas publishes the frame it presents, so a sample is the
 // geometry the user sees rather than a screenshot heuristic.
 const readFrames = (page: Page) => evaluateInPage(page, () => Array.from(
-    document.querySelectorAll<HTMLElement>('.uniform-canvas[data-frame-width]:not(.preview-skeleton-page)'),
+    document.querySelectorAll<HTMLElement>(
+        '.cleaned-outputs.is-visible .uniform-canvas[data-frame-width]:not(.preview-skeleton-page)',
+    ),
 ).map(element => {
     const placed = element.querySelector<HTMLElement>('.placed-image[data-content-width]');
     return {
@@ -199,6 +203,8 @@ const readFrames = (page: Page) => evaluateInPage(page, () => Array.from(
         renderDpi: Number(element.dataset.renderDpi),
         contentWidth: Number(placed?.dataset.contentWidth ?? 0),
         contentHeight: Number(placed?.dataset.contentHeight ?? 0),
+        sourceRegionWidth: Number(placed?.dataset.sourceRegionWidth ?? 0),
+        inputWidth: Number(placed?.dataset.inputWidth ?? 0),
     };
 })) as Promise<IPreviewFrame[]>;
 
@@ -222,7 +228,7 @@ async function waitForPreview(
         return label.trim().startsWith(`Page ${target} of`)
             && settled
             && document.querySelectorAll(
-                '.uniform-canvas[data-frame-width]:not(.preview-skeleton-page)',
+                '.cleaned-outputs.is-visible .uniform-canvas[data-frame-width]:not(.preview-skeleton-page)',
             ).length > 0;
     }, {timeout: timeoutMs}, expectedPage);
 }
@@ -243,10 +249,23 @@ async function waitForVisibleRaster(
             '[data-testid="scan-cleanup-original-only"] img.preview-pixel',
         ));
         const rawLoaded = rawImages.some(image => image.complete && image.naturalWidth > 0);
+        const sourcePlaceholder = document.querySelector<HTMLElement>(
+            '[data-testid="scan-cleanup-source-placeholder"]',
+        );
+        const placeholderCanvas = sourcePlaceholder?.querySelector<HTMLCanvasElement>('canvas');
+        const placeholderImage = sourcePlaceholder?.querySelector<HTMLImageElement>('img');
+        const placeholderLoaded = (
+            (placeholderCanvas?.width ?? 0) > 0
+            && (placeholderCanvas?.height ?? 0) > 0
+        ) || (
+            placeholderImage?.complete === true
+            && placeholderImage.naturalWidth > 0
+        );
         const cleanedVisible = document.querySelectorAll(
             '.uniform-canvas[data-frame-width]:not(.preview-skeleton-page)',
         ).length > 0 && document.querySelector('.page-loading-overlay, .preview-loading') === null;
-        return label.trim().startsWith(`Page ${target} of`) && (rawLoaded || cleanedVisible);
+        return label.trim().startsWith(`Page ${target} of`)
+            && (placeholderLoaded || rawLoaded || cleanedVisible);
     }, {timeout: timeoutMs}, expectedPage);
 }
 
@@ -420,18 +439,10 @@ const readViewerState = (page: Page) => evaluateInPage(page, () => {
 
 const readCaptionLayout = (page: Page) => evaluateInPage(page, () => {
     const caption = document.querySelector<HTMLElement>('.preview-viewport-caption');
-    const icon = caption?.querySelector<HTMLElement>('.iconify');
-    const captionRect = caption?.getBoundingClientRect();
-    const iconRect = icon?.getBoundingClientRect();
     return {
         display: caption ? getComputedStyle(caption).display : '',
         text: caption?.textContent?.trim() ?? '',
-        iconCenterOffsetY: captionRect && iconRect
-            ? Math.abs(
-                iconRect.top + iconRect.height / 2
-                - (captionRect.top + captionRect.height / 2),
-            )
-            : null,
+        hasIcon: caption?.querySelector('.iconify') !== null,
     };
 });
 
@@ -461,6 +472,7 @@ describe('scan cleanup matched page canvas', () => {
         for (const targetPage of [
             1,
             5,
+            10,
             12,
         ]) {
             while (await readPageNumber(page) < targetPage) {
@@ -519,10 +531,13 @@ describe('scan cleanup matched page canvas', () => {
         expect(Math.max(...previewSamples.map(sample => sample.visibleInMs))).toBeLessThan(5_000);
         expect(Math.max(...previewSamples.map(sample => sample.settledInMs))).toBeLessThan(15_000);
         expect(new Set(previewSamples.map(sample => frameKey(sample.frames))).size).toBe(1);
+        const twoColumnPage = previewSamples.find(sample => sample.page === 10);
+        expect(twoColumnPage?.frames).toHaveLength(1);
+        expect(twoColumnPage!.frames[0]!.sourceRegionWidth / twoColumnPage!.frames[0]!.inputWidth)
+            .toBeGreaterThan(0.9);
         for (const sample of previewSamples.filter(candidate => candidate.caption.text !== '')) {
             expect(sample.caption.display).toBe('flex');
-            expect(sample.caption.iconCenterOffsetY).not.toBeNull();
-            expect(sample.caption.iconCenterOffsetY!).toBeLessThanOrEqual(1);
+            expect(sample.caption.hasIcon).toBe(false);
         }
         expect(outputPages).toHaveLength(1);
         expect(viewer.preparing).toBe(false);

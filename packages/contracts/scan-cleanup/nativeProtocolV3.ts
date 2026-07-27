@@ -57,6 +57,11 @@ export interface INativeScanCleanupOptionsV3 {
     ocrMode: boolean;
     layout: 'auto' | 'force-single' | 'page-with-offcut' | 'keep-left' | 'keep-right' | 'force-two-page';
     manualSplit: IScanCleanupNormalizedSplit | null;
+    /**
+     * Trusted automatic cutter from a base preview with the same settings.
+     * Kept distinct from manualSplit so replay never becomes a user edit.
+     */
+    automaticSplit?: IScanCleanupNormalizedSplit;
     manualSkewDegrees?: number;
     manualContentBoxes: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
     /**

@@ -33,6 +33,10 @@ const request = {
         pageNumber: 12,
         rotationDegrees: 0,
         layoutClassification: 'single-uncut-page',
+        automaticSplit: {
+            xNormalized: 0.48,
+            rotationDegrees: 0,
+        },
         outputs: {full: {
             contentBox: {
                 xNormalized: 0.1,
@@ -68,5 +72,15 @@ describe('scan-cleanup IPC request codecs', () => {
                 }}},
             }},
         }])).toThrow('content box');
+        expect(() => decodeStartArgs([{
+            ...request,
+            pagePlanEvidenceByPage: {'12': {
+                ...request.pagePlanEvidenceByPage['12'],
+                automaticSplit: {
+                    xNormalized: 1.2,
+                    rotationDegrees: 0,
+                },
+            }},
+        }])).toThrow('automatic split');
     });
 });

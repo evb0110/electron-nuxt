@@ -572,6 +572,24 @@ describe('scan cleanup preview navigation', () => {
                 },
             })),
         })).toBeUndefined();
+        expect(createScanCleanupPagePlanEvidence({
+            ...result,
+            pageMetadata: {
+                ...result.pageMetadata,
+                layoutClassification: 'two-page-spread',
+                cutterXPx: result.rawWidthPx * 0.46,
+            },
+            outputs: [],
+        })).toEqual({
+            pageNumber: 12,
+            rotationDegrees: 0,
+            layoutClassification: 'two-page-spread',
+            automaticSplit: {
+                xNormalized: 0.46,
+                rotationDegrees: 0,
+            },
+            outputs: {},
+        });
     });
 
     beforeEach(() => {

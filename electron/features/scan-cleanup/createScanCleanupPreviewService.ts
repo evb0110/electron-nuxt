@@ -2029,7 +2029,12 @@ async function runDetection(
                 // snapshot. Detection progress is the useful foreground state.
                 if (results.size === 0) publishRasterizing();
             }, streamRasters
-                ? Math.max(1, resolveScanCleanupRasterConcurrency() - 1)
+                // The native consumer opens FIFO inputs in manifest order.
+                // Multiple producers can run ahead, block while opening later
+                // pipes and exhaust every admitted process before the current
+                // page is available. One producer still overlaps Poppler with
+                // native analysis without creating that circular wait.
+                ? 1
                 : resolveScanCleanupRasterConcurrency());
         };
         if (!streamRasters) await rasterize(signal);

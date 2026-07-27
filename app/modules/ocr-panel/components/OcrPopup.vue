@@ -673,6 +673,11 @@ defineExpose<IOcrPopupAgentExpose>({
     color: var(--app-toolbar-control-hover-fg);
 }
 
+.ocr-trigger:disabled {
+    color: var(--app-toolbar-control-disabled-fg);
+    opacity: var(--app-toolbar-control-disabled-opacity);
+}
+
 .label,
 :deep(.label) {
     font-size: var(--app-text-size-micro);

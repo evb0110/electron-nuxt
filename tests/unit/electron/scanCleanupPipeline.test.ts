@@ -473,6 +473,10 @@ describe('scan cleanup pipeline', () => {
                 pageNumber: 1,
                 rotationDegrees: 0 as const,
                 layoutClassification: 'single-uncut-page' as const,
+                automaticSplit: {
+                    xNormalized: 0.48,
+                    rotationDegrees: 0 as const,
+                },
                 outputs: {full: {
                     contentBox: {
                         xNormalized: 0.1,
@@ -491,6 +495,7 @@ describe('scan cleanup pipeline', () => {
             request.pagePlanEvidenceByPage,
             1,
         )).toEqual({
+            automaticSplit: request.pagePlanEvidenceByPage['1'].automaticSplit,
             automaticContentBoxes: {full: request.pagePlanEvidenceByPage['1'].outputs.full.contentBox},
             automaticSkewDegrees: {full: -0.2},
         });

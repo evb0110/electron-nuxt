@@ -55,6 +55,22 @@ function normalizePreviewContentBox(
 export function createScanCleanupPagePlanEvidence(
     previewResult: IScanCleanupPreviewResult,
 ): IScanCleanupPagePlanEvidence | undefined {
+    const rotationDegrees = previewResult.pageMetadata.rotationDegrees;
+    const analysisWidth = rotationDegrees === 90 || rotationDegrees === 270
+        ? previewResult.rawHeightPx
+        : previewResult.rawWidthPx;
+    const cutterXPx = previewResult.pageMetadata.cutterXPx;
+    const splitXNormalized = cutterXPx === null || analysisWidth <= 0
+        ? undefined
+        : cutterXPx / analysisWidth;
+    const automaticSplit = splitXNormalized === undefined
+        || splitXNormalized <= 0
+        || splitXNormalized >= 1
+        ? undefined
+        : {
+            xNormalized: splitXNormalized,
+            rotationDegrees,
+        };
     const outputs = Object.fromEntries(previewResult.outputs.flatMap(output => {
         const metadata = output.metadata;
         // A dewarp model is resolution-dependent and is not part of the
@@ -80,13 +96,14 @@ export function createScanCleanupPagePlanEvidence(
             },
         ]];
     }));
-    if (Object.keys(outputs).length === 0) {
+    if (Object.keys(outputs).length === 0 && automaticSplit === undefined) {
         return undefined;
     }
     return {
         pageNumber: previewResult.pageNumber,
-        rotationDegrees: previewResult.pageMetadata.rotationDegrees,
+        rotationDegrees,
         layoutClassification: previewResult.pageMetadata.layoutClassification,
+        ...(automaticSplit === undefined ? {} : {automaticSplit}),
         outputs,
     };
 }

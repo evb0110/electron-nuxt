@@ -510,12 +510,29 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             foregroundMaskOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-mask.pbm`),
         })),
     }));
+    const sourceSheets = pageRuns.flatMap(page => page.analysis.outputs.map(output => ({
+        heightPoints: output.sourceRegion.heightPx / page.sourceDpi * 72,
+        widthPoints: output.sourceRegion.widthPx / page.sourceDpi * 72,
+    })));
+    if (sourceSheets.length === 0) {
+        throw new Error(`Fixture "${fixture.id}" produced no source sheets to match`);
+    }
+    const canvasDpi = Math.max(...pageRuns.map(page => page.renderDpi));
+    const documentCanvas = {
+        heightPoints: Math.max(...sourceSheets.map(sheet => sheet.heightPoints)),
+        widthPoints: Math.max(...sourceSheets.map(sheet => sheet.widthPoints)),
+    };
     const renderManifestPath = join(fixtureDir, 'render-manifest.json');
     await writeFile(renderManifestPath, JSON.stringify({
         version: 3,
         operation: 'render',
         renderMode: 'final',
         canvasScope: 'document',
+        documentCanvas: {
+            ...documentCanvas,
+            heightPx: Math.max(1, Math.round(documentCanvas.heightPoints / 72 * canvasDpi)),
+            widthPx: Math.max(1, Math.round(documentCanvas.widthPoints / 72 * canvasDpi)),
+        },
         pages: renderPages,
     }, null, 2));
     await runSidecar(renderManifestPath);

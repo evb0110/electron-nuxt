@@ -331,6 +331,8 @@ pub struct CleanupOptions {
     #[serde(rename = "manualSplit")]
     pub manual_split_x: Option<NormalizedSplit>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub automatic_split: Option<NormalizedSplit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub manual_skew_degrees: Option<f64>,
     pub manual_content_boxes: ManualContentBoxes,
     #[serde(skip_serializing_if = "AutomaticSkewDegrees::is_empty")]
@@ -374,6 +376,7 @@ impl Default for CleanupOptions {
             ocr_mode: false,
             layout: LayoutMode::Auto,
             manual_split_x: None,
+            automatic_split: None,
             manual_skew_degrees: None,
             manual_content_boxes: ManualContentBoxes::default(),
             automatic_skew_degrees: AutomaticSkewDegrees::default(),
@@ -457,6 +460,17 @@ impl CleanupOptions {
             {
                 return Err(
                     "Manual split must be normalized and authored under the page rotation".into(),
+                );
+            }
+        }
+        if let Some(split) = self.automatic_split {
+            if !split.x.is_finite()
+                || !(0.0..=1.0).contains(&split.x)
+                || split.rotation != self.rotation
+            {
+                return Err(
+                    "Automatic split must be normalized and authored under the page rotation"
+                        .into(),
                 );
             }
         }
@@ -569,9 +583,14 @@ impl CleanupOptions {
         override_value.unwrap_or(self.page_alignment)
     }
 
-    pub fn resolved_manual_split_x(&self, analysis_width: usize) -> Option<f64> {
+    pub fn resolved_split_x(&self, analysis_width: usize) -> Option<f64> {
         self.manual_split_x
+            .or(self.automatic_split)
             .map(|split| split.x * analysis_width as f64)
+    }
+
+    pub fn has_split_evidence(&self) -> bool {
+        self.manual_split_x.is_some() || self.automatic_split.is_some()
     }
 
     pub fn resolved_manual_content_for(

@@ -77,6 +77,7 @@ fn normalized_content_rect_round_trips_with_named_units() {
 fn automatic_page_plan_is_additive_and_distinct_from_manual_geometry() {
     let options: CleanupOptions = serde_json::from_str(
         r#"{
+            "automaticSplit":{"xNormalized":0.48,"rotationDegrees":0},
             "automaticSkewDegrees":{"right":-0.25},
             "automaticContentBoxes":{"right":{
                 "xNormalized":0.1,
@@ -89,6 +90,8 @@ fn automatic_page_plan_is_additive_and_distinct_from_manual_geometry() {
     )
     .unwrap();
     options.validate().unwrap();
+    assert_eq!(options.resolved_split_x(1_000), Some(480.0),);
+    assert!(options.manual_split_x.is_none());
     assert_eq!(options.automatic_skew_for(PageHalf::Right), Some(-0.25));
     assert_eq!(
         options.resolved_content_for(PageHalf::Right, 800, 1_000),
@@ -104,7 +107,9 @@ fn automatic_page_plan_is_additive_and_distinct_from_manual_geometry() {
         encoded["automaticContentBoxes"]["right"]["widthNormalized"],
         0.5
     );
+    assert_eq!(encoded["automaticSplit"]["xNormalized"], 0.48);
     let defaults = serde_json::to_value(CleanupOptions::default()).unwrap();
+    assert!(defaults.get("automaticSplit").is_none());
     assert!(defaults.get("automaticSkewDegrees").is_none());
     assert!(defaults.get("automaticContentBoxes").is_none());
 }

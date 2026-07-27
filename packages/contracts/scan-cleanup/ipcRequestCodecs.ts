@@ -634,6 +634,28 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                     throw new Error('invalid scan-cleanup page-plan evidence map');
                 }
                 const rotationDegrees = evidence.rotationDegrees as IScanCleanupPagePlanEvidence['rotationDegrees'];
+                const automaticSplit = evidence.automaticSplit === undefined
+                    ? undefined
+                    : (() => {
+                        if (!isRecord(evidence.automaticSplit)) {
+                            throw new Error('invalid scan-cleanup automatic split');
+                        }
+                        const xNormalized = decodeNormalizedValue(
+                            evidence.automaticSplit.xNormalized,
+                            'automatic split x',
+                        );
+                        if (xNormalized <= 0 || xNormalized >= 1) {
+                            throw new Error('invalid scan-cleanup automatic split');
+                        }
+                        return {
+                            xNormalized,
+                            rotationDegrees: decodeGeometryRotation(
+                                evidence.automaticSplit.rotationDegrees,
+                                rotationDegrees,
+                                'automatic split',
+                            ),
+                        };
+                    })();
                 const outputs = decodeOutputMap(evidence.outputs, (output, label) => {
                     if (!isRecord(output)) {
                         throw new Error(`invalid scan-cleanup ${label}`);
@@ -665,6 +687,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                         pageNumber: Number(key),
                         rotationDegrees,
                         layoutClassification: evidence.layoutClassification,
+                        ...(automaticSplit === undefined ? {} : {automaticSplit}),
                         outputs,
                     } satisfies IScanCleanupPagePlanEvidence,
                 ];

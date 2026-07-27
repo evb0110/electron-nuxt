@@ -24,6 +24,8 @@
                         :style="output.imageStyle"
                         :data-content-width="output.placement.contentWidthPx"
                         :data-content-height="output.placement.contentHeightPx"
+                        :data-source-region-width="output.metadata.sourceRegion.widthPx"
+                        :data-input-width="output.metadata.inputWidthPx"
                     >
                         <img
                             v-if="output.pixelSwap.outgoingUrl"

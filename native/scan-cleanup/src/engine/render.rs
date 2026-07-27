@@ -34,7 +34,7 @@ use crate::{
     },
     split::{
         detect_split_at_analysis_level_with_threshold, DocumentPrior, LayoutClassification,
-        ReconciliationMetadata, SplitResult,
+        ReconciliationMetadata, SplitResult, SPLIT_ANALYSIS_DPI,
     },
     CleanupOptions, OrthogonalRotation, OutputMode,
 };
@@ -358,6 +358,7 @@ pub(crate) fn clean_detail_page_with_color(
     tile_options.rotation = OrthogonalRotation::None;
     tile_options.layout = crate::LayoutMode::Single;
     tile_options.manual_split_x = None;
+    tile_options.automatic_split = None;
     tile_options.manual_skew_degrees = Some(0.0);
     tile_options.manual_content_boxes = Default::default();
     tile_options.automatic_skew_degrees = Default::default();
@@ -1492,8 +1493,7 @@ fn prepare_analysis_page(
 ) -> PreparedAnalysis {
     debug_assert!(
         render_policy.analyze_layout
-            || matches!(options.layout, crate::LayoutMode::Single)
-                && options.manual_split_x.is_none(),
+            || matches!(options.layout, crate::LayoutMode::Single) && !options.has_split_evidence(),
         "skipping layout analysis requires an already-resolved single-region layout",
     );
     let analysis_key = cache.map(|cache| {
@@ -1725,12 +1725,12 @@ fn prepare_analysis_page(
                 &analysis.layout_normalized,
                 analysis.effective_dpi,
                 options.layout,
-                options.resolved_manual_split_x(analysis.normalized.width()),
+                options.resolved_split_x(analysis.normalized.width()),
                 analysis_threshold,
                 applicable_prior,
             ),
         };
-        if matches!(options.layout, crate::LayoutMode::Auto) && options.manual_split_x.is_none() {
+        if matches!(options.layout, crate::LayoutMode::Auto) && !options.has_split_evidence() {
             if let Some(prior) = applicable_prior {
                 split.apply_document_prior(
                     analysis.normalized.width(),
@@ -1745,9 +1745,11 @@ fn prepare_analysis_page(
         if prepare_quality_raster && options.normalize_illumination {
             split.reusable_binary = None;
         }
-        if (analysis.scale_x < 1.0 || analysis.scale_y < 1.0)
+        if (analysis.scale_x < 1.0
+            || analysis.scale_y < 1.0
+            || analysis.effective_dpi < SPLIT_ANALYSIS_DPI)
             && matches!(options.layout, crate::LayoutMode::Auto)
-            && options.manual_split_x.is_none()
+            && !options.has_split_evidence()
         {
             split.abstain_from_resolution_limited_offcut();
         }
