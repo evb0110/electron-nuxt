@@ -609,10 +609,13 @@ describe('scan cleanup preview geometry', () => {
         expect(previewCss).toMatch(/\.uniform-canvas \{[\s\S]*?border: 0;/u);
         expect(previewCss).toMatch(/\.uniform-canvas::after \{[\s\S]*?inset: 0;[\s\S]*?border: var\(--app-hairline-height\) dashed transparent;/u);
         expect(previewCss).toMatch(/\.uniform-canvas\.has-uniform-canvas::after \{[\s\S]*?border-color: var\(--ui-border\);/u);
+        expect(previewCss).toMatch(/\.content-overlay \{[\s\S]*?border: 0;[\s\S]*?background: transparent;[\s\S]*?box-shadow: 0 0 0 var\(--app-hairline-height\) var\(--ui-primary\);/u);
         expect(previewFiles).toContain('v-for="output in outputs"');
         expect(previewFiles).toContain('transformPreviewContentBox(metadata)');
         expect(previewFiles.match(/<ScanCleanupSegmented/gu)).toHaveLength(1);
         expect(workspace).toContain('<ScanCleanupSettingsPanel');
+        expect(workspace).toMatch(/\.scan-cleanup-blank-hint \{[\s\S]*?pointer-events: none;/u);
+        expect(workspace).toMatch(/\.scan-cleanup-blank-hint-actions \{[\s\S]*?pointer-events: auto;/u);
         expect(workspace).not.toContain('<DocumentSettings');
         expect(workspace).not.toContain('<SelectionSettings');
         expect(settingsPanel).toContain('class="scan-cleanup-details-trigger"');

@@ -454,8 +454,9 @@
 
 .content-overlay {
     box-sizing: border-box;
-    border: var(--app-hairline-height) solid var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 10%, transparent);
+    border: 0;
+    background: transparent;
+    box-shadow: 0 0 0 var(--app-hairline-height) var(--ui-primary);
     pointer-events: auto;
     touch-action: none;
 }

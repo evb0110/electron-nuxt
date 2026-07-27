@@ -28,9 +28,10 @@ use serde::Serialize;
 use std::{
     collections::HashSet,
     error::Error,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{mpsc::sync_channel, Arc, Mutex},
+    thread,
     time::Instant,
 };
 
@@ -371,6 +372,9 @@ where
     T: Send,
     F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
 {
+    if manifest_has_stream_inputs(manifest) {
+        return run_stream_page_jobs(manifest, task);
+    }
     // One pool per manifest, and the process runs one manifest: since the
     // discarded classification pass was removed this is built at most once,
     // and only when it will actually carry more than one page.
@@ -413,11 +417,127 @@ where
         .map_err(Into::into)
 }
 
-fn page_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> {
-    let has_stream_inputs = manifest.pages.iter().any(|page| {
+struct MaterializedStreamPage {
+    index: usize,
+    page: Page,
+    temporary_input: Option<PathBuf>,
+}
+
+impl Drop for MaterializedStreamPage {
+    fn drop(&mut self) {
+        if let Some(path) = &self.temporary_input {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn manifest_has_stream_inputs(manifest: &ManifestV3) -> bool {
+    manifest.pages.iter().any(|page| {
         fs::metadata(&page.input_path).is_ok_and(|metadata| !metadata.file_type().is_file())
-    });
-    if has_stream_inputs {
+    })
+}
+
+fn stream_materialized_path(page: &Page, index: usize) -> PathBuf {
+    let parent = page
+        .page_metadata_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    parent.join(format!(
+        ".scan-cleanup-stream-{}-{index}.raster",
+        std::process::id()
+    ))
+}
+
+fn materialize_stream_page(
+    index: usize,
+    page: &Page,
+) -> Result<MaterializedStreamPage, NativeError> {
+    let mut materialized = page.clone();
+    if fs::metadata(&page.input_path).is_ok_and(|metadata| metadata.file_type().is_file()) {
+        return Ok(MaterializedStreamPage {
+            index,
+            page: materialized,
+            temporary_input: None,
+        });
+    }
+    let temporary_input = stream_materialized_path(page, index);
+    let copy_result = (|| -> Result<(), io::Error> {
+        let mut source = fs::File::open(&page.input_path)?;
+        let mut destination = fs::File::create(&temporary_input)?;
+        io::copy(&mut source, &mut destination)?;
+        Ok(())
+    })();
+    if let Err(error) = copy_result {
+        let _ = fs::remove_file(&temporary_input);
+        return Err(NativeError::new(
+            NativeErrorCode::Io,
+            format!(
+                "Unable to materialize streamed scan-cleanup page {}: {error}",
+                index + 1
+            ),
+        ));
+    }
+    materialized.input_path = temporary_input.clone();
+    Ok(MaterializedStreamPage {
+        index,
+        page: materialized,
+        temporary_input: Some(temporary_input),
+    })
+}
+
+fn run_stream_page_jobs<T, F>(manifest: &ManifestV3, task: F) -> Result<Vec<T>, Box<dyn Error>>
+where
+    T: Send,
+    F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
+{
+    // A FIFO is a one-shot transport, not a replayable page file. Drain the
+    // next one on a dedicated reader while the current page is analysed. The
+    // rendezvous channel bounds temporary storage to at most two page rasters,
+    // removes the producer/consumer handshake from the compute path, and lets
+    // Poppler overlap with native analysis without admitting future FIFO
+    // readers into Rayon.
+    thread::scope(|scope| {
+        let (sender, receiver) = sync_channel(0);
+        scope.spawn(move || {
+            for (index, page) in manifest.pages.iter().enumerate() {
+                let materialized = materialize_stream_page(index, page);
+                let failed = materialized.is_err();
+                if sender.send(materialized).is_err() || failed {
+                    break;
+                }
+            }
+        });
+
+        let mut results = Vec::with_capacity(manifest.pages.len());
+        let mut first_error = None;
+        for materialized in receiver {
+            match materialized {
+                Ok(materialized) if first_error.is_none() => {
+                    match task((materialized.index, &materialized.page)) {
+                        Ok(result) => results.push(result),
+                        Err(error) => first_error = Some(error),
+                    }
+                }
+                Ok(_) => {
+                    // Keep draining the one-shot inputs after a page failure so
+                    // the producer can finish and the scoped reader can exit.
+                }
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                    break;
+                }
+            }
+        }
+        match first_error {
+            Some(error) => Err(error.into()),
+            None if results.len() == manifest.pages.len() => Ok(results),
+            None => Err(invalid("Streamed scan-cleanup input ended before every page").into()),
+        }
+    })
+}
+
+fn page_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> {
+    if manifest_has_stream_inputs(manifest) {
         // FIFO readers block an OS thread until their producer opens the
         // matching pipe. Running a page-sized Rayon pool over ordered streams
         // can occupy the whole pool with future readers while the current page
@@ -436,6 +556,7 @@ fn reconcile_classification_batch(
     results: &mut [PageRunResult],
     cache: &Arc<Mutex<ByteLru>>,
 ) -> Result<(), Box<dyn Error>> {
+    let replayable_inputs = !manifest_has_stream_inputs(manifest);
     let eligible = results
         .iter()
         .enumerate()
@@ -553,7 +674,7 @@ fn reconcile_classification_batch(
                 && (metadata.tier1_verdict != prior.dominant_layout
                     || metadata.tier1_confidence < 0.60
                     || candidate_is_off_prior);
-            if rerun_with_prior {
+            if rerun_with_prior && replayable_inputs {
                 let tier1 = Tier1Provenance {
                     verdict: metadata.tier1_verdict,
                     confidence: metadata.tier1_confidence,
@@ -2037,18 +2158,21 @@ fn map_image_error(message: String) -> NativeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_thread_count, estimate_peak_page_bytes, manifest_worker_threads,
-        page_worker_threads, preserve_tier1_provenance_after_rerun, robust_quantile_dimension,
-        PageResultMetadata, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        adaptive_thread_count, estimate_peak_page_bytes, manifest_cache, manifest_worker_threads,
+        page_worker_threads, preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
+        robust_quantile_dimension, run_stream_page_jobs, PageResultMetadata, PageRunResult,
+        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
             AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
             SplitSeamPolyline, VERSION,
         },
+        protocol::progress::PageStageTimings,
         split::{ClusterDimensions, DocumentPrior, LayoutClassification},
         CleanupOptions, OrthogonalRotation, OutputMode,
     };
+    use evb_native_support::NativeError;
     use scan_primitives::{GrayImage, Point};
     use std::{fs, path::PathBuf};
 
@@ -2173,6 +2297,155 @@ mod tests {
 
         assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
         let _ = fs::remove_file(fifo);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn streamed_pages_are_bounded_materialized_files_during_processing() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-stream-materialization-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo_paths = (0..3)
+            .map(|index| dir.join(format!("page-{index}.fifo")))
+            .collect::<Vec<_>>();
+        for fifo in &fifo_paths {
+            assert!(std::process::Command::new("mkfifo")
+                .arg(fifo)
+                .status()
+                .unwrap()
+                .success());
+        }
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            pages: fifo_paths
+                .iter()
+                .enumerate()
+                .map(|(index, input_path)| Page {
+                    input_path: input_path.clone(),
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        let producer_paths = fifo_paths.clone();
+        let producer = std::thread::spawn(move || {
+            for (index, path) in producer_paths.iter().enumerate() {
+                fs::write(path, format!("page-{index}")).unwrap();
+            }
+        });
+
+        let processed = run_stream_page_jobs(&manifest, |(index, page)| {
+            let metadata = fs::metadata(&page.input_path).unwrap();
+            assert!(metadata.is_file(), "the task must never reopen a FIFO");
+            let bytes = fs::read(&page.input_path).unwrap();
+            assert_eq!(bytes, format!("page-{index}").as_bytes());
+            Ok::<_, NativeError>(bytes)
+        })
+        .unwrap();
+
+        producer.join().unwrap();
+        assert_eq!(processed.len(), 3);
+        assert!(
+            fs::read_dir(&dir).unwrap().all(|entry| !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".raster")),
+            "bounded materializations must be removed after processing"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn streamed_reconciliation_uses_existing_evidence_without_reopening_inputs() {
+        // Unix-domain socket paths are limited to roughly one hundred bytes
+        // on macOS, while the per-user temporary directory is much longer.
+        let dir = PathBuf::from(format!("/tmp/evb-scan-reconcile-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("one-shot-input.socket");
+        let listener = std::os::unix::net::UnixListener::bind(&input).unwrap();
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            pages: (0..4)
+                .map(|index| Page {
+                    input_path: input.clone(),
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        let result = |index: usize, verdict, confidence: f64| PageRunResult {
+            outputs: Vec::new(),
+            metadata: PageResultMetadata {
+                source_page_index: index,
+                layout_classification: verdict,
+                layout_confidence: confidence,
+                cutter_x_px: (verdict == LayoutClassification::TwoPageSpread).then_some(120.0),
+                split_seam: None,
+                rotation_degrees: OrthogonalRotation::None,
+                canvas_scope: CanvasScope::default(),
+                excluded: false,
+                blank_outputs_skipped: 0,
+                output_count: usize::from(verdict == LayoutClassification::TwoPageSpread) + 1,
+                outputs: Vec::new(),
+                tier1_verdict: verdict,
+                reconciled: false,
+                cluster_agreement: 0.0,
+                document_prior: None,
+                text_axis: None,
+                recommended_output_mode: None,
+                recommended_output_mode_confidence: None,
+                recommended_output_mode_reason: None,
+                rotated_width: 240,
+                rotated_height: 200,
+                candidate_cutter_ratio: Some(0.5),
+                whitespace_score: 0.9,
+                reconciliation_eligible: true,
+                tier1_confidence: confidence,
+            },
+            page_metadata_path: dir.join(format!("page-{index}.json")),
+            timings: PageStageTimings::default(),
+        };
+        let mut results = vec![
+            result(0, LayoutClassification::TwoPageSpread, 0.92),
+            result(1, LayoutClassification::TwoPageSpread, 0.91),
+            result(2, LayoutClassification::TwoPageSpread, 0.90),
+            result(3, LayoutClassification::SingleUncutPage, 0.40),
+        ];
+
+        reconcile_classification_batch(&manifest, &mut results, &manifest_cache(None)).unwrap();
+
+        assert_eq!(
+            results[3].metadata.layout_classification,
+            LayoutClassification::TwoPageSpread
+        );
+        assert!(results[3].metadata.reconciled);
+        assert!(results[3].metadata.document_prior.is_some());
+        drop(listener);
         let _ = fs::remove_dir_all(dir);
     }
 

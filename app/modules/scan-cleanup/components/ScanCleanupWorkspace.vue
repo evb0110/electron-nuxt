@@ -845,6 +845,7 @@ watch(isRunning, running => {
     box-shadow: var(--shadow-popup);
     font-size: var(--app-text-size-body-sm);
     line-height: var(--app-line-height-snug);
+    pointer-events: none;
     white-space: nowrap;
 }
 
@@ -870,6 +871,7 @@ watch(isRunning, running => {
     flex-shrink: 0;
     align-items: center;
     gap: var(--app-space-sm);
+    pointer-events: auto;
 }
 
 .scan-cleanup-options-rail {
