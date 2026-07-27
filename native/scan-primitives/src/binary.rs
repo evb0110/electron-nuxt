@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 /// Bit-packed binary image. Black pixels are one; words are MSB-first. Padding bits are zero.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BinaryImage {
@@ -17,6 +19,39 @@ impl BinaryImage {
             words_per_line,
             words: vec![0; words_per_line.saturating_mul(height)],
         }
+    }
+
+    /// Builds independent packed scanlines in parallel. Raster transforms use
+    /// this instead of synchronizing one bit mutation at a time over large
+    /// source pages.
+    pub fn from_fn_parallel(
+        width: usize,
+        height: usize,
+        predicate: impl Fn(usize, usize) -> bool + Sync,
+    ) -> Self {
+        let mut output = Self::new(width, height);
+        if width == 0 || height == 0 {
+            return output;
+        }
+        let words_per_line = output.words_per_line;
+        output
+            .words
+            .par_chunks_mut(words_per_line)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (word_x, target) in row.iter_mut().enumerate() {
+                    let first_x = word_x * 32;
+                    let mut word = 0u32;
+                    for bit in 0..32 {
+                        let x = first_x + bit;
+                        if x < width && predicate(x, y) {
+                            word |= 1 << (31 - bit);
+                        }
+                    }
+                    *target = word;
+                }
+            });
+        output
     }
 
     pub fn width(&self) -> usize {
@@ -60,9 +95,7 @@ impl BinaryImage {
 
     pub fn invert(&self) -> Self {
         let mut output = self.clone();
-        for word in &mut output.words {
-            *word = !*word;
-        }
+        output.words.par_iter_mut().for_each(|word| *word = !*word);
         output.clear_padding();
         output
     }
@@ -79,12 +112,14 @@ impl BinaryImage {
         self.zip_words(other, |left, right| left & !right)
     }
 
-    fn zip_words(&self, other: &Self, operation: impl Fn(u32, u32) -> u32) -> Self {
+    fn zip_words(&self, other: &Self, operation: impl Fn(u32, u32) -> u32 + Sync) -> Self {
         assert_eq!((self.width, self.height), (other.width, other.height));
         let mut output = self.clone();
-        for (target, right) in output.words.iter_mut().zip(&other.words) {
-            *target = operation(*target, *right);
-        }
+        output
+            .words
+            .par_iter_mut()
+            .zip(other.words.par_iter())
+            .for_each(|(target, right)| *target = operation(*target, *right));
         output.clear_padding();
         output
     }
@@ -129,5 +164,17 @@ mod tests {
                 assert_eq!(a.or(&b).get(x, y), a.get(x, y) || b.get(x, y));
             }
         }
+    }
+
+    #[test]
+    fn parallel_builder_matches_individual_bit_writes() {
+        let mut expected = BinaryImage::new(67, 43);
+        for y in 0..expected.height() {
+            for x in 0..expected.width() {
+                expected.set(x, y, (x * 7 + y * 13) % 19 < 5);
+            }
+        }
+        let actual = BinaryImage::from_fn_parallel(67, 43, |x, y| (x * 7 + y * 13) % 19 < 5);
+        assert_eq!(actual, expected);
     }
 }

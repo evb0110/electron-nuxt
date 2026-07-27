@@ -209,7 +209,26 @@ fn luma(pixel: &[u8]) -> u8 {
     ((u32::from(pixel[0]) * 77 + u32::from(pixel[1]) * 150 + u32::from(pixel[2]) * 29 + 128) >> 8)
         as u8
 }
-pub fn write_png<W: Write>(mut writer: W, pixels: PixelBuffer<'_>) -> Result<W, RasterError> {
+pub fn write_png<W: Write>(writer: W, pixels: PixelBuffer<'_>) -> Result<W, RasterError> {
+    write_png_impl(writer, pixels, Compression::default(), false)
+}
+
+/// Encodes a lossless PNG for a managed intermediate raster.
+///
+/// Scan-cleanup layers are decoded again by the document assembler and do not
+/// benefit from spending most of a page's latency on the default DEFLATE
+/// search. The Up filter keeps scan rows compact while fast DEFLATE preserves
+/// every sample exactly.
+pub fn write_png_fast<W: Write>(writer: W, pixels: PixelBuffer<'_>) -> Result<W, RasterError> {
+    write_png_impl(writer, pixels, Compression::fast(), true)
+}
+
+fn write_png_impl<W: Write>(
+    mut writer: W,
+    pixels: PixelBuffer<'_>,
+    compression: Compression,
+    filter_up: bool,
+) -> Result<W, RasterError> {
     let (width, height, stride, data, color_type) = match pixels {
         PixelBuffer::Gray {
             width,
@@ -243,11 +262,31 @@ pub fn write_png<W: Write>(mut writer: W, pixels: PixelBuffer<'_>) -> Result<W, 
     if data.len() < required {
         return Err(RasterError::invalid("PNG pixel buffer is too short"));
     }
-    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    let mut encoder = ZlibEncoder::new(Vec::new(), compression);
+    let mut filtered_row = Vec::with_capacity(row_bytes);
     for y in 0..height {
         let start = y * stride;
-        encoder.write_all(&[0])?;
-        encoder.write_all(&data[start..start + row_bytes])?;
+        let current = &data[start..start + row_bytes];
+        if filter_up {
+            encoder.write_all(&[2])?;
+            if y == 0 {
+                encoder.write_all(current)?;
+            } else {
+                let previous_start = (y - 1) * stride;
+                let previous = &data[previous_start..previous_start + row_bytes];
+                filtered_row.clear();
+                filtered_row.extend(
+                    current
+                        .iter()
+                        .zip(previous)
+                        .map(|(current, previous)| current.wrapping_sub(*previous)),
+                );
+                encoder.write_all(&filtered_row)?;
+            }
+        } else {
+            encoder.write_all(&[0])?;
+            encoder.write_all(current)?;
+        }
     }
     let compressed = encoder.finish()?;
     writer.write_all(PNG_SIGNATURE)?;
@@ -262,6 +301,9 @@ pub fn write_png<W: Write>(mut writer: W, pixels: PixelBuffer<'_>) -> Result<W, 
 }
 pub fn encode_png(pixels: PixelBuffer<'_>) -> Result<Vec<u8>, RasterError> {
     write_png(Vec::new(), pixels)
+}
+pub fn encode_png_fast(pixels: PixelBuffer<'_>) -> Result<Vec<u8>, RasterError> {
+    write_png_fast(Vec::new(), pixels)
 }
 pub fn decode_p4(
     bytes: &[u8],

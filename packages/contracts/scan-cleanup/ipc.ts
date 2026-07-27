@@ -46,6 +46,12 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     options: IScanCleanupOptions;
     documentPrior?: IScanCleanupDocumentPrior;
     /**
+     * Automatic output-mode evidence already produced by document detection.
+     * Electron resolves it into native page options so preview does not repeat
+     * the same mode analysis.
+     */
+    outputModeRecommendation?: TScanCleanupOutputMode;
+    /**
      * How the caller expects each page of the document to be cut. Matched page
      * size is measured over produced pages, so the preview and the run derive
      * one rectangle only if they are told the same thing about the document.
@@ -287,6 +293,42 @@ export interface IScanCleanupDetectionRequest extends IScanCleanupOwnerContext {
     options: IScanCleanupOptions;
 }
 
+/**
+ * Immutable source geometry measured once when detection opens the document.
+ * Preview and final rendering share it over the typed bridge instead of each
+ * reopening a hundreds-page PDF to rediscover the same page boxes and raster
+ * resolution.
+ */
+export interface IScanCleanupSourcePageMetadata {
+    pageNumber: number;
+    xPoints: number;
+    yPoints: number;
+    widthPoints: number;
+    heightPoints: number;
+    rotation: number;
+    sourceDpi: number;
+    dominantImageWidthPx?: number;
+    dominantImageHeightPx?: number;
+    dominantImageWidthPoints?: number;
+    dominantImageHeightPoints?: number;
+}
+
+/**
+ * Automatic geometry already measured by a base preview under the exact
+ * document/settings cache key used to start a final run. Coordinates are
+ * normalized within each output half, so the same plan can be replayed at the
+ * source raster's final DPI without treating it as a user-authored override.
+ */
+export interface IScanCleanupPagePlanEvidence {
+    pageNumber: number;
+    rotationDegrees: TScanCleanupPageRotation;
+    layoutClassification: TScanCleanupLayoutClassification;
+    outputs: Partial<Record<TScanCleanupOutputHalf, {
+        contentBox?: IScanCleanupNormalizedRect;
+        detectedSkewDegrees?: number;
+    }>>;
+}
+
 export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationMetadata {
     pageNumber: number;
     classification: IScanCleanupPreviewMetadata['layoutClassification'];
@@ -297,6 +339,7 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
     recommendedOutputMode?: TScanCleanupOutputMode;
     recommendedOutputModeConfidence?: number;
     recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
+    sourcePageMetadata?: IScanCleanupSourcePageMetadata;
 }
 
 interface IScanCleanupDetectionJobBase {
@@ -334,6 +377,9 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
     /** The layouts the preview was measured against, so this run matches the same rectangle. */
     layoutByPage?: TScanCleanupLayoutByPage;
+    sourcePageMetadataByPage?: Partial<Record<string, IScanCleanupSourcePageMetadata>>;
+    /** Valid base-preview geometry that lets final rendering skip duplicate page analysis. */
+    pagePlanEvidenceByPage?: Partial<Record<string, IScanCleanupPagePlanEvidence>>;
 }
 
 const s = runtimeSchema;

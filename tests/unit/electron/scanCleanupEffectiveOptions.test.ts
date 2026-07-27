@@ -37,6 +37,30 @@ function resolve(pageOverride = createScanCleanupPageOverride()) {
 }
 
 describe('effective scan cleanup options', () => {
+    it('reuses observed automatic layout while preserving explicit page choices', () => {
+        expect(resolveEffectiveScanCleanupOptions({
+            options,
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
+            observedLayout: 'single-uncut-page',
+            qualityPath: 'raster',
+        }).layout).toBe('force-single');
+        expect(resolveEffectiveScanCleanupOptions({
+            options,
+            pageOverride: createScanCleanupPageOverride({layoutOverride: 'spread'}),
+            dpi: 300,
+            observedLayout: 'single-uncut-page',
+            qualityPath: 'raster',
+        }).layout).toBe('force-two-page');
+        expect(resolveEffectiveScanCleanupOptions({
+            options,
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
+            observedLayout: 'page-with-offcut',
+            qualityPath: 'raster',
+        }).layout).toBe('page-with-offcut');
+    });
+
     it('maps the existing despeckle boolean to the native level contract', () => {
         expect(resolve().despeckleLevel).toBe('normal');
         expect(resolveEffectiveScanCleanupOptions({

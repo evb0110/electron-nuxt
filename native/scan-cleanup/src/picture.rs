@@ -1,6 +1,7 @@
 use crate::{
     calibration::PageCalibration, CleanupOptions, NormalizedZonePolygon, PictureZoneLayer,
 };
+use rayon::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
     morphology::{dilate, dilate_gray, erode_gray, fill_gray_holes, reconstruct_gray_by_erosion},
@@ -35,20 +36,24 @@ pub(crate) fn detect_picture_mask(
     let eroded = erode_gray(&stretched, small_radius, small_radius);
     let dilated = dilate_gray(&stretched, small_radius, small_radius);
     let mut contrast = GrayImage::new(source.width(), source.height(), 255);
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            let erosion = u16::from(eroded.get(x, y));
-            let dilation = u16::from(dilated.get(x, y));
+    contrast
+        .data_mut()
+        .par_iter_mut()
+        .zip(eroded.data().par_iter())
+        .zip(dilated.data().par_iter())
+        .for_each(|((target, &erosion), &dilation)| {
+            let erosion = u16::from(erosion);
+            let dilation = u16::from(dilation);
             let value = 255 - (255 - dilation) * erosion / 255;
-            contrast.set(x, y, value as u8);
-        }
-    }
+            *target = value as u8;
+        });
     let marker = erode_gray(&contrast, marker_radius, marker_radius);
     let reconstructed = reconstruct_gray_by_erosion(&marker, &contrast);
     let mut inverted = reconstructed;
-    for value in inverted.data_mut() {
-        *value = 255 - *value;
-    }
+    inverted
+        .data_mut()
+        .par_iter_mut()
+        .for_each(|value| *value = 255 - *value);
     let filled = fill_gray_holes(&inverted);
     let threshold = mokji_threshold(&filled, edge_width, DEFAULT_MOKJI_MIN_EDGE_MAGNITUDE);
     let candidate = threshold_global(&filled, threshold).invert();
@@ -191,12 +196,20 @@ fn point_in_polygon(x: f64, y: f64, points: &[scan_primitives::Point]) -> bool {
 }
 
 fn stretch_contrast(source: &GrayImage, tail_fraction: f64) -> GrayImage {
-    let mut histogram = [0usize; 256];
-    for y in 0..source.height() {
-        for &value in source.row(y) {
-            histogram[value as usize] += 1;
-        }
-    }
+    let histogram = source
+        .data()
+        .par_chunks(65_536)
+        .map(|chunk| {
+            let mut histogram = [0usize; 256];
+            for &value in chunk {
+                histogram[value as usize] += 1;
+            }
+            histogram
+        })
+        .reduce(
+            || [0usize; 256],
+            |left, right| std::array::from_fn(|index| left[index] + right[index]),
+        );
     let count = source.width().saturating_mul(source.height());
     if count == 0 {
         return source.clone();
@@ -209,9 +222,11 @@ fn stretch_contrast(source: &GrayImage, tail_fraction: f64) -> GrayImage {
     }
     let range = u16::from(high - low);
     let mut output = source.clone();
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            let value = source.get(x, y);
+    output
+        .data_mut()
+        .par_iter_mut()
+        .zip(source.data().par_iter())
+        .for_each(|(target, &value)| {
             let stretched = if value <= low {
                 0
             } else if value >= high {
@@ -219,9 +234,8 @@ fn stretch_contrast(source: &GrayImage, tail_fraction: f64) -> GrayImage {
             } else {
                 ((u16::from(value - low) * 255 + range / 2) / range) as u8
             };
-            output.set(x, y, stretched);
-        }
-    }
+            *target = stretched;
+        });
     output
 }
 
@@ -252,15 +266,7 @@ fn veto_text_like_regions(
     let text = threshold_global(source, otsu_threshold(source));
     let text_components = ComponentMap::from_binary(&text);
     let distance_to_white = squared_euclidean_distance(&text.invert());
-    let mut maxima = vec![0u32; text_components.components().len() + 1];
-    for y in 0..text.height() {
-        for x in 0..text.width() {
-            let label = text_components.label_at(x, y) as usize;
-            if label != 0 {
-                maxima[label] = maxima[label].max(distance_to_white[y * text.width() + x]);
-            }
-        }
-    }
+    let maxima = text_components.maximum_values_by_component(&distance_to_white);
     let scale = raster_dpi.max(1.0) / calibration.effective_dpi.max(1.0);
     let body_stroke = calibration.stroke_width_px * scale;
     let body_height = calibration.x_height_px * scale;
@@ -304,15 +310,7 @@ fn veto_text_like_regions(
     if !vetoed.iter().any(|&value| value) {
         return candidate;
     }
-    let mut output = candidate;
-    for y in 0..output.height() {
-        for x in 0..output.width() {
-            if vetoed[candidate_components.label_at(x, y) as usize] {
-                output.set(x, y, false);
-            }
-        }
-    }
-    output
+    candidate_components.retain(|component| !vetoed[component.label as usize])
 }
 
 #[cfg(test)]

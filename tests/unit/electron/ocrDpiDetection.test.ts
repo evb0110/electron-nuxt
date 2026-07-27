@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import {
     detectSourceDpi,
+    detectSourceDpiFromPageSizes,
     detectSourceDpiDetails,
 } from '@electron/ocr/worker/dpiDetection';
 
@@ -17,6 +18,58 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolComm
 describe('ocr dpi detection', () => {
     beforeEach(() => {
         mocks.runOcrCommand.mockReset();
+    });
+
+    it('derives every page raster from verified full-page image metadata', () => {
+        const result = detectSourceDpiFromPageSizes([
+            {
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 439.6,
+                heightPoints: 670,
+                rotation: 0,
+                dominantImageWidthPx: 2198,
+                dominantImageHeightPx: 3350,
+                dominantImageWidthPoints: 439.6,
+                dominantImageHeightPoints: 670,
+            },
+            {
+                pageNumber: 2,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 424,
+                heightPoints: 640.4,
+                rotation: 0,
+                dominantImageWidthPx: 2120,
+                dominantImageHeightPx: 3202,
+                dominantImageWidthPoints: 424,
+                dominantImageHeightPoints: 640.4,
+            },
+        ]);
+
+        expect(result?.documentDpi).toBe(360);
+        expect(result?.pageRasterByNumber.get(1)).toEqual({
+            dpi: 360,
+            width: 2198,
+            height: 3350,
+        });
+        expect(result?.pageRasterByNumber.get(2)).toEqual({
+            dpi: 360,
+            width: 2120,
+            height: 3202,
+        });
+    });
+
+    it('falls back when any page lacks verified full-page raster metadata', () => {
+        expect(detectSourceDpiFromPageSizes([{
+            pageNumber: 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        }])).toBeNull();
     });
 
     it('uses each page dominant raster instead of a tiny high-DPI object', async () => {

@@ -119,6 +119,15 @@ async function main() {
             stdio: 'pipe',
         },
         {
+            source: 'pnpm-dev-build-scan-cleanup',
+            command: PNPM_COMMAND,
+            args: [
+                'run',
+                'build:scan-cleanup',
+            ],
+            stdio: 'pipe',
+        },
+        {
             source: 'pnpm-dev-build-electron',
             command: PNPM_COMMAND,
             args: [

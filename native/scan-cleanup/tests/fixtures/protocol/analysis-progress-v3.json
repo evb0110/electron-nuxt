@@ -1,1 +1,1 @@
-{"version":3,"type":"progress","progress":{"stage":"page-analyzed","completedPages":2,"totalPages":4,"pageNumber":3}}
+{"version":3,"type":"progress","progress":{"stage":"page-analyzed","completedPages":2,"totalPages":4,"pageNumber":3,"classification":"single-uncut-page","confidence":0.91,"tier1Verdict":"single-uncut-page","reconciled":false,"clusterAgreement":0.0,"recommendedOutputMode":"mixed","recommendedOutputModeConfidence":0.9,"recommendedOutputModeReason":"text-with-pictures"}}

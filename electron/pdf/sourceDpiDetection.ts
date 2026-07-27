@@ -4,6 +4,7 @@ import {
 } from '@electron/native-tools/runNativeToolCommand';
 import { compact } from 'es-toolkit/array';
 import { getErrorMessage } from '@electron/utils/error';
+import type {IPdfPageSize} from '@electron/pdf/pdfPageSizes';
 
 export type TSourceDpiLog = (level: 'debug' | 'warn' | 'error', message: string) => void;
 
@@ -214,6 +215,63 @@ function withDerivedPageDpi(
         pageDpiByNumber,
         pageRasterByNumber: result.pageRasterByNumber,
     };
+}
+
+/**
+ * Derive raster resolution from the page metadata pass when every page is a
+ * full-page scan. `evb-pdf-page-ops` only exposes these image fields after
+ * proving from the PDF content matrix that the image covers the page view, so
+ * this is equivalent to pdfimages' dominant-raster answer without decoding or
+ * walking every image stream in a second process. A mixed/vector document
+ * returns null and keeps the conservative pdfimages fallback.
+ */
+export function detectSourceDpiFromPageSizes(
+    pageSizes: readonly IPdfPageSize[],
+): ISourceDpiDetectionResult | null {
+    if (pageSizes.length === 0) {
+        return null;
+    }
+    const pageRasterByNumber = new Map<number, IDetectedPageRaster>();
+    for (const page of pageSizes) {
+        const {
+            dominantImageWidthPx: width,
+            dominantImageHeightPx: height,
+            dominantImageWidthPoints: widthPoints,
+            dominantImageHeightPoints: heightPoints,
+        } = page;
+        if (
+            width === undefined
+            || height === undefined
+            || widthPoints === undefined
+            || heightPoints === undefined
+            || !Number.isSafeInteger(width)
+            || !Number.isSafeInteger(height)
+            || width <= 0
+            || height <= 0
+            || !Number.isFinite(widthPoints)
+            || !Number.isFinite(heightPoints)
+            || widthPoints <= 0
+            || heightPoints <= 0
+        ) {
+            return null;
+        }
+        const dpi = Math.max(
+            width / widthPoints * 72,
+            height / heightPoints * 72,
+        );
+        if (!Number.isFinite(dpi) || dpi <= 0) {
+            return null;
+        }
+        pageRasterByNumber.set(page.pageNumber, {
+            dpi: Math.max(1, Math.round(dpi)),
+            width,
+            height,
+        });
+    }
+    return withDerivedPageDpi({
+        documentDpi: null,
+        pageRasterByNumber,
+    });
 }
 
 function mergeDpiDetectionResults(

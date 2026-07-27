@@ -1,14 +1,14 @@
 //! Format-sniffing readers for cleanup raster inputs: PNG for browser-visible
 //! surfaces and raw PPM P6 for pipeline-internal Poppler handoffs.
-use super::decode_limits;
+use super::{decode_limits, write_atomic_with};
 use evb_raster_io::{
     decode_png, decode_png_gray, decode_ppm, decode_ppm_gray, read_png_dimensions,
     read_ppm_dimensions,
 };
-use scan_primitives::GrayImage;
+use scan_primitives::{GrayImage, RgbImage};
 use std::{
     fs::File,
-    io::{Cursor, ErrorKind, Read},
+    io::{Cursor, ErrorKind, Read, Write},
     path::Path,
 };
 
@@ -53,6 +53,30 @@ pub fn read_dimensions(
         read_png_dimensions(file, limits)
     }
     .map_err(|error| error.to_string())
+}
+
+pub fn write_rgb_ppm_atomic(path: &Path, image: &RgbImage) -> Result<(), String> {
+    write_atomic_with(path, |file| {
+        write!(file, "P6\n{} {}\n255\n", image.width(), image.height())
+            .map_err(|error| error.to_string())?;
+        file.write_all(image.data())
+            .map_err(|error| error.to_string())
+    })
+}
+
+pub fn write_gray_ppm_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
+    write_atomic_with(path, |file| {
+        write!(file, "P6\n{} {}\n255\n", image.width(), image.height())
+            .map_err(|error| error.to_string())?;
+        let mut row = vec![0; image.width() * 3];
+        for source in image.data().chunks_exact(image.width()) {
+            for (target, value) in row.chunks_exact_mut(3).zip(source.iter().copied()) {
+                target.fill(value);
+            }
+            file.write_all(&row).map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    })
 }
 
 // Inputs may be FIFOs (streamed pages), so the consumed magic bytes are
@@ -142,6 +166,21 @@ mod tests {
         fs::write(&ppm_path, b"P6\n4 4\n255\n").unwrap();
         let error = read_dimensions(&ppm_path, 8, 16).unwrap_err();
         assert!(error.contains("guardrails"), "unexpected error: {error}");
+        fs::remove_file(&ppm_path).unwrap();
+    }
+
+    #[test]
+    fn writes_gray_planes_as_rgb_ppm_handoffs() {
+        let mut source = GrayImage::new(2, 1, 255);
+        source.set(0, 0, 17);
+        source.set(1, 0, 231);
+        let ppm_path = temp_path("gray-output.ppm");
+
+        write_gray_ppm_atomic(&ppm_path, &source).unwrap();
+
+        let decoded = read_image(&ppm_path, 16, 16).unwrap();
+        assert_eq!(decoded.rgb.get(0, 0), [17, 17, 17]);
+        assert_eq!(decoded.rgb.get(1, 0), [231, 231, 231]);
         fs::remove_file(&ppm_path).unwrap();
     }
 }

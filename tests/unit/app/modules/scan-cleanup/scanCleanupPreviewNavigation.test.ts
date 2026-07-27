@@ -30,7 +30,10 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type * as scanCleanupPreviewCacheModule from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import type {IScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
-import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
+import {
+    createScanCleanupPagePlanEvidence,
+    useScanCleanupPreviewSession,
+} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 
 // M2 (U21), page 200 of the reference document, cold: one cleaned preview costs
 // 2412 ms. M1: its raw PNG is 1 056 837 B. The raster is modelled as free, the
@@ -322,6 +325,7 @@ function mountPreviewSession(
             lifecycleDocumentKey: computed(() => 'reference.pdf'),
             ownerId: 'owner-1',
             previewPage,
+            recommendedOutputModeByPage: new Map(),
             selectPage: page => { previewPage.value = page; },
             settings: reactive(scanCleanupOptions()),
             sourcePath: computed(() => '/docs/reference.pdf'),
@@ -539,6 +543,37 @@ async function runScenario(scenario: IScenario) {
 }
 
 describe('scan cleanup preview navigation', () => {
+    it('normalizes valid base-preview geometry for a final run and excludes dewarped output', () => {
+        const wire = previewResult(12);
+        if (wire.canceled === true) throw new Error('fixture unexpectedly canceled');
+        const result = {
+            ...wire,
+            rawImageData: new Uint8Array([1]),
+        };
+        expect(createScanCleanupPagePlanEvidence(result)).toEqual({
+            pageNumber: 12,
+            rotationDegrees: 0,
+            layoutClassification: 'single-uncut-page',
+            outputs: {full: {contentBox: {
+                xNormalized: 0,
+                yNormalized: 0,
+                widthNormalized: 1,
+                heightNormalized: 1,
+                rotationDegrees: 0,
+            }}},
+        });
+        expect(createScanCleanupPagePlanEvidence({
+            ...result,
+            outputs: result.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    dewarpApplied: true,
+                },
+            })),
+        })).toBeUndefined();
+    });
+
     beforeEach(() => {
         vi.useFakeTimers();
         vi.setSystemTime(0);

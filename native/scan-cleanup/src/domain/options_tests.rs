@@ -74,6 +74,42 @@ fn normalized_content_rect_round_trips_with_named_units() {
 }
 
 #[test]
+fn automatic_page_plan_is_additive_and_distinct_from_manual_geometry() {
+    let options: CleanupOptions = serde_json::from_str(
+        r#"{
+            "automaticSkewDegrees":{"right":-0.25},
+            "automaticContentBoxes":{"right":{
+                "xNormalized":0.1,
+                "yNormalized":0.2,
+                "widthNormalized":0.5,
+                "heightNormalized":0.6,
+                "rotationDegrees":0
+            }}
+        }"#,
+    )
+    .unwrap();
+    options.validate().unwrap();
+    assert_eq!(options.automatic_skew_for(PageHalf::Right), Some(-0.25));
+    assert_eq!(
+        options.resolved_content_for(PageHalf::Right, 800, 1_000),
+        Some(Rect::new(80.0, 200.0, 400.0, 600.0))
+    );
+    assert_eq!(
+        options.resolved_manual_content_for(PageHalf::Right, 800, 1_000),
+        None
+    );
+    let encoded = serde_json::to_value(options).unwrap();
+    assert_eq!(encoded["automaticSkewDegrees"]["right"], -0.25);
+    assert_eq!(
+        encoded["automaticContentBoxes"]["right"]["widthNormalized"],
+        0.5
+    );
+    let defaults = serde_json::to_value(CleanupOptions::default()).unwrap();
+    assert!(defaults.get("automaticSkewDegrees").is_none());
+    assert!(defaults.get("automaticContentBoxes").is_none());
+}
+
+#[test]
 fn normalized_render_crop_is_optional_bounded_and_resolves_outward() {
     let default_options = CleanupOptions::default();
     assert_eq!(default_options.render_crop, None);

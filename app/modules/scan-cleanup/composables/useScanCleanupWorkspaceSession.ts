@@ -67,6 +67,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         lifecycleDocumentKey,
         ownerId,
         previewPage: selection.leader,
+        recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
         selectPage: selection.selectPage,
         settings: settings.values,
         sourcePath,
@@ -82,6 +83,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         onCompleted: settings.dismissFirstRunGuidance,
         ownerId,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
+        resolvePagePlanEvidence: pageNumbers => previewResult?.resolvePagePlanEvidence(pageNumbers) ?? new Map(),
         sourcePageNumbers: computed(() => {
             if (selection.settingsScope.value === 'all') {
                 return null;
@@ -91,6 +93,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             }
             return [...selection.selectedPages.value].sort((left, right) => left - right);
         }),
+        sourcePageMetadataByPage: detection.sourcePageMetadataByPage,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
         settings: settings.values,
         sourcePath,

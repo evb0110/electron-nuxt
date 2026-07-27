@@ -12,6 +12,7 @@ import type {
     TScanCleanupDespeckleLevel,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
+    TScanCleanupOutputMode,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
@@ -31,6 +32,7 @@ export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 3 as const;
 
 export type TNativeScanCleanupOperation = 'analyze' | 'render';
 export type TNativeScanCleanupRenderMode = 'preview' | 'final';
+export type TNativeScanCleanupAnalysisPurpose = 'classification' | 'page-plan';
 
 export interface INativeScanCleanupExperimentalOptionsV3 {
     autoDewarp: boolean;
@@ -57,6 +59,13 @@ export interface INativeScanCleanupOptionsV3 {
     manualSplit: IScanCleanupNormalizedSplit | null;
     manualSkewDegrees?: number;
     manualContentBoxes: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
+    /**
+     * Trusted automatic geometry from a base preview with the same settings.
+     * Manual values above take precedence. Kept distinct so native metadata
+     * never labels replayed automatic analysis as a user edit.
+     */
+    automaticSkewDegrees?: Partial<Record<TScanCleanupOutputHalf, number>>;
+    automaticContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
     manualZones?: IScanCleanupManualZones;
     cropContent: boolean;
     matchPageSize: boolean;
@@ -77,6 +86,59 @@ export interface INativeScanCleanupOutputV3 {
     bilevelOutputPath?: string;
     backgroundOutputPath?: string;
     foregroundMaskOutputPath?: string;
+}
+
+/** Metadata written beside each protocol-v3 rendered output. */
+export interface INativeScanCleanupOutputMetadataV3 {
+    outputWidthPx: number;
+    outputHeightPx: number;
+    canvasWidthPx: number;
+    canvasHeightPx: number;
+    layoutClassification: TScanCleanupLayoutClassification;
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+    splitAbstained?: boolean;
+    detectedSkewDegrees?: number;
+    skewConfidence?: number;
+    skewApplied: boolean;
+    manualSkew?: boolean;
+    bilevelWritten?: boolean;
+    layeredWritten?: boolean;
+    layeredBackgroundDpi?: number;
+    illuminationNormalized?: boolean;
+    binarizationMode?: TScanCleanupBinarizationMethod | null;
+    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
+    outputMode?: TScanCleanupOutputMode;
+    despeckleFallback?: boolean;
+    dewarpConfidence?: number | null;
+    contentBox?: IScanCleanupPixelRect | null;
+    warnings?: string[];
+    renderDpi?: number;
+    matchedCanvasTargetWidthPoints?: number | null;
+    matchedCanvasTargetHeightPoints?: number | null;
+}
+
+export interface INativeScanCleanupAnalysisOutputV3 {
+    half: TScanCleanupOutputHalf;
+    cropRect: IScanCleanupPixelRect;
+    sourceRegion: IScanCleanupPixelRect;
+    inputWidthPx: number;
+    inputHeightPx: number;
+}
+
+/** Metadata written once for every page in a protocol-v3 batch. */
+export interface INativeScanCleanupPageMetadataV3 {
+    layoutClassification: TScanCleanupLayoutClassification;
+    layoutConfidence?: number;
+    cutterXPx: number | null;
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+    splitAbstained?: boolean;
+    rotationDegrees: TScanCleanupPageRotation;
+    canvasScope: TScanCleanupCanvasScope;
+    excluded: boolean;
+    blankOutputsSkipped: number;
+    outputCount: number;
+    outputs?: INativeScanCleanupAnalysisOutputV3[];
+    recommendedOutputMode?: TScanCleanupOutputMode;
 }
 
 /** Additive geometry returned in page/output metadata by protocol-v3 sidecars. */
@@ -180,6 +242,12 @@ export interface INativeScanCleanupPageV3 {
 export interface INativeScanCleanupManifestV3 {
     version: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
     operation: TNativeScanCleanupOperation;
+    /**
+     * Classification omits content/crop planning that no detection consumer
+     * reads. Page-plan is the default for compatibility and for lossless
+     * previews, which do consume those output rectangles.
+     */
+    analysisPurpose?: TNativeScanCleanupAnalysisPurpose;
     renderMode: TNativeScanCleanupRenderMode;
     canvasScope: TScanCleanupCanvasScope;
     documentCanvas?: {
@@ -250,16 +318,31 @@ const pageStageTimings = s.object({
     decodeMs: s.optional(s.number({min: 0})),
     analysisLevelMs: s.optional(s.number({min: 0})),
     normalizationMs: s.optional(s.number({min: 0})),
+    illuminationPreparationMs: s.optional(s.number({min: 0})),
+    layoutNormalizationMs: s.optional(s.number({min: 0})),
+    calibrationMs: s.optional(s.number({min: 0})),
+    pictureMaskMs: s.optional(s.number({min: 0})),
+    modeRecommendationMs: s.optional(s.number({min: 0})),
+    qualityNormalizationMs: s.optional(s.number({min: 0})),
+    textAxisMs: s.optional(s.number({min: 0})),
     splitMs: s.optional(s.number({min: 0})),
     deskewMs: s.optional(s.number({min: 0})),
     contentMs: s.optional(s.number({min: 0})),
+    rasterizationMs: s.optional(s.number({min: 0})),
+    maskRasterizationMs: s.optional(s.number({min: 0})),
+    binarizationMs: s.optional(s.number({min: 0})),
+    thresholdPreparationMs: s.optional(s.number({min: 0})),
+    thresholdingMs: s.optional(s.number({min: 0})),
+    binaryPostprocessMs: s.optional(s.number({min: 0})),
+    mixedCompositionMs: s.optional(s.number({min: 0})),
+    outputProcessingMs: s.optional(s.number({min: 0})),
     renderMs: s.optional(s.number({min: 0})),
     writeMs: s.optional(s.number({min: 0})),
 }, {
     exact: true,
     message: 'Invalid evb-scan-cleanup stage timings',
 });
-const progress = s.refine(s.refine(s.refine(s.object({
+const progress = s.refine(s.refine(s.object({
     stage: s.oneOf([
         'started',
         'page-analyzed',
@@ -309,21 +392,7 @@ const progress = s.refine(s.refine(s.refine(s.object({
     value.pageNumber === undefined
         ? value.stage !== 'page-analyzed' && value.stage !== 'page-complete'
         : value.pageNumber <= value.totalPages,
-'Invalid evb-scan-cleanup progress page number'), value =>
-    value.stage !== 'page-analyzed' || [
-        value.classification,
-        value.confidence,
-        value.cutterXPx,
-        value.tier1Verdict,
-        value.reconciled,
-        value.clusterAgreement,
-        value.documentPrior,
-        value.textAxis,
-        value.recommendedOutputMode,
-        value.recommendedOutputModeConfidence,
-        value.recommendedOutputModeReason,
-    ].every(item => item === undefined),
-'Invalid evb-scan-cleanup pre-reconciliation analysis progress');
+'Invalid evb-scan-cleanup progress page number');
 const successResult = s.object({
     status: s.oneOf(['success'] as const),
     completedPages: nonNegativeInteger('Invalid evb-scan-cleanup success result'),

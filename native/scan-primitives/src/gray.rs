@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use std::ops::Range;
 
 /// Owned 8-bit grayscale image with an explicit byte stride.
@@ -124,21 +125,24 @@ impl GrayImage {
             .map(|x| sample_bounds(x, self.width, out_width))
             .collect::<Vec<_>>();
         let mut output = Self::new(out_width, out_height, 255);
-        for oy in 0..out_height {
-            let (y0, y1) = sample_bounds(oy, self.height, out_height);
-            let output_row = output.row_mut(oy);
-            for (target, &(x0, x1)) in output_row.iter_mut().zip(&x_bounds) {
-                let mut sum = 0u64;
-                for y in y0..y1 {
-                    sum += self.row(y)[x0..x1]
-                        .iter()
-                        .map(|&value| u64::from(value))
-                        .sum::<u64>();
+        output
+            .data_mut()
+            .par_chunks_mut(out_width)
+            .enumerate()
+            .for_each(|(oy, output_row)| {
+                let (y0, y1) = sample_bounds(oy, self.height, out_height);
+                for (target, &(x0, x1)) in output_row.iter_mut().zip(&x_bounds) {
+                    let mut sum = 0u64;
+                    for y in y0..y1 {
+                        sum += self.row(y)[x0..x1]
+                            .iter()
+                            .map(|&value| u64::from(value))
+                            .sum::<u64>();
+                    }
+                    let count = (x1 - x0) as u64 * (y1 - y0) as u64;
+                    *target = (sum / count) as u8;
                 }
-                let count = (x1 - x0) as u64 * (y1 - y0) as u64;
-                *target = (sum / count) as u8;
-            }
-        }
+            });
         output
     }
 
@@ -168,18 +172,23 @@ impl GrayImage {
         let x_map = axis_samples(intermediate.width, out_width);
         let y_map = axis_samples(intermediate.height, out_height);
         let mut output = Self::new(out_width, out_height, 255);
-        for (oy, &(y0, y1, wy)) in y_map.iter().enumerate() {
-            let top = intermediate.row(y0);
-            let bottom = intermediate.row(y1);
-            let row = output.row_mut(oy);
-            for (target, &(x0, x1, wx)) in row.iter_mut().zip(&x_map) {
-                let top_value = f64::from(top[x0]) * (1.0 - wx) + f64::from(top[x1]) * wx;
-                let bottom_value = f64::from(bottom[x0]) * (1.0 - wx) + f64::from(bottom[x1]) * wx;
-                *target = (top_value * (1.0 - wy) + bottom_value * wy)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
-            }
-        }
+        output
+            .data_mut()
+            .par_chunks_mut(out_width)
+            .enumerate()
+            .for_each(|(oy, row)| {
+                let (y0, y1, wy) = y_map[oy];
+                let top = intermediate.row(y0);
+                let bottom = intermediate.row(y1);
+                for (target, &(x0, x1, wx)) in row.iter_mut().zip(&x_map) {
+                    let top_value = f64::from(top[x0]) * (1.0 - wx) + f64::from(top[x1]) * wx;
+                    let bottom_value =
+                        f64::from(bottom[x0]) * (1.0 - wx) + f64::from(bottom[x1]) * wx;
+                    *target = (top_value * (1.0 - wy) + bottom_value * wy)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                }
+            });
         output
     }
 }

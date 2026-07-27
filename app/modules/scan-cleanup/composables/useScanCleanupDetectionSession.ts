@@ -1,5 +1,6 @@
 import type {
     IScanCleanupDetectionResult,
+    IScanCleanupSourcePageMetadata,
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     IScanCleanupPreviewResult,
@@ -97,6 +98,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const recommendedOutputModeConfidenceByPage = reactive(new Map<number, number>());
     const recommendedOutputModeReasonByPage = reactive(
         new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputModeReason']>>(),
+    );
+    const sourcePageMetadataByPage = computed<ReadonlyMap<number, IScanCleanupSourcePageMetadata>>(
+        () => new Map(
+            (jobState.value?.results ?? []).flatMap(result => result.sourcePageMetadata === undefined
+                ? []
+                : [[
+                    result.pageNumber,
+                    result.sourcePageMetadata,
+                ] as const]),
+        ),
     );
     let jobId: string | null = null;
     let jobDocumentKey: string | null = null;
@@ -665,6 +676,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         recommendedOutputModeConfidenceByPage,
         recommendedOutputModeReasonByPage,
         settledPages,
+        sourcePageMetadataByPage,
         textAxisByPage,
     };
 };

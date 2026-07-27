@@ -1,5 +1,7 @@
 import type {
     IScanCleanupOptions,
+    IScanCleanupPagePlanEvidence,
+    IScanCleanupSourcePageMetadata,
     TScanCleanupLayoutClassification,
 } from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
@@ -39,7 +41,9 @@ interface IUseScanCleanupRunSessionOptions {
     onCompleted: () => void;
     ownerId: string;
     previewTotalPages: () => number;
+    resolvePagePlanEvidence: (pageNumbers: readonly number[]) => ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
     sourcePageNumbers: ComputedRef<number[] | null>;
+    sourcePageMetadataByPage: ComputedRef<ReadonlyMap<number, IScanCleanupSourcePageMetadata>>;
     settings: IScanCleanupOptions;
     recommendedOutputModeByPage: ReadonlyMap<number, 'bw' | 'mixed' | 'grayscale' | 'color'>;
     sourcePath: ComputedRef<TDocumentRef | null>;
@@ -131,6 +135,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (!options.sourcePath.value || !canRun.value) {
             return;
         }
+        const pagePlanEvidence = options.resolvePagePlanEvidence(runPageNumbers.value);
         const request = {
             sourcePdfPath: options.sourcePath.value,
             ownerId: options.ownerId,
@@ -143,6 +148,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 options.recommendedOutputModeByPage,
             )}),
             layoutByPage: toScanCleanupLayoutByPage(options.authoritativeLayoutByPage.value),
+            ...(options.sourcePageMetadataByPage.value.size === 0
+                ? {}
+                : {sourcePageMetadataByPage: Object.fromEntries(options.sourcePageMetadataByPage.value)}),
+            ...(pagePlanEvidence.size === 0
+                ? {}
+                : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidence)}),
         };
         stopRequested.value = false;
         beginScanCleanupAttempt();

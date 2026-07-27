@@ -14,6 +14,7 @@ import type {
 import {
     decodeDocumentPrior,
     decodeFiniteNumber,
+    decodeSourcePageMetadata,
     isLayoutClassification,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
@@ -773,6 +774,15 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             || (result.recommendedOutputModeReason !== undefined
                 && !isScanCleanupOutputModeRecommendationReason(result.recommendedOutputModeReason))
         ) throw new Error('invalid scan-cleanup detection result');
+        const sourcePageMetadata = result.sourcePageMetadata === undefined
+            ? undefined
+            : decodeSourcePageMetadata(result.sourcePageMetadata);
+        if (
+            sourcePageMetadata !== undefined
+            && sourcePageMetadata.pageNumber !== result.pageNumber
+        ) {
+            throw new Error('invalid scan-cleanup detection source page metadata');
+        }
         return {
             pageNumber: decodePositiveInteger(result.pageNumber, 'detection page number'),
             classification: result.classification as TScanCleanupDetectionJobState['results'][number]['classification'],
@@ -805,6 +815,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             ...(isScanCleanupOutputModeRecommendationReason(result.recommendedOutputModeReason)
                 ? {recommendedOutputModeReason: result.recommendedOutputModeReason}
                 : {}),
+            ...(sourcePageMetadata === undefined ? {} : {sourcePageMetadata}),
         };
     });
     if (

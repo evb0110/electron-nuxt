@@ -1,4 +1,5 @@
 use crate::BinaryImage;
+use rayon::prelude::*;
 use std::collections::VecDeque;
 
 const INF: i64 = i64::MAX / 8;
@@ -10,6 +11,15 @@ pub fn squared_euclidean_distance(image: &BinaryImage) -> Vec<u32> {
     if width == 0 || height == 0 {
         return Vec::new();
     }
+    if width.saturating_mul(height) >= 65_536 {
+        return squared_euclidean_distance_parallel(image);
+    }
+    squared_euclidean_distance_serial(image)
+}
+
+fn squared_euclidean_distance_serial(image: &BinaryImage) -> Vec<u32> {
+    let width = image.width();
+    let height = image.height();
     let mut vertical = vec![INF; width * height];
     for x in 0..width {
         let mut last = None;
@@ -44,6 +54,68 @@ pub fn squared_euclidean_distance(image: &BinaryImage) -> Vec<u32> {
             *target = distance.min(u32::MAX as i64) as u32;
         }
     }
+    output
+}
+
+fn squared_euclidean_distance_parallel(image: &BinaryImage) -> Vec<u32> {
+    let width = image.width();
+    let height = image.height();
+    let mut columns = vec![INF; width * height];
+    columns
+        .par_chunks_mut(height)
+        .enumerate()
+        .for_each(|(x, column)| {
+            let mut last = None;
+            for (y, target) in column.iter_mut().enumerate() {
+                if image.get(x, y) {
+                    last = Some(y);
+                    *target = 0;
+                } else if let Some(seed) = last {
+                    let d = y - seed;
+                    *target = (d * d) as i64;
+                }
+            }
+            last = None;
+            for y in (0..height).rev() {
+                if image.get(x, y) {
+                    last = Some(y);
+                } else if let Some(seed) = last {
+                    let d = seed - y;
+                    column[y] = column[y].min((d * d) as i64);
+                }
+            }
+        });
+    let mut vertical = vec![INF; width * height];
+    const TRANSPOSE_ROWS: usize = 32;
+    vertical
+        .par_chunks_mut(width * TRANSPOSE_ROWS)
+        .enumerate()
+        .for_each(|(row_block, rows)| {
+            let first_y = row_block * TRANSPOSE_ROWS;
+            let row_count = rows.len() / width;
+            for first_x in (0..width).step_by(32) {
+                let x_end = (first_x + 32).min(width);
+                for local_y in 0..row_count {
+                    let y = first_y + local_y;
+                    for x in first_x..x_end {
+                        rows[local_y * width + x] = columns[x * height + y];
+                    }
+                }
+            }
+        });
+    let mut output = vec![u32::MAX; width * height];
+    output
+        .par_chunks_mut(width)
+        .zip(vertical.par_chunks(width))
+        .for_each_init(
+            || TransformScratch::new(width),
+            |scratch, (output_row, vertical_row)| {
+                transform_1d(vertical_row, scratch);
+                for (target, &distance) in output_row.iter_mut().zip(&scratch.output) {
+                    *target = distance.min(u32::MAX as i64) as u32;
+                }
+            },
+        );
     output
 }
 
@@ -411,6 +483,24 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn parallel_distance_transform_is_bit_exact() {
+        let mut image = BinaryImage::new(257, 257);
+        let mut state = 0x5045_4454_5f4d_3350_u64;
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                image.set(x, y, state >> 60 == 0);
+            }
+        }
+        assert_eq!(
+            squared_euclidean_distance_parallel(&image),
+            squared_euclidean_distance_serial(&image)
+        );
     }
 
     #[test]

@@ -41,7 +41,6 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
 
-const PREVIEW_DPI = 150;
 const SOURCE_PAGE_WIDTH_POINTS = 612;
 const SOURCE_PAGE_HEIGHT_POINTS = 792;
 // The finest resolution the mixed-scale fixture was scanned at, which is the
@@ -53,10 +52,6 @@ const SOURCE_HIGH_DPI = 288;
 // Letter rather than growing to 640 x 820.
 const CANVAS_WIDTH_POINTS = SOURCE_PAGE_WIDTH_POINTS;
 const CANVAS_HEIGHT_POINTS = SOURCE_PAGE_HEIGHT_POINTS;
-const CANVAS_FRAME = {
-    width: Math.floor(CANVAS_WIDTH_POINTS / 72 * PREVIEW_DPI),
-    height: Math.floor(CANVAS_HEIGHT_POINTS / 72 * PREVIEW_DPI),
-};
 // Every sampled page has to settle within this, detection running or not.
 const PAGE_SETTLE_TIMEOUT_MS = 120_000;
 // A cleanup run of these fixtures is seconds of native work. This is the point
@@ -71,6 +66,7 @@ const EVIDENCE_DIR = resolve(process.cwd(), '.devkit', '_tasks', 'audit-jul-25',
 interface IPreviewFrame {
     width: number;
     height: number;
+    renderDpi: number;
     contentWidth: number;
     contentHeight: number;
 }
@@ -79,6 +75,7 @@ interface ICanvasSample {
     page: number;
     detecting: boolean;
     frames: IPreviewFrame[];
+    visibleInMs?: number;
     settledInMs: number;
 }
 
@@ -164,6 +161,18 @@ function outputPageRasters(document: PDFDocument) {
 }
 
 async function openScanCleanup(page: Page, sourcePath: string) {
+    // The file shares one real Electron window across scenarios. A preceding
+    // scenario can intentionally leave the cleanup workspace open after it
+    // verifies its output; reset that feature mode before opening the next
+    // source so toolbar discovery measures the new document rather than the
+    // previous workspace's specialized toolbar.
+    if (await page.$('.scan-cleanup-surface')) {
+        await page.click('.scan-cleanup-toolbar-done');
+        await page.waitForSelector('.scan-cleanup-surface', {
+            hidden: true,
+            timeout: 30_000,
+        });
+    }
     await openPdfInApp(page, sourcePath, 180_000);
     await waitForPdfLoaded(page, 180_000);
     await waitForViewerInteractive(page, 180_000);
@@ -187,6 +196,7 @@ const readFrames = (page: Page) => evaluateInPage(page, () => Array.from(
     return {
         width: Number(element.dataset.frameWidth),
         height: Number(element.dataset.frameHeight),
+        renderDpi: Number(element.dataset.renderDpi),
         contentWidth: Number(placed?.dataset.contentWidth ?? 0),
         contentHeight: Number(placed?.dataset.contentHeight ?? 0),
     };
@@ -199,7 +209,11 @@ const readDetecting = (page: Page) => evaluateInPage(page, () => document.queryS
 // A page turn updates the counter immediately and keeps the previous page's
 // pixels under a loading overlay until its own render lands, so the sample has
 // to wait for the overlay to go before it reads a frame.
-async function waitForPreview(page: Page, expectedPage: number) {
+async function waitForPreview(
+    page: Page,
+    expectedPage: number,
+    timeoutMs = PAGE_SETTLE_TIMEOUT_MS,
+) {
     await waitForFunctionInPage(page, (target: number) => {
         const label = document.querySelector(
             '.page-navigation .page-label .scan-cleanup-stable-width-value',
@@ -210,7 +224,30 @@ async function waitForPreview(page: Page, expectedPage: number) {
             && document.querySelectorAll(
                 '.uniform-canvas[data-frame-width]:not(.preview-skeleton-page)',
             ).length > 0;
-    }, {timeout: PAGE_SETTLE_TIMEOUT_MS}, expectedPage);
+    }, {timeout: timeoutMs}, expectedPage);
+}
+
+// The source raster is streamed before native cleanup finishes. This is the
+// latency the user feels: a page may still be acquiring cleaned geometry, but
+// it may not remain an empty skeleton while that work runs.
+async function waitForVisibleRaster(
+    page: Page,
+    expectedPage: number,
+    timeoutMs = 5_000,
+) {
+    await waitForFunctionInPage(page, (target: number) => {
+        const label = document.querySelector(
+            '.page-navigation .page-label .scan-cleanup-stable-width-value',
+        )?.textContent ?? '';
+        const rawImages = Array.from(document.querySelectorAll<HTMLImageElement>(
+            '[data-testid="scan-cleanup-original-only"] img.preview-pixel',
+        ));
+        const rawLoaded = rawImages.some(image => image.complete && image.naturalWidth > 0);
+        const cleanedVisible = document.querySelectorAll(
+            '.uniform-canvas[data-frame-width]:not(.preview-skeleton-page)',
+        ).length > 0 && document.querySelector('.page-loading-overlay, .preview-loading') === null;
+        return label.trim().startsWith(`Page ${target} of`) && (rawLoaded || cleanedVisible);
+    }, {timeout: timeoutMs}, expectedPage);
 }
 
 const nextPage = (page: Page) => evaluateInPage(page, () => {
@@ -381,7 +418,118 @@ const readViewerState = (page: Page) => evaluateInPage(page, () => {
     preparing: boolean;
 }>;
 
+const readCaptionLayout = (page: Page) => evaluateInPage(page, () => {
+    const caption = document.querySelector<HTMLElement>('.preview-viewport-caption');
+    const icon = caption?.querySelector<HTMLElement>('.iconify');
+    const captionRect = caption?.getBoundingClientRect();
+    const iconRect = icon?.getBoundingClientRect();
+    return {
+        display: caption ? getComputedStyle(caption).display : '',
+        text: caption?.textContent?.trim() ?? '',
+        iconCenterOffsetY: captionRect && iconRect
+            ? Math.abs(
+                iconRect.top + iconRect.height / 2
+                - (captionRect.top + captionRect.height / 2),
+            )
+            : null,
+    };
+});
+
 describe('scan cleanup matched page canvas', () => {
+    const representativePdfPath = process.env.EVB_E2E_SCAN_CLEANUP_PDF?.trim();
+    const representativeIt = representativePdfPath ? it : it.skip;
+
+    representativeIt('keeps a representative large scan interactive and cleans one selected page', async () => {
+        const session = sessionFixture.getSession();
+        expect(session).toBeTruthy();
+        if (!session || !representativePdfPath) {
+            return;
+        }
+        expect(existsSync(representativePdfPath)).toBe(true);
+        const {page} = session;
+        await openScanCleanup(page, representativePdfPath);
+        await ensureChecked(page, 'Match page size');
+
+        const previewSamples: Array<{
+            page: number;
+            detecting: boolean;
+            visibleInMs: number;
+            settledInMs: number;
+            frames: IPreviewFrame[];
+            caption: Awaited<ReturnType<typeof readCaptionLayout>>;
+        }> = [];
+        for (const targetPage of [
+            1,
+            5,
+            12,
+        ]) {
+            while (await readPageNumber(page) < targetPage) {
+                expect(await nextPage(page)).toBe(true);
+            }
+            const startedAtMs = Date.now();
+            await waitForVisibleRaster(page, targetPage);
+            const visibleInMs = Date.now() - startedAtMs;
+            await waitForPreview(page, targetPage, 15_000);
+            previewSamples.push({
+                page: targetPage,
+                detecting: await readDetecting(page),
+                visibleInMs,
+                settledInMs: Date.now() - startedAtMs,
+                frames: await readFrames(page),
+                caption: await readCaptionLayout(page),
+            });
+        }
+
+        // Detection is independent background enrichment. Cancel it here so
+        // the selected-page benchmark measures cleanup itself rather than
+        // waiting for a deliberate whole-document scan to finish.
+        if (await readDetecting(page)) {
+            await page.click('.scan-cleanup-toolbar-cancel-detection');
+            await waitForFunctionInPage(page, () => document.querySelector(
+                '.scan-cleanup-toolbar-cancel-detection',
+            ) === null, {timeout: 30_000});
+        }
+        expect(await evaluateInPage(page, () => {
+            const scope = document.querySelector<HTMLElement>('[data-settings-scope="page"]');
+            scope?.click();
+            return scope !== null;
+        })).toBe(true);
+        await waitForFunctionInPage(page, () => (document.querySelector(
+            '.scan-cleanup-toolbar-primary-action',
+        )?.textContent ?? '').includes('page'), {timeout: 30_000});
+
+        await page.click('.scan-cleanup-toolbar-primary-action');
+        const run = await waitForCleanedOutput(page, representativePdfPath, RUN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        const viewer = await readViewerState(page);
+        const outputPages = outputPageRasters(await PDFDocument.load(readFileSync(run.outputPath)));
+        const logFailures = scanCleanupLogFailures(session.name);
+        writeEvidence('representative-large-scan.json', {
+            sourcePath: representativePdfPath,
+            previewSamples,
+            runElapsedMs: run.elapsedMs,
+            runSamples: run.samples,
+            outputPages,
+            viewer,
+            logFailures,
+        });
+
+        expect(previewSamples.some(sample => sample.detecting)).toBe(true);
+        expect(Math.max(...previewSamples.map(sample => sample.visibleInMs))).toBeLessThan(5_000);
+        expect(Math.max(...previewSamples.map(sample => sample.settledInMs))).toBeLessThan(15_000);
+        expect(new Set(previewSamples.map(sample => frameKey(sample.frames))).size).toBe(1);
+        for (const sample of previewSamples.filter(candidate => candidate.caption.text !== '')) {
+            expect(sample.caption.display).toBe('flex');
+            expect(sample.caption.iconCenterOffsetY).not.toBeNull();
+            expect(sample.caption.iconCenterOffsetY!).toBeLessThanOrEqual(1);
+        }
+        expect(outputPages).toHaveLength(1);
+        expect(viewer.preparing).toBe(false);
+        expect(viewer.renderedCanvases).toBeGreaterThan(0);
+        expect(logFailures).toEqual([]);
+    }, 600_000);
+
     it('presents one document canvas before, during and after detection', async () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
@@ -435,10 +583,15 @@ describe('scan cleanup matched page canvas', () => {
         expect(new Set(matched.map(sample => frameKey(sample.frames))).size).toBe(1);
         // And it is the document canvas plan, which is what the run writes:
         // the page rectangle the document carries, not one grown by margins.
-        expect(matched[0]!.frames.map(frame => ({
-            width: frame.width,
-            height: frame.height,
-        }))).toEqual([CANVAS_FRAME]);
+        expect(matched[0]!.frames).toHaveLength(1);
+        expect(Math.abs(
+            matched[0]!.frames[0]!.width / matched[0]!.frames[0]!.renderDpi * 72
+            - CANVAS_WIDTH_POINTS,
+        )).toBeLessThanOrEqual(1);
+        expect(Math.abs(
+            matched[0]!.frames[0]!.height / matched[0]!.frames[0]!.renderDpi * 72
+            - CANVAS_HEIGHT_POINTS,
+        )).toBeLessThanOrEqual(1);
         // No page waits on work that cannot be admitted while detection runs.
         expect(Math.max(...matched.map(sample => sample.settledInMs)))
             .toBeLessThan(PAGE_SETTLE_TIMEOUT_MS);
@@ -480,8 +633,8 @@ describe('scan cleanup matched page canvas', () => {
         await waitForPreview(page, 1);
         const previewFrames = await readFrames(page);
         const previewCanvasPoints = {
-            widthPoints: (previewFrames[0]?.width ?? 0) / PREVIEW_DPI * 72,
-            heightPoints: (previewFrames[0]?.height ?? 0) / PREVIEW_DPI * 72,
+            widthPoints: (previewFrames[0]?.width ?? 0) / (previewFrames[0]?.renderDpi ?? 1) * 72,
+            heightPoints: (previewFrames[0]?.height ?? 0) / (previewFrames[0]?.renderDpi ?? 1) * 72,
         };
 
         await page.click('.scan-cleanup-toolbar-primary-action');
@@ -615,10 +768,12 @@ describe('scan cleanup matched page canvas', () => {
         for (const outputPage of outputPages) {
             expect(Math.abs(outputPage.widthPoints - first.widthPoints)).toBeLessThanOrEqual(1);
             expect(Math.abs(outputPage.heightPoints - first.heightPoints)).toBeLessThanOrEqual(1);
-            expect(outputPage.images).toHaveLength(1);
-            expect(outputPage.images[0]).toEqual(first.images[0]);
-            expect(outputPage.images[0]!.widthPx / outputPage.widthPoints)
-                .toBeCloseTo(first.images[0]!.widthPx / first.widthPoints, 3);
+            expect(outputPage.images.length).toBeGreaterThan(0);
+            for (const image of outputPage.images) {
+                expect(image).toEqual(first.images[0]);
+                expect(image.widthPx / outputPage.widthPoints)
+                    .toBeCloseTo(first.images[0]!.widthPx / first.widthPoints, 3);
+            }
         }
         expect(Math.abs(first.widthPoints - CANVAS_WIDTH_POINTS)).toBeLessThanOrEqual(1);
         expect(Math.abs(first.heightPoints - CANVAS_HEIGHT_POINTS)).toBeLessThanOrEqual(1);
@@ -676,7 +831,7 @@ describe('scan cleanup matched page canvas', () => {
         // holding rather than the sheet it was scanned on.
         expect(previewFrames[1]!.width).toBe(previewFrames[0]!.width);
         expect(previewFrames[1]!.height).toBe(previewFrames[0]!.height);
-        expect(Math.abs(previewFrames[0]!.width / PREVIEW_DPI * 72 - SOURCE_PAGE_WIDTH_POINTS))
+        expect(Math.abs(previewFrames[0]!.width / previewFrames[0]!.renderDpi * 72 - SOURCE_PAGE_WIDTH_POINTS))
             .toBeLessThanOrEqual(2);
         // And each half's ink covers a page's worth of the sheet it was
         // normalized onto: this fixture's text spans a little over half its
@@ -703,9 +858,9 @@ describe('scan cleanup matched page canvas', () => {
         expect(Math.abs(first.widthPoints - SOURCE_PAGE_WIDTH_POINTS)).toBeLessThanOrEqual(2);
         expect(Math.abs(first.heightPoints - SOURCE_PAGE_HEIGHT_POINTS)).toBeLessThanOrEqual(2);
         // The page the preview presented, to within a point.
-        expect(Math.abs(previewFrames[0]!.width / PREVIEW_DPI * 72 - first.widthPoints))
+        expect(Math.abs(previewFrames[0]!.width / previewFrames[0]!.renderDpi * 72 - first.widthPoints))
             .toBeLessThanOrEqual(1);
-        expect(Math.abs(previewFrames[0]!.height / PREVIEW_DPI * 72 - first.heightPoints))
+        expect(Math.abs(previewFrames[0]!.height / previewFrames[0]!.renderDpi * 72 - first.heightPoints))
             .toBeLessThanOrEqual(1);
         expect(viewer.preparing).toBe(false);
         expect(viewer.renderedCanvases).toBeGreaterThan(0);
@@ -764,15 +919,20 @@ describe('scan cleanup matched page canvas', () => {
         expect(Math.abs(outputPages[0]!.widthPoints - CANVAS_WIDTH_POINTS)).toBeLessThanOrEqual(1);
         expect(Math.abs(outputPages[0]!.heightPoints - CANVAS_HEIGHT_POINTS)).toBeLessThanOrEqual(1);
         // Which is the rectangle its preview presented.
-        expect(Math.abs(previewFrames[0]!.width / PREVIEW_DPI * 72 - outputPages[0]!.widthPoints))
+        expect(Math.abs(
+            previewFrames[0]!.width / previewFrames[0]!.renderDpi * 72
+            - outputPages[0]!.widthPoints,
+        ))
             .toBeLessThanOrEqual(1);
         // And the same pixel grid, which is the harder half of the promise:
         // this page was scanned at half the document's resolution, so a run
         // that sized its grid from its own scope would write it at 144 DPI and
         // leave a page that cannot sit beside a full run's.
-        expect(outputPages[0]!.images).toHaveLength(1);
-        expect(outputPages[0]!.images[0]!.widthPx / outputPages[0]!.widthPoints * 72)
-            .toBeGreaterThan(SOURCE_HIGH_DPI * 0.9);
+        expect(outputPages[0]!.images.length).toBeGreaterThan(0);
+        for (const image of outputPages[0]!.images) {
+            expect(image.widthPx / outputPages[0]!.widthPoints * 72)
+                .toBeGreaterThan(SOURCE_HIGH_DPI * 0.9);
+        }
         expect(logFailures).toEqual([]);
     }, 1_800_000);
 
@@ -856,10 +1016,13 @@ describe('scan cleanup matched page canvas', () => {
         // renders the page it was showing, on the canvas it was showing it on,
         // and it reported no error to recover from.
         expect(previewPage).toBe(1);
-        expect(frames.map(frame => ({
-            width: frame.width,
-            height: frame.height,
-        }))).toEqual([CANVAS_FRAME]);
+        expect(frames).toHaveLength(1);
+        expect(Math.abs(
+            frames[0]!.width / frames[0]!.renderDpi * 72 - CANVAS_WIDTH_POINTS,
+        )).toBeLessThanOrEqual(1);
+        expect(Math.abs(
+            frames[0]!.height / frames[0]!.renderDpi * 72 - CANVAS_HEIGHT_POINTS,
+        )).toBeLessThanOrEqual(1);
         expect(canceledState.error).toBe('');
         expect(sourceBytes).toBeGreaterThan(0);
         expect(sourcePages).toBe(sourceCount);

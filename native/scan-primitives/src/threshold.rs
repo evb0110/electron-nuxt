@@ -190,23 +190,112 @@ impl MaskedIntegralImages {
         let mut sums = vec![0u64; len];
         let mut squared_sums = vec![0u64; len];
         let mut counts = vec![0u64; len];
-        for y in 0..height {
-            let mut row_sum = 0u64;
-            let mut row_squared_sum = 0u64;
-            let mut row_count = 0u64;
-            for x in 0..width {
-                if !excluded.get(x, y) {
-                    let value = u64::from(image.get(x, y));
-                    row_sum += value;
-                    row_squared_sum += value * value;
-                    row_count += 1;
-                }
-                let index = (y + 1) * stride + x + 1;
-                sums[index] = sums[y * stride + x + 1] + row_sum;
-                squared_sums[index] = squared_sums[y * stride + x + 1] + row_squared_sum;
-                counts[index] = counts[y * stride + x + 1] + row_count;
+        if width == 0 || height == 0 {
+            return Self {
+                width,
+                height,
+                stride,
+                sums,
+                squared_sums,
+                counts,
+            };
+        }
+        let block_len = stride
+            .checked_mul(INTEGRAL_ROW_BLOCK_SIZE)
+            .expect("masked integral row block overflow");
+        sums[stride..]
+            .par_chunks_mut(block_len)
+            .zip(squared_sums[stride..].par_chunks_mut(block_len))
+            .zip(counts[stride..].par_chunks_mut(block_len))
+            .enumerate()
+            .for_each(
+                |(block_index, ((sum_block, squared_sum_block), count_block))| {
+                    let first_y = block_index * INTEGRAL_ROW_BLOCK_SIZE;
+                    for local_y in 0..sum_block.len() / stride {
+                        let source = image.row(first_y + local_y);
+                        let mut row_sum = 0u64;
+                        let mut row_squared_sum = 0u64;
+                        let mut row_count = 0u64;
+                        let row_start = local_y * stride;
+                        let previous_row_start = local_y.saturating_sub(1) * stride;
+                        for (x, &value) in source.iter().enumerate() {
+                            if !excluded.get(x, first_y + local_y) {
+                                let value = u64::from(value);
+                                row_sum += value;
+                                row_squared_sum += value * value;
+                                row_count += 1;
+                            }
+                            let above = if local_y == 0 {
+                                0
+                            } else {
+                                sum_block[previous_row_start + x + 1]
+                            };
+                            let squared_above = if local_y == 0 {
+                                0
+                            } else {
+                                squared_sum_block[previous_row_start + x + 1]
+                            };
+                            let count_above = if local_y == 0 {
+                                0
+                            } else {
+                                count_block[previous_row_start + x + 1]
+                            };
+                            sum_block[row_start + x + 1] = row_sum + above;
+                            squared_sum_block[row_start + x + 1] = row_squared_sum + squared_above;
+                            count_block[row_start + x + 1] = row_count + count_above;
+                        }
+                    }
+                },
+            );
+
+        let block_count = height.div_ceil(INTEGRAL_ROW_BLOCK_SIZE);
+        let offsets_len = block_count
+            .checked_mul(stride)
+            .expect("masked integral block offsets overflow");
+        let mut sum_offsets = vec![0u64; offsets_len];
+        let mut squared_sum_offsets = vec![0u64; offsets_len];
+        let mut count_offsets = vec![0u64; offsets_len];
+        for block_index in 1..block_count {
+            let previous_end = block_index * INTEGRAL_ROW_BLOCK_SIZE * stride;
+            let offset = block_index * stride;
+            let prior_offset = (block_index - 1) * stride;
+            for x in 1..stride {
+                sum_offsets[offset + x] = sum_offsets[prior_offset + x] + sums[previous_end + x];
+                squared_sum_offsets[offset + x] =
+                    squared_sum_offsets[prior_offset + x] + squared_sums[previous_end + x];
+                count_offsets[offset + x] =
+                    count_offsets[prior_offset + x] + counts[previous_end + x];
             }
         }
+
+        sums[stride..]
+            .par_chunks_mut(block_len)
+            .zip(squared_sums[stride..].par_chunks_mut(block_len))
+            .zip(counts[stride..].par_chunks_mut(block_len))
+            .enumerate()
+            .for_each(
+                |(block_index, ((sum_block, squared_sum_block), count_block))| {
+                    if block_index == 0 {
+                        return;
+                    }
+                    let offset = &sum_offsets[block_index * stride..(block_index + 1) * stride];
+                    let squared_offset =
+                        &squared_sum_offsets[block_index * stride..(block_index + 1) * stride];
+                    let count_offset =
+                        &count_offsets[block_index * stride..(block_index + 1) * stride];
+                    for ((sum_row, squared_sum_row), count_row) in sum_block
+                        .chunks_mut(stride)
+                        .zip(squared_sum_block.chunks_mut(stride))
+                        .zip(count_block.chunks_mut(stride))
+                    {
+                        for x in 1..stride {
+                            sum_row[x] += offset[x];
+                            squared_sum_row[x] += squared_offset[x];
+                            count_row[x] += count_offset[x];
+                        }
+                    }
+                },
+            );
         Self {
             width,
             height,
@@ -464,6 +553,109 @@ pub fn threshold_local_biased_excluding_with_integrals_for_consensus(
     bias: i16,
 ) -> BinaryImage {
     threshold_local_biased_excluding_impl(image, excluded, integrals, radius, method, bias, false)
+}
+
+/// Produces a three-scale local-threshold consensus in one traversal.
+///
+/// The three independent entry points each scanned the excluded histogram,
+/// searched the maximum deviation, and allocated/fed a packed output before a
+/// fourth traversal combined them. Sharing those invariant passes and emitting
+/// the consensus directly preserves every per-radius threshold decision while
+/// avoiding the three temporary full-page masks.
+pub fn threshold_local_multiscale_biased_excluding_with_integrals_for_consensus(
+    image: &GrayImage,
+    excluded: &BinaryImage,
+    integrals: &MaskedIntegralImages,
+    radii: [usize; 3],
+    method: LocalThreshold,
+    bias: i16,
+    supports_small_scale: impl Fn(usize, usize) -> bool + Sync,
+) -> BinaryImage {
+    let width = image.width();
+    let height = image.height();
+    assert_eq!((excluded.width(), excluded.height()), (width, height));
+    assert_eq!((integrals.width, integrals.height), (width, height));
+    if width == 0 || height == 0 {
+        return BinaryImage::new(width, height);
+    }
+    let global_min = match method {
+        LocalThreshold::Wolf {
+            minimum_percentile, ..
+        } => grayscale_percentile_excluding(image, excluded, minimum_percentile),
+        LocalThreshold::Sauvola { .. } => 0,
+    };
+    let max_deviations = match method {
+        LocalThreshold::Wolf { .. } => (0..height)
+            .into_par_iter()
+            .map(|y| {
+                let mut maxima = [1.0f64; 3];
+                for x in 0..width {
+                    for (index, radius) in radii.into_iter().enumerate() {
+                        maxima[index] = maxima[index].max(
+                            integrals
+                                .mean_and_deviation(x, y, radius)
+                                .map_or(0.0, |statistics| statistics.1),
+                        );
+                    }
+                }
+                maxima
+            })
+            .reduce(
+                || [1.0; 3],
+                |left, right| std::array::from_fn(|index| left[index].max(right[index])),
+            ),
+        LocalThreshold::Sauvola { .. } => [1.0; 3],
+    };
+    let low_variance: [bool; 3] = std::array::from_fn(|index| {
+        matches!(
+            method,
+            LocalThreshold::Wolf {
+                deviation_floor,
+                ..
+            } if max_deviations[index] <= deviation_floor
+        )
+    });
+    let mut output = BinaryImage::new(width, height);
+    let words_per_line = output.words_per_line();
+    output
+        .words_mut()
+        .par_chunks_mut(words_per_line)
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            for x in 0..width {
+                if excluded.get(x, y) {
+                    continue;
+                }
+                let value = image.get(x, y);
+                let mut black = [false; 3];
+                for (index, radius) in radii.into_iter().enumerate() {
+                    let Some((mean, deviation)) = integrals.mean_and_deviation(x, y, radius) else {
+                        continue;
+                    };
+                    let threshold = match method {
+                        LocalThreshold::Sauvola { k } => {
+                            mean * (1.0 + k * (deviation / 128.0 - 1.0))
+                        }
+                        LocalThreshold::Wolf {
+                            k, deviation_floor, ..
+                        } => {
+                            let normalized = deviation / max_deviations[index].max(deviation_floor);
+                            mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
+                        }
+                    };
+                    black[index] = match method {
+                        LocalThreshold::Wolf { hard_ink, .. } if value <= hard_ink => true,
+                        LocalThreshold::Wolf { hard_paper, .. } if value >= hard_paper => false,
+                        LocalThreshold::Wolf { .. } if low_variance[index] => false,
+                        _ => f64::from(value) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
+                    };
+                }
+                if (black[1] && black[2]) || (black[0] && supports_small_scale(x, y)) {
+                    output_row[x / 32] |= 1 << (31 - x % 32);
+                }
+            }
+        });
+    output
 }
 
 fn threshold_local_biased_excluding_impl(
@@ -955,6 +1147,86 @@ mod tests {
                     assert_eq!(actual.0.to_bits(), expected.0.to_bits());
                     assert_eq!(actual.1.to_bits(), expected.1.to_bits());
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn parallel_masked_integrals_and_fused_scales_are_bit_exact() {
+        let mut state = 0x7b21_f05e_942d_1ac3;
+        let image = random_image(137, 131, 3, &mut state);
+        let mut excluded = BinaryImage::new(image.width(), image.height());
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                excluded.set(x, y, (x * 11 + y * 17) % 37 < 7);
+            }
+        }
+        let integrals = MaskedIntegralImages::new(&image, &excluded);
+        let radii = [2, 7, 19];
+        let method = LocalThreshold::Wolf {
+            k: 0.2,
+            deviation_floor: 2.0,
+            minimum_percentile: 0.01,
+            hard_ink: 48,
+            hard_paper: 248,
+        };
+        let expected = radii.map(|radius| {
+            threshold_local_biased_excluding_with_integrals_for_consensus(
+                &image, &excluded, &integrals, radius, method, -4,
+            )
+        });
+        let supports_small_scale = |x: usize, y: usize| (x * 7 + y * 13) % 19 < 8;
+        let expected_consensus =
+            BinaryImage::from_fn_parallel(image.width(), image.height(), |x, y| {
+                (expected[1].get(x, y) && expected[2].get(x, y))
+                    || (expected[0].get(x, y) && supports_small_scale(x, y))
+            });
+        let actual = threshold_local_multiscale_biased_excluding_with_integrals_for_consensus(
+            &image,
+            &excluded,
+            &integrals,
+            radii,
+            method,
+            -4,
+            supports_small_scale,
+        );
+        assert_eq!(actual, expected_consensus);
+
+        for radius in [0, 4, 80] {
+            for (x, y) in [(0usize, 0usize), (53, 63), (91, 64), (136, 130)] {
+                let x0 = x.saturating_sub(radius);
+                let y0 = y.saturating_sub(radius);
+                let x1 = x.saturating_add(radius).min(image.width() - 1);
+                let y1 = y.saturating_add(radius).min(image.height() - 1);
+                let mut sum = 0u64;
+                let mut squared_sum = 0u64;
+                let mut count = 0u64;
+                for sample_y in y0..=y1 {
+                    for sample_x in x0..=x1 {
+                        if !excluded.get(sample_x, sample_y) {
+                            let value = u64::from(image.get(sample_x, sample_y));
+                            sum += value;
+                            squared_sum += value * value;
+                            count += 1;
+                        }
+                    }
+                }
+                let expected = if count == 0 {
+                    None
+                } else {
+                    let mean = sum as f64 / count as f64;
+                    Some((
+                        mean,
+                        (squared_sum as f64 / count as f64 - mean * mean)
+                            .max(0.0)
+                            .sqrt(),
+                    ))
+                };
+                let actual = integrals.mean_and_deviation(x, y, radius);
+                assert_eq!(
+                    actual.map(|value| (value.0.to_bits(), value.1.to_bits())),
+                    expected.map(|value| (value.0.to_bits(), value.1.to_bits())),
+                );
             }
         }
     }

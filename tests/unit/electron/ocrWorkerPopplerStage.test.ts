@@ -14,13 +14,21 @@ import {
 import type { IWorkerPaths } from '@electron/ocr/worker/types';
 
 const mocks = vi.hoisted(() => ({
+    readFile: vi.fn(),
+    rm: vi.fn(),
     runOcrCommand: vi.fn(),
     stat: vi.fn(),
+    writeFile: vi.fn(),
 }));
 
 vi.mock('@electron/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
 
-vi.mock('fs/promises', () => ({ stat: mocks.stat }));
+vi.mock('fs/promises', () => ({
+    readFile: mocks.readFile,
+    rm: mocks.rm,
+    stat: mocks.stat,
+    writeFile: mocks.writeFile,
+}));
 
 const workerPaths: IWorkerPaths = {
     tesseractBinary: '/bin/tesseract',
@@ -83,6 +91,9 @@ describe('preparePdfForPoppler', () => {
 describe('renderPdfPageToPng', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.readFile.mockResolvedValue(Buffer.from('P6\n1 1\n255\n\x12\x34\x56', 'binary'));
+        mocks.rm.mockResolvedValue(undefined);
+        mocks.writeFile.mockResolvedValue(undefined);
     });
 
     it('renders OCR rasters against the PDF CropBox contract', async () => {
@@ -100,7 +111,6 @@ describe('renderPdfPageToPng', () => {
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
             [
-                '-png',
                 '-cropbox',
                 '-r',
                 '300',
@@ -110,10 +120,11 @@ describe('renderPdfPageToPng', () => {
                 '3',
                 '-singlefile',
                 '/tmp/source.pdf',
-                '/tmp/page-3',
+                '/tmp/page-3.png.source',
             ],
             expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
         );
+        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/page-3.png', expect.any(Uint8Array));
     });
 
     it('renders raw PPM without the PNG encoder flag for pipeline-internal rasters', async () => {
@@ -169,7 +180,6 @@ describe('renderPdfPageToPng', () => {
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
             [
-                '-png',
                 '-cropbox',
                 '-r',
                 '300',
@@ -187,7 +197,7 @@ describe('renderPdfPageToPng', () => {
                 '-H',
                 '444',
                 '/tmp/source.pdf',
-                '/tmp/page-3',
+                '/tmp/page-3.png.source',
             ],
             expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
         );

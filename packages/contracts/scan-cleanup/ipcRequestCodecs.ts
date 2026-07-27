@@ -22,6 +22,8 @@ import type {
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewRequest,
+    IScanCleanupPagePlanEvidence,
+    IScanCleanupSourcePageMetadata,
     IScanCleanupStartRequest,
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
@@ -487,6 +489,69 @@ function decodeLayoutByPage(value: unknown) {
     return value as TScanCleanupLayoutByPage;
 }
 
+export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePageMetadata {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup source page metadata');
+    const pageNumber = Number(value.pageNumber);
+    const positive = (field: keyof IScanCleanupSourcePageMetadata) => {
+        const decoded = Number(value[field]);
+        if (!Number.isFinite(decoded) || decoded <= 0) {
+            throw new Error('invalid scan-cleanup source page metadata');
+        }
+        return decoded;
+    };
+    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+        throw new Error('invalid scan-cleanup source page metadata');
+    }
+    const xPoints = Number(value.xPoints);
+    const yPoints = Number(value.yPoints);
+    const rotation = Number(value.rotation);
+    if (![
+        xPoints,
+        yPoints,
+        rotation,
+    ].every(Number.isFinite)) {
+        throw new Error('invalid scan-cleanup source page metadata');
+    }
+    const dominant = [
+        value.dominantImageWidthPx,
+        value.dominantImageHeightPx,
+        value.dominantImageWidthPoints,
+        value.dominantImageHeightPoints,
+    ];
+    const hasDominant = dominant.every(item => item !== undefined);
+    if (!hasDominant && dominant.some(item => item !== undefined)) {
+        throw new Error('invalid scan-cleanup source page metadata');
+    }
+    const decodedDominant = hasDominant
+        ? dominant.map(item => Number(item))
+        : [];
+    if (
+        hasDominant
+        && (
+            !decodedDominant.every(item => Number.isFinite(item) && item > 0)
+            || !Number.isSafeInteger(decodedDominant[0])
+            || !Number.isSafeInteger(decodedDominant[1])
+        )
+    ) {
+        throw new Error('invalid scan-cleanup source page metadata');
+    }
+    return {
+        pageNumber,
+        xPoints,
+        yPoints,
+        widthPoints: positive('widthPoints'),
+        heightPoints: positive('heightPoints'),
+        rotation,
+        sourceDpi: positive('sourceDpi'),
+        ...(hasDominant ? {
+            dominantImageWidthPx: decodedDominant[0],
+            dominantImageHeightPx: decodedDominant[1],
+            dominantImageWidthPoints: decodedDominant[2],
+            dominantImageHeightPoints: decodedDominant[3],
+        } : {}),
+    };
+}
+
 function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
     if (!isRecord(value) || typeof value.sourcePdfPath !== 'string' || value.sourcePdfPath.trim().length === 0) {
         throw new Error('invalid scan-cleanup request');
@@ -520,6 +585,91 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
             }
             return value.sourcePageNumbers.map(Number);
         })();
+    const sourcePageMetadataByPage = value.sourcePageMetadataByPage === undefined
+        ? undefined
+        : (() => {
+            if (!isRecord(value.sourcePageMetadataByPage)) {
+                throw new Error('invalid scan-cleanup source page metadata map');
+            }
+            return Object.fromEntries(Object.entries(value.sourcePageMetadataByPage).map(([
+                key,
+                metadata,
+            ]) => {
+                if (!/^[1-9]\d*$/u.test(key)) {
+                    throw new Error('invalid scan-cleanup source page metadata map');
+                }
+                const decoded = decodeSourcePageMetadata(metadata);
+                if (decoded.pageNumber !== Number(key)) {
+                    throw new Error('invalid scan-cleanup source page metadata map');
+                }
+                return [
+                    key,
+                    decoded,
+                ];
+            }));
+        })();
+    const pagePlanEvidenceByPage = value.pagePlanEvidenceByPage === undefined
+        ? undefined
+        : (() => {
+            if (!isRecord(value.pagePlanEvidenceByPage)) {
+                throw new Error('invalid scan-cleanup page-plan evidence map');
+            }
+            return Object.fromEntries(Object.entries(value.pagePlanEvidenceByPage).map(([
+                key,
+                evidence,
+            ]) => {
+                if (
+                    !/^[1-9]\d*$/u.test(key)
+                    || !isRecord(evidence)
+                    || evidence.pageNumber !== Number(key)
+                    || ![
+                        0,
+                        90,
+                        180,
+                        270,
+                    ].includes(Number(evidence.rotationDegrees))
+                    || !isLayoutClassification(evidence.layoutClassification)
+                    || !isRecord(evidence.outputs)
+                ) {
+                    throw new Error('invalid scan-cleanup page-plan evidence map');
+                }
+                const rotationDegrees = evidence.rotationDegrees as IScanCleanupPagePlanEvidence['rotationDegrees'];
+                const outputs = decodeOutputMap(evidence.outputs, (output, label) => {
+                    if (!isRecord(output)) {
+                        throw new Error(`invalid scan-cleanup ${label}`);
+                    }
+                    const detectedSkewDegrees = output.detectedSkewDegrees === undefined
+                        ? undefined
+                        : decodeFiniteNumber(output.detectedSkewDegrees, `${label} skew`);
+                    if (
+                        detectedSkewDegrees !== undefined
+                        && (detectedSkewDegrees < SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES
+                            || detectedSkewDegrees > SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES)
+                    ) {
+                        throw new Error(`invalid scan-cleanup ${label} skew`);
+                    }
+                    const contentBox = output.contentBox === undefined
+                        ? undefined
+                        : decodeNormalizedRect(output.contentBox, `${label} content box`, rotationDegrees);
+                    if (contentBox === undefined && detectedSkewDegrees === undefined) {
+                        throw new Error(`invalid scan-cleanup ${label}`);
+                    }
+                    return {
+                        ...(contentBox === undefined ? {} : {contentBox}),
+                        ...(detectedSkewDegrees === undefined ? {} : {detectedSkewDegrees}),
+                    };
+                }, 'automatic page-plan output');
+                return [
+                    key,
+                    {
+                        pageNumber: Number(key),
+                        rotationDegrees,
+                        layoutClassification: evidence.layoutClassification,
+                        outputs,
+                    } satisfies IScanCleanupPagePlanEvidence,
+                ];
+            }));
+        })();
     return {
         sourcePdfPath: value.sourcePdfPath,
         ...decodeOwnerContext(value),
@@ -527,6 +677,8 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
         ...(sourcePageNumbers === undefined ? {} : {sourcePageNumbers}),
         ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
         ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
+        ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
+        ...(pagePlanEvidenceByPage === undefined ? {} : {pagePlanEvidenceByPage}),
     };
 }
 
@@ -585,6 +737,14 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         pageNumber: Number(value.pageNumber),
         options: decodeOptions(value.options),
         ...(value.documentPrior === undefined ? {} : {documentPrior: decodeDocumentPrior(value.documentPrior)}),
+        ...(value.outputModeRecommendation === undefined
+            ? {}
+            : {outputModeRecommendation: (() => {
+                if (!isScanCleanupOutputMode(value.outputModeRecommendation)) {
+                    throw new Error('invalid scan-cleanup preview output-mode recommendation');
+                }
+                return value.outputModeRecommendation;
+            })()}),
         ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
         ...(detail === undefined ? {} : {detail}),
         ...(value.visible === undefined ? {} : {visible: value.visible}),

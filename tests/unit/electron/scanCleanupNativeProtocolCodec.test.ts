@@ -7,7 +7,7 @@ import {readFileSync} from 'fs';
 import {decodeNativeScanCleanupEnvelope} from '@electron/features/scan-cleanup/native/protocolCodec';
 
 describe('scan-cleanup native protocol codec', () => {
-    it('decodes incremental pre-reconciliation analysis progress without classifications', () => {
+    it('decodes incremental analysis progress with an optional provisional classification', () => {
         const golden = readFileSync(
             'native/scan-cleanup/tests/fixtures/protocol/analysis-progress-v3.json',
             'utf8',
@@ -20,10 +20,18 @@ describe('scan-cleanup native protocol codec', () => {
                 completedPages: 2,
                 totalPages: 4,
                 pageNumber: 3,
+                classification: 'single-uncut-page',
+                confidence: 0.91,
+                tier1Verdict: 'single-uncut-page',
+                reconciled: false,
+                clusterAgreement: 0,
+                recommendedOutputMode: 'mixed',
+                recommendedOutputModeConfidence: 0.9,
+                recommendedOutputModeReason: 'text-with-pictures',
             },
         });
 
-        expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
+        expect(decodeNativeScanCleanupEnvelope(JSON.stringify({
             version: 3,
             type: 'progress',
             progress: {
@@ -32,8 +40,13 @@ describe('scan-cleanup native protocol codec', () => {
                 totalPages: 4,
                 pageNumber: 3,
                 classification: 'single-uncut-page',
+                confidence: 0.9,
             },
-        }))).toThrow('pre-reconciliation');
+        }))).toMatchObject({progress: {
+            stage: 'page-analyzed',
+            classification: 'single-uncut-page',
+            confidence: 0.9,
+        }});
     });
 
     it('decodes reconciliation diagnostics and the reusable document prior', () => {

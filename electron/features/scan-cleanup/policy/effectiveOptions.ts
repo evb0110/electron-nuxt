@@ -2,16 +2,57 @@ import type {
     INativeScanCleanupOptionsV3,
     IScanCleanupManualZones,
     IScanCleanupOptions,
+    IScanCleanupPagePlanEvidence,
     IScanCleanupPageOverride,
     TScanCleanupDespeckleLevel,
+    TScanCleanupLayoutClassification,
+    TScanCleanupLayoutByPage,
     TScanCleanupOutputMode,
     TScanCleanupOutputModeSetting,
 } from '@contracts/electronApiScanCleanup';
 import {
+    getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupPageLayout,
 } from '@contracts/scanCleanupPageOverrides';
 import type {IPdfPageSize} from '@electron/pdf/pdfPageSizes';
+
+export function resolveReusablePagePlan(
+    options: IScanCleanupOptions,
+    layoutByPage: TScanCleanupLayoutByPage | undefined,
+    evidenceByPage: Partial<Record<string, IScanCleanupPagePlanEvidence>> | undefined,
+    pageNumber: number,
+) {
+    const evidence = evidenceByPage?.[String(pageNumber)];
+    const pageOverride = getScanCleanupPageOverride(options.pageOverrides, pageNumber);
+    const observedLayout = layoutByPage?.[String(pageNumber)];
+    if (
+        evidence === undefined
+        || evidence.pageNumber !== pageNumber
+        || evidence.rotationDegrees !== pageOverride.rotationDegrees
+        || evidence.layoutClassification !== observedLayout
+    ) {
+        return {};
+    }
+    const automaticContentBoxes = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
+        half,
+        output,
+    ]) => output?.contentBox === undefined ? [] : [[
+        half,
+        output.contentBox,
+    ]]));
+    const automaticSkewDegrees = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
+        half,
+        output,
+    ]) => output?.detectedSkewDegrees === undefined ? [] : [[
+        half,
+        output.detectedSkewDegrees,
+    ]]));
+    return {
+        ...(Object.keys(automaticContentBoxes).length === 0 ? {} : {automaticContentBoxes}),
+        ...(Object.keys(automaticSkewDegrees).length === 0 ? {} : {automaticSkewDegrees}),
+    };
+}
 
 export interface IScanCleanupExperimentalOptions {
     autoDewarp: boolean;
@@ -30,6 +71,9 @@ export interface IResolveEffectiveScanCleanupOptionsInput {
     requestedRenderDpi?: number;
     renderCrop?: INativeScanCleanupOptionsV3['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
+    observedLayout?: TScanCleanupLayoutClassification;
+    automaticContentBoxes?: INativeScanCleanupOptionsV3['automaticContentBoxes'];
+    automaticSkewDegrees?: INativeScanCleanupOptionsV3['automaticSkewDegrees'];
     qualityPath: TScanCleanupQualityPath;
     experimental?: IScanCleanupExperimentalOptions;
 }
@@ -229,6 +273,9 @@ export function resolveEffectiveScanCleanupOptions({
     requestedRenderDpi = dpi,
     renderCrop,
     resolvedOutputMode,
+    observedLayout,
+    automaticContentBoxes,
+    automaticSkewDegrees,
     qualityPath,
     experimental = DEFAULT_SCAN_CLEANUP_EXPERIMENTAL_OPTIONS,
 }: IResolveEffectiveScanCleanupOptionsInput): IEffectiveNativeScanCleanupOptionsV3 {
@@ -241,6 +288,16 @@ export function resolveEffectiveScanCleanupOptions({
     const despeckleLevel = !lossless && hasBinaryLayer
         ? resolveScanCleanupDespeckleLevel(options)
         : 'off';
+    const configuredLayout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
+    const layout = configuredLayout !== 'auto' || pageOverride.manualSplit !== null
+        ? configuredLayout
+        : observedLayout === 'single-uncut-page'
+            ? 'force-single'
+            : observedLayout === 'two-page-spread'
+                ? 'force-two-page'
+                : observedLayout === 'page-with-offcut'
+                    ? 'page-with-offcut'
+                    : 'auto';
     return {
         dpi,
         sourceDpi,
@@ -253,12 +310,18 @@ export function resolveEffectiveScanCleanupOptions({
         despeckleLevel,
         outputMode,
         ocrMode: false,
-        layout: resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride),
+        // Detection is durable page evidence, not merely a canvas hint. Reuse
+        // it when the user left layout automatic so preview/final rendering do
+        // not repeat the same split classification. Explicit user choices and
+        // manual cutters always win.
+        layout,
         manualSplit: pageOverride.manualSplit,
         ...(pageOverride.manualSkewDegrees === undefined
             ? {}
             : {manualSkewDegrees: pageOverride.manualSkewDegrees}),
         manualContentBoxes: pageOverride.manualContentBoxes ?? {},
+        ...(automaticContentBoxes === undefined ? {} : {automaticContentBoxes}),
+        ...(automaticSkewDegrees === undefined ? {} : {automaticSkewDegrees}),
         manualZones: pageOverride.manualZones ?? {
             picture: [],
             fill: [],

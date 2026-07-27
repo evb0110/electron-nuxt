@@ -8,9 +8,11 @@ use crate::mode_select::{OutputModeRecommendation, PreparedModeEvidence};
 use crate::{
     auto_dewarp::detect_curves_at_dpi_with_depth,
     background::{
-        normalize_illumination, normalize_illumination_for_layout, normalize_illumination_rgb,
-        normalize_illumination_rgb_with_picture_mask, normalize_illumination_with_picture_mask,
-        normalize_region_with_reusable_model, normalize_rgb_region_with_reusable_model,
+        normalize_illumination, normalize_illumination_for_layout_prepared,
+        normalize_illumination_pair_with_picture_mask, normalize_illumination_prepared,
+        normalize_illumination_rgb, normalize_illumination_rgb_with_picture_mask,
+        normalize_illumination_with_picture_mask, normalize_region_with_reusable_model,
+        normalize_rgb_region_with_reusable_model, prepare_illumination,
         reusable_illumination_model,
     },
     bw::{
@@ -358,6 +360,8 @@ pub(crate) fn clean_detail_page_with_color(
     tile_options.manual_split_x = None;
     tile_options.manual_skew_degrees = Some(0.0);
     tile_options.manual_content_boxes = Default::default();
+    tile_options.automatic_skew_degrees = Default::default();
+    tile_options.automatic_content_boxes = Default::default();
     tile_options.manual_zones = Default::default();
     tile_options.normalize_illumination = false;
     tile_options.crop_content = false;
@@ -811,6 +815,7 @@ fn classify_page_with_document_prior_impl(
         false,
         PageRenderPolicy {
             create_mixed_layers: false,
+            create_mixed_composite: false,
             recommend_output_mode: true,
             analyze_layout: true,
         },
@@ -864,6 +869,7 @@ pub fn analyze_page_with_color_and_document_prior(
         options,
         document_prior,
         true,
+        true,
         None,
         &mut timings,
     )
@@ -875,6 +881,7 @@ pub(crate) fn analyze_page_with_color_and_document_prior_cached(
     options: &CleanupOptions,
     document_prior: Option<DocumentPrior>,
     recommend_output_mode: bool,
+    plan_content: bool,
     cache: &PageCache,
     timings: &mut PageStageTimings,
 ) -> Result<PageAnalysisResult, String> {
@@ -884,6 +891,7 @@ pub(crate) fn analyze_page_with_color_and_document_prior_cached(
         options,
         document_prior,
         recommend_output_mode,
+        plan_content,
         Some(cache),
         timings,
     )
@@ -903,6 +911,7 @@ pub(crate) fn analyze_page_with_document_prior_cached(
         options,
         document_prior,
         true,
+        true,
         cache,
         timings,
     )
@@ -914,6 +923,7 @@ fn analyze_page_with_color_and_document_prior_impl(
     options: &CleanupOptions,
     document_prior: Option<DocumentPrior>,
     recommend_output_mode: bool,
+    plan_content: bool,
     cache: Option<&PageCache>,
     timings: &mut PageStageTimings,
 ) -> Result<PageAnalysisResult, String> {
@@ -944,9 +954,10 @@ fn analyze_page_with_color_and_document_prior_impl(
         source,
         color_source,
         options,
-        true,
+        plan_content,
         PageRenderPolicy {
             create_mixed_layers: false,
+            create_mixed_composite: false,
             recommend_output_mode,
             analyze_layout: true,
         },
@@ -955,6 +966,24 @@ fn analyze_page_with_color_and_document_prior_impl(
         cache,
         timings,
     );
+    if !plan_content {
+        return Ok(PageAnalysisResult {
+            outputs: Vec::new(),
+            classification: prepared.split.classification,
+            confidence: prepared.split.confidence,
+            cutter_x: prepared.split.cutter_x,
+            split_seam: prepared.split.split_seam,
+            excluded: false,
+            rotation: options.rotation,
+            reconciliation: prepared.split.reconciliation,
+            rotated_width: prepared.full_width,
+            rotated_height: prepared.full_height,
+            candidate_cutter_ratio: prepared.candidate_cutter_ratio,
+            whitespace_score: prepared.whitespace_score,
+            text_axis: prepared.text_axis,
+            output_mode_recommendation: prepared.output_mode_recommendation,
+        });
+    }
     let content_started = Instant::now();
     let outputs = output_regions(
         prepared.full_width,
@@ -976,7 +1005,7 @@ fn analyze_page_with_color_and_document_prior_impl(
             .as_ref()
             .map(|mask| crop_binary(mask, analysis_region));
         let (detected_content, content_diagnostics) = if let Some(manual) =
-            options.resolved_manual_content_for(half, prepared.full_width, prepared.full_height)
+            options.resolved_content_for(half, prepared.full_width, prepared.full_height)
         {
             let left = manual.x.clamp(0.0, region.width.max(1.0) - 1.0);
             let top = manual.y.clamp(0.0, region.height.max(1.0) - 1.0);
@@ -1060,6 +1089,7 @@ fn analyze_page_with_color_and_document_prior_impl(
 #[derive(Clone, Copy)]
 struct PageRenderPolicy {
     create_mixed_layers: bool,
+    create_mixed_composite: bool,
     recommend_output_mode: bool,
     /// Picture mask, mode recommendation, text axis and split detection. A
     /// caller that already knows the page layout keeps calibration and
@@ -1071,12 +1101,14 @@ struct PageRenderPolicy {
 impl PageRenderPolicy {
     const COMPLETE: Self = Self {
         create_mixed_layers: true,
+        create_mixed_composite: true,
         recommend_output_mode: true,
         analyze_layout: true,
     };
 
     const DETAIL_TILE: Self = Self {
         create_mixed_layers: false,
+        create_mixed_composite: true,
         recommend_output_mode: false,
         analyze_layout: false,
     };
@@ -1184,6 +1216,10 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
         Some(cache),
         PageRenderPolicy {
             create_mixed_layers,
+            // The batch adapter can publish the cheaper separable representation
+            // only when it supplied destinations for both layers. Library callers
+            // and ordinary single-raster outputs still need the composite.
+            create_mixed_composite: !create_mixed_layers,
             recommend_output_mode,
             analyze_layout: true,
         },
@@ -1281,6 +1317,7 @@ fn clean_page_with_color_and_calibration_config(
             cache,
             split_cache_key.as_ref(),
             render_policy.create_mixed_layers,
+            render_policy.create_mixed_composite,
             timings,
         )?);
     }
@@ -1354,23 +1391,39 @@ fn prepare_page<'a>(
         && analysis_normalized.height() == full_height
         && scale_x == 1.0
         && scale_y == 1.0;
+    let quality_normalization_started = Instant::now();
+    // Picture segmentation is scale-stable evidence. Keep it at the bounded
+    // analysis resolution and map it directly into the final render below;
+    // rebuilding the same mask over a 15–35 MP source dominated mixed-page
+    // cleanup and only created an intermediate mask that was immediately
+    // resampled again.
     let mut picture_mask = if options.output_mode == OutputMode::Mixed {
-        if analysis_is_full {
-            analysis_picture_mask.clone()
-        } else {
-            let mut mask = detect_picture_mask(&rotated_source, options.dpi, calibration);
-            apply_manual_zones(&mut mask, options);
-            Some(Arc::new(mask))
-        }
+        analysis_picture_mask.clone()
     } else {
         None
     };
-    let rotated_color = color_source.map(|image| {
+    let rotated_color_source = color_source.map(|image| {
         let rotated = match options.rotation {
             OrthogonalRotation::None => Cow::Borrowed(image),
             rotation => Cow::Owned(rotate_rgb_orthogonal(image, rotation)),
         };
-        if options.normalize_illumination {
+        rotated.into_owned()
+    });
+    let paired_normalized = if !analysis_is_full && options.normalize_illumination {
+        rotated_color_source.as_ref().map(|rotated_color| {
+            normalize_illumination_pair_with_picture_mask(
+                &rotated_source,
+                rotated_color,
+                picture_mask.as_deref(),
+            )
+        })
+    } else {
+        None
+    };
+    let rotated_color = rotated_color_source.map(|rotated| {
+        if let Some((_, normalized_color)) = paired_normalized.as_ref() {
+            normalized_color.clone()
+        } else if options.normalize_illumination {
             if let Some(mask) = picture_mask.as_deref() {
                 normalize_illumination_rgb_with_picture_mask(
                     &rotated_source,
@@ -1382,13 +1435,15 @@ fn prepare_page<'a>(
                 normalize_illumination_rgb(&rotated_source, &rotated, options.dpi)
             }
         } else {
-            rotated.into_owned()
+            rotated
         }
     });
     let (rotated_source, normalized, analysis_normalized) = if analysis_is_full {
         (Some(rotated_source), analysis_normalized, None)
     } else if options.normalize_illumination {
-        let normalized = if let Some(mask) = picture_mask.as_deref() {
+        let normalized = if let Some((normalized, _)) = paired_normalized {
+            normalized
+        } else if let Some(mask) = picture_mask.as_deref() {
             normalize_illumination_with_picture_mask(&rotated_source, options.dpi, Some(mask))
         } else {
             normalize_illumination(&rotated_source, options.dpi)
@@ -1405,6 +1460,8 @@ fn prepare_page<'a>(
             Some(analysis_normalized),
         )
     };
+    timings.quality_normalization_ms +=
+        quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
     PreparedPage {
         rotated_source,
         normalized,
@@ -1461,9 +1518,13 @@ fn prepare_analysis_page(
             scale_y: source_scale_y,
         } = build_analysis_level(source, options.dpi, 150.0);
         let rotated = rotate_orthogonal(&image, options.rotation);
-        let analysis_rgb = color_source
-            .map(|rgb| downscale_rgb_to_dimensions(rgb, image.width(), image.height()))
-            .map(|rgb| rotate_rgb_orthogonal(&rgb, options.rotation));
+        let analysis_rgb = if render_policy.recommend_output_mode {
+            color_source
+                .map(|rgb| downscale_rgb_to_dimensions(rgb, image.width(), image.height()))
+                .map(|rgb| rotate_rgb_orthogonal(&rgb, options.rotation))
+        } else {
+            None
+        };
         let (full_width, full_height) = match options.rotation {
             OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => {
                 (source.width(), source.height())
@@ -1478,21 +1539,75 @@ fn prepare_analysis_page(
         timings.analysis_level_ms += analysis_started.elapsed().as_secs_f64() * 1_000.0;
 
         let normalization_started = Instant::now();
-        let layout_normalized = if options.normalize_illumination {
-            normalize_illumination_for_layout(&rotated)
+        let illumination_preparation_started = Instant::now();
+        let illumination_preparation = options.normalize_illumination.then(|| {
+            let preparation = prepare_illumination(&rotated);
+            timings.illumination_preparation_ms +=
+                illumination_preparation_started.elapsed().as_secs_f64() * 1_000.0;
+            preparation
+        });
+        let layout_normalization_started = Instant::now();
+        let layout_normalized = if let Some(preparation) = illumination_preparation.as_ref() {
+            normalize_illumination_for_layout_prepared(&rotated, preparation)
         } else {
             rotated.clone()
         };
+        timings.layout_normalization_ms +=
+            layout_normalization_started.elapsed().as_secs_f64() * 1_000.0;
+        let calibration_started = Instant::now();
         let calibration =
             PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
+        timings.calibration_ms += calibration_started.elapsed().as_secs_f64() * 1_000.0;
+        let picture_mask_started = Instant::now();
         let picture_mask = render_policy.analyze_layout.then(|| {
             let mut mask = detect_picture_mask(&rotated, effective_dpi, calibration);
             apply_manual_zones(&mut mask, options);
             Arc::new(mask)
         });
-        let content_picture_mask = picture_mask
-            .as_deref()
-            .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)));
+        let content_evidence_complete = match options.layout {
+            crate::LayoutMode::Single => options
+                .resolved_content_for(PageHalf::Full, full_width, full_height)
+                .is_some(),
+            crate::LayoutMode::TwoPage => {
+                options
+                    .resolved_content_for(PageHalf::Left, full_width, full_height)
+                    .is_some()
+                    && options
+                        .resolved_content_for(PageHalf::Right, full_width, full_height)
+                        .is_some()
+            }
+            crate::LayoutMode::KeepLeft => options
+                .resolved_content_for(PageHalf::Left, full_width, full_height)
+                .is_some(),
+            crate::LayoutMode::KeepRight => options
+                .resolved_content_for(PageHalf::Right, full_width, full_height)
+                .is_some(),
+            crate::LayoutMode::Auto | crate::LayoutMode::PageWithOffcut => {
+                [PageHalf::Full, PageHalf::Left, PageHalf::Right]
+                    .into_iter()
+                    .all(|half| {
+                        options
+                            .resolved_content_for(half, full_width, full_height)
+                            .is_some()
+                    })
+            }
+        };
+        let content_picture_mask = if options.crop_content && !content_evidence_complete {
+            picture_mask
+                .as_deref()
+                .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)))
+        } else {
+            None
+        };
+        timings.picture_mask_ms += picture_mask_started.elapsed().as_secs_f64() * 1_000.0;
+        let text_axis_started = Instant::now();
+        let analysis_threshold = render_policy
+            .analyze_layout
+            .then(|| otsu_threshold(&layout_normalized));
+        let text_axis = analysis_threshold
+            .and_then(|threshold| detect_text_axis(&layout_normalized, threshold));
+        timings.text_axis_ms += text_axis_started.elapsed().as_secs_f64() * 1_000.0;
+        let mode_recommendation_started = Instant::now();
         let output_mode_recommendation = picture_mask
             .as_deref()
             .filter(|_| render_policy.recommend_output_mode)
@@ -1515,6 +1630,8 @@ fn prepare_analysis_page(
                     text_line_count,
                 })
             });
+        timings.mode_recommendation_ms +=
+            mode_recommendation_started.elapsed().as_secs_f64() * 1_000.0;
         let resolved_output_mode = if options.output_mode == OutputMode::Auto {
             output_mode_recommendation
                 .map(|recommendation| recommendation.mode)
@@ -1522,27 +1639,28 @@ fn prepare_analysis_page(
         } else {
             options.output_mode
         };
+        let quality_normalization_started = Instant::now();
         let normalized = if options.normalize_illumination {
             if prepare_quality_raster {
-                if resolved_output_mode == OutputMode::Mixed {
-                    let mask = picture_mask
+                let picture_mask = (resolved_output_mode == OutputMode::Mixed).then(|| {
+                    picture_mask
                         .as_deref()
-                        .expect("mixed mode prepares a picture mask");
-                    normalize_illumination_with_picture_mask(&rotated, effective_dpi, Some(mask))
-                } else {
-                    normalize_illumination(&rotated, effective_dpi)
-                }
+                        .expect("mixed mode prepares a picture mask")
+                });
+                normalize_illumination_prepared(
+                    &rotated,
+                    picture_mask,
+                    illumination_preparation
+                        .expect("illumination preparation exists when normalization is enabled"),
+                )
             } else {
                 layout_normalized.clone()
             }
         } else {
             rotated
         };
-        let analysis_threshold = render_policy
-            .analyze_layout
-            .then(|| otsu_threshold(&layout_normalized));
-        let text_axis = analysis_threshold
-            .and_then(|threshold| detect_text_axis(&layout_normalized, threshold));
+        timings.quality_normalization_ms +=
+            quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
         let artifact = Arc::new(AnalysisArtifact {
             normalized: Arc::new(normalized),
             layout_normalized: Arc::new(layout_normalized),
@@ -1755,6 +1873,7 @@ fn clean_region(
     cache: Option<&PageCache>,
     split_cache_key: Option<&StageCacheKey>,
     create_mixed_layers: bool,
+    create_mixed_composite: bool,
     timings: &mut PageStageTimings,
 ) -> Result<CleanupResult, String> {
     let working_width = region.width.round().max(1.0) as usize;
@@ -1774,7 +1893,10 @@ fn clean_region(
         .zip(split_cache_key)
         .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
     let deskew_started = Instant::now();
-    let deskew = if let Some(angle_degrees) = options.manual_skew_degrees {
+    let deskew = if let Some(angle_degrees) = options
+        .manual_skew_degrees
+        .or_else(|| options.automatic_skew_for(half))
+    {
         DeskewResult {
             angle_degrees,
             confidence: 1.0,
@@ -1900,7 +2022,7 @@ fn clean_region(
         cached.as_ref().clone()
     } else {
         let detected = if let Some(manual) =
-            options.resolved_manual_content_for(half, normalized.width(), normalized.height())
+            options.resolved_content_for(half, normalized.width(), normalized.height())
         {
             let left = manual.x.clamp(0.0, working_width.saturating_sub(1) as f64);
             let top = manual.y.clamp(0.0, working_height.saturating_sub(1) as f64);
@@ -2030,6 +2152,7 @@ fn clean_region(
     let rendered_height = render_plan.output_height();
 
     let render_started = Instant::now();
+    let rasterization_started = Instant::now();
     // A colour page publishes its RGB raster; the gray twin is never encoded, so
     // the only question it answered — blankness — moves to the analysis level.
     let skips_gray_twin = options.output_mode == OutputMode::Color
@@ -2088,6 +2211,7 @@ fn clean_region(
                 None,
             )
         };
+    timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     let (forward_transform, inverse_transform) =
         if let (Some(forward), Some(region)) = (forward_transform, sampled_region) {
             let intrinsic_forward = forward.then(Affine::translation(region.x, region.y));
@@ -2095,11 +2219,26 @@ fn clean_region(
         } else {
             (forward_transform, inverse_transform)
         };
+    let mask_rasterization_started = Instant::now();
     let rendered_picture_mask = source_picture_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
         render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan.output_to_source(point)
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
         })
     });
+    timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
+    let output_processing_started = Instant::now();
     let effectively_blank = if skips_gray_twin {
         is_effectively_blank(content_analysis, calibration.effective_dpi)
     } else {
@@ -2134,13 +2273,18 @@ fn clean_region(
         match options.output_mode {
             OutputMode::Bw => {
                 let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                let (fresh_binary, diagnostics, fresh_despeckle_fallback) =
+                let binarization_started = Instant::now();
+                let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
                     binarize_normalized_with_diagnostics(
                         &rendered_gray,
                         &routing_sample,
                         options,
                         calibration,
                     );
+                timings.threshold_preparation_ms += stage_timings.preparation_ms;
+                timings.thresholding_ms += stage_timings.thresholding_ms;
+                timings.binary_postprocess_ms += stage_timings.postprocess_ms;
+                timings.binarization_ms += binarization_started.elapsed().as_secs_f64() * 1_000.0;
                 let mode = diagnostics.route;
                 let reusable = split.reusable_binary.as_ref().filter(|binary| {
                     mode == crate::BinarizationMode::Otsu
@@ -2180,13 +2324,19 @@ fn clean_region(
                     .expect("mixed output prepares a picture mask");
                 if picture_mask.count_black() == 0 {
                     let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                    let (binary, diagnostics, despeckle_fallback) =
+                    let binarization_started = Instant::now();
+                    let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
                             &routing_sample,
                             options,
                             calibration,
                         );
+                    timings.threshold_preparation_ms += stage_timings.preparation_ms;
+                    timings.thresholding_ms += stage_timings.thresholding_ms;
+                    timings.binary_postprocess_ms += stage_timings.postprocess_ms;
+                    timings.binarization_ms +=
+                        binarization_started.elapsed().as_secs_f64() * 1_000.0;
                     let mode = diagnostics.route;
                     (
                         CleanupRaster::Bilevel(binary),
@@ -2197,14 +2347,21 @@ fn clean_region(
                         None,
                     )
                 } else {
-                    let (binary, diagnostics, despeckle_fallback) =
+                    let binarization_started = Instant::now();
+                    let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics_excluding(
                             &rendered_gray,
                             options,
                             calibration,
                             picture_mask,
                         );
+                    timings.threshold_preparation_ms += stage_timings.preparation_ms;
+                    timings.thresholding_ms += stage_timings.thresholding_ms;
+                    timings.binary_postprocess_ms += stage_timings.postprocess_ms;
+                    timings.binarization_ms +=
+                        binarization_started.elapsed().as_secs_f64() * 1_000.0;
                     let mode = diagnostics.route;
+                    let composition_started = Instant::now();
                     let (mixed_gray, mixed_color, layers) = compose_mixed(
                         &rendered_gray,
                         rendered_color.as_ref(),
@@ -2212,7 +2369,10 @@ fn clean_region(
                         picture_mask,
                         options.dpi,
                         create_mixed_layers,
+                        create_mixed_composite,
                     );
+                    timings.mixed_composition_ms +=
+                        composition_started.elapsed().as_secs_f64() * 1_000.0;
                     (
                         CleanupRaster::Gray(mixed_gray),
                         mixed_color,
@@ -2259,6 +2419,7 @@ fn clean_region(
                 .map(|source| crop_rgb(&source, payload_rect)),
         });
     }
+    timings.output_processing_ms += output_processing_started.elapsed().as_secs_f64() * 1_000.0;
     timings.render_ms += render_started.elapsed().as_secs_f64() * 1_000.0;
     let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
         Vec::new()
@@ -2363,27 +2524,20 @@ fn render_binary_mask(
     source: &BinaryImage,
     width: usize,
     height: usize,
-    map: impl Fn(Point) -> Option<Point>,
+    map: impl Fn(Point) -> Option<Point> + Sync,
 ) -> BinaryImage {
-    let mut output = BinaryImage::new(width, height);
-    for y in 0..height {
-        for x in 0..width {
-            let Some(mapped) = map(Point::new(x as f64, y as f64)) else {
-                continue;
-            };
-            let source_x = mapped.x.round() as isize;
-            let source_y = mapped.y.round() as isize;
-            if source_x >= 0
-                && source_y >= 0
-                && source_x < source.width() as isize
-                && source_y < source.height() as isize
-                && source.get(source_x as usize, source_y as usize)
-            {
-                output.set(x, y, true);
-            }
-        }
-    }
-    output
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        let Some(mapped) = map(Point::new(x as f64, y as f64)) else {
+            return false;
+        };
+        let source_x = mapped.x.round() as isize;
+        let source_y = mapped.y.round() as isize;
+        source_x >= 0
+            && source_y >= 0
+            && source_x < source.width() as isize
+            && source_y < source.height() as isize
+            && source.get(source_x as usize, source_y as usize)
+    })
 }
 
 fn compose_mixed(
@@ -2393,6 +2547,7 @@ fn compose_mixed(
     picture_mask: &BinaryImage,
     dpi: f64,
     create_layers: bool,
+    create_composite: bool,
 ) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
     // The final stencil owns only its black pixels. Everything excluded from it,
     // including the picture-mask dilation halo, must retain source tone here so
@@ -2400,67 +2555,114 @@ fn compose_mixed(
     let mut mixed_gray = gray.clone();
     let mut mixed_color = color.cloned();
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
-    let distance_to_picture_exterior = squared_euclidean_distance(&picture_mask.invert());
-    let distance_to_stencil = squared_euclidean_distance(binary);
+    let picture_exterior = picture_mask.invert();
+    let (distance_to_picture_exterior, distance_to_stencil) = rayon::join(
+        || squared_euclidean_distance(&picture_exterior),
+        || squared_euclidean_distance(binary),
+    );
     let stencil_adjacency_squared = (feather_radius * feather_radius) as u32;
-    for y in 0..gray.height() {
-        for x in 0..gray.width() {
-            let index = y * gray.width() + x;
-            if picture_mask.get(x, y) {
-                let source_gray = gray.get(x, y);
-                let alpha = if distance_to_stencil[index] <= stencil_adjacency_squared {
-                    let spatial_alpha = (f64::from(distance_to_picture_exterior[index]).sqrt()
-                        / feather_radius as f64)
-                        .clamp(0.0, 1.0);
-                    let dark_detail_alpha =
-                        ((245.0 - f64::from(source_gray)) / 96.0).clamp(0.0, 1.0);
-                    spatial_alpha.max(dark_detail_alpha)
-                } else {
-                    1.0
-                };
-                let value = reserve_gray_endpoint(
-                    (255.0 * (1.0 - alpha) + f64::from(source_gray) * alpha)
-                        .round()
-                        .clamp(0.0, 255.0) as u8,
-                );
-                mixed_gray.set(x, y, value);
-                if let (Some(source), Some(output)) = (color, mixed_color.as_mut()) {
-                    output.set(
-                        x,
-                        y,
-                        reserve_rgb_endpoints(source.get(x, y).map(|channel| {
-                            (255.0 * (1.0 - alpha) + f64::from(channel) * alpha)
-                                .round()
-                                .clamp(0.0, 255.0) as u8
-                        })),
+    let alpha_at = |x: usize, y: usize, source_gray: u8| {
+        let index = y * gray.width() + x;
+        if distance_to_stencil[index] <= stencil_adjacency_squared {
+            let spatial_alpha = (f64::from(distance_to_picture_exterior[index]).sqrt()
+                / feather_radius as f64)
+                .clamp(0.0, 1.0);
+            let dark_detail_alpha = ((245.0 - f64::from(source_gray)) / 96.0).clamp(0.0, 1.0);
+            spatial_alpha.max(dark_detail_alpha)
+        } else {
+            1.0
+        }
+    };
+    if let (Some(source_color), Some(output_color)) = (color, mixed_color.as_mut()) {
+        mixed_gray
+            .data_mut()
+            .par_chunks_mut(gray.width())
+            .zip(output_color.data_mut().par_chunks_mut(gray.width() * 3))
+            .enumerate()
+            .for_each(|(y, (gray_row, color_row))| {
+                for (x, gray_target) in gray_row.iter_mut().enumerate() {
+                    if binary.get(x, y) {
+                        let value = if create_composite { 0 } else { 255 };
+                        *gray_target = value;
+                        color_row[x * 3..x * 3 + 3].fill(value);
+                        continue;
+                    }
+                    if !picture_mask.get(x, y) {
+                        continue;
+                    }
+                    let source_gray = gray.get(x, y);
+                    let alpha = alpha_at(x, y, source_gray);
+                    *gray_target = reserve_gray_endpoint(
+                        (255.0 * (1.0 - alpha) + f64::from(source_gray) * alpha)
+                            .round()
+                            .clamp(0.0, 255.0) as u8,
                     );
+                    let rgb = reserve_rgb_endpoints(source_color.get(x, y).map(|channel| {
+                        (255.0 * (1.0 - alpha) + f64::from(channel) * alpha)
+                            .round()
+                            .clamp(0.0, 255.0) as u8
+                    }));
+                    color_row[x * 3..x * 3 + 3].copy_from_slice(&rgb);
                 }
-            }
-        }
-    }
-    for y in 0..gray.height() {
-        for x in 0..gray.width() {
-            if binary.get(x, y) {
-                mixed_gray.set(x, y, 0);
-                if let Some(output) = mixed_color.as_mut() {
-                    output.set(x, y, [0; 3]);
+            });
+    } else {
+        mixed_gray
+            .data_mut()
+            .par_chunks_mut(gray.width())
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.iter_mut().enumerate() {
+                    if binary.get(x, y) {
+                        *target = if create_composite { 0 } else { 255 };
+                    } else if picture_mask.get(x, y) {
+                        let source_gray = gray.get(x, y);
+                        let alpha = alpha_at(x, y, source_gray);
+                        *target = reserve_gray_endpoint(
+                            (255.0 * (1.0 - alpha) + f64::from(source_gray) * alpha)
+                                .round()
+                                .clamp(0.0, 255.0) as u8,
+                        );
+                    }
                 }
-            }
-        }
+            });
     }
     let layers = create_layers.then(|| {
         let foreground_mask = binary.clone();
         let mut background = mixed_gray.clone();
         let mut color_background = mixed_color.clone();
-        for y in 0..gray.height() {
-            for x in 0..gray.width() {
-                if binary.get(x, y) {
-                    background.set(x, y, 255);
-                    if let Some(output) = color_background.as_mut() {
-                        output.set(x, y, [255; 3]);
+        if !create_composite {
+            return MixedLayers {
+                foreground_mask,
+                background,
+                color_background,
+            };
+        }
+        if let Some(color_background) = color_background.as_mut() {
+            background
+                .data_mut()
+                .par_chunks_mut(gray.width())
+                .zip(color_background.data_mut().par_chunks_mut(gray.width() * 3))
+                .enumerate()
+                .for_each(|(y, (gray_row, color_row))| {
+                    for (x, target) in gray_row.iter_mut().enumerate() {
+                        if binary.get(x, y) {
+                            *target = 255;
+                            color_row[x * 3..x * 3 + 3].fill(255);
+                        }
                     }
-                }
-            }
+                });
+        } else {
+            background
+                .data_mut()
+                .par_chunks_mut(gray.width())
+                .enumerate()
+                .for_each(|(y, row)| {
+                    for (x, target) in row.iter_mut().enumerate() {
+                        if binary.get(x, y) {
+                            *target = 255;
+                        }
+                    }
+                });
         }
         MixedLayers {
             foreground_mask,

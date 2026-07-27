@@ -21,4 +21,8 @@ pub mod protocol;
 pub mod split;
 
 pub use domain::options::*;
-pub const PROTOCOL_VERSION: u32 = 3;
+// Generated from packages/contracts/nativeToolProtocols.ts. Keeping the CLI
+// handshake on this descriptor makes a stale strict-manifest parser fail
+// before Electron sends it a request.
+pub const PROTOCOL_VERSION: u32 =
+    evb_native_support::generated_native_tool_protocols::SCAN_CLEANUP.protocol_version;

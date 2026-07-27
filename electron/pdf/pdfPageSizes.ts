@@ -30,6 +30,16 @@ export interface IPdfPageSize {
     widthPoints: number;
     heightPoints: number;
     rotation: number;
+    /**
+     * The largest image XObject whose actual placement covers the page view.
+     * These are absent for vector/mixed pages and deliberately do not describe
+     * same-aspect thumbnails: the native metadata reader verifies placement
+     * before exposing them.
+     */
+    dominantImageWidthPx?: number;
+    dominantImageHeightPx?: number;
+    dominantImageWidthPoints?: number;
+    dominantImageHeightPoints?: number;
 }
 
 function decodeFinite(value: unknown) {
@@ -48,6 +58,20 @@ export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
         if (widthPoints === null || heightPoints === null || widthPoints <= 0 || heightPoints <= 0) {
             throw new Error(`evb-pdf-page-ops returned invalid geometry for page ${String(pageNumber)}`);
         }
+        const dominantImageWidthPx = decodeFinite(page.dominantImageWidthPx);
+        const dominantImageHeightPx = decodeFinite(page.dominantImageHeightPx);
+        const dominantImageWidthPoints = decodeFinite(page.dominantImageWidthPoints);
+        const dominantImageHeightPoints = decodeFinite(page.dominantImageHeightPoints);
+        const hasDominantImage = dominantImageWidthPx !== null
+            && dominantImageHeightPx !== null
+            && dominantImageWidthPoints !== null
+            && dominantImageHeightPoints !== null
+            && Number.isSafeInteger(dominantImageWidthPx)
+            && Number.isSafeInteger(dominantImageHeightPx)
+            && dominantImageWidthPx > 0
+            && dominantImageHeightPx > 0
+            && dominantImageWidthPoints > 0
+            && dominantImageHeightPoints > 0;
         return {
             pageNumber,
             xPoints: decodeFinite(page.xPoints) ?? 0,
@@ -55,6 +79,12 @@ export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
             widthPoints,
             heightPoints,
             rotation: decodeFinite(page.rotation) ?? 0,
+            ...(hasDominantImage ? {
+                dominantImageWidthPx,
+                dominantImageHeightPx,
+                dominantImageWidthPoints,
+                dominantImageHeightPoints,
+            } : {}),
         };
     });
 }

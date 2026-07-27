@@ -7,6 +7,7 @@ import type {
     TNativeScanCleanupOperation,
     TNativeScanCleanupRenderMode,
     TScanCleanupCanvasScope,
+    TScanCleanupLayoutClassification,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCleanup';
@@ -26,6 +27,9 @@ export interface IScanCleanupManifestPageInput {
     requestedRenderDpi?: number;
     renderCrop?: INativeScanCleanupManifestV3['pages'][number]['options']['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
+    observedLayout?: TScanCleanupLayoutClassification;
+    automaticContentBoxes?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticContentBoxes'];
+    automaticSkewDegrees?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSkewDegrees'];
     pageMetadataPath: string;
     outputs?: INativeScanCleanupOutputV3[];
     documentPrior?: IScanCleanupDocumentPrior;
@@ -34,6 +38,7 @@ export interface IScanCleanupManifestPageInput {
 
 export interface IBuildNativeScanCleanupManifestInput {
     operation: TNativeScanCleanupOperation;
+    analysisPurpose?: INativeScanCleanupManifestV3['analysisPurpose'];
     renderMode: TNativeScanCleanupRenderMode;
     canvasScope: TScanCleanupCanvasScope;
     qualityPath: TScanCleanupQualityPath;
@@ -63,6 +68,7 @@ export function serializeNativeScanCleanupOptions(
 
 export function buildNativeScanCleanupManifest({
     operation,
+    analysisPurpose,
     renderMode,
     canvasScope,
     qualityPath,
@@ -75,6 +81,7 @@ export function buildNativeScanCleanupManifest({
     return {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         operation,
+        ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
         renderMode,
         canvasScope,
         ...(documentCanvas === undefined ? {} : {documentCanvas}),
@@ -96,6 +103,15 @@ export function buildNativeScanCleanupManifest({
                     ...(page.resolvedOutputMode === undefined
                         ? {}
                         : {resolvedOutputMode: page.resolvedOutputMode}),
+                    ...(page.observedLayout === undefined
+                        ? {}
+                        : {observedLayout: page.observedLayout}),
+                    ...(page.automaticContentBoxes === undefined
+                        ? {}
+                        : {automaticContentBoxes: page.automaticContentBoxes}),
+                    ...(page.automaticSkewDegrees === undefined
+                        ? {}
+                        : {automaticSkewDegrees: page.automaticSkewDegrees}),
                     qualityPath,
                     ...(experimental === undefined ? {} : {experimental}),
                 }),

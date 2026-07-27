@@ -6,6 +6,10 @@ import {
 } from 'fs/promises';
 import {basename} from 'path';
 import {createInterface} from 'readline';
+import {
+    constants as osConstants,
+    setPriority,
+} from 'os';
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
     TNativeScanCleanupPageStageTimingsV3,
@@ -76,18 +80,25 @@ export async function runScanCleanupSidecar(
     signal: AbortSignal,
     log: TWorkerLog,
     onProgress: (progress: TScanCleanupProgress, nativeProgress: TNativeScanCleanupProgressV3) => void,
+    options: {priority?: 'background'} = {},
 ) {
     if (signal.aborted) throw abortErrorFromSignal(signal);
     await verifyNativeToolProtocol(binaryPath, {
         signal,
         log,
     });
-    // The sidecar is a long-lived native process that fans out over rayon, so it
-    // is admitted through the same gate as pdftoppm and qpdf instead of spawning
-    // beside them unaccounted.
+    // The sidecar fans out over Rayon, so it is admitted through the same gate
+    // as pdftoppm and qpdf instead of spawning beside them unaccounted.
     const releaseAdmission = await acquireNativeCommandAdmission(signal);
     try {
-        await streamScanCleanupSidecar(binaryPath, manifestPath, signal, log, onProgress);
+        await streamScanCleanupSidecar(
+            binaryPath,
+            manifestPath,
+            signal,
+            log,
+            onProgress,
+            options,
+        );
     } finally {
         releaseAdmission();
     }
@@ -99,6 +110,7 @@ async function streamScanCleanupSidecar(
     signal: AbortSignal,
     log: TWorkerLog,
     onProgress: (progress: TScanCleanupProgress, nativeProgress: TNativeScanCleanupProgressV3) => void,
+    options: {priority?: 'background'},
 ) {
     const child = spawn(binaryPath, [
         '--manifest',
@@ -108,6 +120,16 @@ async function streamScanCleanupSidecar(
         'pipe',
         'pipe',
     ]}));
+    if (options.priority === 'background' && child.pid !== undefined) {
+        try {
+            setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
+        } catch (error) {
+            // Priority is an optimisation, not a correctness boundary. Some
+            // sandboxed and hardened runtimes reject it; admission control and
+            // cancellation still keep the process bounded there.
+            log('debug', `Could not lower scan cleanup detection priority: ${String(error)}`);
+        }
+    }
     const startedAt = performance.now();
     let stderr = '';
     let terminalResult: 'success' | 'failure' | null = null;

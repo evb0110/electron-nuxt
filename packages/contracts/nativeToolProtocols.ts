@@ -31,7 +31,12 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
     {
         binaryName: 'evb-scan-cleanup',
         crateName: 'scan-cleanup',
-        protocolVersion: 3,
+        // Runtime compatibility revision for the strict manifest parser. This
+        // intentionally advances independently of the JSON format's public
+        // `version`: adding a field to a deny-unknown-fields Rust struct makes
+        // an older executable incompatible even when the v3 wire shape remains
+        // additive for current consumers.
+        protocolVersion: 4,
         resourceFamilyId: 'scan-cleanup',
         stagingName: 'scan-cleanup',
     },

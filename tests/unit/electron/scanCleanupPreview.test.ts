@@ -526,6 +526,7 @@ describe('scan cleanup preview', () => {
     it('round-trips normalized override geometry through the IPC codec', () => {
         const normalizedRequest: IScanCleanupPreviewRequest = {
             ...request,
+            outputModeRecommendation: 'bw',
             options: {
                 ...request.options,
                 pageOverrides: {'2': {
@@ -901,6 +902,98 @@ describe('scan cleanup preview', () => {
                 }],
             },
         });
+    });
+
+    it('does not upscale a proven 72-DPI raster document for its base preview', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(page => ({
+            ...page,
+            dominantImageWidthPx: 612,
+            dominantImageHeightPx: 792,
+            dominantImageWidthPoints: 612,
+            dominantImageHeightPoints: 792,
+        })));
+        const originalSidecar = deps.runSidecar;
+        let manifest: {
+            documentCanvas?: {
+                widthPx: number;
+                heightPx: number
+            };
+            pages: Array<{options: {
+                dpi: number;
+                sourceDpi: number;
+                requestedRenderDpi: number
+            }}>;
+        } | null = null;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+
+        await previewOf(createScanCleanupPreviewService(deps), sender(), request);
+
+        expect(vi.mocked(deps.renderPage).mock.calls[0]?.[5]).toBe(72);
+        expect(manifest).toMatchObject({
+            documentCanvas: {
+                widthPx: 612,
+                heightPx: 792,
+            },
+            pages: [{options: {
+                dpi: 72,
+                sourceDpi: 72,
+                requestedRenderDpi: 72,
+            }}],
+        });
+    });
+
+    it('bounds a physically oversized scan preview before Poppler rasterizes it', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.getPageSizes = vi.fn(async () => [{
+            pageNumber: 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 4_676,
+            heightPoints: 3_328,
+            rotation: 0,
+            dominantImageWidthPx: 4_676,
+            dominantImageHeightPx: 3_328,
+            dominantImageWidthPoints: 4_676,
+            dominantImageHeightPoints: 3_328,
+        }]);
+        const originalSidecar = deps.runSidecar;
+        let manifest: {
+            documentCanvas?: {
+                widthPx: number;
+                heightPx: number
+            };
+            pages: Array<{options: {
+                dpi: number;
+                sourceDpi: number;
+                requestedRenderDpi: number
+            }}>;
+        } | null = null;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+
+        await previewOf(createScanCleanupPreviewService(deps), sender(), request);
+
+        expect(vi.mocked(deps.renderPage).mock.calls[0]?.[5]).toBe(36);
+        expect(manifest).toMatchObject({
+            documentCanvas: {
+                widthPx: 2_338,
+                heightPx: 1_664,
+            },
+            pages: [{options: {
+                dpi: 36,
+                sourceDpi: 72,
+                requestedRenderDpi: 36,
+            }}],
+        });
+        expect(2_338 * 1_664).toBeLessThanOrEqual(4_000_000);
     });
 
     it('renders only the requested zoom region at true output DPI within the tile budget', async () => {
@@ -1420,9 +1513,14 @@ describe('scan cleanup preview', () => {
         })));
         const originalSidecar = deps.runSidecar;
         let documentCanvas: unknown;
+        let observedPageLayout: unknown;
         deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {documentCanvas?: unknown};
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                documentCanvas?: unknown;
+                pages: Array<{options: {layout: string}}>;
+            };
             documentCanvas = manifest.documentCanvas;
+            observedPageLayout = manifest.pages[0]?.options.layout;
             await originalSidecar(binary, manifestPath, signal, log, onProgress);
         });
         const service = createScanCleanupPreviewService(deps);
@@ -1450,9 +1548,33 @@ describe('scan cleanup preview', () => {
         expect(documentCanvas).toEqual({
             widthPoints: 612,
             heightPoints: 792,
-            widthPx: Math.ceil(612 / 72 * PREVIEW_DPI),
-            heightPx: Math.ceil(792 / 72 * PREVIEW_DPI),
+            widthPx: 1_241,
+            heightPx: 1_606,
         });
+        expect(observedPageLayout).toBe('force-two-page');
+    });
+
+    it('reuses the detected output mode for an automatic preview', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalSidecar = deps.runSidecar;
+        let outputMode: unknown;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{options: {outputMode: string}}>;};
+            outputMode = manifest.pages[0]?.options.outputMode;
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+
+        await previewOf(createScanCleanupPreviewService(deps), sender(), {
+            ...request,
+            options: {
+                ...request.options,
+                outputMode: 'auto',
+            },
+            outputModeRecommendation: 'bw',
+        });
+
+        expect(outputMode).toBe('bw');
     });
 
     it('renders a matched lossless page the final run cannot keep lossless', async () => {
@@ -2343,6 +2465,19 @@ describe('scan cleanup preview', () => {
                     confidence: 0.98,
                 },
                 recommendedOutputModeReason: 'blank',
+                sourcePageMetadata: {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    sourceDpi: 300,
+                    dominantImageWidthPx: 2_550,
+                    dominantImageHeightPx: 3_300,
+                    dominantImageWidthPoints: 612,
+                    dominantImageHeightPoints: 792,
+                },
             }],
             updatedAtMs: Date.now(),
         };
@@ -2351,6 +2486,9 @@ describe('scan cleanup preview', () => {
             confidence: 0.98,
         });
         expect(decodeScanCleanupDetectionJobState(state)?.results[0]?.recommendedOutputModeReason).toBe('blank');
+        expect(decodeScanCleanupDetectionJobState(state)?.results[0]?.sourcePageMetadata).toEqual(
+            state.results[0]!.sourcePageMetadata,
+        );
 
         const withoutAxis = structuredClone(state);
         delete (withoutAxis.results[0] as {textAxis?: unknown}).textAxis;
@@ -2363,9 +2501,15 @@ describe('scan cleanup preview', () => {
         const malformedReason = structuredClone(state);
         malformedReason.results[0]!.recommendedOutputModeReason = 'empty';
         expect(() => decodeScanCleanupDetectionJobState(malformedReason)).toThrow('detection result');
+
+        const mismatchedMetadata = structuredClone(state);
+        mismatchedMetadata.results[0]!.sourcePageMetadata.pageNumber = 2;
+        expect(() => decodeScanCleanupDetectionJobState(mismatchedMetadata)).toThrow(
+            'detection source page metadata',
+        );
     });
 
-    it('publishes incremental rasterization and analysis progress before reconciled results', async () => {
+    it('publishes provisional page results before document reconciliation completes', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const originalRenderPage = deps.renderPage;
@@ -2399,6 +2543,9 @@ describe('scan cleanup preview', () => {
                 completedPages: 1,
                 totalPages: 3,
                 pageNumber: 1,
+                classification: 'single-uncut-page',
+                confidence: 0.8,
+                reconciled: false,
             });
             analysisEntered.resolve(undefined);
             await remainingAnalysis.promise;
@@ -2417,6 +2564,9 @@ describe('scan cleanup preview', () => {
                     completedPages: pageNumber,
                     totalPages: 3,
                     pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.8,
+                    reconciled: false,
                 });
             }
             for (const pageNumber of [
@@ -2472,7 +2622,12 @@ describe('scan cleanup preview', () => {
             totalUnits: 3,
         }));
         const analyzing = service.getDetectionJobState(owner, started.jobId, detectionRequest);
-        expect(analyzing?.results).toEqual([]);
+        expect(analyzing?.results).toEqual([expect.objectContaining({
+            pageNumber: 1,
+            classification: 'single-uncut-page',
+            confidence: 0.8,
+            reconciled: false,
+        })]);
         expect(decodeScanCleanupDetectionJobState(analyzing)).toEqual(analyzing);
 
         remainingAnalysis.resolve(undefined);
@@ -2493,6 +2648,101 @@ describe('scan cleanup preview', () => {
                 {pageNumber: 3},
             ],
         });
+    });
+
+    it.runIf(process.platform !== 'win32')('starts detection before the remaining document rasters finish', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const firstRasterStarted = Promise.withResolvers<undefined>();
+        const remainingRasters = Promise.withResolvers<undefined>();
+        deps.createRasterPipes = vi.fn(async () => undefined);
+        deps.renderPagePpm = vi.fn(async (_paths, _log, pageNumber) => {
+            if (pageNumber === 1) {
+                firstRasterStarted.resolve(undefined);
+                return;
+            }
+            await remainingRasters.promise;
+        });
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await firstRasterStarted.promise;
+            await writeDetectionMetadata(manifestPath);
+            onProgress({
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            }, {
+                stage: 'page-analyzed',
+                completedPages: 1,
+                totalPages: 3,
+                pageNumber: 1,
+                classification: 'single-uncut-page',
+                confidence: 0.8,
+                reconciled: false,
+            });
+            await remainingRasters.promise;
+            for (const pageNumber of [
+                2,
+                3,
+            ]) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
+                }, {
+                    stage: 'page-analyzed',
+                    completedPages: pageNumber,
+                    totalPages: 3,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.8,
+                    reconciled: false,
+                });
+            }
+            for (const pageNumber of [
+                1,
+                2,
+                3,
+            ]) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: 3,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.results).toEqual([expect.objectContaining({pageNumber: 1})]));
+        expect(deps.createRasterPipes).toHaveBeenCalledOnce();
+        expect(deps.renderPagePpm).toHaveBeenCalled();
+        expect(deps.renderPage).not.toHaveBeenCalled();
+
+        remainingRasters.resolve(undefined);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
     });
 
     it('reconciles every detection classification against the whole document, not a window of it', async () => {
@@ -2658,11 +2908,14 @@ describe('scan cleanup preview', () => {
                 rawHeightPx: 1,
             });
         }
-        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+        // Detection keeps a cheaper 100-DPI cache. Each 150-DPI visible
+        // preview is rendered once rather than silently displaying the lower
+        // resolution analysis raster.
+        expect(deps.renderPage).toHaveBeenCalledTimes(6);
         expect(deps.getPageCount).toHaveBeenCalledOnce();
 
         await previewOf(service, sender(), pageRequest(1, 'revision-2'));
-        expect(deps.renderPage).toHaveBeenCalledTimes(4);
+        expect(deps.renderPage).toHaveBeenCalledTimes(7);
         expect(deps.getPageCount).toHaveBeenCalledTimes(2);
 
         service.cancel(sender(), {
@@ -2710,9 +2963,13 @@ describe('scan cleanup preview', () => {
         deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
                 operation?: string;
+                analysisPurpose?: string;
                 pages: Array<{
                     sourcePageIndex: number;
-                    options: {layout: string};
+                    options: {
+                        dpi: number;
+                        layout: string
+                    };
                     outputs?: unknown;
                 }>;
             };
@@ -2721,6 +2978,8 @@ describe('scan cleanup preview', () => {
                 return;
             }
             await writeDetectionMetadata(manifestPath);
+            expect(manifest.analysisPurpose).toBe('classification');
+            expect(manifest.pages.every(page => page.options.dpi === 100)).toBe(true);
             expect(manifest.pages.every(page => Array.isArray(page.outputs) && page.outputs.length === 0)).toBe(true);
             expect(manifest.pages[1]?.options.layout).toBe('force-two-page');
             for (const page of manifest.pages) {
@@ -2822,17 +3081,17 @@ describe('scan cleanup preview', () => {
             ],
         });
         expect(deps.acquireDetectionLease).toHaveBeenCalledWith(started.jobId, expect.any(AbortSignal));
-        // The preview above already read page 1 at the detection DPI, so
-        // detection rasterizes the other two and runs them side by side.
-        expect(deps.renderPage).toHaveBeenCalledTimes(3);
-        expect(peakRasters).toBe(2);
+        // The visible preview keeps its 150-DPI raster; detection renders its
+        // three cheaper 100-DPI analysis rasters independently.
+        expect(deps.renderPage).toHaveBeenCalledTimes(4);
+        expect(peakRasters).toBe(3);
 
         await previewOf(service, sender(), {
             ...request,
             pageNumber: 2,
         });
         await previewOf(service, sender(), request);
-        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+        expect(deps.renderPage).toHaveBeenCalledTimes(5);
     });
 
     it('rasterizes detection pages as wide as the 11-core host allows and leases that width', async () => {
@@ -2988,7 +3247,7 @@ describe('scan cleanup preview', () => {
         });
 
         expect(previewCanvases).toEqual([undefined]);
-        expect(deps.getPageSizes).not.toHaveBeenCalled();
+        expect(deps.getPageSizes).toHaveBeenCalledOnce();
     });
 
     it('previews without matching when it cannot measure, and measures again next time', async () => {

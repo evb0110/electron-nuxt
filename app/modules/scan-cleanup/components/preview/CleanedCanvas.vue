@@ -13,6 +13,7 @@
                     :style="output.canvasStyle"
                     :data-frame-width="output.placement.canvasWidthPx"
                     :data-frame-height="output.placement.canvasHeightPx"
+                    :data-render-dpi="output.metadata.renderDpi"
                 >
                     <div
                         class="placed-image"

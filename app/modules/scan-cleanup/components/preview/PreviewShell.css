@@ -112,19 +112,17 @@
 }
 
 .preview-viewport-caption {
-    display: grid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--app-space-sm);
     min-width: 0;
-    place-items: center;
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
     text-align: center;
 }
 
 .preview-viewport-caption.is-cleaning {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--app-space-sm);
     color: var(--ui-text);
 }
 

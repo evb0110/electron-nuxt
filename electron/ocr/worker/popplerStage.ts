@@ -1,5 +1,11 @@
-import { stat } from 'fs/promises';
+import {
+    readFile,
+    rm,
+    stat,
+    writeFile,
+} from 'fs/promises';
 import { join } from 'path';
+import {encode as encodePng} from 'fast-png';
 import type {
     IWorkerPaths,
     TWorkerLog,
@@ -37,7 +43,88 @@ export async function renderPdfPageToPng(
     signal?: AbortSignal,
     crop?: IPopplerPixelCrop,
 ) {
-    await renderPdfPage('png', paths, log, pageNumber, sourcePdfPath, outputPngPath, dpi, popplerEnv, signal, crop);
+    const ppmPath = `${outputPngPath}.source.ppm`;
+    try {
+        // Poppler's PNG deflate is slower than the scan-cleanup work on an
+        // ordinary page. Its raw PPM renderer produces identical RGB samples
+        // several times faster; the bundled PNG codec then compresses those
+        // samples without changing them.
+        await renderPdfPage('ppm', paths, log, pageNumber, sourcePdfPath, ppmPath, dpi, popplerEnv, signal, crop);
+        const ppm = await readFile(ppmPath);
+        const state = {offset: 0};
+        const skipWhitespaceAndComments = () => {
+            for (;;) {
+                while ([
+                    0x09,
+                    0x0a,
+                    0x0d,
+                    0x20,
+                ].includes(ppm[state.offset]!)) {
+                    state.offset += 1;
+                }
+                if (ppm[state.offset] !== 0x23) {
+                    return;
+                }
+                while (state.offset < ppm.byteLength && ppm[state.offset] !== 0x0a) {
+                    state.offset += 1;
+                }
+            }
+        };
+        const token = (label: string) => {
+            skipWhitespaceAndComments();
+            const start = state.offset;
+            while (
+                state.offset < ppm.byteLength
+                && ![
+                    0x09,
+                    0x0a,
+                    0x0d,
+                    0x20,
+                ].includes(ppm[state.offset]!)
+            ) {
+                state.offset += 1;
+            }
+            if (start === state.offset) throw new Error(`Invalid Poppler PPM ${label}`);
+            return ppm.subarray(start, state.offset).toString('ascii');
+        };
+        if (token('magic') !== 'P6') throw new Error('Poppler produced an unsupported PPM raster');
+        const width = Number.parseInt(token('width'), 10);
+        const height = Number.parseInt(token('height'), 10);
+        const maxValue = Number.parseInt(token('max value'), 10);
+        if (
+            !Number.isSafeInteger(width)
+            || width < 1
+            || !Number.isSafeInteger(height)
+            || height < 1
+            || maxValue !== 255
+        ) {
+            throw new Error('Poppler produced an invalid PPM raster');
+        }
+        const terminator = ppm[state.offset];
+        if (![
+            0x09,
+            0x0a,
+            0x0d,
+            0x20,
+        ].includes(terminator!)) {
+            throw new Error('Poppler produced an invalid PPM header');
+        }
+        state.offset += terminator === 0x0d && ppm[state.offset + 1] === 0x0a ? 2 : 1;
+        const byteLength = width * height * 3;
+        const pixels = ppm.subarray(state.offset, state.offset + byteLength);
+        if (!Number.isSafeInteger(byteLength) || pixels.byteLength !== byteLength) {
+            throw new Error('Poppler produced a truncated PPM raster');
+        }
+        await writeFile(outputPngPath, encodePng({
+            channels: 3,
+            data: pixels,
+            depth: 8,
+            height,
+            width,
+        }));
+    } finally {
+        await rm(ppmPath, {force: true});
+    }
 }
 
 // Raw PPM P6 skips PNG deflate on both sides of the native handoff: pdftoppm

@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 /// Owned tightly packed 8-bit RGB image.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RgbImage {
@@ -82,56 +84,59 @@ impl RgbImage {
         let x_map = crate::gray::axis_samples(intermediate.width, out_width);
         let y_map = crate::gray::axis_samples(intermediate.height, out_height);
         let mut output = Self::new(out_width, out_height, [255; 3]);
-        for (output_y, &(y0, y1, wy)) in y_map.iter().enumerate() {
-            for (output_x, &(x0, x1, wx)) in x_map.iter().enumerate() {
-                let top_left = intermediate.get(x0, y0);
-                let top_right = intermediate.get(x1, y0);
-                let bottom_left = intermediate.get(x0, y1);
-                let bottom_right = intermediate.get(x1, y1);
-                let mut pixel = [0u8; 3];
-                for (channel, target) in pixel.iter_mut().enumerate() {
-                    let top = f64::from(top_left[channel]) * (1.0 - wx)
-                        + f64::from(top_right[channel]) * wx;
-                    let bottom = f64::from(bottom_left[channel]) * (1.0 - wx)
-                        + f64::from(bottom_right[channel]) * wx;
-                    *target = (top * (1.0 - wy) + bottom * wy).round().clamp(0.0, 255.0) as u8;
+        output
+            .data_mut()
+            .par_chunks_mut(out_width * 3)
+            .enumerate()
+            .for_each(|(output_y, row)| {
+                let (y0, y1, wy) = y_map[output_y];
+                for (target, &(x0, x1, wx)) in row.chunks_exact_mut(3).zip(&x_map) {
+                    let top_left = intermediate.get(x0, y0);
+                    let top_right = intermediate.get(x1, y0);
+                    let bottom_left = intermediate.get(x0, y1);
+                    let bottom_right = intermediate.get(x1, y1);
+                    for (channel, value) in target.iter_mut().enumerate() {
+                        let top = f64::from(top_left[channel]) * (1.0 - wx)
+                            + f64::from(top_right[channel]) * wx;
+                        let bottom = f64::from(bottom_left[channel]) * (1.0 - wx)
+                            + f64::from(bottom_right[channel]) * wx;
+                        *value = (top * (1.0 - wy) + bottom * wy).round().clamp(0.0, 255.0) as u8;
+                    }
                 }
-                output.set(output_x, output_y, pixel);
-            }
-        }
+            });
         output
     }
 
     fn area_average_to_dimensions(&self, out_width: usize, out_height: usize) -> Self {
         let mut output = Self::new(out_width, out_height, [255; 3]);
-        for output_y in 0..out_height {
-            let y0 = output_y * self.height / out_height;
-            let y1 = ((output_y + 1) * self.height / out_height)
-                .max(y0 + 1)
-                .min(self.height);
-            for output_x in 0..out_width {
-                let x0 = output_x * self.width / out_width;
-                let x1 = ((output_x + 1) * self.width / out_width)
-                    .max(x0 + 1)
-                    .min(self.width);
-                let mut sums = [0u64; 3];
-                let mut count = 0u64;
-                for y in y0..y1 {
-                    for x in x0..x1 {
-                        let pixel = self.get(x, y);
-                        for (channel, sum) in sums.iter_mut().enumerate() {
-                            *sum += u64::from(pixel[channel]);
+        output
+            .data_mut()
+            .par_chunks_mut(out_width * 3)
+            .enumerate()
+            .for_each(|(output_y, row)| {
+                let y0 = output_y * self.height / out_height;
+                let y1 = ((output_y + 1) * self.height / out_height)
+                    .max(y0 + 1)
+                    .min(self.height);
+                for (output_x, target) in row.chunks_exact_mut(3).enumerate() {
+                    let x0 = output_x * self.width / out_width;
+                    let x1 = ((output_x + 1) * self.width / out_width)
+                        .max(x0 + 1)
+                        .min(self.width);
+                    let mut sums = [0u64; 3];
+                    let mut count = 0u64;
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            let pixel = self.get(x, y);
+                            for (channel, sum) in sums.iter_mut().enumerate() {
+                                *sum += u64::from(pixel[channel]);
+                            }
+                            count += 1;
                         }
-                        count += 1;
                     }
+                    target.copy_from_slice(&sums.map(|sum| (sum / count.max(1)) as u8));
                 }
-                output.set(
-                    output_x,
-                    output_y,
-                    sums.map(|sum| (sum / count.max(1)) as u8),
-                );
-            }
-        }
+            });
         output
     }
 }

@@ -3,19 +3,15 @@ import type { TWorkerLog } from '@electron/ocr/worker/types';
 
 // PPM removes the costly PNG encode/decode step on both sides of the native
 // handoff: pdftoppm writes a JPEG 2000 scan page in about a second where the
-// same page spends five more seconds in deflate. The cost is scratch space, so
-// the fast handoff stays available for as long as the scratch volume can hold
-// the whole manifest without crowding the run's own outputs.
-//
-// The whole manifest is the unit because it is what is actually resident: both
-// batch paths rasterize every page before their sidecar starts and delete
-// nothing until the run ends. Narrow this estimate to the rasterizer's window
-// only together with a design that streams pages into the sidecar; against
-// today's sequencing a per-window estimate would choose PPM for a document the
-// scratch volume cannot hold.
+// same page spends five more seconds in deflate. The cost is scratch space.
+// Retained handoffs budget the whole manifest; FIFO handoffs budget only the
+// rasterizer's concurrent window because the native consumer drains each page
+// while Poppler produces it.
 const RAW_RASTER_BUDGET_FLOOR_BYTES = 512 * 1024 * 1024;
 const RAW_RASTER_FREE_SPACE_SHARE = 0.25;
 const PPM_HEADER_ESTIMATE_BYTES = 64;
+const COMBINE_OUTPUT_BYTES_PER_PAGE = 8 * 1024 * 1024;
+const COMBINE_OUTPUT_BYTES_FLOOR = 512 * 1024 * 1024;
 
 export interface IScanCleanupRasterHandoffPlan {
     renderDpi: number;
@@ -36,8 +32,11 @@ export async function readAvailableScratchBytes(directory: string) {
     }
 }
 
-function estimateRawRasterBytes(plans: readonly IScanCleanupRasterHandoffPlan[]) {
-    let estimatedBytes = 0;
+function estimateRawRasterBytes(
+    plans: readonly IScanCleanupRasterHandoffPlan[],
+    residentRasterCount: number,
+) {
+    const pageEstimates: number[] = [];
     for (const plan of plans) {
         const raster = plan.raster;
         if (
@@ -55,20 +54,26 @@ function estimateRawRasterBytes(plans: readonly IScanCleanupRasterHandoffPlan[])
         }
         const width = Math.max(1, Math.ceil(raster.width * plan.renderDpi / raster.dpi));
         const height = Math.max(1, Math.ceil(raster.height * plan.renderDpi / raster.dpi));
-        estimatedBytes += width * height * 3 + PPM_HEADER_ESTIMATE_BYTES;
-        if (!Number.isSafeInteger(estimatedBytes)) {
+        const pageBytes = width * height * 3 + PPM_HEADER_ESTIMATE_BYTES;
+        if (!Number.isSafeInteger(pageBytes)) {
             return null;
         }
+        pageEstimates.push(pageBytes);
     }
-    return estimatedBytes;
+    pageEstimates.sort((left, right) => right - left);
+    const estimatedBytes = pageEstimates
+        .slice(0, Math.max(1, residentRasterCount))
+        .reduce((sum, pageBytes) => sum + pageBytes, 0);
+    return Number.isSafeInteger(estimatedBytes) ? estimatedBytes : null;
 }
 
 export async function resolveRasterHandoff(
     plans: readonly IScanCleanupRasterHandoffPlan[],
     scratch: string,
     getAvailableScratchBytes: typeof readAvailableScratchBytes,
+    residentRasterCount = plans.length,
 ) {
-    const estimatedBytes = estimateRawRasterBytes(plans);
+    const estimatedBytes = estimateRawRasterBytes(plans, residentRasterCount);
     if (estimatedBytes === null) {
         return {
             format: 'png' as const,
@@ -86,6 +91,69 @@ export async function resolveRasterHandoff(
         estimatedBytes,
         budgetBytes,
     };
+}
+
+export function resolveCombineOutputByteCap(outputPageCount: number) {
+    return Math.max(COMBINE_OUTPUT_BYTES_FLOOR, outputPageCount * COMBINE_OUTPUT_BYTES_PER_PAGE);
+}
+
+export async function runRasterProducerConsumer({
+    signal,
+    stream,
+    createStreams,
+    produce,
+    consume,
+    onProducerComplete,
+}: {
+    signal: AbortSignal;
+    stream: boolean;
+    createStreams?: () => Promise<void>;
+    produce: (signal: AbortSignal) => Promise<void>;
+    consume: (signal: AbortSignal) => Promise<void>;
+    onProducerComplete: () => void;
+}) {
+    if (!stream) {
+        await produce(signal);
+        onProducerComplete();
+        await consume(signal);
+        return;
+    }
+
+    if (createStreams === undefined) {
+        throw new Error('Raster streaming requires a stream factory');
+    }
+    await createStreams();
+    const abort = new AbortController();
+    const operationSignal = AbortSignal.any([
+        signal,
+        abort.signal,
+    ]);
+    const run = (operation: (signal: AbortSignal) => Promise<void>) => operation(operationSignal)
+        .catch((error: unknown) => {
+            abort.abort(error);
+            throw error;
+        });
+    // The consumer opens every FIFO for reading before the producer writes.
+    // Starting it first prevents a producer open from blocking the event loop.
+    const consumer = run(consume);
+    const producer = run(produce);
+    const combined = Promise.all([
+        producer,
+        consumer,
+    ]);
+    void combined.catch(() => undefined);
+    try {
+        await producer;
+        onProducerComplete();
+        await combined;
+    } catch (error) {
+        abort.abort(error);
+        await Promise.allSettled([
+            producer,
+            consumer,
+        ]);
+        throw error;
+    }
 }
 
 // Rasterizing a page is the pipeline's dominant cost and each one holds a full

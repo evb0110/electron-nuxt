@@ -1268,6 +1268,107 @@ mod tests {
     }
 
     #[test]
+    fn automatic_preview_plan_replays_final_geometry_without_becoming_manual() {
+        fn scaled(source: &GrayImage, factor: usize) -> GrayImage {
+            let mut output =
+                GrayImage::new(source.width() * factor, source.height() * factor, 255);
+            for y in 0..output.height() {
+                for x in 0..output.width() {
+                    output.set(x, y, source.get(x / factor, y / factor));
+                }
+            }
+            output
+        }
+
+        let preview_source = single_page_fixture();
+        let base_options = CleanupOptions {
+            dpi: 150.0,
+            output_mode: OutputMode::Grayscale,
+            normalize_illumination: false,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let preview = clean_page(&preview_source, &base_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0);
+        let content = preview.metadata.content_box.unwrap();
+        let normalized_content = crate::NormalizedRect {
+            x: content.x / preview.metadata.source_region.width,
+            y: content.y / preview.metadata.source_region.height,
+            width: content.width / preview.metadata.source_region.width,
+            height: content.height / preview.metadata.source_region.height,
+            rotation: OrthogonalRotation::None,
+        };
+
+        let final_source = scaled(&preview_source, 2);
+        let final_options = CleanupOptions {
+            dpi: 300.0,
+            ..base_options.clone()
+        };
+        let automatic = clean_page(&final_source, &final_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0);
+        let replayed = clean_page(
+            &final_source,
+            &CleanupOptions {
+                automatic_content_boxes: crate::ManualContentBoxes {
+                    full: Some(normalized_content),
+                    ..crate::ManualContentBoxes::default()
+                },
+                automatic_skew_degrees: crate::AutomaticSkewDegrees {
+                    full: Some(preview.metadata.detected_skew_degrees),
+                    ..crate::AutomaticSkewDegrees::default()
+                },
+                ..final_options
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert!(!replayed.metadata.manual_skew);
+        assert_eq!(
+            replayed.metadata.detected_skew_degrees,
+            preview.metadata.detected_skew_degrees
+        );
+        let automatic_content = automatic.metadata.content_box.unwrap();
+        let replayed_content = replayed.metadata.content_box.unwrap();
+        for delta in [
+            automatic_content.x - replayed_content.x,
+            automatic_content.y - replayed_content.y,
+            automatic_content.width - replayed_content.width,
+            automatic_content.height - replayed_content.height,
+        ] {
+            assert!(
+                delta.abs() <= 1.0,
+                "replayed cross-DPI content geometry drifted by {delta}px"
+            );
+        }
+        assert_eq!(
+            (automatic.image.width(), automatic.image.height()),
+            (replayed.image.width(), replayed.image.height())
+        );
+        let mean_absolute_error = automatic
+            .image
+            .to_gray()
+            .data()
+            .iter()
+            .zip(replayed.image.to_gray().data())
+            .map(|(&left, &right)| f64::from(left.abs_diff(right)))
+            .sum::<f64>()
+            / (automatic.image.width() * automatic.image.height()) as f64;
+        assert!(
+            mean_absolute_error <= 0.1,
+            "automatic-plan replay changed the final raster: MAE={mean_absolute_error:.6}"
+        );
+    }
+
+    #[test]
     fn forward_transform_uses_rotated_analysis_space_for_every_rotation() {
         let source = GrayImage::new(320, 200, 245);
         for rotation in [
@@ -1703,7 +1804,7 @@ mod tests {
             gray.set(x, 24, 54);
         }
 
-        let (mixed, _, layers) = compose_mixed(&gray, None, &binary, &mask, 300.0, true);
+        let (mixed, _, layers) = compose_mixed(&gray, None, &binary, &mask, 300.0, true, true);
         let layers = layers.expect("final mixed render retains separable layers");
 
         assert!(
@@ -1746,7 +1847,7 @@ mod tests {
         let source_vignette = (12..27).map(|y| gray.get(80, y)).collect::<Vec<_>>();
 
         let (mixed, _, layers) =
-            compose_mixed(&gray, None, &stencil, &picture_mask, 300.0, true);
+            compose_mixed(&gray, None, &stencil, &picture_mask, 300.0, true, true);
         let rendered_vignette = (12..27).map(|y| mixed.get(80, y)).collect::<Vec<_>>();
 
         assert_eq!(
@@ -1788,7 +1889,7 @@ mod tests {
                 }
 
                 let (_, _, layers) =
-                    compose_mixed(&gray, None, &stencil, &picture_mask, DPI, true);
+                    compose_mixed(&gray, None, &stencil, &picture_mask, DPI, true, true);
                 let background = &layers.unwrap().background;
                 assert!(
                     (20..44).all(|y| background.get(text_left, y) == 255),
@@ -1847,14 +1948,22 @@ mod tests {
         };
         let calibration =
             PageCalibration::estimate(&gray, options.dpi, CalibrationConfig::default());
-        let (stencil, _, _) = binarize_normalized_with_diagnostics_excluding(
+        let (stencil, _, _, _) = binarize_normalized_with_diagnostics_excluding(
             &gray,
             &options,
             calibration,
             &picture_mask,
         );
         let (_, _, layers) =
-            compose_mixed(&gray, None, &stencil, &picture_mask, options.dpi, true);
+            compose_mixed(
+                &gray,
+                None,
+                &stencil,
+                &picture_mask,
+                options.dpi,
+                true,
+                true,
+            );
         let layers = layers.expect("final mixed render retains separable layers");
 
         assert!(
@@ -1910,6 +2019,7 @@ mod tests {
             None,
             PageRenderPolicy {
                 create_mixed_layers: false,
+                create_mixed_composite: true,
                 recommend_output_mode: true,
                 analyze_layout: true,
             },
@@ -2371,7 +2481,10 @@ mod tests {
                 > 0,
             "the fixture must exercise the layout stack the tile policy skips",
         );
-        assert!(complete.content_picture_mask.is_some());
+        assert!(
+            complete.content_picture_mask.is_none(),
+            "content-mask extension is unnecessary when content cropping is disabled",
+        );
         assert!(complete.text_axis.is_some());
 
         assert!(tile.picture_mask.is_none());
@@ -2648,6 +2761,7 @@ mod tests {
             None,
             PageRenderPolicy {
                 create_mixed_layers: false,
+                create_mixed_composite: true,
                 recommend_output_mode: false,
                 analyze_layout: true,
             },
@@ -2684,6 +2798,7 @@ mod tests {
                 None,
                 PageRenderPolicy {
                     create_mixed_layers: false,
+                    create_mixed_composite: true,
                     recommend_output_mode: false,
                     analyze_layout: true,
                 },

@@ -155,6 +155,26 @@ pub struct ManualContentBoxes {
     pub right: Option<NormalizedRect>,
 }
 
+impl ManualContentBoxes {
+    fn is_empty(&self) -> bool {
+        self.full.is_none() && self.left.is_none() && self.right.is_none()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct AutomaticSkewDegrees {
+    pub full: Option<f64>,
+    pub left: Option<f64>,
+    pub right: Option<f64>,
+}
+
+impl AutomaticSkewDegrees {
+    fn is_empty(&self) -> bool {
+        self.full.is_none() && self.left.is_none() && self.right.is_none()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NormalizedSplit {
@@ -313,6 +333,10 @@ pub struct CleanupOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manual_skew_degrees: Option<f64>,
     pub manual_content_boxes: ManualContentBoxes,
+    #[serde(skip_serializing_if = "AutomaticSkewDegrees::is_empty")]
+    pub automatic_skew_degrees: AutomaticSkewDegrees,
+    #[serde(skip_serializing_if = "ManualContentBoxes::is_empty")]
+    pub automatic_content_boxes: ManualContentBoxes,
     pub manual_zones: ManualZones,
     pub crop_content: bool,
     pub match_page_size: bool,
@@ -352,6 +376,8 @@ impl Default for CleanupOptions {
             manual_split_x: None,
             manual_skew_degrees: None,
             manual_content_boxes: ManualContentBoxes::default(),
+            automatic_skew_degrees: AutomaticSkewDegrees::default(),
+            automatic_content_boxes: ManualContentBoxes::default(),
             manual_zones: ManualZones::default(),
             crop_content: true,
             match_page_size: true,
@@ -441,6 +467,20 @@ impl CleanupOptions {
                 );
             }
         }
+        for angle in [
+            self.automatic_skew_degrees.full,
+            self.automatic_skew_degrees.left,
+            self.automatic_skew_degrees.right,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !angle.is_finite() || !(-15.0..=15.0).contains(&angle) {
+                return Err(
+                    "Automatic skew evidence must be finite and between -15 and 15 degrees".into(),
+                );
+            }
+        }
         if let Some(depth) = self.experimental.auto_dewarp_depth {
             if !depth.is_finite() || !(0.5..=4.0).contains(&depth) {
                 return Err("Automatic dewarp depth must be finite and between 0.5 and 4.0".into());
@@ -451,6 +491,9 @@ impl CleanupOptions {
             self.manual_content_boxes.full,
             self.manual_content_boxes.left,
             self.manual_content_boxes.right,
+            self.automatic_content_boxes.full,
+            self.automatic_content_boxes.left,
+            self.automatic_content_boxes.right,
         ]
         .into_iter()
         .flatten()
@@ -548,6 +591,36 @@ impl CleanupOptions {
             normalized.width * analysis_width as f64,
             normalized.height * analysis_height as f64,
         ))
+    }
+
+    pub fn automatic_skew_for(&self, half: PageHalf) -> Option<f64> {
+        match half {
+            PageHalf::Full => self.automatic_skew_degrees.full,
+            PageHalf::Left => self.automatic_skew_degrees.left,
+            PageHalf::Right => self.automatic_skew_degrees.right,
+        }
+    }
+
+    pub fn resolved_content_for(
+        &self,
+        half: PageHalf,
+        analysis_width: usize,
+        analysis_height: usize,
+    ) -> Option<Rect> {
+        self.resolved_manual_content_for(half, analysis_width, analysis_height)
+            .or_else(|| {
+                let normalized = match half {
+                    PageHalf::Full => self.automatic_content_boxes.full,
+                    PageHalf::Left => self.automatic_content_boxes.left,
+                    PageHalf::Right => self.automatic_content_boxes.right,
+                }?;
+                Some(Rect::new(
+                    normalized.x * analysis_width as f64,
+                    normalized.y * analysis_height as f64,
+                    normalized.width * analysis_width as f64,
+                    normalized.height * analysis_height as f64,
+                ))
+            })
     }
 }
 

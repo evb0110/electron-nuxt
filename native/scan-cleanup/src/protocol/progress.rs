@@ -22,11 +22,41 @@ pub struct PageStageTimings {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub normalization_ms: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
+    pub illumination_preparation_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub layout_normalization_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub calibration_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub picture_mask_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub mode_recommendation_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub quality_normalization_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub text_axis_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub split_ms: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub deskew_ms: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub content_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rasterization_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub mask_rasterization_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub binarization_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub threshold_preparation_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub thresholding_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub binary_postprocess_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub mixed_composition_ms: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub output_processing_ms: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub render_ms: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -114,11 +144,11 @@ mod tests {
         );
         assert_eq!(
             serde_json::to_value(PageStageTimings {
-                split_ms: 12.5,
+                layout_normalization_ms: 12.5,
                 ..PageStageTimings::default()
             })
             .unwrap(),
-            serde_json::json!({"splitMs": 12.5})
+            serde_json::json!({"layoutNormalizationMs": 12.5})
         );
     }
 
@@ -134,18 +164,18 @@ mod tests {
             total_pages: 4,
             page_number: Some(3),
             output_paths: None,
-            classification: None,
-            confidence: None,
+            classification: Some(LayoutClassification::SingleUncutPage),
+            confidence: Some(0.91),
             cutter_x_px: None,
-            tier1_verdict: None,
-            reconciled: None,
-            cluster_agreement: None,
+            tier1_verdict: Some(LayoutClassification::SingleUncutPage),
+            reconciled: Some(false),
+            cluster_agreement: Some(0.0),
             document_prior: None,
             text_axis: None,
             stage_timings: None,
-            recommended_output_mode: None,
-            recommended_output_mode_confidence: None,
-            recommended_output_mode_reason: None,
+            recommended_output_mode: Some(OutputMode::Mixed),
+            recommended_output_mode_confidence: Some(0.9),
+            recommended_output_mode_reason: Some(OutputModeRecommendationReason::TextWithPictures),
         }))
         .unwrap();
 

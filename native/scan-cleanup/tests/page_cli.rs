@@ -1,6 +1,7 @@
+use evb_raster_io::{decode_ppm, DecodeLimits};
 use evb_scan_cleanup::{
     io::pbm::decode_p4,
-    png::{decode_gray, decode_image, encode_gray, encode_rgb, RgbImage},
+    png::{decode_gray, encode_gray, encode_rgb, RgbImage},
     CleanupOptions, LayoutMode, ManualZones, NormalizedZonePoint, NormalizedZonePolygon,
     OrthogonalRotation, OutputMode, PictureZone, PictureZoneLayer,
 };
@@ -171,7 +172,11 @@ fn gated_multi_page_analysis_reports_progress_before_reconciliation_completes() 
     };
     assert_eq!(first_analyzed["progress"]["completedPages"], 1);
     assert_eq!(first_analyzed["progress"]["pageNumber"], 1);
-    assert!(first_analyzed["progress"].get("classification").is_none());
+    assert_eq!(
+        first_analyzed["progress"]["classification"],
+        "single-uncut-page"
+    );
+    assert!(first_analyzed["progress"]["confidence"].is_number());
     assert!(
         child.try_wait().unwrap().is_none(),
         "the gated second page should keep batch reconciliation pending"
@@ -306,7 +311,7 @@ fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
     let output_metadata = scratch.path("mixed-output.json");
     let page_metadata = scratch.path("mixed-page.json");
     let bilevel_output = scratch.path("mixed-bilevel.pbm");
-    let background_output = scratch.path("mixed-background.png");
+    let background_output = scratch.path("mixed-background.ppm");
     let foreground_mask_output = scratch.path("mixed-mask.pbm");
     let manifest = scratch.path("mixed-manifest.json");
     let mut image = RgbImage::new(180, 120, [248; 3]);
@@ -398,7 +403,15 @@ fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
     let mask = decode_p4(&fs::read(&foreground_mask_output).unwrap(), 180 * 120, 200).unwrap();
     assert_eq!((mask.width(), mask.height()), (180, 120));
     assert_eq!(mask.get(30, 22), 0);
-    let background = decode_image(&fs::read(&background_output).unwrap(), 180 * 120, 200).unwrap();
+    let background = decode_ppm(
+        fs::read(&background_output).unwrap().as_slice(),
+        DecodeLimits {
+            max_pixels: 180 * 120,
+            max_dimension: 200,
+            max_compressed_bytes: 180 * 120 * 3 + 64,
+        },
+    )
+    .unwrap();
     assert_eq!(
         (background.gray.width(), background.gray.height()),
         (90, 60)

@@ -24,6 +24,11 @@ fn rectangular_gray(
     if source.width() == 0 || source.height() == 0 {
         return source.clone();
     }
+    if source.width().saturating_mul(source.height()) >= 65_536 {
+        let horizontal = sliding_gray_rows(source, radius_x, maximum);
+        let transposed = transpose_gray(&horizontal);
+        return transpose_gray(&sliding_gray_rows(&transposed, radius_y, maximum));
+    }
     let mut horizontal = GrayImage::new(
         source.width(),
         source.height(),
@@ -52,6 +57,43 @@ fn rectangular_gray(
             |y, value| output.set(x, y, value),
         );
     }
+    output
+}
+
+fn sliding_gray_rows(source: &GrayImage, radius: usize, maximum: bool) -> GrayImage {
+    let mut output = GrayImage::new(
+        source.width(),
+        source.height(),
+        if maximum { 0 } else { 255 },
+    );
+    output
+        .data_mut()
+        .par_chunks_mut(source.width())
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            let source_row = source.row(y);
+            sliding_gray_line(
+                source.width(),
+                radius,
+                maximum,
+                |x| source_row[x],
+                |x, value| output_row[x] = value,
+            );
+        });
+    output
+}
+
+fn transpose_gray(source: &GrayImage) -> GrayImage {
+    let mut output = GrayImage::new(source.height(), source.width(), 0);
+    output
+        .data_mut()
+        .par_chunks_mut(source.height())
+        .enumerate()
+        .for_each(|(source_x, output_row)| {
+            for (source_y, target) in output_row.iter_mut().enumerate() {
+                *target = source.data()[source_y * source.width() + source_x];
+            }
+        });
     output
 }
 
@@ -115,7 +157,9 @@ fn rectangular_binary(
     radius_y: usize,
     any: bool,
 ) -> BinaryImage {
-    let word_parallel = (radius_x >= 20 && radius_y <= 5) || (radius_y >= 20 && radius_x <= 5);
+    let word_parallel = source.width().saturating_mul(source.height()) >= 65_536
+        || (radius_x >= 20 && radius_y <= 5)
+        || (radius_y >= 20 && radius_x <= 5);
     if word_parallel {
         return rectangular_binary_words(source, radius_x, radius_y, any);
     }
@@ -466,6 +510,38 @@ mod tests {
         *state
     }
 
+    fn reference_rectangular_gray(
+        source: &GrayImage,
+        radius_x: usize,
+        radius_y: usize,
+        maximum: bool,
+    ) -> GrayImage {
+        let mut output = GrayImage::new(
+            source.width(),
+            source.height(),
+            if maximum { 0 } else { 255 },
+        );
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                let mut value = if maximum { 0 } else { 255 };
+                for sample_y in y.saturating_sub(radius_y)..=(y + radius_y).min(source.height() - 1)
+                {
+                    for sample_x in
+                        x.saturating_sub(radius_x)..=(x + radius_x).min(source.width() - 1)
+                    {
+                        value = if maximum {
+                            value.max(source.get(sample_x, sample_y))
+                        } else {
+                            value.min(source.get(sample_x, sample_y))
+                        };
+                    }
+                }
+                output.set(x, y, value);
+            }
+        }
+        output
+    }
+
     fn reference_reconstruct_binary(marker: &BinaryImage, mask: &BinaryImage) -> BinaryImage {
         let mut output = marker.and(mask);
         let mut queue = VecDeque::new();
@@ -642,6 +718,24 @@ mod tests {
         assert_eq!(dilated.get(1, 1), 20);
         assert_eq!(dilated.get(3, 3), 20);
         assert_eq!(eroded.get(2, 2), 200);
+    }
+
+    #[test]
+    fn parallel_grayscale_morphology_is_bit_exact() {
+        let mut state = 0x5047_5241_595f_4d4f;
+        let mut image = GrayImage::new(257, 257, 0);
+        for value in image.data_mut() {
+            *value = next_random(&mut state) as u8;
+        }
+        for (radius_x, radius_y) in [(0, 0), (1, 3), (9, 9)] {
+            for maximum in [false, true] {
+                assert_eq!(
+                    rectangular_gray(&image, radius_x, radius_y, maximum),
+                    reference_rectangular_gray(&image, radius_x, radius_y, maximum),
+                    "radius=({radius_x},{radius_y}) maximum={maximum}"
+                );
+            }
+        }
     }
 
     #[test]

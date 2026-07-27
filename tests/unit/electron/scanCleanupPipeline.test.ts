@@ -38,6 +38,7 @@ import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
+import {resolveReusablePagePlan} from '@electron/features/scan-cleanup/policy/effectiveOptions';
 import {mapScanCleanupRasterPages} from '@electron/features/scan-cleanup/worker/resolveRasterHandoff';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 
@@ -86,29 +87,17 @@ function dpiDetails(
     };
 }
 
-function pngHeader(width: number, height: number, colorType = 0) {
-    const header = Buffer.alloc(26);
-    Buffer.from([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
-    ]).copy(header);
-    header.writeUInt32BE(width, 16);
-    header.writeUInt32BE(height, 20);
-    header[24] = 8;
-    header[25] = colorType;
-    return header;
-}
-
 function pbm(width: number, height: number) {
     return Buffer.concat([
         Buffer.from(`P4\n${width} ${height}\n`, 'ascii'),
         Buffer.alloc(Math.ceil(width / 8) * height),
+    ]);
+}
+
+function ppm(width: number, height: number) {
+    return Buffer.concat([
+        Buffer.from(`P6\n${width} ${height}\n255\n`, 'ascii'),
+        Buffer.alloc(width * height * 3),
     ]);
 }
 interface ICleanupOutput {
@@ -218,10 +207,6 @@ function dependencies(
                 150,
             ],
         ])),
-        preparePdf: vi.fn(async (_paths, _log, sourcePdfPath) => ({
-            pdfPath: sourcePdfPath,
-            warnings: [],
-        })),
         renderPage: vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
             await writeFile(outputPath, PNG);
         }),
@@ -264,7 +249,7 @@ async function writeCleanupOutput(
     renderDpi = 300,
     matchedPageSize = false,
     layeredWritten = false,
-    layeredBackgroundIsColor = false,
+    _layeredBackgroundIsColor = false,
     outputMode?: string,
 ) {
     // The sidecar publishes the composite only when no primary raster carried
@@ -288,10 +273,9 @@ async function writeCleanupOutput(
         const layeredBackgroundDpi = Math.min(300, renderDpi);
         await writeFile(
             output.backgroundOutputPath,
-            pngHeader(
+            ppm(
                 Math.round(canvasWidth * layeredBackgroundDpi / renderDpi),
                 Math.round(canvasHeight * layeredBackgroundDpi / renderDpi),
-                layeredBackgroundIsColor ? 2 : 0,
             ),
         );
         await writeFile(output.foregroundMaskOutputPath, pbm(canvasWidth, canvasHeight));
@@ -479,6 +463,59 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it('admits automatic page plans only for the same rotation and observed layout', () => {
+        const request = {
+            sourcePdfPath: '/source.pdf',
+            outputPdfPath: '/output.pdf',
+            options,
+            layoutByPage: {'1': 'single-uncut-page' as const},
+            pagePlanEvidenceByPage: {'1': {
+                pageNumber: 1,
+                rotationDegrees: 0 as const,
+                layoutClassification: 'single-uncut-page' as const,
+                outputs: {full: {
+                    contentBox: {
+                        xNormalized: 0.1,
+                        yNormalized: 0.2,
+                        widthNormalized: 0.7,
+                        heightNormalized: 0.6,
+                        rotationDegrees: 0 as const,
+                    },
+                    detectedSkewDegrees: -0.2,
+                }},
+            }},
+        };
+        expect(resolveReusablePagePlan(
+            request.options,
+            request.layoutByPage,
+            request.pagePlanEvidenceByPage,
+            1,
+        )).toEqual({
+            automaticContentBoxes: {full: request.pagePlanEvidenceByPage['1'].outputs.full.contentBox},
+            automaticSkewDegrees: {full: -0.2},
+        });
+        expect(resolveReusablePagePlan(
+            request.options,
+            {'1': 'two-page-spread'},
+            request.pagePlanEvidenceByPage,
+            1,
+        )).toEqual({});
+        expect(resolveReusablePagePlan(
+            {
+                ...options,
+                pageOverrides: {'1': {
+                    rotationDegrees: 90,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                }},
+            },
+            request.layoutByPage,
+            request.pagePlanEvidenceByPage,
+            1,
+        )).toEqual({});
+    });
+
     it('demand-materializes lazy-original input before scan-cleanup apply', async () => {
         const fixture = await setup();
         const workingCopyPath = join(fixture.dir, 'working.pdf');
@@ -902,7 +939,7 @@ describe('scan cleanup pipeline', () => {
         expect(cleanupManifest!.pages[0]!.outputs[0]).toMatchObject({
             outputPath: expect.stringMatching(/clean-1-0\.png$/u),
             bilevelOutputPath: expect.stringMatching(/clean-1-0\.pbm$/u),
-            backgroundOutputPath: expect.stringMatching(/clean-1-0-background\.png$/u),
+            backgroundOutputPath: expect.stringMatching(/clean-1-0-background\.ppm$/u),
             foregroundMaskOutputPath: expect.stringMatching(/clean-1-0-mask\.pbm$/u),
         });
         expect(cleanupManifest!.pages[0]!.inputPath).toMatch(/source-1\.ppm$/u);
@@ -1020,6 +1057,143 @@ describe('scan cleanup pipeline', () => {
             'debug',
             expect.stringContaining('final raster handoff uses PPM'),
         );
+    });
+
+    it('reuses typed detection geometry and DPI without reopening the document for matched output', async () => {
+        const fixture = await setup();
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
+            async (_binary, manifestPath) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                    pageMetadataPath: string;
+                    options: {dpi: number};
+                    outputs: ICleanupOutput[]
+                }>};
+                for (const page of manifest.pages) {
+                    await writeFile(page.pageMetadataPath, JSON.stringify({
+                        layoutClassification: 'single-uncut-page',
+                        cutterXPx: null,
+                        rotationDegrees: 0,
+                        excluded: false,
+                        blankOutputsSkipped: 0,
+                        outputCount: 1,
+                    }));
+                    await writeCleanupOutput(
+                        page.outputs[0]!,
+                        'single-uncut-page',
+                        true,
+                        false,
+                        page.options.dpi,
+                        true,
+                    );
+                }
+            },
+        );
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            expect(args[0]).not.toBe('page-sizes');
+            const outputPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            sourcePageMetadataByPage: Object.fromEntries([
+                1,
+                2,
+            ].map(pageNumber => [
+                String(pageNumber),
+                {
+                    pageNumber,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 240,
+                    heightPoints: 336,
+                    rotation: 0,
+                    sourceDpi: pageNumber === 1 ? 300 : 150,
+                    dominantImageWidthPx: pageNumber === 1 ? 1_000 : 500,
+                    dominantImageHeightPx: pageNumber === 1 ? 1_400 : 700,
+                    dominantImageWidthPoints: 240,
+                    dominantImageHeightPoints: 336,
+                },
+            ])),
+            options: {
+                ...options,
+                outputMode: 'color',
+            },
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+
+        expect(pipelineDependencies.detectSourceDpi).not.toHaveBeenCalled();
+        expect(pipelineDependencies.runCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it.runIf(process.platform !== 'win32')('streams raw rasters to the native consumer before rasterization finishes', async () => {
+        const fixture = await setup();
+        const rasterStarted = Promise.withResolvers<undefined>();
+        const releaseRaster = Promise.withResolvers<undefined>();
+        const sidecarStarted = Promise.withResolvers<undefined>();
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
+            async (_binary, manifestPath) => {
+                sidecarStarted.resolve(undefined);
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                    pageMetadataPath: string;
+                    options: {dpi: number};
+                    outputs: ICleanupOutput[]
+                }>};
+                const page = manifest.pages[0]!;
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeCleanupOutput(
+                    page.outputs[0]!,
+                    'single-uncut-page',
+                    true,
+                    false,
+                    page.options.dpi,
+                );
+            },
+        );
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            1,
+            300,
+        ]]));
+        pipelineDependencies.createRasterPipes = vi.fn(async () => undefined);
+        pipelineDependencies.renderPagePpm = vi.fn(async () => {
+            rasterStarted.resolve(undefined);
+            await releaseRaster.promise;
+        });
+        const running = runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                matchPageSize: false,
+                outputMode: 'color',
+            },
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+
+        await rasterStarted.promise;
+        await expect(Promise.race([
+            sidecarStarted.promise.then(() => true),
+            new Promise<boolean>(resolve => setTimeout(() => resolve(false), 100)),
+        ])).resolves.toBe(true);
+        releaseRaster.resolve(undefined);
+        await running;
+
+        expect(pipelineDependencies.createRasterPipes).toHaveBeenCalledOnce();
+        expect(runSidecar).toHaveBeenCalledOnce();
     });
 
     it('processes and assembles only scoped source pages with scoped progress totals', async () => {
@@ -1332,8 +1506,43 @@ describe('scan cleanup pipeline', () => {
             }
         });
         const pipelineDependencies = dependencies(runSidecar);
+        const pdfimagesDetector = pipelineDependencies.detectSourceDpi;
         const baseRunCommand = pipelineDependencies.runCommand;
         pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
+            if (args[0] === 'page-sizes') {
+                const outputPath = args[args.indexOf('--output') + 1]!;
+                await writeFile(outputPath, JSON.stringify({pages: [
+                    {
+                        pageNumber: 1,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 240,
+                        heightPoints: 336,
+                        rotation: 0,
+                        dominantImageWidthPx: 1000,
+                        dominantImageHeightPx: 1400,
+                        dominantImageWidthPoints: 240,
+                        dominantImageHeightPoints: 336,
+                    },
+                    {
+                        pageNumber: 2,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 240,
+                        heightPoints: 336,
+                        rotation: 0,
+                        dominantImageWidthPx: 500,
+                        dominantImageHeightPx: 700,
+                        dominantImageWidthPoints: 240,
+                        dominantImageHeightPoints: 336,
+                    },
+                ]}));
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const manifestIndex = args.indexOf('--compact-manifest');
             if (manifestIndex !== -1) combineManifest = await readFile(args[manifestIndex + 1]!, 'utf8');
             return baseRunCommand(command, args, commandOptions);
@@ -1362,6 +1571,7 @@ describe('scan cleanup pipeline', () => {
             widthPx: Math.floor(240 / 72 * 300),
             heightPx: Math.floor(336 / 72 * 300),
         });
+        expect(pdfimagesDetector).not.toHaveBeenCalled();
         // And every assembled page is that one rectangle, in absolute points.
         expect(combineManifest.trim().split('\n').map(line => line.split('\t').slice(1, 3).join('x')))
             .toEqual([
@@ -1559,7 +1769,7 @@ describe('scan cleanup pipeline', () => {
             'image-bilevel',
         ]);
         expect(records[0]![3]).toBe('87');
-        expect(records[0]![4]).toMatch(/clean-1-0-background\.png$/u);
+        expect(records[0]![4]).toMatch(/clean-1-0-background\.ppm$/u);
         expect(records[0]![5]).toMatch(/clean-1-0-mask\.pbm$/u);
         expect(records[1]![3]).toMatch(/clean-2-0\.pbm$/u);
     });

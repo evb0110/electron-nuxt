@@ -1,6 +1,7 @@
 import type {
     TScanCleanupProgress,
     TScanCleanupProgressStage,
+    TScanCleanupSummary,
 } from '@contracts/electronApiScanCleanup';
 
 type TStageWeights = ReadonlyArray<readonly [TScanCleanupProgressStage, number]>;
@@ -11,6 +12,23 @@ export type TEmitScanCleanupProgress = (
     totalUnits: number,
     completedPageNumbers?: Iterable<number>,
 ) => void;
+
+export function createEmptyScanCleanupSummary(
+    inputPages: number,
+    warnings: readonly string[],
+): TScanCleanupSummary {
+    return {
+        inputPages,
+        outputPages: 0,
+        spreadsSplit: 0,
+        offcutsDiscarded: 0,
+        deskewSkipped: 0,
+        cropSkipped: 0,
+        excludedPages: 0,
+        blankPagesSkipped: 0,
+        warnings: [...warnings],
+    };
+}
 
 // Shares observed on the 392-page reference scan once the sidecar stopped
 // classifying every page in a discarded pass: rasterizing 18.5 %, rendering

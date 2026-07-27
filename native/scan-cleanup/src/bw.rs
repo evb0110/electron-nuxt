@@ -3,20 +3,28 @@ use crate::{
     calibration::{CalibrationConfig, PageCalibration},
     BinarizationMode, CleanupOptions, DespeckleLevel,
 };
+use rayon::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
     morphology::dilate,
     threshold::{
         otsu_threshold, otsu_threshold_excluding, threshold_global, threshold_global_biased,
         threshold_local, threshold_local_biased, threshold_local_biased_excluding,
-        threshold_local_biased_excluding_with_integrals_for_consensus,
-        threshold_local_biased_with_integrals_for_consensus, IntegralImages, LocalThreshold,
-        MaskedIntegralImages,
+        threshold_local_biased_with_integrals_for_consensus,
+        threshold_local_multiscale_biased_excluding_with_integrals_for_consensus, IntegralImages,
+        LocalThreshold, MaskedIntegralImages,
     },
     BinaryImage, ComponentMap, GrayImage,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::VecDeque, sync::OnceLock};
+use std::{collections::VecDeque, sync::OnceLock, time::Instant};
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct BinarizationStageTimings {
+    pub preparation_ms: f64,
+    pub thresholding_ms: f64,
+    pub postprocess_ms: f64,
+}
 
 // Corpus calibration keeps Wolf below the 0.3 reference setting: 0.3 erased
 // the Stage-B thin-stroke golden, while 0.2 retained it without adding noise.
@@ -100,9 +108,18 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     routing_sample: &GrayImage,
     options: &CleanupOptions,
     calibration: PageCalibration,
-) -> (BinaryImage, BinarizationDiagnostics, bool) {
+) -> (
+    BinaryImage,
+    BinarizationDiagnostics,
+    bool,
+    BinarizationStageTimings,
+) {
+    let mut timings = BinarizationStageTimings::default();
+    let preparation_started = Instant::now();
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
     let diagnostics = resolve_binarization_diagnostics(routing_sample, options);
+    timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
+    let thresholding_started = Instant::now();
     let binary = threshold_with_mode(
         &threshold_input,
         normalized,
@@ -110,9 +127,12 @@ pub(crate) fn binarize_normalized_with_diagnostics(
         diagnostics.route,
         calibration,
     );
+    timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
+    let postprocess_started = Instant::now();
     let (binary, despeckle_fallback) =
         postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
-    (binary, diagnostics, despeckle_fallback)
+    timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
+    (binary, diagnostics, despeckle_fallback, timings)
 }
 
 /// Mixed-mode binarization with picture pixels omitted from threshold
@@ -122,7 +142,14 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     options: &CleanupOptions,
     calibration: PageCalibration,
     picture_mask: &BinaryImage,
-) -> (BinaryImage, BinarizationDiagnostics, bool) {
+) -> (
+    BinaryImage,
+    BinarizationDiagnostics,
+    bool,
+    BinarizationStageTimings,
+) {
+    let mut timings = BinarizationStageTimings::default();
+    let preparation_started = Instant::now();
     assert_eq!(
         (normalized.width(), normalized.height()),
         (picture_mask.width(), picture_mask.height())
@@ -130,15 +157,22 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     let protection_radius = (options.dpi * 0.35 / 25.4).round().clamp(1.0, 12.0) as usize;
     let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
     let mut masked_input = normalized.clone();
-    for y in 0..masked_input.height() {
-        for x in 0..masked_input.width() {
-            if protected_picture_mask.get(x, y) {
-                masked_input.set(x, y, 255);
+    let masked_width = masked_input.width();
+    masked_input
+        .data_mut()
+        .par_chunks_mut(masked_width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, value) in row.iter_mut().enumerate() {
+                if protected_picture_mask.get(x, y) {
+                    *value = 255;
+                }
             }
-        }
-    }
+        });
     let threshold_input = smooth_for_binarization(&masked_input, options.dpi);
     let diagnostics = resolve_binarization_diagnostics(&masked_input, options);
+    timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
+    let thresholding_started = Instant::now();
     let binary = threshold_with_mode_excluding(
         &threshold_input,
         normalized,
@@ -147,12 +181,16 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         calibration,
         &protected_picture_mask,
     );
+    timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
+    let postprocess_started = Instant::now();
     let (binary, despeckle_fallback) =
         postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
+    timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (
         binary.subtract(&protected_picture_mask),
         diagnostics,
         despeckle_fallback,
+        timings,
     )
 }
 
@@ -276,31 +314,15 @@ fn threshold_local_for_route_excluding(
     let integrals = MaskedIntegralImages::new(threshold_input, picture_mask);
     let [small_radius, medium_radius, large_radius] =
         calibration.multiscale_threshold_radii(raster_dpi);
-    let small = threshold_local_biased_excluding_with_integrals_for_consensus(
+    threshold_local_multiscale_biased_excluding_with_integrals_for_consensus(
         threshold_input,
         picture_mask,
         &integrals,
-        small_radius,
+        [small_radius, medium_radius, large_radius],
         method,
         bias,
-    );
-    let medium = threshold_local_biased_excluding_with_integrals_for_consensus(
-        threshold_input,
-        picture_mask,
-        &integrals,
-        medium_radius,
-        method,
-        bias,
-    );
-    let large = threshold_local_biased_excluding_with_integrals_for_consensus(
-        threshold_input,
-        picture_mask,
-        &integrals,
-        large_radius,
-        method,
-        bias,
-    );
-    multiscale_consensus(normalized, &small, &medium, &large).subtract(picture_mask)
+        |x, y| sobel_gradient_magnitude(normalized, x, y) > STROKE_EDGE_THRESHOLD,
+    )
 }
 
 fn threshold_local_for_route(
@@ -358,18 +380,11 @@ fn multiscale_consensus(
     assert_eq!(large.width(), small.width());
     assert_eq!(large.height(), small.height());
 
-    let mut edge_supported_small = BinaryImage::new(small.width(), small.height());
-    for y in 0..small.height() {
-        for x in 0..small.width() {
-            edge_supported_small.set(
-                x,
-                y,
-                small.get(x, y)
-                    && sobel_gradient_magnitude(normalized, x, y) > STROKE_EDGE_THRESHOLD,
-            );
-        }
-    }
-    medium.and(large).or(&edge_supported_small)
+    BinaryImage::from_fn_parallel(small.width(), small.height(), |x, y| {
+        (medium.get(x, y) && large.get(x, y))
+            || (small.get(x, y)
+                && sobel_gradient_magnitude(normalized, x, y) > STROKE_EDGE_THRESHOLD)
+    })
 }
 
 fn sobel_gradient_magnitude(image: &GrayImage, x: usize, y: usize) -> u16 {
@@ -672,36 +687,32 @@ fn smooth_edges_with_profile(source: &BinaryImage, profile: SmoothProfile) -> Bi
     if profile == SmoothProfile::TopologySafe {
         return smooth_edges_with_topology_lut(source);
     }
-    let mut output = source.clone();
-    for y in 1..source.height() - 1 {
-        for x in 1..source.width() - 1 {
-            let north = source.get(x, y - 1);
-            let south = source.get(x, y + 1);
-            let west = source.get(x - 1, y);
-            let east = source.get(x + 1, y);
-            let diagonals = [
-                source.get(x - 1, y - 1),
-                source.get(x + 1, y - 1),
-                source.get(x - 1, y + 1),
-                source.get(x + 1, y + 1),
-            ];
-            let cardinal_count = [north, south, west, east]
-                .into_iter()
-                .filter(|value| *value)
-                .count();
-            let neighbor_count =
-                cardinal_count + diagonals.into_iter().filter(|value| *value).count();
-            if !source.get(x, y) {
-                let bridges_opposites = (north && south) || (west && east);
-                if neighbor_count >= 5 && bridges_opposites {
-                    output.set(x, y, true);
-                }
-            } else if neighbor_count <= 1 {
-                output.set(x, y, false);
-            }
+    BinaryImage::from_fn_parallel(source.width(), source.height(), |x, y| {
+        if x == 0 || y == 0 || x + 1 == source.width() || y + 1 == source.height() {
+            return source.get(x, y);
         }
-    }
-    output
+        let north = source.get(x, y - 1);
+        let south = source.get(x, y + 1);
+        let west = source.get(x - 1, y);
+        let east = source.get(x + 1, y);
+        let diagonals = [
+            source.get(x - 1, y - 1),
+            source.get(x + 1, y - 1),
+            source.get(x - 1, y + 1),
+            source.get(x + 1, y + 1),
+        ];
+        let cardinal_count = [north, south, west, east]
+            .into_iter()
+            .filter(|value| *value)
+            .count();
+        let neighbor_count = cardinal_count + diagonals.into_iter().filter(|value| *value).count();
+        let center = source.get(x, y);
+        if !center {
+            neighbor_count >= 5 && ((north && south) || (west && east))
+        } else {
+            neighbor_count > 1
+        }
+    })
 }
 
 static TOPOLOGY_SMOOTH_LUT: OnceLock<[bool; 512]> = OnceLock::new();
@@ -718,21 +729,20 @@ fn topology_smooth_lut() -> &'static [bool; 512] {
 
 fn smooth_edges_with_topology_lut(source: &BinaryImage) -> BinaryImage {
     let lut = topology_smooth_lut();
-    let mut output = source.clone();
-    for y in 1..source.height() - 1 {
-        for x in 1..source.width() - 1 {
-            let mut pattern = 0usize;
-            for offset_y in 0..3 {
-                for offset_x in 0..3 {
-                    if source.get(x + offset_x - 1, y + offset_y - 1) {
-                        pattern |= 1 << (offset_y * 3 + offset_x);
-                    }
+    BinaryImage::from_fn_parallel(source.width(), source.height(), |x, y| {
+        if x == 0 || y == 0 || x + 1 == source.width() || y + 1 == source.height() {
+            return source.get(x, y);
+        }
+        let mut pattern = 0usize;
+        for offset_y in 0..3 {
+            for offset_x in 0..3 {
+                if source.get(x + offset_x - 1, y + offset_y - 1) {
+                    pattern |= 1 << (offset_y * 3 + offset_x);
                 }
             }
-            output.set(x, y, lut[pattern]);
         }
-    }
-    output
+        lut[pattern]
+    })
 }
 
 fn topology_checked_center(pattern: u16) -> bool {
@@ -1059,16 +1069,7 @@ fn component_maximum_inscribed_radius_squared(
     components: &ComponentMap,
 ) -> Vec<u32> {
     let distances = squared_euclidean_distance(&source.invert());
-    let mut maxima = vec![0u32; components.components().len() + 1];
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            let label = components.label_at(x, y) as usize;
-            if label != 0 {
-                maxima[label] = maxima[label].max(distances[y * source.width() + x]);
-            }
-        }
-    }
-    maxima
+    components.maximum_values_by_component(&distances)
 }
 
 fn protect_high_contrast_components(
@@ -1078,17 +1079,7 @@ fn protect_high_contrast_components(
     keep: &mut [bool],
 ) {
     const INKY_CONTRAST_THRESHOLD: f64 = 40.0;
-    let mut ink_sums = vec![0u64; components.components().len() + 1];
-    let mut ink_counts = vec![0usize; components.components().len() + 1];
-    for y in 0..normalized.height() {
-        for x in 0..normalized.width() {
-            let label = components.label_at(x, y) as usize;
-            if label != 0 {
-                ink_sums[label] += u64::from(normalized.get(x, y));
-                ink_counts[label] += 1;
-            }
-        }
-    }
+    let (ink_sums, ink_counts) = components.gray_sums_by_component(normalized);
     for component in components.components() {
         let label = component.label as usize;
         if keep[label]

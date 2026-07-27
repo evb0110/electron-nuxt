@@ -1,4 +1,4 @@
-use crate::BinaryImage;
+use crate::{BinaryImage, GrayImage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Component {
@@ -131,6 +131,39 @@ impl ComponentMap {
 
     pub fn components(&self) -> &[Component] {
         &self.components
+    }
+
+    /// Maximum value under each foreground component. Iterating stored runs
+    /// avoids a full-page label lookup for every white pixel.
+    pub fn maximum_values_by_component(&self, values: &[u32]) -> Vec<u32> {
+        assert_eq!(values.len(), self.width.saturating_mul(self.height));
+        let mut maxima = vec![0u32; self.components.len() + 1];
+        for y in 0..self.height {
+            for run in &self.runs[self.row_offsets[y]..self.row_offsets[y + 1]] {
+                let target = &mut maxima[run.label as usize];
+                for x in run.start as usize..run.end as usize {
+                    *target = (*target).max(values[y * self.width + x]);
+                }
+            }
+        }
+        maxima
+    }
+
+    /// Luminance sum and sample count under each foreground component.
+    pub fn gray_sums_by_component(&self, image: &GrayImage) -> (Vec<u64>, Vec<usize>) {
+        assert_eq!((image.width(), image.height()), (self.width, self.height));
+        let mut sums = vec![0u64; self.components.len() + 1];
+        let mut counts = vec![0usize; self.components.len() + 1];
+        for y in 0..self.height {
+            for run in &self.runs[self.row_offsets[y]..self.row_offsets[y + 1]] {
+                let label = run.label as usize;
+                for x in run.start as usize..run.end as usize {
+                    sums[label] += u64::from(image.get(x, y));
+                    counts[label] += 1;
+                }
+            }
+        }
+        (sums, counts)
     }
 
     pub fn retain(&self, keep: impl Fn(&Component) -> bool) -> BinaryImage {

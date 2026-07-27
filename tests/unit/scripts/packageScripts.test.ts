@@ -264,6 +264,24 @@ describe('package scripts', () => {
         }
     });
 
+    it('refreshes the scan-cleanup executable before every local Electron launch', async () => {
+        const scripts = await readPackageScripts();
+        expect(scriptCommands(scripts, 'start').slice(0, 2)).toEqual([
+            'pnpm run build:scan-cleanup',
+            'pnpm run build:electron',
+        ]);
+        expect(scriptCommands(scripts, 'dev:headless')).toContain('pnpm run build:scan-cleanup');
+
+        const launcher = await readFile(
+            path.join(process.cwd(), 'scripts/runDevWithOutputTee.ts'),
+            'utf8',
+        );
+        const nativeBuildIndex = launcher.indexOf('source: \'pnpm-dev-build-scan-cleanup\'');
+        const electronBuildIndex = launcher.indexOf('source: \'pnpm-dev-build-electron\'');
+        expect(nativeBuildIndex).toBeGreaterThanOrEqual(0);
+        expect(electronBuildIndex).toBeGreaterThan(nativeBuildIndex);
+    });
+
     it('routes lint and validation through one instrumented owner without implicit graph output', async () => {
         const scripts = await readPackageScripts();
 

@@ -1,5 +1,5 @@
 use super::{decode_limits, write_atomic};
-use evb_raster_io::{decode_png, encode_png, PixelBuffer};
+use evb_raster_io::{decode_png, encode_png_fast, PixelBuffer};
 use scan_primitives::GrayImage;
 use std::{io::Cursor, path::Path};
 
@@ -28,7 +28,7 @@ pub fn write_rgb_atomic(path: &Path, image: &RgbImage) -> Result<(), String> {
 }
 
 pub fn encode_gray(image: &GrayImage) -> Result<Vec<u8>, String> {
-    encode_png(PixelBuffer::Gray {
+    encode_png_fast(PixelBuffer::Gray {
         width: image.width(),
         height: image.height(),
         stride: image.stride(),
@@ -38,7 +38,7 @@ pub fn encode_gray(image: &GrayImage) -> Result<Vec<u8>, String> {
 }
 
 pub fn encode_rgb(image: &RgbImage) -> Result<Vec<u8>, String> {
-    encode_png(PixelBuffer::Rgb {
+    encode_png_fast(PixelBuffer::Rgb {
         width: image.width(),
         height: image.height(),
         stride: image.width().saturating_mul(3),

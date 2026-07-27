@@ -1,10 +1,12 @@
 import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
+    IScanCleanupPagePlanEvidence,
     IScanCleanupRawPreviewEvent,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
+    TScanCleanupOutputMode,
     TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
@@ -30,6 +32,65 @@ import type {TScanCleanupSelectionIntent} from '@app/modules/scan-cleanup/runtim
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
+function normalizePreviewContentBox(
+    metadata: IScanCleanupPreviewResult['outputs'][number]['metadata'],
+) {
+    const contentBox = metadata.contentBox;
+    if (
+        contentBox === null
+        || metadata.sourceRegion.widthPx <= 0
+        || metadata.sourceRegion.heightPx <= 0
+    ) {
+        return undefined;
+    }
+    return {
+        xNormalized: contentBox.xPx / metadata.sourceRegion.widthPx,
+        yNormalized: contentBox.yPx / metadata.sourceRegion.heightPx,
+        widthNormalized: contentBox.widthPx / metadata.sourceRegion.widthPx,
+        heightNormalized: contentBox.heightPx / metadata.sourceRegion.heightPx,
+        rotationDegrees: metadata.rotationDegrees,
+    };
+}
+
+export function createScanCleanupPagePlanEvidence(
+    previewResult: IScanCleanupPreviewResult,
+): IScanCleanupPagePlanEvidence | undefined {
+    const outputs = Object.fromEntries(previewResult.outputs.flatMap(output => {
+        const metadata = output.metadata;
+        // A dewarp model is resolution-dependent and is not part of the
+        // portable evidence yet. Re-analyze such pages instead of replaying
+        // only half of their geometry.
+        if (metadata.dewarpApplied === true) {
+            return [];
+        }
+        const contentBox = normalizePreviewContentBox(metadata);
+        const detectedSkewDegrees = metadata.manualSkew !== true
+            && metadata.skewApplied === true
+            && Number.isFinite(metadata.detectedSkewDegrees)
+            ? metadata.detectedSkewDegrees
+            : undefined;
+        if (contentBox === undefined && detectedSkewDegrees === undefined) {
+            return [];
+        }
+        return [[
+            metadata.half,
+            {
+                ...(contentBox === undefined ? {} : {contentBox}),
+                ...(detectedSkewDegrees === undefined ? {} : {detectedSkewDegrees}),
+            },
+        ]];
+    }));
+    if (Object.keys(outputs).length === 0) {
+        return undefined;
+    }
+    return {
+        pageNumber: previewResult.pageNumber,
+        rotationDegrees: previewResult.pageMetadata.rotationDegrees,
+        layoutClassification: previewResult.pageMetadata.layoutClassification,
+        outputs,
+    };
+}
+
 /**
  * Longer than the ~400-500 ms cadence of a rail flick measured in the user's
  * recording, so a burst of navigations coalesces into the page it ends on,
@@ -51,6 +112,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
     previewPage: Ref<number>;
+    recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
     selectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) => void;
     settings: IScanCleanupOptions;
     sourcePath: ComputedRef<TDocumentRef | null>;
@@ -289,9 +351,29 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         () => scanCleanupMatchedCanvasOverridesSignature(options.settings.pageOverrides),
     );
 
+    function resolveOutputModeRecommendation(pageNumber: number) {
+        const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
+        return options.settings.preserveOriginalQuality !== true
+            && options.settings.outputMode === 'auto'
+            && pageOverride.outputModeOverride === undefined
+            ? options.recommendedOutputModeByPage.get(pageNumber)
+            : undefined;
+    }
+
     function cachePreview(key: string, previewResult: IScanCleanupPreviewResult) {
         cache.set(key, previewResult);
         metadataByPage.set(previewResult.pageNumber, previewResult.pageMetadata);
+    }
+
+    function resolvePagePlanEvidence(pageNumbers: readonly number[]) {
+        const evidence = new Map<number, IScanCleanupPagePlanEvidence>();
+        for (const pageNumber of pageNumbers) {
+            const cached = cache.get(cacheKey(pageNumber));
+            if (!cached) continue;
+            const pagePlan = createScanCleanupPagePlanEvidence(cached);
+            if (pagePlan !== undefined) evidence.set(pageNumber, pagePlan);
+        }
+        return evidence;
     }
 
     function clearTimer() {
@@ -352,6 +434,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             .filter(pageNumber => pageNumber >= 1 && pageNumber <= previewResult.totalPages);
         prefetcher.schedule(adjacentPages.map(pageNumber => {
             const documentPrior = options.documentPriorByPage.get(pageNumber);
+            const outputModeRecommendation = resolveOutputModeRecommendation(pageNumber);
             return {
                 key: cacheKey(pageNumber, previewOptions, previewSourcePath),
                 request: {
@@ -361,6 +444,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     pageNumber,
                     options: previewOptions,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
+                    ...(outputModeRecommendation === undefined
+                        ? {}
+                        : {outputModeRecommendation}),
                     layoutByPage: layoutByPage.value,
                 },
             };
@@ -386,7 +472,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestOptions = toPlainScanCleanupOptions(options.settings);
         const requestSourcePath = options.sourcePath.value;
         const documentPrior = options.documentPriorByPage.get(requestPage);
+        const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
+        const initialRequest = scheduledPage === null;
         // A navigation reaches the previous page's key unchanged; anything else
         // — a settings change, a new document prior, another source — makes
         // every page's work stale and keeps no window.
@@ -455,6 +543,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     options: requestOptions,
                     visible: true,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
+                    ...(outputModeRecommendation === undefined
+                        ? {}
+                        : {outputModeRecommendation}),
                     layoutByPage: layoutByPage.value,
                 })));
                 // A cancelled request has no result to keep or display. When the
@@ -510,15 +601,18 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // flick issues one request for the page it stops on instead of one per
         // page it passes. Everything else is an options change and keeps the
         // settled debounce it has always had.
+        const requestDelayMs = initialRequest
+            ? 0
+            : navigated
+                ? (inFlightPreviewPages.length === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS)
+                : 250;
         timer = setTimeout(() => {
             inFlightPreviewPages.push(requestPage);
             void runPreview().finally(() => {
                 const index = inFlightPreviewPages.indexOf(requestPage);
                 if (index >= 0) inFlightPreviewPages.splice(index, 1);
             });
-        }, navigated
-            ? (inFlightPreviewPages.length === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS)
-            : 250);
+        }, requestDelayMs);
     }
 
     function resolveDetailOutputMode(pageNumber = options.previewPage.value) {
@@ -694,6 +788,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         resultCurrent,
         retry,
         requestDetail,
+        resolvePagePlanEvidence,
         schedule,
         totalPages,
         viewMode,

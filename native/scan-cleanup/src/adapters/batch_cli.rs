@@ -1,7 +1,8 @@
 use crate::adapters::single_ocr_cli::{invalid, optional_value, parse_options, required_path};
 use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached, clean_detail_page_with_color,
-    clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions,
+    clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions, CleanupRaster,
+    CleanupResult,
 };
 use crate::mode_select::OutputModeRecommendationReason;
 use crate::{
@@ -11,7 +12,8 @@ use crate::{
     png::{self, RgbImage},
     protocol::{
         manifest_v3::{
-            CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, PageOutput, RenderMode,
+            AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, PageOutput,
+            RenderMode,
         },
         progress::{PageStageTimings, Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
@@ -21,7 +23,7 @@ use crate::{
 };
 use evb_native_support::{NativeError, NativeErrorCode, NativeErrorEnvelope};
 use rayon::prelude::*;
-use scan_primitives::GrayImage;
+use scan_primitives::{BinaryImage, GrayImage};
 use serde::Serialize;
 use std::{
     collections::HashSet,
@@ -51,6 +53,7 @@ struct WrittenOutput {
     /// scanned as half of a spread, on a sheet that is half empty.
     paper_width: f64,
     paper_height: f64,
+    matched_in_memory: bool,
 }
 
 #[derive(Serialize)]
@@ -170,6 +173,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         &page,
         CanvasScope::Page,
         false,
+        None,
         Some((&output, &metadata)),
         &page_cache,
     )
@@ -255,6 +259,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         Ok(())
     };
     let analyzing = manifest.operation == Operation::Analyze;
+    let plan_content = manifest.analysis_purpose == AnalysisPurpose::PagePlan;
     let run_analysis = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
         let page_cache = page_cache_for(page, &cache)?;
         let result = run_classification(
@@ -262,34 +267,22 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
             manifest.canvas_scope,
             page.document_prior,
             true,
+            plan_content,
             &page_cache,
         )
         .map_err(|error| {
             let envelope = NativeErrorEnvelope::from_error(error.as_ref());
             NativeError::new(envelope.code, envelope.message)
         })?;
-        report_page(
-            index,
-            Progress {
-                stage: ProgressStage::PageAnalyzed,
-                completed_pages: index + 1,
-                total_pages,
-                page_number: Some(index + 1),
-                output_paths: None,
-                classification: None,
-                confidence: None,
-                cutter_x_px: None,
-                tier1_verdict: None,
-                reconciled: None,
-                cluster_agreement: None,
-                document_prior: None,
-                text_axis: None,
-                stage_timings: None,
-                recommended_output_mode: None,
-                recommended_output_mode_confidence: None,
-                recommended_output_mode_reason: None,
-            },
-        )?;
+        // Publish the page's independent verdict immediately. Document
+        // reconciliation may revise it after the batch finishes, at which
+        // point PageComplete replaces this provisional result. Keeping the
+        // useful fields off PageAnalyzed forced every thumbnail to spin until
+        // the slowest page in a large document had finished.
+        let mut progress = page_complete_progress(&result, index, total_pages);
+        progress.stage = ProgressStage::PageAnalyzed;
+        progress.output_paths = None;
+        report_page(index, progress)?;
         Ok(result)
     };
     let run_one = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
@@ -298,6 +291,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
             page,
             manifest.canvas_scope,
             manifest.render_mode == RenderMode::Final,
+            manifest.document_canvas,
             None,
             &page_cache,
         )
@@ -385,19 +379,34 @@ where
     } else {
         1
     };
-    let results = if worker_threads > 1 {
+    let results: Vec<Result<T, NativeError>> = if worker_threads > 1 {
+        let processing_threads = std::thread::available_parallelism().map_or(2, usize::from);
         rayon::ThreadPoolBuilder::new()
-            .num_threads(worker_threads)
-            .thread_name(|index| format!("scan-cleanup-page-{index}"))
+            // `worker_threads` is a memory-derived limit on pages in flight,
+            // not the size of the processing pool. Each page contains nested
+            // Rayon stages (thresholding, morphology, composition, and
+            // resampling) which must retain access to the host's CPU threads.
+            // Building a pool with only the page limit made two large pages
+            // run every heavy stage on two total threads.
+            .num_threads(processing_threads)
+            .thread_name(|index| format!("scan-cleanup-processing-{index}"))
             .build()
             .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?
             .install(|| {
                 manifest
                     .pages
-                    .par_iter()
+                    .chunks(worker_threads)
                     .enumerate()
-                    .map(&task)
-                    .collect::<Vec<_>>()
+                    .flat_map(|(chunk_index, chunk)| {
+                        chunk
+                            .par_iter()
+                            .enumerate()
+                            .map(|(page_index, page)| {
+                                task((chunk_index * worker_threads + page_index, page))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect()
             })
     } else {
         manifest.pages.iter().enumerate().map(task).collect()
@@ -544,13 +553,34 @@ fn reconcile_classification_batch(
                     Some(prior),
                     manifest.operation == Operation::Analyze
                         || manifest.pages[index].options.output_mode == OutputMode::Auto,
+                    manifest.analysis_purpose == AnalysisPurpose::PagePlan,
                     &page_cache,
                 )?;
                 rerun.timings.decode_ms += results[index].timings.decode_ms;
                 rerun.timings.analysis_level_ms += results[index].timings.analysis_level_ms;
                 rerun.timings.normalization_ms += results[index].timings.normalization_ms;
+                rerun.timings.illumination_preparation_ms +=
+                    results[index].timings.illumination_preparation_ms;
+                rerun.timings.layout_normalization_ms +=
+                    results[index].timings.layout_normalization_ms;
+                rerun.timings.calibration_ms += results[index].timings.calibration_ms;
+                rerun.timings.picture_mask_ms += results[index].timings.picture_mask_ms;
+                rerun.timings.mode_recommendation_ms +=
+                    results[index].timings.mode_recommendation_ms;
+                rerun.timings.quality_normalization_ms +=
+                    results[index].timings.quality_normalization_ms;
+                rerun.timings.text_axis_ms += results[index].timings.text_axis_ms;
                 rerun.timings.split_ms += results[index].timings.split_ms;
                 rerun.timings.content_ms += results[index].timings.content_ms;
+                rerun.timings.rasterization_ms += results[index].timings.rasterization_ms;
+                rerun.timings.mask_rasterization_ms += results[index].timings.mask_rasterization_ms;
+                rerun.timings.binarization_ms += results[index].timings.binarization_ms;
+                rerun.timings.threshold_preparation_ms +=
+                    results[index].timings.threshold_preparation_ms;
+                rerun.timings.thresholding_ms += results[index].timings.thresholding_ms;
+                rerun.timings.binary_postprocess_ms += results[index].timings.binary_postprocess_ms;
+                rerun.timings.mixed_composition_ms += results[index].timings.mixed_composition_ms;
+                rerun.timings.output_processing_ms += results[index].timings.output_processing_ms;
                 results[index] = rerun;
                 preserve_tier1_provenance_after_rerun(&mut results[index].metadata, tier1, prior);
                 continue;
@@ -801,6 +831,7 @@ fn run_page(
     page: &Page,
     canvas_scope: CanvasScope,
     final_render: bool,
+    document_canvas: Option<DocumentCanvas>,
     fallback_destination: Option<(&Path, &Path)>,
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
@@ -867,6 +898,11 @@ fn run_page(
         .map(|input| &input.gray)
         .or(gray_input.as_deref())
         .expect("cleanup input is initialized");
+    let create_mixed_layers = final_render
+        && !page.outputs.is_empty()
+        && page.outputs.iter().all(|output| {
+            output.background_output_path.is_some() && output.foreground_mask_output_path.is_some()
+        });
     let mut result = if let Some(detail_plan) = &page.detail_render_plan {
         let metadata_bytes = fs::read(&detail_plan.base_metadata_path).map_err(|error| {
             invalid(format!(
@@ -906,8 +942,12 @@ fn run_page(
             page.source_page_index,
             page.document_prior,
             cache,
-            final_render,
-            !final_render || options.output_mode == OutputMode::Auto,
+            create_mixed_layers,
+            // A concrete mode may have come from the user's setting or from
+            // the already-completed document detector. In either case the
+            // render has no reason to run mode recommendation again. Automatic
+            // pages without reusable evidence still compute it here.
+            options.output_mode == OutputMode::Auto,
             &mut timings,
         )
         .map_err(invalid)?
@@ -976,6 +1016,39 @@ fn run_page(
     let write_started = Instant::now();
     let publication_result = (|| -> Result<(), Box<dyn Error>> {
         for (output, destination) in result.outputs.iter_mut().zip(&destinations) {
+            let layer_destinations_available = final_render
+                && output.mixed_layers.is_some()
+                && destination.background_output_path.is_some()
+                && destination.foreground_mask_output_path.is_some();
+            let matched_placement = if final_render && options.match_page_size && !options.ocr_mode
+            {
+                let canvas = document_canvas
+                    .ok_or_else(|| invalid("Matched page size requires a documentCanvas plan"))?;
+                validate_canvas_for_options(canvas.width_px, canvas.height_px, &options)?;
+                let placement = plan_canvas_placement_for(
+                    output.image.width(),
+                    output.image.height(),
+                    output.metadata.source_region.width,
+                    output.metadata.source_region.height,
+                    &options,
+                    output.metadata.half,
+                    &canvas,
+                );
+                apply_canvas_metadata(&mut output.metadata, placement, &canvas);
+                // Keep the metadata contract identical to the former
+                // post-publication matcher: these are the intrinsic content
+                // dimensions before the white canvas is added.
+                output.metadata.output_width = placement.content_width;
+                output.metadata.output_height = placement.content_height;
+                if layer_destinations_available {
+                    match_layers_in_memory(output, &options, placement, &canvas);
+                } else {
+                    match_primary_raster_in_memory(output, placement, &canvas);
+                }
+                Some((placement, canvas))
+            } else {
+                None
+            };
             // A binarized page is already packed bits, and PBM P4 is the same
             // layout: the raster itself decides whether this page has a bilevel
             // primary, so no mode/layer combination has to be re-derived here.
@@ -1027,23 +1100,24 @@ fn run_page(
                                 background_width,
                                 background_height,
                             );
-                            png::write_rgb_atomic(background_path, &background)?;
+                            write_layer_background(background_path, &background)?;
                         } else {
-                            png::write_rgb_atomic(background_path, color)?;
+                            write_layer_background(background_path, color)?;
                         }
                     } else if !options.match_page_size && background_dpi < options.dpi {
                         let background = layers
                             .background
                             .downscale_to_dimensions(background_width, background_height);
-                        png::write_gray_atomic(background_path, &background)?;
+                        write_gray_layer_background(background_path, &background)?;
                     } else {
-                        png::write_gray_atomic(background_path, &layers.background)?;
+                        write_gray_layer_background(background_path, &layers.background)?;
                     }
                     pbm::write_p4_bilevel_atomic(mask_path, &layers.foreground_mask)
                 })();
                 if let Err(error) = layer_result {
                     let _ = fs::remove_file(background_path);
                     let _ = fs::remove_file(mask_path);
+                    restore_mixed_composite_from_layers(output);
                     output.metadata.warnings.push(format!(
                             "Mixed layers were not written; the composite fallback was published instead: {error}"
                         ));
@@ -1083,6 +1157,7 @@ fn run_page(
                 height: output.image.height(),
                 paper_width: output.metadata.source_region.width,
                 paper_height: output.metadata.source_region.height,
+                matched_in_memory: matched_placement.is_some(),
             });
         }
         Ok(())
@@ -1113,11 +1188,37 @@ fn run_page(
     })
 }
 
+fn write_layer_background(path: &Path, image: &RgbImage) -> Result<(), String> {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
+    {
+        // This is a managed handoff to the PDF assembler, which immediately
+        // JPEG-encodes the continuous-tone layer. Raw PPM avoids a lossless PNG
+        // encode here and its matching decode in the next process.
+        raster::write_rgb_ppm_atomic(path, image)
+    } else {
+        png::write_rgb_atomic(path, image)
+    }
+}
+
+fn write_gray_layer_background(path: &Path, image: &GrayImage) -> Result<(), String> {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
+    {
+        raster::write_gray_ppm_atomic(path, image)
+    } else {
+        png::write_gray_atomic(path, image)
+    }
+}
+
 fn run_classification(
     page: &Page,
     canvas_scope: CanvasScope,
     document_prior: Option<crate::split::DocumentPrior>,
     recommend_output_mode: bool,
+    plan_content: bool,
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = page.options.clone();
@@ -1189,6 +1290,7 @@ fn run_classification(
         &options,
         document_prior,
         recommend_output_mode,
+        plan_content,
         cache,
         &mut timings,
     )
@@ -1288,8 +1390,28 @@ const CANVAS_GRID_TOLERANCE_PX: f64 = 1.0;
 /// original, a genuinely smaller sheet, or one half of a spread — is resampled
 /// up until its ink matches everything around it.
 fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> CanvasPlacement {
-    let paper_width_points = output.paper_width.max(1.0) / output.options.dpi * 72.0;
-    let paper_height_points = output.paper_height.max(1.0) / output.options.dpi * 72.0;
+    plan_canvas_placement_for(
+        output.width,
+        output.height,
+        output.paper_width,
+        output.paper_height,
+        &output.options,
+        output.half,
+        canvas,
+    )
+}
+
+fn plan_canvas_placement_for(
+    width: usize,
+    height: usize,
+    paper_width: f64,
+    paper_height: f64,
+    options: &CleanupOptions,
+    half: crate::pipeline::PageHalf,
+    canvas: &DocumentCanvas,
+) -> CanvasPlacement {
+    let paper_width_points = paper_width.max(1.0) / options.dpi * 72.0;
+    let paper_height_points = paper_height.max(1.0) / options.dpi * 72.0;
     let paper_scale =
         (canvas.width_points / paper_width_points).min(canvas.height_points / paper_height_points);
     // Paper rounded onto the canvas grid, against the grid itself: a page
@@ -1300,9 +1422,9 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
         > canvas.width_px as f64 + CANVAS_GRID_TOLERANCE_PX
         || paper_height_points / canvas.height_points * canvas.height_px as f64
             > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
-    let pixel_scale = paper_scale * canvas.dpi() / output.options.dpi;
-    let mut scaled_width = output.width as f64 * pixel_scale;
-    let mut scaled_height = output.height as f64 * pixel_scale;
+    let pixel_scale = paper_scale * canvas.dpi() / options.dpi;
+    let mut scaled_width = width as f64 * pixel_scale;
+    let mut scaled_height = height as f64 * pixel_scale;
     let overflow = scaled_width > canvas.width_px as f64 + CANVAS_GRID_TOLERANCE_PX
         || scaled_height > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
     if overflow {
@@ -1313,7 +1435,7 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
     }
     let content_width = (scaled_width.round() as usize).clamp(1, canvas.width_px);
     let content_height = (scaled_height.round() as usize).clamp(1, canvas.height_px);
-    let (left, top) = output.options.placement_for(output.half).offset(
+    let (left, top) = options.placement_for(half).offset(
         canvas.width_px - content_width,
         canvas.height_px - content_height,
     );
@@ -1328,6 +1450,195 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
     }
 }
 
+fn apply_canvas_metadata(
+    metadata: &mut CleanupMetadata,
+    placement: CanvasPlacement,
+    canvas: &DocumentCanvas,
+) {
+    let CanvasPlacement {
+        content_width,
+        content_height,
+        left,
+        top,
+        ..
+    } = placement;
+    metadata.soft_margins_pixels = [
+        left,
+        top,
+        canvas.width_px - content_width - left,
+        canvas.height_px - content_height - top,
+    ];
+    metadata.uniform_canvas = true;
+    metadata.canvas_policy = MatchedCanvasPolicy::StrictMaximum;
+    metadata.canvas_overflow = placement.overflow;
+    metadata.matched_canvas_target_width = Some(canvas.width_px);
+    metadata.matched_canvas_target_height = Some(canvas.height_px);
+    metadata.matched_canvas_target_width_points = Some(canvas.width_points);
+    metadata.matched_canvas_target_height_points = Some(canvas.height_points);
+    metadata.matched_canvas_content_width = Some(content_width);
+    metadata.matched_canvas_content_height = Some(content_height);
+    metadata.canvas_width = canvas.width_px;
+    metadata.canvas_height = canvas.height_px;
+    metadata.placement_offset_x = left;
+    metadata.placement_offset_y = top;
+    if placement.overflow {
+        metadata.warnings.push(format!(
+            "Matched page size fitted this page to {content_width}x{content_height} px \
+             inside the {}x{} px document canvas, below the document's scale",
+            canvas.width_px, canvas.height_px,
+        ));
+    }
+    if placement.undersized_paper {
+        let percent = placement.paper_scale * 100.0;
+        metadata.warnings.push(format!(
+            "Matched page size placed this page at {percent:.1}% of the document's scale \
+             because its paper is larger than the {}x{} px document canvas, \
+             which was measured from a different layout for this page",
+            canvas.width_px, canvas.height_px,
+        ));
+    }
+}
+
+fn match_primary_raster_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &DocumentCanvas,
+) {
+    let resize_gray = |source: &GrayImage| {
+        place_on_white_canvas(
+            &source.resample_to_dimensions(placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.left,
+            placement.top,
+        )
+    };
+    output.image = match &output.image {
+        CleanupRaster::Gray(image) => CleanupRaster::Gray(resize_gray(image)),
+        CleanupRaster::Bilevel(image) => {
+            let gray = CleanupRaster::Bilevel(image.clone()).into_gray();
+            let canvas_image = place_on_white_canvas(
+                &resample_bilevel(&gray, placement.content_width, placement.content_height),
+                canvas.width_px,
+                canvas.height_px,
+                placement.left,
+                placement.top,
+            );
+            CleanupRaster::Bilevel(BinaryImage::from_fn_parallel(
+                canvas.width_px,
+                canvas.height_px,
+                |x, y| canvas_image.get(x, y) < 128,
+            ))
+        }
+    };
+    if let Some(color) = output.color_image.as_ref() {
+        output.color_image = Some(place_rgb_on_white_canvas(
+            &color.resample_to_dimensions(placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.left,
+            placement.top,
+        ));
+    }
+}
+
+fn restore_mixed_composite_from_layers(output: &mut CleanupResult) {
+    let Some(layers) = output.mixed_layers.as_ref() else {
+        return;
+    };
+    let mask = &layers.foreground_mask;
+    let mut image = layers
+        .background
+        .resample_to_dimensions(mask.width(), mask.height());
+    let width = image.width();
+    image
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                if mask.get(x, y) {
+                    *target = 0;
+                }
+            }
+        });
+    output.image = CleanupRaster::Gray(image);
+    output.color_image = layers.color_background.as_ref().map(|background| {
+        let mut color = background.resample_to_dimensions(mask.width(), mask.height());
+        let row_bytes = color.width() * 3;
+        color
+            .data_mut()
+            .par_chunks_mut(row_bytes)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                    if mask.get(x, y) {
+                        target.fill(0);
+                    }
+                }
+            });
+        color
+    });
+}
+
+fn match_layers_in_memory(
+    output: &mut CleanupResult,
+    options: &CleanupOptions,
+    placement: CanvasPlacement,
+    canvas: &DocumentCanvas,
+) {
+    let Some(layers) = output.mixed_layers.as_mut() else {
+        return;
+    };
+    let foreground_gray = CleanupRaster::Bilevel(layers.foreground_mask.clone()).into_gray();
+    let foreground = place_on_white_canvas(
+        &resample_bilevel(
+            &foreground_gray,
+            placement.content_width,
+            placement.content_height,
+        ),
+        canvas.width_px,
+        canvas.height_px,
+        placement.left,
+        placement.top,
+    );
+    layers.foreground_mask =
+        BinaryImage::from_fn_parallel(canvas.width_px, canvas.height_px, |x, y| {
+            foreground.get(x, y) < 128
+        });
+
+    let background_dpi = options.source_dpi().min(options.dpi);
+    let background_ratio = background_dpi / options.dpi;
+    let on_background_grid =
+        |value: usize| ((value as f64 * background_ratio).round() as usize).max(1);
+    let background_width = on_background_grid(canvas.width_px);
+    let background_height = on_background_grid(canvas.height_px);
+    let content_width = on_background_grid(placement.content_width).min(background_width);
+    let content_height = on_background_grid(placement.content_height).min(background_height);
+    let left = ((placement.left as f64 * background_ratio).round() as usize)
+        .min(background_width - content_width);
+    let top = ((placement.top as f64 * background_ratio).round() as usize)
+        .min(background_height - content_height);
+    layers.background = place_on_white_canvas(
+        &layers
+            .background
+            .resample_to_dimensions(content_width, content_height),
+        background_width,
+        background_height,
+        left,
+        top,
+    );
+    if let Some(color) = layers.color_background.as_ref() {
+        layers.color_background = Some(place_rgb_on_white_canvas(
+            &color.resample_to_dimensions(content_width, content_height),
+            background_width,
+            background_height,
+            left,
+            top,
+        ));
+    }
+}
+
 fn match_page_sizes(
     outputs: &[WrittenOutput],
     preview_mode: bool,
@@ -1335,7 +1646,9 @@ fn match_page_sizes(
 ) -> Result<(), Box<dyn Error>> {
     let eligible = outputs
         .iter()
-        .filter(|output| output.options.match_page_size && !output.options.ocr_mode)
+        .filter(|output| {
+            output.options.match_page_size && !output.options.ocr_mode && !output.matched_in_memory
+        })
         .collect::<Vec<_>>();
     if eligible.is_empty() {
         return Ok(());
@@ -1364,50 +1677,9 @@ fn match_page_sizes(
                 top,
                 ..
             } = placement;
-            let right = target_width - content_width - left;
-            let bottom = target_height - content_height - top;
             let mut metadata: CleanupMetadata =
                 serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
-            metadata.soft_margins_pixels = [left, top, right, bottom];
-            metadata.uniform_canvas = true;
-            metadata.canvas_policy = MatchedCanvasPolicy::StrictMaximum;
-            metadata.canvas_overflow = placement.overflow;
-            metadata.matched_canvas_target_width = Some(target_width);
-            metadata.matched_canvas_target_height = Some(target_height);
-            metadata.matched_canvas_target_width_points = Some(canvas.width_points);
-            metadata.matched_canvas_target_height_points = Some(canvas.height_points);
-            metadata.matched_canvas_content_width = Some(content_width);
-            metadata.matched_canvas_content_height = Some(content_height);
-            metadata.canvas_width = target_width;
-            metadata.canvas_height = target_height;
-            metadata.placement_offset_x = left;
-            metadata.placement_offset_y = top;
-            // A page that cannot hold the document's scale is a visible result,
-            // not a diagnostic: it ends up smaller than its neighbours, so the
-            // run says which page and by how much rather than leaving the user
-            // to find it.
-            if placement.overflow {
-                metadata.warnings.push(format!(
-                    "Matched page size fitted this page to {content_width}x{content_height} px \
-                     inside the {target_width}x{target_height} px document canvas, \
-                     below the document's scale"
-                ));
-            }
-            // The other way a page ends up below the document's scale, and the
-            // quieter one: its paper is larger than the canvas, so it is scaled
-            // down into a rectangle the document was measured onto for a
-            // differently cut sheet. The grid stays uniform and nothing is
-            // clipped, which is exactly why this has to be said rather than
-            // seen.
-            if placement.undersized_paper {
-                let percent = placement.paper_scale * 100.0;
-                metadata.warnings.push(format!(
-                    "Matched page size placed this page at {percent:.1}% of the document's scale \
-                     because its paper is larger than the \
-                     {target_width}x{target_height} px document canvas, \
-                     which was measured from a different layout for this page"
-                ));
-            }
+            apply_canvas_metadata(&mut metadata, placement, &canvas);
 
             // A preview leaves its raster at the resolution it was rendered at
             // and reports the box it occupies, because the renderer scales it
@@ -1595,10 +1867,18 @@ fn match_page_sizes(
 }
 
 fn validate_canvas(width: usize, height: usize, output: &WrittenOutput) -> Result<(), NativeError> {
+    validate_canvas_for_options(width, height, &output.options)
+}
+
+fn validate_canvas_for_options(
+    width: usize,
+    height: usize,
+    options: &CleanupOptions,
+) -> Result<(), NativeError> {
     let pixels = (width as u64).saturating_mul(height as u64);
-    if width > output.options.max_dimension as usize
-        || height > output.options.max_dimension as usize
-        || pixels > output.options.max_pixels
+    if width > options.max_dimension as usize
+        || height > options.max_dimension as usize
+        || pixels > options.max_pixels
     {
         return Err(NativeError::new(
             NativeErrorCode::TooLarge,
@@ -1620,11 +1900,10 @@ fn robust_quantile_dimension(values: impl Iterator<Item = usize>) -> usize {
 /// resolved back to ink or paper, because P4 carries nothing in between.
 fn resample_bilevel(source: &GrayImage, width: usize, height: usize) -> GrayImage {
     let mut resampled = source.resample_to_dimensions(width, height);
-    for y in 0..resampled.height() {
-        for x in 0..resampled.width() {
-            resampled.set(x, y, if resampled.get(x, y) < 128 { 0 } else { 255 });
-        }
-    }
+    resampled
+        .data_mut()
+        .par_iter_mut()
+        .for_each(|value| *value = if *value < 128 { 0 } else { 255 });
     resampled
 }
 
@@ -1636,11 +1915,15 @@ fn place_on_white_canvas(
     top: usize,
 ) -> GrayImage {
     let mut canvas = GrayImage::new(width, height, 255);
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            canvas.set(left + x, top + y, source.get(x, y));
-        }
-    }
+    canvas
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            if let Some(source_y) = y.checked_sub(top).filter(|&y| y < source.height()) {
+                row[left..left + source.width()].copy_from_slice(source.row(source_y));
+            }
+        });
     canvas
 }
 
@@ -1652,11 +1935,16 @@ fn place_rgb_on_white_canvas(
     top: usize,
 ) -> RgbImage {
     let mut canvas = RgbImage::new(width, height, [255; 3]);
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            canvas.set(left + x, top + y, source.get(x, y));
-        }
-    }
+    canvas
+        .data_mut()
+        .par_chunks_mut(width * 3)
+        .enumerate()
+        .for_each(|(y, row)| {
+            if let Some(source_y) = y.checked_sub(top).filter(|&y| y < source.height()) {
+                let start = left * 3;
+                row[start..start + source.width() * 3].copy_from_slice(source.row(source_y));
+            }
+        });
     canvas
 }
 
@@ -1741,7 +2029,8 @@ mod tests {
     };
     use crate::{
         protocol::manifest_v3::{
-            CanvasScope, ManifestV3, Operation, Page, RenderMode, SplitSeamPolyline, VERSION,
+            AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
+            SplitSeamPolyline, VERSION,
         },
         split::{ClusterDimensions, DocumentPrior, LayoutClassification},
         CleanupOptions, OrthogonalRotation, OutputMode,
@@ -1800,6 +2089,7 @@ mod tests {
         let manifest = |host_memory_bytes| ManifestV3 {
             version: VERSION,
             operation: Operation::Render,
+            analysis_purpose: AnalysisPurpose::PagePlan,
             render_mode: RenderMode::Final,
             canvas_scope: CanvasScope::default(),
             document_canvas: None,

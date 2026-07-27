@@ -93,6 +93,26 @@ describe('scan cleanup document canvas', () => {
         }]);
     });
 
+    it('keeps verified full-page raster metadata from evb-pdf-page-ops', () => {
+        expect(parsePdfPageSizesPayload({pages: [{
+            pageNumber: 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 439.6,
+            heightPoints: 670,
+            rotation: 0,
+            dominantImageWidthPx: 2198,
+            dominantImageHeightPx: 3350,
+            dominantImageWidthPoints: 439.6,
+            dominantImageHeightPoints: 670,
+        }]})).toEqual([expect.objectContaining({
+            dominantImageWidthPx: 2198,
+            dominantImageHeightPx: 3350,
+            dominantImageWidthPoints: 439.6,
+            dominantImageHeightPoints: 670,
+        })]);
+    });
+
     it('rejects geometry a page cannot have', () => {
         expect(() => parsePdfPageSizesPayload({pages: [{
             pageNumber: 1,

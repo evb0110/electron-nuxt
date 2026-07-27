@@ -92,6 +92,14 @@ pub enum Operation {
     Render,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AnalysisPurpose {
+    Classification,
+    #[default]
+    PagePlan,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum RenderMode {
@@ -183,6 +191,8 @@ pub struct Page {
 pub struct ManifestV3 {
     pub version: u32,
     pub operation: Operation,
+    #[serde(default)]
+    pub analysis_purpose: AnalysisPurpose,
     pub render_mode: RenderMode,
     pub canvas_scope: CanvasScope,
     #[serde(default)]
@@ -221,6 +231,13 @@ impl ManifestV3 {
         }
         if self.host_memory_bytes == Some(0) {
             return Err(invalid("Host memory must be a positive byte count"));
+        }
+        if self.operation != Operation::Analyze
+            && self.analysis_purpose != AnalysisPurpose::PagePlan
+        {
+            return Err(invalid(
+                "analysisPurpose is only valid for analyze manifests",
+            ));
         }
         for page in &self.pages {
             page.options.validate().map_err(invalid)?;

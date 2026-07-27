@@ -1,6 +1,6 @@
 use evb_raster_io::{
-    decode_png, encode_png, read_png_dimensions, read_png_passthrough, DecodeLimits,
-    PassthroughLimits, PixelBuffer, PngColorType,
+    decode_png, encode_png, encode_png_fast, read_png_dimensions, read_png_passthrough,
+    DecodeLimits, PassthroughLimits, PixelBuffer, PngColorType,
 };
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
@@ -100,6 +100,37 @@ fn encoder_is_deterministic_and_round_trips() {
         decode_png(encoded.as_slice(), DECODE).unwrap().rgb.data(),
         RGB
     );
+}
+
+#[test]
+fn fast_encoder_is_lossless_for_managed_intermediates() {
+    for pixels in [
+        PixelBuffer::Gray {
+            width: 6,
+            height: 1,
+            stride: 6,
+            data: &[0, 30, 255, 80, 120, 200],
+        },
+        PixelBuffer::Rgb {
+            width: 3,
+            height: 2,
+            stride: 9,
+            data: RGB,
+        },
+    ] {
+        let expected = match pixels {
+            PixelBuffer::Gray { data, .. } => data
+                .iter()
+                .flat_map(|value| [*value; 3])
+                .collect::<Vec<_>>(),
+            PixelBuffer::Rgb { data, .. } => data.to_vec(),
+        };
+        let encoded = encode_png_fast(pixels).unwrap();
+        assert_eq!(
+            decode_png(encoded.as_slice(), DECODE).unwrap().rgb.data(),
+            expected
+        );
+    }
 }
 
 #[test]

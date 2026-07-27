@@ -86,6 +86,29 @@ const cases: IGoldenCase[] = [
 ];
 
 describe('native scan-cleanup manifest builder', () => {
+    it('derives native layout and output mode from reusable detection evidence', () => {
+        const manifest = buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            qualityPath: 'raster',
+            options,
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 1,
+                dpi: 150,
+                observedLayout: 'single-uncut-page',
+                resolvedOutputMode: 'bw',
+                pageMetadataPath: '/fixtures/output/page-1.json',
+            }],
+        });
+
+        expect(manifest.pages[0]?.options).toMatchObject({
+            layout: 'force-single',
+            outputMode: 'bw',
+        });
+    });
+
     it.each(cases)('matches the shared $name golden', async testCase => {
         const golden = JSON.parse(await readFile(resolve(fixtureDirectory, testCase.name), 'utf8')) as INativeScanCleanupManifestV3;
         const manifest = buildNativeScanCleanupManifest({

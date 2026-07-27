@@ -162,6 +162,7 @@ impl StageCacheKey {
                 rect_key(region),
                 options.dpi.to_bits(),
                 options.manual_skew_degrees.map(f64::to_bits),
+                serialized(&options.automatic_skew_degrees),
             )),
         }
     }
@@ -184,6 +185,7 @@ impl StageCacheKey {
                 &deskew_key.options,
                 half,
                 &options.manual_content_boxes,
+                &options.automatic_content_boxes,
                 &options.dewarp,
                 options.experimental.auto_dewarp,
                 options.experimental.auto_dewarp_depth.map(f64::to_bits),

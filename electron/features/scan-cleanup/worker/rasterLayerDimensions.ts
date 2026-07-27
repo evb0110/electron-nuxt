@@ -121,5 +121,8 @@ export function readPbmDimensions(path: string) {
 }
 
 export function readPpmDimensions(path: string) {
-    return readNetpbmDimensions(path, 'P6');
+    return readNetpbmDimensions(path, 'P6').then(dimensions => ({
+        ...dimensions,
+        isColor: true,
+    }));
 }
