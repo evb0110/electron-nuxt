@@ -376,6 +376,45 @@ const readRunState = (page: Page) => evaluateInPage(page, () => {
     running: boolean;
 }>;
 
+interface IRendererHeartbeatWindow extends Window {__scanCleanupRendererHeartbeat?: {
+    intervalId: number;
+    maxGapMs: number;
+};}
+
+async function startRendererHeartbeat(page: Page) {
+    await evaluateInPage(page, () => {
+        const target = window as IRendererHeartbeatWindow;
+        const intervalMs = 100;
+        let previousAtMs = performance.now();
+        const heartbeat = {
+            intervalId: 0,
+            maxGapMs: 0,
+        };
+        heartbeat.intervalId = window.setInterval(() => {
+            const currentAtMs = performance.now();
+            heartbeat.maxGapMs = Math.max(
+                heartbeat.maxGapMs,
+                currentAtMs - previousAtMs - intervalMs,
+            );
+            previousAtMs = currentAtMs;
+        }, intervalMs);
+        target.__scanCleanupRendererHeartbeat = heartbeat;
+    });
+}
+
+async function stopRendererHeartbeat(page: Page) {
+    return evaluateInPage(page, () => {
+        const target = window as IRendererHeartbeatWindow;
+        const heartbeat = target.__scanCleanupRendererHeartbeat;
+        if (!heartbeat) {
+            return Number.POSITIVE_INFINITY;
+        }
+        window.clearInterval(heartbeat.intervalId);
+        delete target.__scanCleanupRendererHeartbeat;
+        return heartbeat.maxGapMs;
+    }) as Promise<number>;
+}
+
 /**
  * The cleaned document, or a failure that names what actually happened. A run
  * that fails says so inline; waiting for an output path that will never appear
@@ -1066,8 +1105,10 @@ describe('scan cleanup matched page canvas', () => {
         await ensureChecked(page, 'Match page size');
         await waitForPreview(page, 1);
 
+        await startRendererHeartbeat(page);
         await page.click('.scan-cleanup-toolbar-primary-action');
         const run = await waitForCleanedOutput(page, sourcePath, RUN_TIMEOUT_MS);
+        const worstRendererStallMs = await stopRendererHeartbeat(page);
         await waitForPdfLoaded(page, 180_000);
         await waitForViewerInteractive(page, 180_000);
         const viewer = await readViewerState(page);
@@ -1080,6 +1121,7 @@ describe('scan cleanup matched page canvas', () => {
             pageCount,
             runElapsedMs: run.elapsedMs,
             worstLatencyMs,
+            worstRendererStallMs,
             phases,
             sampleCount: run.samples.length,
             samples: run.samples,
@@ -1089,10 +1131,11 @@ describe('scan cleanup matched page canvas', () => {
             logFailures,
         });
 
-        // The renderer answered every sample promptly: the job runs off the
-        // main thread, so a user could still turn pages while it worked.
+        // Measure the event loop inside the renderer. CDP round trips also
+        // include runner scheduling and transport latency, which can exceed
+        // this budget while the application itself remains responsive.
         expect(run.samples.length).toBeGreaterThan(2);
-        expect(worstLatencyMs).toBeLessThan(RENDERER_LATENCY_BUDGET_MS);
+        expect(worstRendererStallMs).toBeLessThan(RENDERER_LATENCY_BUDGET_MS);
         // And it reported progress rather than a frozen meter.
         expect(phases.length).toBeGreaterThan(0);
         expect(run.elapsedMs).toBeLessThan(RUN_TIMEOUT_MS);
