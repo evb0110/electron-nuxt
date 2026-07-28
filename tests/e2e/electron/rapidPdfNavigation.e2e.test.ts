@@ -1423,7 +1423,26 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
 
         await session.page.mouse.move(viewport.x, viewport.y);
-        await session.page.mouse.wheel({deltaY: Math.round(viewport.maxScrollTop * 0.72)});
+        // Chromium can coalesce one enormous synthetic wheel delta under
+        // hosted-runner load. Drive several ordinary trusted wheel events so
+        // the scroll observer sees the same sequence a user produces.
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+            await session.page.mouse.wheel({deltaY: Math.max(
+                1_600,
+                Math.round(viewport.maxScrollTop * 0.08),
+            )});
+            await delay(120);
+            const synchronized = await session.page.evaluate(() => {
+                const toolbarPage = (window as IRapidNavigationProbeWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
+                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                return toolbarPage > 20
+                    && Number(chassis?.dataset.viewportObservedPage ?? 0) === toolbarPage;
+            });
+            if (synchronized) {
+                break;
+            }
+        }
         await session.page.waitForFunction(() => {
             const toolbarPage = (window as IRapidNavigationProbeWindow)
                 .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
@@ -1516,7 +1535,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
 
         await session.page.mouse.move(viewport.x, viewport.y);
-        for (let attempt = 0; attempt < 12; attempt += 1) {
+        for (let attempt = 0; attempt < 24; attempt += 1) {
             const scrollState = await session.page.evaluate(() => {
                 const element = document.querySelector<HTMLElement>('#pdf-viewer');
                 const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
