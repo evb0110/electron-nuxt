@@ -20,6 +20,7 @@ function createHarness(options: {
         isVisible: vi.fn(() => options.visible ?? true),
         restore: vi.fn(() => calls.push('window.restore')),
         show: vi.fn(() => calls.push('window.show')),
+        webContents: {focus: vi.fn(() => calls.push('window.webContents.focus'))},
     };
 
     return {
@@ -73,8 +74,9 @@ describe('focusWindowForUser', () => {
         expect(harness.calls).toEqual([
             'window.restore',
             'window.show',
-            'window.focus',
             'application.focus',
+            'window.focus',
+            'window.webContents.focus',
         ]);
         expect(harness.application.focus).toHaveBeenCalledWith({ steal: true });
     });
@@ -89,8 +91,9 @@ describe('focusWindowForUser', () => {
         });
 
         expect(harness.calls).toEqual([
-            'window.focus',
             'application.focus',
+            'window.focus',
+            'window.webContents.focus',
         ]);
         expect(harness.window.restore).not.toHaveBeenCalled();
         expect(harness.window.show).not.toHaveBeenCalled();
@@ -105,7 +108,10 @@ describe('focusWindowForUser', () => {
             platform: 'linux',
         });
 
-        expect(harness.calls).toEqual(['window.focus']);
+        expect(harness.calls).toEqual([
+            'window.focus',
+            'window.webContents.focus',
+        ]);
         expect(harness.application.focus).not.toHaveBeenCalled();
     });
 });

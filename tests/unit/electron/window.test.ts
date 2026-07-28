@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
         private readonly handlers = new Map<string, Array<(...args: unknown[]) => void>>();
 
         readonly webContents = {
+            focus: vi.fn(),
             forcefullyCrashRenderer: vi.fn(),
             getURL: vi.fn(() => 'evb-viewer://app/electron'),
             executeJavaScript: vi.fn(async () => undefined),

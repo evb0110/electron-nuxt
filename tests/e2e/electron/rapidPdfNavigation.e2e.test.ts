@@ -1236,8 +1236,12 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(initial).not.toBeNull();
         expect(initial?.rendered).toBe(true);
         expect(initial?.skeletonVisible).toBe(false);
-        expect(initial?.backingScaleX).toBeGreaterThanOrEqual(1);
-        expect(initial?.backingScaleY).toBeGreaterThanOrEqual(1);
+        // CSS layout can land between physical pixels. Requiring the ratio to
+        // be exactly >= 1 rejects a canvas that covers every whole CSS pixel
+        // (for example 5044 / 5044.999). Keep the crispness tripwire at the
+        // actual raster boundary instead of comparing a rounded ratio.
+        expect(initial?.backingWidth).toBeGreaterThanOrEqual(Math.floor(initial?.cssWidth ?? 0));
+        expect(initial?.backingHeight).toBeGreaterThanOrEqual(Math.floor(initial?.cssHeight ?? 0));
         expect(initial?.luminanceVariance).toBeGreaterThan(0);
 
         await clickPageNavigationButton(session, 'Next Page');

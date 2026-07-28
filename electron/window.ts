@@ -107,11 +107,11 @@ function showAndFocusMaximizedWindow(window: BrowserWindow) {
         return;
     }
 
-    window.focus();
-
     if (process.platform === 'darwin') {
         app.focus({ steal: true });
     }
+    window.focus();
+    window.webContents.focus();
 }
 
 async function lockRendererZoom(window: BrowserWindow) {

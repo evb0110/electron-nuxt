@@ -45,6 +45,7 @@ interface IWindowLike {
     restore(): void;
     show(): void;
     focus(): void;
+    webContents: {focus(): void;};
 }
 
 interface IApplicationLike {focus(options: { steal: true; }): void;}

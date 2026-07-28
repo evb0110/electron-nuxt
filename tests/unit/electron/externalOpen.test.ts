@@ -101,6 +101,7 @@ describe('createExternalOpenManager', () => {
             hasWindows = true;
         });
         const focus = vi.fn();
+        const webContentsFocus = vi.fn();
         const restore = vi.fn();
         const show = vi.fn();
         const applicationFocus = vi.fn();
@@ -121,6 +122,7 @@ describe('createExternalOpenManager', () => {
                 restore,
                 show,
                 focus,
+                webContents: {focus: webContentsFocus},
             }),
             hasWindows: () => hasWindows,
             createWindow,
