@@ -274,4 +274,78 @@ describe('usePageStatusBar', () => {
 
         expect(statusBar.statusMaterializationLabel.value).toBeNull();
     });
+
+    it('accepts a terminal initial read after a non-terminal stream event', async () => {
+        let listener: ((status: {
+            documentRef: string;
+            failure: null;
+            progress: number;
+            state: 'lazy-original' | 'materializing' | 'materialized';
+        }) => void) | undefined;
+        onWorkingCopyBackingStatusChangedMock.mockImplementation((callback) => {
+            listener = callback;
+            return vi.fn();
+        });
+        let resolveInitialRead: (() => void) | undefined;
+        getWorkingCopyBackingStatusMock.mockReturnValue(new Promise((resolve) => {
+            resolveInitialRead = () => resolve({
+                documentRef: '/tmp/managed.pdf',
+                failure: null,
+                progress: 1,
+                state: 'materialized',
+            });
+        }));
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        const statusBar = usePageStatusBar(createDeps({workingCopyPath: ref('/tmp/managed.pdf')}));
+
+        await vi.waitFor(() => {
+            expect(listener).toBeDefined();
+        });
+        listener?.({
+            documentRef: '/tmp/managed.pdf',
+            failure: null,
+            progress: 0.25,
+            state: 'materializing',
+        });
+        expect(statusBar.statusMaterializationLabel.value).toContain('status.preparingDocumentProgress');
+
+        resolveInitialRead?.();
+        await vi.waitFor(() => {
+            expect(statusBar.statusMaterializationLabel.value).toBeNull();
+        });
+    });
+
+    it('reconciles a missed terminal event while the snapshot is still materializing', async () => {
+        vi.useFakeTimers();
+        try {
+            getWorkingCopyBackingStatusMock
+                .mockResolvedValueOnce({
+                    documentRef: '/tmp/managed.pdf',
+                    failure: null,
+                    progress: 0.4,
+                    state: 'materializing',
+                })
+                .mockResolvedValueOnce({
+                    documentRef: '/tmp/managed.pdf',
+                    failure: null,
+                    progress: 1,
+                    state: 'materialized',
+                });
+            vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+            const statusBar = usePageStatusBar(createDeps({workingCopyPath: ref('/tmp/managed.pdf')}));
+
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(statusBar.statusMaterializationLabel.value).toContain(
+                'status.preparingDocumentProgress',
+            );
+
+            await vi.advanceTimersByTimeAsync(1_000);
+
+            expect(getWorkingCopyBackingStatusMock).toHaveBeenCalledTimes(2);
+            expect(statusBar.statusMaterializationLabel.value).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

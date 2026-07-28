@@ -156,7 +156,7 @@ pub struct ManualContentBoxes {
 }
 
 impl ManualContentBoxes {
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.full.is_none() && self.left.is_none() && self.right.is_none()
     }
 }

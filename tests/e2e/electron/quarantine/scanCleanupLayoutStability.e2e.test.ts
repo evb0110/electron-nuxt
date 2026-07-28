@@ -86,6 +86,108 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('scan cleanup layout stability', () => {
+    it('keeps the workspace vertical origin fixed when scan and PDF panes trade focus', async () => {
+        const session = sessionFixture.getSession();
+        expect(session).toBeTruthy();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const sourcePath = await createLargeScannedFixturePdf(
+            'scan-cleanup-pane-toolbar-stability.pdf',
+            1,
+            0,
+        );
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForPdfLoaded(page, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await clickVisibleToolbarButton(page, 'Scan cleanup');
+        await page.waitForSelector('.scan-cleanup-surface', {
+            timeout: 30_000,
+            visible: true,
+        });
+        const leftPaneId = await evaluateInPage(page, () =>
+            document.querySelector<HTMLElement>('.editor-pane.is-active')
+                ?.dataset.editorPaneId ?? null);
+        expect(leftPaneId).toBeTruthy();
+
+        const split = await evaluateInPage(page, async () => {
+            const splitEditor = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;})
+                .__splitEditorEmptyForE2E;
+            if (typeof splitEditor !== 'function') {
+                return false;
+            }
+            await splitEditor('right');
+            return true;
+        });
+        expect(split).toBe(true);
+        await waitForFunctionInPage(page, () =>
+            document.querySelectorAll('.editor-pane').length === 2);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForPdfLoaded(page, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        const rightPaneId = await evaluateInPage(page, () =>
+            document.querySelector<HTMLElement>('.editor-pane.is-active')
+                ?.dataset.editorPaneId ?? null);
+        expect(rightPaneId).toBeTruthy();
+        expect(rightPaneId).not.toBe(leftPaneId);
+
+        const activatePane = async (paneId: string, toolbarSelector: string) => {
+            await evaluateInPage(page, (targetPaneId: string) => {
+                const pane = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'))
+                    .find(candidate => candidate.dataset.editorPaneId === targetPaneId);
+                pane?.dispatchEvent(new PointerEvent('pointerdown', {
+                    bubbles: true,
+                    pointerId: 1,
+                }));
+                return pane !== undefined;
+            }, paneId);
+            await waitForFunctionInPage(page, (
+                targetPaneId: string,
+                targetToolbarSelector: string,
+            ) => document.querySelector<HTMLElement>('.editor-pane.is-active')
+                ?.dataset.editorPaneId === targetPaneId
+                && document.querySelector(targetToolbarSelector) !== null, {timeout: 30_000}, paneId, toolbarSelector);
+            await evaluateInPage(page, () => new Promise<boolean>(resolve => {
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+            }));
+        };
+        const sampleGeometry = () => evaluateInPage(page, () => {
+            const shell = document.querySelector<HTMLElement>('.editor-global-toolbar-shell');
+            const host = document.querySelector<HTMLElement>('.editor-global-toolbar-host');
+            const toolbar = host?.querySelector<HTMLElement>(':scope > .toolbar');
+            const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
+            const rect = (element: HTMLElement | null | undefined) => {
+                const bounds = element?.getBoundingClientRect();
+                return bounds
+                    ? {
+                        height: Math.round(bounds.height * 100) / 100,
+                        top: Math.round(bounds.top * 100) / 100,
+                    }
+                    : null;
+            };
+            return {
+                host: rect(host),
+                shell: rect(shell),
+                toolbar: rect(toolbar),
+                workspace: rect(workspace),
+            };
+        });
+
+        await activatePane(rightPaneId!, '#editor-global-toolbar-host .toolbar:not(.scan-cleanup-toolbar)');
+        const pdfGeometry = await sampleGeometry();
+        await activatePane(leftPaneId!, '#editor-global-toolbar-host .scan-cleanup-toolbar');
+        const cleanupGeometry = await sampleGeometry();
+        await activatePane(rightPaneId!, '#editor-global-toolbar-host .toolbar:not(.scan-cleanup-toolbar)');
+        const pdfGeometryAgain = await sampleGeometry();
+
+        expect(cleanupGeometry).toEqual(pdfGeometry);
+        expect(pdfGeometryAgain).toEqual(pdfGeometry);
+        expect(pdfGeometry.shell?.height).toBeGreaterThan(0);
+        expect(pdfGeometry.host?.height).toBe(pdfGeometry.shell?.height);
+        expect(pdfGeometry.toolbar?.height).toBe(pdfGeometry.shell?.height);
+    }, 240_000);
+
     it('never moves its controls when state changes, and keeps deskew symmetric', async () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();

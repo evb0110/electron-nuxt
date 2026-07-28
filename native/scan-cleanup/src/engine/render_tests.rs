@@ -1579,6 +1579,65 @@ mod tests {
         assert!(!blank_image.data().iter().all(|&value| value == 0));
     }
 
+    #[test]
+    fn small_text_on_gray_paper_is_never_erased_as_a_blank_page() {
+        let background = 152u8;
+        let mut source = GrayImage::new(360, 510, background);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                let shading = (x * 24 / source.width()) as i16 - 12;
+                let texture = ((x * 7 + y * 11) % 5) as i16 - 2;
+                source.set(
+                    x,
+                    y,
+                    (i16::from(background) + shading + texture).clamp(0, 255) as u8,
+                );
+            }
+        }
+        let ink = background.saturating_sub(64);
+        // Six compact glyph-like components form one very short line and
+        // occupy far below one percent of the page.
+        for glyph in 0..6 {
+            let left = 140 + glyph * 11;
+            for y in 246..256 {
+                source.set(left, y, ink);
+                source.set(left + 5, y, ink);
+            }
+            for x in left..=left + 5 {
+                source.set(x, 246, ink);
+                source.set(x, 251, ink);
+            }
+        }
+
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                output_mode: OutputMode::Bw,
+                layout: crate::LayoutMode::Single,
+                crop_content: false,
+                match_page_size: false,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let black_pixels = output
+            .image
+            .to_gray()
+            .data()
+            .iter()
+            .filter(|&&value| value == 0)
+            .count();
+        assert!(
+            !output.effectively_blank && black_pixels >= 36,
+            "small text was erased: effectively_blank={}, black_pixels={black_pixels}",
+            output.effectively_blank,
+        );
+    }
+
     fn normalized_box_polygon(
         left: f64,
         top: f64,

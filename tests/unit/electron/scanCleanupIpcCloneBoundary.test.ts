@@ -217,6 +217,7 @@ describe('scan-cleanup IPC structured-clone contract', () => {
         const decodedResponses = await Promise.all([
             client.preview({
                 ...owner,
+                requestId: 'clone-boundary-preview',
                 sourcePdfPath: '/documents/source.pdf',
                 pageNumber: 2,
                 options: reactiveOptions,

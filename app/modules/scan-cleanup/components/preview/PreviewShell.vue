@@ -339,8 +339,8 @@
                 />
             </div>
             <ZoneEditorControls
-                v-if="result && zoneEditing && !disabled && !rawCleaningVisible"
-                :output-mode="outputMode ?? 'bw'"
+                v-if="result && zoneEditing && !disabled && !rawCleaningVisible && outputMode !== undefined"
+                :output-mode="outputMode"
                 :selected-layer="selectedPictureLayer"
                 :zone-count="zoneCount"
                 :zone-kind="zoneKind"
@@ -491,7 +491,7 @@ const props = defineProps<{
     manualContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
     manualZones?: IScanCleanupManualZones | undefined;
     placementOverrides?: Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>;
-    outputMode?: TScanCleanupOutputMode;
+    outputMode?: TScanCleanupOutputMode | undefined;
     zoneEditing?: boolean;
     disabled?: boolean;
     lossless?: boolean;
@@ -654,7 +654,10 @@ const isStalePage = computed(() => props.stalePage
 const rawCleaningVisible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.error === ''
     && props.rawResult?.pageNumber === props.pageNumber
-    && props.result?.pageNumber !== props.pageNumber);
+    && (
+        props.result?.pageNumber !== props.pageNumber
+        || isStalePage.value
+    ));
 // Keep both comparison canvases on the same grid only after the requested
 // page has both rasters. That permits a crossfade without leaking a stale raw
 // page into cleaned errors or the next page's loading state.

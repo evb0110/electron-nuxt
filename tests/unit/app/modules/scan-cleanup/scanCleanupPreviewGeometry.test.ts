@@ -640,6 +640,35 @@ describe('scan cleanup preview geometry', () => {
         expect(tokens).toContain('--app-scan-preview-crossfade-duration');
     });
 
+    it('keeps the global toolbar row invariant when pane ownership changes', () => {
+        const shellCss = readFileSync('app/assets/css/app-shell-critical.scss', 'utf8');
+        const toolbarShellRule = shellCss.match(
+            /\.editor-global-toolbar-shell,\s*\.editor-global-toolbar-host \{(?<rules>[\s\S]*?)\n\}/u,
+        )?.groups?.rules;
+        const toolbarRule = shellCss.match(
+            /\.toolbar \{(?<rules>[\s\S]*?)\n\}/u,
+        )?.groups?.rules;
+
+        expect(toolbarShellRule).toContain(
+            'flex: 0 0 var(--app-toolbar-row-height, 3.5rem)',
+        );
+        expect(toolbarShellRule).toContain(
+            'height: var(--app-toolbar-row-height, 3.5rem)',
+        );
+        expect(toolbarShellRule).toContain(
+            'max-height: var(--app-toolbar-row-height, 3.5rem)',
+        );
+        expect(toolbarRule).toContain(
+            'flex: 0 0 var(--app-toolbar-row-height, 3.5rem)',
+        );
+        expect(toolbarRule).toContain(
+            'height: var(--app-toolbar-row-height, 3.5rem)',
+        );
+        expect(toolbarRule).toContain(
+            'max-height: var(--app-toolbar-row-height, 3.5rem)',
+        );
+    });
+
     it('stacks the settings rail before narrow panes can squeeze or hide the preview controls', () => {
         const workspace = readFileSync('app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue', 'utf8');
         const previewStyles = readFileSync(

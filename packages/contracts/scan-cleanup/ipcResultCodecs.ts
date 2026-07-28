@@ -244,6 +244,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         ].includes(String(value.canvasPolicy)))
         || (value.canvasOverflow !== undefined && typeof value.canvasOverflow !== 'boolean')
         || (value.illuminationNormalized !== undefined && typeof value.illuminationNormalized !== 'boolean')
+        || (value.outputMode !== undefined && !isScanCleanupOutputMode(value.outputMode))
         || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
         || (value.skewApplied !== undefined && typeof value.skewApplied !== 'boolean')
         || (value.manualSkew !== undefined && typeof value.manualSkew !== 'boolean')
@@ -343,6 +344,9 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         ...(value.illuminationNormalized === undefined
             ? {}
             : {illuminationNormalized: value.illuminationNormalized}),
+        ...(value.outputMode === undefined
+            ? {}
+            : {outputMode: value.outputMode}),
         ...(value.binarizationMode === undefined
             ? {}
             : {binarizationMode: value.binarizationMode as NonNullable<
@@ -418,6 +422,8 @@ export function decodeScanCleanupPreviewResult(value: unknown): TScanCleanupPrev
     }
     if (
         !isRecord(value)
+        || (value.requestId !== undefined
+            && (typeof value.requestId !== 'string' || value.requestId.trim().length === 0))
         || !Array.isArray(value.outputs)
         || value.outputs.length > 2
     ) throw new Error('invalid scan-cleanup preview result');
@@ -440,6 +446,7 @@ export function decodeScanCleanupPreviewResult(value: unknown): TScanCleanupPrev
     const totalPages = decodePositiveInteger(value.totalPages, 'total pages');
     if (pageNumber > totalPages) throw new Error('invalid scan-cleanup preview page number');
     return {
+        ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
         pageNumber,
         totalPages,
         ...(rawImageData === undefined ? {} : {rawImageData}),
@@ -457,6 +464,8 @@ export function decodeScanCleanupRawPreviewEvent(value: unknown): IScanCleanupRa
         || value.ownerId.trim().length === 0
         || typeof value.documentRevision !== 'string'
         || value.documentRevision.trim().length === 0
+        || typeof value.requestId !== 'string'
+        || value.requestId.trim().length === 0
     ) throw new Error('invalid scan-cleanup raw preview result');
     const pageNumber = decodePositiveInteger(value.pageNumber, 'raw page number');
     const totalPages = decodePositiveInteger(value.totalPages, 'raw total pages');
@@ -464,6 +473,7 @@ export function decodeScanCleanupRawPreviewEvent(value: unknown): IScanCleanupRa
     return {
         ownerId: value.ownerId,
         documentRevision: value.documentRevision,
+        requestId: value.requestId,
         pageNumber,
         totalPages,
         rawImageData: decodePreviewBytes(value.rawImageData, 'raw image'),
@@ -745,6 +755,11 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 'page-with-offcut',
                 'two-page-spread',
             ].includes(String(result.classification))
+            || (result.revision !== undefined && (
+                typeof result.revision !== 'number'
+                || !Number.isInteger(result.revision)
+                || result.revision < 1
+            ))
             || !(result.cutterXPx === null || typeof result.cutterXPx === 'number' && Number.isFinite(result.cutterXPx))
             || (result.tier1Verdict !== undefined && !isLayoutClassification(result.tier1Verdict))
             || (result.reconciled !== undefined && typeof result.reconciled !== 'boolean')
@@ -785,6 +800,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         }
         return {
             pageNumber: decodePositiveInteger(result.pageNumber, 'detection page number'),
+            ...(result.revision === undefined ? {} : {revision: result.revision}),
             classification: result.classification as TScanCleanupDetectionJobState['results'][number]['classification'],
             confidence: decodeUnitInterval(result.confidence, 'detection confidence'),
             cutterXPx: result.cutterXPx,

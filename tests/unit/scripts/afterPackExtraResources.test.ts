@@ -43,6 +43,7 @@ interface IRequiredExtraResource {
 interface IAfterPackModule {
     makeTreeOwnerWritable: (rootPath: string) => void;
     pruneChromiumLocales: (context: IAfterPackContext) => void;
+    removeNativeBuildReceipts: (context: IAfterPackContext) => void;
     assertRequiredExtraResources: (context: IAfterPackContext, options?: {
         projectRoot?: string;
         resourcesDir?: string;
@@ -58,6 +59,7 @@ const {
     assertRequiredExtraResources,
     makeTreeOwnerWritable,
     pruneChromiumLocales,
+    removeNativeBuildReceipts,
     requiredExtraResourcesForContext,
 } = requireScript(path.join(process.cwd(), 'scripts/afterPack.cjs')) as IAfterPackModule;
 
@@ -107,6 +109,42 @@ function captureErrorMessage(action: () => void) {
 }
 
 describe('afterPack extraResources preflight', () => {
+    it('removes native build receipts from packaged runtime resources', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-after-pack-receipts-'));
+        const resourcesDir = path.join(tempRoot, 'app-out', 'resources');
+        const context = createContext('linux', 'x64', resourcesDir);
+        const entries = requiredExtraResourcesForContext(context, {projectRoot: tempRoot})
+            .filter(entry => entry.type === 'directory' && entry.packagedEntries !== undefined);
+
+        try {
+            for (const entry of entries) {
+                await mkdir(entry.stagedPath, {recursive: true});
+                await writeFile(
+                    path.join(entry.stagedPath, 'build-receipt.json'),
+                    '{}',
+                    'utf8',
+                );
+                await writeFile(path.join(entry.stagedPath, 'runtime-marker'), 'keep', 'utf8');
+            }
+
+            removeNativeBuildReceipts(context);
+
+            for (const entry of entries) {
+                await expect(
+                    stat(path.join(entry.stagedPath, 'build-receipt.json')),
+                ).rejects.toMatchObject({code: 'ENOENT'});
+                await expect(
+                    stat(path.join(entry.stagedPath, 'runtime-marker')),
+                ).resolves.toBeDefined();
+            }
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it.each([
         {
             platform: 'darwin',

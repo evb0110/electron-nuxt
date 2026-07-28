@@ -57,6 +57,190 @@ fn unmatched_options() -> CleanupOptions {
 }
 
 #[test]
+fn real_gray_flyleaf_is_white_and_consistent_in_preview_and_final_cli_renders() {
+    let scratch = Scratch::new("gray-flyleaf");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/blank");
+    let cases = [
+        (
+            1,
+            "preview",
+            150.0,
+            "rome-flyleaf-p00002-150dpi.png",
+            (884, 1335),
+        ),
+        (
+            1,
+            "final",
+            360.0,
+            "rome-flyleaf-p00002-360dpi.png",
+            (2120, 3202),
+        ),
+        (
+            2,
+            "preview",
+            150.0,
+            "rome-flyleaf-p00003-150dpi.png",
+            (884, 1335),
+        ),
+        (
+            2,
+            "final",
+            360.0,
+            "rome-flyleaf-p00003-360dpi.png",
+            (2120, 3202),
+        ),
+        (
+            3,
+            "preview",
+            150.0,
+            "rome-flyleaf-p00004-150dpi.png",
+            (884, 1335),
+        ),
+        (
+            3,
+            "final",
+            360.0,
+            "rome-flyleaf-p00004-360dpi.png",
+            (2120, 3202),
+        ),
+    ];
+
+    for (source_page_index, render_mode, dpi, fixture, expected_dimensions) in cases {
+        let case_name = format!("p{}-{render_mode}", source_page_index + 1);
+        let output = scratch.path(&format!("flyleaf-{case_name}.png"));
+        let metadata = scratch.path(&format!("flyleaf-{case_name}.json"));
+        let page_metadata = scratch.path(&format!("flyleaf-{case_name}-page.json"));
+        let manifest = scratch.path(&format!("flyleaf-{case_name}-manifest.json"));
+        let options = CleanupOptions {
+            dpi,
+            source_dpi: Some(360.0),
+            requested_render_dpi: Some(dpi),
+            output_mode: OutputMode::Bw,
+            layout: LayoutMode::Single,
+            normalize_illumination: true,
+            crop_content: true,
+            match_page_size: false,
+            ..CleanupOptions::default()
+        };
+        let payload = serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": render_mode,
+            "canvasScope": if render_mode == "preview" { "page" } else { "document" },
+            "pages": [{
+                "inputPath": fixtures.join(fixture),
+                "sourcePageIndex": source_page_index,
+                "pageMetadataPath": page_metadata,
+                "options": options,
+                "outputs": [{
+                    "outputPath": output,
+                    "metadataPath": metadata,
+                }],
+            }],
+        });
+        fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{render_mode} stdout={}\nstderr={}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr),
+        );
+        let cleaned = decode_gray(&fs::read(&output).unwrap(), 8_000_000, 4_000).unwrap();
+        assert_eq!(
+            (cleaned.width(), cleaned.height()),
+            expected_dimensions,
+            "{render_mode} changed the intrinsic blank-page geometry",
+        );
+        assert!(
+            cleaned.data().iter().all(|&value| value == 255),
+            "{render_mode} amplified gray paper texture into artificial ink",
+        );
+        let cleanup_metadata: Value =
+            serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+        assert_eq!(cleanup_metadata["sourcePageIndex"], source_page_index);
+        assert_eq!(cleanup_metadata["outputMode"], "bw");
+        assert!(cleanup_metadata["contentBox"].is_null());
+        assert!(cleanup_metadata["binarizationMode"].is_null());
+    }
+}
+
+#[test]
+fn real_gray_flyleaf_stays_white_when_auto_was_pre_resolved_to_grayscale() {
+    let scratch = Scratch::new("gray-flyleaf-resolved-grayscale");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/blank");
+    let cases = [
+        ("preview", 150.0, "rome-flyleaf-p00002-150dpi.png"),
+        ("preview", 150.0, "rome-flyleaf-p00003-150dpi.png"),
+        ("preview", 150.0, "rome-flyleaf-p00004-150dpi.png"),
+        ("final", 360.0, "rome-flyleaf-p00002-360dpi.png"),
+        ("final", 360.0, "rome-flyleaf-p00003-360dpi.png"),
+        ("final", 360.0, "rome-flyleaf-p00004-360dpi.png"),
+    ];
+
+    for (index, (render_mode, dpi, fixture)) in cases.into_iter().enumerate() {
+        let output = scratch.path(&format!("flyleaf-{index}.png"));
+        let metadata = scratch.path(&format!("flyleaf-{index}.json"));
+        let page_metadata = scratch.path(&format!("flyleaf-{index}-page.json"));
+        let manifest = scratch.path(&format!("flyleaf-{index}-manifest.json"));
+        let options = CleanupOptions {
+            dpi,
+            source_dpi: Some(360.0),
+            requested_render_dpi: Some(dpi),
+            // This reproduces the application path: detection may recommend
+            // grayscale before the final renderer sees the page.
+            output_mode: OutputMode::Grayscale,
+            layout: LayoutMode::Single,
+            normalize_illumination: true,
+            crop_content: true,
+            match_page_size: false,
+            ..CleanupOptions::default()
+        };
+        let payload = serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": render_mode,
+            "canvasScope": if render_mode == "preview" { "page" } else { "document" },
+            "pages": [{
+                "inputPath": fixtures.join(fixture),
+                "sourcePageIndex": index % 3 + 1,
+                "pageMetadataPath": page_metadata,
+                "options": options,
+                "outputs": [{
+                    "outputPath": output,
+                    "metadataPath": metadata,
+                }],
+            }],
+        });
+        fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{render_mode} stdout={}\nstderr={}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr),
+        );
+        let cleaned = decode_gray(&fs::read(&output).unwrap(), 8_000_000, 4_000).unwrap();
+        assert!(
+            cleaned.data().iter().all(|&value| value == 255),
+            "{render_mode} grayscale output amplified {fixture} into false content",
+        );
+        let cleanup_metadata: Value =
+            serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+        assert_eq!(cleanup_metadata["outputMode"], "grayscale");
+        assert!(cleanup_metadata["contentBox"].is_null());
+    }
+}
+
+#[test]
 fn manifest_v3_emits_typed_progress_and_terminal_result() {
     let scratch = Scratch::new("v3");
     let input = scratch.path("v3-input.png");

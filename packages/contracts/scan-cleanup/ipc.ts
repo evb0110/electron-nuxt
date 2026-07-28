@@ -42,6 +42,8 @@ export type TScanCleanupErrorCode =
     | 'internal';
 
 export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
+    /** Renderer-created token joining the raw raster to this exact request generation. */
+    requestId: string;
     sourcePdfPath: string;
     pageNumber: number;
     options: IScanCleanupOptions;
@@ -79,7 +81,8 @@ export interface IScanCleanupRawPreviewResult {
 }
 
 /** The raw raster pushed ahead of the cleaned outputs of the request that asked for it. */
-export interface IScanCleanupRawPreviewEvent extends IScanCleanupRawPreviewResult, IScanCleanupOwnerContext {}
+export interface IScanCleanupRawPreviewEvent
+    extends IScanCleanupRawPreviewResult, IScanCleanupOwnerContext { requestId: string; }
 
 export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;
@@ -232,6 +235,8 @@ export interface IScanCleanupPreviewMetadata {
     rasterScaleLimited?: boolean;
     /** True when multiplicative illumination normalization affected the rendered raster. */
     illuminationNormalized?: boolean;
+    /** Concrete mode that produced this output; absent only for older sidecars. */
+    outputMode?: TScanCleanupOutputMode;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
     binarizationDiagnostics?: IScanCleanupBinarizationDiagnostics | null;
     /** True when despeckle used top-decile fallback anchors because the page had no calibrated seed. */
@@ -263,6 +268,8 @@ export interface IScanCleanupPreviewOutput {
 }
 
 export interface IScanCleanupPreviewResult {
+    /** Request generation that produced this result; present on current IPC results. */
+    requestId?: string;
     pageNumber: number;
     totalPages: number;
     rawImageData: Uint8Array;
@@ -333,6 +340,8 @@ export interface IScanCleanupPagePlanEvidence {
 
 export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationMetadata {
     pageNumber: number;
+    /** Monotonic within one detection job for this page's provisional/reconciled verdicts. */
+    revision?: number;
     classification: IScanCleanupPreviewMetadata['layoutClassification'];
     confidence: number;
     cutterXPx: number | null;

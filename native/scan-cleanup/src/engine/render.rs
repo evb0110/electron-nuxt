@@ -4,7 +4,7 @@ use crate::engine::render_plan::{
     content_result_for_dimensions, output_regions, ComposedRenderPlan,
 };
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
-use crate::mode_select::{OutputModeRecommendation, PreparedModeEvidence};
+use crate::mode_select::{is_blank_scan_candidate, OutputModeRecommendation, PreparedModeEvidence};
 use crate::{
     auto_dewarp::detect_curves_at_dpi_with_depth,
     background::{
@@ -739,6 +739,7 @@ struct PreparedPage<'a> {
     picture_mask: Option<Arc<BinaryImage>>,
     split: SplitResult,
     split_cache_key: Option<StageCacheKey>,
+    source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
     resolved_output_mode: OutputMode,
 }
@@ -757,6 +758,7 @@ struct PreparedAnalysis {
     content_picture_mask: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
     split_cache_key: Option<StageCacheKey>,
+    source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
     resolved_output_mode: OutputMode,
 }
@@ -772,6 +774,7 @@ struct AnalysisArtifact {
     effective_dpi: f64,
     picture_mask: Option<Arc<BinaryImage>>,
     content_picture_mask: Option<Arc<BinaryImage>>,
+    source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
     resolved_output_mode: OutputMode,
     analysis_threshold: Option<u8>,
@@ -1288,6 +1291,7 @@ fn clean_page_with_color_and_calibration_config(
         picture_mask,
         split,
         split_cache_key,
+        source_effectively_blank,
         output_mode_recommendation,
         resolved_output_mode: _,
     } = prepared;
@@ -1317,6 +1321,7 @@ fn clean_page_with_color_and_calibration_config(
             half,
             cache,
             split_cache_key.as_ref(),
+            source_effectively_blank,
             render_policy.create_mixed_layers,
             render_policy.create_mixed_composite,
             timings,
@@ -1362,6 +1367,7 @@ fn prepare_page<'a>(
         full_width,
         full_height,
         split_cache_key,
+        source_effectively_blank,
         output_mode_recommendation,
         resolved_output_mode,
         ..
@@ -1475,6 +1481,7 @@ fn prepare_page<'a>(
         picture_mask: picture_mask.take(),
         split,
         split_cache_key,
+        source_effectively_blank,
         output_mode_recommendation,
         resolved_output_mode,
     }
@@ -1518,13 +1525,9 @@ fn prepare_analysis_page(
             scale_y: source_scale_y,
         } = build_analysis_level(source, options.dpi, 150.0);
         let rotated = rotate_orthogonal(&image, options.rotation);
-        let analysis_rgb = if render_policy.recommend_output_mode {
-            color_source
-                .map(|rgb| downscale_rgb_to_dimensions(rgb, image.width(), image.height()))
-                .map(|rgb| rotate_rgb_orthogonal(&rgb, options.rotation))
-        } else {
-            None
-        };
+        let analysis_rgb = color_source
+            .map(|rgb| downscale_rgb_to_dimensions(rgb, image.width(), image.height()))
+            .map(|rgb| rotate_rgb_orthogonal(&rgb, options.rotation));
         let (full_width, full_height) = match options.rotation {
             OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => {
                 (source.width(), source.height())
@@ -1535,6 +1538,10 @@ fn prepare_analysis_page(
         };
         let scale_x = rotated.width() as f64 / full_width.max(1) as f64;
         let scale_y = rotated.height() as f64 / full_height.max(1) as f64;
+        let blank_scan_candidate = options.manual_content_boxes.is_empty()
+            && options.manual_zones.picture.is_empty()
+            && options.manual_zones.fill.is_empty()
+            && is_blank_scan_candidate(&rotated, analysis_rgb.as_ref());
         debug_assert!((scale_x - source_scale_x.min(source_scale_y)).abs() < 0.01);
         timings.analysis_level_ms += analysis_started.elapsed().as_secs_f64() * 1_000.0;
 
@@ -1560,7 +1567,11 @@ fn prepare_analysis_page(
         timings.calibration_ms += calibration_started.elapsed().as_secs_f64() * 1_000.0;
         let picture_mask_started = Instant::now();
         let picture_mask = render_policy.analyze_layout.then(|| {
-            let mut mask = detect_picture_mask(&rotated, effective_dpi, calibration);
+            let mut mask = if blank_scan_candidate {
+                BinaryImage::new(rotated.width(), rotated.height())
+            } else {
+                detect_picture_mask(&rotated, effective_dpi, calibration)
+            };
             apply_manual_zones(&mut mask, options);
             Arc::new(mask)
         });
@@ -1608,11 +1619,13 @@ fn prepare_analysis_page(
             .and_then(|threshold| detect_text_axis(&layout_normalized, threshold));
         timings.text_axis_ms += text_axis_started.elapsed().as_secs_f64() * 1_000.0;
         let mode_recommendation_started = Instant::now();
-        let output_mode_recommendation = picture_mask
-            .as_deref()
-            .filter(|_| render_policy.recommend_output_mode)
-            .map(|picture_mask| {
-                let text_line_count = detect_content_and_margins_calibrated(
+        // Automatic mode reuses the normal line detector. Destructive
+        // blank-page cleanup itself depends only on raw luminance, chroma and
+        // coherent edge structure: normalized texture is exactly the unstable
+        // evidence that caused preview/final disagreements here.
+        let text_line_count = picture_mask.as_deref().map_or(0, |picture_mask| {
+            if render_policy.recommend_output_mode {
+                detect_content_and_margins_calibrated(
                     &layout_normalized,
                     Some(picture_mask),
                     effective_dpi,
@@ -1622,7 +1635,16 @@ fn prepare_analysis_page(
                 )
                 .diagnostics
                 .map(|diagnostics| diagnostics.text_mask.line_count)
-                .unwrap_or(0);
+                .unwrap_or(0)
+            } else {
+                0
+            }
+        });
+        let source_effectively_blank = blank_scan_candidate;
+        let output_mode_recommendation = picture_mask
+            .as_deref()
+            .filter(|_| render_policy.recommend_output_mode)
+            .map(|picture_mask| {
                 crate::mode_select::recommend_output_mode(PreparedModeEvidence {
                     analysis: &rotated,
                     analysis_rgb: analysis_rgb.as_ref(),
@@ -1672,6 +1694,7 @@ fn prepare_analysis_page(
             effective_dpi,
             picture_mask,
             content_picture_mask,
+            source_effectively_blank,
             output_mode_recommendation,
             resolved_output_mode,
             analysis_threshold,
@@ -1787,6 +1810,7 @@ fn prepare_analysis_page(
         content_picture_mask: analysis.content_picture_mask.clone(),
         picture_mask: analysis.picture_mask.clone(),
         split_cache_key: split_key,
+        source_effectively_blank: analysis.source_effectively_blank,
         output_mode_recommendation: analysis.output_mode_recommendation,
         resolved_output_mode: analysis.resolved_output_mode,
     }
@@ -1874,6 +1898,7 @@ fn clean_region(
     half: PageHalf,
     cache: Option<&PageCache>,
     split_cache_key: Option<&StageCacheKey>,
+    source_effectively_blank: bool,
     create_mixed_layers: bool,
     create_mixed_composite: bool,
     timings: &mut PageStageTimings,
@@ -2020,7 +2045,21 @@ fn clean_region(
     let cached_content = cache
         .zip(content_key.as_ref())
         .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<CachedContentDetection>(key));
-    let detected = if let Some(cached) = cached_content {
+    // A source-level blank verdict is deliberately independent of the
+    // selected output encoding. Auto mode may already have been resolved by
+    // document detection (for example to grayscale) before final rendering.
+    // Letting continuous-tone modes run content detection again made the
+    // 150-DPI preview white while a source-DPI final render promoted the same
+    // paper texture into false content. Manual content/picture/fill zones have
+    // already vetoed this verdict in prepare_analysis_page.
+    let force_clean_blank = source_effectively_blank;
+    let detected = if force_clean_blank {
+        CachedContentDetection {
+            detected_content: None,
+            source_content_box: None,
+            diagnostics: None,
+        }
+    } else if let Some(cached) = cached_content {
         cached.as_ref().clone()
     } else {
         let detected = if let Some(manual) =
@@ -2241,12 +2280,13 @@ fn clean_region(
     });
     timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     let output_processing_started = Instant::now();
-    let effectively_blank = if skips_gray_twin {
-        is_effectively_blank(content_analysis, calibration.effective_dpi)
-    } else {
-        is_effectively_blank(&rendered_gray, options.dpi)
-    };
-    let fail_closed_blank = content.content.is_none() && effectively_blank;
+    let effectively_blank = source_effectively_blank
+        || if skips_gray_twin {
+            is_effectively_blank(content_analysis, calibration.effective_dpi)
+        } else {
+            is_effectively_blank(&rendered_gray, options.dpi)
+        };
+    let fail_closed_blank = force_clean_blank || content.content.is_none() && effectively_blank;
     let (
         mut image,
         mut color_image,

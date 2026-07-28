@@ -265,6 +265,22 @@ describe('scan cleanup renderer preview cache', () => {
         expect(withOutputModeOverride).not.toBe(base);
     });
 
+    it('invalidates an automatic preview when detection resolves its output mode', () => {
+        const keyFor = (recommendation: 'bw' | 'color' | null) => createScanCleanupPreviewCacheKey(
+            1,
+            previewOptions,
+            '/tmp/source.pdf',
+            'rev',
+            null,
+            '',
+            '',
+            recommendation,
+        );
+
+        expect(keyFor('color')).not.toBe(keyFor(null));
+        expect(keyFor('color')).not.toBe(keyFor('bw'));
+    });
+
     it('revalidates every cached page across the detection-completed transition instead of orphaning it', () => {
         const pages = [
             200,

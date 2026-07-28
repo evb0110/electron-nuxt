@@ -43,7 +43,7 @@
         "rotationDegrees": 0,
         "excluded": false,
         "skipBlankPages": false,
-        "maxPixels": 160000000,
+        "maxPixels": 80000000,
         "maxDimensionPx": 40000,
         "despeckleLevel": "aggressive",
         "manualZones": {

@@ -124,6 +124,7 @@ const dirs: string[] = [];
 const request: IScanCleanupPreviewRequest = {
     ownerId: 'preview-owner',
     documentRevision: 'revision-1',
+    requestId: 'preview-request-1',
     sourcePdfPath: '/document.pdf',
     pageNumber: 1,
     options: {
@@ -265,6 +266,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         runSidecar: vi.fn(async (_binary, manifestPath) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
                 pageMetadataPath: string;
+                options: {outputMode: 'auto' | 'bw' | 'mixed' | 'grayscale' | 'color'};
                 outputs: Array<{
                     outputPath: string;
                     metadataPath: string
@@ -374,6 +376,7 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                 inputHeightPx: 1,
                 rotationDegrees: 0,
                 resamplePasses: 1,
+                outputMode: page.options.outputMode === 'auto' ? 'mixed' : page.options.outputMode,
                 illuminationNormalized: true,
                 despeckleFallback: true,
                 forwardTransform: {matrix: [
@@ -673,6 +676,7 @@ describe('scan cleanup preview', () => {
         const previewRequest = {
             ownerId: request.ownerId,
             documentRevision: request.documentRevision,
+            requestId: request.requestId,
             sourcePdfPath: request.sourcePdfPath,
             pageNumber: request.pageNumber,
             options,
@@ -1578,6 +1582,45 @@ describe('scan cleanup preview', () => {
         expect(outputMode).toBe('bw');
     });
 
+    it('reuses base geometry for detail after detection resolves Auto', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const automaticRequest = {
+            ...request,
+            requestId: 'recommended-base',
+            options: {
+                ...request.options,
+                outputMode: 'auto' as const,
+            },
+            outputModeRecommendation: 'color' as const,
+        };
+        await previewOf(service, previewSender, automaticRequest);
+        const {
+            outputModeRecommendation: _outputModeRecommendation,
+            ...detailBase
+        } = automaticRequest;
+
+        await expect(previewOf(service, previewSender, {
+            ...detailBase,
+            requestId: 'recommended-detail',
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                    widthNormalized: 1,
+                    heightNormalized: 1,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'color',
+            },
+        })).resolves.toMatchObject({
+            pageNumber: 1,
+            outputs: [{metadata: {outputMode: 'color'}}],
+        });
+    });
+
     it('renders a matched lossless page the final run cannot keep lossless', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
@@ -1924,6 +1967,49 @@ describe('scan cleanup preview', () => {
         await expect(navigatedTo).resolves.toMatchObject({pageNumber: 2});
         expect(deps.renderPage).toHaveBeenCalledOnce();
         expect(deps.runSidecar).toHaveBeenCalledOnce();
+    });
+
+    it('supersedes an in-flight Auto preview when detection resolves another output mode', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = Promise.withResolvers<undefined>();
+        const originalRenderPage = deps.renderPage;
+        let calls = 0;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            calls += 1;
+            if (calls === 1) {
+                entered.resolve(undefined);
+                await waitForRelease(Promise.withResolvers<never>().promise, args[7]!);
+                return;
+            }
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const stale = previewOf(service, previewSender, {
+            ...request,
+            options: {
+                ...request.options,
+                outputMode: 'auto',
+            },
+            outputModeRecommendation: 'bw',
+        });
+        await entered.promise;
+        const current = previewOf(service, previewSender, {
+            ...request,
+            options: {
+                ...request.options,
+                outputMode: 'auto',
+            },
+            outputModeRecommendation: 'color',
+        });
+
+        await expect(stale).rejects.toMatchObject({name: 'AbortError'});
+        await expect(current).resolves.toMatchObject({
+            pageNumber: 1,
+            outputs: [{metadata: {outputMode: 'color'}}],
+        });
+        expect(deps.renderPage).toHaveBeenCalledTimes(2);
     });
 
     it('supersedes a stale options generation for the page it is rendering', async () => {
@@ -2531,6 +2617,8 @@ describe('scan cleanup preview', () => {
         deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
         const analysisEntered = Promise.withResolvers<undefined>();
         const remainingAnalysis = Promise.withResolvers<undefined>();
+        const reconciliationEntered = Promise.withResolvers<undefined>();
+        const finishReconciliation = Promise.withResolvers<undefined>();
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             await writeDetectionMetadata(manifestPath);
             onProgress({
@@ -2594,6 +2682,8 @@ describe('scan cleanup preview', () => {
                     confidence: 0.9,
                 });
             }
+            reconciliationEntered.resolve(undefined);
+            await finishReconciliation.promise;
         });
         const service = createScanCleanupPreviewService(deps);
         const owner = sender();
@@ -2632,6 +2722,18 @@ describe('scan cleanup preview', () => {
         expect(decodeScanCleanupDetectionJobState(analyzing)).toEqual(analyzing);
 
         remainingAnalysis.resolve(undefined);
+        await reconciliationEntered.promise;
+        await vi.waitFor(() => expect(owner.send.mock.calls
+            .filter(([channel]) => channel
+                === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
+            .map(([
+                _channel,
+                state,
+            ]) => decodeScanCleanupDetectionJobState(state))
+            .flatMap(state => state?.results ?? [])
+            .filter(result => result.pageNumber === 1)
+            .map(result => result.confidence)).toContain(0.9));
+        finishReconciliation.resolve(undefined);
         await vi.waitFor(() => expect(service.getDetectionJobState(
             owner,
             started.jobId,
@@ -2649,6 +2751,17 @@ describe('scan cleanup preview', () => {
                 {pageNumber: 3},
             ],
         });
+        const streamedPageOneRevisions = owner.send.mock.calls
+            .filter(([channel]) => channel
+                === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
+            .map(([
+                _channel,
+                state,
+            ]) => decodeScanCleanupDetectionJobState(state))
+            .flatMap(state => state?.results ?? [])
+            .filter(result => result.pageNumber === 1)
+            .map(result => result.confidence);
+        expect(streamedPageOneRevisions).toContain(0.9);
     });
 
     it.runIf(process.platform !== 'win32')('starts detection before the remaining document rasters finish', async () => {

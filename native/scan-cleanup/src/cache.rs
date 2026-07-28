@@ -1,4 +1,4 @@
-use crate::{calibration::CalibrationConfig, CleanupOptions, OutputMode};
+use crate::{calibration::CalibrationConfig, CleanupOptions};
 use serde::Serialize;
 use std::{
     any::Any,
@@ -79,12 +79,12 @@ impl StageCacheKey {
 
     /// Analysis-level construction and layout normalization consume source DPI,
     /// orthogonal rotation, illumination normalization, and calibration policy.
-    /// Mixed output additionally builds a picture mask, so output mode and
-    /// manual picture/fill zones are conservatively included. The quality
-    /// raster, layout analysis, and recommendation flags decide which artifact
-    /// fields are computed at all, so all three belong in the key. Margins,
-    /// placement, crop, binarization, thickness, and despeckling are
-    /// later-stage concerns and intentionally do not invalidate this artifact.
+    /// Manual content, picture, and fill regions veto automatic blank-page
+    /// cleanup, so they are included for every output mode. The quality raster,
+    /// layout analysis, and recommendation flags decide which artifact fields
+    /// are computed at all, so all three belong in the key. Margins, placement,
+    /// crop, binarization, thickness, and despeckling are later-stage concerns
+    /// and intentionally do not invalidate this artifact.
     pub(crate) fn analysis(
         source: &SourceFingerprint,
         options: &CleanupOptions,
@@ -93,8 +93,6 @@ impl StageCacheKey {
         analyze_layout: bool,
         calibration: CalibrationConfig,
     ) -> Self {
-        let manual_zones =
-            (options.output_mode == OutputMode::Mixed).then_some(&options.manual_zones);
         Self {
             source: source.clone(),
             stage: CacheStage::Analysis,
@@ -103,7 +101,9 @@ impl StageCacheKey {
                 options.rotation,
                 options.normalize_illumination,
                 options.output_mode,
-                manual_zones,
+                &options.manual_content_boxes,
+                &options.manual_zones.picture,
+                &options.manual_zones.fill,
                 prepare_quality_raster,
                 recommend_output_mode,
                 analyze_layout,
@@ -412,6 +412,67 @@ mod tests {
                 true,
                 CalibrationConfig::default()
             )
+        );
+    }
+
+    #[test]
+    fn analysis_key_tracks_manual_blank_page_vetoes() {
+        let source = source(0);
+        let baseline_options = CleanupOptions::default();
+        let baseline = StageCacheKey::analysis(
+            &source,
+            &baseline_options,
+            true,
+            true,
+            true,
+            CalibrationConfig::default(),
+        );
+
+        let mut content_options = baseline_options.clone();
+        content_options.manual_content_boxes.full = Some(crate::NormalizedRect {
+            x: 0.2,
+            y: 0.2,
+            width: 0.6,
+            height: 0.6,
+            rotation: crate::OrthogonalRotation::None,
+        });
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &content_options,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            ),
+        );
+
+        let mut picture_options = baseline_options;
+        picture_options
+            .manual_zones
+            .picture
+            .push(crate::PictureZone {
+                polygon: crate::NormalizedZonePolygon {
+                    points: vec![
+                        crate::NormalizedZonePoint { x: 0.2, y: 0.2 },
+                        crate::NormalizedZonePoint { x: 0.8, y: 0.2 },
+                        crate::NormalizedZonePoint { x: 0.8, y: 0.8 },
+                    ],
+                    rotation: crate::OrthogonalRotation::None,
+                },
+                layer: crate::PictureZoneLayer::Painter2,
+            });
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &picture_options,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            ),
         );
     }
 

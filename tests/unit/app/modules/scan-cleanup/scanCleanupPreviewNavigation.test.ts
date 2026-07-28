@@ -94,9 +94,10 @@ const pixelRect = {
 
 // A base preview answers without the raster: those bytes crossed once already,
 // as the `onPreviewRaw` this backend pushes when the request starts.
-function previewResult(pageNumber: number): TScanCleanupPreviewWireResult {
+function previewResult(pageNumber: number, requestId?: string): TScanCleanupPreviewWireResult {
     const bytes = new Uint8Array(new ArrayBuffer(PAGE_BYTES));
     return {
+        ...(requestId === undefined ? {} : {requestId}),
         pageNumber,
         totalPages: TOTAL_PAGES,
         rawWidthPx: 883,
@@ -195,6 +196,7 @@ function previewBackend() {
         request.pageNumber,
         request.options,
         request.documentPrior ?? null,
+        request.outputModeRecommendation ?? null,
         request.detail ?? null,
     ]);
     const preview = (request: IScanCleanupPreviewRequest) => {
@@ -212,6 +214,7 @@ function previewBackend() {
             listener({
                 ownerId: request.ownerId,
                 documentRevision: request.documentRevision,
+                requestId: request.requestId,
                 pageNumber: request.pageNumber,
                 totalPages: TOTAL_PAGES,
                 rawImageData: new Uint8Array(new ArrayBuffer(PAGE_BYTES)),
@@ -228,7 +231,7 @@ function previewBackend() {
             promise: settled.promise,
             resolve: () => {
                 counters.completed += 1;
-                settled.resolve(previewResult(request.pageNumber));
+                settled.resolve(previewResult(request.pageNumber, request.requestId));
             },
             // Cancellation answers the request; the service reports it as a
             // result so a page turn is not logged as a handler failure.
@@ -660,6 +663,10 @@ describe('scan cleanup preview navigation', () => {
 
         previewPage.value = 101;
         await nextTick();
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+        expect(mounted.session.rawResult.value?.pageNumber).toBe(101);
         await backend.advanceBy(500);
 
         expect(backend.counters.spawns).toBe(spawnsBeforeNavigation);

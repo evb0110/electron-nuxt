@@ -295,6 +295,7 @@ const translations: Record<string, string> = {
     'scanCleanup.cleanUp': 'Clean up',
     'scanCleanup.detectAll.action': 'Detect layout for all pages',
     'scanCleanup.detectAll.redetect': 'Re-detect',
+    'scanCleanup.detectAll.preAnalyzing': 'Pre-analyzing pages',
     'scanCleanup.detectAll.progressAria': 'Detecting layout: {detected} of {total} pages',
     'scanCleanup.detectAll.cancelDetection': 'Stop detecting pages — pages already detected keep their results',
     'scanCleanup.detectAll.canceling': 'Canceling…',
@@ -303,6 +304,8 @@ const translations: Record<string, string> = {
     'scanCleanup.pages.resetConfirmBody': 'Clear overrides',
     'scanCleanup.pages.resetAction': 'Reset',
     'scanCleanup.runStatusLabel': 'Cleanup progress',
+    'scanCleanup.cancelingDetection': 'Stopping background analysis…',
+    'scanCleanup.runProgress.rasterizing': 'Preparing cleanup pages',
     'scanCleanup.firstRun.title': 'How scan cleanup works',
     'scanCleanup.firstRun.detect': 'Pages are detected automatically.',
     'scanCleanup.firstRun.review': 'Review pages — drag the cutter or boxes, and adjust per-page settings.',
@@ -4143,6 +4146,37 @@ describe('Scan cleanup components', () => {
         expect(cancel?.getAttribute('aria-label')).toBe(cancelLabel);
         expect(scanCleanupToolbarSource).toContain(':text="detectionCancelLabel"');
         expect(scanCleanupToolbarSource).toContain(':aria-label="detectionCancelLabel"');
+    });
+
+    it('presents the background-analysis handoff as indeterminate instead of resetting to zero percent', () => {
+        const transitionText = 'Stopping background analysis…';
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
+            canDetectAll: false,
+            canRun: false,
+            cancelRequested: false,
+            detectionCancelRequested: false,
+            detectionError: '',
+            detectionProgressText: '',
+            detectionProgressWidestText: '',
+            isDetecting: false,
+            isRunning: true,
+            outputEstimate: '',
+            percent: 0,
+            progressCountText: '0 / 392',
+            progressPercentText: '0%',
+            progressPhaseText: 'Queued',
+            progressText: 'Queued',
+            runLabel: 'Clean up',
+            runDisabledReason: '',
+            transitionText,
+        })));
+        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+
+        expect(meter?.textContent).toContain(transitionText);
+        expect(meter?.textContent).not.toContain('0 / 392');
+        expect(meter?.textContent).not.toContain('0%');
+        expect(meter?.getAttribute('aria-valuenow')).toBeNull();
+        expect(meter?.getAttribute('aria-valuetext')).toBe(transitionText);
     });
 
     it('keeps every state-gated setting mounted so switching modes never moves the panel', async () => {

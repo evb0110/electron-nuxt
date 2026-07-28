@@ -29,6 +29,7 @@ import type {
     TScanCleanupDetectionStartResult,
     TScanCleanupDetectionJobState,
     TScanCleanupErrorCode,
+    TScanCleanupOutputMode,
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import type {
@@ -220,6 +221,7 @@ interface IBasePreviewAnalysis {
     sourcePdfPath: string;
     documentRevision: string;
     mtimeMs: number;
+    outputMode?: TScanCleanupOutputMode;
     pageMetadata: IScanCleanupPreviewResult['pageMetadata'];
     outputs: Partial<Record<IScanCleanupPreviewMetadata['half'], INativePreviewOutputMetadata>>;
 }
@@ -839,6 +841,10 @@ function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>)
         pageNumber: request.pageNumber,
         options: request.options,
         documentPrior: request.documentPrior ?? null,
+        // This resolves Auto before the sidecar runs. Two otherwise identical
+        // requests with different recommendations produce different pixels and
+        // must neither share nor adopt the same in-flight render.
+        outputModeRecommendation: request.outputModeRecommendation ?? null,
         layouts: request.options.matchPageSize
             ? scanCleanupLayoutSignature(request.layoutByPage ?? {})
             : '',
@@ -855,8 +861,16 @@ function baseAnalysisKey(
     request: Omit<IScanCleanupPreviewRequest, 'detail'>,
     documentCanvas: IScanCleanupDocumentCanvasPlan | null,
 ) {
+    // Output mode changes pixels, but not the reusable geometric analysis a
+    // detail tile consumes. Keep adoption identity mode-sensitive while
+    // letting a tile find the base geometry even when Auto was resolved after
+    // that base run started.
+    const {
+        outputModeRecommendation: _outputModeRecommendation,
+        ...geometryRequest
+    } = request;
     return JSON.stringify({
-        identity: previewIdentityKey(request),
+        identity: previewIdentityKey(geometryRequest),
         documentCanvas,
     });
 }
@@ -1506,6 +1520,7 @@ async function runPreview(
             emitRawRaster({
                 ownerId: request.ownerId,
                 documentRevision: request.documentRevision,
+                requestId: request.requestId,
                 pageNumber: request.pageNumber,
                 totalPages: baseRaw.totalPages,
                 rawImageData: baseRaw.bytes,
@@ -1545,8 +1560,15 @@ async function runPreview(
                 ...baseRequest
             } = request;
             const analysis = baseAnalysisCache.get(baseAnalysisKey(baseRequest, documentCanvas));
-            if (!analysis || analysis.mtimeMs !== baseRaw.document.mtimeMs) {
-                throw new Error('Scan cleanup detail geometry is unavailable; rebuild the base preview');
+            if (
+                !analysis
+                || analysis.mtimeMs !== baseRaw.document.mtimeMs
+                || (request.detail.outputMode !== 'mixed' && analysis.outputMode === 'mixed')
+            ) {
+                throw new Error(
+                    'Scan cleanup detail geometry is unavailable; rebuild the base preview'
+                    + ` (base mode ${analysis?.outputMode ?? 'unknown'}, detail ${JSON.stringify(request.detail)})`,
+                );
             }
             const detailRequest = request as IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>;};
             const pageOverride = getScanCleanupPageOverride(
@@ -1883,6 +1905,9 @@ async function runPreview(
                 sourcePdfPath: request.sourcePdfPath,
                 documentRevision: request.documentRevision,
                 mtimeMs: baseRaw.document.mtimeMs,
+                ...(result.outputs[0]?.metadata.outputMode === undefined
+                    ? {}
+                    : {outputMode: result.outputs[0].metadata.outputMode}),
                 pageMetadata: result.pageMetadata,
                 outputs: nativeOutputs,
             });
@@ -2079,8 +2104,10 @@ async function runDetection(
             }
             const sourcePage = pageSizes?.[nativeProgress.pageNumber - 1];
             const sourceDpi = previewRasterPlan.pageDpiByNumber.get(nativeProgress.pageNumber);
+            const revision = (results.get(nativeProgress.pageNumber)?.revision ?? 0) + 1;
             results.set(nativeProgress.pageNumber, {
                 pageNumber: nativeProgress.pageNumber,
+                revision,
                 classification: nativeProgress.classification,
                 confidence: nativeProgress.confidence,
                 cutterXPx: nativeProgress.cutterXPx ?? null,
@@ -2197,11 +2224,25 @@ export function createScanCleanupPreviewService(
     const active = new Map<string, IPreviewEntry>();
     const rawRasterRetention = createRawRasterRetention(dependencies);
     const baseAnalysisCache = new Map<string, IBasePreviewAnalysis>();
-    // Streamed detection events carry only the classifications a subscriber has
-    // not seen yet; the terminal event and getDetectionJobState carry the whole
-    // set. Without this cursor the coalescing pump would ship the growing result
-    // array once per rasterized and analysed page.
-    const deliveredDetectionResults = new Map<string, number>();
+    // Streamed detection events carry new *and revised* page classifications.
+    // Native first publishes an independent verdict, then may replace it after
+    // document reconciliation. A count cursor loses that replacement because
+    // it sits below the append position; page signatures retain the bandwidth
+    // bound without making revisions invisible to the renderer.
+    const deliveredDetectionResults = new Map<string, Map<number, number | string>>();
+    const detectionResultVersion = (result: IScanCleanupDetectionResult) => result.revision ?? JSON.stringify([
+        result.classification,
+        result.confidence,
+        result.cutterXPx,
+        result.tier1Verdict,
+        result.reconciled,
+        result.clusterAgreement,
+        result.documentPrior,
+        result.textAxis,
+        result.recommendedOutputMode,
+        result.recommendedOutputModeConfidence,
+        result.recommendedOutputModeReason,
+    ]);
     const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId}\u0000${jobId}`;
     const detectionJobs = createMainJobRegistry<
         TScanCleanupDetectionJobState,
@@ -2218,12 +2259,21 @@ export function createScanCleanupPreviewService(
             getEventKey: state => state.jobId,
             send: (subscriber, channel, state) => {
                 const deliveryKey = detectionDeliveryKey(subscriber.id, state.jobId);
-                const delivered = deliveredDetectionResults.get(deliveryKey) ?? 0;
                 if (state.status === 'queued' || state.status === 'running' || state.status === 'canceling') {
-                    deliveredDetectionResults.set(deliveryKey, Math.max(delivered, state.results.length));
+                    const delivered = deliveredDetectionResults.get(deliveryKey)
+                        ?? new Map<number, number | string>();
+                    const changed = state.results.filter(result => {
+                        const signature = detectionResultVersion(result);
+                        if (delivered.get(result.pageNumber) === signature) {
+                            return false;
+                        }
+                        delivered.set(result.pageNumber, signature);
+                        return true;
+                    });
+                    deliveredDetectionResults.set(deliveryKey, delivered);
                     subscriber.send(channel, {
                         ...state,
-                        results: state.results.slice(delivered),
+                        results: changed,
                     });
                     return;
                 }
@@ -2437,14 +2487,22 @@ export function createScanCleanupPreviewService(
                     controller.signal,
                     dependencies,
                 );
-                return withPreviewLease(documentPrefix, admission, controller.signal, () => runPreview(
-                    materialized,
-                    controller.signal,
-                    rawRasterRetention,
-                    baseAnalysisCache,
-                    dependencies,
-                    raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
-                ));
+                return withPreviewLease(documentPrefix, admission, controller.signal, async () => {
+                    const result = await runPreview(
+                        materialized,
+                        controller.signal,
+                        rawRasterRetention,
+                        baseAnalysisCache,
+                        dependencies,
+                        raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
+                    );
+                    return result.canceled === true
+                        ? result
+                        : {
+                            ...result,
+                            requestId: materialized.requestId,
+                        };
+                });
             }).catch(error => {
                 if (isPreviewCancellation(error)) {
                     return {canceled: true} as const;

@@ -27,8 +27,8 @@
                 :aria-label="t('scanCleanup.runStatusLabel')"
                 aria-valuemin="0"
                 aria-valuemax="100"
-                :aria-valuenow="normalizedPercent"
-                :aria-valuetext="progressText"
+                :aria-valuenow="transitionText ? undefined : normalizedPercent"
+                :aria-valuetext="transitionText || progressText"
             >
                 <p class="scan-cleanup-run-meter-head">
                     <span
@@ -37,10 +37,13 @@
                         aria-live="polite"
                     >{{ transitionText || progressPhaseText }}</span>
                     <span
-                        v-if="progressCountText"
+                        v-if="!transitionText && progressCountText"
                         class="scan-cleanup-run-meter-count"
                     >{{ progressCountText }}</span>
-                    <span class="scan-cleanup-run-meter-percent">{{ progressPercentText }}</span>
+                    <span
+                        v-if="!transitionText"
+                        class="scan-cleanup-run-meter-percent"
+                    >{{ progressPercentText }}</span>
                 </p>
                 <span class="scan-cleanup-run-meter-track">
                     <span

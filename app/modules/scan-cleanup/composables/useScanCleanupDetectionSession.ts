@@ -15,7 +15,7 @@ import {
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {ComputedRef} from 'vue';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
-import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
+import {formatScanCleanupPreAnalysisProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {
     scanCleanupAutoDetectionCanceledDocuments as autoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache as detectionSessionCache,
@@ -80,6 +80,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const starting = ref(false);
     const autoPending = ref(false);
     const jobState = shallowRef<TScanCleanupDetectionJobState | null>(null);
+    const detectionResultsByPage = new Map<number, IScanCleanupDetectionResult>();
     const error = ref('');
     const signatures = new Map<number, string>();
     const detectedLayoutByPage = reactive(new Map<number, TScanCleanupLayoutClassification>());
@@ -162,12 +163,19 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         percent: 0,
         completedPageNumbers: [],
     });
-    const progressText = computed(() => formatScanCleanupProgress(progress.value, t).text);
+    // Raster production and native analysis overlap, but that handoff is an
+    // implementation detail. Count only actual page verdicts so the one
+    // user-facing pre-analysis counter never changes meaning or moves backward.
+    const preAnalysisProgress = computed(() => ({
+        completedUnits: jobState.value?.results.length ?? 0,
+        totalUnits: Math.max(1, options.totalPages.value),
+    }));
+    const progressText = computed(() => formatScanCleanupPreAnalysisProgress(preAnalysisProgress.value, t).text);
     // The same sentence at its widest counter, so the status line can reserve
     // its box and the cancel button beside it never moves as the count grows.
-    const progressWidestText = computed(() => formatScanCleanupProgress({
-        ...progress.value,
-        completedUnits: progress.value.totalUnits,
+    const progressWidestText = computed(() => formatScanCleanupPreAnalysisProgress({
+        ...preAnalysisProgress.value,
+        completedUnits: preAnalysisProgress.value.totalUnits,
     }, t).text);
     const blankPageCount = computed(() => jobState.value?.status === 'completed'
         ? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
@@ -273,7 +281,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 return;
             }
         }
-        jobState.value = state;
+        for (const result of state.results) detectionResultsByPage.set(result.pageNumber, result);
+        const accumulatedState = {
+            ...state,
+            results: [...detectionResultsByPage.values()]
+                .sort((left, right) => left.pageNumber - right.pageNumber),
+        };
+        jobState.value = accumulatedState;
         for (const pageNumber of state.progress.completedPageNumbers ?? []) settledPages.add(pageNumber);
         const completedWithCurrentEvidence = state.status === 'completed' && evidenceIsCurrent();
         applyScanCleanupDetectionResults(
@@ -287,13 +301,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             recommendedOutputModeConfidenceByPage,
             recommendedOutputModeReasonByPage,
         );
-        if (state.status === 'failed') error.value = state.error;
+        if (accumulatedState.status === 'failed') error.value = accumulatedState.error;
         if (!disposed && jobDocumentKey && completedWithCurrentEvidence) {
             detectionSessionCache.set(jobDocumentKey, {
                 ownerId: options.ownerId,
-                results: state.results.map(result => ({...result})),
+                results: accumulatedState.results.map(result => ({...result})),
                 signatures: new Map(signatures),
-                state: structuredClone(state),
+                state: structuredClone(accumulatedState),
                 totalPages: state.progress.totalUnits,
             });
         }
@@ -355,6 +369,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
+        detectionResultsByPage.clear();
         settledPages.clear();
         textAxisByPage.clear();
         clearOutputModeRecommendations();
@@ -506,6 +521,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return false;
         }
         jobState.value = structuredClone(cached.state);
+        detectionResultsByPage.clear();
+        for (const result of cached.results) detectionResultsByPage.set(result.pageNumber, result);
         signatures.clear();
         for (const [
             pageNumber,
@@ -575,6 +592,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobState.value = null;
         error.value = '';
         signatures.clear();
+        detectionResultsByPage.clear();
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
@@ -629,6 +647,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 settledPages.delete(pageNumber);
                 confidenceByPage.delete(pageNumber);
                 documentPriorByPage.delete(pageNumber);
+                detectionResultsByPage.delete(pageNumber);
                 textAxisByPage.delete(pageNumber);
                 recommendedOutputModeByPage.delete(pageNumber);
                 recommendedOutputModeConfidenceByPage.delete(pageNumber);

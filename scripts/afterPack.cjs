@@ -304,6 +304,21 @@ function moveMacNativeToolResources(context) {
     }
 }
 
+function removeNativeBuildReceipts(context) {
+    const tag = platformArchTagForContext(context);
+    const resourcesDir = resourcesDirForContext(context);
+
+    for (const family of RELEASE_TARGET_MANIFEST.families) {
+        const receiptPath = path.join(
+            resourcesDir,
+            ...family.stagedRootSegments,
+            tag,
+            'build-receipt.json',
+        );
+        fs.rmSync(receiptPath, {force: true});
+    }
+}
+
 function makeTreeOwnerWritable(rootPath) {
     if (!fs.existsSync(rootPath)) {
         return;
@@ -339,6 +354,7 @@ function makeTreeOwnerWritable(rootPath) {
 exports.default = async function afterPack(context) {
     assertRequiredExtraResources(context);
     pruneChromiumLocales(context);
+    removeNativeBuildReceipts(context);
     moveMacNativeToolResources(context);
 
     if (context.electronPlatformName !== 'darwin') {
@@ -363,4 +379,5 @@ exports.default = async function afterPack(context) {
 exports.assertRequiredExtraResources = assertRequiredExtraResources;
 exports.makeTreeOwnerWritable = makeTreeOwnerWritable;
 exports.pruneChromiumLocales = pruneChromiumLocales;
+exports.removeNativeBuildReceipts = removeNativeBuildReceipts;
 exports.requiredExtraResourcesForContext = requiredExtraResourcesForContext;

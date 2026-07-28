@@ -25,6 +25,7 @@ import type {
     TScanCleanupSummary,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
@@ -710,16 +711,14 @@ export async function runScanCleanupPipeline(
                 resolvedOutputModeByPage.set(pageNumber, 'color');
                 continue;
             }
-            const configuredMode = pageOverride.outputModeOverride ?? request.options.outputMode;
-            if (configuredMode !== 'auto') {
-                resolvedOutputModeByPage.set(pageNumber, configuredMode);
-                continue;
-            }
-            // Pages without a recommendation stay `auto`: the single final
-            // render resolves them natively from full-resolution evidence and
-            // reports the resolution back through the page metadata.
-            const recommendation = request.outputModeRecommendations?.[String(pageNumber)];
-            if (recommendation !== undefined) resolvedOutputModeByPage.set(pageNumber, recommendation);
+            const outputMode = resolveScanCleanupEffectiveOutputMode({
+                options: request.options,
+                pageOverride,
+                detectedOutputMode: request.outputModeRecommendations?.[String(pageNumber)],
+            });
+            // Pages without a decision stay Auto: native resolves them once and
+            // reports the concrete output mode in its metadata.
+            if (outputMode !== undefined) resolvedOutputModeByPage.set(pageNumber, outputMode);
         }
         const requiresBilevelQuality = (pageNumber: number) => {
             const mode = resolvedOutputModeByPage.get(pageNumber);

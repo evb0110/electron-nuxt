@@ -57,7 +57,18 @@ vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability:
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
     key: string,
     values?: Record<string, unknown>,
-) => values?.output === undefined ? key : `${key}:${String(values.output)}`})}));
+) => {
+    if (key === 'scanCleanup.detectAll.preAnalyzing') {
+        return 'Pre-analyzing pages';
+    }
+    if (key === 'scanCleanup.runCount') {
+        return `${String(values?.completed)} / ${String(values?.total)}`;
+    }
+    if (key === 'scanCleanup.runStatus') {
+        return `${String(values?.phase)} — ${String(values?.counter)}`;
+    }
+    return values?.output === undefined ? key : `${key}:${String(values.output)}`;
+}})}));
 
 function previewResult(
     pageNumber: number,
@@ -243,6 +254,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession('settled-pages');
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
         const settled = mounted.session.detection.settledPages;
+        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 0 / 3');
 
         // Reading the source reports pages one by one and carries no results at
         // all; without this signal every thumbnail spun for the whole stage.
@@ -266,6 +278,9 @@ describe('scan cleanup workspace session detection guidance', () => {
             1,
             3,
         ]);
+        // Source rasters are only inputs. Reporting them as analyzed pages made
+        // the visible counter change meaning when native results started.
+        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 0 / 3');
 
         // The analysis stage reports a different set; neither replaces the other.
         harness.emitDetection({
@@ -278,6 +293,16 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 33,
                 completedPageNumbers: [2],
             },
+            results: [{
+                pageNumber: 2,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+                cutterXPx: null,
+                tier1Verdict: 'single-uncut-page',
+                reconciled: false,
+                clusterAgreement: 0,
+                documentPrior: null,
+            }],
             updatedAtMs: Date.now() + 2_000,
         });
         await vi.waitFor(() => expect(settled.has(2)).toBe(true));
@@ -286,6 +311,8 @@ describe('scan cleanup workspace session detection guidance', () => {
             2,
             3,
         ]);
+        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 1 / 3');
+        expect(mounted.session.detection.progressWidestText.value).toBe('Pre-analyzing pages — 3 / 3');
 
         mounted.unmount();
     });
@@ -535,6 +562,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         capability.value = harness.value;
         const mounted = mountSession(`detail-cache-order-${Date.now()}`);
+        mounted.session.settings.values.outputMode = 'bw';
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
         const cachedViewport = {full: {
             xNormalized: 0,
@@ -579,6 +607,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         ));
         capability.value = harness.value;
         const mounted = mountSession(`detail-clear-${Date.now()}`);
+        mounted.session.settings.values.outputMode = 'bw';
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
 
         await mounted.session.preview.requestDetail({full: {
@@ -611,6 +640,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             `detail-retry-identity-${Date.now()}`,
             {sourcePath: () => sourcePath.value},
         );
+        mounted.session.settings.values.outputMode = 'bw';
         await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
         vi.useFakeTimers();
         try {
@@ -815,10 +845,45 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const mounted = mountSession(`detection-to-run-${Date.now()}`);
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const partialResultAt = Date.now() + 1_000;
+        harness.emitDetection({
+            jobId: 'detect-1',
+            status: 'running',
+            progress: {
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            },
+            results: [{
+                pageNumber: 1,
+                classification: 'two-page-spread',
+                confidence: 0.94,
+                cutterXPx: 100,
+                tier1Verdict: 'two-page-spread',
+                reconciled: false,
+                clusterAgreement: 0,
+                documentPrior: null,
+                recommendedOutputMode: 'bw',
+                sourcePageMetadata: {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    sourceDpi: 300,
+                },
+            }],
+            updatedAtMs: partialResultAt,
+        });
+        await vi.waitFor(() => expect(mounted.session.detection.progressText.value)
+            .toBe('Pre-analyzing pages — 1 / 3'));
         const canceling = {
             ...detectionState('detect-1', 'queued'),
             status: 'canceling' as const,
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: partialResultAt + 1,
         };
         vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
         vi.mocked(harness.value.start).mockResolvedValue({
@@ -859,6 +924,14 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.cancelDetection).toHaveBeenCalledOnce();
         expect(harness.value.start).toHaveBeenCalledOnce();
+        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({
+            outputModeRecommendations: {'1': 'bw'},
+            layoutByPage: {'1': 'two-page-spread'},
+            sourcePageMetadataByPage: {'1': expect.objectContaining({
+                pageNumber: 1,
+                sourceDpi: 300,
+            })},
+        }));
         expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
         mounted.unmount();
     });

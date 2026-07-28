@@ -14,10 +14,10 @@ const MIN_PICTURE_COMPONENT_PIXELS: usize = 1_024;
 const PICTURE_NOISE_FLOOR: f64 = 0.012;
 const PICTURE_HYSTERESIS: f64 = 0.003;
 const PICTURE_BALANCE_FRACTION: f64 = 0.14;
-const BLANK_INK_LUMINANCE_CUTOFF: u8 = 160;
-const BLANK_MAX_INK_FRACTION: f64 = 0.001;
+const BORDER_INK_LUMINANCE_CUTOFF: u8 = 160;
 const BLANK_EDGE_DIFFERENCE: u8 = 12;
 const BLANK_MAX_EDGE_FRACTION: f64 = 0.0015;
+const BLANK_MAX_ROBUST_LUMINANCE_RANGE: f64 = 48.0;
 const STRONG_BIMODALITY: f64 = 0.78;
 const BIMODALITY_HYSTERESIS: f64 = 0.03;
 const MIN_LUMINANCE_MODE_DISTANCE: f64 = 60.0;
@@ -34,6 +34,9 @@ const STRONG_SINGLE_LINE_BIMODALITY: f64 = 0.85;
 const STRONG_SINGLE_LINE_MODE_DISTANCE: f64 = 144.0;
 const STRONG_SINGLE_LINE_MAX_MIDTONE_FRACTION: f64 = 0.08;
 const MIN_TEXT_INK_FRACTION: f64 = 0.01;
+const MIN_SPARSE_TEXT_INK_FRACTION: f64 = 0.00005;
+const MAX_SPARSE_TEXT_INK_FRACTION: f64 = 0.002;
+const MIN_SPARSE_TEXT_MODE_DISTANCE: f64 = 36.0;
 const MIN_TEXT_EDGE_TO_INK_RATIO: f64 = 0.5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -68,6 +71,7 @@ struct LuminanceEvidence {
     mode_distance: f64,
     ink_fraction: f64,
     edge_fraction: f64,
+    robust_luminance_range: f64,
 }
 
 pub(crate) struct PreparedModeEvidence<'a> {
@@ -87,13 +91,30 @@ pub(crate) struct PreparedModeEvidence<'a> {
 pub(crate) fn recommend_output_mode(
     evidence: PreparedModeEvidence<'_>,
 ) -> OutputModeRecommendation {
+    let luminance = luminance_evidence(evidence.analysis);
     let chroma = chroma_evidence(evidence.analysis, evidence.analysis_rgb);
-    let significant_color = chroma.colored_fraction + COLOR_PIXEL_FRACTION_HYSTERESIS
-        >= COLOR_PIXEL_FRACTION_FLOOR
-        || chroma
-            .largest_component_pixels
-            .saturating_add(CHROMA_COMPONENT_HYSTERESIS_PIXELS)
-            >= SIGNIFICANT_CHROMA_COMPONENT_PIXELS;
+    let significant_color = has_significant_chroma(chroma);
+
+    // Blankness is source evidence, not a property of a later normalized or
+    // binarized raster. Resolve it before picture/content segmentation: subtle
+    // paper texture can look like a page-sized picture after illumination
+    // normalization even though the raw scan contains no meaningful marks.
+    if is_blank_luminance(luminance)
+        && !significant_color
+        && evidence.text_line_count == 0
+        && !has_coherent_edge_structure(evidence.analysis)
+    {
+        let range_margin = (1.0
+            - luminance.robust_luminance_range / BLANK_MAX_ROBUST_LUMINANCE_RANGE)
+            .clamp(0.0, 1.0);
+        let edge_margin = (1.0 - luminance.edge_fraction / BLANK_MAX_EDGE_FRACTION).clamp(0.0, 1.0);
+        return OutputModeRecommendation {
+            mode: OutputMode::Bw,
+            confidence: (0.8 + 0.08 * range_margin + 0.08 * edge_margin).clamp(0.0, 1.0),
+            reason: OutputModeRecommendationReason::Blank,
+        };
+    }
+
     let pixel_count = evidence
         .analysis
         .width()
@@ -120,7 +141,6 @@ pub(crate) fn recommend_output_mode(
     let picture_fraction = picture_pixels as f64 / pixel_count as f64;
     let significant_picture = picture_fraction >= PICTURE_NOISE_FLOOR;
     let has_text = evidence.text_line_count >= MIN_TEXT_LINES;
-    let luminance = luminance_evidence(evidence.analysis);
 
     if significant_color && significant_picture && has_text {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
@@ -155,18 +175,6 @@ pub(crate) fn recommend_output_mode(
         };
     }
 
-    if luminance.ink_fraction <= BLANK_MAX_INK_FRACTION
-        && luminance.edge_fraction <= BLANK_MAX_EDGE_FRACTION
-    {
-        let ink_margin = (1.0 - luminance.ink_fraction / BLANK_MAX_INK_FRACTION).clamp(0.0, 1.0);
-        let edge_margin = (1.0 - luminance.edge_fraction / BLANK_MAX_EDGE_FRACTION).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Bw,
-            confidence: (0.8 + 0.08 * ink_margin + 0.08 * edge_margin).clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::Blank,
-        };
-    }
-
     if significant_picture && has_text {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 8.0).clamp(0.0, 1.0);
@@ -189,6 +197,32 @@ pub(crate) fn recommend_output_mode(
                 + 0.08 * weak_bimodality)
                 .clamp(0.0, 1.0),
             reason: OutputModeRecommendationReason::ContinuousTone,
+        };
+    }
+
+    // A few glyphs can occupy far below one percent of a page. On otherwise
+    // flat paper, absolute luminance is irrelevant: the dark Otsu class,
+    // separation from the dominant paper tone, and coherent edge structure
+    // are the useful evidence. Route that case to binary before the broad
+    // midtone fallback interprets a gray sheet as continuous-tone content.
+    let sparse_text_on_flat_paper = evidence.text_line_count >= 1
+        && picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
+        && luminance.robust_luminance_range <= BLANK_MAX_ROBUST_LUMINANCE_RANGE
+        && luminance.mode_distance >= MIN_SPARSE_TEXT_MODE_DISTANCE
+        && (MIN_SPARSE_TEXT_INK_FRACTION..=MAX_SPARSE_TEXT_INK_FRACTION)
+            .contains(&luminance.ink_fraction)
+        && luminance.edge_fraction >= luminance.ink_fraction * MIN_TEXT_EDGE_TO_INK_RATIO
+        && has_coherent_edge_structure(evidence.analysis);
+    if sparse_text_on_flat_paper {
+        let separation_margin =
+            ((luminance.mode_distance - MIN_SPARSE_TEXT_MODE_DISTANCE) / 96.0).clamp(0.0, 1.0);
+        let edge_margin = (luminance.edge_fraction
+            / luminance.ink_fraction.max(MIN_SPARSE_TEXT_INK_FRACTION))
+        .clamp(0.0, 1.0);
+        return OutputModeRecommendation {
+            mode: OutputMode::Bw,
+            confidence: (0.66 + 0.16 * separation_margin + 0.08 * edge_margin).clamp(0.0, 0.9),
+            reason: OutputModeRecommendationReason::BimodalText,
         };
     }
 
@@ -316,6 +350,126 @@ pub(crate) fn recommend_output_mode(
     }
 }
 
+/// Returns whether a bounded raw scan contains no meaningful luminance or
+/// chroma evidence. Callers must evaluate this before illumination
+/// normalization so preview- and source-resolution renders share one decision.
+pub(crate) fn is_blank_scan_candidate(
+    analysis: &GrayImage,
+    analysis_rgb: Option<&RgbImage>,
+) -> bool {
+    is_blank_luminance(luminance_evidence(analysis))
+        && !has_coherent_edge_structure(analysis)
+        && !has_significant_chroma(chroma_evidence(analysis, analysis_rgb))
+}
+
+fn has_significant_chroma(chroma: ChromaEvidence) -> bool {
+    chroma.colored_fraction + COLOR_PIXEL_FRACTION_HYSTERESIS >= COLOR_PIXEL_FRACTION_FLOOR
+        || chroma
+            .largest_component_pixels
+            .saturating_add(CHROMA_COMPONENT_HYSTERESIS_PIXELS)
+            >= SIGNIFICANT_CHROMA_COMPONENT_PIXELS
+}
+
+fn is_blank_luminance(luminance: LuminanceEvidence) -> bool {
+    luminance.edge_fraction <= BLANK_MAX_EDGE_FRACTION
+        && luminance.robust_luminance_range <= BLANK_MAX_ROBUST_LUMINANCE_RANGE
+}
+
+/// Global coverage is intentionally not sufficient to erase a page: a short
+/// word or page number can occupy less than the blank-coverage hysteresis. This
+/// retains compact, connected dark-side edge structures while ignoring
+/// isolated sensor noise. It is relative to neighbouring pixels, so changing
+/// the paper from light gray to dark gray does not change the verdict.
+fn has_coherent_edge_structure(image: &GrayImage) -> bool {
+    let mut edges = BinaryImage::new(image.width(), image.height());
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            let value = image.get(x, y);
+            if x > 0 {
+                let neighbor = image.get(x - 1, y);
+                if value.abs_diff(neighbor) >= BLANK_EDGE_DIFFERENCE {
+                    if value <= neighbor {
+                        edges.set(x, y, true);
+                    } else {
+                        edges.set(x - 1, y, true);
+                    }
+                }
+            }
+            if y > 0 {
+                let neighbor = image.get(x, y - 1);
+                if value.abs_diff(neighbor) >= BLANK_EDGE_DIFFERENCE {
+                    if value <= neighbor {
+                        edges.set(x, y, true);
+                    } else {
+                        edges.set(x, y - 1, true);
+                    }
+                }
+            }
+        }
+    }
+
+    let minimum_height = ((image.height() as f64 * 0.003).round() as usize).clamp(2, 6);
+    let minimum_area = minimum_height.saturating_mul(3);
+    let maximum_width = (image.width() / 5).max(1);
+    let maximum_height = (image.height() / 5).max(1);
+    let components = ComponentMap::from_binary(&edges);
+    let candidates = components
+        .components()
+        .iter()
+        .filter(|component| {
+            let width = component.right - component.left + 1;
+            let height = component.bottom - component.top + 1;
+            let border_attached = component.left == 0
+                || component.top == 0
+                || component.right + 1 == image.width()
+                || component.bottom + 1 == image.height();
+            !border_attached
+                && width >= 2
+                && height >= minimum_height
+                && width <= maximum_width
+                && height <= maximum_height
+                && component.area >= minimum_area
+        })
+        .collect::<Vec<_>>();
+
+    // A single dust fleck can be as compact as a tiny glyph, but it generally
+    // lacks either the scale of a standalone mark or neighbouring glyphs on a
+    // shared baseline. Preserve both larger standalone characters and very
+    // short aligned text while allowing isolated scan dirt to remain blank.
+    if candidates.iter().any(|component| {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        height >= minimum_height.saturating_mul(3)
+            && component.area >= minimum_area.saturating_mul(2)
+            && width.saturating_mul(8) >= height
+            && height.saturating_mul(8) >= width
+    }) {
+        return true;
+    }
+
+    candidates.iter().enumerate().any(|(index, left)| {
+        candidates.iter().skip(index + 1).any(|right| {
+            let left_height = left.bottom - left.top + 1;
+            let right_height = right.bottom - right.top + 1;
+            let maximum_glyph_height = left_height.max(right_height);
+            let minimum_glyph_height = left_height.min(right_height);
+            let left_center = left.top + left_height / 2;
+            let right_center = right.top + right_height / 2;
+            let vertical_offset = left_center.abs_diff(right_center);
+            let horizontal_gap = if left.right < right.left {
+                right.left - left.right - 1
+            } else if right.right < left.left {
+                left.left - right.right - 1
+            } else {
+                0
+            };
+            maximum_glyph_height <= minimum_glyph_height.saturating_mul(2)
+                && vertical_offset <= maximum_glyph_height / 2
+                && horizontal_gap <= maximum_glyph_height.saturating_mul(4)
+        })
+    })
+}
+
 fn is_border_artifact_picture_component(
     picture_map: &ComponentMap,
     component: &Component,
@@ -376,7 +530,7 @@ fn has_gutter_shadow(analysis: &GrayImage) -> bool {
     let column_ink = (0..analysis.width())
         .map(|x| {
             (0..analysis.height())
-                .filter(|&y| analysis.get(x, y) <= BLANK_INK_LUMINANCE_CUTOFF)
+                .filter(|&y| analysis.get(x, y) <= BORDER_INK_LUMINANCE_CUTOFF)
                 .count()
         })
         .collect::<Vec<_>>();
@@ -529,9 +683,6 @@ fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
     } else {
         0
     };
-    let ink_count = histogram[..=BLANK_INK_LUMINANCE_CUTOFF as usize]
-        .iter()
-        .sum::<u64>();
     let mut strong_edges = 0usize;
     let mut edge_comparisons = 0usize;
     for y in 0..image.height() {
@@ -557,9 +708,26 @@ fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
         },
         midtone_fraction: midtone_count as f64 / total as f64,
         mode_distance: light_mean - dark_mean,
-        ink_fraction: ink_count as f64 / total as f64,
+        // The darker Otsu class is relative to this page's paper tone. An
+        // absolute "ink is below N" cutoff makes the same black text occupy
+        // either none or all of a page merely because the paper is dark gray.
+        ink_fraction: dark_count as f64 / total as f64,
         edge_fraction: strong_edges as f64 / edge_comparisons.max(1) as f64,
+        robust_luminance_range: luminance_histogram_percentile(&histogram, total, 0.99)
+            - luminance_histogram_percentile(&histogram, total, 0.01),
     }
+}
+
+fn luminance_histogram_percentile(histogram: &[u64; 256], total: u64, percentile: f64) -> f64 {
+    let rank = ((total.saturating_sub(1)) as f64 * percentile).round() as u64;
+    let mut cumulative = 0u64;
+    for (value, count) in histogram.iter().enumerate() {
+        cumulative += *count;
+        if cumulative > rank {
+            return value as f64;
+        }
+    }
+    255.0
 }
 
 fn grayscale_percentile(image: &GrayImage, percentile: f64) -> u8 {
@@ -591,6 +759,7 @@ mod tests {
         calibration::{CalibrationConfig, PageCalibration},
         picture::detect_picture_mask,
     };
+    use std::path::PathBuf;
 
     fn text_page(background: [u8; 3]) -> (GrayImage, RgbImage) {
         let mut rgb = RgbImage::new(360, 260, background);
@@ -678,6 +847,124 @@ mod tests {
         assert_eq!(recommendation.mode, OutputMode::Bw);
         assert_eq!(recommendation.reason, OutputModeRecommendationReason::Blank);
         assert!(recommendation.confidence >= 0.8);
+    }
+
+    #[test]
+    fn blank_candidate_is_invariant_to_paper_luminance_and_gentle_shading() {
+        for base in [72i16, 112, 152, 192, 232] {
+            let mut gray = GrayImage::new(620, 877, base as u8);
+            for y in 0..gray.height() {
+                for x in 0..gray.width() {
+                    let horizontal_shading = (x * 32 / gray.width()) as i16 - 16;
+                    let paper_texture = ((x * 7 + y * 11) % 5) as i16 - 2;
+                    gray.set(
+                        x,
+                        y,
+                        (base + horizontal_shading + paper_texture).clamp(0, 255) as u8,
+                    );
+                }
+            }
+            assert!(
+                is_blank_scan_candidate(&gray, None),
+                "blank gray sheet at luminance {base} was treated as content",
+            );
+        }
+    }
+
+    #[test]
+    fn compact_text_vetoes_blank_candidate_at_every_paper_luminance() {
+        for background in [72u8, 112, 152, 192, 232] {
+            let mut gray = GrayImage::new(620, 877, background);
+            let ink = background.saturating_sub(64);
+            for glyph in 0..6 {
+                let left = 282 + glyph * 9;
+                for y in 424..431 {
+                    gray.set(left, y, ink);
+                    gray.set(left + 4, y, ink);
+                }
+                for x in left..=left + 4 {
+                    gray.set(x, 424, ink);
+                    gray.set(x, 427, ink);
+                }
+            }
+            assert!(
+                !is_blank_scan_candidate(&gray, None),
+                "compact text was treated as blank at luminance {background}",
+            );
+        }
+    }
+
+    #[test]
+    fn real_rome_flyleaves_are_blank_candidates_before_normalization() {
+        for page_number in 2..=4 {
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+                "tests/fixtures/blank/rome-flyleaf-p{page_number:05}-150dpi.png",
+            ));
+            let gray =
+                crate::png::decode_gray(&std::fs::read(path).unwrap(), 2_000_000, 2_000).unwrap();
+            let luminance = luminance_evidence(&gray);
+            let chroma = chroma_evidence(&gray, None);
+            assert!(
+                is_blank_scan_candidate(&gray, None),
+                "page={page_number}, luminance={luminance:?}, chroma={chroma:?}, coherent_edges={}",
+                has_coherent_edge_structure(&gray),
+            );
+        }
+    }
+
+    #[test]
+    fn auto_mode_turns_sparse_black_text_on_any_gray_paper_into_bw() {
+        for background in [72u8, 112, 152, 192, 232] {
+            let mut gray = GrayImage::new(620, 877, background);
+            let ink = background.saturating_sub(64);
+            for glyph in 0..6 {
+                let left = 282 + glyph * 9;
+                for y in 424..431 {
+                    gray.set(left, y, ink);
+                    gray.set(left + 4, y, ink);
+                }
+                for x in left..=left + 4 {
+                    gray.set(x, 424, ink);
+                    gray.set(x, 427, ink);
+                }
+            }
+            let recommendation = recommend_output_mode(PreparedModeEvidence {
+                analysis: &gray,
+                analysis_rgb: None,
+                picture_mask: &BinaryImage::new(gray.width(), gray.height()),
+                text_line_count: 1,
+            });
+            assert_eq!(
+                recommendation.mode,
+                OutputMode::Bw,
+                "sparse text on luminance {background} resolved as {recommendation:?}; evidence={:?}",
+                luminance_evidence(&gray),
+            );
+        }
+    }
+
+    #[test]
+    fn isolated_compact_dust_does_not_look_like_text() {
+        let mut gray = GrayImage::new(620, 877, 170);
+        for y in 436..441 {
+            for x in 308..313 {
+                gray.set(x, y, 80);
+            }
+        }
+        assert!(is_blank_scan_candidate(&gray, None));
+    }
+
+    #[test]
+    fn even_one_detected_text_line_vetoes_blank_mode() {
+        let gray = GrayImage::new(620, 877, 190);
+        let picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 1,
+        });
+        assert_ne!(recommendation.reason, OutputModeRecommendationReason::Blank,);
     }
 
     #[test]

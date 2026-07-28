@@ -1449,14 +1449,23 @@ describe('release policy', () => {
     it('builds once and substitutes no-build checks when combined release verification requests a receipt', () => {
         const scripts: string[] = [];
         const receipts: string[] = [];
+        const childEnvironments = new Map<string, Record<string, string>>();
 
         runLocalReleaseChecks({
             env: {
                 CI: 'true',
                 EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
+                EVB_RELEASE_VERIFY_SKIP: '',
+                EVB_RELEASE_VERIFY_SKIP_ACK: '1',
             },
-            runCommand: (_command: string, args: string[]) => {
-                scripts.push(args[1] ?? args[0] ?? '');
+            runCommand: (
+                _command: string,
+                args: string[],
+                options: {env?: Record<string, string>},
+            ) => {
+                const script = args[1] ?? args[0] ?? '';
+                scripts.push(script);
+                childEnvironments.set(script, options.env ?? {});
             },
             stderr: {write: () => {}},
             writeBuildReceipt: receiptPath => receipts.push(receiptPath),
@@ -1476,6 +1485,20 @@ describe('release policy', () => {
         expect(scripts).not.toContain('test:electron-bundle-static-integrity');
         expect(scripts).toContain('test:electron-bundle-static-integrity:no-build');
         expect(receipts).toEqual(['/tmp/release-build-receipt.json']);
+        expect(childEnvironments.get('lint:clean')).toMatchObject({
+            EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
+            EVB_RELEASE_VERIFY_SKIP: '',
+            EVB_RELEASE_VERIFY_SKIP_ACK: '1',
+        });
+        expect(childEnvironments.get('test:coverage')).not.toHaveProperty(
+            'EVB_RELEASE_BUILD_RECEIPT',
+        );
+        expect(childEnvironments.get('test:coverage')).not.toHaveProperty(
+            'EVB_RELEASE_VERIFY_SKIP',
+        );
+        expect(childEnvironments.get('test:coverage')).not.toHaveProperty(
+            'EVB_RELEASE_VERIFY_SKIP_ACK',
+        );
     });
 
     it('skips explicitly listed release gates without changing the default gate list', () => {

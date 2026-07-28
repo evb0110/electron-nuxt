@@ -261,6 +261,7 @@ import type {
     TScanCleanupOutputModeSetting,
     IScanCleanupTextAxis,
 } from '@contracts/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
@@ -475,17 +476,14 @@ function updateRotationOverride(page: number, value: unknown) {
 }
 
 function displayedOutputMode(page: number) {
-    if (props.preserveOriginalQuality) {
-        return 'color';
-    }
-    const override = pageOverride(page).outputModeOverride;
-    if (override !== undefined) {
-        return override;
-    }
-    if (props.documentOutputMode !== 'auto') {
-        return props.documentOutputMode;
-    }
-    return props.recommendedOutputModes?.get(page);
+    return resolveScanCleanupEffectiveOutputMode({
+        options: {
+            outputMode: props.documentOutputMode,
+            preserveOriginalQuality: props.preserveOriginalQuality,
+        },
+        pageOverride: pageOverride(page),
+        detectedOutputMode: props.recommendedOutputModes?.get(page),
+    });
 }
 
 function outputModeShortLabel(mode: TScanCleanupOutputMode | undefined) {

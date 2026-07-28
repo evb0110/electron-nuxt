@@ -7,6 +7,11 @@ interface IScanCleanupProgressCounts {
     totalUnits: number;
 }
 
+interface IScanCleanupPageProgressCounts {
+    completedUnits: number;
+    totalUnits: number;
+}
+
 const COUNTED_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set([
     'probing',
     'rasterizing',
@@ -29,6 +34,25 @@ export const formatScanCleanupProgress = (progress: IScanCleanupProgressCounts, 
         phase,
         count,
         text: count === '' ? phase : t('scanCleanup.runStatus', {
+            phase,
+            counter: count,
+        }),
+    };
+};
+
+export const formatScanCleanupPreAnalysisProgress = (
+    progress: IScanCleanupPageProgressCounts,
+    t: TTranslateFn,
+) => {
+    const phase = t('scanCleanup.detectAll.preAnalyzing');
+    const count = t('scanCleanup.runCount', {
+        completed: progress.completedUnits,
+        total: progress.totalUnits,
+    });
+    return {
+        phase,
+        count,
+        text: t('scanCleanup.runStatus', {
             phase,
             counter: count,
         }),

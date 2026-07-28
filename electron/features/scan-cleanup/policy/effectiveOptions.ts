@@ -10,6 +10,7 @@ import type {
     TScanCleanupOutputMode,
     TScanCleanupOutputModeSetting,
 } from '@contracts/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
@@ -285,7 +286,10 @@ export function resolveEffectiveScanCleanupOptions({
     const lossless = qualityPath === 'lossless';
     const outputMode = lossless
         ? 'color'
-        : resolvedOutputMode ?? pageOverride.outputModeOverride ?? options.outputMode;
+        : resolvedOutputMode ?? resolveScanCleanupEffectiveOutputMode({
+            options,
+            pageOverride,
+        }) ?? 'auto';
     const hasBinaryLayer = outputMode === 'auto' || outputMode === 'bw' || outputMode === 'mixed';
     const dewarpRequested = !lossless && experimental.autoDewarp;
     const despeckleLevel = !lossless && hasBinaryLayer
@@ -347,7 +351,7 @@ export function resolveEffectiveScanCleanupOptions({
         rotationDegrees: pageOverride.rotationDegrees,
         excluded: pageOverride.excluded,
         skipBlankPages: !lossless && options.skipBlankPages,
-        maxPixels: resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
+        maxPixels: resolveScanCleanupPipelineMaxPixels(outputMode === 'auto' ? undefined : outputMode),
         maxDimensionPx: MAX_DIMENSION_PX,
     };
 }

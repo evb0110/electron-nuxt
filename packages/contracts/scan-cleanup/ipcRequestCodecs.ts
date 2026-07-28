@@ -708,6 +708,8 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
 function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
     if (
         !isRecord(value)
+        || typeof value.requestId !== 'string'
+        || value.requestId.trim().length === 0
         || typeof value.sourcePdfPath !== 'string'
         || value.sourcePdfPath.trim().length === 0
         || !Number.isSafeInteger(value.pageNumber)
@@ -755,6 +757,7 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
             };
         })();
     return {
+        requestId: value.requestId,
         sourcePdfPath: value.sourcePdfPath,
         ...decodeOwnerContext(value),
         pageNumber: Number(value.pageNumber),

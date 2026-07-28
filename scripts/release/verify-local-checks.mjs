@@ -11,6 +11,7 @@ import {
 } from './policy.mjs';
 
 const SKIP_ACK_ENV_VAR = 'EVB_RELEASE_VERIFY_SKIP_ACK';
+const SKIP_LIST_ENV_VAR = 'EVB_RELEASE_VERIFY_SKIP';
 const STRICT_BUILD_DUPLICATE_GATES = new Set([
     'build:pdf-image-combine',
     'build:pdf-page-ops',
@@ -18,6 +19,18 @@ const STRICT_BUILD_DUPLICATE_GATES = new Set([
     'build:scan-cleanup',
     'check:wasm:portable',
 ]);
+
+function environmentForReleaseCheck(env, scriptName) {
+    if (scriptName !== 'test:coverage') {
+        return env;
+    }
+
+    const testEnv = {...env};
+    delete testEnv[RELEASE_BUILD_RECEIPT_ENV_VAR];
+    delete testEnv[SKIP_ACK_ENV_VAR];
+    delete testEnv[SKIP_LIST_ENV_VAR];
+    return testEnv;
+}
 
 export function parseReleaseVerifySkipList(rawSkipList, {knownScripts} = {}) {
     const requested = (rawSkipList ?? '')
@@ -92,7 +105,7 @@ export function runLocalReleaseChecks({
         env,
     }),
     runCommand = run,
-    skipList = env.EVB_RELEASE_VERIFY_SKIP,
+    skipList = env[SKIP_LIST_ENV_VAR],
     stderr = process.stderr,
     writeBuildReceipt = writeReleaseBuildReceipt,
 } = {}) {
@@ -154,7 +167,7 @@ export function runLocalReleaseChecks({
         }
 
         runCommand(effectiveCommand.command, effectiveCommand.args, {
-            env,
+            env: environmentForReleaseCheck(env, scriptName),
             stdio: 'inherit',
         });
     }

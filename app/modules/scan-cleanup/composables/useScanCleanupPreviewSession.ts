@@ -10,6 +10,7 @@ import type {
     TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
     scanCleanupLayoutSignature,
@@ -151,6 +152,9 @@ export function createScanCleanupPreviewCacheKey(
     // This one cannot be derived here at all: `previewOptions` carries only the
     // keyed page's override, and the canvas is measured from every page's.
     matchedCanvasOverridesSignature = '',
+    // Detection can settle after the first visible preview has already
+    // started. It revalidates the one cached entry owned by this page.
+    outputModeRecommendation: TScanCleanupOutputMode | null = null,
 ) {
     const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
     // Detection's contribution is keyed separately from the page's identity: it
@@ -163,6 +167,7 @@ export function createScanCleanupPreviewCacheKey(
     // rectangle every page was drawn on.
     const validity = JSON.stringify({
         documentPrior,
+        outputModeRecommendation,
         layouts: previewOptions.matchPageSize ? layoutSignature : '',
         canvasOverrides: previewOptions.matchPageSize ? matchedCanvasOverridesSignature : '',
     });
@@ -250,7 +255,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let scheduledKey: string | null = null;
     let cancellationRetryKey: string | null = null;
     let cancellationRetries = 0;
+    let requestNonce = 0;
+    let activeVisibleRequestId: string | null = null;
     const inFlightPreviewPages: number[] = [];
+    const inFlightPreviewRequestIds = new Set<string>();
     // A base preview pushes its page's raster the moment it exists and leaves
     // it out of the result it resolves with, so the bytes cross once. They wait
     // here for the result they belong to — which two callers can share, when a
@@ -258,8 +266,25 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     // its two neighbours and the one still rendering. A retained entry is the
     // same buffer the cached result holds, so it costs nothing while that page
     // is cached.
-    const streamedRawByPage = new Map<number, IScanCleanupRawPreviewEvent>();
+    const streamedRawByRequest = new Map<string, IScanCleanupRawPreviewEvent>();
     const STREAMED_RAW_PAGES_MAX = 4;
+
+    function retainedRawForPage(pageNumber: number) {
+        return [...streamedRawByRequest.values()]
+            .reverse()
+            .find(raw => raw.pageNumber === pageNumber);
+    }
+
+    function trimStreamedRaw() {
+        while (streamedRawByRequest.size > STREAMED_RAW_PAGES_MAX) {
+            const evictable = [...streamedRawByRequest.keys()].find(requestId => (
+                !inFlightPreviewRequestIds.has(requestId)
+                && requestId !== activeVisibleRequestId
+            ));
+            if (evictable === undefined) break;
+            streamedRawByRequest.delete(evictable);
+        }
+    }
 
     const totalPages = computed(() => rawResult.value?.totalPages
         ?? result.value?.totalPages
@@ -285,7 +310,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             if (!capability) {
                 return Promise.reject(new Error('Scan cleanup preview is unavailable'));
             }
-            return capability.preview(toBridgeSafeScanCleanupPayload(request)).then(withStreamedRaw);
+            inFlightPreviewRequestIds.add(request.requestId);
+            return capability.preview(toBridgeSafeScanCleanupPayload(request))
+                .then(previewResult => withStreamedRaw(previewResult, request.requestId))
+                .finally(() => {
+                    inFlightPreviewRequestIds.delete(request.requestId);
+                    trimStreamedRaw();
+                });
         },
         store: cachePreview,
     });
@@ -294,17 +325,15 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         if (raw.ownerId !== options.ownerId || raw.documentRevision !== options.documentRevision.value) {
             return;
         }
-        streamedRawByPage.delete(raw.pageNumber);
-        streamedRawByPage.set(raw.pageNumber, raw);
-        while (streamedRawByPage.size > STREAMED_RAW_PAGES_MAX) {
-            const oldest = streamedRawByPage.keys().next().value;
-            if (oldest === undefined) break;
-            streamedRawByPage.delete(oldest);
-        }
+        streamedRawByRequest.delete(raw.requestId);
+        streamedRawByRequest.set(raw.requestId, raw);
+        trimStreamedRaw();
         // The raw page is shown while its cleanup runs, so it becomes the
         // displayed raster as soon as it lands — but only for the page the user
         // is actually on. A prefetched neighbour just waits for its result.
-        if (raw.pageNumber === options.previewPage.value) rawResult.value = raw;
+        if (raw.pageNumber === options.previewPage.value) {
+            rawResult.value = raw;
+        }
     }
 
     /**
@@ -312,14 +341,18 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
      * detail tile answers with its own raster and needs nothing. A cancelled
      * request has no result at all and answers with null.
      */
-    function withStreamedRaw(previewResult: TScanCleanupPreviewWireResult): IScanCleanupPreviewResult | null {
+    function withStreamedRaw(
+        previewResult: TScanCleanupPreviewWireResult,
+        requestId: string,
+    ): IScanCleanupPreviewResult | null {
         if (previewResult.canceled === true) {
             return null;
         }
         if (carriesRaster(previewResult)) {
             return previewResult;
         }
-        const streamed = streamedRawByPage.get(previewResult.pageNumber);
+        const streamed = streamedRawByRequest.get(previewResult.requestId ?? requestId)
+            ?? retainedRawForPage(previewResult.pageNumber);
         if (!streamed) throw new Error('Scan cleanup preview arrived without its page raster');
         return {
             ...previewResult,
@@ -347,6 +380,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             options.documentPriorByPage.get(pageNumber) ?? null,
             layoutSignature.value,
             matchedCanvasOverridesSignature.value,
+            resolveOutputModeRecommendation(pageNumber) ?? null,
         );
     }
 
@@ -370,11 +404,23 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     function resolveOutputModeRecommendation(pageNumber: number) {
         const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
-        return options.settings.preserveOriginalQuality !== true
-            && options.settings.outputMode === 'auto'
-            && pageOverride.outputModeOverride === undefined
-            ? options.recommendedOutputModeByPage.get(pageNumber)
-            : undefined;
+        if (
+            options.settings.preserveOriginalQuality
+            || options.settings.outputMode !== 'auto'
+            || pageOverride.outputModeOverride !== undefined
+        ) {
+            return undefined;
+        }
+        return resolveScanCleanupEffectiveOutputMode({
+            options: options.settings,
+            pageOverride,
+            detectedOutputMode: options.recommendedOutputModeByPage.get(pageNumber),
+        });
+    }
+
+    function nextRequestId(key: string) {
+        requestNonce += 1;
+        return `${options.ownerId}:${requestNonce}:${key}`;
     }
 
     function cachePreview(key: string, previewResult: IScanCleanupPreviewResult) {
@@ -422,7 +468,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         clearTimer();
         invalidateDetailRequest();
         // Every request a streamed raster could still belong to is superseded.
-        streamedRawByPage.clear();
+        streamedRawByRequest.clear();
+        inFlightPreviewRequestIds.clear();
+        activeVisibleRequestId = null;
         loading.value = false;
         if (!options.sourcePath.value) {
             return;
@@ -452,9 +500,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         prefetcher.schedule(adjacentPages.map(pageNumber => {
             const documentPrior = options.documentPriorByPage.get(pageNumber);
             const outputModeRecommendation = resolveOutputModeRecommendation(pageNumber);
+            const key = cacheKey(pageNumber, previewOptions, previewSourcePath);
             return {
-                key: cacheKey(pageNumber, previewOptions, previewSourcePath),
+                key,
                 request: {
+                    requestId: nextRequestId(key),
                     sourcePdfPath: previewSourcePath,
                     ownerId: options.ownerId,
                     documentRevision: options.documentRevision.value,
@@ -491,6 +541,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const documentPrior = options.documentPriorByPage.get(requestPage);
         const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
+        const requestId = nextRequestId(key);
+        activeVisibleRequestId = requestId;
+        const retainedRaw = retainedRawForPage(requestPage);
+        if (retainedRaw) rawResult.value = retainedRaw;
         const initialRequest = scheduledPage === null;
         // A navigation reaches the previous page's key unchanged; anything else
         // — a settings change, a new document prior, another source — makes
@@ -505,7 +559,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         }
         scheduledPage = requestPage;
         scheduledKey = key;
-        const activeDetailSourceKey = detailSourceKey(key, resolveDetailOutputMode(requestPage));
+        const activeDetailOutputMode = resolveDetailOutputMode(requestPage);
+        const activeDetailSourceKey = activeDetailOutputMode === undefined
+            ? null
+            : detailSourceKey(key, activeDetailOutputMode);
         if (displayedDetailSourceKey !== activeDetailSourceKey) {
             detailResult.value = null;
             displayedDetailSourceKey = null;
@@ -553,6 +610,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 // is displayed there; this promise settles with the cleaned
                 // result that supersedes it.
                 const previewResult = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
+                    requestId,
                     sourcePdfPath: requestSourcePath,
                     ownerId: options.ownerId,
                     documentRevision: options.documentRevision.value,
@@ -564,7 +622,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                         ? {}
                         : {outputModeRecommendation}),
                     layoutByPage: layoutByPage.value,
-                })));
+                })), requestId);
                 // A cancelled request has no result to keep or display. When the
                 // page it was rendering is still the page the user is on, the
                 // run was retired by something that has since finished — a
@@ -625,27 +683,28 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 : 250;
         timer = setTimeout(() => {
             inFlightPreviewPages.push(requestPage);
+            inFlightPreviewRequestIds.add(requestId);
             void runPreview().finally(() => {
                 const index = inFlightPreviewPages.indexOf(requestPage);
                 if (index >= 0) inFlightPreviewPages.splice(index, 1);
+                inFlightPreviewRequestIds.delete(requestId);
+                trimStreamedRaw();
             });
         }, requestDelayMs);
     }
 
     function resolveDetailOutputMode(pageNumber = options.previewPage.value) {
         const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
-        if (options.settings.preserveOriginalQuality) {
-            return 'color' as const;
-        }
-        if (pageOverride.outputModeOverride) {
-            return pageOverride.outputModeOverride;
-        }
-        if (options.settings.outputMode !== 'auto') {
-            return options.settings.outputMode;
-        }
-        return result.value?.pageNumber === pageNumber
-            ? result.value.pageMetadata.recommendedOutputMode ?? 'bw'
-            : 'bw';
+        const renderedOutputMode = result.value?.pageNumber === pageNumber
+            ? result.value.outputs[0]?.metadata.outputMode
+                ?? result.value.pageMetadata.recommendedOutputMode
+            : undefined;
+        return resolveScanCleanupEffectiveOutputMode({
+            options: options.settings,
+            pageOverride,
+            detectedOutputMode: options.recommendedOutputModeByPage.get(pageNumber),
+            renderedOutputMode,
+        });
     }
 
     function detailSourceKey(baseKey: string, outputMode: ReturnType<typeof resolveDetailOutputMode>) {
@@ -694,6 +753,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestOptions = toPlainScanCleanupOptions(options.settings);
         const requestSourcePath = options.sourcePath.value;
         const outputMode = resolveDetailOutputMode(requestPage);
+        if (outputMode === undefined) {
+            detailLoading.value = false;
+            return;
+        }
         const baseKey = cacheKey(requestPage, requestOptions, requestSourcePath);
         const sourceKey = detailSourceKey(baseKey, outputMode);
         const tileKey = createScanCleanupDetailTileCacheKey(sourceKey, viewports);
@@ -710,7 +773,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailLoading.value = true;
         try {
             const documentPrior = options.documentPriorByPage.get(requestPage);
+            const requestId = nextRequestId(tileKey);
             const next = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
+                requestId,
                 sourcePdfPath: requestSourcePath,
                 ownerId: options.ownerId,
                 documentRevision: options.documentRevision.value,
@@ -722,7 +787,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     viewports,
                     outputMode,
                 },
-            })));
+            })), requestId);
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
                 return;
             }
@@ -737,6 +802,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             detailResult.value = next;
             displayedDetailSourceKey = sourceKey;
         } catch (caught) {
+            if (
+                caught instanceof Error
+                && caught.message.startsWith('Scan cleanup detail geometry is unavailable')
+            ) {
+                cache.delete(baseKey);
+                schedule();
+                return;
+            }
             // A failed detail render retries on its own: the viewport is
             // stationary, so no user gesture would otherwise re-request it.
             if (!(caught instanceof Error && caught.name === 'AbortError')) {
@@ -777,7 +850,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cache.clear();
         detailSourceCache.clear();
         metadataByPage.clear();
-        streamedRawByPage.clear();
+        streamedRawByRequest.clear();
+        inFlightPreviewRequestIds.clear();
+        activeVisibleRequestId = null;
         result.value = null;
         rawResult.value = null;
         resultKey.value = null;

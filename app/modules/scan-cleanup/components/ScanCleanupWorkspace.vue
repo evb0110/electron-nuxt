@@ -162,7 +162,7 @@
                     :alignment="settings.pageAlignment"
                     :page-number="previewPage"
                     :total-pages="previewTotalPages"
-                    :stale-page="previewResult !== null && previewResult.pageNumber !== previewPage"
+                    :stale-page="previewResult !== null && !previewResultCurrent"
                     :manual-split="currentPageOverride.manualSplit"
                     :reading-order="settings.readingOrder"
                     :manual-content-boxes="currentPageOverride.manualContentBoxes ?? {}"
@@ -200,6 +200,7 @@ import type {
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
     areScanCleanupMarginsMmEqual,
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
@@ -549,23 +550,16 @@ const scopeOutputModeOverrideItems = computed(() => [
         label: t('scanCleanup.output.mixed'),
     },
 ]);
-const previewOutputMode = computed<TScanCleanupOutputMode>(() => {
-    if (settings.preserveOriginalQuality === true) {
-        return 'color';
-    }
-    const pageOverride = currentPageOverride.value.outputModeOverride;
-    if (pageOverride !== undefined) {
-        return pageOverride;
-    }
-    if (settings.outputMode !== 'auto') {
-        return settings.outputMode;
-    }
-    return recommendedOutputModeByPage.get(previewPage.value)
-        ?? (previewResultCurrent.value && previewResult.value?.pageNumber === previewPage.value
-            ? previewResult.value.pageMetadata.recommendedOutputMode
-            : undefined)
-        ?? 'bw';
-});
+const previewOutputMode = computed<TScanCleanupOutputMode | undefined>(() =>
+    resolveScanCleanupEffectiveOutputMode({
+        options: settings,
+        pageOverride: currentPageOverride.value,
+        detectedOutputMode: recommendedOutputModeByPage.get(previewPage.value),
+        renderedOutputMode: previewResultCurrent.value && previewResult.value?.pageNumber === previewPage.value
+            ? previewResult.value.outputs[0]?.metadata.outputMode
+                ?? previewResult.value.pageMetadata.recommendedOutputMode
+            : undefined,
+    }));
 const scopeInclusionItems = computed(() => [
     ...(scopeExcluded.value.mixed ? [{
         value: 'mixed' as const,

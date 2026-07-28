@@ -57,6 +57,7 @@ const options = {
 };
 const previewRequest: IScanCleanupPreviewRequest = {
     ...owner,
+    requestId: 'preview-request-1',
     sourcePdfPath: '/tmp/source.pdf',
     pageNumber: 1,
     options,
@@ -109,6 +110,7 @@ const ownedJobArgs = s.fromParser(decodeArgs(decodeOwnedJobId), () => [
 const openPathsArgs = s.fromParser(decodeArgs(decodeOpenPdfPaths), () => [['/tmp/source.pdf']]);
 const rawPreviewEvent = s.fromParser(decodeScanCleanupRawPreviewEvent, () => ({
     ...owner,
+    requestId: 'preview-request-1',
     pageNumber: 1,
     totalPages: 1,
     rawImageData: new Uint8Array([1]),
