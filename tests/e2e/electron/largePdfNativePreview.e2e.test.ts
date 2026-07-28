@@ -255,9 +255,18 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         )), JSON.stringify(samples)).toBe(true);
         expect(staleEmptyStateSamples, JSON.stringify(samples)).toHaveLength(0);
         expect(claimedPreContentSamples.every(sample => sample.emptyStateVisible === false), JSON.stringify(samples)).toBe(true);
+        // Slow preflight can supply an authoritative opening frame; the
+        // immediate path deliberately uses the chassis' provisional shell.
+        // Both must provide measured geometry for the one pending surface.
         expect(claimedPreContentSamples.every(sample => (
-            sample.openSurface.hasOpeningGeometry
-            && sample.openSurface.hasOpeningFrame
+            (
+                sample.openSurface.hasOpeningGeometry
+                && sample.openSurface.hasOpeningFrame
+            )
+            || (
+                sample.transitionSurfaceVisible
+                && sample.transitionPageShellRect !== null
+            )
         )), JSON.stringify(samples)).toBe(true);
         expect(transitionSurfaceSamples.every(sample => sample.visibleTransitionSkeletonCount === 1), JSON.stringify(samples)).toBe(true);
         expect(nativeViewerTopSurfaceSamples, JSON.stringify(samples)).toHaveLength(0);
