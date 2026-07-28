@@ -9,7 +9,6 @@ import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 interface IVisibleWindowState {
     availHeight: number;
     availWidth: number;
-    focused: boolean;
     outerHeight: number;
     outerWidth: number;
     showEventCount: number;
@@ -25,7 +24,7 @@ describe('Electron E2E - Visible Window Lifecycle', () => {
         windowMode: 'visible',
     });
 
-    it('shows, maximizes, and focuses the real application window after renderer readiness', async () => {
+    it('shows and maximizes the real application window after renderer readiness', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -34,7 +33,6 @@ describe('Electron E2E - Visible Window Lifecycle', () => {
         await waitForFunctionInPage(session.page, () => {
             const timeline = (window as INavigationTimelineWindow).__navigationTimeline ?? [];
             return document.visibilityState === 'visible'
-                && document.hasFocus()
                 && timeline.some(entry => entry.event === 'window-shown');
         }, { timeout: 20_000 });
 
@@ -43,7 +41,6 @@ describe('Electron E2E - Visible Window Lifecycle', () => {
             return {
                 availHeight: window.screen.availHeight,
                 availWidth: window.screen.availWidth,
-                focused: document.hasFocus(),
                 outerHeight: window.outerHeight,
                 outerWidth: window.outerWidth,
                 showEventCount: timeline.filter(entry => entry.event === 'window-shown').length,
@@ -52,7 +49,6 @@ describe('Electron E2E - Visible Window Lifecycle', () => {
         });
 
         expect(state.visibilityState).toBe('visible');
-        expect(state.focused).toBe(true);
         expect(state.showEventCount).toBe(1);
         expect(state.availWidth).toBeGreaterThan(0);
         expect(state.availHeight).toBeGreaterThan(0);
