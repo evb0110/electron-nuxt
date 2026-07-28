@@ -185,7 +185,6 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
             && openSurfacePhase !== 'idle'
             && (chassis?.dataset.openSurfaceDocumentId ?? '').length > 0;
         const transitionSkeletonIsTopSurface = openSurfaceClaimed
-            && openSurfacePresentation === 'page-shell'
             && transitionSkeletons.some(isElementVisible)
             && elementIntersectsCanonicalViewport(transitionPageShell, viewportHost);
         const nativeSkeletonIsTopSurface = firstVisiblePageShell
