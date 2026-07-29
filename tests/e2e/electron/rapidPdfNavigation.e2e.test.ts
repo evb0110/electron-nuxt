@@ -1535,17 +1535,25 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
 
         await session.page.mouse.move(viewport.x, viewport.y);
-        for (let attempt = 0; attempt < 24; attempt += 1) {
+        for (let attempt = 0; attempt < 48; attempt += 1) {
             const scrollState = await session.page.evaluate(() => {
                 const element = document.querySelector<HTMLElement>('#pdf-viewer');
+                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
                 const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
                 return {
                     currentPage: toolbar?.currentPage ?? 0,
                     maxScrollTop: element ? Math.max(0, element.scrollHeight - element.clientHeight) : 0,
+                    observedPage: Number(chassis?.dataset.viewportObservedPage ?? 0),
+                    scrollTop: element?.scrollTop ?? 0,
                     totalPages: toolbar?.totalPages ?? 0,
                 };
             });
-            if (scrollState.totalPages > 1 && scrollState.currentPage === scrollState.totalPages) {
+            if (
+                scrollState.totalPages > 1
+                && scrollState.currentPage === scrollState.totalPages
+                && scrollState.observedPage === scrollState.totalPages
+                && scrollState.scrollTop >= scrollState.maxScrollTop - 1
+            ) {
                 break;
             }
             await session.page.mouse.wheel({deltaY: Math.max(
