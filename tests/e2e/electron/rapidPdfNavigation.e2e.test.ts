@@ -1678,7 +1678,12 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     commandAvailable: 'true',
                 };
             }, targetPage);
-            await session.page.mouse.wheel({deltaY: 1_600});
+            // Make the trusted interruption cross the target page even when
+            // the throttled navigation commits before Chromium dispatches the
+            // wheel packet. A small downward delta can remain inside the
+            // target page on hosted runners and therefore never supersede the
+            // navigation this scenario is meant to exercise.
+            await session.page.mouse.wheel({deltaY: -1_000_000});
 
             await session.page.waitForFunction(() => {
                 const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
