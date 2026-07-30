@@ -38,6 +38,7 @@ import {
     openPdfInApp,
     waitForPdfLoaded,
     waitForViewerInteractive,
+    waitForWorkspaceHistorySettled,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
 
@@ -178,10 +179,20 @@ async function openScanCleanup(page: Page, sourcePath: string) {
     await openPdfInApp(page, sourcePath, 180_000);
     await waitForPdfLoaded(page, 180_000);
     await waitForViewerInteractive(page, 180_000);
+    await waitForWorkspaceHistorySettled(page, 180_000);
     await waitForFunctionInPage(page, () => {
         const toolbar = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
         return toolbar?.initialVisualReady === true && toolbar.totalPages > 0;
     }, {timeout: 180_000});
+    // A completed cleanup opens its generated PDF asynchronously. On a slow
+    // runner that handoff can otherwise win after openPdfInApp has returned,
+    // leaving the generated document's reduced toolbar under this scenario.
+    await waitForFunctionInPage(page, (expectedPath: string) => {
+        const active = (window as IWorkspaceExposeProbeWindow)
+            .__evbTestApi
+            ?.readActiveWorkspaceStateValues?.(['originalPath']);
+        return active?.originalPath === expectedPath;
+    }, {timeout: 180_000}, sourcePath);
     await clickVisibleToolbarButton(page, 'Scan cleanup');
     await page.waitForSelector('.scan-cleanup-surface', {
         timeout: 30_000,
