@@ -1423,6 +1423,18 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
 
         await session.page.mouse.move(viewport.x, viewport.y);
+        // The preceding geometry scenario can leave this shared viewer
+        // scrolled while it returns to page-one toolbar semantics. Discard
+        // those pre-input frames: this assertion covers the trusted wheel
+        // sequence below, not the prior scenario's teardown window.
+        await session.page.evaluate(() => {
+            const testWindow = window as Window & {
+                __trustedFastScrollSamples?: Array<Record<string, unknown>>;
+                __trustedFastScrollCount?: number;
+            };
+            testWindow.__trustedFastScrollSamples = [];
+            testWindow.__trustedFastScrollCount = 0;
+        });
         // Chromium can coalesce one enormous synthetic wheel delta under
         // hosted-runner load. Drive several ordinary trusted wheel events so
         // the scroll observer sees the same sequence a user produces.
