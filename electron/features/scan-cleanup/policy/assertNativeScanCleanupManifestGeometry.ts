@@ -24,14 +24,18 @@ function assertRect(
         rect.widthNormalized,
         rect.heightNormalized,
     ];
+    // Complements computed as `1 - x` in a different rounding order overshoot
+    // 1.0 by ~1e-16; mirror the native validator's BOUNDS_EPSILON so a box
+    // the sidecar itself authored cannot abort the run at the preflight.
+    const boundsEpsilon = 1e-9;
     if (
         !values.every(Number.isFinite)
         || rect.xNormalized < 0
         || rect.yNormalized < 0
         || rect.widthNormalized <= 0
         || rect.heightNormalized <= 0
-        || rect.xNormalized + rect.widthNormalized > 1
-        || rect.yNormalized + rect.heightNormalized > 1
+        || rect.xNormalized + rect.widthNormalized > 1 + boundsEpsilon
+        || rect.yNormalized + rect.heightNormalized > 1 + boundsEpsilon
         || rect.rotationDegrees !== pageRotation
     ) {
         throw new Error(

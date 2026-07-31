@@ -2947,15 +2947,6 @@ fn normalize_trusted_mrc_tone(sample: u8, paper: u8) -> u8 {
         .clamp(0.0, 255.0) as u8
 }
 
-/// A tone plate that dominates the page means cleanup has nothing meaningful
-/// to whiten: the page is a photograph or map. Whitening the remainder risks
-/// destroying pale content for no visible benefit, so the authored background
-/// is preserved instead.
-fn should_preserve_trusted_background(tonal_plate: &BinaryImage) -> bool {
-    let area = tonal_plate.width().saturating_mul(tonal_plate.height());
-    area > 0 && tonal_plate.count_black().saturating_mul(100) > area.saturating_mul(55)
-}
-
 fn white_outside_tonal_plate(
     gray: &GrayImage,
     color: Option<&RgbImage>,
@@ -2968,14 +2959,59 @@ fn white_outside_tonal_plate(
         source.width() == gray.width() && source.height() == gray.height()
     }));
 
-    // The caller supplies the semantic photo/map ownership mask, not the
-    // texture-derived trusted-MRC evidence mask. The latter contains faint
-    // text ghosts from compact producer backgrounds and is deliberately used
-    // only to establish that continuous tone exists. Pixels outside the
-    // semantic plate are paper and become neutral white; pixels inside retain
-    // the source producer's exact luminance and chroma. A narrow physical
-    // feather outside the plate avoids inventing a hard white cut-out where a
-    // scanned photograph or irregular subject naturally fades into its paper.
+    let percentile = |histogram: &[usize; 256], sample_count: usize| {
+        let target = sample_count.saturating_sub(1) * 3 / 4;
+        let mut cumulative = 0usize;
+        histogram
+            .iter()
+            .position(|count| {
+                cumulative += count;
+                cumulative > target
+            })
+            .unwrap_or(255) as u8
+    };
+    let mut gray_histogram = [0usize; 256];
+    let mut outside_count = 0usize;
+    for y in 0..gray.height() {
+        for x in 0..gray.width() {
+            if !tonal_plate.get(x, y) {
+                gray_histogram[usize::from(gray.get(x, y))] += 1;
+                outside_count += 1;
+            }
+        }
+    }
+    let gray_paper = if outside_count == 0 {
+        trusted_mrc_paper_reference(gray)
+    } else {
+        percentile(&gray_histogram, outside_count)
+    };
+    let color_paper: Option<[u8; 3]> = color.map(|source| {
+        let mut histograms = [[0usize; 256]; 3];
+        let mut count = 0usize;
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                if !tonal_plate.get(x, y) {
+                    let sample = source.get(x, y);
+                    for channel in 0..3 {
+                        histograms[channel][usize::from(sample[channel])] += 1;
+                    }
+                    count += 1;
+                }
+            }
+        }
+        if count == 0 {
+            let mut histograms = [[0usize; 256]; 3];
+            for sample in source.data().chunks_exact(3) {
+                for channel in 0..3 {
+                    histograms[channel][usize::from(sample[channel])] += 1;
+                }
+            }
+            let count = source.width().saturating_mul(source.height());
+            std::array::from_fn(|channel| percentile(&histograms[channel], count))
+        } else {
+            std::array::from_fn(|channel| percentile(&histograms[channel], count))
+        }
+    });
     let feather_radius = (dpi * 2.0 / 25.4).round().clamp(1.0, 32.0) as usize;
     let feather_radius_squared = (feather_radius * feather_radius) as u32;
     let distance_to_plate = squared_euclidean_distance(tonal_plate);
@@ -3000,14 +3036,15 @@ fn white_outside_tonal_plate(
             for (x, target) in row.iter_mut().enumerate() {
                 if !tonal_plate.get(x, y) {
                     let source = f64::from(*target);
+                    let normalized = f64::from(normalize_trusted_mrc_tone(*target, gray_paper));
                     let weight = source_weight(y * gray.width() + x);
-                    *target = (255.0 * (1.0 - weight) + source * weight)
+                    *target = (normalized * (1.0 - weight) + source * weight)
                         .round()
                         .clamp(0.0, 255.0) as u8;
                 }
             }
         });
-    let cleaned_color = color.map(|source| {
+    let cleaned_color = color.zip(color_paper).map(|(source, paper)| {
         let mut output = source.clone();
         output
             .data_mut()
@@ -3017,8 +3054,12 @@ fn white_outside_tonal_plate(
                 for (x, target) in row.chunks_exact_mut(3).enumerate() {
                     if !tonal_plate.get(x, y) {
                         let weight = source_weight(y * source.width() + x);
-                        for channel in target {
-                            *channel = (255.0 * (1.0 - weight) + f64::from(*channel) * weight)
+                        for (channel_index, channel) in target.iter_mut().enumerate() {
+                            let normalized = f64::from(normalize_trusted_mrc_tone(
+                                *channel,
+                                paper[channel_index],
+                            ));
+                            *channel = (normalized * (1.0 - weight) + f64::from(*channel) * weight)
                                 .round()
                                 .clamp(0.0, 255.0) as u8;
                         }
@@ -3728,16 +3769,16 @@ fn clean_region(
             is_effectively_blank(&rendered_gray, options.dpi)
         };
     let fail_closed_blank = force_clean_blank || content.content.is_none() && effectively_blank;
-    // Auto cleanup preserves the authored background when the plate dominates
-    // the page, and reconstructs it over normalized paper otherwise. Only a
-    // Mixed page can honor the preservation contract; B&W output is always a
-    // binarized reconstruction, so claiming preservation there would promise
-    // source identity the output cannot deliver.
+    // Whole-page abstention guarded against the old destructive whitening.
+    // Picture zones now preserve continuous tone exactly while everything
+    // else is smoothly normalized toward white, so cleanup is always safe and
+    // every page keeps the white-paper contract; color covers still reuse the
+    // source page through their own preservation route. The flag, its
+    // metadata field, and the mixed-preservation branches downstream are
+    // retained only for protocol compatibility and can be deleted together
+    // with the contract field in the next native protocol revision.
     let mut trusted_selection_applied = false;
-    let trusted_mrc_background_preserved = options.output_mode == OutputMode::Mixed
-        && rendered_trusted_tone_mask
-            .as_ref()
-            .is_some_and(should_preserve_trusted_background);
+    let trusted_mrc_background_preserved = false;
     let (
         mut image,
         mut color_image,
@@ -3989,6 +4030,13 @@ fn clean_region(
                             create_mixed_composite,
                         )
                     };
+                    if trusted_mrc.is_some() {
+                        // The zones are the authoritative continuous-tone
+                        // record for this page; publish them as the picture
+                        // mask so audits measure what composition preserved
+                        // rather than the raw flattened-path detector claims.
+                        rendered_picture_mask = rendered_trusted_tone_mask.clone();
+                    }
                     timings.mixed_composition_ms +=
                         composition_started.elapsed().as_secs_f64() * 1_000.0;
                     (

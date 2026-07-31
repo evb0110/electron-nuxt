@@ -5,7 +5,7 @@ use crate::engine::render::{
     CleanupResult, DetailRenderSources, LayeredForegroundKind,
 };
 use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
-use crate::mrc::derive_tone_mask_excluding_foreground;
+use crate::mrc::{derive_picture_zones, derive_tone_mask_excluding_foreground};
 use crate::{
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
     io::{pbm, raster},
@@ -1247,7 +1247,17 @@ fn run_page(
                 foreground,
             )
         });
-    if trusted_tone_mask.is_some() != trusted_foreground_mask.is_some() {
+    let trusted_tone_mask = trusted_tone_mask.map(|tone| {
+        derive_picture_zones(
+            &tone,
+            &trusted_mrc_background
+                .as_ref()
+                .expect("zip guarantees background")
+                .gray,
+            effective_background_dpi,
+        )
+    });
+    if trusted_mrc_background.is_some() != trusted_foreground_mask.is_some() {
         return Err(Box::new(invalid(
             "Trusted MRC evidence must provide both background and foreground selection layers",
         )));

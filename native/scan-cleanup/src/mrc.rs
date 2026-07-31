@@ -300,9 +300,101 @@ pub(crate) fn derive_tone_mask_excluding_foreground(
     components.retain(|component| unexplained_counts[component.label as usize] > 0)
 }
 
+/// Reduces background-owned tone to genuine picture zones. A zone is the
+/// filled bounding box of a tone component that is physically large, densely
+/// occupied, and contains real dark mass; text-block claims on grainy paper
+/// have no deep interior and are rejected, so the paper they sit on gets
+/// normalized to white instead of being preserved as a gray panel.
+pub(crate) fn derive_picture_zones(
+    tone: &BinaryImage,
+    background: &GrayImage,
+    dpi: f64,
+) -> BinaryImage {
+    let paper_reference = luminance_percentile(background, 3, 4);
+    let deep_threshold = paper_reference.saturating_sub(45);
+    let minimum_span = (dpi * 12.0 / 25.4).round().max(8.0) as usize;
+    let components = ComponentMap::from_binary(tone);
+    let mut deep_counts = vec![0usize; components.components().len() + 1];
+    for y in 0..background.height() {
+        for x in 0..background.width() {
+            if !tone.get(x, y) || background.get(x, y) >= deep_threshold {
+                continue;
+            }
+            let label = components.label_at(x, y) as usize;
+            if label > 0 {
+                deep_counts[label] += 1;
+            }
+        }
+    }
+    let accepted: Vec<_> = components
+        .components()
+        .iter()
+        .filter(|component| {
+            let width = component.right - component.left + 1;
+            let height = component.bottom - component.top + 1;
+            width >= minimum_span
+                && height >= minimum_span
+                && component.area.saturating_mul(5)
+                    >= width.saturating_mul(height).saturating_mul(2)
+                && deep_counts[component.label as usize].saturating_mul(100)
+                    >= component.area.saturating_mul(8)
+        })
+        .map(|component| {
+            (
+                component.left,
+                component.top,
+                component.right,
+                component.bottom,
+            )
+        })
+        .collect();
+    BinaryImage::from_fn_parallel(tone.width(), tone.height(), |x, y| {
+        accepted.iter().any(|&(left, top, right, bottom)| {
+            (left..=right).contains(&x) && (top..=bottom).contains(&y)
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn picture_zones_keep_photos_and_reject_text_block_claims() {
+        let mut background = GrayImage::new(400, 400, 200);
+        // A photo: large, dense, with deep mass.
+        for y in 40..200 {
+            for x in 40..200 {
+                background.set(x, y, 40 + ((x * 7 + y * 11) % 120) as u8);
+            }
+        }
+        // A text-block claim: same size, but only faint ghost strokes.
+        for row in 0..16 {
+            let y = 240 + row * 9;
+            for x in 220..380 {
+                if (x / 6 + row) % 3 != 0 {
+                    background.set(x, y, 180);
+                }
+            }
+        }
+        let mut tone = BinaryImage::new(400, 400);
+        for y in 40..200 {
+            for x in 40..200 {
+                tone.set(x, y, true);
+            }
+        }
+        for y in 240..384 {
+            for x in 220..380 {
+                tone.set(x, y, true);
+            }
+        }
+        let zones = derive_picture_zones(&tone, &background, 120.0);
+        assert!(zones.get(120, 120), "dense deep photo becomes a zone");
+        assert!(
+            !zones.get(300, 300),
+            "a faint text-block claim is not a zone"
+        );
+    }
 
     #[test]
     fn uniform_tinted_paper_has_no_tone_plate() {

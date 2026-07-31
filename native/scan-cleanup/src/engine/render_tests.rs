@@ -4169,8 +4169,13 @@ mod tests {
                         color.get(x, y)
                     );
                 } else if !(10..30).contains(&x) || !(4..20).contains(&y) {
-                    assert_eq!(retained.get(x, y), 255);
-                    assert_eq!(retained_color.as_ref().unwrap().get(x, y), [255; 3]);
+                    assert!(retained.get(x, y) >= 250);
+                    assert!(retained_color
+                        .as_ref()
+                        .unwrap()
+                        .get(x, y)
+                        .iter()
+                        .all(|&channel| channel >= 250));
                 }
             }
         }
@@ -4178,6 +4183,33 @@ mod tests {
             (193..255).contains(&retained.get(11, 12)),
             "paper immediately outside a tonal plate should feather toward white"
         );
+    }
+
+    #[test]
+    fn paper_outside_zone_whitens_smoothly_and_dark_content_survives() {
+        let mut gray = GrayImage::new(30, 20, 200);
+        let mut zone = BinaryImage::new(30, 20);
+        for y in 6..14 {
+            for x in 11..19 {
+                zone.set(x, y, true);
+            }
+        }
+        gray.set(15, 10, 73);
+        gray.set(2, 2, 182);
+        gray.set(27, 17, 100);
+
+        let (normalized, _) = white_outside_tonal_plate(&gray, None, &zone, 25.4);
+        assert!(normalized.get(2, 17) >= 250, "paper maps to white");
+        assert!(
+            normalized.get(2, 2) >= 245,
+            "faint show-through maps into the paper shoulder"
+        );
+        let proportional = normalize_trusted_mrc_tone(100, 200);
+        assert!(
+            normalized.get(27, 17).abs_diff(proportional) <= 25,
+            "deep content keeps its proportional contrast"
+        );
+        assert_eq!(normalized.get(15, 10), 73, "inside-zone samples stay raw");
     }
 
     #[test]
@@ -4195,26 +4227,6 @@ mod tests {
                 "tinted paper must become neutral rather than retain a color cast"
             );
         }
-    }
-
-    #[test]
-    fn trusted_mrc_background_is_preserved_only_when_tone_dominates() {
-        let mut dominant = BinaryImage::new(100, 100);
-        for y in 0..60 {
-            for x in 0..100 {
-                dominant.set(x, y, true);
-            }
-        }
-        assert!(should_preserve_trusted_background(&dominant));
-
-        let mut minority = BinaryImage::new(100, 100);
-        for y in 0..30 {
-            for x in 0..100 {
-                minority.set(x, y, true);
-            }
-        }
-        assert!(!should_preserve_trusted_background(&minority));
-        assert!(!should_preserve_trusted_background(&BinaryImage::new(0, 0)));
     }
 
     #[test]
