@@ -255,7 +255,7 @@ function selectPdfMrcRows(rows: readonly IPdfImagesRow[]): IPdfMrcRowSelection |
             row.imageNumber !== foreground.imageNumber
             && row.type === 'image'
             && row.bitsPerComponent > 1
-            && row.dpi < selection.dpi
+            && row.dpi <= selection.dpi
             && Math.abs(row.width / row.height / selectionAspect - 1) <= 0.02,
         )
         .sort((left, right) =>

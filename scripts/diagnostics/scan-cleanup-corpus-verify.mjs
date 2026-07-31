@@ -450,7 +450,7 @@ async function extractMrcLayers(
             candidate.index !== foregroundIndex
             && candidate.parts[2] === 'image'
             && Number(candidate.parts[7]) > 1
-            && Math.min(Number(candidate.parts[12]), Number(candidate.parts[13])) < selectionDpi
+            && Math.min(Number(candidate.parts[12]), Number(candidate.parts[13])) <= selectionDpi
             && Math.abs(
                 Number(candidate.parts[3]) / Number(candidate.parts[4]) / selectionAspect - 1,
             ) <= 0.02,

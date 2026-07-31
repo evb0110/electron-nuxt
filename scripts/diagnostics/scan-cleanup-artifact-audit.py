@@ -1567,7 +1567,15 @@ def ownership_artifact_masks(
     source_mrc_mask_path = (
         metadata_dir / f"source-{metadata_page}-mrc-selection.jb2e"
     )
-    if source_mrc_mask_path.is_file():
+    # An extracted selection is the page's ink reference only when the render
+    # actually consumed it; on full-resolution-background pages the producer's
+    # selection is not a complete ink carrier and the page binarizes the
+    # composite instead.
+    selection_consumed = (
+        trusted_mrc_page
+        or output_metadata.get("trustedSelectionApplied") is True
+    )
+    if source_mrc_mask_path.is_file() and selection_consumed:
         authored_ink = align_binary_mask_to_output(
             decode_embedded_jbig2_mask(source_mrc_mask_path),
             output_metadata,

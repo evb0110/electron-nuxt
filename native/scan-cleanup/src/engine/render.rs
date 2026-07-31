@@ -139,6 +139,13 @@ pub struct CleanupMetadata {
     /// therefore reuse the compact source page instead of re-encoding it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trusted_mrc_background_preserved: bool,
+    /// The authored MRC selection mask replaced or constrained this page's
+    /// foreground. Audits may treat that selection as the page's ink
+    /// reference only when this is set; a selection that was extracted but
+    /// never consumed (for example on full-resolution-background pages) is
+    /// not a complete ink carrier.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trusted_selection_applied: bool,
     #[serde(default)]
     pub illumination_normalized: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4104,6 +4111,7 @@ fn clean_region(
             layered_background_dpi: None,
             layered_foreground_dpi: None,
             trusted_mrc_background_preserved,
+            trusted_selection_applied: rendered_trusted_foreground_mask.is_some(),
             illumination_normalized: options.normalize_illumination,
             text_tone_diagnostics,
             binarization_mode,

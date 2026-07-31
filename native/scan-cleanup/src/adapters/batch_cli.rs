@@ -56,6 +56,49 @@ fn layered_foreground_dpi(options: &CleanupOptions) -> f64 {
         .min(SOFT_FOREGROUND_MAX_DPI)
 }
 
+fn box_downsample_gray(source: &GrayImage, factor: usize) -> GrayImage {
+    let width = (source.width() / factor).max(1);
+    let height = (source.height() / factor).max(1);
+    let mut output = GrayImage::new(width, height, 0);
+    for y in 0..height {
+        for x in 0..width {
+            let mut sum = 0usize;
+            let mut count = 0usize;
+            for sy in y * factor..((y + 1) * factor).min(source.height()) {
+                for sx in x * factor..((x + 1) * factor).min(source.width()) {
+                    sum += usize::from(source.get(sx, sy));
+                    count += 1;
+                }
+            }
+            output.set(x, y, (sum / count.max(1)) as u8);
+        }
+    }
+    output
+}
+
+fn box_downsample_rgb(source: &RgbImage, factor: usize) -> RgbImage {
+    let width = (source.width() / factor).max(1);
+    let height = (source.height() / factor).max(1);
+    let mut output = RgbImage::new(width, height, [0; 3]);
+    for y in 0..height {
+        for x in 0..width {
+            let mut sums = [0usize; 3];
+            let mut count = 0usize;
+            for sy in y * factor..((y + 1) * factor).min(source.height()) {
+                for sx in x * factor..((x + 1) * factor).min(source.width()) {
+                    let pixel = source.get(sx, sy);
+                    for channel in 0..3 {
+                        sums[channel] += usize::from(pixel[channel]);
+                    }
+                    count += 1;
+                }
+            }
+            output.set(x, y, sums.map(|sum| (sum / count.max(1)) as u8));
+        }
+    }
+    output
+}
+
 /// A PDF soft mask describes opacity, not semantic ink ownership. Some compact
 /// MRC producers attach the high-resolution image to the paper samples and
 /// leave the text transparent; others do the opposite. Treating every white
@@ -1148,11 +1191,12 @@ fn run_page(
             ))
         })
         .transpose()?;
+    let mut background_factor = 1;
     let trusted_mrc_background = page
         .trusted_mrc_background_path
         .as_ref()
         .map(|path| {
-            let background = raster::read_image(path, options.max_pixels, options.max_dimension)
+            let mut background = raster::read_image(path, options.max_pixels, options.max_dimension)
                 .map_err(map_image_error)?;
             let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
             let background_aspect =
@@ -1166,16 +1210,44 @@ fn run_page(
                     input_gray.height(),
                 )));
             }
+            // A genuine low-resolution MRC background layer is roughly one third of
+            // the page resolution. A background authored at (near-)full resolution
+            // still carries only the low-frequency layer semantically, but the tuned
+            // mm-based tone thresholds assume the compact regime, so bring it there.
+            background_factor = if background.gray.width().saturating_mul(2)
+                > input_gray.width()
+            {
+                (background.gray.width() * 3 / input_gray.width().max(1)).clamp(2, 4)
+            } else {
+                1
+            };
+            if background_factor > 1 {
+                background.gray = box_downsample_gray(&background.gray, background_factor);
+                background.rgb = box_downsample_rgb(&background.rgb, background_factor);
+            }
             Ok(background)
         })
         .transpose()?;
+    let effective_background_dpi = options.source_background_dpi() / background_factor as f64;
+    // A full-resolution background marks producer pages whose selection mask
+    // is not a complete ink carrier (the producer kept the detail in the
+    // background instead). Only Mixed output composes that background back
+    // into the page; B&W discards it and must keep binarizing the composite,
+    // so non-Mixed pages must not adopt these trusted layers.
+    let (trusted_mrc_background, trusted_foreground_mask) = if background_factor > 1
+        && options.output_mode != crate::OutputMode::Mixed
+    {
+        (None, None)
+    } else {
+        (trusted_mrc_background, trusted_foreground_mask)
+    };
     let trusted_tone_mask = trusted_mrc_background
         .as_ref()
         .zip(trusted_foreground_mask.as_ref())
         .map(|(background, foreground)| {
             derive_tone_mask_excluding_foreground(
                 &background.gray,
-                options.source_background_dpi(),
+                effective_background_dpi,
                 foreground,
             )
         });
@@ -2604,8 +2676,8 @@ fn map_image_error(message: String) -> NativeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_thread_count, estimate_peak_page_bytes, manifest_cache, manifest_worker_threads,
-        normalize_trusted_foreground_selection, page_worker_threads,
+        adaptive_thread_count, box_downsample_gray, estimate_peak_page_bytes, manifest_cache,
+        manifest_worker_threads, normalize_trusted_foreground_selection, page_worker_threads,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
         robust_quantile_dimension, run_stream_page_jobs, PageResultMetadata, PageRunResult,
         Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
@@ -2622,6 +2694,17 @@ mod tests {
     use evb_native_support::NativeError;
     use scan_primitives::{BinaryImage, GrayImage, Point};
     use std::{fs, path::PathBuf};
+
+    #[test]
+    fn box_downsample_gray_uses_box_means() {
+        let source =
+            GrayImage::from_vec(6, 6, 6, (0..36).map(|value| value as u8).collect()).unwrap();
+
+        assert_eq!(
+            box_downsample_gray(&source, 3),
+            GrayImage::from_vec(2, 2, 2, vec![7, 10, 25, 28]).unwrap(),
+        );
+    }
 
     #[test]
     fn matched_canvas_dimension_uses_nearest_rank_ninetieth_percentile() {

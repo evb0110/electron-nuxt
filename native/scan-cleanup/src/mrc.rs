@@ -155,23 +155,46 @@ fn recover_dense_tonal_plates(mask: &BinaryImage, dpi: f64) -> BinaryImage {
 /// with local texture. Illumination normalization is deliberately not used
 /// because it absorbs smooth photograph and map fields. Opening removes thin
 /// show-through strokes before connectivity, while physical dilation preserves
-/// bright plate edges.
+/// bright plate edges. Components made only of thin stroke texture (no solid
+/// interior at ~0.6 mm) are verso show-through or scanner noise, never a
+/// photograph, map fill, or meaningful tone plate, and are rejected before
+/// consolidation.
 pub(crate) fn derive_tone_mask(background: &GrayImage, dpi: f64) -> BinaryImage {
     let paper_reference = luminance_percentile(background, 3, 4);
-    let dark_threshold = paper_reference.saturating_sub(10);
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some() {
-        eprintln!(
-            "{{\"event\":\"mrc-plate-evidence\",\"paperReference\":{paper_reference},\
-             \"darkThreshold\":{dark_threshold}}}",
-        );
-    }
     let texture_radius = (dpi * 0.45 / 25.4).round().clamp(1.0, 3.0) as usize;
     let local_max = erode_gray(background, texture_radius, texture_radius);
     let local_min = dilate_gray(background, texture_radius, texture_radius);
+    // Scanner grain and codec ringing raise the whole page's local range, so
+    // a fixed texture floor claims grainy paper wholesale. The page's median
+    // local range measures that noise floor; genuine photo/map texture sits
+    // well above twice it.
+    let mut range_histogram = [0usize; 256];
+    for index in 0..background.data().len() {
+        let x = index % background.width();
+        let y = index / background.width();
+        let range = local_max.get(x, y).saturating_sub(local_min.get(x, y));
+        range_histogram[usize::from(range)] += 1;
+    }
+    let mut cumulative = 0usize;
+    let median_range = range_histogram
+        .iter()
+        .position(|count| {
+            cumulative += count;
+            cumulative * 2 > background.data().len()
+        })
+        .unwrap_or(0) as u8;
+    let texture_threshold = median_range.saturating_mul(2).max(12);
+    let dark_threshold = paper_reference.saturating_sub(texture_threshold.max(10));
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some() {
+        eprintln!(
+            "{{\"event\":\"mrc-plate-evidence\",\"paperReference\":{paper_reference},\
+             \"darkThreshold\":{dark_threshold},\"textureThreshold\":{texture_threshold}}}",
+        );
+    }
     let evidence =
         BinaryImage::from_fn_parallel(background.width(), background.height(), |x, y| {
             background.get(x, y) < dark_threshold
-                || local_max.get(x, y).saturating_sub(local_min.get(x, y)) >= 10
+                || local_max.get(x, y).saturating_sub(local_min.get(x, y)) >= texture_threshold
         });
     let opening_radius = (dpi * 0.35 / 25.4).round().clamp(1.0, 3.0) as usize;
     let opened = open(&evidence, opening_radius, opening_radius);
@@ -181,6 +204,25 @@ pub(crate) fn derive_tone_mask(background: &GrayImage, dpi: f64) -> BinaryImage 
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         width >= minimum_span && height >= minimum_span
+    });
+    let core_radius = (dpi * 0.6 / 25.4).round().clamp(2.0, 6.0) as usize;
+    let solid_cores = open(&seeded, core_radius, core_radius);
+    let seeded_components = ComponentMap::from_binary(&seeded);
+    let mut core_counts = vec![0usize; seeded_components.components().len() + 1];
+    for y in 0..background.height() {
+        for x in 0..background.width() {
+            if !solid_cores.get(x, y) {
+                continue;
+            }
+            let label = seeded_components.label_at(x, y) as usize;
+            if label > 0 {
+                core_counts[label] += 1;
+            }
+        }
+    }
+    let seeded = seeded_components.retain(|component| {
+        core_counts[component.label as usize].saturating_mul(100)
+            >= component.area.saturating_mul(12)
     });
     let close_radius = (dpi * 0.8 / 25.4).round().clamp(1.0, 5.0) as usize;
     let edge_recall_radius = (dpi * 1.5 / 25.4).round().clamp(2.0, 9.0) as usize;
@@ -415,6 +457,36 @@ mod tests {
                 "paper between distinct map fills must become white at shade {paper}"
             );
         }
+    }
+
+    #[test]
+    fn faint_stroke_show_through_is_not_tone_but_a_solid_pale_fill_is() {
+        let mut background = GrayImage::new(300, 360, 200);
+        // Verso show-through: a large carpet of thin faint horizontal strokes.
+        for row in 0..24 {
+            let y = 20 + row * 9;
+            for x in 30..270 {
+                if (x / 7 + row) % 3 != 0 {
+                    background.set(x, y, 175);
+                    background.set(x, y + 1, 178);
+                }
+            }
+        }
+        // A meaningful pale fill: solid, same shallow depth, 16 px wide.
+        for y in 250..340 {
+            for x in 40..120 {
+                background.set(x, y, 175);
+            }
+        }
+        let tone = derive_tone_mask(&background, 120.0);
+        assert!(
+            !tone.get(150, 100),
+            "a stroke-textured show-through carpet must remain paper"
+        );
+        assert!(
+            tone.get(80, 295),
+            "a solid pale fill of the same depth remains tonal"
+        );
     }
 
     #[test]
