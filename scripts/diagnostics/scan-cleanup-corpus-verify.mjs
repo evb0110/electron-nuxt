@@ -1,16 +1,20 @@
 #!/usr/bin/env node
-
+/* eslint-disable max-lines -- The corpus ledger intentionally keeps its end-to-end assertions in one auditable CLI transaction. */
 import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {
     access,
     mkdir,
     open,
     readFile,
+    readdir,
+    rename,
     rm,
     stat,
     writeFile,
 } from 'node:fs/promises';
 import {constants as fsConstants} from 'node:fs';
+import {availableParallelism} from 'node:os';
 import {
     dirname,
     isAbsolute,
@@ -22,6 +26,13 @@ import {
     assertStagedCargoArtifactFresh,
     collectCargoSourceInputs,
 } from '../cargo-artifacts.mjs';
+import {
+    crossResolutionModeEvidence,
+    pagePlanParityFailures,
+    resolveFixturePages,
+    reusablePagePlan,
+} from './scan-cleanup-corpus-plan.mjs';
+export {resolveFixturePages} from './scan-cleanup-corpus-plan.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const defaultConfigPath = join(projectRoot, '.devkit/scan-cleanup-corpus.json');
@@ -42,6 +53,13 @@ const defaultCombineBinary = join(
     'bin',
     `evb-pdf-image-combine${binaryExtension}`,
 );
+const defaultPageOpsBinary = join(
+    projectRoot,
+    '.tmp/pdf-page-ops',
+    platformArch,
+    'bin',
+    `evb-pdf-page-ops${binaryExtension}`,
+);
 const nativeTools = [
     {
         binaryPath: defaultScanCleanupBinary,
@@ -53,17 +71,43 @@ const nativeTools = [
         buildCommand: 'pnpm run build:pdf-image-combine',
         manifestPath: join(projectRoot, 'native/pdf-image-combine/Cargo.toml'),
     },
+    {
+        binaryPath: defaultPageOpsBinary,
+        buildCommand: 'pnpm run build:pdf-page-ops',
+        manifestPath: join(projectRoot, 'native/pdf-page-ops/Cargo.toml'),
+    },
 ];
 const MAX_DIMENSION_PX = 40_000;
 const MAX_BILEVEL_PIXELS = 160_000_000;
 const MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
+// The production preview service makes the durable Auto decision at 150 DPI.
+// Verify that decision on the same grid, then replay it on final-quality input.
+const DETECTION_DPI = 150;
 const OUTPUT_MODES = [
     'bw',
     'grayscale',
     'color',
     'mixed',
 ];
+const corpusPageConcurrency = Math.max(1, Math.min(
+    4,
+    Math.floor(availableParallelism() / 2),
+    Number.parseInt(process.env.EVB_SCAN_CLEANUP_CORPUS_CONCURRENCY ?? '4', 10) || 4,
+));
 
+async function mapWithConcurrency(items, concurrency, task) {
+    const results = new Array(items.length);
+    let cursor = 0;
+    const workers = Array.from({length: Math.min(concurrency, items.length)}, async () => {
+        while (cursor < items.length) {
+            const index = cursor;
+            cursor += 1;
+            results[index] = await task(items[index], index);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
 export function resolveFixtureExpectations(fixture, canonicalExpected) {
     const resolved = canonicalExpected ? {...canonicalExpected} : {};
     if (fixture.expectedOutputBytes !== undefined) {
@@ -71,6 +115,16 @@ export function resolveFixtureExpectations(fixture, canonicalExpected) {
             throw new Error(`Invalid expectedOutputBytes for fixture "${fixture.id}"`);
         }
         resolved.expectedOutputBytes = fixture.expectedOutputBytes;
+    }
+    if (fixture.maxOutputToSourceRatio !== undefined) {
+        if (
+            typeof fixture.maxOutputToSourceRatio !== 'number'
+            || !Number.isFinite(fixture.maxOutputToSourceRatio)
+            || fixture.maxOutputToSourceRatio <= 0
+        ) {
+            throw new Error(`Invalid expected maxOutputToSourceRatio for fixture "${fixture.id}"`);
+        }
+        resolved.maxOutputToSourceRatio = fixture.maxOutputToSourceRatio;
     }
     if (fixture.expectedModeDistribution !== undefined) {
         const distribution = fixture.expectedModeDistribution;
@@ -229,11 +283,24 @@ function assertionReporter(fixtureId) {
 }
 
 function parseDominantSourceDpi(output, pageNumber) {
-    const candidates = output.split(/\r?\n/u)
-        .map(line => line.trim().split(/\s+/u))
+    const rows = output.split(/\r?\n/u)
+        .map(line => line.trim().split(/\s+/u));
+    const maskedObjectIds = new Set(rows
+        .filter(parts => Number(parts[0]) === pageNumber
+            && Number(parts[7]) === 1
+            && [
+                'image',
+                'mask',
+                'smask',
+            ].includes(parts[2]))
+        .map(parts => Number(parts[10]))
+        .filter(objectId => Number.isSafeInteger(objectId) && objectId > 0));
+    const candidates = rows
         .filter(parts => Number(parts[0]) === pageNumber && parts[2] === 'image')
         .map(parts => ({
             area: Number(parts[3]) * Number(parts[4]),
+            bitsPerComponent: Number(parts[7]),
+            objectId: Number(parts[10]),
             xPpi: Number(parts[12]),
             yPpi: Number(parts[13]),
         }))
@@ -244,16 +311,421 @@ function parseDominantSourceDpi(output, pageNumber) {
             && candidate.yPpi > 0);
     candidates.sort((left, right) => right.area - left.area);
     const dominant = candidates[0];
+    const background = candidates
+        .filter(candidate => candidate.bitsPerComponent > 1
+            && !maskedObjectIds.has(candidate.objectId))
+        .sort((left, right) => right.area - left.area)[0];
     return {
         detected: dominant !== undefined,
         dpi: dominant ? Math.max(1, Math.round(Math.max(dominant.xPpi, dominant.yPpi))) : 300,
+        backgroundDpi: background
+            ? Math.max(1, Math.round(Math.max(background.xPpi, background.yPpi)))
+            : undefined,
+        hasBilevelLayer: rows.some(parts =>
+            Number(parts[0]) === pageNumber
+            && Number(parts[7]) === 1
+            && [
+                'image',
+                'mask',
+                'smask',
+            ].includes(parts[2])),
     };
 }
 
-function nativeOptions(dpi, sourceDpi, requestedRenderDpi, outputMode = 'auto') {
+const qpdfObjectTableByPath = new Map();
+
+async function readQpdfObjectTable(pdfPath) {
+    let pending = qpdfObjectTableByPath.get(pdfPath);
+    if (pending === undefined) {
+        pending = run('qpdf', [
+            '--json',
+            '--json-stream-data=none',
+            '--json-key=qpdf',
+            pdfPath,
+        ]).then(result => {
+            const parsed = JSON.parse(result.stdout);
+            const objects = [...parsed.qpdf].reverse().find(entry =>
+                entry !== null
+                && typeof entry === 'object'
+                && Object.keys(entry).some(key => key.startsWith('obj:')));
+            if (objects === undefined) {
+                throw new Error('qpdf JSON contains no object table');
+            }
+            return objects;
+        });
+        qpdfObjectTableByPath.set(pdfPath, pending);
+    }
+    return pending;
+}
+
+function sourceMrcMaskDecode(objects, foreground) {
+    const foregroundReference = `${foreground[10]} ${foreground[11]} R`;
+    const foregroundDictionary = objects[`obj:${foregroundReference}`]?.stream?.dict;
+    const maskReference = foregroundDictionary?.['/SMask'];
+    const maskDictionary = typeof maskReference === 'string'
+        ? objects[`obj:${maskReference}`]?.stream?.dict
+        : undefined;
+    if (
+        maskDictionary?.['/Filter'] !== '/JBIG2Decode'
+        || maskDictionary?.['/BitsPerComponent'] !== 1
+    ) {
+        throw new Error('MRC foreground does not reference a one-bit JBIG2 soft mask');
+    }
+    const decode = maskDictionary['/Decode'];
+    if (decode === undefined || (
+        Array.isArray(decode)
+        && decode.length === 2
+        && decode[0] === 0
+        && decode[1] === 1
+    )) {
+        return 'default';
+    }
+    if (
+        Array.isArray(decode)
+        && decode.length === 2
+        && decode[0] === 1
+        && decode[1] === 0
+    ) {
+        return 'inverted';
+    }
+    throw new Error(`Unsupported MRC soft-mask Decode array: ${JSON.stringify(decode)}`);
+}
+
+async function extractMrcLayers(
+    pdfPath,
+    pageNumber,
+    selectionOutputPath,
+    backgroundOutputPath,
+    foregroundOutputPath,
+) {
+    const listing = await run('pdfimages', [
+        '-f',
+        String(pageNumber),
+        '-l',
+        String(pageNumber),
+        '-list',
+        pdfPath,
+    ]);
+    const rows = listing.stdout.split(/\r?\n/u)
+        .map(line => line.trim().split(/\s+/u))
+        .filter(parts => parts.length >= 14
+            && Number.isSafeInteger(Number(parts[3]))
+            && Number(parts[3]) > 0
+            && Number.isSafeInteger(Number(parts[4]))
+            && Number(parts[4]) > 0);
+    const candidateIndex = rows.reduce((best, parts, index) => {
+        if (parts[2] !== 'smask' || Number(parts[7]) !== 1) {
+            return best;
+        }
+        if (best < 0) {
+            return index;
+        }
+        const area = Number(parts[3]) * Number(parts[4]);
+        const bestArea = Number(rows[best][3]) * Number(rows[best][4]);
+        return area > bestArea ? index : best;
+    }, -1);
+    if (candidateIndex < 0) {
+        return null;
+    }
+    const selection = rows[candidateIndex];
+    const foregroundIndex = candidateIndex - 1;
+    const foreground = rows[foregroundIndex];
+    if (
+        foreground === undefined
+        || foreground[2] !== 'image'
+        || Number(foreground[3]) !== Number(selection[3])
+        || Number(foreground[4]) !== Number(selection[4])
+    ) {
+        return null;
+    }
+    const selectionAspect = Number(selection[3]) / Number(selection[4]);
+    const selectionDpi = Math.min(Number(selection[12]), Number(selection[13]));
+    const backgroundIndex = rows
+        .map((parts, index) => ({
+            area: Number(parts[3]) * Number(parts[4]),
+            index,
+            parts,
+        }))
+        .filter(candidate =>
+            candidate.index !== foregroundIndex
+            && candidate.parts[2] === 'image'
+            && Number(candidate.parts[7]) > 1
+            && Math.min(Number(candidate.parts[12]), Number(candidate.parts[13])) < selectionDpi
+            && Math.abs(
+                Number(candidate.parts[3]) / Number(candidate.parts[4]) / selectionAspect - 1,
+            ) <= 0.02,
+        )
+        .sort((left, right) => right.area - left.area)[0]?.index ?? -1;
+    if (backgroundIndex < 0) {
+        return null;
+    }
+    const selectionMaskDecode = sourceMrcMaskDecode(
+        await readQpdfObjectTable(pdfPath),
+        foreground,
+    );
+    const prefixName = `.${selectionOutputPath.split('/').at(-1)}-extract`;
+    const prefix = join(dirname(selectionOutputPath), prefixName);
+    const rawPrefixName = `.${foregroundOutputPath.split('/').at(-1)}-raw`;
+    const rawPrefix = join(dirname(selectionOutputPath), rawPrefixName);
+    try {
+        await run('pdfimages', [
+            '-f',
+            String(pageNumber),
+            '-l',
+            String(pageNumber),
+            '-png',
+            pdfPath,
+            prefix,
+        ]);
+        const extractedSelectionPath =
+            `${prefix}-${String(candidateIndex).padStart(3, '0')}.png`;
+        const extractedBackgroundPath =
+            `${prefix}-${String(backgroundIndex).padStart(3, '0')}.png`;
+        if (!await readableFile(extractedSelectionPath)) {
+            throw new Error(`MRC selection mask extraction failed for page ${pageNumber}`);
+        }
+        if (!await readableFile(extractedBackgroundPath)) {
+            throw new Error(`MRC background extraction failed for page ${pageNumber}`);
+        }
+        await rename(extractedBackgroundPath, backgroundOutputPath);
+        await rm(extractedSelectionPath, {force: true});
+        await run('pdfimages', [
+            '-f',
+            String(pageNumber),
+            '-l',
+            String(pageNumber),
+            '-all',
+            pdfPath,
+            rawPrefix,
+        ]);
+        const extractedForegroundPath =
+            `${rawPrefix}-${String(foregroundIndex).padStart(3, '0')}.jp2`;
+        const extractedSelectionRawPath =
+            `${rawPrefix}-${String(candidateIndex).padStart(3, '0')}.jb2e`;
+        if (
+            !await readableFile(extractedForegroundPath)
+            || !await readableFile(extractedSelectionRawPath)
+        ) {
+            throw new Error(`MRC compact layer extraction failed for page ${pageNumber}`);
+        }
+        await Promise.all([
+            rename(extractedForegroundPath, foregroundOutputPath),
+            rename(extractedSelectionRawPath, selectionOutputPath),
+            writeFile(`${selectionOutputPath}.decode`, `${selectionMaskDecode}\n`),
+        ]);
+        return {
+            backgroundPath: backgroundOutputPath,
+            foregroundHeight: Number(foreground[4]),
+            foregroundPath: foregroundOutputPath,
+            foregroundWidth: Number(foreground[3]),
+            selectionMaskDecode,
+            selectionMaskPath: selectionOutputPath,
+        };
+    } finally {
+        const siblings = await readdir(dirname(selectionOutputPath)).catch(() => []);
+        await Promise.all(siblings
+            .filter(name =>
+                name.startsWith(`${prefixName}-`)
+                || name.startsWith(`${rawPrefixName}-`),
+            )
+            .map(name => rm(join(dirname(selectionOutputPath), name), {force: true})));
+    }
+}
+
+async function sha256File(path) {
+    return createHash('sha256').update(await readFile(path)).digest('hex');
+}
+
+function selectMrcStreamPair(images, pageNumber) {
+    const pageImages = images.filter(image => image.page === pageNumber);
+    const maskIndex = pageImages.findIndex(image =>
+        image.type === 'smask'
+        && image.bitsPerComponent === 1
+        && image.encoding === 'jbig2',
+    );
+    if (maskIndex <= 0) {
+        return null;
+    }
+    const mask = pageImages[maskIndex];
+    const foreground = pageImages[maskIndex - 1];
+    if (
+        foreground.type !== 'image'
+        || foreground.encoding !== 'jpx'
+        || foreground.width !== mask.width
+        || foreground.height !== mask.height
+    ) {
+        return null;
+    }
+    return {
+        foreground,
+        mask,
+    };
+}
+
+function extractedStreamPath(prefix, image, extension) {
+    return `${prefix}-${String(image.number).padStart(3, '0')}.${extension}`;
+}
+
+function extractedImagePath(prefix, image) {
+    const extension = {
+        ccitt: 'ccitt',
+        jbig2: 'jb2e',
+        jpeg: 'jpg',
+        jpx: 'jp2',
+    }[image.encoding] ?? 'png';
+    return extractedStreamPath(prefix, image, extension);
+}
+
+async function extractedImageBytes(prefix, images) {
+    const sizes = await Promise.all(images.map(async image =>
+        (await stat(extractedImagePath(prefix, image))).size,
+    ));
+    return sizes.reduce((sum, size) => sum + size, 0);
+}
+
+function parsePdfPageBoxes(output) {
+    const pages = new Map();
+    for (const line of output.split(/\r?\n/u)) {
+        const match = /^Page\s+(\d+)\s+CropBox:\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/u.exec(line);
+        if (!match) continue;
+        const [
+            pageNumber,
+            x1,
+            y1,
+            x2,
+            y2,
+        ] = match.slice(1).map(Number);
+        pages.set(pageNumber, {
+            height: y2 - y1,
+            width: x2 - x1,
+            x: x1,
+            y: y1,
+        });
+    }
+    return pages;
+}
+
+function sourceMrcForegroundPdfMatrix(page, pageWidthPoints, pageHeightPoints) {
+    const {
+        metadata,
+        trustedMrcLayers,
+    } = page;
+    const matrix = metadata.forwardTransform?.matrix;
+    if (
+        trustedMrcLayers === null
+        || trustedMrcLayers === undefined
+        || matrix === undefined
+        || metadata.inputWidthPx === undefined
+        || metadata.inputHeightPx === undefined
+        || metadata.rotationDegrees !== 0
+        || metadata.dewarpMapping != null
+    ) {
+        throw new Error(
+            `Page ${page.sourcePageNumber} cannot preserve source MRC foreground geometry`,
+        );
+    }
+    const inputScaleX = metadata.inputWidthPx / trustedMrcLayers.foregroundWidth;
+    const inputScaleY = metadata.inputHeightPx / trustedMrcLayers.foregroundHeight;
+    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    const contentHeight = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
+    const matchScaleX = contentWidth / metadata.outputWidthPx;
+    const matchScaleY = contentHeight / metadata.outputHeightPx;
+    const sourceToCanvas = {
+        a: matrix[0][0] * inputScaleX * matchScaleX,
+        b: matrix[0][1] * inputScaleY * matchScaleX,
+        c: matrix[0][2] * matchScaleX + metadata.placementOffsetXPx,
+        d: matrix[1][0] * inputScaleX * matchScaleY,
+        e: matrix[1][1] * inputScaleY * matchScaleY,
+        f: matrix[1][2] * matchScaleY + metadata.placementOffsetYPx,
+    };
+    const pointScaleX = pageWidthPoints / metadata.canvasWidthPx;
+    const pointScaleY = pageHeightPoints / metadata.canvasHeightPx;
+    const sourceWidth = trustedMrcLayers.foregroundWidth;
+    const sourceHeight = trustedMrcLayers.foregroundHeight;
+    return [
+        pointScaleX * sourceToCanvas.a * sourceWidth,
+        -pointScaleY * sourceToCanvas.d * sourceWidth,
+        -pointScaleX * sourceToCanvas.b * sourceHeight,
+        pointScaleY * sourceToCanvas.e * sourceHeight,
+        pointScaleX * (sourceToCanvas.b * sourceHeight + sourceToCanvas.c),
+        pageHeightPoints
+        - pointScaleY * (sourceToCanvas.e * sourceHeight + sourceToCanvas.f),
+    ];
+}
+
+function compactSourceInstruction(page, pageBox) {
+    const metadata = page.metadata;
+    const preservesTrustedMrcTone = page.mode === 'mixed'
+        && metadata.trustedMrcBackgroundPreserved === true;
+    if (
+        (page.mode !== 'color' && !preservesTrustedMrcTone)
+        || !page.sourceHasBilevelLayer
+        || metadata.half !== 'full'
+        || metadata.skewApplied
+        || metadata.dewarpModel != null
+        || metadata.cropRect === undefined
+        || metadata.inputWidthPx === undefined
+        || metadata.inputHeightPx === undefined
+        || pageBox === undefined
+    ) {
+        return null;
+    }
+    const sourceCrop = {
+        x: pageBox.x + metadata.cropRect.xPx / metadata.inputWidthPx * pageBox.width,
+        y: pageBox.y + pageBox.height
+            - (metadata.cropRect.yPx + metadata.cropRect.heightPx)
+            / metadata.inputHeightPx * pageBox.height,
+        width: metadata.cropRect.widthPx / metadata.inputWidthPx * pageBox.width,
+        height: metadata.cropRect.heightPx / metadata.inputHeightPx * pageBox.height,
+    };
+    const targetWidth = metadata.matchedCanvasTargetWidthPoints
+        ?? metadata.canvasWidthPx / page.renderDpi * 72;
+    const targetHeight = metadata.matchedCanvasTargetHeightPoints
+        ?? metadata.canvasHeightPx / page.renderDpi * 72;
+    const scale = Math.min(
+        targetWidth / sourceCrop.width,
+        targetHeight / sourceCrop.height,
+    );
+    if (!Number.isFinite(scale) || scale <= 0) {
+        return null;
+    }
+    // The corpus uses the production default top-center placement.
+    const placedX = sourceCrop.x * scale
+        + (sourceCrop.width * scale - targetWidth) / 2;
+    const placedY = sourceCrop.y * scale
+        + sourceCrop.height * scale - targetHeight;
+    return {
+        sourcePageIndex: page.sourcePageNumber - 1,
+        rotationQuarterTurns: 0,
+        outputs: [{
+            cropRect: {
+                x: 0,
+                y: 0,
+                width: targetWidth,
+                height: targetHeight,
+            },
+            contentTransform: {
+                scale,
+                translateX: -placedX,
+                translateY: -placedY,
+            },
+        }],
+    };
+}
+
+function nativeOptions(
+    dpi,
+    sourceDpi,
+    requestedRenderDpi,
+    outputMode = 'auto',
+    sourceHasBilevelLayer = false,
+    sourceBackgroundDpi,
+) {
     return {
         dpi,
         sourceDpi,
+        ...(sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
+        ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
         requestedRenderDpi,
         binarization: 'auto',
         thickness: 0,
@@ -296,6 +768,17 @@ function tonalJpegQuality(mode) {
 }
 
 async function rasterize(pdfPath, pageNumber, dpi, outputPrefix) {
+    const outputPath = `${outputPrefix}.png`;
+    if (await readableFile(outputPath)) {
+        try {
+            const header = await readPngHeader(outputPath);
+            if (header.width > 0 && header.height > 0) {
+                return outputPath;
+            }
+        } catch {
+            // A prior interrupted raster is not reusable; Poppler will replace it.
+        }
+    }
     await run('pdftoppm', [
         '-f',
         String(pageNumber),
@@ -308,7 +791,7 @@ async function rasterize(pdfPath, pageNumber, dpi, outputPrefix) {
         pdfPath,
         outputPrefix,
     ]);
-    return `${outputPrefix}.png`;
+    return outputPath;
 }
 
 async function readPngHeader(path) {
@@ -369,6 +852,15 @@ async function runSidecar(manifestPath) {
     if (terminal?.result?.status !== 'success') {
         throw new Error(`Scan-cleanup sidecar did not report success: ${result.stdout}`);
     }
+    return result;
+}
+
+async function clearRenderTargets(pages) {
+    const paths = pages.flatMap(page => [
+        page.pageMetadataPath,
+        ...page.outputs.flatMap(output => Object.values(output)),
+    ]);
+    await Promise.all(paths.map(path => rm(path, {force: true})));
 }
 
 async function readableFile(path) {
@@ -380,16 +872,55 @@ async function readableFile(path) {
     }
 }
 
-function parsePdfImages(output) {
+export function parsePdfImages(output) {
     return output.split(/\r?\n/u)
         .map(line => line.trim().split(/\s+/u))
         .filter(parts => Number.isSafeInteger(Number(parts[0])) && parts.length >= 14)
         .map(parts => ({
             bitsPerComponent: Number(parts[7]),
             encoding: parts[8],
+            height: Number(parts[4]),
+            number: Number(parts[1]),
+            objectId: Number(parts[10]),
             page: Number(parts[0]),
             type: parts[2],
+            width: Number(parts[3]),
+            xDpi: Number(parts[12]),
+            yDpi: Number(parts[13]),
         }));
+}
+
+export function parseQpdfPageContentCounts(output) {
+    const pages = [];
+    let currentPage = null;
+    let readingContent = false;
+    for (const line of output.split(/\r?\n/u)) {
+        const pageMatch = line.match(/^page\s+(\d+):/u);
+        if (pageMatch) {
+            currentPage = {
+                contentStreamCount: 0,
+                pageNumber: Number.parseInt(pageMatch[1], 10),
+            };
+            pages.push(currentPage);
+            readingContent = false;
+            continue;
+        }
+        if (currentPage === null) {
+            continue;
+        }
+        if (/^\s+content:\s*$/u.test(line)) {
+            readingContent = true;
+            continue;
+        }
+        if (readingContent && /^\s{4,}\d+\s+\d+\s+R\s*$/u.test(line)) {
+            currentPage.contentStreamCount += 1;
+            continue;
+        }
+        if (line.trim() !== '') {
+            readingContent = false;
+        }
+    }
+    return pages;
 }
 
 function parseMediaBoxes(output) {
@@ -399,6 +930,50 @@ function parseMediaBoxes(output) {
             Number(match[1]),
             Number(match[2]),
         ]] : [];
+    });
+}
+
+export function parseConnectedComponents(output) {
+    return output.split(/\r?\n/u).flatMap(line => {
+        const match = /^\s*\d+:\s+(\d+)x(\d+)\+(\d+)\+(\d+)\s+[\d.]+,[\d.]+\s+([\d.e+-]+)\s+gray\(([^)]+)\)/iu.exec(line);
+        if (!match) {
+            return [];
+        }
+        return [{
+            area: Number(match[5]),
+            gray: Number(match[6]),
+            height: Number(match[2]),
+            left: Number(match[3]),
+            top: Number(match[4]),
+            width: Number(match[1]),
+        }];
+    });
+}
+
+export function scannerBoundaryComponents(components, width, height, dpi) {
+    const minimumThickness = Math.max(2, Math.round(dpi * 0.6 / 25.4));
+    const minimumArea = Math.max(24, Math.round(dpi * dpi * 12 / (25.4 * 25.4)));
+    const boundaryDepth = Math.max(8, Math.round(dpi * 32 / 25.4));
+    const boundaryContact = Math.max(6, Math.round(dpi * 30 / 25.4));
+    // The artifact-level gate targets catastrophic page-spanning rails and
+    // crescents. Smaller edge components can be legitimate titles, folios, or
+    // marginal notes; ownership-aware suppression is tested inside the native
+    // renderer for those ambiguous cases.
+    const minimumBoundarySpan = Math.max(24, Math.round(dpi * 40 / 25.4));
+    return components.filter(component => {
+        if (component.gray > 32 || component.area < minimumArea) {
+            return false;
+        }
+        const right = component.left + component.width - 1;
+        const leftBoundary = component.left <= boundaryContact
+            && right <= boundaryDepth
+            && component.height >= minimumBoundarySpan
+            && component.width >= minimumThickness;
+        const rightBoundary = width - 1 - right <= boundaryContact
+            && width - component.left <= boundaryDepth
+            && component.height >= minimumBoundarySpan
+            && component.width >= minimumThickness;
+        return leftBoundary || rightBoundary;
     });
 }
 
@@ -418,87 +993,299 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     const fixtureDir = join(workRoot, fixture.id);
     await mkdir(fixtureDir, {recursive: true});
     console.log(`\n${fixture.id}`);
+    const sourcePageBoxes = parsePdfPageBoxes((await run('pdfinfo', [
+        '-f',
+        String(Math.min(...fixture.pages)),
+        '-l',
+        String(Math.max(...fixture.pages)),
+        '-box',
+        fixture.pdfPath,
+    ])).stdout);
 
-    const pageRuns = [];
-    for (const pageNumber of fixture.pages) {
-        const dpiListing = await run('pdfimages', [
-            '-f',
-            String(pageNumber),
-            '-l',
-            String(pageNumber),
-            '-list',
-            fixture.pdfPath,
-        ]);
-        const {
-            detected: sourceDpiDetected,
-            dpi: sourceDpi,
-        } = parseDominantSourceDpi(dpiListing.stdout, pageNumber);
-        const sourceRaster = await rasterize(
-            fixture.pdfPath,
-            pageNumber,
-            sourceDpi,
-            join(fixtureDir, `source-${pageNumber}-${sourceDpi}dpi`),
-        );
-        const analysisMetadataPath = join(fixtureDir, `analysis-${pageNumber}.json`);
-        const analysisManifestPath = join(fixtureDir, `analysis-${pageNumber}-manifest.json`);
-        await writeFile(analysisManifestPath, JSON.stringify({
-            version: 3,
-            operation: 'analyze',
-            renderMode: 'final',
-            canvasScope: 'page',
-            pages: [{
-                inputPath: sourceRaster,
-                sourcePageIndex: pageNumber - 1,
-                pageMetadataPath: analysisMetadataPath,
-                options: nativeOptions(sourceDpi, sourceDpi, sourceDpi),
-                outputs: [],
-            }],
-        }, null, 2));
-        await runSidecar(analysisManifestPath);
-        const analysis = JSON.parse(await readFile(analysisMetadataPath, 'utf8'));
-        const supersampled = analysis.recommendedOutputMode === 'bw'
-            || analysis.recommendedOutputMode === 'mixed';
-        const requestedRenderDpi = supersampled && !sourceDpiDetected
-            ? Math.max(sourceDpi, 600)
-            : sourceDpi;
-        const renderDpi = supersampled
-            ? resolveSafeRenderDpi(
-                requestedRenderDpi,
-                analysis.recommendedOutputMode === 'bw'
-                    ? MAX_BILEVEL_PIXELS
-                    : MAX_CONTINUOUS_TONE_PIXELS,
-                sourceDpi,
-                await readPngHeader(sourceRaster),
-            )
-            : sourceDpi;
-        const renderRaster = renderDpi === sourceDpi
-            ? sourceRaster
-            : await rasterize(
+    const rasterRuns = await mapWithConcurrency(
+        fixture.pages,
+        corpusPageConcurrency,
+        async pageNumber => {
+            const dpiListing = await run('pdfimages', [
+                '-f',
+                String(pageNumber),
+                '-l',
+                String(pageNumber),
+                '-list',
+                fixture.pdfPath,
+            ]);
+            const {
+                detected: sourceDpiDetected,
+                dpi: sourceDpi,
+                hasBilevelLayer: sourceHasBilevelLayer,
+                backgroundDpi: sourceBackgroundDpi,
+            } = parseDominantSourceDpi(dpiListing.stdout, pageNumber);
+            const sourceRaster = await rasterize(
                 fixture.pdfPath,
                 pageNumber,
-                renderDpi,
-                join(fixtureDir, `render-${pageNumber}-${renderDpi}dpi`),
+                sourceDpi,
+                join(fixtureDir, `source-${pageNumber}-${sourceDpi}dpi`),
             );
-        pageRuns.push({
-            analysis,
-            pageNumber,
-            renderDpi,
-            renderRaster,
-            requestedRenderDpi,
-            sourceDpi,
-        });
-    }
+            const detectionDpi = Math.min(DETECTION_DPI, sourceDpi);
+            const detectionRaster = detectionDpi === sourceDpi
+                ? sourceRaster
+                : await rasterize(
+                    fixture.pdfPath,
+                    pageNumber,
+                    detectionDpi,
+                    join(fixtureDir, `detection-${pageNumber}-${detectionDpi}dpi`),
+                );
+            const detectionDimensions = await readPngHeader(detectionRaster);
+            return {
+                detectionDpi,
+                detectionDimensions,
+                detectionRaster,
+                pageNumber,
+                sourceDpi,
+                sourceDpiDetected,
+                sourceHasBilevelLayer,
+                sourceBackgroundDpi,
+                sourceRaster,
+            };
+        },
+    );
+    const detectionAnalysisManifestPath = join(
+        fixtureDir,
+        'detection-analysis-manifest.json',
+    );
+    await writeFile(detectionAnalysisManifestPath, JSON.stringify({
+        version: 3,
+        operation: 'analyze',
+        renderMode: 'final',
+        canvasScope: 'page',
+        pages: rasterRuns.map(page => ({
+            inputPath: page.detectionRaster,
+            sourcePageIndex: page.pageNumber - 1,
+            pageMetadataPath: join(fixtureDir, `analysis-${page.pageNumber}.json`),
+            options: nativeOptions(
+                page.detectionDpi,
+                page.sourceDpi,
+                page.detectionDpi,
+                'auto',
+                page.sourceHasBilevelLayer,
+                page.sourceBackgroundDpi,
+            ),
+            outputs: [],
+        })),
+    }, null, 2));
+    const detectionAnalysisRun = await runSidecar(detectionAnalysisManifestPath);
+    await Promise.all([
+        writeFile(
+            join(fixtureDir, 'detection-analysis-stdout.jsonl'),
+            detectionAnalysisRun.stdout,
+        ),
+        writeFile(
+            join(fixtureDir, 'detection-analysis-stderr.jsonl'),
+            detectionAnalysisRun.stderr,
+        ),
+    ]);
+    const analyzedRuns = await Promise.all(rasterRuns.map(async page => ({
+        ...page,
+        analysis: JSON.parse(
+            await readFile(join(fixtureDir, `analysis-${page.pageNumber}.json`), 'utf8'),
+        ),
+    })));
+    const renderedRuns = await mapWithConcurrency(
+        analyzedRuns,
+        corpusPageConcurrency,
+        async page => {
+            const {
+                analysis,
+                pageNumber,
+                sourceDpi,
+                sourceDpiDetected,
+                sourceHasBilevelLayer,
+                sourceRaster,
+            } = page;
+            const supersampled = analysis.recommendedOutputMode === 'bw'
+            || analysis.recommendedOutputMode === 'mixed';
+            const requestedRenderDpi = supersampled && !sourceDpiDetected
+                ? Math.max(sourceDpi, 600)
+                : sourceDpi;
+            const renderDpi = supersampled
+                ? resolveSafeRenderDpi(
+                    requestedRenderDpi,
+                    analysis.recommendedOutputMode === 'bw'
+                        ? MAX_BILEVEL_PIXELS
+                        : MAX_CONTINUOUS_TONE_PIXELS,
+                    sourceDpi,
+                    await readPngHeader(sourceRaster),
+                )
+                : sourceDpi;
+            const renderRaster = renderDpi === sourceDpi
+                ? sourceRaster
+                : await rasterize(
+                    fixture.pdfPath,
+                    pageNumber,
+                    renderDpi,
+                    join(fixtureDir, `render-${pageNumber}-${renderDpi}dpi`),
+                );
+            const trustedMrcLayers = sourceHasBilevelLayer
+                && (
+                    analysis.recommendedOutputMode === 'bw'
+                    || analysis.recommendedOutputMode === 'mixed'
+                )
+                ? await extractMrcLayers(
+                    fixture.pdfPath,
+                    pageNumber,
+                    join(fixtureDir, `source-${pageNumber}-mrc-selection.jb2e`),
+                    join(fixtureDir, `source-${pageNumber}-mrc-background.png`),
+                    join(fixtureDir, `source-${pageNumber}-mrc-foreground.jp2`),
+                )
+                : null;
+            const finalAnalysisMetadataPath = join(
+                fixtureDir,
+                `final-input-analysis-${pageNumber}.json`,
+            );
+            return {
+                ...page,
+                finalAnalysisMetadataPath,
+                renderDpi,
+                renderRaster,
+                requestedRenderDpi,
+                trustedMrcLayers,
+            };
+        },
+    );
+    const finalAnalysisManifestPath = join(
+        fixtureDir,
+        'final-input-analysis-manifest.json',
+    );
+    await writeFile(finalAnalysisManifestPath, JSON.stringify({
+        version: 3,
+        operation: 'analyze',
+        renderMode: 'final',
+        canvasScope: 'page',
+        pages: renderedRuns.map(page => ({
+            inputPath: page.renderRaster,
+            sourcePageIndex: page.pageNumber - 1,
+            pageMetadataPath: page.finalAnalysisMetadataPath,
+            options: nativeOptions(
+                page.renderDpi,
+                page.sourceDpi,
+                page.requestedRenderDpi,
+                'auto',
+                page.sourceHasBilevelLayer,
+                page.sourceBackgroundDpi,
+            ),
+            outputs: [],
+        })),
+    }, null, 2));
+    const finalAnalysisRun = await runSidecar(finalAnalysisManifestPath);
+    await Promise.all([
+        writeFile(
+            join(fixtureDir, 'final-input-analysis-stdout.jsonl'),
+            finalAnalysisRun.stdout,
+        ),
+        writeFile(
+            join(fixtureDir, 'final-input-analysis-stderr.jsonl'),
+            finalAnalysisRun.stderr,
+        ),
+    ]);
+    const pageRuns = await Promise.all(renderedRuns.map(async page => ({
+        ...page,
+        finalInputAnalysis: JSON.parse(
+            await readFile(page.finalAnalysisMetadataPath, 'utf8'),
+        ),
+    })));
 
-    const renderPages = pageRuns.map(page => ({
+    const previewPages = pageRuns.map(page => ({
+        inputPath: page.detectionRaster,
+        ...(page.trustedMrcLayers === null
+            ? {}
+            : {
+                trustedForegroundMaskPath: page.trustedMrcLayers.selectionMaskPath,
+                trustedMrcBackgroundPath: page.trustedMrcLayers.backgroundPath,
+            }),
+        sourcePageIndex: page.pageNumber - 1,
+        pageMetadataPath: join(fixtureDir, `preview-${page.pageNumber}-page.json`),
+        options: {
+            ...nativeOptions(
+                page.detectionDpi,
+                page.sourceDpi,
+                page.detectionDpi,
+                page.analysis.recommendedOutputMode,
+                page.sourceHasBilevelLayer,
+                page.sourceBackgroundDpi,
+            ),
+            ...(page.analysis.softAlphaForegroundRecommendation === undefined
+                ? {}
+                : {preferSoftAlphaForeground:
+                    page.analysis.softAlphaForegroundRecommendation}),
+            // The UI preview is rendered in intrinsic output space. Matched
+            // document canvases are a final-PDF assembly concern and require a
+            // documentCanvas plan that is not available until all sheets exist.
+            matchPageSize: false,
+            ...reusablePagePlan(page.analysis, [], page.detectionDimensions),
+        },
+        outputs: [
+            0,
+            1,
+        ].map(index => ({
+            outputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}.png`),
+            metadataPath: join(fixtureDir, `preview-${page.pageNumber}-${index}.json`),
+            bilevelOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}.pbm`),
+            backgroundOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}-background.png`),
+            foregroundMaskOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}-mask.pbm`),
+            foregroundAlphaOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}-alpha.pgm`),
+            pictureMaskOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}-picture-mask.pbm`),
+        })),
+    }));
+    const previewManifestPath = join(fixtureDir, 'preview-render-manifest.json');
+    await writeFile(previewManifestPath, JSON.stringify({
+        version: 3,
+        operation: 'render',
+        renderMode: 'preview',
+        canvasScope: 'page',
+        pages: previewPages,
+    }, null, 2));
+    await clearRenderTargets(previewPages);
+    await runSidecar(previewManifestPath);
+    const previewRuns = await Promise.all(pageRuns.map(async (page, pageIndex) => {
+        const previewOutputs = [];
+        for (const output of previewPages[pageIndex].outputs) {
+            if (!await readableFile(output.metadataPath)) continue;
+            previewOutputs.push(JSON.parse(await readFile(output.metadataPath, 'utf8')));
+        }
+        if (previewOutputs.length === 0) {
+            throw new Error(`Preview plan for page ${page.pageNumber} produced no output metadata`);
+        }
+        return {
+            ...page,
+            previewOutputs,
+        };
+    }));
+
+    const renderPages = previewRuns.map(page => ({
         inputPath: page.renderRaster,
+        ...(page.trustedMrcLayers === null
+            ? {}
+            : {
+                trustedForegroundMaskPath: page.trustedMrcLayers.selectionMaskPath,
+                trustedMrcBackgroundPath: page.trustedMrcLayers.backgroundPath,
+            }),
         sourcePageIndex: page.pageNumber - 1,
         pageMetadataPath: join(fixtureDir, `clean-${page.pageNumber}-page.json`),
-        options: nativeOptions(
-            page.renderDpi,
-            page.sourceDpi,
-            page.requestedRenderDpi,
-            page.analysis.recommendedOutputMode,
-        ),
+        options: {
+            ...nativeOptions(
+                page.renderDpi,
+                page.sourceDpi,
+                page.requestedRenderDpi,
+                page.analysis.recommendedOutputMode,
+                page.sourceHasBilevelLayer,
+                page.sourceBackgroundDpi,
+            ),
+            ...(page.analysis.softAlphaForegroundRecommendation === undefined
+                ? {}
+                : {preferSoftAlphaForeground:
+                    page.analysis.softAlphaForegroundRecommendation}),
+            ...reusablePagePlan(page.analysis, page.previewOutputs, page.detectionDimensions),
+        },
         outputs: [
             0,
             1,
@@ -508,16 +1295,22 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             bilevelOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}.pbm`),
             backgroundOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-background.png`),
             foregroundMaskOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-mask.pbm`),
+            foregroundAlphaOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-alpha.pgm`),
+            pictureMaskOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-picture-mask.pbm`),
+            tonePreservationAlphaOutputPath: join(
+                fixtureDir,
+                `clean-${page.pageNumber}-${index}-tone-preservation-alpha.png`,
+            ),
         })),
     }));
-    const sourceSheets = pageRuns.flatMap(page => page.analysis.outputs.map(output => ({
-        heightPoints: output.sourceRegion.heightPx / page.sourceDpi * 72,
-        widthPoints: output.sourceRegion.widthPx / page.sourceDpi * 72,
+    const sourceSheets = previewRuns.flatMap(page => page.previewOutputs.map(output => ({
+        heightPoints: output.sourceRegion.heightPx / page.detectionDpi * 72,
+        widthPoints: output.sourceRegion.widthPx / page.detectionDpi * 72,
     })));
     if (sourceSheets.length === 0) {
         throw new Error(`Fixture "${fixture.id}" produced no source sheets to match`);
     }
-    const canvasDpi = Math.max(...pageRuns.map(page => page.renderDpi));
+    const canvasDpi = Math.max(...previewRuns.map(page => page.renderDpi));
     const documentCanvas = {
         heightPoints: Math.max(...sourceSheets.map(sheet => sheet.heightPoints)),
         widthPoints: Math.max(...sourceSheets.map(sheet => sheet.widthPoints)),
@@ -535,13 +1328,15 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         },
         pages: renderPages,
     }, null, 2));
+    await clearRenderTargets(renderPages);
     await runSidecar(renderManifestPath);
 
     const combinedPages = [];
+    const planParityFailures = [];
     for (const [
         pageIndex,
         page,
-    ] of pageRuns.entries()) {
+    ] of previewRuns.entries()) {
         const renderPage = renderPages[pageIndex];
         const expectedPage = expectedFixture?.pages?.[String(page.pageNumber)];
         const outputFiles = [];
@@ -550,14 +1345,30 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             // metadata beside it, so its absence means the half was skipped.
             if (!await readableFile(output.metadataPath)) continue;
             const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8'));
+            const parityFailures = pagePlanParityFailures(page.analysis, page.previewOutputs, metadata);
+            planParityFailures.push(...parityFailures.map(failure => (
+                `page ${page.pageNumber} ${metadata.half}: ${failure}`
+            )));
             const bilevelPath = metadata.bilevelWritten && await readableFile(output.bilevelOutputPath)
                 ? output.bilevelOutputPath
                 : null;
             const layered = metadata.layeredWritten
                 && await readableFile(output.backgroundOutputPath)
-                && await readableFile(output.foregroundMaskOutputPath);
+                && (
+                    metadata.layeredForegroundKind === 'soft-alpha'
+                        ? await readableFile(output.foregroundAlphaOutputPath)
+                        : await readableFile(output.foregroundMaskOutputPath)
+                );
             const backgroundPath = layered ? output.backgroundOutputPath : null;
-            const foregroundMaskPath = layered ? output.foregroundMaskOutputPath : null;
+            const foregroundMaskPath = layered && metadata.layeredForegroundKind !== 'soft-alpha'
+                ? output.foregroundMaskOutputPath
+                : null;
+            const foregroundAlphaPath = layered && metadata.layeredForegroundKind === 'soft-alpha'
+                ? output.foregroundAlphaOutputPath
+                : null;
+            const pictureMaskPath = await readableFile(output.pictureMaskOutputPath)
+                ? output.pictureMaskOutputPath
+                : null;
             const backgroundIsColor = backgroundPath
                 ? (await readPngHeader(backgroundPath)).isColor
                 : false;
@@ -566,6 +1377,8 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 backgroundPath,
                 bilevelPath,
                 foregroundMaskPath,
+                foregroundAlphaPath,
+                pictureMaskPath,
                 metadata,
                 outputPath: output.outputPath,
             });
@@ -574,10 +1387,15 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 backgroundPath,
                 bilevelPath,
                 foregroundMaskPath,
+                foregroundAlphaPath,
+                pictureMaskPath,
                 metadata,
                 mode: page.analysis.recommendedOutputMode,
                 outputPath: output.outputPath,
                 renderDpi: metadata.renderDpi ?? page.renderDpi,
+                sourceHasBilevelLayer: page.sourceHasBilevelLayer,
+                sourcePageNumber: page.pageNumber,
+                trustedMrcLayers: page.trustedMrcLayers,
             });
         }
         if (expectedPage) {
@@ -604,14 +1422,48 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             );
         }
     }
+    report.add(
+        '150-DPI preview plan matches final render',
+        planParityFailures.length === 0,
+        planParityFailures.length === 0
+            ? `${combinedPages.length} output(s) preserve mode, crop, skew, and text-tone identity`
+            : planParityFailures.slice(0, 8).join('; '),
+    );
+    const missingDiagnosticsPages = pageRuns
+        .filter(page => page.analysis.outputModeDiagnostics === undefined)
+        .map(page => page.pageNumber);
+    report.add(
+        'automatic decision evidence coverage',
+        missingDiagnosticsPages.length === 0,
+        missingDiagnosticsPages.length === 0
+            ? `${pageRuns.length}/${pageRuns.length} page(s)`
+            : `missing pages ${missingDiagnosticsPages.slice(0, 20).join(', ')}`,
+    );
+    const modeEvidence = crossResolutionModeEvidence(pageRuns);
+    report.add(
+        '150-DPI Auto mode preserves material final-input evidence',
+        modeEvidence.destructivePages.length === 0,
+        modeEvidence.destructivePages.length === 0
+            ? `${pageRuns.length}/${pageRuns.length} page(s)`
+            : modeEvidence.destructivePages.slice(0, 20).join(', '),
+    );
+    report.add(
+        'cross-resolution Auto mode differences are conservative',
+        modeEvidence.destructivePages.length === 0,
+        modeEvidence.unstablePages.length === 0
+            ? 'exact agreement'
+            : modeEvidence.unstablePages.slice(0, 20).join(', '),
+    );
 
     const compactManifestPath = join(fixtureDir, 'combine-manifest.tsv');
     await writeFile(compactManifestPath, combinedPages.map(page => {
+        const pageWidthPoints = page.metadata.matchedCanvasTargetWidthPoints
+            ?? page.metadata.canvasWidthPx / page.renderDpi * 72;
+        const pageHeightPoints = page.metadata.matchedCanvasTargetHeightPoints
+            ?? page.metadata.canvasHeightPx / page.renderDpi * 72;
         const pageSize = [
-            (page.metadata.matchedCanvasTargetWidthPoints
-            ?? page.metadata.canvasWidthPx / page.renderDpi * 72).toFixed(6),
-            (page.metadata.matchedCanvasTargetHeightPoints
-            ?? page.metadata.canvasHeightPx / page.renderDpi * 72).toFixed(6),
+            pageWidthPoints.toFixed(6),
+            pageHeightPoints.toFixed(6),
         ];
         if (page.bilevelPath) {
             return [
@@ -621,12 +1473,38 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             ].join('\t');
         }
         if (page.backgroundPath && page.foregroundMaskPath) {
+            if (page.metadata.layeredForegroundKind === 'source-mrc') {
+                const matrix = sourceMrcForegroundPdfMatrix(
+                    page,
+                    pageWidthPoints,
+                    pageHeightPoints,
+                );
+                return [
+                    'affine-masked-layered-jpeg',
+                    ...pageSize,
+                    page.backgroundIsColor ? 87 : 85,
+                    page.backgroundPath,
+                    page.trustedMrcLayers.foregroundPath,
+                    page.trustedMrcLayers.selectionMaskPath,
+                    ...matrix.map(value => value.toFixed(10)),
+                    page.trustedMrcLayers.selectionMaskDecode,
+                ].join('\t');
+            }
             return [
                 'layered-jpeg',
                 ...pageSize,
                 page.backgroundIsColor ? 87 : 85,
                 page.backgroundPath,
                 page.foregroundMaskPath,
+            ].join('\t');
+        }
+        if (page.backgroundPath && page.foregroundAlphaPath) {
+            return [
+                'soft-layered-jpeg',
+                ...pageSize,
+                page.backgroundIsColor ? 87 : 85,
+                page.backgroundPath,
+                page.foregroundAlphaPath,
             ].join('\t');
         }
         const jpegQuality = page.metadata.bilevelWritten ? null : tonalJpegQuality(page.mode);
@@ -643,14 +1521,82 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 page.outputPath,
             ].join('\t');
     }).join('\n') + '\n');
+    // Auto keeps compact source pages whose raster content did not change.
+    // JPEG 2000 compatibility is classified separately; it is not a reason to
+    // transcode a quality-bearing source layer or expand the document.
+    const compactSourceInstructions = combinedPages.map(page =>
+        compactSourceInstruction(page, sourcePageBoxes.get(page.sourcePageNumber)),
+    );
+    const preservedInstructions = compactSourceInstructions.filter(Boolean);
     const outputPdfPath = join(fixtureDir, `${fixture.id}.pdf`);
+    const rasterizedPdfPath = preservedInstructions.length > 0
+        ? join(fixtureDir, `${fixture.id}-rasterized.pdf`)
+        : outputPdfPath;
     const combine = await run(defaultCombineBinary, [
         '--output',
-        outputPdfPath,
+        rasterizedPdfPath,
         '--compact-manifest',
         compactManifestPath,
         '--json-progress',
     ], {env: {EVB_PDF_COMBINE_TIMING: '1'}});
+    await Promise.all([
+        writeFile(join(fixtureDir, 'combine-stdout.jsonl'), combine.stdout),
+        writeFile(join(fixtureDir, 'combine-stderr.jsonl'), combine.stderr),
+    ]);
+    if (preservedInstructions.length > 0) {
+        const instructionsPath = join(fixtureDir, 'preserved-source-pages.json');
+        const preservedPdfPath = join(fixtureDir, 'preserved-source-pages.pdf');
+        await writeFile(instructionsPath, JSON.stringify({pages: preservedInstructions}, null, 2));
+        await run(defaultPageOpsBinary, [
+            'split-pages',
+            '--input',
+            fixture.pdfPath,
+            '--output',
+            preservedPdfPath,
+            '--instructions-file',
+            instructionsPath,
+        ]);
+        const qpdfArgs = [
+            '--empty',
+            '--coalesce-contents',
+            '--pages',
+        ];
+        let preservedPageNumber = 0;
+        for (const [
+            index,
+            instruction,
+        ] of compactSourceInstructions.entries()) {
+            if (instruction) {
+                preservedPageNumber += 1;
+                qpdfArgs.push(preservedPdfPath, String(preservedPageNumber));
+            } else {
+                qpdfArgs.push(rasterizedPdfPath, String(index + 1));
+            }
+        }
+        qpdfArgs.push('--', outputPdfPath);
+        await run('qpdf', qpdfArgs);
+        report.add(
+            'compact source-layer retention',
+            true,
+            `${preservedInstructions.length} automatic page(s) kept their original image objects`,
+        );
+    }
+    const pageStructure = await run('qpdf', [
+        '--show-pages',
+        outputPdfPath,
+    ]);
+    await writeFile(join(fixtureDir, 'qpdf-show-pages.txt'), pageStructure.stdout);
+    const pageContentCounts = parseQpdfPageContentCounts(pageStructure.stdout);
+    const missingContentPages = pageContentCounts.filter(page => page.contentStreamCount < 1);
+    report.add(
+        'output pages expose at least one content stream each',
+        pageContentCounts.length === combinedPages.length && missingContentPages.length === 0,
+        missingContentPages.length === 0
+            ? `${pageContentCounts.length} page(s), all non-empty`
+            : `missing content streams: ${missingContentPages.map(page =>
+                `${page.pageNumber}:${page.contentStreamCount}`,
+            ).join(', ')}`,
+    );
     const timings = combine.stderr.split(/\r?\n/u).flatMap(line => {
         try {
             const value = JSON.parse(line);
@@ -671,14 +1617,212 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             pdfPage: index + 1,
         }))
         .filter(page => page.foregroundMaskPath);
-    const maskPages = [
-        ...bilevelPages,
-        ...layeredPages,
-    ];
-    const imageListing = parsePdfImages((await run('pdfimages', [
+    const imageListingResult = await run('pdfimages', [
         '-list',
         outputPdfPath,
-    ])).stdout);
+    ]);
+    await writeFile(join(fixtureDir, 'pdfimages-list.txt'), imageListingResult.stdout);
+    const imageListing = parsePdfImages(imageListingResult.stdout);
+    const sourceImageListingResult = await run('pdfimages', [
+        '-list',
+        fixture.pdfPath,
+    ]);
+    await writeFile(join(fixtureDir, 'source-pdfimages-list.txt'), sourceImageListingResult.stdout);
+    const sourceImageListing = parsePdfImages(sourceImageListingResult.stdout);
+    const sourceRawPrefix = join(fixtureDir, 'source-raw-stream');
+    const outputRawPrefix = join(fixtureDir, 'output-raw-stream');
+    await Promise.all([
+        run('pdfimages', [
+            '-all',
+            fixture.pdfPath,
+            sourceRawPrefix,
+        ]),
+        run('pdfimages', [
+            '-all',
+            outputPdfPath,
+            outputRawPrefix,
+        ]),
+    ]);
+    const compactStreamHashes = [];
+    const pageClassSizeBudgets = [];
+    for (const [
+        outputPageIndex,
+        page,
+    ] of combinedPages.entries()) {
+        const expectsPreservedMrc = page.metadata.layeredForegroundKind === 'source-mrc'
+            || compactSourceInstructions[outputPageIndex] !== null;
+        if (!expectsPreservedMrc) {
+            continue;
+        }
+        const sourcePair = selectMrcStreamPair(sourceImageListing, page.sourcePageNumber);
+        const outputPair = selectMrcStreamPair(imageListing, outputPageIndex + 1);
+        if (sourcePair === null || outputPair === null) {
+            report.add(
+                `output page ${String(outputPageIndex + 1)} compact stream identity`,
+                false,
+                sourcePair === null
+                    ? 'source JPX/JBIG2 MRC pair not found'
+                    : 'output JPX/JBIG2 MRC pair not found',
+            );
+            continue;
+        }
+        const sourceForegroundPath = extractedStreamPath(
+            sourceRawPrefix,
+            sourcePair.foreground,
+            'jp2',
+        );
+        const outputForegroundPath = extractedStreamPath(
+            outputRawPrefix,
+            outputPair.foreground,
+            'jp2',
+        );
+        const sourceMaskPath = extractedStreamPath(sourceRawPrefix, sourcePair.mask, 'jb2e');
+        const outputMaskPath = extractedStreamPath(outputRawPrefix, outputPair.mask, 'jb2e');
+        const [
+            sourceForegroundHash,
+            outputForegroundHash,
+            sourceMaskHash,
+            outputMaskHash,
+        ] = await Promise.all([
+            sha256File(sourceForegroundPath),
+            sha256File(outputForegroundPath),
+            sha256File(sourceMaskPath),
+            sha256File(outputMaskPath),
+        ]);
+        const hashesMatch = sourceForegroundHash === outputForegroundHash
+            && sourceMaskHash === outputMaskHash;
+        compactStreamHashes.push({
+            outputPageNumber: outputPageIndex + 1,
+            sourcePageNumber: page.sourcePageNumber,
+            foreground: {
+                outputSha256: outputForegroundHash,
+                sourceSha256: sourceForegroundHash,
+            },
+            mask: {
+                outputSha256: outputMaskHash,
+                sourceSha256: sourceMaskHash,
+            },
+            passed: hashesMatch,
+        });
+        const sourceBackgroundImages = sourceImageListing.filter(image =>
+            image.page === page.sourcePageNumber
+            && image.type === 'image'
+            && image.bitsPerComponent > 1
+            && image.number !== sourcePair.foreground.number,
+        );
+        const outputBackgroundImages = imageListing.filter(image =>
+            image.page === outputPageIndex + 1
+            && image.type === 'image'
+            && image.bitsPerComponent > 1
+            && image.number !== outputPair.foreground.number,
+        );
+        const [
+            sourceBackgroundBytes,
+            outputBackgroundBytes,
+        ] = await Promise.all([
+            extractedImageBytes(sourceRawPrefix, sourceBackgroundImages),
+            extractedImageBytes(outputRawPrefix, outputBackgroundImages),
+        ]);
+        const maximumBackgroundBytes = Math.ceil(Math.max(
+            sourceBackgroundBytes * 1.5,
+            60 * 1024,
+        ));
+        const backgroundBudgetPassed = outputBackgroundBytes <= maximumBackgroundBytes;
+        pageClassSizeBudgets.push({
+            class: compactSourceInstructions[outputPageIndex] === null
+                ? 'cleaned-mrc'
+                : 'preserved-compact-source',
+            maximumBytes: maximumBackgroundBytes,
+            outputBytes: outputBackgroundBytes,
+            outputPageNumber: outputPageIndex + 1,
+            passed: backgroundBudgetPassed,
+            sourceBytes: sourceBackgroundBytes,
+        });
+        report.add(
+            `output page ${String(outputPageIndex + 1)} compact stream identity`,
+            hashesMatch,
+            hashesMatch
+                ? 'JPX foreground and JBIG2 mask are byte-identical to source'
+                : 'foreground or mask hash differs from source',
+        );
+        report.add(
+            `output page ${String(outputPageIndex + 1)} compact background budget`,
+            backgroundBudgetPassed,
+            `${String(outputBackgroundBytes)} B (maximum ${String(maximumBackgroundBytes)} B; `
+            + `${String(sourceBackgroundBytes)} B source background)`,
+        );
+    }
+    await writeFile(
+        join(fixtureDir, 'compact-stream-hash-audit.json'),
+        `${JSON.stringify(compactStreamHashes, null, 2)}\n`,
+    );
+    for (const [
+        outputPageIndex,
+        page,
+    ] of combinedPages.entries()) {
+        if (page.mode === 'bw') {
+            continue;
+        }
+        const sourceContinuousImages = sourceImageListing.filter(image =>
+            image.page === page.sourcePageNumber
+            && image.type === 'image'
+            && image.bitsPerComponent > 1,
+        );
+        const outputContinuousImages = imageListing.filter(image =>
+            image.page === outputPageIndex + 1
+            && image.type === 'image'
+            && image.bitsPerComponent > 1,
+        );
+        const maximumSourceWidth = Math.max(0, ...sourceContinuousImages.map(image => image.width));
+        const maximumSourceHeight = Math.max(0, ...sourceContinuousImages.map(image => image.height));
+        const oversized = outputContinuousImages.filter(image =>
+            image.width > maximumSourceWidth || image.height > maximumSourceHeight,
+        );
+        report.add(
+            `output page ${String(outputPageIndex + 1)} continuous-tone dimensions`,
+            sourceContinuousImages.length > 0
+                && outputContinuousImages.length > 0
+                && oversized.length === 0,
+            oversized.length === 0
+                ? `${outputContinuousImages.length} image(s) within source ${String(maximumSourceWidth)}x${String(maximumSourceHeight)}`
+                : `upscaled ${oversized.map(image => `${image.width}x${image.height}`).join(', ')}`,
+        );
+    }
+    for (const page of bilevelPages) {
+        const sourceImages = sourceImageListing.filter(image =>
+            image.page === page.sourcePageNumber,
+        );
+        const outputImages = imageListing.filter(image =>
+            image.page === page.pdfPage,
+        );
+        const [
+            sourcePageImageBytes,
+            outputPageImageBytes,
+        ] = await Promise.all([
+            extractedImageBytes(sourceRawPrefix, sourceImages),
+            extractedImageBytes(outputRawPrefix, outputImages),
+        ]);
+        const maximumBilevelBytes = Math.ceil(sourcePageImageBytes * 1.5);
+        const bilevelBudgetPassed = outputPageImageBytes <= maximumBilevelBytes;
+        pageClassSizeBudgets.push({
+            class: 'bilevel',
+            maximumBytes: maximumBilevelBytes,
+            outputBytes: outputPageImageBytes,
+            outputPageNumber: page.pdfPage,
+            passed: bilevelBudgetPassed,
+            sourceBytes: sourcePageImageBytes,
+        });
+        report.add(
+            `output page ${String(page.pdfPage)} bilevel stream budget`,
+            bilevelBudgetPassed,
+            `${String(outputPageImageBytes)} B (maximum ${String(maximumBilevelBytes)} B; `
+            + `${String(sourcePageImageBytes)} B source image streams)`,
+        );
+    }
+    await writeFile(
+        join(fixtureDir, 'page-class-size-budget.json'),
+        `${JSON.stringify(pageClassSizeBudgets, null, 2)}\n`,
+    );
     for (const page of bilevelPages) {
         const image = imageListing.find(candidate => candidate.page === page.pdfPage && candidate.type === 'image');
         report.add(
@@ -688,49 +1832,186 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         );
     }
     for (const page of layeredPages) {
-        const mask = imageListing.find(candidate =>
-            candidate.page === page.pdfPage
-            && candidate.type === 'stencil',
+        if (page.metadata.layeredForegroundKind === 'source-mrc') {
+            if (compactSourceInstructions[page.pdfPage - 1] !== null) {
+                report.add(
+                    `output page ${page.pdfPage} bypasses source-MRC reconstruction`,
+                    true,
+                    'whole source page selected; rendered source-fidelity audit remains authoritative',
+                );
+                continue;
+            }
+            const mask = imageListing.find(candidate =>
+                candidate.page === page.pdfPage
+                && candidate.type === 'smask',
+            );
+            const expectedWidth = page.trustedMrcLayers?.foregroundWidth;
+            const expectedHeight = page.trustedMrcLayers?.foregroundHeight;
+            const foreground = imageListing.find(candidate =>
+                candidate.page === page.pdfPage
+                && candidate.type === 'image'
+                && candidate.encoding === 'jpx'
+                && candidate.objectId === mask?.objectId
+                && candidate.width === expectedWidth
+                && candidate.height === expectedHeight,
+            );
+            const dimensionsMatch = foreground?.width === expectedWidth
+                && foreground?.height === expectedHeight
+                && mask?.width === expectedWidth
+                && mask?.height === expectedHeight;
+            const maskSharesForegroundObject = foreground !== undefined
+                && mask !== undefined
+                && foreground.objectId === mask.objectId;
+            report.add(
+                `output page ${page.pdfPage} preserves compact JPX foreground and 1-bit JBIG2 soft mask`,
+                foreground !== undefined
+                    && mask?.bitsPerComponent === 1
+                    && mask.encoding === 'jbig2'
+                    && dimensionsMatch
+                    && maskSharesForegroundObject,
+                foreground === undefined || mask === undefined
+                    ? 'foreground or soft mask missing'
+                    : `${foreground.width}x${foreground.height} ${foreground.encoding} + `
+                        + `${mask.bitsPerComponent}-bit ${mask.encoding} smask`,
+            );
+        } else {
+            const mask = imageListing.find(candidate =>
+                candidate.page === page.pdfPage
+                && candidate.type === 'stencil',
+            );
+            report.add(
+                `output page ${page.pdfPage} foreground mask is 1-bit JBIG2`,
+                mask?.bitsPerComponent === 1 && mask.encoding === 'jbig2',
+                mask ? `${mask.bitsPerComponent}-bit ${mask.encoding}` : 'no mask found',
+            );
+        }
+    }
+    // Reconstructed stencils can accidentally absorb a scanner boundary, so
+    // keep the geometric component heuristic for those pages. Source-MRC
+    // output does not publish this transformed intermediary: the final PDF
+    // uses the original source selection as an SMask under an affine matrix.
+    // Its authoritative gates are the JPX/SMask structure above and the
+    // rendered artifact audit below; applying the old heuristic to the unused
+    // intermediary falsely rejects legitimate map and photograph edges.
+    const reconstructedLayeredPages = layeredPages.filter(page =>
+        page.metadata.layeredForegroundKind !== 'source-mrc',
+    );
+    const sourceMrcLayeredCount = layeredPages.length - reconstructedLayeredPages.length;
+    const boundaryComponentAudits = await mapWithConcurrency(
+        reconstructedLayeredPages,
+        corpusPageConcurrency,
+        async page => {
+            const result = await run('magick', [
+                page.foregroundMaskPath,
+                '-define',
+                'connected-components:verbose=true',
+                '-connected-components',
+                '8',
+                'null:',
+            ]);
+            const components = parseConnectedComponents(`${result.stdout}\n${result.stderr}`);
+            return {
+                artifacts: scannerBoundaryComponents(
+                    components,
+                    page.metadata.canvasWidthPx,
+                    page.metadata.canvasHeightPx,
+                    page.renderDpi,
+                ),
+                page,
+            };
+        },
+    );
+    const boundaryArtifacts = boundaryComponentAudits.flatMap(({
+        artifacts,
+        page,
+    }) =>
+        artifacts.map(component => ({
+            ...component,
+            pdfPage: page.pdfPage,
+        })),
+    );
+    report.add(
+        'layered foregrounds contain no vertical scanner-boundary components',
+        boundaryArtifacts.length === 0,
+        boundaryArtifacts.length === 0
+            ? `${reconstructedLayeredPages.length} reconstructed layer(s) inspected; `
+                + `${sourceMrcLayeredCount} source-MRC layer(s) covered by exact-mask structure`
+            : boundaryArtifacts.slice(0, 8).map(component =>
+                `page ${String(component.pdfPage)} ${String(component.width)}x${String(component.height)}`
+                + `+${String(component.left)}+${String(component.top)} area=${String(component.area)}`,
+            ).join('; '),
+    );
+
+    if (bilevelPages.length > 0) {
+        const extractedPrefix = join(fixtureDir, 'extracted');
+        const firstBilevelPdfPage = Math.min(...bilevelPages.map(page => page.pdfPage));
+        const lastBilevelPdfPage = Math.max(...bilevelPages.map(page => page.pdfPage));
+        await run('pdfimages', [
+            '-f',
+            String(firstBilevelPdfPage),
+            '-l',
+            String(lastBilevelPdfPage),
+            '-png',
+            outputPdfPath,
+            extractedPrefix,
+        ]);
+        // `pdfimages -f/-l` restarts the extracted filename sequence at zero,
+        // even though `pdfimages -list` keeps the document-global `num`
+        // column. Map through the selected listing instead of confusing a
+        // later page's global image number with the local extraction index.
+        const extractedImages = imageListing.filter(candidate =>
+            candidate.page >= firstBilevelPdfPage
+            && candidate.page <= lastBilevelPdfPage,
         );
-        report.add(
-            `output page ${page.pdfPage} foreground mask is 1-bit JBIG2`,
-            mask?.bitsPerComponent === 1 && mask.encoding === 'jbig2',
-            mask ? `${mask.bitsPerComponent}-bit ${mask.encoding}` : 'no mask found',
-        );
+        for (const page of bilevelPages) {
+            // pdfimages numbers every embedded image, not every PDF page.
+            // Layered pages add a background and stencil, so pageNumber - 1
+            // points at the wrong file as soon as one precedes a bilevel page.
+            const embeddedImage = imageListing.find(candidate =>
+                candidate.page === page.pdfPage
+                && candidate.type === 'image',
+            );
+            const extractedIndex = embeddedImage === undefined
+                ? -1
+                : extractedImages.indexOf(embeddedImage);
+            const extractedPath = extractedIndex < 0
+                ? ''
+                : `${extractedPrefix}-${String(extractedIndex).padStart(3, '0')}.png`;
+            if (!extractedPath || !await readableFile(extractedPath)) {
+                report.add(
+                    `output page ${page.pdfPage} PBM roundtrip`,
+                    false,
+                    'embedded image extraction was not found',
+                );
+                continue;
+            }
+            const comparison = await run('compare', [
+                '-metric',
+                'AE',
+                page.bilevelPath,
+                extractedPath,
+                'null:',
+            ], {allowFailure: true});
+            const metricMatch = /^\s*([0-9.e+-]+)/iu.exec(comparison.stderr);
+            const absoluteError = metricMatch ? Number(metricMatch[1]) : Number.NaN;
+            report.add(
+                `output page ${page.pdfPage} PBM roundtrip`,
+                absoluteError === 0,
+                `absolute error ${Number.isFinite(absoluteError) ? absoluteError : comparison.stderr.trim()} (exit ${String(comparison.code)})`,
+            );
+        }
     }
 
-    const extractedPrefix = join(fixtureDir, 'extracted');
-    await run('pdfimages', [
-        '-png',
-        outputPdfPath,
-        extractedPrefix,
-    ]);
-    for (const page of bilevelPages) {
-        const extractedPath = `${extractedPrefix}-${String(page.pdfPage - 1).padStart(3, '0')}.png`;
-        const comparison = await run('compare', [
-            '-metric',
-            'AE',
-            page.bilevelPath,
-            extractedPath,
-            'null:',
-        ], {allowFailure: true});
-        const metricMatch = /^\s*([0-9.e+-]+)/iu.exec(comparison.stderr);
-        const absoluteError = metricMatch ? Number(metricMatch[1]) : Number.NaN;
-        report.add(
-            `output page ${page.pdfPage} PBM roundtrip`,
-            absoluteError === 0,
-            `absolute error ${Number.isFinite(absoluteError) ? absoluteError : comparison.stderr.trim()} (exit ${String(comparison.code)})`,
-        );
-    }
-
-    const boxes = parseMediaBoxes((await run('pdfinfo', [
+    const mediaBoxResult = await run('pdfinfo', [
         '-f',
         '1',
         '-l',
         String(combinedPages.length),
         '-box',
         outputPdfPath,
-    ])).stdout);
+    ]);
+    await writeFile(join(fixtureDir, 'pdfinfo-box.txt'), mediaBoxResult.stdout);
+    const boxes = parseMediaBoxes(mediaBoxResult.stdout);
     const boxKeys = new Set(boxes.map(box => box.map(value => value.toFixed(2)).join('x')));
     report.add(
         'uniform MediaBoxes',
@@ -738,7 +2019,61 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         boxes.length === 0 ? 'no MediaBoxes found' : [...boxKeys].join(', '),
     );
 
+    const artifactAuditDir = join(fixtureDir, 'artifact-audit');
+    const artifactAuditSummaryPath = join(artifactAuditDir, 'summary.json');
+    const sourcePageSequence = combinedPages
+        .map(page => String(page.sourcePageNumber))
+        .join(',');
+    const artifactAudit = await run('python3', [
+        join(projectRoot, 'scripts/diagnostics/scan-cleanup-artifact-audit.py'),
+        '--source-pdf',
+        fixture.pdfPath,
+        '--output-pdf',
+        outputPdfPath,
+        '--metadata-dir',
+        fixtureDir,
+        '--analysis-metadata-dir',
+        fixtureDir,
+        '--artifact-dir',
+        artifactAuditDir,
+        '--dpi',
+        String(DETECTION_DPI),
+        '--source-pages',
+        sourcePageSequence,
+        '--metadata-pages',
+        sourcePageSequence,
+        '--worst-count',
+        String(Math.min(48, combinedPages.length)),
+    ], {allowFailure: true});
+    await Promise.all([
+        writeFile(join(fixtureDir, 'artifact-audit-stdout.log'), artifactAudit.stdout),
+        writeFile(join(fixtureDir, 'artifact-audit-stderr.log'), artifactAudit.stderr),
+    ]);
+    const artifactAuditSummary = await readableFile(artifactAuditSummaryPath)
+        ? JSON.parse(await readFile(artifactAuditSummaryPath, 'utf8'))
+        : null;
+    const artifactFailures = artifactAuditSummary?.acceptanceFailures ?? [];
+    const neighborFailures = artifactAuditSummary?.neighborComparisons?.failures ?? [];
+    report.add(
+        'assembled artifact image-quality audit',
+        artifactAudit.code === 0
+            && artifactAuditSummary !== null
+            && artifactFailures.length === 0
+            && neighborFailures.length === 0,
+        artifactAuditSummary === null
+            ? `audit did not publish summary (exit ${String(artifactAudit.code)}): ${artifactAudit.stderr.trim()}`
+            : `${String(artifactAuditSummary.evaluatedPages)}/${String(combinedPages.length)} page(s),`
+                + ` ${String(artifactFailures.length)} page failure(s),`
+                + ` ${String(neighborFailures.length)} neighbor failure(s)`,
+    );
+
     const outputBytes = (await stat(outputPdfPath)).size;
+    const sourceBytes = (await stat(fixture.pdfPath)).size;
+    const outputToSourceRatio = outputBytes / sourceBytes;
+    const actualModeDistribution = Object.fromEntries(OUTPUT_MODES.map(mode => [
+        mode,
+        combinedPages.filter(page => page.mode === mode).length,
+    ]));
     if (expectedFixture?.expectedModeDistribution) {
         const modeDistribution = compareModeDistribution(
             combinedPages.map(page => page.mode),
@@ -763,19 +2098,64 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             `${outputBytes.toLocaleString('en-US')} B (expected ${expectedFixture.expectedOutputBytes.toLocaleString('en-US')} B ±30%)`,
         );
     }
+    if (expectedFixture?.maxOutputToSourceRatio) {
+        report.add(
+            'output/source size budget',
+            outputToSourceRatio <= expectedFixture.maxOutputToSourceRatio,
+            `${outputToSourceRatio.toFixed(3)}x (maximum ${expectedFixture.maxOutputToSourceRatio.toFixed(3)}x)`,
+        );
+    }
     const stats = timingStats(timings);
+    const encodedMaskPageCount = bilevelPages.length + reconstructedLayeredPages.length;
     report.add(
         'JBIG2 encode timing coverage',
-        timings.length === maskPages.length
+        timings.length === encodedMaskPageCount
             && timings.every(record => Number.isFinite(record.elapsedMs) && record.elapsedMs >= 0),
-        `${stats.count} records; total=${stats.totalMs.toFixed(1)}ms mean=${stats.meanMs.toFixed(1)}ms max=${stats.maxMs.toFixed(1)}ms`,
+        `${stats.count}/${String(encodedMaskPageCount)} encoded mask record(s); `
+        + `total=${stats.totalMs.toFixed(1)}ms mean=${stats.meanMs.toFixed(1)}ms max=${stats.maxMs.toFixed(1)}ms`,
     );
-    return {
+    const pageEvidence = previewRuns.map((page, pageIndex) => ({
+        analysisMetadataPath: join(fixtureDir, `analysis-${page.pageNumber}.json`),
+        confidence: page.analysis.recommendedOutputModeConfidence,
+        detectionDpi: page.detectionDpi,
+        diagnostics: page.analysis.outputModeDiagnostics ?? null,
+        finalInputAnalysisMetadataPath: page.finalAnalysisMetadataPath,
+        finalInputConfidence: page.finalInputAnalysis.recommendedOutputModeConfidence,
+        finalInputDiagnostics: page.finalInputAnalysis.outputModeDiagnostics ?? null,
+        finalInputMode: page.finalInputAnalysis.recommendedOutputMode,
+        finalInputReason: page.finalInputAnalysis.recommendedOutputModeReason,
+        mode: page.analysis.recommendedOutputMode,
+        outputMetadataPaths: renderPages[pageIndex].outputs
+            .map(output => output.metadataPath),
+        pageNumber: page.pageNumber,
+        previewMetadataPaths: previewPages[pageIndex].outputs
+            .map(output => output.metadataPath),
+        reason: page.analysis.recommendedOutputModeReason,
+        renderDpi: page.renderDpi,
+        requestedRenderDpi: page.requestedRenderDpi,
+        sourceDpi: page.sourceDpi,
+    }));
+    await writeFile(
+        join(fixtureDir, 'page-evidence.json'),
+        `${JSON.stringify(pageEvidence, null, 2)}\n`,
+    );
+    const fixtureReport = {
         ...report,
+        actualModeDistribution,
+        fixturePath: fixture.pdfPath,
         outputBytes,
+        outputToSourceRatio,
         outputPdfPath,
+        pageCount: pageRuns.length,
+        pageEvidencePath: join(fixtureDir, 'page-evidence.json'),
+        artifactAuditSummaryPath,
         timing: stats,
     };
+    await writeFile(
+        join(fixtureDir, 'fixture-report.json'),
+        `${JSON.stringify(fixtureReport, null, 2)}\n`,
+    );
+    return fixtureReport;
 }
 
 async function main() {
@@ -790,15 +2170,22 @@ async function main() {
             typeof fixture.id !== 'string'
             || typeof fixture.pdfPath !== 'string'
             || !isAbsolute(fixture.pdfPath)
-            || !Array.isArray(fixture.pages)
-            || fixture.pages.some(page => !Number.isSafeInteger(page) || page < 1)
         ) throw new Error(`Invalid corpus fixture config: ${JSON.stringify(fixture)}`);
+        const pages = resolveFixturePages(fixture);
+        const expectations = resolveFixtureExpectations(fixture, expected.fixtures?.[fixture.id]);
+        if (Object.keys(expectations).length === 0) {
+            throw new Error([
+                `Missing required expectations for fixture "${fixture.id}".`,
+                'The corpus verifier cannot report a quality pass from parity and structural checks alone.',
+                'Add explicit fixture expectations or use the lower-level diagnostic scripts for an exploratory run.',
+            ].join(' '));
+        }
         return {
-            expectations: resolveFixtureExpectations(
-                fixture,
-                expected.fixtures?.[fixture.id],
-            ),
-            fixture,
+            expectations,
+            fixture: {
+                ...fixture,
+                pages,
+            },
         };
     });
     await assertCorpusNativeBinariesFresh();
@@ -824,9 +2211,38 @@ async function main() {
     }
     const assertionCount = reports.flatMap(report => report.assertions).length;
     const failed = reports.flatMap(report => report.assertions).filter(assertion => !assertion.passed);
-    console.log(`\nCorpus summary: ${reports.length} fixture(s), ${assertionCount} assertions, ${failed.length} failure(s)`);
+    const corpusSummary = {
+        assertionCount,
+        failedAssertions: failed,
+        fixtureCount: reports.length,
+        fixtures: reports.map(report => ({
+            actualModeDistribution: report.actualModeDistribution,
+            assertionCount: report.assertions.length,
+            failedAssertionCount: report.assertions.filter(assertion => !assertion.passed).length,
+            fixtureId: report.fixtureId,
+            fixturePath: report.fixturePath,
+            outputBytes: report.outputBytes,
+            outputPdfPath: report.outputPdfPath,
+            pageCount: report.pageCount,
+            pageEvidencePath: report.pageEvidencePath,
+            artifactAuditSummaryPath: report.artifactAuditSummaryPath,
+            timing: report.timing,
+        })),
+        generatedAt: new Date().toISOString(),
+        workRoot,
+    };
+    await writeFile(
+        join(workRoot, 'corpus-summary.json'),
+        `${JSON.stringify(corpusSummary, null, 2)}\n`,
+    );
+    console.log(
+        `\nCorpus summary: ${reports.length} fixture(s),`
+        + ` ${assertionCount} assertions, ${failed.length} failure(s)`,
+    );
     console.log(`Artifacts: ${workRoot}`);
-    if (failed.length > 0) process.exitCode = 1;
+    if (failed.length > 0) {
+        process.exitCode = 1;
+    }
     if (!args.keepArtifacts && !args.workDir && failed.length === 0) {
         await rm(workRoot, {
             force: true,

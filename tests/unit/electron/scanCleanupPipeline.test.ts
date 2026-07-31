@@ -38,9 +38,23 @@ import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
-import {resolveReusablePagePlan} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+import {
+    resolveReusablePagePlan,
+    resolveReusablePagePlanResult,
+    resolveEffectiveScanCleanupOptions,
+    SCAN_CLEANUP_COLOR_JPEG_QUALITY,
+    SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY,
+} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+import {createPagePlanResolver} from '@electron/features/scan-cleanup/worker/createPagePlanResolver';
 import {mapScanCleanupRasterPages} from '@electron/features/scan-cleanup/worker/resolveRasterHandoff';
+import {resolveCompactSourcePreservation} from '@electron/features/scan-cleanup/worker/assembleCompactScanCleanupPages';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
+import {
+    assertScanCleanupCompactSourceBudget,
+    resolveScanCleanupCompactSourceBudget,
+    SCAN_CLEANUP_COMPACT_SOURCE_FIXED_BYTE_ALLOWANCE,
+    SCAN_CLEANUP_COMPACT_SOURCE_MAX_BYTE_RATIO,
+} from '@electron/features/scan-cleanup/policy/scanCleanupRepresentationPolicy';
 
 const dirs: string[] = [];
 const PNG = Uint8Array.from(Buffer.from(
@@ -454,6 +468,7 @@ async function measurePipelineRasterPeak(
 }
 
 afterEach(async () => {
+    vi.unstubAllEnvs();
     clearWorkingCopyOriginalPaths();
     const {rm} = await import('fs/promises');
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
@@ -463,6 +478,143 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it('treats locked Auto Color as preservation while explicit Color may normalize', () => {
+        const pageOverride = {
+            rotationDegrees: 0 as const,
+            layoutOverride: 'auto' as const,
+            excluded: false,
+            manualSplit: null,
+        };
+        const common = {
+            pageOverride,
+            dpi: 300,
+            qualityPath: 'raster' as const,
+        };
+        const automatic = resolveEffectiveScanCleanupOptions({
+            ...common,
+            options: {
+                ...options,
+                outputMode: 'auto',
+                normalizeIllumination: true,
+            },
+            resolvedOutputMode: 'color',
+        });
+        const explicit = resolveEffectiveScanCleanupOptions({
+            ...common,
+            options: {
+                ...options,
+                outputMode: 'color',
+                normalizeIllumination: true,
+            },
+            resolvedOutputMode: 'color',
+        });
+
+        expect(automatic.outputMode).toBe('color');
+        expect(automatic.normalizeIllumination).toBe(false);
+        expect(explicit.normalizeIllumination).toBe(true);
+    });
+
+    it('budgets full-document Auto cleanup when the source is predominantly compact layered pages', () => {
+        const sourceBytes = 40 * 1024 * 1024;
+        const budget = resolveScanCleanupCompactSourceBudget({
+            documentPageCount: 4,
+            options: {
+                ...options,
+                outputMode: 'auto',
+            },
+            pageRasterByNumber: new Map([
+                [
+                    1,
+                    {
+                        dpi: 600,
+                        width: 5_100,
+                        height: 6_600,
+                        hasBilevelLayer: true,
+                        backgroundDpi: 150,
+                    },
+                ],
+                [
+                    2,
+                    {
+                        dpi: 600,
+                        width: 5_100,
+                        height: 6_600,
+                        hasBilevelLayer: true,
+                        backgroundDpi: 150,
+                    },
+                ],
+            ]),
+            partialRun: false,
+            sourceBytes,
+        });
+
+        expect(budget).toEqual({
+            compactLayeredPages: 2,
+            sourceBytes,
+            maxOutputBytes: Math.ceil(Math.max(
+                sourceBytes * SCAN_CLEANUP_COMPACT_SOURCE_MAX_BYTE_RATIO,
+                sourceBytes + SCAN_CLEANUP_COMPACT_SOURCE_FIXED_BYTE_ALLOWANCE,
+            )),
+        });
+    });
+
+    it('does not apply the compact-source budget to partial, manual, or non-layered cleanup', () => {
+        const layeredPages = new Map([[
+            1,
+            {
+                dpi: 600,
+                width: 5_100,
+                height: 6_600,
+                hasBilevelLayer: true,
+                backgroundDpi: 150,
+            },
+        ]]);
+        const base = {
+            documentPageCount: 1,
+            options: {
+                ...options,
+                outputMode: 'auto' as const,
+            },
+            pageRasterByNumber: layeredPages,
+            sourceBytes: 40 * 1024 * 1024,
+        };
+        expect(resolveScanCleanupCompactSourceBudget({
+            ...base,
+            partialRun: true,
+        })).toBeNull();
+        expect(resolveScanCleanupCompactSourceBudget({
+            ...base,
+            options: {
+                ...base.options,
+                outputMode: 'grayscale',
+            },
+            partialRun: false,
+        })).toBeNull();
+        expect(resolveScanCleanupCompactSourceBudget({
+            ...base,
+            pageRasterByNumber: new Map(),
+            partialRun: false,
+        })).toBeNull();
+    });
+
+    it('fails closed before publishing a compact layered Auto result over budget', () => {
+        const budget = {
+            compactLayeredPages: 392,
+            sourceBytes: 40_000_000,
+            maxOutputBytes: 100_000_000,
+        };
+        expect(() => assertScanCleanupCompactSourceBudget(
+            100_000_000,
+            budget,
+        )).not.toThrow();
+        expect(() => assertScanCleanupCompactSourceBudget(
+            647_200_000,
+            budget,
+        )).toThrow(
+            'Automatic scan cleanup refused to publish a compact layered source',
+        );
+    });
+
     it('admits automatic page plans only for the same rotation and observed layout', () => {
         const request = {
             sourcePdfPath: '/source.pdf',
@@ -519,6 +671,55 @@ describe('scan cleanup pipeline', () => {
             request.pagePlanEvidenceByPage,
             1,
         )).toEqual({});
+        expect(resolveReusablePagePlanResult(
+            request.options,
+            {'1': 'two-page-spread'},
+            request.pagePlanEvidenceByPage,
+            1,
+        )).toEqual({
+            plan: {},
+            status: 'layout-mismatch',
+        });
+        expect(resolveReusablePagePlanResult(
+            request.options,
+            request.layoutByPage,
+            request.pagePlanEvidenceByPage,
+            2,
+        )).toEqual({
+            plan: {},
+            status: 'absent',
+        });
+    });
+
+    it('counts pinned plans and rejects stale evidence instead of silently reanalyzing', () => {
+        const evidence = {'1': {
+            pageNumber: 1,
+            rotationDegrees: 0 as const,
+            layoutClassification: 'single-uncut-page' as const,
+            outputs: {},
+        }};
+        const log = vi.fn();
+        const resolver = createPagePlanResolver({
+            options,
+            layoutByPage: {'1': 'single-uncut-page'},
+            pagePlanEvidenceByPage: evidence,
+        }, log, 'final');
+        expect(resolver.resolve(1)).toEqual({});
+        expect(resolver.resolve(2)).toEqual({});
+        resolver.report();
+        expect(log).toHaveBeenCalledWith(
+            'debug',
+            'Scan cleanup final page-plan evidence: pinned=1 absent=1 mismatched=0',
+        );
+
+        const stale = createPagePlanResolver({
+            options,
+            layoutByPage: {'1': 'two-page-spread'},
+            pagePlanEvidenceByPage: evidence,
+        }, log, 'final');
+        expect(() => stale.resolve(1)).toThrow(
+            'Stale scan cleanup page-plan evidence for page 1: layout-mismatch',
+        );
     });
 
     it('demand-materializes lazy-original input before scan-cleanup apply', async () => {
@@ -804,7 +1005,30 @@ describe('scan cleanup pipeline', () => {
         }
     });
 
-    it('renders unresolved Auto pages once at source DPI and assembles from native mode metadata', async () => {
+    it('rejects an Auto run before rendering when an included page has no locked decision', async () => {
+        const fixture = await setup();
+        const pipelineDependencies = dependencies(vi.fn());
+
+        await expect(runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                },
+            },
+            pipelinePaths(fixture.dir, true),
+            new AbortController().signal,
+            vi.fn(),
+            highTierPolicy,
+            undefined,
+            pipelineDependencies,
+        )).rejects.toThrow('no locked Auto output-mode decision');
+        expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
+    });
+
+    it('renders locked Auto decisions once at mode-appropriate density and assembles native metadata', async () => {
         const fixture = await setup();
         let cleanupManifest: {pages: Array<{
             inputPath: string;
@@ -895,6 +1119,10 @@ describe('scan cleanup pipeline', () => {
                     ...options,
                     outputMode: 'auto',
                 },
+                outputModeRecommendations: {
+                    1: 'bw',
+                    2: 'grayscale',
+                },
             },
             pipelinePaths(fixture.dir, true),
             new AbortController().signal,
@@ -915,9 +1143,8 @@ describe('scan cleanup pipeline', () => {
             stage: 'handoff',
             percent: 100,
         }));
-        // Unresolved Auto reaches the native render as `auto` and each page
-        // rasterizes exactly once at its detected source DPI: no 150-DPI
-        // analysis pass and no 72-DPI size probe.
+        // Locked Auto decisions reach the native render as concrete modes.
+        // Only the binary page is synthesized above source density.
         expect(runSidecar).toHaveBeenCalledOnce();
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         const renderedDpis = vi.mocked(pipelineDependencies.renderPagePpm).mock.calls
@@ -929,14 +1156,14 @@ describe('scan cleanup pipeline', () => {
         expect(cleanupManifest).not.toBeNull();
         expect(cleanupManifest!.pages[0]!.options).toMatchObject({
             matchPageSize: true,
-            outputMode: 'auto',
+            outputMode: 'bw',
             sourceDpi: 300,
             requestedRenderDpi: 300,
             dpi: 300,
             pageAlignment: 'top-center',
         });
         expect(cleanupManifest!.pages[1]!.options).toMatchObject({
-            outputMode: 'auto',
+            outputMode: 'grayscale',
             sourceDpi: 150,
             requestedRenderDpi: 150,
             dpi: 150,
@@ -957,9 +1184,237 @@ describe('scan cleanup pipeline', () => {
         const recordPaths = combineManifest.trim().split('\n').map(line => line.split('\t').at(-1));
         expect(recordPaths[0]).toMatch(/clean-1-0\.pbm$/u);
         expect(recordPaths[2]).toMatch(/clean-2-0\.png$/u);
-        expect(combineManifest.trim().split('\n')[2]!.split('\t')[3]).toBe('85');
+        expect(combineManifest.trim().split('\n')[2]!.split('\t')[3]).toBe(
+            String(SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY),
+        );
         const pageSizes = combineManifest.trim().split('\n').map(line => line.split('\t').slice(1, 3));
         expect(new Set(pageSizes.map(size => size.join('x')))).toEqual(new Set(['240.000000x336.000000']));
+    });
+
+    it('preserves an unchanged compact Auto Color source page', async () => {
+        const fixture = await setup();
+        const evidenceDir = join(fixture.dir, 'evidence');
+        vi.stubEnv('EVB_SCAN_CLEANUP_EVIDENCE_DIR', evidenceDir);
+        let pageOpsInstructions: unknown = null;
+        let qpdfArgs: readonly string[] = [];
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                outputs: ICleanupOutput[];
+            }>};
+            const page = manifest.pages[0]!;
+            await writeFile(page.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
+            await writeFile(page.outputs[0]!.outputPath, PNG);
+            await writeFile(page.outputs[0]!.metadataPath, JSON.stringify({
+                sourcePageIndex: 0,
+                half: 'full',
+                sourceRegion: {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 1_200,
+                    heightPx: 1_680,
+                },
+                cropRect: {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 1_200,
+                    heightPx: 1_680,
+                },
+                inputWidthPx: 1_200,
+                inputHeightPx: 1_680,
+                outputWidthPx: 1_200,
+                outputHeightPx: 1_680,
+                canvasWidthPx: 1_200,
+                canvasHeightPx: 1_680,
+                renderDpi: 360,
+                layoutClassification: 'single-uncut-page',
+                skewApplied: false,
+                dewarpModel: null,
+                outputMode: 'color',
+                contentBox: null,
+                warnings: [],
+            }));
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
+            documentDpi: 360,
+            pageDpiByNumber: new Map([[
+                1,
+                360,
+            ]]),
+            pageRasterByNumber: new Map([[
+                1,
+                {
+                    dpi: 360,
+                    width: 1_200,
+                    height: 1_680,
+                    hasBilevelLayer: true,
+                    backgroundDpi: 120,
+                },
+            ]]),
+        }));
+        pipelineDependencies.runCommand = vi.fn(async (command, args) => {
+            const outputIndex = args.indexOf('--output');
+            if (command === '/combine') {
+                await writeFile(args[outputIndex + 1]!, '%PDF-1.7\nRASTER\n%%EOF\n');
+            } else if (command === '/page-ops') {
+                pageOpsInstructions = JSON.parse(await readFile(args[args.indexOf('--instructions-file') + 1]!, 'utf8'));
+                await writeFile(args[outputIndex + 1]!, '%PDF-1.7\nPRESERVED\n%%EOF\n');
+            } else if (command === '/qpdf') {
+                qpdfArgs = args;
+                await writeFile(args.at(-1)!, '%PDF-1.7\nHYBRID\n%%EOF\n');
+            } else {
+                throw new Error(`Unexpected command ${command}`);
+            }
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        await runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                    matchPageSize: false,
+                },
+                outputModeRecommendations: {1: 'color'},
+                sourcePageMetadataByPage: {1: {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 240,
+                    heightPoints: 336,
+                    rotation: 0,
+                    sourceDpi: 360,
+                }},
+            },
+            pipelinePaths(fixture.dir, true),
+            new AbortController().signal,
+            vi.fn(),
+            highTierPolicy,
+            undefined,
+            pipelineDependencies,
+        );
+        expect(pageOpsInstructions).toEqual({pages: [{
+            sourcePageIndex: 0,
+            rotationQuarterTurns: 0,
+            outputs: [{
+                cropRect: {
+                    x: 0,
+                    y: 0,
+                    width: 240,
+                    height: 336,
+                },
+                contentTransform: {
+                    scale: 1,
+                    translateX: 0,
+                    translateY: 0,
+                },
+            }],
+        }]});
+        expect(qpdfArgs.some(argument => argument.endsWith('/preserved-source-pages.pdf'))).toBe(true);
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('HYBRID');
+        expect(JSON.parse(await readFile(
+            join(evidenceDir, 'scan-cleanup-representation-report.json'),
+            'utf8',
+        ))).toMatchObject({
+            compactSourceBudget: {compactLayeredPages: 1},
+            pages: [{
+                semanticMode: 'color',
+                representation: 'preserved-compact-source',
+                preservationReason: 'auto-color-compact-layered-no-raster-change',
+                sourceDpi: 360,
+                sourceBackgroundDpi: 120,
+                renderDpi: 360,
+                illuminationNormalized: false,
+            }],
+        });
+    });
+
+    it('retains an Auto Mixed source page only when native reports its MRC tone unchanged', () => {
+        const preserved = resolveCompactSourcePreservation(
+            {
+                sourcePdfPath: '/source.pdf',
+                outputPdfPath: '/cleaned.pdf',
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                    matchPageSize: false,
+                },
+            },
+            1,
+            {
+                layoutClassification: 'single-uncut-page',
+                outputCount: 1,
+                rotationDegrees: 0,
+            } as Parameters<typeof resolveCompactSourcePreservation>[2],
+            {
+                sourcePageNumber: 1,
+                path: '/clean-1-0.png',
+                dpi: 360,
+                resolvedOutputMode: 'mixed',
+                metadata: {
+                    half: 'full',
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_200,
+                        heightPx: 1_680,
+                    },
+                    inputWidthPx: 1_200,
+                    inputHeightPx: 1_680,
+                    outputWidthPx: 1_200,
+                    outputHeightPx: 1_680,
+                    canvasWidthPx: 1_200,
+                    canvasHeightPx: 1_680,
+                    placementOffsetXPx: 0,
+                    placementOffsetYPx: 0,
+                    rotationDegrees: 0,
+                    skewApplied: false,
+                    dewarpModel: null,
+                    // Mixed analysis still records how its text foreground was
+                    // classified. That diagnostic must not prevent whole-page
+                    // source preservation when the MRC cleanup abstains.
+                    binarizationMode: 'otsu',
+                    outputMode: 'mixed',
+                    trustedMrcBackgroundPreserved: true,
+                    illuminationNormalized: true,
+                    textToneDiagnostics: {applied: true},
+                },
+            } as Parameters<typeof resolveCompactSourcePreservation>[3],
+            {
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 240,
+                heightPoints: 336,
+                rotation: 0,
+            },
+            {
+                dpi: 360,
+                width: 1_200,
+                height: 1_680,
+                hasBilevelLayer: true,
+                backgroundDpi: 120,
+            },
+        );
+
+        expect(preserved).toMatchObject({
+            reason: 'auto-mixed-trusted-mrc-tone-preserved',
+            sourcePageIndex: 0,
+        });
     });
 
     async function runOversizedRasterPipeline(availableScratchBytes: number | null) {
@@ -1773,10 +2228,251 @@ describe('scan cleanup pipeline', () => {
             'layered-jpeg',
             'image-bilevel',
         ]);
-        expect(records[0]![3]).toBe('87');
+        expect(records[0]![3]).toBe(String(SCAN_CLEANUP_COLOR_JPEG_QUALITY));
         expect(records[0]![4]).toMatch(/clean-1-0-background\.ppm$/u);
         expect(records[0]![5]).toMatch(/clean-1-0-mask\.pbm$/u);
         expect(records[1]![3]).toMatch(/clean-2-0\.pbm$/u);
+    });
+
+    it('reuses an Auto MRC foreground without rasterizing or upscaling it', async () => {
+        const fixture = await setup();
+        let combineManifest = '';
+        let cleanupManifest: {pages: Array<{
+            trustedForegroundMaskPath?: string;
+            trustedMrcBackgroundPath?: string;
+            pageMetadataPath: string;
+            outputs: ICleanupOutput[]
+        }>} | null = null;
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
+            async (_binary, manifestPath) => {
+                cleanupManifest = JSON.parse(await readFile(manifestPath, 'utf8')) as typeof cleanupManifest;
+                const page = cleanupManifest!.pages[0]!;
+                expect(page.trustedForegroundMaskPath).toMatch(/source-1-mrc-selection\.jb2e$/u);
+                expect(page.trustedMrcBackgroundPath).toMatch(/source-1-mrc-background\.ppm$/u);
+                const output = page.outputs[0]!;
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeFile(output.backgroundOutputPath!, ppm(333, 467));
+                await writeFile(output.foregroundMaskOutputPath!, pbm(1_000, 1_400));
+                await writeFile(output.metadataPath, JSON.stringify({
+                    sourcePageIndex: 0,
+                    half: 'full',
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_400,
+                    },
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_400,
+                    },
+                    inputWidthPx: 1_000,
+                    inputHeightPx: 1_400,
+                    outputWidthPx: 1_000,
+                    outputHeightPx: 1_400,
+                    canvasWidthPx: 1_000,
+                    canvasHeightPx: 1_400,
+                    placementOffsetXPx: 0,
+                    placementOffsetYPx: 0,
+                    renderDpi: 300,
+                    layoutClassification: 'single-uncut-page',
+                    rotationDegrees: 0,
+                    skewApplied: false,
+                    dewarpModel: null,
+                    dewarpMapping: null,
+                    outputMode: 'mixed',
+                    layeredWritten: true,
+                    layeredBackgroundDpi: 100,
+                    layeredForegroundDpi: 300,
+                    layeredForegroundKind: 'source-mrc',
+                    backgroundIsColor: true,
+                    forwardTransform: {matrix: [
+                        [
+                            1,
+                            0,
+                            0,
+                        ],
+                        [
+                            0,
+                            1,
+                            0,
+                        ],
+                        [
+                            0,
+                            0,
+                            1,
+                        ],
+                    ]},
+                    contentBox: null,
+                    warnings: [],
+                }));
+            },
+        );
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
+            documentDpi: 300,
+            pageDpiByNumber: new Map([[
+                1,
+                300,
+            ]]),
+            pageRasterByNumber: new Map([[
+                1,
+                {
+                    dpi: 300,
+                    width: 1_000,
+                    height: 1_400,
+                    hasBilevelLayer: true,
+                    backgroundDpi: 100,
+                },
+            ]]),
+        }));
+        pipelineDependencies.extractMrcLayers = vi.fn();
+        pipelineDependencies.extractMrcLayersBatch = vi.fn(async input => {
+            const layers = new Map();
+            for (const target of input.targets) {
+                await Promise.all([
+                    writeFile(target.backgroundOutputPath, PNG),
+                    writeFile(target.foregroundOutputPath, 'JP2-SOURCE'),
+                    writeFile(target.selectionMaskOutputPath, PNG),
+                ]);
+                layers.set(target.pageNumber, {
+                    backgroundDpi: 100,
+                    backgroundPath: target.backgroundOutputPath,
+                    foregroundDpi: 600,
+                    foregroundHeight: 2_800,
+                    foregroundPath: target.foregroundOutputPath,
+                    foregroundWidth: 2_000,
+                    selectionMaskDecode: 'default',
+                    selectionMaskPath: target.selectionMaskOutputPath,
+                });
+            }
+            input.onProgress?.(input.targets.length, input.targets.length);
+            return layers;
+        });
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const manifestIndex = args.indexOf('--compact-manifest');
+            if (manifestIndex !== -1) {
+                combineManifest = await readFile(args[manifestIndex + 1]!, 'utf8');
+            }
+            const outputIndex = args.indexOf('--output');
+            await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                outputMode: 'auto',
+                matchPageSize: false,
+            },
+            outputModeRecommendations: {'1': 'mixed'},
+            sourcePageMetadataByPage: {'1': {
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 240,
+                heightPoints: 336,
+                rotation: 0,
+                sourceDpi: 300,
+            }},
+        }, {
+            ...pipelinePaths(fixture.dir),
+            pdfimagesBinary: '/pdfimages',
+        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+
+        expect(pipelineDependencies.extractMrcLayersBatch).toHaveBeenCalledTimes(1);
+        expect(pipelineDependencies.extractMrcLayers).not.toHaveBeenCalled();
+        const record = combineManifest.trim().split('\t');
+        expect(record.slice(0, 4)).toEqual([
+            'affine-masked-layered-jpeg',
+            '240.000000',
+            '336.000000',
+            String(SCAN_CLEANUP_COLOR_JPEG_QUALITY),
+        ]);
+        expect(record[5]).toMatch(/source-1-mrc-foreground\.jp2$/u);
+        expect(record[6]).toMatch(/source-1-mrc-selection\.jb2e$/u);
+        expect(record.slice(7, 13).map(Number)).toEqual([
+            240,
+            0,
+            0,
+            336,
+            0,
+            0,
+        ]);
+        expect(record[13]).toBe('default');
+    });
+
+    it('rejects malformed final geometry before extracting reusable MRC layers', async () => {
+        const fixture = await setup();
+        const pipelineDependencies = dependencies(vi.fn());
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
+            documentDpi: 300,
+            pageDpiByNumber: new Map([[
+                1,
+                300,
+            ]]),
+            pageRasterByNumber: new Map([[
+                1,
+                {
+                    dpi: 300,
+                    width: 1_000,
+                    height: 1_400,
+                    hasBilevelLayer: true,
+                    backgroundDpi: 100,
+                },
+            ]]),
+        }));
+        pipelineDependencies.extractMrcLayers = vi.fn();
+        pipelineDependencies.extractMrcLayersBatch = vi.fn();
+
+        await expect(runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                outputMode: 'auto',
+                matchPageSize: false,
+            },
+            outputModeRecommendations: {'1': 'mixed'},
+            layoutByPage: {'1': 'single-uncut-page'},
+            pagePlanEvidenceByPage: {'1': {
+                pageNumber: 1,
+                rotationDegrees: 0,
+                layoutClassification: 'single-uncut-page',
+                outputs: {right: {contentBox: {
+                    xNormalized: 0.72,
+                    yNormalized: 0.1,
+                    widthNormalized: 0.29,
+                    heightNormalized: 0.8,
+                    rotationDegrees: 0,
+                }}},
+            }},
+        }, {
+            ...pipelinePaths(fixture.dir),
+            pdfimagesBinary: '/pdfimages',
+        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies))
+            .rejects.toThrow(
+                'Scan cleanup page 1 has invalid automatic right content box geometry',
+            );
+        expect(pipelineDependencies.extractMrcLayers).not.toHaveBeenCalled();
+        expect(pipelineDependencies.extractMrcLayersBatch).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -2226,11 +2922,11 @@ describe('scan cleanup pipeline', () => {
         })).toEqual([
             [
                 'image-jpeg',
-                '85',
+                String(SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY),
             ],
             [
                 'image-jpeg',
-                '87',
+                String(SCAN_CLEANUP_COLOR_JPEG_QUALITY),
             ],
             [
                 'image',
@@ -2238,7 +2934,7 @@ describe('scan cleanup pipeline', () => {
             ],
             [
                 'image-jpeg',
-                '85',
+                String(SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY),
             ],
         ]);
         expect(pipelineDependencies.runSidecar).toHaveBeenCalledOnce();
@@ -2306,7 +3002,7 @@ describe('scan cleanup pipeline', () => {
 
         const record = combineManifest.trim().split('\t');
         expect(record[0]).toBe('image-jpeg');
-        expect(record[3]).toBe('85');
+        expect(record[3]).toBe(String(SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY));
     });
 
     it('kills work through the abort signal and leaves no partial final PDF', async () => {
@@ -3062,12 +3758,9 @@ describe('scan cleanup pipeline', () => {
         expect(partialHighDpiPage).toEqual(documentGrid);
     });
 
-    // The same document, cleaned four ways: whole or in part, before detection
-    // has recommended anything or after it has. The grid every page is
-    // normalized onto is a property of the document and the settings it carries,
-    // so all four have to answer the identical plan — otherwise cleaning page 2
-    // now and page 3 after detection settles writes two pages of different
-    // sizes into one book.
+    // Once Auto decisions are locked, run scope must not change the document
+    // grid. Cleaning one page now and another later must still write pages with
+    // identical physical and pixel dimensions.
     async function canvasAcrossScopeAndRecommendations(
         pageGeometry: Array<{
             widthPoints: number;
@@ -3078,9 +3771,7 @@ describe('scan cleanup pipeline', () => {
         recommendations: Partial<Record<string, TScanCleanupOutputMode>>,
     ) {
         const variants = [
-            {},
             {outputModeRecommendations: recommendations},
-            {sourcePageNumbers: [1]},
             {
                 sourcePageNumbers: [1],
                 outputModeRecommendations: recommendations,
@@ -3093,7 +3784,7 @@ describe('scan cleanup pipeline', () => {
         return measured;
     }
 
-    it('measures the shared grid from the modes the document is configured with, not the ones detection recommended', async () => {
+    it('measures the shared grid from locked continuous-tone Auto decisions', async () => {
         const letter = [
             {
                 widthPoints: 612,
@@ -3104,16 +3795,11 @@ describe('scan cleanup pipeline', () => {
                 heightPoints: 792,
             },
         ];
-        // Page 2 carries no raster pdfimages can measure — a text or vector
-        // page — so it is the page whose planned resolution depends on whether
-        // it may end up as a binary layer. On `auto` it may, whatever a
-        // recommendation says later, so it takes the synthesis floor and the
-        // document is normalized on that grid.
+        // Both pages are locked to Color, so a raster-free vector page must not
+        // trigger the binary synthesis floor.
         const [
-            beforeDetection,
-            afterDetection,
-            selectedBeforeDetection,
-            selectedAfterDetection,
+            completeRun,
+            selectedRun,
         ] = await canvasAcrossScopeAndRecommendations(
             letter,
             {outputMode: 'auto'},
@@ -3127,18 +3813,16 @@ describe('scan cleanup pipeline', () => {
             },
         );
 
-        expect(beforeDetection).toEqual({
+        expect(completeRun).toEqual({
             widthPoints: 612,
             heightPoints: 792,
-            widthPx: Math.ceil(612 / 72 * 600),
-            heightPx: Math.ceil(792 / 72 * 600),
+            widthPx: Math.ceil(612 / 72 * 150),
+            heightPx: Math.ceil(792 / 72 * 150),
         });
-        expect(afterDetection).toEqual(beforeDetection);
-        expect(selectedBeforeDetection).toEqual(beforeDetection);
-        expect(selectedAfterDetection).toEqual(beforeDetection);
+        expect(selectedRun).toEqual(completeRun);
     });
 
-    it('holds the shared grid to the pixel budget the configured modes allow, whatever detection recommends', async () => {
+    it('holds locked continuous-tone Auto decisions to their pixel budget across run scopes', async () => {
         const letter = [
             {
                 widthPoints: 612,
@@ -3155,10 +3839,8 @@ describe('scan cleanup pipeline', () => {
         // that names the colour it already could have been must not change the
         // budget, and neither must the run's scope.
         const [
-            beforeDetection,
-            afterDetection,
-            selectedBeforeDetection,
-            selectedAfterDetection,
+            completeRun,
+            selectedRun,
         ] = await canvasAcrossScopeAndRecommendations(
             letter,
             {outputMode: 'auto'},
@@ -3179,11 +3861,9 @@ describe('scan cleanup pipeline', () => {
         );
 
         // The budget bound the grid: it is below what the finest page asked for.
-        expect(beforeDetection!.widthPx).toBeLessThan(Math.ceil(612 / 72 * 1_200));
-        expect(beforeDetection!.widthPx * beforeDetection!.heightPx).toBeLessThanOrEqual(80_000_000);
-        expect(afterDetection).toEqual(beforeDetection);
-        expect(selectedBeforeDetection).toEqual(beforeDetection);
-        expect(selectedAfterDetection).toEqual(beforeDetection);
+        expect(completeRun!.widthPx).toBeLessThan(Math.ceil(612 / 72 * 1_200));
+        expect(completeRun!.widthPx * completeRun!.heightPx).toBeLessThanOrEqual(80_000_000);
+        expect(selectedRun).toEqual(completeRun);
     });
 
     it('follows a page output mode override rather than the document default', async () => {
@@ -3212,7 +3892,7 @@ describe('scan cleanup pipeline', () => {
                     outputModeOverride: 'color',
                 }},
             },
-            {},
+            {outputModeRecommendations: {'1': 'color'}},
             new Map([[
                 1,
                 150,

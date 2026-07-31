@@ -175,6 +175,7 @@ const projectConfig = withNuxt(
         ['electron/features/agent/codexAssistant.ts', 1354],
         ['app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts', 441],
         ['scripts/diagnostics/pdfNavigationBlinkTrace.ts', 1530],
+        ['scripts/diagnostics/scan-cleanup-corpus-verify.mjs', 1429],
         ['app/modules/workspace-shell/components/DocumentWorkspace.vue', 1556],
         ['app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue', 1475],
         ['app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts', 1216],

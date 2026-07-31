@@ -846,6 +846,73 @@ describe('useAppShellWorkspaceRouting', () => {
         expect(routingOptions.removeTabFromState).not.toHaveBeenCalled();
     });
 
+    it('keeps a managed PDF result when its document identity settles before its original-path hint', async () => {
+        const activePaneId = ref('pane-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(true);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+        const result = {
+            kind: 'pdf' as const,
+            workingPath: '/managed/generated.pdf',
+            originalPath: '/docs/generated.pdf',
+            openingGeometry: {
+                pageNumber: 1 as const,
+                pageCount: 17,
+                width: 612,
+                height: 792,
+                rotation: 0 as const,
+                size: 2_000_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+        };
+
+        const routingOptions = createRoutingOptions({
+            activePaneId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                const tabId = 'tab-2';
+                const record = createWorkspace(false);
+                record.openResult.mockResolvedValueOnce(false);
+                workspaceRefs.value.set(tabId, record.workspace);
+                activeTabId.value = tabId;
+                return createTabStub(tabId);
+            },
+        });
+        routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
+            tabId === 'tab-2'
+                ? cast({
+                    tab: {
+                        fileName: 'generated.pdf',
+                        originalPath: null,
+                        isDirty: false,
+                        isDjvu: false,
+                    },
+                    documentIdentity: {documentRef: '/managed/generated.pdf'},
+                    toolbarSnapshot: {
+                        ...createDefaultWorkspaceToolbarSnapshot(),
+                        hasPdf: true,
+                        initialVisualReady: false,
+                        isOpeningDocument: false,
+                        totalPages: 17,
+                    },
+                })
+                : null
+        ));
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        await expect(routing.openResultInAppropriateTab(result)).resolves.toBe(true);
+
+        expect(routingOptions.removeTabFromState).not.toHaveBeenCalled();
+        expect(routingOptions.updateTab).toHaveBeenCalledWith('tab-2', expect.objectContaining({
+            fileName: 'generated.pdf',
+            originalPath: '/docs/generated.pdf',
+            isDjvu: false,
+        }));
+        expect(routingOptions.presentationFallbackTabId.value).toBeNull();
+    });
+
     it('does not treat a seeded tab name and path as proof that a failed open succeeded', async () => {
         const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');

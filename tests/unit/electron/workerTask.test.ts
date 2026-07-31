@@ -24,77 +24,80 @@ const mocks = vi.hoisted<{
 }));
 
 vi.mock('fs', () => ({existsSync: mocks.existsSync}));
-vi.mock('worker_threads', () => ({Worker: class {
-    private readonly onceHandlers = new Map<string, Array<(payload: unknown) => void>>();
-    private readonly onHandlers = new Map<string, Array<(payload: unknown) => void>>();
-    private readonly postMessageCalls: unknown[] = [];
+vi.mock('worker_threads', () => ({
+    isMainThread: true,
+    Worker: class {
+        private readonly onceHandlers = new Map<string, Array<(payload: unknown) => void>>();
+        private readonly onHandlers = new Map<string, Array<(payload: unknown) => void>>();
+        private readonly postMessageCalls: unknown[] = [];
 
-    constructor(workerPath: string, options: unknown) {
-        mocks.workerCtor(workerPath, options);
-        if (mocks.throwConstructorError) {
-            throw new Error('constructor failed');
-        }
-        mocks.workerRecords.push({
-            emit: (event: string, payload: unknown) => {
-                this.emit(event, payload);
-            },
-            postMessageCalls: this.postMessageCalls,
-        });
-        void Promise.resolve().then(() => {
-            this.emit('online', undefined);
-            if (mocks.nextMessage !== null) {
-                this.emit('message', mocks.nextMessage);
+        constructor(workerPath: string, options: unknown) {
+            mocks.workerCtor(workerPath, options);
+            if (mocks.throwConstructorError) {
+                throw new Error('constructor failed');
             }
-        });
-    }
-
-    once(event: string, handler: (payload: unknown) => void) {
-        const handlers = this.onceHandlers.get(event) ?? [];
-        handlers.push(handler);
-        this.onceHandlers.set(event, handlers);
-        return this;
-    }
-
-    on(event: string, handler: (payload: unknown) => void) {
-        const handlers = this.onHandlers.get(event) ?? [];
-        handlers.push(handler);
-        this.onHandlers.set(event, handlers);
-        return this;
-    }
-
-    removeAllListeners(event: string) {
-        this.onceHandlers.delete(event);
-        this.onHandlers.delete(event);
-        return this;
-    }
-
-    removeListener(event: string, handler: (payload: unknown) => void) {
-        this.onceHandlers.set(event, (this.onceHandlers.get(event) ?? []).filter(item => item !== handler));
-        this.onHandlers.set(event, (this.onHandlers.get(event) ?? []).filter(item => item !== handler));
-        return this;
-    }
-
-    postMessage(message: unknown) {
-        this.postMessageCalls.push(message);
-        return undefined;
-    }
-
-    private emit(event: string, payload: unknown) {
-        const persistentHandlers = this.onHandlers.get(event) ?? [];
-        for (const handler of persistentHandlers) {
-            handler(payload);
+            mocks.workerRecords.push({
+                emit: (event: string, payload: unknown) => {
+                    this.emit(event, payload);
+                },
+                postMessageCalls: this.postMessageCalls,
+            });
+            void Promise.resolve().then(() => {
+                this.emit('online', undefined);
+                if (mocks.nextMessage !== null) {
+                    this.emit('message', mocks.nextMessage);
+                }
+            });
         }
-        const onceHandlers = this.onceHandlers.get(event) ?? [];
-        this.onceHandlers.delete(event);
-        for (const handler of onceHandlers) {
-            handler(payload);
-        }
-    }
 
-    terminate() {
-        return Promise.resolve(0);
-    }
-}}));
+        once(event: string, handler: (payload: unknown) => void) {
+            const handlers = this.onceHandlers.get(event) ?? [];
+            handlers.push(handler);
+            this.onceHandlers.set(event, handlers);
+            return this;
+        }
+
+        on(event: string, handler: (payload: unknown) => void) {
+            const handlers = this.onHandlers.get(event) ?? [];
+            handlers.push(handler);
+            this.onHandlers.set(event, handlers);
+            return this;
+        }
+
+        removeAllListeners(event: string) {
+            this.onceHandlers.delete(event);
+            this.onHandlers.delete(event);
+            return this;
+        }
+
+        removeListener(event: string, handler: (payload: unknown) => void) {
+            this.onceHandlers.set(event, (this.onceHandlers.get(event) ?? []).filter(item => item !== handler));
+            this.onHandlers.set(event, (this.onHandlers.get(event) ?? []).filter(item => item !== handler));
+            return this;
+        }
+
+        postMessage(message: unknown) {
+            this.postMessageCalls.push(message);
+            return undefined;
+        }
+
+        private emit(event: string, payload: unknown) {
+            const persistentHandlers = this.onHandlers.get(event) ?? [];
+            for (const handler of persistentHandlers) {
+                handler(payload);
+            }
+            const onceHandlers = this.onceHandlers.get(event) ?? [];
+            this.onceHandlers.delete(event);
+            for (const handler of onceHandlers) {
+                handler(payload);
+            }
+        }
+
+        terminate() {
+            return Promise.resolve(0);
+        }
+    },
+}));
 
 describe('workerTask', () => {
     beforeEach(() => {

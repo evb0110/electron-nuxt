@@ -329,6 +329,7 @@ function mountPreviewSession(
             ownerId: 'owner-1',
             previewPage,
             recommendedOutputModeByPage: new Map(),
+            softAlphaForegroundRecommendationByPage: new Map(),
             selectPage: page => { previewPage.value = page; },
             settings: reactive(scanCleanupOptions()),
             sourcePath: computed(() => '/docs/reference.pdf'),
@@ -564,6 +565,123 @@ describe('scan cleanup preview navigation', () => {
                 heightNormalized: 1,
                 rotationDegrees: 0,
             }}},
+        });
+        const spreadResult = {
+            ...result,
+            pageMetadata: {
+                ...result.pageMetadata,
+                layoutClassification: 'two-page-spread' as const,
+                cutterXPx: 400,
+            },
+            outputs: result.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    half: 'left' as const,
+                    layoutClassification: 'two-page-spread' as const,
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 400,
+                        heightPx: 1_335,
+                    },
+                    contentBox: {
+                        xPx: 20,
+                        yPx: 40,
+                        widthPx: 360,
+                        heightPx: 1_200,
+                    },
+                },
+            })),
+        };
+        expect(
+            createScanCleanupPagePlanEvidence(spreadResult)?.outputs.left?.contentBox,
+        ).toEqual({
+            xNormalized: 20 / 883,
+            yNormalized: 40 / 1_335,
+            widthNormalized: 360 / 883,
+            heightNormalized: 1_200 / 1_335,
+            rotationDegrees: 0,
+        });
+        const overflowingSpreadResult = {
+            ...spreadResult,
+            outputs: spreadResult.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    contentBox: {
+                        xPx: 20,
+                        yPx: 40,
+                        widthPx: 500,
+                        heightPx: 1_200,
+                    },
+                },
+            })),
+        };
+        expect(
+            createScanCleanupPagePlanEvidence(overflowingSpreadResult)
+                ?.outputs.left?.contentBox,
+        ).toEqual({
+            xNormalized: 20 / 883,
+            yNormalized: 40 / 1_335,
+            widthNormalized: 380 / 883,
+            heightNormalized: 1_200 / 1_335,
+            rotationDegrees: 0,
+        });
+        const rightSpreadResult = {
+            ...spreadResult,
+            outputs: spreadResult.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    half: 'right' as const,
+                    sourceRegion: {
+                        xPx: 400,
+                        yPx: 0,
+                        widthPx: 483,
+                        heightPx: 1_335,
+                    },
+                    contentBox: {
+                        xPx: 20,
+                        yPx: 40,
+                        widthPx: 440,
+                        heightPx: 1_200,
+                    },
+                },
+            })),
+        };
+        expect(
+            createScanCleanupPagePlanEvidence(rightSpreadResult)?.outputs.right?.contentBox,
+        ).toEqual({
+            xNormalized: 20 / 883,
+            yNormalized: 40 / 1_335,
+            widthNormalized: 440 / 883,
+            heightNormalized: 1_200 / 1_335,
+            rotationDegrees: 0,
+        });
+        const overflowingResult = {
+            ...result,
+            outputs: result.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    contentBox: {
+                        xPx: -20,
+                        yPx: -10,
+                        widthPx: 950,
+                        heightPx: 1_400,
+                    },
+                },
+            })),
+        };
+        expect(
+            createScanCleanupPagePlanEvidence(overflowingResult)?.outputs.full?.contentBox,
+        ).toEqual({
+            xNormalized: 0,
+            yNormalized: 0,
+            widthNormalized: 1,
+            heightNormalized: 1,
+            rotationDegrees: 0,
         });
         expect(createScanCleanupPagePlanEvidence({
             ...result,

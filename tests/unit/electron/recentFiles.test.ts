@@ -372,6 +372,54 @@ describe('recentFiles persistence', () => {
 
         expect(recentFiles.getRecentFilesSync()).toEqual([]);
         expect(await recentFiles.getRecentFiles()).toEqual([]);
+        expect(JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8'))).toEqual({
+            version: 1,
+            files: [],
+        });
+    });
+
+    it('does not restore filtered missing files after removing a visible entry', async () => {
+        const visibleA = writeFixture('visible-a.pdf');
+        const visibleB = writeFixture('visible-b.pdf');
+        const missingPath = join(userDataDir, 'missing-output.pdf');
+        const storagePath = join(userDataDir, 'recentFiles.json');
+        writeFileSync(storagePath, JSON.stringify({
+            version: 1,
+            files: [
+                {
+                    originalPath: visibleA,
+                    fileName: 'visible-a.pdf',
+                    timestamp: 3,
+                    fileSize: 1,
+                },
+                {
+                    originalPath: missingPath,
+                    fileName: 'missing-output.pdf',
+                    timestamp: 2,
+                    fileSize: 1,
+                },
+                {
+                    originalPath: visibleB,
+                    fileName: 'visible-b.pdf',
+                    timestamp: 1,
+                    fileSize: 1,
+                },
+            ],
+        }));
+        const recentFiles = await loadRecentFilesModule();
+
+        await recentFiles.initRecentFilesCache();
+        expect(recentFiles.getRecentFilesSync()).toEqual([
+            visibleA,
+            visibleB,
+        ]);
+
+        await recentFiles.removeRecentFile(visibleA);
+
+        expect(recentFiles.getRecentFilesSync()).toEqual([visibleB]);
+        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([visibleB]);
+        const persisted = JSON.parse(readFileSync(storagePath, 'utf-8')) as {files: Array<{originalPath: string}>};
+        expect(persisted.files.map(file => file.originalPath)).toEqual([visibleB]);
     });
 
     it('shares one cold refresh across concurrent getters and cache initialization', async () => {

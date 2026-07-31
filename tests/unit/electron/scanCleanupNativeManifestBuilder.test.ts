@@ -12,6 +12,7 @@ import {
     buildNativeScanCleanupManifest,
     serializeNativeScanCleanupOptions,
 } from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
+import {assertNativeScanCleanupManifestGeometry} from '@electron/features/scan-cleanup/policy/assertNativeScanCleanupManifestGeometry';
 import {resolveEffectiveScanCleanupOptions} from '@electron/features/scan-cleanup/policy/effectiveOptions';
 import {
     describe,
@@ -86,6 +87,67 @@ const cases: IGoldenCase[] = [
 ];
 
 describe('native scan-cleanup manifest builder', () => {
+    it('preflights a heterogeneous 392-page geometry ledger and names the exact bad page', () => {
+        const rotations = [
+            0,
+            90,
+            180,
+            270,
+        ] as const;
+        const pageOverrides = Object.fromEntries(Array.from({length: 392}, (_, index) => {
+            const pageNumber = index + 1;
+            return [
+                String(pageNumber),
+                {
+                    rotationDegrees: rotations[index % rotations.length]!,
+                    layoutOverride: 'auto' as const,
+                    excluded: false,
+                    manualSplit: null,
+                },
+            ];
+        }));
+        const manifest = buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options: {
+                ...options,
+                pageOverrides,
+            },
+            pages: Array.from({length: 392}, (_, index) => {
+                const pageNumber = index + 1;
+                const rotationDegrees = rotations[index % rotations.length]!;
+                const xNormalized = (index % 7) / 100;
+                const yNormalized = (index % 11) / 100;
+                return {
+                    inputPath: `/fixtures/input/page-${String(pageNumber)}.png`,
+                    pageNumber,
+                    dpi: 300,
+                    automaticContentBoxes: {full: {
+                        xNormalized,
+                        yNormalized,
+                        widthNormalized: 1 - xNormalized,
+                        heightNormalized: 1 - yNormalized,
+                        rotationDegrees,
+                    }},
+                    pageMetadataPath: `/fixtures/output/page-${String(pageNumber)}.json`,
+                };
+            }),
+        });
+
+        expect(() => assertNativeScanCleanupManifestGeometry(manifest)).not.toThrow();
+        manifest.pages[336]!.options.automaticContentBoxes = {right: {
+            xNormalized: 0.72,
+            yNormalized: 0.1,
+            widthNormalized: 0.29,
+            heightNormalized: 0.8,
+            rotationDegrees: manifest.pages[336]!.options.rotationDegrees,
+        }};
+        expect(() => assertNativeScanCleanupManifestGeometry(manifest))
+            .toThrow('Scan cleanup page 337 has invalid automatic right content box geometry');
+    });
+
     it('derives native layout and output mode from reusable detection evidence', () => {
         const manifest = buildNativeScanCleanupManifest({
             operation: 'render',

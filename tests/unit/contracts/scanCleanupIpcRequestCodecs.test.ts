@@ -46,6 +46,20 @@ const request = {
                 rotationDegrees: 0,
             },
             detectedSkewDegrees: -0.2,
+            textToneDiagnostics: {
+                applied: true,
+                rule: 'applied',
+                textLineCount: 24,
+                textInkPixels: 12_400,
+                pictureFraction: 0,
+                outsideMidtoneFraction: 0.04,
+                outsideMidtoneLargestComponentFraction: 0.002,
+                outsideMidtoneLargestComponentWidthFraction: 0.9,
+                outsideMidtoneLargestComponentHeightFraction: 0.01,
+                inkAnchor: 133,
+                blackPoint: 96.05263157894737,
+                slope: 1.623931623931624,
+            },
         }},
     }},
 };
@@ -82,5 +96,35 @@ describe('scan-cleanup IPC request codecs', () => {
                 },
             }},
         }])).toThrow('automatic split');
+    });
+
+    it('rejects incomplete or internally inconsistent text-tone evidence', () => {
+        const evidence = request.pagePlanEvidenceByPage['12'].outputs.full.textToneDiagnostics;
+        expect(() => decodeStartArgs([{
+            ...request,
+            pagePlanEvidenceByPage: {'12': {
+                ...request.pagePlanEvidenceByPage['12'],
+                outputs: {full: {
+                    ...request.pagePlanEvidenceByPage['12'].outputs.full,
+                    textToneDiagnostics: {
+                        ...evidence,
+                        outsideMidtoneLargestComponentHeightFraction: 1.1,
+                    },
+                }},
+            }},
+        }])).toThrow('text tone');
+        expect(() => decodeStartArgs([{
+            ...request,
+            pagePlanEvidenceByPage: {'12': {
+                ...request.pagePlanEvidenceByPage['12'],
+                outputs: {full: {
+                    ...request.pagePlanEvidenceByPage['12'].outputs.full,
+                    textToneDiagnostics: {
+                        ...evidence,
+                        applied: false,
+                    },
+                }},
+            }},
+        }])).toThrow('text tone');
     });
 });

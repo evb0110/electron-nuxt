@@ -1,0 +1,6 @@
+{
+  "name": "evb-pdf-preview-compat-harness",
+  "private": true,
+  "type": "module",
+  "main": "launcher.cjs"
+}

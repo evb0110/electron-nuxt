@@ -168,6 +168,50 @@ describe('scan cleanup run coordinator', () => {
         cleanup();
     });
 
+    it('uses a non-navigating toast when the owning cleanup workspace is open', async () => {
+        const toastAdd = vi.fn();
+        capability.value = {
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(),
+            cancel: vi.fn(),
+            getJobState: vi.fn(),
+            subscribeJob: vi.fn(),
+            reconnectJob: vi.fn(),
+            pruneGeneratedOutputs: vi.fn(),
+            onPreviewRaw: vi.fn(() => () => undefined),
+            onJobState: vi.fn(() => () => undefined),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(),
+            saveActiveDocumentAs: vi.fn(),
+            openScanCleanupForDocument: vi.fn(),
+            getOpenPdfPaths: () => [],
+            t: ((key: string) => key) as never,
+            toast: {add: toastAdd},
+        });
+        coordinator.setScanCleanupWorkspaceOwnerOpen('open-owner', true);
+
+        coordinator.reportScanCleanupRunError(
+            'open-owner',
+            'page 17 has invalid geometry',
+            '/source/book.pdf',
+        );
+
+        expect(toastAdd).toHaveBeenCalledWith({
+            color: 'error',
+            title: 'scanCleanup.failed',
+            description: 'page 17 has invalid geometry',
+        });
+        cleanup();
+    });
+
     it('keeps runs global and routes completed, failed, and canceled terminal states', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         let nextJob = 0;

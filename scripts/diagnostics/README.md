@@ -1,5 +1,23 @@
 # PDF diagnostics
 
+## Generated PDF visual compatibility
+
+Generated PDFs must pass the exact artifact-preview replica as well as a
+reference renderer. The verifier first exercises a synthetic JPX negative
+control, captures renderer warnings, compares every requested page, and writes
+a human-viewable contact sheet:
+
+```bash
+pnpm run diag:verify-generated-pdf -- \
+  --pdf /absolute/path/to/output.pdf \
+  --artifact-dir .devkit/analysis/pdf-visual-verification
+```
+
+The default limit is 20 pages. Use a representative smoke extract; pass
+`--allow-large` only for an intentional resource-exhaustion test. A successful
+run writes `verification-ledger.json`. A renderer incompatibility writes
+`verification-failure.json` and exits non-zero.
+
 The three PDF diagnostics are scenarios on `runPdfDiagnosticScenario.ts`, which owns
 isolated Electron sessions, diagnostic trace buffers, timed sampling, optional frame
 capture, artifact writes, and cleanup. Their package commands, acceptance thresholds,

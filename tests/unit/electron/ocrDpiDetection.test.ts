@@ -102,6 +102,29 @@ describe('ocr dpi detection', () => {
         });
     });
 
+    it('keeps a compact layered source background separate from its text-mask grid', async () => {
+        mocks.runOcrCommand.mockResolvedValueOnce({
+            stdout: [
+                'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                '33 0 image 706 1067 rgb 3 8 jpx no 253 0 120 120 1347B 0.1%',
+                '33 1 image 2119 3204 rgb 3 8 jpx no 255 0 360 360 8418B 0.0%',
+                '33 2 smask 2119 3204 gray 1 1 jbig2 no 255 0 360 360 81.2K 9.8%',
+            ].join('\n'),
+            stderr: '',
+            exitCode: 0,
+        });
+
+        const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
+
+        expect(result.pageRasterByNumber.get(33)).toEqual({
+            dpi: 360,
+            width: 2119,
+            height: 3204,
+            hasBilevelLayer: true,
+            backgroundDpi: 120,
+        });
+    });
+
     it('returns the document dpi for the legacy detector', async () => {
         mocks.runOcrCommand.mockResolvedValueOnce({
             stdout: [

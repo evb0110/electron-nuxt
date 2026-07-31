@@ -39,10 +39,43 @@ interface ICorpusVerifyModule {
         expected: Record<string, number>;
         passed: boolean;
     };
+    parsePdfImages: (output: string) => Array<{
+        bitsPerComponent: number;
+        encoding: string;
+        number: number;
+        page: number;
+        type: string;
+    }>;
+    parseQpdfPageContentCounts: (output: string) => Array<{
+        contentStreamCount: number;
+        pageNumber: number;
+    }>;
+    parseConnectedComponents: (output: string) => Array<{
+        area: number;
+        gray: number;
+        height: number;
+        left: number;
+        top: number;
+        width: number;
+    }>;
     resolveFixtureExpectations: (
         fixture: Record<string, unknown>,
         canonicalExpected?: Record<string, unknown>,
     ) => Record<string, unknown>;
+    resolveFixturePages: (fixture: Record<string, unknown>) => number[];
+    scannerBoundaryComponents: (
+        components: Array<{
+            area: number;
+            gray: number;
+            height: number;
+            left: number;
+            top: number;
+            width: number;
+        }>,
+        width: number,
+        height: number,
+        dpi: number,
+    ) => unknown[];
 }
 
 const {
@@ -53,7 +86,12 @@ const {
 ) as ICargoArtifactFreshnessModule;
 const {
     compareModeDistribution,
+    parseConnectedComponents,
+    parsePdfImages,
+    parseQpdfPageContentCounts,
     resolveFixtureExpectations,
+    resolveFixturePages,
+    scannerBoundaryComponents,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/diagnostics/scan-cleanup-corpus-verify.mjs')).href
 ) as ICorpusVerifyModule;
@@ -148,17 +186,41 @@ describe('scan-cleanup corpus native freshness', () => {
 });
 
 describe('scan-cleanup corpus local expectations', () => {
+    it('expands an inclusive page range without a 392-entry local config', () => {
+        expect(resolveFixturePages({
+            id: 'rome-full',
+            pageRange: {
+                from: 1,
+                to: 392,
+            },
+        })).toHaveLength(392);
+        expect(resolveFixturePages({
+            id: 'rome-selected',
+            pages: [
+                1,
+                33,
+                392,
+            ],
+        })).toEqual([
+            1,
+            33,
+            392,
+        ]);
+    });
+
     it('merges config-local distribution and size over canonical fixture expectations', () => {
         expect(resolveFixtureExpectations({
             id: 'linguae-armenian',
             expectedModeDistribution: {bw: 8},
             expectedOutputBytes: 1_000_000,
+            maxOutputToSourceRatio: 1.4,
         }, {
             expectedOutputBytes: 900_000,
             pages: {'1': {mode: 'bw'}},
         })).toEqual({
             expectedModeDistribution: {bw: 8},
             expectedOutputBytes: 1_000_000,
+            maxOutputToSourceRatio: 1.4,
             pages: {'1': {mode: 'bw'}},
         });
     });
@@ -168,6 +230,7 @@ describe('scan-cleanup corpus local expectations', () => {
         {expectedModeDistribution: {sepia: 8}},
         {expectedModeDistribution: {bw: -1}},
         {expectedOutputBytes: 0},
+        {maxOutputToSourceRatio: 0},
     ])('rejects invalid config-local expectation %#', expectation => {
         expect(() => resolveFixtureExpectations({
             id: 'invalid-fixture',
@@ -193,5 +256,67 @@ describe('scan-cleanup corpus local expectations', () => {
             'bw',
             'future-mode',
         ], {bw: 1})).toMatchObject({passed: false});
+    });
+
+    it('preserves global image numbers after layered pages', () => {
+        const rows = parsePdfImages(`page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio
+  45     2 image    2198  3354  rgb     3   8  jpeg   no       136  0   360   360  916K 4.2%
+  45     3 stencil  2198  3354  -       1   1  jbig2  no       137  0   360   360 57.5K 6.4%
+  46     4 image    2198  3354  gray    1   1  jbig2  no       140  0   360   360 68.0K 7.6%`);
+        expect(rows.map(row => ({
+            number: row.number,
+            page: row.page,
+            type: row.type,
+        }))).toEqual([
+            {
+                number: 2,
+                page: 45,
+                type: 'image',
+            },
+            {
+                number: 3,
+                page: 45,
+                type: 'stencil',
+            },
+            {
+                number: 4,
+                page: 46,
+                type: 'image',
+            },
+        ]);
+    });
+
+    it('detects page content arrays that can disappear in limited PDF renderers', () => {
+        expect(parseQpdfPageContentCounts(`page 1: 3 0 R
+  content:
+    23 0 R
+page 2: 4 0 R
+  content:
+    31 0 R
+    32 0 R
+    33 0 R
+`)).toEqual([
+            {
+                contentStreamCount: 1,
+                pageNumber: 1,
+            },
+            {
+                contentStreamCount: 3,
+                pageNumber: 2,
+            },
+        ]);
+    });
+
+    it('rejects a page-spanning foreground component confined to the scanner boundary', () => {
+        const components = parseConnectedComponents(`Objects (id: bounding-box centroid area mean-color):
+  0: 2198x3355+0+0 1112.7,1688.8 7.22016e+06 gray(255)
+  2: 355x1234+72+446 131.6,1015.7 130027 gray(0)
+  3: 1750x828+80+1084 923.9,1478.2 408123 gray(0)`);
+        expect(scannerBoundaryComponents(components, 2198, 3355, 360)).toEqual([expect.objectContaining({
+            area: 130027,
+            height: 1234,
+            left: 72,
+            width: 355,
+        })]);
     });
 });

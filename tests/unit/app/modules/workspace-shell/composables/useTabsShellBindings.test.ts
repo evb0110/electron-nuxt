@@ -282,6 +282,8 @@ describe('useTabsShellBindings', () => {
         expect(window.__evbTestApi?.getActiveTabId()).toBe('tab-1');
         expect(window.__evbTestApi?.isStartupOpenClaimPending()).toBe(false);
         expect(window.__evbTestApi?.getActiveToolbarSnapshot()?.currentPage).toBe(1);
+        await window.__evbTestApi?.splitEditor('right');
+        expect(options.splitEditor).toHaveBeenCalledWith('right');
         await expect(eventPromise).resolves.toMatchObject({
             detail: {page: 3},
             type: 'navigation-idle',

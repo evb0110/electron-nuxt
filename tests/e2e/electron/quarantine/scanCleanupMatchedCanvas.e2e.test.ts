@@ -374,7 +374,7 @@ const readRunState = (page: Page) => evaluateInPage(page, () => {
         ?.readActiveWorkspaceStateValues?.(['originalPath']);
     return {
         originalPath: typeof active?.originalPath === 'string' ? active.originalPath : '',
-        error: text('.scan-cleanup-error'),
+        error: text('[role="alert"]'),
         phase: text('.scan-cleanup-run-meter-phase'),
         percent: text('.scan-cleanup-run-meter-percent'),
         running: document.querySelector('.scan-cleanup-run-meter') !== null,
@@ -428,7 +428,7 @@ async function stopRendererHeartbeat(page: Page) {
 
 /**
  * The cleaned document, or a failure that names what actually happened. A run
- * that fails says so inline; waiting for an output path that will never appear
+ * that fails says so through the app-wide alert toast; waiting for an output path that will never appear
  * turns a one-second product failure into a silent multi-minute timeout, so
  * this stops on the error instead. Every sample also measures how long the
  * renderer took to answer, which is the responsiveness the user feels while

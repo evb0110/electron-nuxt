@@ -295,6 +295,29 @@ describe('analyzePdfConformanceFileDirect', () => {
             ],
         });
     });
+
+    it('scans conformance markers across bounded windows without decoding the whole PDF', async () => {
+        const scanBoundary = 4 * 1024 * 1024;
+        const data = Buffer.alloc(scanBoundary + 256, 0x20);
+        data.write('/ByteRange [0 10 20 30]', scanBoundary - 12, 'latin1');
+        data.write('/Encrypt 42 0 R', scanBoundary + 32, 'latin1');
+        data.write(
+            '<pdfaid:part>3</pdfaid:part><pdfaid:conformance>u</pdfaid:conformance>',
+            scanBoundary + 64,
+            'latin1',
+        );
+        mocks.readFile.mockResolvedValueOnce(data);
+        mocks.load.mockRejectedValueOnce(new Error('parse failed'));
+
+        const result = await analyzePdfConformanceFileDirect('/tmp/large-partial.pdf');
+
+        expect(result).toMatchObject({
+            isSigned: true,
+            isEncrypted: true,
+            pdfaLevel: 'PDF/A-3U',
+            canIncrementalSave: false,
+        });
+    });
 });
 
 describe('validatePdfFile', () => {
