@@ -4,7 +4,9 @@ use crate::{
 use rayon::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
-    morphology::{dilate, dilate_gray, erode_gray, fill_gray_holes, reconstruct_gray_by_erosion},
+    morphology::{
+        close, dilate, dilate_gray, erode_gray, fill_gray_holes, reconstruct_gray_by_erosion,
+    },
     threshold::{
         mokji_threshold, otsu_threshold, threshold_global, DEFAULT_MOKJI_MAX_EDGE_WIDTH,
         DEFAULT_MOKJI_MIN_EDGE_MAGNITUDE,
@@ -15,16 +17,51 @@ use scan_primitives::{
 const DETECTOR_DPI: f64 = 300.0;
 const CONTRAST_TAIL_FRACTION: f64 = 0.01;
 const MIN_TEXT_COMPONENTS_FOR_VETO: usize = 8;
+const DENSE_RECTANGLE_MINIMUM_OCCUPANCY: f64 = 0.82;
+const DENSE_RECTANGLE_MINIMUM_PAGE_FRACTION: f64 = 0.02;
+const DENSE_RECTANGLE_MINIMUM_SPAN_FRACTION: f64 = 0.12;
+const CONTINUOUS_TONE_TILE_INCHES: f64 = 0.20;
+const CONTINUOUS_TONE_MINIMUM_ROBUST_RANGE: u8 = 24;
+const CONTINUOUS_TONE_MINIMUM_MIDDLE_FRACTION: f64 = 0.12;
+const CONTINUOUS_TONE_MAXIMUM_NOISE_MODE_FRACTION: f64 = 0.55;
+const CONTINUOUS_TONE_MAXIMUM_BILEVEL_VARIANCE_FRACTION: f64 = 0.90;
+const CONTINUOUS_TONE_MINIMUM_COMPONENT_PAGE_FRACTION: f64 = 0.005;
+const SCREENED_TONE_MINIMUM_TILE_COMPONENTS: usize = 8;
+const SCREENED_TONE_MINIMUM_COMPONENT_TILES: usize = 4;
+const TONE_PRESERVATION_MINIMUM_COMPONENT_PAGE_FRACTION: f64 = 0.0005;
+const TONE_PRESERVATION_MINIMUM_COMPONENT_SPAN_FRACTION: f64 = 0.01;
+const TONE_PRESERVATION_FEATHER_RADIUS: usize = 4;
+// The raw darkness and texture fields are already normalized against the
+// page's measured paper center and noise. Their shallow tail represents paper
+// shoulders and fit residuals, not material picture evidence. Removing that
+// tail prevents a generous detector rectangle from restoring gray paper while
+// keeping fully supported photo/ink pixels at exact source weight.
+const TONE_PRESERVATION_MATERIAL_ALPHA_FLOOR: u8 = 96;
 
 /// Detects continuous-tone picture regions. `true` pixels belong to pictures.
+#[cfg(test)]
 pub(crate) fn detect_picture_mask(
     source: &GrayImage,
     raster_dpi: f64,
     calibration: PageCalibration,
 ) -> BinaryImage {
+    let continuous_tone = detect_continuous_tone_mask(source, raster_dpi);
+    detect_picture_mask_with_continuous_tone(source, raster_dpi, calibration, &continuous_tone)
+}
+
+/// Detects continuous-tone picture regions while reusing tone evidence that
+/// the render pipeline also needs for semantic preservation.
+pub(crate) fn detect_picture_mask_with_continuous_tone(
+    source: &GrayImage,
+    raster_dpi: f64,
+    calibration: PageCalibration,
+    continuous_tone: &BinaryImage,
+) -> BinaryImage {
     if source.width() == 0 || source.height() == 0 {
         return BinaryImage::new(source.width(), source.height());
     }
+    debug_assert_eq!(continuous_tone.width(), source.width());
+    debug_assert_eq!(continuous_tone.height(), source.height());
     let scale = (raster_dpi / DETECTOR_DPI).clamp(0.25, 8.0);
     let small_radius = (1.0 * scale).round().max(1.0) as usize;
     let marker_radius = (17.0 * scale).round().max(1.0) as usize;
@@ -57,13 +94,916 @@ pub(crate) fn detect_picture_mask(
     let filled = fill_gray_holes(&inverted);
     let threshold = mokji_threshold(&filled, edge_width, DEFAULT_MOKJI_MIN_EDGE_MAGNITUDE);
     let candidate = threshold_global(&filled, threshold).invert();
-    veto_text_like_regions(source, candidate, raster_dpi, calibration)
+    let candidate = complete_dense_picture_rectangles(candidate);
+    let candidate = veto_text_like_regions(source, candidate, raster_dpi, calibration);
+    // Morphological picture evidence alone is deliberately generous and can
+    // turn repeated antialiased words on dark or shaded paper into a chain of
+    // word-sized "photos". Raw-source restoration is only appropriate when a
+    // candidate component is also backed by a distributed local tone
+    // histogram. Maps and line art that lack such evidence are handled by the
+    // separate semantic-tone field and therefore remain illumination
+    // corrected instead of reintroducing the scan's paper shade.
+    corroborate_picture_components(candidate, continuous_tone)
+}
+
+/// Finds source regions with a genuinely distributed local tone histogram.
+///
+/// This deliberately answers a narrower question than `detect_picture_mask`:
+/// whether normalization or a global text curve could destroy continuous
+/// tone. Uniform gray/tinted paper with sparse antialiased glyphs has a
+/// dominant paper bin and is rejected even when its ink creates a wide range.
+/// A photograph or halftone has many populated intermediate levels and is
+/// retained independently of text-line segmentation.
+pub(crate) fn detect_continuous_tone_mask(source: &GrayImage, raster_dpi: f64) -> BinaryImage {
+    if source.width() == 0 || source.height() == 0 {
+        return BinaryImage::new(source.width(), source.height());
+    }
+    let tile_edge = (raster_dpi * CONTINUOUS_TONE_TILE_INCHES).round().max(12.0) as usize;
+    let columns = source.width().div_ceil(tile_edge);
+    let rows = source.height().div_ceil(tile_edge);
+    let noise_sigma = estimate_page_noise_sigma(source, tile_edge);
+    let noise_mode_radius = (noise_sigma * 2.5).ceil().clamp(2.0, 30.0) as usize;
+    let minimum_robust_range = usize::from(CONTINUOUS_TONE_MINIMUM_ROBUST_RANGE)
+        .max((noise_sigma * 6.0).ceil() as usize) as u8;
+    let mut continuous_candidates = BinaryImage::new(columns, rows);
+    let mut screened_candidates = BinaryImage::new(columns, rows);
+    for tile_y in 0..rows {
+        for tile_x in 0..columns {
+            let left = tile_x * tile_edge;
+            let top = tile_y * tile_edge;
+            let right = (left + tile_edge).min(source.width());
+            let bottom = (top + tile_edge).min(source.height());
+            let mut histogram = [0usize; 256];
+            for y in top..bottom {
+                for x in left..right {
+                    histogram[source.get(x, y) as usize] += 1;
+                }
+            }
+            let pixel_count = (right - left).saturating_mul(bottom - top).max(1);
+            let p10 = percentile_from_histogram(&histogram, pixel_count / 10);
+            let p90 = percentile_from_histogram(
+                &histogram,
+                pixel_count.saturating_mul(9).saturating_sub(1) / 10,
+            );
+            let robust_range = p90.saturating_sub(p10);
+            let mode = histogram
+                .iter()
+                .enumerate()
+                .max_by_key(|&(_level, count)| count)
+                .map_or(255, |(level, _count)| level);
+            if tile_has_screened_tone(source, left, top, right, bottom, mode as u8, noise_sigma) {
+                screened_candidates.set(tile_x, tile_y, true);
+            }
+            if robust_range < minimum_robust_range || p10 >= 245 {
+                continue;
+            }
+            let middle_start = p10.saturating_add(robust_range / 3) as usize;
+            let middle_end = p90.saturating_sub(robust_range / 3) as usize;
+            let middle_pixels = histogram[middle_start..=middle_end].iter().sum::<usize>();
+            let mode_start = mode.saturating_sub(noise_mode_radius);
+            let mode_end = (mode + noise_mode_radius).min(255);
+            let noise_mode_fraction =
+                histogram[mode_start..=mode_end].iter().sum::<usize>() as f64 / pixel_count as f64;
+            let bilevel_variance_fraction =
+                otsu_explained_variance_fraction(&histogram, pixel_count);
+            if (middle_pixels as f64 / pixel_count as f64)
+                >= CONTINUOUS_TONE_MINIMUM_MIDDLE_FRACTION
+                && noise_mode_fraction < CONTINUOUS_TONE_MAXIMUM_NOISE_MODE_FRACTION
+                && bilevel_variance_fraction < CONTINUOUS_TONE_MAXIMUM_BILEVEL_VARIANCE_FRACTION
+            {
+                continuous_candidates.set(tile_x, tile_y, true);
+            }
+        }
+    }
+
+    let page_pixels = source.width().saturating_mul(source.height()).max(1);
+    let mut protected = BinaryImage::new(source.width(), source.height());
+    protect_tone_candidate_components(
+        &continuous_candidates,
+        &mut protected,
+        tile_edge,
+        page_pixels,
+        false,
+    );
+    protect_tone_candidate_components(
+        &screened_candidates,
+        &mut protected,
+        tile_edge,
+        page_pixels,
+        true,
+    );
+    protected
+}
+
+fn protect_tone_candidate_components(
+    candidates: &BinaryImage,
+    protected: &mut BinaryImage,
+    tile_edge: usize,
+    page_pixels: usize,
+    screened: bool,
+) {
+    let columns = candidates.width();
+    let rows = candidates.height();
+    let components = ComponentMap::from_binary(candidates);
+    for component in components.components() {
+        let component_width = component.right - component.left + 1;
+        let component_height = component.bottom - component.top + 1;
+        if screened
+            && (component.area < SCREENED_TONE_MINIMUM_COMPONENT_TILES
+                || component_width < 2
+                || component_height < 2
+                || component_width > component_height.saturating_mul(4)
+                || component_height > component_width.saturating_mul(4))
+        {
+            continue;
+        }
+        let component_area = component
+            .area
+            .saturating_mul(tile_edge)
+            .saturating_mul(tile_edge);
+        if component_area as f64 / (page_pixels as f64)
+            < CONTINUOUS_TONE_MINIMUM_COMPONENT_PAGE_FRACTION
+        {
+            continue;
+        }
+        // Protect actual evidence tiles plus one tile of local context. Filling
+        // a component's bounding box turns a few noisy text tiles into a large
+        // rectangular gray column.
+        for tile_y in component.top..=component.bottom {
+            for tile_x in component.left..=component.right {
+                if !candidates.get(tile_x, tile_y) {
+                    continue;
+                }
+                for context_y in tile_y.saturating_sub(1)..=(tile_y + 1).min(rows - 1) {
+                    for context_x in tile_x.saturating_sub(1)..=(tile_x + 1).min(columns - 1) {
+                        let left = context_x * tile_edge;
+                        let top = context_y * tile_edge;
+                        let right = (left + tile_edge).min(protected.width());
+                        let bottom = (top + tile_edge).min(protected.height());
+                        for y in top..bottom {
+                            for x in left..right {
+                                protected.set(x, y, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Recognizes a printed halftone screen without treating it as a photographic
+/// histogram. Screened print is often intentionally bi- or tri-level: the
+/// visual gray is encoded by a dense two-dimensional field of tiny isolated
+/// dots. Requiring most dark pixels to belong to many tiny components rejects
+/// ordinary glyphs, while the cross-tile shape check above rejects a single
+/// punctuation/text tile.
+fn tile_has_screened_tone(
+    source: &GrayImage,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+    paper_mode: u8,
+    noise_sigma: f64,
+) -> bool {
+    let width = right.saturating_sub(left);
+    let height = bottom.saturating_sub(top);
+    let pixel_count = width.saturating_mul(height);
+    if pixel_count == 0 {
+        return false;
+    }
+    let separation = (noise_sigma * 5.0).ceil().clamp(12.0, 48.0) as u8;
+    let ink_limit = paper_mode.saturating_sub(separation);
+    let mut ink = BinaryImage::new(width, height);
+    let mut ink_pixels = 0usize;
+    let mut occupied_rows = vec![false; height];
+    let mut occupied_columns = vec![false; width];
+    for y in top..bottom {
+        for x in left..right {
+            if source.get(x, y) <= ink_limit {
+                ink.set(x - left, y - top, true);
+                ink_pixels += 1;
+                occupied_rows[y - top] = true;
+                occupied_columns[x - left] = true;
+            }
+        }
+    }
+    let ink_fraction = ink_pixels as f64 / pixel_count as f64;
+    if !(0.02..=0.48).contains(&ink_fraction)
+        || occupied_rows.iter().filter(|&&occupied| occupied).count() * 4 < height
+        || occupied_columns
+            .iter()
+            .filter(|&&occupied| occupied)
+            .count()
+            * 4
+            < width
+    {
+        return false;
+    }
+
+    let components = ComponentMap::from_binary(&ink);
+    if components.components().len() < SCREENED_TONE_MINIMUM_TILE_COMPONENTS {
+        return false;
+    }
+    let maximum_dot_area = pixel_count.div_ceil(225).clamp(4, 25);
+    let tiny_ink_pixels = components
+        .components()
+        .iter()
+        .filter(|component| component.area <= maximum_dot_area)
+        .map(|component| component.area)
+        .sum::<usize>();
+    tiny_ink_pixels * 5 >= ink_pixels * 4
+}
+
+/// Converts generous tile/rectangle evidence into pixel-resolution output
+/// geometry. The evidence mask is only a search area; normalized paper pixels
+/// inside it remain unprotected and can still become white. Darker ink,
+/// halftone and map pixels retain their source tone without inheriting the
+/// evidence mask's rectangular boundaries.
+pub(crate) fn refine_tone_preservation_alpha(
+    layout_normalized: &GrayImage,
+    texture_source: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    coarse_tone_evidence: Option<&BinaryImage>,
+) -> Option<GrayImage> {
+    refine_tone_preservation_alpha_with_texture(
+        layout_normalized,
+        texture_source,
+        picture_mask,
+        coarse_tone_evidence,
+        true,
+    )
+}
+
+/// Maps and screened line art need their fills and ink, not the scanner's
+/// low-amplitude paper texture. Keeping texture across a near-page-sized map
+/// restores the original gray rectangle after paper calibration.
+pub(crate) fn refine_line_art_preservation_alpha(
+    layout_normalized: &GrayImage,
+    texture_source: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+) -> Option<GrayImage> {
+    refine_tone_preservation_alpha_with_texture(
+        layout_normalized,
+        texture_source,
+        picture_mask,
+        None,
+        false,
+    )
+}
+
+fn refine_tone_preservation_alpha_with_texture(
+    layout_normalized: &GrayImage,
+    texture_source: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    coarse_tone_evidence: Option<&BinaryImage>,
+    preserve_picture_texture: bool,
+) -> Option<GrayImage> {
+    if picture_mask.is_none() && coarse_tone_evidence.is_none() {
+        return None;
+    }
+    let picture_geometry = picture_mask.map(|mask| {
+        resample_binary_mask_nearest(mask, layout_normalized.width(), layout_normalized.height())
+    });
+    let coarse_geometry = coarse_tone_evidence.map(|mask| {
+        resample_binary_mask_nearest(mask, layout_normalized.width(), layout_normalized.height())
+    });
+    let page_pixels = layout_normalized
+        .width()
+        .saturating_mul(layout_normalized.height())
+        .max(1);
+    let is_useful_paper_exclusion = |mask: &BinaryImage| {
+        // A mask covering most of a page cannot define its own complement as
+        // "paper": maps and framed line art commonly leave too few samples,
+        // causing the fallback paper center of 255 to preserve the raw gray
+        // rectangle. Estimate the dominant paper mode inside such geometry
+        // and use the mask only as output ownership.
+        mask.count_black() as f64 / (page_pixels as f64) < 0.60
+    };
+    let picture_paper_exclusion = picture_geometry
+        .as_ref()
+        .filter(|mask| is_useful_paper_exclusion(mask));
+    let coarse_paper_exclusion = coarse_geometry
+        .as_ref()
+        .filter(|mask| is_useful_paper_exclusion(mask));
+    let paper_exclusion = match (picture_paper_exclusion, coarse_paper_exclusion) {
+        (Some(picture), Some(coarse)) => Some(picture.or(coarse)),
+        (Some(mask), None) | (None, Some(mask)) => Some(mask.clone()),
+        (None, None) => None,
+    };
+    let paper_center =
+        dominant_paper_center(layout_normalized, paper_exclusion.as_ref()).unwrap_or(255) as f64;
+    let tile_edge = layout_normalized
+        .width()
+        .min(layout_normalized.height())
+        .div_ceil(24)
+        .clamp(12, 64);
+    let noise_sigma =
+        estimate_page_noise_sigma_excluding(layout_normalized, tile_edge, paper_exclusion.as_ref());
+    let high = paper_center - 2.0 * noise_sigma;
+    let low = paper_center - (6.0 * noise_sigma).max(24.0);
+    let span = (high - low).max(1.0);
+    let mut raw_alpha = GrayImage::new(layout_normalized.width(), layout_normalized.height(), 0);
+    for y in 0..layout_normalized.height() {
+        for x in 0..layout_normalized.width() {
+            let linear = ((high - f64::from(layout_normalized.get(x, y))) / span).clamp(0.0, 1.0);
+            let smooth = linear * linear * (3.0 - 2.0 * linear);
+            raw_alpha.set(x, y, (smooth * 255.0).round() as u8);
+        }
+    }
+    let texture_source = if texture_source.width() == layout_normalized.width()
+        && texture_source.height() == layout_normalized.height()
+    {
+        texture_source.clone()
+    } else {
+        texture_source
+            .downscale_to_dimensions(layout_normalized.width(), layout_normalized.height())
+    };
+    let eroded = erode_gray(&texture_source, 2, 2);
+    let dilated = dilate_gray(&texture_source, 2, 2);
+    let texture_low = (3.0 * noise_sigma).max(8.0);
+    let texture_high = (8.0 * noise_sigma).max(24.0);
+    let texture_span = (texture_high - texture_low).max(1.0);
+    let mut texture_alpha =
+        GrayImage::new(layout_normalized.width(), layout_normalized.height(), 0);
+    for y in 0..layout_normalized.height() {
+        for x in 0..layout_normalized.width() {
+            let local_range = f64::from(eroded.get(x, y).saturating_sub(dilated.get(x, y)));
+            let linear = ((local_range - texture_low) / texture_span).clamp(0.0, 1.0);
+            let smooth = linear * linear * (3.0 - 2.0 * linear);
+            texture_alpha.set(x, y, (smooth * 255.0).round() as u8);
+        }
+    }
+    let mut approved = BinaryImage::new(layout_normalized.width(), layout_normalized.height());
+    if let Some(evidence) = coarse_geometry.as_ref() {
+        let mut candidate = BinaryImage::new(layout_normalized.width(), layout_normalized.height());
+        for y in 0..layout_normalized.height() {
+            for x in 0..layout_normalized.width() {
+                if raw_alpha.get(x, y) >= 128 {
+                    candidate.set(x, y, true);
+                }
+            }
+        }
+        // Join nearby halftone dots before measuring components, then retain
+        // the original candidate pixels rather than the dilated geometry.
+        // Requiring two-dimensional extent rejects text-line/smear fragments
+        // while keeping irregular map fills and illustrations.
+        let clustered = dilate(&candidate, 2, 2);
+        let components = ComponentMap::from_binary(&clustered);
+        let minimum_width = (layout_normalized.width() as f64
+            * TONE_PRESERVATION_MINIMUM_COMPONENT_SPAN_FRACTION)
+            .round()
+            .max(4.0) as usize;
+        let minimum_height = (layout_normalized.height() as f64
+            * TONE_PRESERVATION_MINIMUM_COMPONENT_SPAN_FRACTION)
+            .round()
+            .max(4.0) as usize;
+        let retained_clusters = components.retain(|component| {
+            let width = component.right - component.left + 1;
+            let height = component.bottom - component.top + 1;
+            if component.area as f64 / (page_pixels as f64)
+                < TONE_PRESERVATION_MINIMUM_COMPONENT_PAGE_FRACTION
+                || width < minimum_width
+                || height < minimum_height
+            {
+                return false;
+            }
+            let mut evidence_overlap = 0usize;
+            for y in component.top..=component.bottom {
+                for x in component.left..=component.right {
+                    if clustered.get(x, y) && evidence.get(x, y) {
+                        evidence_overlap += 1;
+                    }
+                }
+            }
+            evidence_overlap >= component.area.div_ceil(100).max(4)
+        });
+        approved = approved.or(&retained_clusters);
+    }
+    let approved_weight = feather_binary_mask(&approved, TONE_PRESERVATION_FEATHER_RADIUS);
+    let picture_weight = picture_geometry
+        .as_ref()
+        .map(|mask| feather_binary_mask(mask, TONE_PRESERVATION_FEATHER_RADIUS));
+    let mut preservation_alpha =
+        GrayImage::new(layout_normalized.width(), layout_normalized.height(), 0);
+    let mut nonzero = false;
+    for y in 0..layout_normalized.height() {
+        for x in 0..layout_normalized.width() {
+            let tonal = u16::from(raw_alpha.get(x, y)) * u16::from(approved_weight.get(x, y)) / 255;
+            let picture = picture_weight.as_ref().map_or(0, |weight| {
+                let evidence = if preserve_picture_texture {
+                    raw_alpha.get(x, y).max(texture_alpha.get(x, y))
+                } else {
+                    raw_alpha.get(x, y)
+                };
+                u16::from(material_tone_alpha(evidence)) * u16::from(weight.get(x, y)) / 255
+            });
+            let alpha = tonal.max(picture) as u8;
+            preservation_alpha.set(x, y, alpha);
+            nonzero |= alpha != 0;
+        }
+    }
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_TONE_ALPHA").is_some() {
+        let summarize = |field: &GrayImage| {
+            let maximum = field.data().iter().copied().max().unwrap_or(0);
+            let nonzero = field.data().iter().filter(|&&value| value != 0).count();
+            let material = field.data().iter().filter(|&&value| value >= 128).count();
+            (maximum, nonzero, material)
+        };
+        let (raw_maximum, raw_nonzero, raw_material) = summarize(&raw_alpha);
+        let (texture_maximum, texture_nonzero, texture_material) = summarize(&texture_alpha);
+        let (output_maximum, output_nonzero, output_material) = summarize(&preservation_alpha);
+        eprintln!(
+            "{{\"event\":\"tone-preservation-alpha\",\"width\":{},\"height\":{},\
+             \"paperCenter\":{paper_center:.4},\"noiseSigma\":{noise_sigma:.4},\
+             \"picturePixels\":{},\"coarsePixels\":{},\
+             \"rawMaximum\":{raw_maximum},\"rawNonzero\":{raw_nonzero},\
+             \"rawMaterial\":{raw_material},\"textureMaximum\":{texture_maximum},\
+             \"textureNonzero\":{texture_nonzero},\"textureMaterial\":{texture_material},\
+             \"outputMaximum\":{output_maximum},\"outputNonzero\":{output_nonzero},\
+             \"outputMaterial\":{output_material}}}",
+            layout_normalized.width(),
+            layout_normalized.height(),
+            picture_geometry
+                .as_ref()
+                .map_or(0, BinaryImage::count_black),
+            coarse_geometry.as_ref().map_or(0, BinaryImage::count_black),
+        );
+    }
+    nonzero.then_some(preservation_alpha)
+}
+
+fn material_tone_alpha(alpha: u8) -> u8 {
+    if alpha <= TONE_PRESERVATION_MATERIAL_ALPHA_FLOOR {
+        return 0;
+    }
+    let span = u16::from(255 - TONE_PRESERVATION_MATERIAL_ALPHA_FLOOR);
+    let material = u16::from(alpha - TONE_PRESERVATION_MATERIAL_ALPHA_FLOOR);
+    ((material * 255 + span / 2) / span) as u8
+}
+
+/// Turns already-vetted continuous-tone geometry into a semantic preservation
+/// field. Unlike map/ink refinement, this must not weight pixels by darkness:
+/// doing so keeps the dark center of a smooth gradient while whitening its
+/// pale and middle tones. The caller blends this field toward the
+/// illumination-corrected raster, never the raw scan, so paper shade and
+/// scanner shadows are not restored.
+pub(crate) fn semantic_tone_preservation_alpha(semantic_tone: &BinaryImage) -> Option<GrayImage> {
+    if semantic_tone.count_black() == 0 {
+        return None;
+    }
+    Some(feather_binary_mask(
+        semantic_tone,
+        TONE_PRESERVATION_FEATHER_RADIUS,
+    ))
+}
+
+/// Finds large, sharply bounded flat fills that are semantic map/diagram tone
+/// rather than paper shade. Continuous-tone detection intentionally rejects
+/// flat regions, while a scanned map can contain large uniform gray fills.
+/// Selecting a paper-relative middle band excludes black text/line work; the
+/// component size and strong-boundary test reject glyphs and smooth scanner
+/// clouds without relying on a particular paper shade.
+pub(crate) fn flat_graphic_tone_preservation_alpha(
+    layout_normalized: &GrayImage,
+) -> Option<GrayImage> {
+    if layout_normalized.width() < 8 || layout_normalized.height() < 8 {
+        return None;
+    }
+    let paper = dominant_paper_center(layout_normalized, None)? as i16;
+    let upper = paper.saturating_sub(20);
+    let lower = paper.saturating_sub(150).max(0);
+    if upper <= lower {
+        return None;
+    }
+    let raw_candidate = BinaryImage::from_fn_parallel(
+        layout_normalized.width(),
+        layout_normalized.height(),
+        |x, y| {
+            let value = i16::from(layout_normalized.get(x, y));
+            value >= lower && value <= upper
+        },
+    );
+    let page_pixels = layout_normalized
+        .width()
+        .saturating_mul(layout_normalized.height())
+        .max(1);
+    let minimum_area = page_pixels.div_ceil(400); // 0.25% of the page.
+    let minimum_width = layout_normalized.width().div_ceil(25).max(8);
+    let minimum_height = layout_normalized.height().div_ceil(25).max(8);
+    let trace_components = std::env::var_os("EVB_SCAN_CLEANUP_TRACE_FLAT_GRAPHIC").is_some();
+    // Printed contour lines commonly cross a flat fill. Close those narrow
+    // gaps before component analysis so the lines do not cut one semantic
+    // region into a few large retained slices plus small slices that become
+    // white holes.
+    let candidate = close(&raw_candidate, 4, 4);
+    let components = ComponentMap::from_binary(&candidate);
+    let retained = components.retain(|component| {
+        let component_width = component.right - component.left + 1;
+        let component_height = component.bottom - component.top + 1;
+        let component_bounds_area = component_width.saturating_mul(component_height).max(1);
+        if component.area < minimum_area
+            || component_width < minimum_width
+            || component_height < minimum_height
+            || component_width > component_height.saturating_mul(4)
+            || component_height > component_width.saturating_mul(4)
+        {
+            return false;
+        }
+        let mut original_band_pixels = 0usize;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if components.label_at(x, y) == component.label && raw_candidate.get(x, y) {
+                    original_band_pixels += 1;
+                }
+            }
+        }
+        if component.area.saturating_mul(4) < component_bounds_area {
+            if trace_components {
+                eprintln!(
+                    "{{\"event\":\"flat-graphic-component\",\"width\":{},\"height\":{},\
+                     \"componentArea\":{},\"boundsOccupancy\":{:.8},\"retained\":false,\
+                     \"originalBandOccupancy\":{:.8},\"rejection\":\"bounds-occupancy\"}}",
+                    component_width,
+                    component_height,
+                    component.area,
+                    component.area as f64 / component_bounds_area as f64,
+                    original_band_pixels as f64 / component.area.max(1) as f64,
+                );
+            }
+            return false;
+        }
+        // Closing is allowed to bridge narrow contour lines through a solid
+        // fill, but it must not turn sparse antialias fringes around headings,
+        // calibration bars, or dense text into a fake flat graphic.
+        let original_band_dense = original_band_pixels * 5 >= component.area * 3;
+        if !original_band_dense {
+            if trace_components {
+                eprintln!(
+                    "{{\"event\":\"flat-graphic-component\",\"width\":{},\"height\":{},\
+                     \"componentArea\":{},\"boundsOccupancy\":{:.8},\
+                     \"originalBandOccupancy\":{:.8},\"retained\":false,\
+                     \"rejection\":\"original-band-occupancy\"}}",
+                    component_width,
+                    component_height,
+                    component.area,
+                    component.area as f64 / component_bounds_area as f64,
+                    original_band_pixels as f64 / component.area.max(1) as f64,
+                );
+            }
+            return false;
+        }
+        let mut boundary_pixels = 0usize;
+        let mut strong_boundary_pixels = 0usize;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if !candidate.get(x, y) {
+                    continue;
+                }
+                let value = layout_normalized.get(x, y);
+                let mut boundary = false;
+                let mut strongest = 0u8;
+                for (neighbor_x, neighbor_y) in [
+                    (x.saturating_sub(1), y),
+                    ((x + 1).min(layout_normalized.width() - 1), y),
+                    (x, y.saturating_sub(1)),
+                    (x, (y + 1).min(layout_normalized.height() - 1)),
+                ] {
+                    if candidate.get(neighbor_x, neighbor_y) {
+                        continue;
+                    }
+                    boundary = true;
+                    strongest = strongest
+                        .max(value.abs_diff(layout_normalized.get(neighbor_x, neighbor_y)));
+                }
+                if boundary {
+                    boundary_pixels += 1;
+                    strong_boundary_pixels += usize::from(strongest >= 12);
+                }
+            }
+        }
+        let retained_component =
+            boundary_pixels >= 16 && strong_boundary_pixels * 5 >= boundary_pixels * 3;
+        if trace_components {
+            eprintln!(
+                "{{\"event\":\"flat-graphic-component\",\"width\":{},\"height\":{},\
+                 \"componentArea\":{},\"boundsOccupancy\":{:.8},\
+                 \"originalBandOccupancy\":{:.8},\"boundaryPixels\":{},\
+                 \"strongBoundaryFraction\":{:.8},\"retained\":{}}}",
+                component_width,
+                component_height,
+                component.area,
+                component.area as f64 / component_bounds_area as f64,
+                original_band_pixels as f64 / component.area.max(1) as f64,
+                boundary_pixels,
+                strong_boundary_pixels as f64 / boundary_pixels.max(1) as f64,
+                retained_component,
+            );
+        }
+        retained_component
+    });
+    if retained.count_black() == 0 {
+        return None;
+    }
+    Some(feather_binary_mask(
+        &retained,
+        TONE_PRESERVATION_FEATHER_RADIUS,
+    ))
+}
+
+/// Turns a detector-corroborated photo region into a source-preservation
+/// field. A photograph is continuous geometry: weighting its mask again by
+/// darkness or local texture destroys smooth highlights and middle tones and
+/// makes the detector's tile boundaries visible in the result.
+///
+/// This is intentionally separate from `refine_tone_preservation_alpha`.
+/// Callers with a deliberately generous/manual mask may still use refinement
+/// to recover paper-like pixels. The render engine calls this only after the
+/// picture component has been corroborated by continuous-tone evidence.
+pub(crate) fn photo_tone_preservation_alpha(picture: &BinaryImage) -> Option<GrayImage> {
+    if picture.count_black() == 0 {
+        return None;
+    }
+    Some(feather_binary_mask(
+        picture,
+        TONE_PRESERVATION_FEATHER_RADIUS,
+    ))
+}
+
+fn resample_binary_mask_nearest(mask: &BinaryImage, width: usize, height: usize) -> BinaryImage {
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        let source_x = x.saturating_mul(mask.width()) / width.max(1);
+        let source_y = y.saturating_mul(mask.height()) / height.max(1);
+        mask.get(
+            source_x.min(mask.width().saturating_sub(1)),
+            source_y.min(mask.height().saturating_sub(1)),
+        )
+    })
+}
+
+fn dominant_paper_center(
+    normalized: &GrayImage,
+    coarse_tone_evidence: Option<&BinaryImage>,
+) -> Option<u8> {
+    const CLUSTER_RADIUS: usize = 10;
+    fn strongest_cluster(histogram: &[usize; 256]) -> (u8, usize) {
+        (128usize..=255)
+            .map(|center| {
+                let count = histogram
+                    [center.saturating_sub(CLUSTER_RADIUS)..=(center + CLUSTER_RADIUS).min(255)]
+                    .iter()
+                    .sum::<usize>();
+                (center as u8, count)
+            })
+            .max_by_key(|&(_center, count)| count)
+            .unwrap_or((255, 0))
+    }
+
+    let mut histogram = [0usize; 256];
+    let mut count = 0usize;
+    for y in 0..normalized.height() {
+        for x in 0..normalized.width() {
+            if coarse_tone_evidence.is_some_and(|mask| mask.get(x, y)) {
+                continue;
+            }
+            histogram[usize::from(normalized.get(x, y))] += 1;
+            count += 1;
+        }
+    }
+    let (_outside_center, outside_cluster_count) = strongest_cluster(&histogram);
+    // A broad semantic mask can leave thousands of border pixels outside it.
+    // Their quantity alone does not make them paper evidence: black scan
+    // borders previously pinned the "paper" center to 128 and caused almost
+    // the entire gray map to receive full preservation weight. Fall back to
+    // the whole page when the outside samples contain no coherent light
+    // cluster.
+    if count < 128 || outside_cluster_count < count.div_ceil(20).max(16) {
+        histogram = [0usize; 256];
+        for &value in normalized.data() {
+            histogram[usize::from(value)] += 1;
+        }
+        count = normalized.data().len();
+    }
+    (count > 0).then(|| strongest_cluster(&histogram).0)
+}
+
+fn feather_binary_mask(mask: &BinaryImage, radius: usize) -> GrayImage {
+    if radius == 0 {
+        let mut output = GrayImage::new(mask.width(), mask.height(), 0);
+        for y in 0..mask.height() {
+            for x in 0..mask.width() {
+                output.set(x, y, if mask.get(x, y) { 255 } else { 0 });
+            }
+        }
+        return output;
+    }
+    let width = mask.width();
+    let height = mask.height();
+    let mut horizontal = vec![0u32; width.saturating_mul(height)];
+    for y in 0..height {
+        let mut prefix = vec![0u32; width + 1];
+        for x in 0..width {
+            prefix[x + 1] = prefix[x] + u32::from(mask.get(x, y));
+        }
+        for x in 0..width {
+            let left = x.saturating_sub(radius);
+            let right = (x + radius + 1).min(width);
+            horizontal[y * width + x] = prefix[right] - prefix[left];
+        }
+    }
+    let mut output = GrayImage::new(width, height, 0);
+    for x in 0..width {
+        let mut prefix = vec![0u32; height + 1];
+        for y in 0..height {
+            prefix[y + 1] = prefix[y] + horizontal[y * width + x];
+        }
+        for y in 0..height {
+            let top = y.saturating_sub(radius);
+            let bottom = (y + radius + 1).min(height);
+            let left = x.saturating_sub(radius);
+            let right = (x + radius + 1).min(width);
+            let samples = (right - left).saturating_mul(bottom - top).max(1) as u32;
+            output.set(
+                x,
+                y,
+                (((prefix[bottom] - prefix[top]) * 255 + samples / 2) / samples) as u8,
+            );
+        }
+    }
+    output
+}
+
+fn estimate_page_noise_sigma(source: &GrayImage, tile_edge: usize) -> f64 {
+    estimate_page_noise_sigma_excluding(source, tile_edge, None)
+}
+
+fn estimate_page_noise_sigma_excluding(
+    source: &GrayImage,
+    tile_edge: usize,
+    exclusion: Option<&BinaryImage>,
+) -> f64 {
+    let mut estimates = Vec::new();
+    for top in (0..source.height()).step_by(tile_edge) {
+        for left in (0..source.width()).step_by(tile_edge) {
+            let bottom = (top + tile_edge).min(source.height());
+            let right = (left + tile_edge).min(source.width());
+            let mut histogram = [0usize; 256];
+            let mut count = 0usize;
+            for y in top..bottom {
+                for x in left..right {
+                    if exclusion.is_some_and(|mask| mask.get(x, y)) {
+                        continue;
+                    }
+                    histogram[source.get(x, y) as usize] += 1;
+                    count += 1;
+                }
+            }
+            let tile_pixels = (right - left).saturating_mul(bottom - top).max(1);
+            if count < tile_pixels / 2 || count < 16 {
+                continue;
+            }
+            let p25 = percentile_from_histogram(&histogram, count / 4);
+            let p75 = percentile_from_histogram(&histogram, count.saturating_mul(3) / 4);
+            estimates.push(f64::from(p75.saturating_sub(p25)) / 1.349);
+        }
+    }
+    if estimates.is_empty() {
+        return 1.0;
+    }
+    estimates.sort_by(f64::total_cmp);
+    estimates[estimates.len() / 5].clamp(1.0, 12.0)
+}
+
+fn otsu_explained_variance_fraction(histogram: &[usize; 256], pixel_count: usize) -> f64 {
+    if pixel_count <= 1 {
+        return 0.0;
+    }
+    let total = pixel_count as f64;
+    let sum = histogram
+        .iter()
+        .enumerate()
+        .map(|(level, &count)| level as f64 * count as f64)
+        .sum::<f64>();
+    let mean = sum / total;
+    let total_variance = histogram
+        .iter()
+        .enumerate()
+        .map(|(level, &count)| {
+            let delta = level as f64 - mean;
+            delta * delta * count as f64
+        })
+        .sum::<f64>();
+    if total_variance <= f64::EPSILON {
+        return 0.0;
+    }
+    let mut lower_count = 0usize;
+    let mut lower_sum = 0.0;
+    let mut maximum_between = 0.0_f64;
+    for (level, &count) in histogram.iter().enumerate().take(255) {
+        lower_count += count;
+        lower_sum += level as f64 * count as f64;
+        if lower_count == 0 || lower_count == pixel_count {
+            continue;
+        }
+        let upper_count = pixel_count - lower_count;
+        let lower_mean = lower_sum / lower_count as f64;
+        let upper_mean = (sum - lower_sum) / upper_count as f64;
+        maximum_between = maximum_between.max(
+            lower_count as f64 * upper_count as f64 / total * (lower_mean - upper_mean).powi(2),
+        );
+    }
+    maximum_between / total_variance
+}
+
+fn complete_dense_picture_rectangles(candidate: BinaryImage) -> BinaryImage {
+    let components = ComponentMap::from_binary(&candidate);
+    let page_pixels = candidate.width().saturating_mul(candidate.height()).max(1);
+    let minimum_area =
+        (page_pixels as f64 * DENSE_RECTANGLE_MINIMUM_PAGE_FRACTION).round() as usize;
+    let minimum_width =
+        (candidate.width() as f64 * DENSE_RECTANGLE_MINIMUM_SPAN_FRACTION).round() as usize;
+    let minimum_height =
+        (candidate.height() as f64 * DENSE_RECTANGLE_MINIMUM_SPAN_FRACTION).round() as usize;
+    let mut completed = candidate;
+    for component in components.components() {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let bounds_area = width.saturating_mul(height).max(1);
+        let occupancy = component.area as f64 / bounds_area as f64;
+        if component.area < minimum_area
+            || width < minimum_width
+            || height < minimum_height
+            || occupancy < DENSE_RECTANGLE_MINIMUM_OCCUPANCY
+        {
+            continue;
+        }
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                completed.set(x, y, true);
+            }
+        }
+    }
+    completed
+}
+
+fn corroborate_picture_components(
+    candidate: BinaryImage,
+    continuous_tone: &BinaryImage,
+) -> BinaryImage {
+    debug_assert_eq!(
+        (candidate.width(), candidate.height()),
+        (continuous_tone.width(), continuous_tone.height())
+    );
+    if candidate.count_black() == 0 || continuous_tone.count_black() == 0 {
+        return BinaryImage::new(candidate.width(), candidate.height());
+    }
+    let components = ComponentMap::from_binary(&candidate);
+    components.retain(|component| {
+        let minimum_overlap = component.area.div_ceil(100).max(4);
+        let mut overlap = 0usize;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if candidate.get(x, y) && continuous_tone.get(x, y) {
+                    overlap += 1;
+                    if overlap >= minimum_overlap {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    })
 }
 
 pub(crate) fn extend_picture_mask_for_content(
     source: &GrayImage,
     picture_mask: &BinaryImage,
     calibration: PageCalibration,
+) -> BinaryImage {
+    extend_mask_for_content(source, picture_mask, calibration, false)
+}
+
+/// Extends tonal seed pixels to the enclosing illustration/map structure
+/// without adopting unrelated document structures elsewhere on the page.
+///
+/// The general content extender is intentionally allowed to collect every
+/// large structural cluster because it is used for crop/layout ownership.
+/// Semantic-tone routing is narrower: a retained cluster must overlap the
+/// tonal evidence that caused the extension request.
+pub(crate) fn extend_tone_mask_for_content(
+    source: &GrayImage,
+    tone_mask: &BinaryImage,
+    calibration: PageCalibration,
+) -> BinaryImage {
+    extend_mask_for_content(source, tone_mask, calibration, true)
+}
+
+fn extend_mask_for_content(
+    source: &GrayImage,
+    seed_mask: &BinaryImage,
+    calibration: PageCalibration,
+    require_seed_overlap: bool,
 ) -> BinaryImage {
     let threshold = otsu_threshold(source);
     let binary = threshold_global(source, threshold);
@@ -107,13 +1047,27 @@ pub(crate) fn extend_picture_mask_for_content(
         if supporting_components < 8 {
             continue;
         }
+        if require_seed_overlap {
+            let mut overlap = 0usize;
+            for y in cluster.top..=cluster.bottom {
+                for x in cluster.left..=cluster.right {
+                    if seed_mask.get(x, y) {
+                        overlap += 1;
+                    }
+                }
+            }
+            let cluster_area = width.saturating_mul(height).max(1);
+            if overlap < cluster_area.div_ceil(10_000).max(4) {
+                continue;
+            }
+        }
         for y in cluster.top..=cluster.bottom {
             for x in cluster.left..=cluster.right {
                 structural.set(x, y, true);
             }
         }
     }
-    picture_mask.or(&structural)
+    seed_mask.or(&structural)
 }
 
 pub(crate) fn apply_manual_zones(mask: &mut BinaryImage, options: &CleanupOptions) {
@@ -318,6 +1272,66 @@ mod tests {
     use super::*;
     use crate::calibration::CalibrationConfig;
     use crate::{ManualZones, NormalizedZonePoint, OrthogonalRotation, PictureZone};
+    use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
+    use std::io::Cursor;
+    use zune_jpeg::{
+        zune_core::{colorspace::ColorSpace, options::DecoderOptions},
+        JpegDecoder,
+    };
+
+    fn jpeg_luma_roundtrip(source: &GrayImage, quality: u8) -> GrayImage {
+        let mut encoded = Vec::new();
+        let mut encoder = JpegEncoder::new(&mut encoded, quality);
+        encoder.set_sampling_factor(SamplingFactor::F_1_1);
+        encoder
+            .encode(
+                source.data(),
+                u16::try_from(source.width()).unwrap(),
+                u16::try_from(source.height()).unwrap(),
+                ColorType::Luma,
+            )
+            .unwrap();
+        let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::Luma);
+        let mut decoder = JpegDecoder::new_with_options(Cursor::new(encoded), options);
+        GrayImage::from_vec(
+            source.width(),
+            source.height(),
+            source.width(),
+            decoder.decode().unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn noisy_text_page(paper: u8, noise_amplitude: i16) -> GrayImage {
+        let mut image = GrayImage::new(600, 720, paper);
+        let mut state = 0x7a1d_93c5_u32;
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let span = noise_amplitude * 2 + 1;
+                let noise = ((state >> 16) as i16).rem_euclid(span) - noise_amplitude;
+                image.set(x, y, (i16::from(paper) + noise).clamp(0, 255) as u8);
+            }
+        }
+        for line in 0..21 {
+            let top = 28 + line * 31;
+            for glyph in 0..47 {
+                let left = 22 + glyph * 12;
+                for y in top..top + 10 {
+                    for x in left..left + 7 {
+                        let edge = x == left || x + 1 == left + 7 || y == top || y + 1 == top + 10;
+                        let core = x == left + 1 || y == top + 1 || y + 2 == top + 10;
+                        if edge {
+                            image.set(x, y, paper.saturating_sub(55));
+                        } else if core {
+                            image.set(x, y, 28);
+                        }
+                    }
+                }
+            }
+        }
+        image
+    }
 
     fn glyph_page(with_photo: bool) -> GrayImage {
         let mut image = GrayImage::new(260, 180, 242);
@@ -374,6 +1388,418 @@ mod tests {
             text_pixels < 200,
             "misclassified {text_pixels} text-area pixels"
         );
+    }
+
+    #[test]
+    fn picture_detector_rejects_repeated_text_on_dark_and_tinted_paper() {
+        for paper in [72_u8, 112, 152, 192, 232] {
+            let page = noisy_text_page(paper, 2);
+            let calibration = PageCalibration::estimate(&page, 150.0, CalibrationConfig::default());
+            let mask = detect_picture_mask(&page, 150.0, calibration);
+            assert_eq!(
+                mask.count_black(),
+                0,
+                "paper shade {paper} produced word-sized photo evidence"
+            );
+        }
+    }
+
+    #[test]
+    fn continuous_tone_protection_rejects_uniform_tinted_paper_with_dark_text() {
+        for paper in [72_u8, 112, 152, 192, 232] {
+            let mut page = GrayImage::new(360, 480, paper);
+            for line in 0..14 {
+                let top = 38 + line * 27;
+                for y in top..top + 7 {
+                    for x in 32..328 {
+                        if (x + y) % 9 < 5 {
+                            page.set(x, y, 18);
+                        }
+                    }
+                }
+            }
+
+            let protected = detect_continuous_tone_mask(&page, 150.0);
+
+            assert_eq!(
+                protected.count_black(),
+                0,
+                "uniform paper shade {paper} was mistaken for continuous tone"
+            );
+        }
+    }
+
+    #[test]
+    fn continuous_tone_protection_rejects_noisy_and_jpeg_tinted_text_pages() {
+        for noise in [2_i16, 6, 10] {
+            let page = noisy_text_page(178, noise);
+            let protected = detect_continuous_tone_mask(&page, 150.0);
+            assert_eq!(
+                protected.count_black(),
+                0,
+                "scanner noise amplitude {noise} became a picture mask"
+            );
+
+            let jpeg = jpeg_luma_roundtrip(&page, 42);
+            let protected = detect_continuous_tone_mask(&jpeg, 150.0);
+            assert_eq!(
+                protected.count_black(),
+                0,
+                "JPEG ringing with noise amplitude {noise} became a picture mask"
+            );
+        }
+    }
+
+    #[test]
+    fn continuous_tone_protection_keeps_a_halftone_inside_a_text_page() {
+        let mut page = GrayImage::new(480, 600, 218);
+        for line in 0..16 {
+            let top = 30 + line * 28;
+            for y in top..top + 7 {
+                for x in 24..210 {
+                    if (x + y) % 8 < 5 {
+                        page.set(x, y, 24);
+                    }
+                }
+            }
+        }
+        for y in 120..480 {
+            for x in 250..450 {
+                let screen = ((x * 17 + y * 29 + (x / 3) * (y / 5)) % 181) as u8;
+                page.set(x, y, 32 + screen);
+            }
+        }
+
+        let protected = detect_continuous_tone_mask(&page, 150.0);
+        let protected_photo_pixels = (120..480)
+            .flat_map(|y| (250..450).map(move |x| (x, y)))
+            .filter(|&(x, y)| protected.get(x, y))
+            .count();
+        let protected_text_pixels = (0..220)
+            .flat_map(|x| (0..520).map(move |y| (x, y)))
+            .filter(|&(x, y)| protected.get(x, y))
+            .count();
+
+        assert!(
+            protected_photo_pixels > 50_000,
+            "only {protected_photo_pixels} halftone pixels were protected"
+        );
+        assert!(
+            protected_text_pixels <= 4_500,
+            "more than one local context tile leaked into the text area: {protected_text_pixels}"
+        );
+    }
+
+    #[test]
+    fn sparse_print_screen_survives_harness_downsampling() {
+        let mut source = GrayImage::new(720, 960, 242);
+        for y in (430..720).step_by(7) {
+            for x in (160..560).step_by(7) {
+                let value = if (x / 7 + y / 7) % 3 == 0 { 75 } else { 155 };
+                for dot_y in y..y + 2 {
+                    for dot_x in x..x + 2 {
+                        source.set(dot_x, dot_y, value);
+                    }
+                }
+            }
+        }
+        let page = source.downscale_to_fit(360, 480);
+        let tile_edge = 30;
+        let noise_sigma = estimate_page_noise_sigma(&page, tile_edge);
+        let screened_tiles = (0..page.height().div_ceil(tile_edge))
+            .flat_map(|tile_y| {
+                (0..page.width().div_ceil(tile_edge)).map(move |tile_x| (tile_x, tile_y))
+            })
+            .filter(|&(tile_x, tile_y)| {
+                let left = tile_x * tile_edge;
+                let top = tile_y * tile_edge;
+                let right = (left + tile_edge).min(page.width());
+                let bottom = (top + tile_edge).min(page.height());
+                let mut histogram = [0usize; 256];
+                for y in top..bottom {
+                    for x in left..right {
+                        histogram[page.get(x, y) as usize] += 1;
+                    }
+                }
+                let paper_mode = histogram
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|&(_level, count)| count)
+                    .map_or(255, |(level, _count)| level) as u8;
+                tile_has_screened_tone(&page, left, top, right, bottom, paper_mode, noise_sigma)
+            })
+            .count();
+        assert!(
+            screened_tiles >= 4,
+            "expected a coherent screened region, found {screened_tiles} tiles"
+        );
+
+        let tone = detect_continuous_tone_mask(&page, 150.0);
+        let tone_pixels = (215..360)
+            .flat_map(|y| (80..280).map(move |x| (x, y)))
+            .filter(|&(x, y)| tone.get(x, y))
+            .count();
+        assert!(
+            tone_pixels > 10_000,
+            "screen evidence protected only {tone_pixels} photo pixels"
+        );
+
+        let calibration = PageCalibration::estimate(&page, 150.0, CalibrationConfig::default());
+        let picture = detect_picture_mask(&page, 150.0, calibration);
+        let picture_pixels = (215..360)
+            .flat_map(|y| (80..280).map(move |x| (x, y)))
+            .filter(|&(x, y)| picture.get(x, y))
+            .count();
+        assert!(
+            picture_pixels > 1_000,
+            "picture geometry retained only {picture_pixels} screened pixels"
+        );
+    }
+
+    #[test]
+    fn continuous_tone_role_keeps_full_vetted_geometry() {
+        let mut evidence = BinaryImage::new(480, 600);
+        for y in 100..500 {
+            for x in 210..450 {
+                evidence.set(x, y, true);
+            }
+        }
+        let alpha = semantic_tone_preservation_alpha(&evidence).unwrap();
+
+        assert!(
+            alpha.get(330, 300) >= 240,
+            "center of tonal geometry was not retained"
+        );
+        assert!(
+            alpha.get(330, 430) >= 240,
+            "light or middle tone geometry was attenuated by darkness"
+        );
+        assert_eq!(
+            alpha.get(30, 30),
+            0,
+            "uniform paper outside tonal evidence was protected"
+        );
+    }
+
+    #[test]
+    fn photo_role_keeps_smooth_highlights_and_middle_tones() {
+        let mut picture = BinaryImage::new(320, 240);
+        for y in 35..205 {
+            for x in 70..270 {
+                picture.set(x, y, true);
+            }
+        }
+
+        let alpha = photo_tone_preservation_alpha(&picture).unwrap();
+
+        assert!(alpha.get(170, 120) >= 240);
+        assert!(
+            alpha.get(260, 120) >= 240,
+            "pale photo geometry must not be attenuated by pixel darkness"
+        );
+        assert_eq!(alpha.get(30, 30), 0);
+    }
+
+    #[test]
+    fn tone_extension_does_not_adopt_an_unrelated_document_cluster() {
+        let mut image = GrayImage::new(420, 300, 245);
+        let mut tone_seed = BinaryImage::new(420, 300);
+        for y in 30..135 {
+            for x in 25..190 {
+                if x % 12 < 2 || y % 12 < 2 {
+                    image.set(x, y, 85);
+                }
+            }
+        }
+        for y in 165..270 {
+            for x in 230..395 {
+                if x % 12 < 2 || y % 12 < 2 {
+                    image.set(x, y, 85);
+                }
+            }
+        }
+        for y in 60..105 {
+            for x in 60..145 {
+                tone_seed.set(x, y, true);
+            }
+        }
+        let calibration = PageCalibration::estimate(&image, 150.0, CalibrationConfig::default());
+
+        let extended = extend_tone_mask_for_content(&image, &tone_seed, calibration);
+
+        assert!(extended.get(80, 80));
+        assert!(
+            !extended.get(300, 220),
+            "an unrelated structural cluster became semantic tone"
+        );
+    }
+
+    #[test]
+    fn continuous_tone_context_does_not_fill_component_bounding_boxes() {
+        let mut page = GrayImage::new(600, 600, 220);
+        let tile = 30;
+        for tile_y in 3..17 {
+            for tile_x in 3..17 {
+                if tile_y >= 6 && tile_x >= 6 {
+                    continue;
+                }
+                for y in tile_y * tile..(tile_y + 1) * tile {
+                    for x in tile_x * tile..(tile_x + 1) * tile {
+                        page.set(x, y, 28 + ((x * 17 + y * 29) % 190) as u8);
+                    }
+                }
+            }
+        }
+
+        let protected = detect_continuous_tone_mask(&page, 150.0);
+
+        assert!(protected.get(4 * tile, 4 * tile));
+        assert!(
+            !protected.get(11 * tile, 11 * tile),
+            "an L-shaped tone component filled its empty rectangular interior"
+        );
+    }
+
+    #[test]
+    fn tone_preservation_refines_coarse_evidence_to_map_and_ink_pixels() {
+        let mut normalized = GrayImage::new(320, 240, 252);
+        for y in 35..205 {
+            for x in 70..270 {
+                if (x + y) % 7 < 4 {
+                    normalized.set(x, y, 168);
+                }
+            }
+        }
+        for y in 50..190 {
+            normalized.set(160, y, 24);
+        }
+        let mut coarse = BinaryImage::new(320, 240);
+        for y in 80..160 {
+            for x in 100..180 {
+                coarse.set(x, y, true);
+            }
+        }
+
+        let preservation =
+            refine_tone_preservation_alpha(&normalized, &normalized, None, Some(&coarse)).unwrap();
+
+        assert!(preservation.get(160, 120) >= 240);
+        assert!(
+            preservation.get(72, 36) >= 200,
+            "component was clipped to the coarse evidence boundary"
+        );
+        assert!(
+            preservation.get(50, 50) == 0,
+            "coarse evidence geometry leaked into white paper"
+        );
+        assert!(
+            preservation.get(290, 210) == 0,
+            "coarse rectangle edge became output geometry"
+        );
+    }
+
+    #[test]
+    fn tone_preservation_does_not_keep_uniform_noisy_paper_gray() {
+        let mut normalized = GrayImage::new(300, 220, 250);
+        for y in 0..normalized.height() {
+            for x in 0..normalized.width() {
+                normalized.set(x, y, 247 + ((x * 17 + y * 29) % 7) as u8);
+            }
+        }
+        for y in 70..150 {
+            for x in 40..260 {
+                if (x + y) % 13 < 3 {
+                    normalized.set(x, y, 45);
+                }
+            }
+        }
+        let mut coarse = BinaryImage::new(300, 220);
+        for y in 0..coarse.height() {
+            for x in 0..coarse.width() {
+                coarse.set(x, y, true);
+            }
+        }
+
+        let preservation =
+            refine_tone_preservation_alpha(&normalized, &normalized, None, Some(&coarse)).unwrap();
+        let preserved_pixels = preservation
+            .data()
+            .iter()
+            .filter(|&&alpha| alpha >= 128)
+            .count();
+
+        assert!(preserved_pixels > 1_000);
+        assert!(
+            preserved_pixels < 5_000,
+            "uniform noisy paper was retained by a coarse evidence mask"
+        );
+        assert_eq!(preservation.get(10, 10), 0);
+    }
+
+    #[test]
+    fn paper_center_ignores_dark_borders_left_outside_a_broad_tone_mask() {
+        let mut source = GrayImage::new(320, 240, 183);
+        let mut coarse = BinaryImage::new(320, 240);
+        for y in 12..228 {
+            for x in 12..308 {
+                coarse.set(x, y, true);
+            }
+        }
+        for x in 0..source.width() {
+            source.set(x, 0, 12);
+            source.set(x, source.height() - 1, 12);
+        }
+        for y in 0..source.height() {
+            source.set(0, y, 12);
+            source.set(source.width() - 1, y, 12);
+        }
+        for y in 70..170 {
+            for x in 85..235 {
+                source.set(x, y, 96);
+            }
+        }
+
+        assert!(
+            (183..=193).contains(&dominant_paper_center(&source, Some(&coarse)).unwrap()),
+            "dark border samples displaced the paper cluster"
+        );
+    }
+
+    #[test]
+    fn dense_rectangular_picture_component_completes_its_pale_interior() {
+        let mut candidate = BinaryImage::new(200, 160);
+        for y in 24..136 {
+            for x in 30..170 {
+                let pale_gap = y >= 105 && (55..145).contains(&x);
+                if !pale_gap {
+                    candidate.set(x, y, true);
+                }
+            }
+        }
+
+        let completed = complete_dense_picture_rectangles(candidate);
+
+        assert!(completed.get(100, 120));
+        assert!(!completed.get(20, 80));
+        assert!(!completed.get(180, 80));
+    }
+
+    #[test]
+    fn sparse_irregular_component_is_not_promoted_to_a_picture_rectangle() {
+        let mut candidate = BinaryImage::new(200, 160);
+        for y in 24..136 {
+            for x in 30..170 {
+                if x < 42 || y < 36 {
+                    candidate.set(x, y, true);
+                }
+            }
+        }
+        let expected_pixels = candidate.count_black();
+
+        let completed = complete_dense_picture_rectangles(candidate);
+
+        assert!(!completed.get(100, 80));
+        assert_eq!(completed.count_black(), expected_pixels);
     }
 
     #[test]
@@ -445,6 +1871,74 @@ mod tests {
             "line-art picture mask covered only {line_art_pixels} pixels"
         );
         assert!(!content.get(20, 20), "unrelated body text was protected");
+    }
+
+    #[test]
+    fn flat_graphic_tone_keeps_sharply_bounded_map_fill() {
+        let mut image = GrayImage::new(240, 180, 240);
+        for y in 42..142 {
+            for x in 64..184 {
+                image.set(x, y, 148);
+            }
+        }
+        for y in [70, 96, 122] {
+            for line_y in y..y + 3 {
+                for x in 48..200 {
+                    image.set(x, line_y, 28);
+                }
+            }
+        }
+
+        let alpha = flat_graphic_tone_preservation_alpha(&image)
+            .expect("a large map fill needs semantic ownership");
+
+        assert_eq!(alpha.get(120, 90), 255);
+        assert_eq!(alpha.get(120, 96), 255);
+        assert_eq!(alpha.get(20, 20), 0);
+    }
+
+    #[test]
+    fn flat_graphic_tone_rejects_smooth_scanner_cloud() {
+        let mut image = GrayImage::new(240, 180, 240);
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                let dx = (x as f64 - 120.0) / 72.0;
+                let dy = (y as f64 - 90.0) / 54.0;
+                let shadow = 62.0 * (-(dx * dx + dy * dy)).exp();
+                image.set(x, y, (240.0 - shadow).round() as u8);
+            }
+        }
+
+        assert!(flat_graphic_tone_preservation_alpha(&image).is_none());
+    }
+
+    #[test]
+    fn flat_graphic_tone_rejects_closed_text_and_calibration_strokes() {
+        let mut image = GrayImage::new(320, 220, 240);
+        for row in 0..5 {
+            let top = 28 + row * 30;
+            for glyph in 0..16 {
+                let left = 24 + glyph * 17;
+                for y in top..top + 11 {
+                    image.set(left, y, 28);
+                    image.set(left + 7, y, 28);
+                }
+                for x in left..left + 8 {
+                    image.set(x, top, 28);
+                    image.set(x, top + 10, 28);
+                }
+                // JPEG/antialias-like middle band around the dark stroke.
+                for y in top.saturating_sub(1)..=(top + 11).min(image.height() - 1) {
+                    for x in left.saturating_sub(1)..=(left + 8).min(image.width() - 1) {
+                        if image.get(x, y) == 240 {
+                            image.set(x, y, 156);
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(flat_graphic_tone_preservation_alpha(&image).is_none());
     }
 
     fn polygon(left: f64, top: f64, right: f64, bottom: f64) -> NormalizedZonePolygon {

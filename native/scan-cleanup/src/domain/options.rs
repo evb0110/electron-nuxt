@@ -1,4 +1,5 @@
 use crate::domain::geometry::PageHalf;
+use crate::text_tone::TextToneDiagnostics;
 use scan_primitives::Rect;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -310,11 +311,35 @@ pub struct ExperimentalOptions {
     pub auto_dewarp_depth: Option<f64>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResolvedTextToneDiagnostics {
+    pub full: Option<TextToneDiagnostics>,
+    pub left: Option<TextToneDiagnostics>,
+    pub right: Option<TextToneDiagnostics>,
+}
+
+impl ResolvedTextToneDiagnostics {
+    pub fn for_half(self, half: PageHalf) -> Option<TextToneDiagnostics> {
+        match half {
+            PageHalf::Full => self.full,
+            PageHalf::Left => self.left,
+            PageHalf::Right => self.right,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.full.is_none() && self.left.is_none() && self.right.is_none()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct CleanupOptions {
     pub dpi: f64,
     pub source_dpi: Option<f64>,
+    pub source_has_bilevel_layer: bool,
+    pub source_background_dpi: Option<f64>,
     pub requested_render_dpi: Option<f64>,
     /// Optional preview tile in normalized final intrinsic-output space.
     pub render_crop: Option<NormalizedRect>,
@@ -326,6 +351,12 @@ pub struct CleanupOptions {
     pub despeckle: bool,
     pub despeckle_level: DespeckleLevel,
     pub output_mode: OutputMode,
+    /// Locked Auto representation decision. `None` preserves native policy for
+    /// an explicitly selected Mixed mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_soft_alpha_foreground: Option<bool>,
+    #[serde(skip_serializing_if = "ResolvedTextToneDiagnostics::is_empty")]
+    pub resolved_text_tone_diagnostics: ResolvedTextToneDiagnostics,
     pub ocr_mode: bool,
     pub layout: LayoutMode,
     #[serde(rename = "manualSplit")]
@@ -364,6 +395,8 @@ impl Default for CleanupOptions {
         Self {
             dpi: 300.0,
             source_dpi: None,
+            source_has_bilevel_layer: false,
+            source_background_dpi: None,
             requested_render_dpi: None,
             render_crop: None,
             classify_only: None,
@@ -373,6 +406,8 @@ impl Default for CleanupOptions {
             despeckle: true,
             despeckle_level: DespeckleLevel::Normal,
             output_mode: OutputMode::Bw,
+            prefer_soft_alpha_foreground: None,
+            resolved_text_tone_diagnostics: ResolvedTextToneDiagnostics::default(),
             ocr_mode: false,
             layout: LayoutMode::Auto,
             manual_split_x: None,
@@ -415,6 +450,9 @@ impl CleanupOptions {
         if self
             .source_dpi
             .is_some_and(|dpi| !dpi.is_finite() || dpi <= 0.0)
+            || self
+                .source_background_dpi
+                .is_some_and(|dpi| !dpi.is_finite() || dpi <= 0.0)
             || self
                 .requested_render_dpi
                 .is_some_and(|dpi| !dpi.is_finite() || dpi <= 0.0)
@@ -495,23 +533,46 @@ impl CleanupOptions {
                 );
             }
         }
+        for diagnostics in [
+            self.resolved_text_tone_diagnostics.full,
+            self.resolved_text_tone_diagnostics.left,
+            self.resolved_text_tone_diagnostics.right,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            diagnostics.validate()?;
+        }
         if let Some(depth) = self.experimental.auto_dewarp_depth {
             if !depth.is_finite() || !(0.5..=4.0).contains(&depth) {
                 return Err("Automatic dewarp depth must be finite and between 0.5 and 4.0".into());
             }
         }
-        for rect in [
-            self.render_crop,
-            self.manual_content_boxes.full,
-            self.manual_content_boxes.left,
-            self.manual_content_boxes.right,
-            self.automatic_content_boxes.full,
-            self.automatic_content_boxes.left,
-            self.automatic_content_boxes.right,
+        for (label, rect) in [
+            ("render crop", self.render_crop),
+            ("manual full content box", self.manual_content_boxes.full),
+            ("manual left content box", self.manual_content_boxes.left),
+            ("manual right content box", self.manual_content_boxes.right),
+            (
+                "automatic full content box",
+                self.automatic_content_boxes.full,
+            ),
+            (
+                "automatic left content box",
+                self.automatic_content_boxes.left,
+            ),
+            (
+                "automatic right content box",
+                self.automatic_content_boxes.right,
+            ),
         ]
         .into_iter()
-        .flatten()
+        .filter_map(|(label, rect)| rect.map(|rect| (label, rect)))
         {
+            // Complements computed as `1 - x` in a different f64 rounding
+            // order can overshoot 1.0 by ~1e-16; a sub-nanometer tolerance
+            // rejects real geometry errors while accepting float noise.
+            const BOUNDS_EPSILON: f64 = 1e-9;
             if ![rect.x, rect.y, rect.width, rect.height]
                 .into_iter()
                 .all(f64::is_finite)
@@ -519,11 +580,15 @@ impl CleanupOptions {
                 || rect.y < 0.0
                 || rect.width <= 0.0
                 || rect.height <= 0.0
-                || rect.x + rect.width > 1.0
-                || rect.y + rect.height > 1.0
+                || rect.x + rect.width > 1.0 + BOUNDS_EPSILON
+                || rect.y + rect.height > 1.0 + BOUNDS_EPSILON
                 || rect.rotation != self.rotation
             {
-                return Err("Normalized render/content rectangles must be positive, bounded, and authored under the page rotation".into());
+                return Err(format!(
+                    "{label} must be positive, bounded, and authored under the page rotation \
+                     (x={}, y={}, width={}, height={}, rotation={:?}, page rotation={:?})",
+                    rect.x, rect.y, rect.width, rect.height, rect.rotation, self.rotation,
+                ));
             }
         }
         for polygon in self
@@ -550,6 +615,10 @@ impl CleanupOptions {
 
     pub fn source_dpi(&self) -> f64 {
         self.source_dpi.unwrap_or(self.dpi)
+    }
+
+    pub fn source_background_dpi(&self) -> f64 {
+        self.source_background_dpi.unwrap_or(self.source_dpi())
     }
 
     pub fn requested_render_dpi(&self) -> f64 {

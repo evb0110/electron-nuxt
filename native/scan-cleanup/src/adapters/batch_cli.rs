@@ -2,9 +2,10 @@ use crate::adapters::single_ocr_cli::{invalid, optional_value, parse_options, re
 use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached, clean_detail_page_with_color,
     clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions, CleanupRaster,
-    CleanupResult,
+    CleanupResult, DetailRenderSources, LayeredForegroundKind,
 };
-use crate::mode_select::OutputModeRecommendationReason;
+use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
+use crate::mrc::derive_tone_mask_excluding_foreground;
 use crate::{
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
     io::{pbm, raster},
@@ -35,12 +36,82 @@ use std::{
     time::Instant,
 };
 
+// Mixed pages use a high-resolution bilevel foreground for text. Their
+// continuous-tone plate should remain coarse: raising it to the mask grid adds
+// no detail and turns compact MRC scans into hundreds of megabytes of JPEGs.
+const LAYERED_BACKGROUND_MAX_DPI: f64 = 200.0;
+const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
+
+fn layered_background_dpi(options: &CleanupOptions) -> f64 {
+    options
+        .source_background_dpi()
+        .min(options.dpi)
+        .min(LAYERED_BACKGROUND_MAX_DPI)
+}
+
+fn layered_foreground_dpi(options: &CleanupOptions) -> f64 {
+    options
+        .source_dpi()
+        .min(options.dpi)
+        .min(SOFT_FOREGROUND_MAX_DPI)
+}
+
+/// A PDF soft mask describes opacity, not semantic ink ownership. Some compact
+/// MRC producers attach the high-resolution image to the paper samples and
+/// leave the text transparent; others do the opposite. Treating every white
+/// sample as text turns the former into a black page with white letters.
+///
+/// Foreground marks are the less common mask class. This is independent of the
+/// paper shade and works for either encoded polarity. An exact coverage tie is
+/// resolved by the class that is darker in the flattened source.
+fn normalize_trusted_foreground_selection(
+    selection: &GrayImage,
+    source: &GrayImage,
+) -> BinaryImage {
+    let high_count = selection
+        .data()
+        .iter()
+        .filter(|&&sample| sample >= 128)
+        .count();
+    let low_count = selection.data().len().saturating_sub(high_count);
+    let high_is_foreground = match high_count.cmp(&low_count) {
+        std::cmp::Ordering::Less => true,
+        std::cmp::Ordering::Greater => false,
+        std::cmp::Ordering::Equal => {
+            let mut high_sum = 0u64;
+            let mut low_sum = 0u64;
+            for y in 0..selection.height() {
+                let source_y = y * source.height() / selection.height().max(1);
+                for x in 0..selection.width() {
+                    let source_x = x * source.width() / selection.width().max(1);
+                    let source_sample = u64::from(source.get(
+                        source_x.min(source.width().saturating_sub(1)),
+                        source_y.min(source.height().saturating_sub(1)),
+                    ));
+                    if selection.get(x, y) >= 128 {
+                        high_sum += source_sample;
+                    } else {
+                        low_sum += source_sample;
+                    }
+                }
+            }
+            high_sum <= low_sum
+        }
+    };
+    BinaryImage::from_fn_parallel(selection.width(), selection.height(), |x, y| {
+        (selection.get(x, y) >= 128) == high_is_foreground
+    })
+}
+
 struct WrittenOutput {
     output_path: PathBuf,
     metadata_path: PathBuf,
     bilevel_output_path: Option<PathBuf>,
     background_output_path: Option<PathBuf>,
     foreground_mask_output_path: Option<PathBuf>,
+    foreground_alpha_output_path: Option<PathBuf>,
+    picture_mask_output_path: Option<PathBuf>,
+    tone_preservation_alpha_output_path: Option<PathBuf>,
     options: CleanupOptions,
     is_color: bool,
     half: crate::pipeline::PageHalf,
@@ -86,6 +157,10 @@ struct PageResultMetadata {
     recommended_output_mode_confidence: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     recommended_output_mode_reason: Option<OutputModeRecommendationReason>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    soft_alpha_foreground_recommendation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_mode_diagnostics: Option<OutputModeDiagnostics>,
     #[serde(skip)]
     rotated_width: usize,
     #[serde(skip)]
@@ -161,6 +236,8 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     }
     let page = Page {
         input_path: input,
+        trusted_foreground_mask_path: None,
+        trusted_mrc_background_path: None,
         outputs: Vec::new(),
         source_page_index: 0,
         page_metadata_path: metadata.clone(),
@@ -226,6 +303,8 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         recommended_output_mode: None,
         recommended_output_mode_confidence: None,
         recommended_output_mode_reason: None,
+        soft_alpha_foreground_recommendation: None,
+        output_mode_diagnostics: None,
     })?;
     let cache = manifest_cache(manifest.host_memory_bytes);
     let total_pages = manifest.pages.len();
@@ -331,6 +410,12 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                 if let Some(mask_path) = &output.foreground_mask_output_path {
                     let _ = fs::remove_file(mask_path);
                 }
+                if let Some(mask_path) = &output.picture_mask_output_path {
+                    let _ = fs::remove_file(mask_path);
+                }
+                if let Some(mask_path) = &output.tone_preservation_alpha_output_path {
+                    let _ = fs::remove_file(mask_path);
+                }
             }
             let _ = fs::remove_file(&page_result.page_metadata_path);
             return Err(error);
@@ -363,6 +448,8 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         recommended_output_mode: None,
         recommended_output_mode_confidence: None,
         recommended_output_mode_reason: None,
+        soft_alpha_foreground_recommendation: None,
+        output_mode_diagnostics: None,
     })?;
     Ok(())
 }
@@ -846,6 +933,8 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
         recommended_output_mode: metadata.recommended_output_mode,
         recommended_output_mode_confidence: metadata.recommended_output_mode_confidence,
         recommended_output_mode_reason: metadata.recommended_output_mode_reason,
+        soft_alpha_foreground_recommendation: metadata.soft_alpha_foreground_recommendation,
+        output_mode_diagnostics: metadata.output_mode_diagnostics,
     }
 }
 
@@ -862,6 +951,8 @@ fn pages_have_disjoint_destinations(manifest: &ManifestV3) -> bool {
                     output.bilevel_output_path.as_ref(),
                     output.background_output_path.as_ref(),
                     output.foreground_mask_output_path.as_ref(),
+                    output.picture_mask_output_path.as_ref(),
+                    output.tone_preservation_alpha_output_path.as_ref(),
                 ]
                 .into_iter()
                 .flatten()
@@ -1033,6 +1124,66 @@ fn run_page(
         .map(|input| &input.gray)
         .or(gray_input.as_deref())
         .expect("cleanup input is initialized");
+    let trusted_foreground_mask = page
+        .trusted_foreground_mask_path
+        .as_ref()
+        .map(|path| {
+            let selection =
+                raster::read_foreground_selection(path, options.max_pixels, options.max_dimension)
+                .map_err(map_image_error)?;
+            let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
+            let mask_aspect = selection.width() as f64 / selection.height().max(1) as f64;
+            if (input_aspect / mask_aspect - 1.0).abs() > 0.02 {
+                return Err(invalid(format!(
+                    "Trusted foreground mask aspect ratio does not match page input: {}x{} versus {}x{}",
+                    selection.width(),
+                    selection.height(),
+                    input_gray.width(),
+                    input_gray.height(),
+                )));
+            }
+            Ok(normalize_trusted_foreground_selection(
+                &selection,
+                input_gray,
+            ))
+        })
+        .transpose()?;
+    let trusted_mrc_background = page
+        .trusted_mrc_background_path
+        .as_ref()
+        .map(|path| {
+            let background = raster::read_image(path, options.max_pixels, options.max_dimension)
+                .map_err(map_image_error)?;
+            let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
+            let background_aspect =
+                background.gray.width() as f64 / background.gray.height().max(1) as f64;
+            if (input_aspect / background_aspect - 1.0).abs() > 0.02 {
+                return Err(invalid(format!(
+                    "Trusted MRC background aspect ratio does not match page input: {}x{} versus {}x{}",
+                    background.gray.width(),
+                    background.gray.height(),
+                    input_gray.width(),
+                    input_gray.height(),
+                )));
+            }
+            Ok(background)
+        })
+        .transpose()?;
+    let trusted_tone_mask = trusted_mrc_background
+        .as_ref()
+        .zip(trusted_foreground_mask.as_ref())
+        .map(|(background, foreground)| {
+            derive_tone_mask_excluding_foreground(
+                &background.gray,
+                options.source_background_dpi(),
+                foreground,
+            )
+        });
+    if trusted_tone_mask.is_some() != trusted_foreground_mask.is_some() {
+        return Err(Box::new(invalid(
+            "Trusted MRC evidence must provide both background and foreground selection layers",
+        )));
+    }
     let create_mixed_layers = final_render
         && !page.outputs.is_empty()
         && page.outputs.iter().all(|output| {
@@ -1052,16 +1203,28 @@ fn run_page(
                     detail_plan.base_metadata_path.display(),
                 ))
             })?;
-        let base_source = raster::read_gray(
+        let base_source = raster::read_image(
             &detail_plan.base_raster_path,
             options.max_pixels,
             options.max_dimension,
         )
         .map_err(map_image_error)?;
+        let base_cleaned = detail_plan
+            .base_cleaned_raster_path
+            .as_ref()
+            .map(|path| raster::read_image(path, options.max_pixels, options.max_dimension))
+            .transpose()
+            .map_err(map_image_error)?;
         clean_detail_page_with_color(
-            input_gray,
-            color_input.as_ref().map(|input| &input.rgb),
-            &base_source,
+            DetailRenderSources {
+                source_crop: input_gray,
+                color_source_crop: color_input.as_ref().map(|input| &input.rgb),
+                base_source: &base_source.gray,
+                base_color_source: Some(&base_source.rgb),
+                base_cleaned: base_cleaned
+                    .as_ref()
+                    .map(|cleaned| (&cleaned.gray, Some(&cleaned.rgb))),
+            },
             &options,
             page.source_page_index,
             detail_plan,
@@ -1073,6 +1236,14 @@ fn run_page(
         clean_page_with_color_and_document_prior_cached(
             input_gray,
             color_input.as_ref().map(|input| &input.rgb),
+            trusted_foreground_mask.as_ref(),
+            trusted_tone_mask.as_ref(),
+            trusted_mrc_background
+                .as_ref()
+                .map(|background| &background.gray),
+            trusted_mrc_background
+                .as_ref()
+                .map(|background| &background.rgb),
             &options,
             page.source_page_index,
             page.document_prior,
@@ -1123,6 +1294,13 @@ fn run_page(
         recommended_output_mode_reason: result
             .output_mode_recommendation
             .map(|recommendation| recommendation.reason),
+        soft_alpha_foreground_recommendation: result
+            .output_mode_recommendation
+            .filter(|recommendation| recommendation.mode == OutputMode::Mixed)
+            .map(|recommendation| recommendation.prefer_soft_alpha_foreground),
+        output_mode_diagnostics: result
+            .output_mode_recommendation
+            .map(|recommendation| recommendation.diagnostics),
         rotated_width: if matches!(
             options.rotation,
             OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270
@@ -1152,13 +1330,25 @@ fn run_page(
     let publication_result = (|| -> Result<(), Box<dyn Error>> {
         for (output, destination) in result.outputs.iter_mut().zip(&destinations) {
             let layer_destinations_available = final_render
-                && output.mixed_layers.is_some()
-                && destination.background_output_path.is_some()
-                && destination.foreground_mask_output_path.is_some();
+                && output.mixed_layers.as_ref().is_some_and(|layers| {
+                    destination.background_output_path.is_some()
+                        && if layers.foreground_alpha.is_some() {
+                            destination.foreground_alpha_output_path.is_some()
+                        } else {
+                            destination.foreground_mask_output_path.is_some()
+                        }
+                });
             let matched_placement = if final_render && options.match_page_size && !options.ocr_mode
             {
-                let canvas = document_canvas
+                let mut canvas = document_canvas
                     .ok_or_else(|| invalid("Matched page size requires a documentCanvas plan"))?;
+                // PDF page matching is a physical-points contract, not a
+                // same-number-of-pixels contract. Reusing the document's
+                // finest raster grid upscaled lower-DPI B&W/Mixed pages after
+                // cleanup, adding no information while changing stroke
+                // geometry and bloating masks. Each page keeps the DPI at
+                // which it was actually cleaned.
+                canvas = canvas.at_dpi(options.dpi);
                 validate_canvas_for_options(canvas.width_px, canvas.height_px, &options)?;
                 let placement = plan_canvas_placement_for(
                     output.image.width(),
@@ -1170,6 +1360,8 @@ fn run_page(
                     &canvas,
                 );
                 apply_canvas_metadata(&mut output.metadata, placement, &canvas);
+                match_picture_mask_in_memory(output, placement, &canvas);
+                match_tone_preservation_alpha_in_memory(output, placement, &canvas);
                 // Keep the metadata contract identical to the former
                 // post-publication matcher: these are the intrinsic content
                 // dimensions before the white canvas is added.
@@ -1206,65 +1398,171 @@ fn run_page(
                 }
                 None => None,
             };
-            let layer_paths = final_render.then(|| {
-                destination
-                    .background_output_path
-                    .as_ref()
-                    .zip(destination.foreground_mask_output_path.as_ref())
-            });
-            let (background_output_path, foreground_mask_output_path) = if let (
-                Some(layers),
-                Some(Some((background_path, mask_path))),
-            ) =
-                (output.mixed_layers.as_ref(), layer_paths)
-            {
-                let layer_result = (|| -> Result<(), String> {
-                    let background_dpi = options.source_dpi().min(options.dpi);
-                    let background_width = ((layers.background.width() as f64 * background_dpi
-                        / options.dpi)
-                        .round() as usize)
-                        .max(1);
-                    let background_height = ((layers.background.height() as f64 * background_dpi
-                        / options.dpi)
-                        .round() as usize)
-                        .max(1);
-                    if let Some(color) = &layers.color_background {
-                        if !options.match_page_size && background_dpi < options.dpi {
-                            let background = downscale_rgb_to_dimensions(
-                                color,
-                                background_width,
-                                background_height,
-                            );
-                            write_layer_background(background_path, &background)?;
-                        } else {
-                            write_layer_background(background_path, color)?;
-                        }
-                    } else if !options.match_page_size && background_dpi < options.dpi {
-                        let background = layers
-                            .background
-                            .downscale_to_dimensions(background_width, background_height);
-                        write_gray_layer_background(background_path, &background)?;
+            let (background_output_path, foreground_mask_output_path, foreground_alpha_output_path) =
+                if let (Some(layers), Some(background_path)) = (
+                    output.mixed_layers.as_ref(),
+                    final_render
+                        .then_some(destination.background_output_path.as_ref())
+                        .flatten(),
+                ) {
+                    let foreground_path = if layers.foreground_alpha.is_some() {
+                        destination.foreground_alpha_output_path.as_ref()
                     } else {
-                        write_gray_layer_background(background_path, &layers.background)?;
-                    }
-                    pbm::write_p4_bilevel_atomic(mask_path, &layers.foreground_mask)
-                })();
-                if let Err(error) = layer_result {
-                    let _ = fs::remove_file(background_path);
-                    let _ = fs::remove_file(mask_path);
-                    restore_mixed_composite_from_layers(output);
-                    output.metadata.warnings.push(format!(
+                        destination.foreground_mask_output_path.as_ref()
+                    };
+                    let foreground_path = foreground_path.ok_or_else(|| {
+                        invalid("Layered cleanup output is missing its foreground destination")
+                    })?;
+                    let layer_result = (|| -> Result<(), String> {
+                        let background_dpi = layered_background_dpi(&options);
+                        let matched_background_width =
+                            ((layers.foreground_mask.width() as f64 * background_dpi / options.dpi)
+                                .round() as usize)
+                                .max(1);
+                        let matched_background_height = ((layers.foreground_mask.height() as f64
+                            * background_dpi
+                            / options.dpi)
+                            .round()
+                            as usize)
+                            .max(1);
+                        let background_is_already_matched = layers.background.width()
+                            == matched_background_width
+                            && layers.background.height() == matched_background_height;
+                        let background_width = if background_is_already_matched {
+                            matched_background_width
+                        } else {
+                            ((layers.background.width() as f64 * background_dpi / options.dpi)
+                                .round() as usize)
+                                .max(1)
+                        };
+                        let background_height = if background_is_already_matched {
+                            matched_background_height
+                        } else {
+                            ((layers.background.height() as f64 * background_dpi / options.dpi)
+                                .round() as usize)
+                                .max(1)
+                        };
+                        if let Some(color) = &layers.color_background {
+                            if color.width() != background_width
+                                || color.height() != background_height
+                            {
+                                let background = downscale_rgb_to_dimensions(
+                                    color,
+                                    background_width,
+                                    background_height,
+                                );
+                                write_layer_background(background_path, &background)?;
+                            } else {
+                                write_layer_background(background_path, color)?;
+                            }
+                        } else if layers.background.width() != background_width
+                            || layers.background.height() != background_height
+                        {
+                            let background = layers
+                                .background
+                                .downscale_to_dimensions(background_width, background_height);
+                            write_gray_layer_background(background_path, &background)?;
+                        } else {
+                            write_gray_layer_background(background_path, &layers.background)?;
+                        }
+                        if let Some(alpha) = layers.foreground_alpha.as_ref() {
+                            let foreground_dpi = layered_foreground_dpi(&options);
+                            let foreground_width =
+                                ((alpha.width() as f64 * foreground_dpi / options.dpi).round()
+                                    as usize)
+                                    .max(1);
+                            let foreground_height =
+                                ((alpha.height() as f64 * foreground_dpi / options.dpi).round()
+                                    as usize)
+                                    .max(1);
+                            let foreground = if foreground_dpi < options.dpi {
+                                alpha.downscale_to_dimensions(foreground_width, foreground_height)
+                            } else {
+                                alpha.clone()
+                            };
+                            raster::write_gray_pgm_atomic(foreground_path, &foreground)
+                        } else {
+                            pbm::write_p4_bilevel_atomic(foreground_path, &layers.foreground_mask)
+                        }
+                    })();
+                    if let Err(error) = layer_result {
+                        let _ = fs::remove_file(background_path);
+                        let _ = fs::remove_file(foreground_path);
+                        if layers.source_mrc {
+                            return Err(Box::new(invalid(format!(
+                                "Source MRC layers could not be published safely: {error}"
+                            ))));
+                        }
+                        restore_mixed_composite_from_layers(output);
+                        output.metadata.warnings.push(format!(
                             "Mixed layers were not written; the composite fallback was published instead: {error}"
                         ));
-                    (None, None)
+                        (None, None, None)
+                    } else {
+                        output.metadata.layered_written = true;
+                        output.metadata.layered_foreground_kind = Some(if layers.source_mrc {
+                            LayeredForegroundKind::SourceMrc
+                        } else if layers.foreground_alpha.is_some() {
+                            LayeredForegroundKind::SoftAlpha
+                        } else {
+                            LayeredForegroundKind::Stencil
+                        });
+                        output.metadata.layered_background_dpi =
+                            Some(layered_background_dpi(&options));
+                        output.metadata.layered_foreground_dpi = if layers.source_mrc {
+                            // The published selection mask remains on the
+                            // rendered page grid. The original JP2's own
+                            // DPI is retained later by the PDF affine
+                            // matrix and is not this raster's metadata.
+                            Some(options.dpi)
+                        } else {
+                            layers
+                                .foreground_alpha
+                                .is_some()
+                                .then(|| layered_foreground_dpi(&options))
+                        };
+                        (
+                            Some(background_path.clone()),
+                            layers
+                                .foreground_alpha
+                                .is_none()
+                                .then(|| foreground_path.clone()),
+                            layers
+                                .foreground_alpha
+                                .is_some()
+                                .then(|| foreground_path.clone()),
+                        )
+                    }
                 } else {
-                    output.metadata.layered_written = true;
-                    output.metadata.layered_background_dpi =
-                        Some(options.source_dpi().min(options.dpi));
-                    (Some(background_path.clone()), Some(mask_path.clone()))
-                }
+                    (None, None, None)
+                };
+            let picture_mask_output_path = if final_render {
+                destination
+                    .picture_mask_output_path
+                    .as_ref()
+                    .zip(output.picture_mask.as_ref())
+                    .map(|(path, picture_mask)| {
+                        pbm::write_p4_bilevel_atomic(path, picture_mask)
+                            .map(|()| path.clone())
+                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))
+                    })
+                    .transpose()?
             } else {
-                (None, None)
+                None
+            };
+            let tone_preservation_alpha_output_path = if final_render {
+                destination
+                    .tone_preservation_alpha_output_path
+                    .as_ref()
+                    .zip(output.tone_preservation_alpha.as_ref())
+                    .map(|(path, tone_preservation_alpha)| {
+                        png::write_gray_atomic(path, tone_preservation_alpha)
+                            .map(|()| path.clone())
+                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))
+                    })
+                    .transpose()?
+            } else {
+                None
             };
             // The composite carries the page only when no primary raster did.
             // Deflating and fsyncing a full-resolution copy beside a published
@@ -1285,6 +1583,9 @@ fn run_page(
                 bilevel_output_path,
                 background_output_path,
                 foreground_mask_output_path,
+                foreground_alpha_output_path,
+                picture_mask_output_path,
+                tone_preservation_alpha_output_path,
                 options: options.clone(),
                 is_color: output.color_image.is_some(),
                 half: output.metadata.half,
@@ -1308,6 +1609,15 @@ fn run_page(
                 let _ = fs::remove_file(background_path);
             }
             if let Some(mask_path) = &destination.foreground_mask_output_path {
+                let _ = fs::remove_file(mask_path);
+            }
+            if let Some(alpha_path) = &destination.foreground_alpha_output_path {
+                let _ = fs::remove_file(alpha_path);
+            }
+            if let Some(mask_path) = &destination.picture_mask_output_path {
+                let _ = fs::remove_file(mask_path);
+            }
+            if let Some(mask_path) = &destination.tone_preservation_alpha_output_path {
                 let _ = fs::remove_file(mask_path);
             }
         }
@@ -1338,10 +1648,9 @@ fn write_layer_background(path: &Path, image: &RgbImage) -> Result<(), String> {
 }
 
 fn write_gray_layer_background(path: &Path, image: &GrayImage) -> Result<(), String> {
-    if path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
-    {
+    if path.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("ppm") || extension.eq_ignore_ascii_case("pgm")
+    }) {
         raster::write_gray_ppm_atomic(path, image)
     } else {
         png::write_gray_atomic(path, image)
@@ -1462,6 +1771,13 @@ fn run_classification(
         recommended_output_mode_reason: result
             .output_mode_recommendation
             .map(|recommendation| recommendation.reason),
+        soft_alpha_foreground_recommendation: result
+            .output_mode_recommendation
+            .filter(|recommendation| recommendation.mode == OutputMode::Mixed)
+            .map(|recommendation| recommendation.prefer_soft_alpha_foreground),
+        output_mode_diagnostics: result
+            .output_mode_recommendation
+            .map(|recommendation| recommendation.diagnostics),
         rotated_width: result.rotated_width,
         rotated_height: result.rotated_height,
         candidate_cutter_ratio: result.candidate_cutter_ratio,
@@ -1677,6 +1993,49 @@ fn match_primary_raster_in_memory(
     }
 }
 
+fn match_picture_mask_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &DocumentCanvas,
+) {
+    let Some(picture_mask) = output.picture_mask.as_ref() else {
+        return;
+    };
+    let gray = CleanupRaster::Bilevel(picture_mask.clone()).into_gray();
+    let placed = place_on_white_canvas(
+        &resample_bilevel(&gray, placement.content_width, placement.content_height),
+        canvas.width_px,
+        canvas.height_px,
+        placement.left,
+        placement.top,
+    );
+    output.picture_mask = Some(BinaryImage::from_fn_parallel(
+        canvas.width_px,
+        canvas.height_px,
+        |x, y| placed.get(x, y) < 128,
+    ));
+}
+
+fn match_tone_preservation_alpha_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &DocumentCanvas,
+) {
+    let Some(tone_preservation_alpha) = output.tone_preservation_alpha.as_ref() else {
+        return;
+    };
+    let placed = place_on_gray_canvas(
+        &tone_preservation_alpha
+            .resample_to_dimensions(placement.content_width, placement.content_height),
+        canvas.width_px,
+        canvas.height_px,
+        placement.left,
+        placement.top,
+        0,
+    );
+    output.tone_preservation_alpha = Some(placed);
+}
+
 fn restore_mixed_composite_from_layers(output: &mut CleanupResult) {
     let Some(layers) = output.mixed_layers.as_ref() else {
         return;
@@ -1685,6 +2044,10 @@ fn restore_mixed_composite_from_layers(output: &mut CleanupResult) {
     let mut image = layers
         .background
         .resample_to_dimensions(mask.width(), mask.height());
+    let alpha = layers
+        .foreground_alpha
+        .as_ref()
+        .map(|alpha| alpha.resample_to_dimensions(mask.width(), mask.height()));
     let width = image.width();
     image
         .data_mut()
@@ -1692,7 +2055,13 @@ fn restore_mixed_composite_from_layers(output: &mut CleanupResult) {
         .enumerate()
         .for_each(|(y, row)| {
             for (x, target) in row.iter_mut().enumerate() {
-                if mask.get(x, y) {
+                if let Some(alpha) = alpha.as_ref() {
+                    let opacity = alpha.get(x, y);
+                    if opacity > 0 {
+                        *target =
+                            ((u16::from(*target) * u16::from(255 - opacity) + 127) / 255) as u8;
+                    }
+                } else if mask.get(x, y) {
                     *target = 0;
                 }
             }
@@ -1707,7 +2076,15 @@ fn restore_mixed_composite_from_layers(output: &mut CleanupResult) {
             .enumerate()
             .for_each(|(y, row)| {
                 for (x, target) in row.chunks_exact_mut(3).enumerate() {
-                    if mask.get(x, y) {
+                    if let Some(alpha) = alpha.as_ref() {
+                        let opacity = alpha.get(x, y);
+                        if opacity > 0 {
+                            for channel in target {
+                                *channel = ((u16::from(*channel) * u16::from(255 - opacity) + 127)
+                                    / 255) as u8;
+                            }
+                        }
+                    } else if mask.get(x, y) {
                         target.fill(0);
                     }
                 }
@@ -1741,19 +2118,37 @@ fn match_layers_in_memory(
         BinaryImage::from_fn_parallel(canvas.width_px, canvas.height_px, |x, y| {
             foreground.get(x, y) < 128
         });
-
-    let background_dpi = options.source_dpi().min(options.dpi);
-    let background_ratio = background_dpi / options.dpi;
-    let on_background_grid =
-        |value: usize| ((value as f64 * background_ratio).round() as usize).max(1);
-    let background_width = on_background_grid(canvas.width_px);
-    let background_height = on_background_grid(canvas.height_px);
-    let content_width = on_background_grid(placement.content_width).min(background_width);
-    let content_height = on_background_grid(placement.content_height).min(background_height);
-    let left = ((placement.left as f64 * background_ratio).round() as usize)
-        .min(background_width - content_width);
-    let top = ((placement.top as f64 * background_ratio).round() as usize)
-        .min(background_height - content_height);
+    if let Some(alpha) = layers.foreground_alpha.as_ref() {
+        layers.foreground_alpha = Some(place_on_gray_canvas(
+            &alpha.resample_to_dimensions(placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.left,
+            placement.top,
+            0,
+        ));
+    }
+    let background_dpi = layered_background_dpi(options);
+    // The matched canvas is intentionally the high-resolution bilevel grid.
+    // Deriving the JPEG plate from `background_dpi / options.dpi` therefore
+    // upscaled it whenever the document canvas used a finer B&W DPI than the
+    // source page. Derive the plate from physical PDF points and map placement
+    // proportionally between the two grids instead.
+    let background_canvas = canvas.at_dpi(background_dpi);
+    let background_width = background_canvas.width_px;
+    let background_height = background_canvas.height_px;
+    let scale_x = background_width as f64 / canvas.width_px.max(1) as f64;
+    let scale_y = background_height as f64 / canvas.height_px.max(1) as f64;
+    let content_width = ((placement.content_width as f64 * scale_x).round() as usize)
+        .max(1)
+        .min(background_width);
+    let content_height = ((placement.content_height as f64 * scale_y).round() as usize)
+        .max(1)
+        .min(background_height);
+    let left =
+        ((placement.left as f64 * scale_x).round() as usize).min(background_width - content_width);
+    let top =
+        ((placement.top as f64 * scale_y).round() as usize).min(background_height - content_height);
     layers.background = place_on_white_canvas(
         &layers
             .background
@@ -1896,32 +2291,57 @@ fn match_page_sizes(
                                 "Layered cleanup metadata is missing its background destination",
                             )
                         })?;
-                    let mask_path =
-                        output.foreground_mask_output_path.as_ref().ok_or_else(|| {
-                            invalid("Layered cleanup metadata is missing its mask destination")
-                        })?;
-                    let mask = pbm::read_p4(
-                        mask_path,
-                        output.options.max_pixels,
-                        output.options.max_dimension,
-                    )
-                    .map_err(map_image_error)?;
-                    let mask = place_on_white_canvas(
-                        &resample_bilevel(&mask, content_width, content_height),
-                        target_width,
-                        target_height,
-                        left,
-                        top,
-                    );
-                    pbm::write_p4_atomic(mask_path, &mask)
-                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+                    if metadata.layered_foreground_kind == Some(LayeredForegroundKind::SoftAlpha) {
+                        let alpha_path =
+                            output.foreground_alpha_output_path.as_ref().ok_or_else(|| {
+                                invalid(
+                                    "Soft layered cleanup metadata is missing its alpha destination",
+                                )
+                            })?;
+                        let alpha = raster::read_gray(
+                            alpha_path,
+                            output.options.max_pixels,
+                            output.options.max_dimension,
+                        )
+                        .map_err(map_image_error)?;
+                        let alpha = place_on_gray_canvas(
+                            &alpha.resample_to_dimensions(content_width, content_height),
+                            target_width,
+                            target_height,
+                            left,
+                            top,
+                            0,
+                        );
+                        write_gray_layer_background(alpha_path, &alpha)
+                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+                    } else {
+                        let mask_path =
+                            output.foreground_mask_output_path.as_ref().ok_or_else(|| {
+                                invalid("Layered cleanup metadata is missing its mask destination")
+                            })?;
+                        let mask = pbm::read_p4(
+                            mask_path,
+                            output.options.max_pixels,
+                            output.options.max_dimension,
+                        )
+                        .map_err(map_image_error)?;
+                        let mask = place_on_white_canvas(
+                            &resample_bilevel(&mask, content_width, content_height),
+                            target_width,
+                            target_height,
+                            left,
+                            top,
+                        );
+                        pbm::write_p4_atomic(mask_path, &mask)
+                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+                    }
 
                     // The background carries the same page at a coarser grid,
                     // so it is normalized on its own grid rather than on the
                     // mask's: the pair keeps the ratio the assembler expects.
                     let background_dpi = metadata
                         .layered_background_dpi
-                        .unwrap_or(output.options.source_dpi().min(output.options.dpi));
+                        .unwrap_or_else(|| layered_background_dpi(&output.options));
                     let background_ratio = background_dpi / output.options.dpi;
                     let on_background_grid =
                         |value: usize| ((value as f64 * background_ratio).round() as usize).max(1);
@@ -1995,6 +2415,15 @@ fn match_page_sizes(
             if let Some(mask_path) = &output.foreground_mask_output_path {
                 let _ = fs::remove_file(mask_path);
             }
+            if let Some(alpha_path) = &output.foreground_alpha_output_path {
+                let _ = fs::remove_file(alpha_path);
+            }
+            if let Some(mask_path) = &output.picture_mask_output_path {
+                let _ = fs::remove_file(mask_path);
+            }
+            if let Some(mask_path) = &output.tone_preservation_alpha_output_path {
+                let _ = fs::remove_file(mask_path);
+            }
             return Err(error);
         }
     }
@@ -2049,7 +2478,18 @@ fn place_on_white_canvas(
     left: usize,
     top: usize,
 ) -> GrayImage {
-    let mut canvas = GrayImage::new(width, height, 255);
+    place_on_gray_canvas(source, width, height, left, top, 255)
+}
+
+fn place_on_gray_canvas(
+    source: &GrayImage,
+    width: usize,
+    height: usize,
+    left: usize,
+    top: usize,
+    fill: u8,
+) -> GrayImage {
+    let mut canvas = GrayImage::new(width, height, fill);
     canvas
         .data_mut()
         .par_chunks_mut(width)
@@ -2106,6 +2546,9 @@ fn resolve_destinations(
             bilevel_output_path: None,
             background_output_path: None,
             foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
         }]);
     }
     Ok((0..output_count)
@@ -2115,6 +2558,9 @@ fn resolve_destinations(
             bilevel_output_path: None,
             background_output_path: None,
             foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
         })
         .collect())
 }
@@ -2159,7 +2605,8 @@ fn map_image_error(message: String) -> NativeError {
 mod tests {
     use super::{
         adaptive_thread_count, estimate_peak_page_bytes, manifest_cache, manifest_worker_threads,
-        page_worker_threads, preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
+        normalize_trusted_foreground_selection, page_worker_threads,
+        preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
         robust_quantile_dimension, run_stream_page_jobs, PageResultMetadata, PageRunResult,
         Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
@@ -2173,7 +2620,7 @@ mod tests {
         CleanupOptions, OrthogonalRotation, OutputMode,
     };
     use evb_native_support::NativeError;
-    use scan_primitives::{GrayImage, Point};
+    use scan_primitives::{BinaryImage, GrayImage, Point};
     use std::{fs, path::PathBuf};
 
     #[test]
@@ -2182,6 +2629,30 @@ mod tests {
         assert_eq!(
             robust_quantile_dimension([80, 80, 80, 80, 80, 80, 80, 80, 80, 140].into_iter()),
             80
+        );
+    }
+
+    #[test]
+    fn trusted_mrc_foreground_uses_sparse_marks_for_either_soft_mask_polarity() {
+        let mut source = GrayImage::new(8, 4, 176);
+        for x in 2..6 {
+            source.set(x, 2, 18);
+        }
+        let mut sparse_white = GrayImage::new(8, 4, 0);
+        let mut dense_white = GrayImage::new(8, 4, 255);
+        for x in 2..6 {
+            sparse_white.set(x, 2, 255);
+            dense_white.set(x, 2, 0);
+        }
+
+        let expected = BinaryImage::from_fn_parallel(8, 4, |x, y| y == 2 && (2..6).contains(&x));
+        assert_eq!(
+            normalize_trusted_foreground_selection(&sparse_white, &source),
+            expected
+        );
+        assert_eq!(
+            normalize_trusted_foreground_selection(&dense_white, &source),
+            expected
         );
     }
 
@@ -2235,6 +2706,8 @@ mod tests {
             pages: (0..8)
                 .map(|index| Page {
                     input_path: input.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
                     source_page_index: index,
                     page_metadata_path: PathBuf::from("page.json"),
                     options: CleanupOptions::default(),
@@ -2285,6 +2758,8 @@ mod tests {
             pages: (0..8)
                 .map(|index| Page {
                     input_path: fifo.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
                     source_page_index: index,
                     page_metadata_path: dir.join(format!("page-{index}.json")),
                     options: CleanupOptions::default(),
@@ -2331,6 +2806,8 @@ mod tests {
                 .enumerate()
                 .map(|(index, input_path)| Page {
                     input_path: input_path.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
                     source_page_index: index,
                     page_metadata_path: dir.join(format!("page-{index}.json")),
                     options: CleanupOptions::default(),
@@ -2389,6 +2866,8 @@ mod tests {
             pages: (0..4)
                 .map(|index| Page {
                     input_path: input.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
                     source_page_index: index,
                     page_metadata_path: dir.join(format!("page-{index}.json")),
                     options: CleanupOptions::default(),
@@ -2420,6 +2899,8 @@ mod tests {
                 recommended_output_mode: None,
                 recommended_output_mode_confidence: None,
                 recommended_output_mode_reason: None,
+                soft_alpha_foreground_recommendation: None,
+                output_mode_diagnostics: None,
                 rotated_width: 240,
                 rotated_height: 200,
                 candidate_cutter_ratio: Some(0.5),
@@ -2483,6 +2964,8 @@ mod tests {
             recommended_output_mode: None,
             recommended_output_mode_confidence: None,
             recommended_output_mode_reason: None,
+            soft_alpha_foreground_recommendation: None,
+            output_mode_diagnostics: None,
             rotated_width: 240,
             rotated_height: 200,
             candidate_cutter_ratio: Some(0.505),

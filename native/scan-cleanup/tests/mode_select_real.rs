@@ -5,7 +5,7 @@ use evb_scan_cleanup::{
 use std::{fs, path::Path};
 
 #[test]
-fn luther_monochrome_scan_fixtures_recommend_bw_with_high_confidence() {
+fn luther_low_resolution_scans_keep_soft_text_in_grayscale() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/split");
     let mut recommendations = Vec::new();
     for page in 1..=4 {
@@ -37,12 +37,20 @@ fn luther_monochrome_scan_fixtures_recommend_bw_with_high_confidence() {
     for (name, recommendation) in recommendations {
         assert_eq!(
             recommendation.mode,
-            OutputMode::Bw,
+            OutputMode::Grayscale,
             "{name}: {recommendation:?}"
         );
         assert!(
             recommendation.confidence >= 0.75,
             "{name}: {recommendation:?}"
+        );
+        assert!(
+            recommendation.diagnostics.bilevel_fidelity_veto,
+            "{name}: the low-resolution soft-edge guard was not recorded"
+        );
+        assert!(
+            recommendation.diagnostics.soft_edge_to_ink_ratio >= 0.05,
+            "{name}: the grayscale decision lacked measured soft-edge evidence"
         );
     }
 }

@@ -106,6 +106,7 @@ fn binarize_normalized_calibrated(
 pub(crate) fn binarize_normalized_with_diagnostics(
     normalized: &GrayImage,
     routing_sample: &GrayImage,
+    global_threshold_source: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
 ) -> (
@@ -123,6 +124,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     let binary = threshold_with_mode(
         &threshold_input,
         normalized,
+        global_threshold_source,
         options,
         diagnostics.route,
         calibration,
@@ -139,6 +141,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
 /// statistics and held white through despeckling and morphological smoothing.
 pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     normalized: &GrayImage,
+    global_threshold_source: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
     picture_mask: &BinaryImage,
@@ -154,7 +157,13 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         (normalized.width(), normalized.height()),
         (picture_mask.width(), picture_mask.height())
     );
-    let protection_radius = (options.dpi * 0.35 / 25.4).round().clamp(1.0, 12.0) as usize;
+    if let Some(source) = global_threshold_source {
+        assert_eq!(
+            (normalized.width(), normalized.height()),
+            (source.width(), source.height())
+        );
+    }
+    let protection_radius = picture_protection_radius(options.dpi);
     let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
     let mut masked_input = normalized.clone();
     let masked_width = masked_input.width();
@@ -176,6 +185,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     let binary = threshold_with_mode_excluding(
         &threshold_input,
         normalized,
+        global_threshold_source,
         options,
         diagnostics.route,
         calibration,
@@ -194,6 +204,10 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     )
 }
 
+pub(crate) fn picture_protection_radius(dpi: f64) -> usize {
+    (dpi * 0.35 / 25.4).round().clamp(1.0, 12.0) as usize
+}
+
 fn binarize_with_mode(
     threshold_input: &GrayImage,
     normalized: &GrayImage,
@@ -201,13 +215,21 @@ fn binarize_with_mode(
     mode: BinarizationMode,
     calibration: PageCalibration,
 ) -> BinaryImage {
-    let binary = threshold_with_mode(threshold_input, normalized, options, mode, calibration);
+    let binary = threshold_with_mode(
+        threshold_input,
+        normalized,
+        None,
+        options,
+        mode,
+        calibration,
+    );
     postprocess_binary(&binary, Some(normalized), options, calibration)
 }
 
 fn threshold_with_mode(
     threshold_input: &GrayImage,
     normalized: &GrayImage,
+    global_threshold_source: Option<&GrayImage>,
     options: &CleanupOptions,
     mode: BinarizationMode,
     calibration: PageCalibration,
@@ -216,7 +238,8 @@ fn threshold_with_mode(
     let bias = i16::from(options.thickness) * crate::THICKNESS_GRAY_STEP;
     match mode {
         BinarizationMode::Otsu => {
-            threshold_global_biased(threshold_input, otsu_threshold(threshold_input), bias)
+            let source = global_threshold_source.unwrap_or(normalized);
+            threshold_global_biased(source, paper_ink_midpoint_threshold(source, None), bias)
         }
         BinarizationMode::Sauvola => threshold_local_for_route(
             threshold_input,
@@ -248,6 +271,7 @@ fn threshold_with_mode(
 fn threshold_with_mode_excluding(
     threshold_input: &GrayImage,
     normalized: &GrayImage,
+    global_threshold_source: Option<&GrayImage>,
     options: &CleanupOptions,
     mode: BinarizationMode,
     calibration: PageCalibration,
@@ -256,12 +280,15 @@ fn threshold_with_mode_excluding(
     let radius = calibration.threshold_radius(options.dpi);
     let bias = i16::from(options.thickness) * crate::THICKNESS_GRAY_STEP;
     match mode {
-        BinarizationMode::Otsu => threshold_global_biased(
-            threshold_input,
-            otsu_threshold_excluding(threshold_input, picture_mask),
-            bias,
-        )
-        .subtract(picture_mask),
+        BinarizationMode::Otsu => {
+            let source = global_threshold_source.unwrap_or(normalized);
+            threshold_global_biased(
+                source,
+                paper_ink_midpoint_threshold(source, Some(picture_mask)),
+                bias,
+            )
+            .subtract(picture_mask)
+        }
         BinarizationMode::Sauvola => threshold_local_for_route_excluding(
             threshold_input,
             normalized,
@@ -288,6 +315,53 @@ fn threshold_with_mode_excluding(
             calibration,
             options.dpi,
         ),
+    }
+}
+
+fn paper_ink_midpoint_threshold(image: &GrayImage, exclusion: Option<&BinaryImage>) -> u8 {
+    let mut histogram = [0usize; 256];
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            if exclusion.is_some_and(|mask| mask.get(x, y)) {
+                continue;
+            }
+            histogram[image.get(x, y) as usize] += 1;
+        }
+    }
+    let total = histogram.iter().sum::<usize>();
+    if total == 0 {
+        return 127;
+    }
+    let otsu = exclusion.map_or_else(
+        || otsu_threshold(image),
+        |mask| otsu_threshold_excluding(image, mask),
+    );
+    let dark_count = histogram[..=otsu as usize].iter().sum::<usize>();
+    if dark_count < 16 {
+        return otsu;
+    }
+    let percentile = |rank: usize| {
+        let mut cumulative = 0usize;
+        histogram
+            .iter()
+            .position(|frequency| {
+                cumulative += *frequency;
+                cumulative > rank
+            })
+            .unwrap_or(255) as u8
+    };
+    // On clean uniform paper, the Otsu boundary is sensitive to how many
+    // antialiased edge pixels happen to be present. Anchor the destructive
+    // threshold at the physical paper/ink endpoints instead: a low quantile
+    // of the Otsu-dark class estimates the ink core, while the page's 70th
+    // percentile estimates its dominant paper. Their midpoint preserves the
+    // 50% glyph boundary across paper shades and tints.
+    let ink_core = percentile(dark_count.saturating_sub(1) / 10);
+    let paper = percentile(total.saturating_sub(1) * 7 / 10);
+    if paper <= ink_core.saturating_add(8) {
+        otsu
+    } else {
+        ((u16::from(ink_core) + u16::from(paper)) / 2) as u8
     }
 }
 
@@ -500,9 +574,9 @@ fn choose_mode(
     otsu_adaptive_agreement: f64,
 ) -> BinarizationMode {
     let clean_uniform = illumination_deviation <= 8.0
-        && dark_border_coverage <= 0.06
+        && dark_border_coverage <= 0.08
         && otsu_adaptive_agreement >= 0.975
-        && (robust_contrast >= 72.0 || edge_density <= 0.16);
+        && (robust_contrast >= 64.0 || edge_density <= 0.18);
     if clean_uniform {
         return BinarizationMode::Otsu;
     }
@@ -671,9 +745,9 @@ fn smooth_edges_for_page(source: &BinaryImage, dpi: f64) -> BinaryImage {
     smooth_edges_with_profile(source, resolve_smooth_profile(source, dpi))
 }
 
-fn resolve_smooth_profile(source: &BinaryImage, dpi: f64) -> SmoothProfile {
+fn resolve_smooth_profile(source: &BinaryImage, _dpi: f64) -> SmoothProfile {
     let stroke_width = estimated_stroke_width(source);
-    if dpi >= 120.0 && (1.0..=12.0).contains(&stroke_width) {
+    if (1.0..=12.0).contains(&stroke_width) {
         SmoothProfile::TopologySafe
     } else {
         SmoothProfile::Legacy
@@ -1320,6 +1394,7 @@ mod tests {
             threshold_with_mode(
                 &image,
                 &image,
+                None,
                 &options,
                 BinarizationMode::Wolf,
                 calibration,
@@ -1417,6 +1492,30 @@ mod tests {
             choose_mode(100.0, 18.0, 0.30, 12.0, 0.01, 0.90),
             BinarizationMode::Wolf
         );
+        assert_eq!(
+            choose_mode(67.0, 0.5, 0.17, 15.0, 0.064, 0.976),
+            BinarizationMode::Otsu,
+            "dense text on uniform tinted paper must not be thickened by a local route"
+        );
+    }
+
+    #[test]
+    fn uniform_paper_threshold_is_anchored_at_the_paper_ink_midpoint() {
+        for (paper, ink) in [(221u8, 42u8), (218, 46), (192, 28), (112, 8)] {
+            let mut image = GrayImage::new(240, 180, paper);
+            for y in 20..160 {
+                for x in (18..220).step_by(12) {
+                    image.set(x, y, ink);
+                    image.set(x + 1, y, ((u16::from(ink) + u16::from(paper)) / 2) as u8);
+                }
+            }
+            let threshold = paper_ink_midpoint_threshold(&image, None);
+            let expected = ((u16::from(ink) + u16::from(paper)) / 2) as i16;
+            assert!(
+                (i16::from(threshold) - expected).abs() <= 2,
+                "paper={paper}, ink={ink}, threshold={threshold}, expected={expected}"
+            );
+        }
     }
 
     #[test]
@@ -1890,7 +1989,7 @@ mod tests {
     }
 
     #[test]
-    fn edge_smoothing_uses_topology_profile_only_in_calibrated_dpi_stroke_band() {
+    fn edge_smoothing_uses_topology_profile_for_fragile_strokes_at_every_dpi() {
         let mut image = BinaryImage::new(11, 9);
         for y in 2..7 {
             for x in 2..5 {
@@ -1904,8 +2003,8 @@ mod tests {
             "topology profile must retain isolated punctuation"
         );
         assert!(
-            !smooth_edges_for_page(&image, 72.0).get(8, 6),
-            "legacy profile remains the explicit low-DPI fallback"
+            smooth_edges_for_page(&image, 72.0).get(8, 6),
+            "low-DPI punctuation must not fall back to destructive legacy smoothing"
         );
     }
 }

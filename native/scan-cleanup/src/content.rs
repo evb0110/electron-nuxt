@@ -22,6 +22,12 @@ pub struct ContentResult {
     pub diagnostics: Option<ContentDiagnostics>,
 }
 
+pub(crate) struct ContentAnalysisEvidence {
+    pub diagnostics: ContentDiagnostics,
+    pub text_mask: BinaryImage,
+    pub text_vicinity_mask: BinaryImage,
+}
+
 pub fn detect_content_and_margins(
     source: &GrayImage,
     dpi: f64,
@@ -48,7 +54,8 @@ pub fn detect_content_and_margins_with_calibration_config(
     let level = build_analysis_level(source, dpi, 150.0);
     let calibration =
         PageCalibration::estimate(&level.image, level.effective_dpi, calibration_config);
-    let (detected, diagnostics) = detect_content_at_analysis_scale(&level.image, None, calibration);
+    let (detected, diagnostics, _, _) =
+        detect_content_at_analysis_scale(&level.image, None, calibration);
     let content = detected.map(|content| {
         Rect::new(
             content.x / level.scale_x,
@@ -70,18 +77,32 @@ pub(crate) fn detect_content_and_margins_calibrated(
     margins_pixels: Option<[f64; 4]>,
     calibration: PageCalibration,
 ) -> ContentResult {
-    let (content, diagnostics) =
+    let (content, diagnostics, _, _) =
         detect_content_at_analysis_scale(source, picture_mask, calibration);
     let mut result = content_with_margins(source, dpi, content, margins_mm, margins_pixels);
     result.diagnostics = Some(diagnostics);
     result
 }
 
+pub(crate) fn analyze_content_evidence_calibrated(
+    source: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    calibration: PageCalibration,
+) -> ContentAnalysisEvidence {
+    let (_, diagnostics, text_mask, text_vicinity_mask) =
+        detect_content_at_analysis_scale(source, picture_mask, calibration);
+    ContentAnalysisEvidence {
+        diagnostics,
+        text_mask,
+        text_vicinity_mask,
+    }
+}
+
 fn detect_content_at_analysis_scale(
     working: &GrayImage,
     picture_mask: Option<&BinaryImage>,
     calibration: PageCalibration,
-) -> (Option<Rect>, ContentDiagnostics) {
+) -> (Option<Rect>, ContentDiagnostics, BinaryImage, BinaryImage) {
     if let Some(mask) = picture_mask {
         assert_eq!(
             (working.width(), working.height()),
@@ -156,10 +177,11 @@ fn detect_content_at_analysis_scale(
         retained_content_blocks(&map, &candidates, &retained, picture_mask, calibration);
     annotate_heading_evidence(&map, &mut blocks, calibration);
     let text = build_text_line_mask(&candidate_image, &blocks, &distance_to_white, calibration);
+    annotate_text_evidence(&map, &component_blocks, &mut blocks, &text.mask);
     let protected_mask =
         build_protected_mask(working.width(), working.height(), picture_mask, &blocks);
     let garbage = garbage_seed_labels(&borders, &cleaned, &protected_mask, calibration);
-    let (bounds, side_confidence, accepted_trims) = trim_content_bounds(
+    let (mut bounds, side_confidence, accepted_trims) = trim_content_bounds(
         &candidate_image,
         &map,
         &blocks,
@@ -169,6 +191,17 @@ fn detect_content_at_analysis_scale(
         garbage,
         calibration,
     );
+    if let Some(picture_bounds) = picture_mask.and_then(binary_bounds) {
+        bounds = Some(match bounds {
+            Some(content_bounds) => PixelBounds {
+                left: content_bounds.left.min(picture_bounds.left),
+                top: content_bounds.top.min(picture_bounds.top),
+                right: content_bounds.right.max(picture_bounds.right),
+                bottom: content_bounds.bottom.max(picture_bounds.bottom),
+            },
+            None => picture_bounds,
+        });
+    }
     let protected_blocks = blocks
         .iter()
         .filter(|block| block.initialized && block.protected())
@@ -195,6 +228,8 @@ fn detect_content_at_analysis_scale(
             )
         }),
         diagnostics,
+        text.mask,
+        text.vicinity_mask,
     )
 }
 
@@ -341,12 +376,16 @@ struct BlockStats {
     grayscale_supported: bool,
     picture_mask_overlap_pixels: usize,
     heading_evidence: bool,
+    text_evidence: bool,
     labels: Vec<u32>,
 }
 
 impl BlockStats {
     fn protected(&self) -> bool {
-        self.grayscale_supported || self.picture_mask_overlap_pixels != 0 || self.heading_evidence
+        self.grayscale_supported
+            || self.picture_mask_overlap_pixels != 0
+            || self.heading_evidence
+            || self.text_evidence
     }
 
     fn width(&self) -> usize {
@@ -616,6 +655,29 @@ fn build_protected_mask(
     protected
 }
 
+fn annotate_text_evidence(
+    map: &ComponentMap,
+    component_blocks: &[usize],
+    blocks: &mut [BlockStats],
+    text_mask: &BinaryImage,
+) {
+    for y in 0..text_mask.height() {
+        for x in 0..text_mask.width() {
+            if !text_mask.get(x, y) {
+                continue;
+            }
+            let component_label = map.label_at(x, y) as usize;
+            let block_label = component_blocks
+                .get(component_label)
+                .copied()
+                .unwrap_or_default();
+            if block_label != 0 {
+                blocks[block_label].text_evidence = true;
+            }
+        }
+    }
+}
+
 fn block_evidence(block: &BlockStats) -> ContentBlockEvidence {
     ContentBlockEvidence {
         bounds: ContentDiagnosticRect {
@@ -627,11 +689,13 @@ fn block_evidence(block: &BlockStats) -> ContentBlockEvidence {
         picture_mask_overlap_pixels: block.picture_mask_overlap_pixels,
         heading_evidence: block.heading_evidence,
         grayscale_evidence: block.grayscale_supported,
+        text_evidence: block.text_evidence,
     }
 }
 
 struct TextLineMask {
     mask: BinaryImage,
+    vicinity_mask: BinaryImage,
     summary: ContentTextMaskSummary,
 }
 
@@ -643,6 +707,7 @@ fn build_text_line_mask(
 ) -> TextLineMask {
     let peaks = find_peaks(distance_to_white, content.width(), content.height());
     let mut mask = BinaryImage::new(content.width(), content.height());
+    let mut vicinity_mask = BinaryImage::new(content.width(), content.height());
     let mut line_count = 0usize;
     for block in blocks.iter().filter(|block| block.initialized) {
         let mut histogram = vec![0usize; block.bottom - block.top + 1];
@@ -703,6 +768,11 @@ fn build_text_line_mask(
             line_count += 1;
             for y in top..=bottom {
                 for x in left..=right {
+                    // This rectangle is measurement evidence only. Including
+                    // inter-glyph and inter-word paper prevents the tonal-page
+                    // refusal from mistaking the interior of a recognized text
+                    // line for unrelated continuous-tone content.
+                    vicinity_mask.set(x, y, true);
                     if content.get(x, y) {
                         mask.set(x, y, true);
                     }
@@ -725,6 +795,7 @@ fn build_text_line_mask(
             bounds,
         },
         mask,
+        vicinity_mask,
     }
 }
 
@@ -1332,18 +1403,42 @@ pub fn content_with_margins(
     margins_mm: Option<[f64; 4]>,
     margins_pixels: Option<[f64; 4]>,
 ) -> ContentResult {
+    content_with_margins_for_dimensions(
+        source.width(),
+        source.height(),
+        dpi,
+        content,
+        margins_mm,
+        margins_pixels,
+    )
+}
+
+pub(crate) fn content_with_margins_for_dimensions(
+    width: usize,
+    height: usize,
+    dpi: f64,
+    content: Option<Rect>,
+    margins_mm: Option<[f64; 4]>,
+    margins_pixels: Option<[f64; 4]>,
+) -> ContentResult {
     let margins = margins_pixels.unwrap_or_else(|| {
         margins_mm
             .unwrap_or([0.0; 4])
             .map(|millimeters| millimeters * dpi / 25.4)
     });
-    let base = content.unwrap_or(Rect::new(
-        0.0,
-        0.0,
-        source.width() as f64,
-        source.height() as f64,
-    ));
-    let output_rect = base.expand(margins[0], margins[1], margins[2], margins[3]);
+    let base = content.unwrap_or(Rect::new(0.0, 0.0, width as f64, height as f64));
+    let expanded = base.expand(margins[0], margins[1], margins[2], margins[3]);
+    // Cropping is a selection, not a geometric transform. Fractional
+    // millimetre margins previously made an otherwise unrotated raster pass
+    // through subpixel interpolation (5 mm at 100 DPI starts at .685 px),
+    // changing every antialiased glyph before it was placed back on the
+    // matched canvas. Round outward so the requested margin is never reduced
+    // and integer-aligned scans retain their exact sample grid.
+    let left = expanded.x.floor();
+    let top = expanded.y.floor();
+    let right = expanded.right().ceil();
+    let bottom = expanded.bottom().ceil();
+    let output_rect = Rect::new(left, top, right - left, bottom - top);
     ContentResult {
         content,
         output_rect,
@@ -1362,6 +1457,21 @@ mod tests {
     };
 
     const CENSUS_NEIGHBORHOOD: (usize, usize) = (40, 24);
+
+    #[test]
+    fn physical_margins_expand_outward_to_an_integer_raster_crop() {
+        let image = GrayImage::new(850, 1_100, 255);
+        let result = content_with_margins(
+            &image,
+            100.0,
+            Some(Rect::new(56.0, 46.0, 745.0, 947.0)),
+            Some([5.0; 4]),
+            None,
+        );
+
+        assert_eq!(result.output_rect, Rect::new(36.0, 26.0, 785.0, 987.0));
+        assert_eq!(result.margins, [5.0 / 25.4 * 100.0; 4]);
+    }
 
     fn component_census(columns: usize, rows: usize) -> Vec<Component> {
         let mut components = Vec::with_capacity(columns * rows);
@@ -1674,6 +1784,86 @@ mod tests {
     }
 
     #[test]
+    fn recognized_text_blocks_cannot_be_consumed_by_a_cascading_edge_trim() {
+        let mut image = GrayImage::new(620, 760, 245);
+        // A scanner-edge rule and running header are legitimate trim
+        // candidates. The body above the next chapter is not: once recognized
+        // as text it must remain protected even if the first trim makes it the
+        // block nearest the same edge.
+        for x in 28..592 {
+            image.set(x, 24, 18);
+            image.set(x, 25, 18);
+        }
+        draw_glyph_line(&mut image, 52, 46, 18, 5, 8, 3);
+        for row in 0..6 {
+            let top = 104 + row * 19;
+            draw_glyph_line(&mut image, 62, top, 14, 6, 10, 4);
+            draw_glyph_line(&mut image, 330, top, 14, 6, 10, 4);
+        }
+        draw_glyph_line(&mut image, 226, 322, 8, 11, 24, 6);
+        for row in 0..16 {
+            let top = 388 + row * 19;
+            draw_glyph_line(&mut image, 62, top, 14, 6, 10, 4);
+            draw_glyph_line(&mut image, 330, top, 14, 6, 10, 4);
+        }
+
+        let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
+        let bounds = result.content.unwrap();
+        assert!(
+            bounds.y <= 104.0,
+            "recognized body text was lost in an edge-trim cascade: {bounds:?}"
+        );
+        let diagnostics = result.diagnostics.unwrap();
+        assert!(
+            diagnostics
+                .protected_blocks
+                .iter()
+                .any(|block| block.text_evidence && block.bounds.y_px <= 104),
+            "text protection was not recorded: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn text_evidence_belongs_to_component_ink_not_an_overlapping_block_box() {
+        let mut components = BinaryImage::new(10, 10);
+        components.set(1, 1, true);
+        components.set(4, 4, true);
+        components.set(8, 8, true);
+        let map = ComponentMap::from_binary(&components);
+
+        let mut blocks = vec![BlockStats::default(); 3];
+        blocks[1] = BlockStats {
+            left: 1,
+            top: 1,
+            right: 8,
+            bottom: 8,
+            initialized: true,
+            labels: vec![1, 3],
+            ..BlockStats::default()
+        };
+        blocks[2] = BlockStats {
+            left: 4,
+            top: 4,
+            right: 4,
+            bottom: 4,
+            initialized: true,
+            labels: vec![2],
+            ..BlockStats::default()
+        };
+        let component_blocks = vec![0, 1, 2, 1];
+        let mut text_mask = BinaryImage::new(10, 10);
+        text_mask.set(4, 4, true);
+
+        annotate_text_evidence(&map, &component_blocks, &mut blocks, &text_mask);
+
+        assert!(
+            !blocks[1].text_evidence,
+            "a block must not inherit text protection merely because its bounding box contains text"
+        );
+        assert!(blocks[2].text_evidence);
+    }
+
+    #[test]
     fn accepted_artifact_trim_cannot_cascade_through_picture_or_heading() {
         let mut image = GrayImage::new(620, 760, 245);
         for y in 28..38 {
@@ -1742,5 +1932,33 @@ mod tests {
                 .any(|block| block.heading_evidence),
             "heading evidence was not retained: {diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn vetted_picture_geometry_contributes_its_full_extent_to_content_bounds() {
+        let mut image = GrayImage::new(320, 420, 245);
+        draw_glyph_line(&mut image, 96, 170, 8, 8, 14, 5);
+        let mut picture_mask = BinaryImage::new(image.width(), image.height());
+        for y in 48..382 {
+            for x in 34..286 {
+                picture_mask.set(x, y, true);
+            }
+        }
+        let calibration = PageCalibration::estimate(&image, 150.0, CalibrationConfig::default());
+
+        let result = detect_content_and_margins_calibrated(
+            &image,
+            Some(&picture_mask),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        );
+        let bounds = result.content.expect("picture geometry is content");
+
+        assert!(bounds.x <= 34.0);
+        assert!(bounds.y <= 48.0);
+        assert!(bounds.right() >= 286.0);
+        assert!(bounds.bottom() >= 382.0);
     }
 }

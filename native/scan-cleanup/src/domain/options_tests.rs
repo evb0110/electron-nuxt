@@ -1,6 +1,6 @@
 use super::{
-    CleanupOptions, DespeckleLevel, MarginsMm, NormalizedRect, OrthogonalRotation, OutputMode,
-    PageAlignment, PictureZoneLayer, PlacementOverrides,
+    CleanupOptions, DespeckleLevel, ManualContentBoxes, MarginsMm, NormalizedRect,
+    OrthogonalRotation, OutputMode, PageAlignment, PictureZoneLayer, PlacementOverrides,
 };
 use crate::domain::geometry::PageHalf;
 use scan_primitives::Rect;
@@ -71,6 +71,28 @@ fn normalized_content_rect_round_trips_with_named_units() {
             rotation: OrthogonalRotation::Clockwise90,
         })
     );
+}
+
+#[test]
+fn invalid_content_geometry_names_the_exact_field_and_values() {
+    let options = CleanupOptions {
+        automatic_content_boxes: ManualContentBoxes {
+            right: Some(NormalizedRect {
+                x: 0.72,
+                y: 0.1,
+                width: 0.29,
+                height: 0.8,
+                rotation: OrthogonalRotation::None,
+            }),
+            ..ManualContentBoxes::default()
+        },
+        ..CleanupOptions::default()
+    };
+
+    let error = options.validate().unwrap_err();
+    assert!(error.contains("automatic right content box"));
+    assert!(error.contains("x=0.72"));
+    assert!(error.contains("width=0.29"));
 }
 
 #[test]

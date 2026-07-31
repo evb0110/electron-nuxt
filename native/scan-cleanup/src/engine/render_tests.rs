@@ -622,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn color_normalization_flattens_gutter_shadow_and_preserves_chroma() {
+    fn color_normalization_whitens_tinted_paper_and_preserves_independent_chroma() {
         let mut gray = GrayImage::new(180, 120, 240);
         let mut color = RgbImage::new(180, 120, [240, 168, 96]);
         for y in 0..gray.height() {
@@ -642,8 +642,8 @@ mod tests {
         }
         for y in 46..74 {
             for x in 54..126 {
-                gray.set(x, y, 54);
-                color.set(x, y, [96, 42, 24]);
+                gray.set(x, y, 67);
+                color.set(x, y, [25, 70, 185]);
             }
         }
         let output = clean_page_with_color(
@@ -673,7 +673,61 @@ mod tests {
                 "channel={channel} shadow={shadow_paper:?} bright={bright_paper:?}"
             );
         }
-        assert!(shadow_paper[0] > shadow_paper[1] && shadow_paper[1] > shadow_paper[2]);
+        assert!(
+            shadow_paper.iter().all(|&channel| channel >= 248),
+            "tinted paper was not mapped to white: {shadow_paper:?}"
+        );
+        let colored_patch = output.get(90, 60);
+        assert!(
+            colored_patch[2] > colored_patch[1]
+                && colored_patch[2] > colored_patch[0].saturating_mul(2),
+            "independent blue content lost its hue: {colored_patch:?}"
+        );
+    }
+
+    #[test]
+    fn auto_color_abstention_keeps_continuous_tone_pixels_unnormalized() {
+        let mut gray = GrayImage::new(320, 220, 0);
+        let mut color = RgbImage::new(320, 220, [0; 3]);
+        for y in 0..color.height() {
+            for x in 0..color.width() {
+                let pixel = [
+                    ((x * 5 + y * 2) % 256) as u8,
+                    ((x * 2 + y * 7 + 41) % 256) as u8,
+                    ((x * 11 + y * 3 + 89) % 256) as u8,
+                ];
+                color.set(x, y, pixel);
+                gray.set(
+                    x,
+                    y,
+                    ((u32::from(pixel[0]) * 77
+                        + u32::from(pixel[1]) * 150
+                        + u32::from(pixel[2]) * 29
+                        + 128)
+                        >> 8) as u8,
+                );
+            }
+        }
+        let output = clean_page_with_color(
+            &gray,
+            Some(&color),
+            &CleanupOptions {
+                output_mode: OutputMode::Auto,
+                normalize_illumination: true,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                match_page_size: false,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert_eq!(output.metadata.output_mode, OutputMode::Color);
+        assert!(!output.metadata.illumination_normalized);
+        assert_eq!(output.color_image.as_ref(), Some(&color));
     }
 
     #[test]
@@ -1270,8 +1324,7 @@ mod tests {
     #[test]
     fn automatic_preview_plan_replays_final_geometry_without_becoming_manual() {
         fn scaled(source: &GrayImage, factor: usize) -> GrayImage {
-            let mut output =
-                GrayImage::new(source.width() * factor, source.height() * factor, 255);
+            let mut output = GrayImage::new(source.width() * factor, source.height() * factor, 255);
             for y in 0..output.height() {
                 for x in 0..output.width() {
                     output.set(x, y, source.get(x / factor, y / factor));
@@ -1638,6 +1691,282 @@ mod tests {
         );
     }
 
+    #[test]
+    fn auto_mode_turns_dark_text_on_uniform_tinted_paper_into_black_on_white() {
+        for paper in [
+            [205, 225, 245],
+            [225, 205, 215],
+            [235, 220, 175],
+            [190, 215, 195],
+            [170, 170, 170],
+        ] {
+            let ink =
+                paper.map(|channel| (f64::from(channel) * 0.18).round().clamp(8.0, 64.0) as u8);
+            let mut color = RgbImage::new(420, 560, paper);
+            for y in 0..color.height() {
+                for x in 0..color.width() {
+                    let shade = x as i16 * 12 / color.width() as i16 - 6;
+                    let noise = ((x * 17 + y * 29 + x * y % 11) % 7) as i16 - 3;
+                    color.set(
+                        x,
+                        y,
+                        paper.map(|channel| {
+                            (i16::from(channel) + shade + noise).clamp(0, 255) as u8
+                        }),
+                    );
+                }
+            }
+            for line in 0..10 {
+                let top = 55 + line * 42;
+                for glyph in 0..22 {
+                    let left = 46 + glyph * 15;
+                    for y in top..top + 12 {
+                        for x in left..left + 8 {
+                            if x == left || y == top || y + 2 >= top + 12 {
+                                color.set(x, y, ink);
+                            }
+                        }
+                    }
+                }
+            }
+            let mut gray = GrayImage::new(color.width(), color.height(), 255);
+            for y in 0..color.height() {
+                for x in 0..color.width() {
+                    let pixel = color.get(x, y);
+                    gray.set(
+                        x,
+                        y,
+                        ((u32::from(pixel[0]) * 77
+                            + u32::from(pixel[1]) * 150
+                            + u32::from(pixel[2]) * 29
+                            + 128)
+                            >> 8) as u8,
+                    );
+                }
+            }
+            let mut result = clean_page_with_color(
+                &gray,
+                Some(&color),
+                &CleanupOptions {
+                    dpi: 150.0,
+                    output_mode: OutputMode::Auto,
+                    crop_content: false,
+                    match_page_size: false,
+                    margins_mm: None,
+                    margins_pixels: Some([0.0; 4]),
+                    layout: crate::LayoutMode::Single,
+                    ..CleanupOptions::default()
+                },
+                0,
+            )
+            .unwrap();
+            let recommendation = result.output_mode_recommendation;
+            let output = result.outputs.remove(0);
+            assert!(
+                matches!(
+                    output.metadata.output_mode,
+                    OutputMode::Bw | OutputMode::Grayscale
+                ),
+                "paper={paper:?}, recommendation={recommendation:?}",
+            );
+            assert!(output.color_image.is_none(), "paper={paper:?}");
+            let rendered = output.image.to_gray();
+            assert!(
+                rendered
+                    .data()
+                    .iter()
+                    .filter(|&&value| value >= 248)
+                    .count()
+                    > rendered.data().len() * 9 / 10,
+                "paper={paper:?}, mode={:?}",
+                output.metadata.output_mode,
+            );
+            assert!(
+                rendered.data().iter().filter(|&&value| value <= 64).count() >= 2_000,
+                "paper={paper:?} ink={ink:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_mode_retains_small_faint_text_on_tinted_paper() {
+        let paper = [185, 205, 220];
+        let ink = [126, 139, 150];
+        let mut color = RgbImage::new(420, 560, paper);
+        for line in 0..13 {
+            let top = 34 + line * 37;
+            for glyph in 0..30 {
+                let left = 24 + glyph * 12;
+                for y in top..top + 9 {
+                    for x in left..left + 6 {
+                        if x == left || y == top || y + 1 >= top + 9 {
+                            color.set(x, y, ink);
+                        }
+                    }
+                }
+            }
+        }
+        let mut gray = GrayImage::new(color.width(), color.height(), 255);
+        for y in 0..color.height() {
+            for x in 0..color.width() {
+                let pixel = color.get(x, y);
+                gray.set(
+                    x,
+                    y,
+                    ((u32::from(pixel[0]) * 77
+                        + u32::from(pixel[1]) * 150
+                        + u32::from(pixel[2]) * 29
+                        + 128)
+                        >> 8) as u8,
+                );
+            }
+        }
+        let output = clean_page_with_color(
+            &gray,
+            Some(&color),
+            &CleanupOptions {
+                dpi: 150.0,
+                output_mode: OutputMode::Auto,
+                crop_content: false,
+                match_page_size: false,
+                margins_mm: None,
+                margins_pixels: Some([0.0; 4]),
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let rendered = output.image.to_gray();
+
+        assert!(matches!(
+            output.metadata.output_mode,
+            OutputMode::Bw | OutputMode::Grayscale
+        ));
+        assert!(output.color_image.is_none());
+        assert!(
+            rendered
+                .data()
+                .iter()
+                .filter(|&&value| value >= 248)
+                .count()
+                > rendered.data().len() * 8 / 10
+        );
+        if output.metadata.output_mode == OutputMode::Grayscale {
+            let diagnostics = output
+                .metadata
+                .text_tone_diagnostics
+                .expect("grayscale text pages need an explicit tone decision");
+            assert!(
+                diagnostics.applied || diagnostics.ink_anchor.is_some(),
+                "text tone must be derived even when no picture mask exists: {diagnostics:?}",
+            );
+        }
+        let retained_strokes = rendered
+            .data()
+            .iter()
+            // A preservation mask may keep faint glyphs from disappearing
+            // during background normalization, but it must not exempt them
+            // from the subsequent text-tone curve. Merely retaining the
+            // original tinted-paper luminance (about 135 here) is not the
+            // requested black-text-on-white result.
+            .filter(|&&value| value <= 120)
+            .count();
+        assert!(
+            retained_strokes >= 2_000,
+            "small faint glyph strokes were lost: count={retained_strokes}, min={}, mode={:?}, tone={:?}",
+            rendered.data().iter().copied().min().unwrap_or(255),
+            output.metadata.output_mode,
+            output.metadata.text_tone_diagnostics,
+        );
+    }
+
+    #[test]
+    fn mixed_mode_whitens_tinted_paper_but_preserves_independent_color() {
+        let mut color = RgbImage::new(420, 560, [205, 225, 245]);
+        for line in 0..10 {
+            let top = 55 + line * 42;
+            for glyph in 0..18 {
+                let left = 42 + glyph * 15;
+                for y in top..top + 12 {
+                    for x in left..left + 8 {
+                        if x == left || y == top || y + 2 >= top + 12 {
+                            color.set(x, y, [26, 29, 34]);
+                        }
+                    }
+                }
+            }
+        }
+        for y in 210..350 {
+            for x in 320..390 {
+                color.set(x, y, [220, 45, 40]);
+            }
+        }
+        let mut gray = GrayImage::new(color.width(), color.height(), 255);
+        for y in 0..color.height() {
+            for x in 0..color.width() {
+                let pixel = color.get(x, y);
+                gray.set(
+                    x,
+                    y,
+                    ((u32::from(pixel[0]) * 77
+                        + u32::from(pixel[1]) * 150
+                        + u32::from(pixel[2]) * 29
+                        + 128)
+                        >> 8) as u8,
+                );
+            }
+        }
+        let output = clean_page_with_color(
+            &gray,
+            Some(&color),
+            &CleanupOptions {
+                dpi: 150.0,
+                output_mode: OutputMode::Mixed,
+                crop_content: false,
+                match_page_size: false,
+                margins_mm: None,
+                margins_pixels: Some([0.0; 4]),
+                layout: crate::LayoutMode::Single,
+                manual_zones: crate::ManualZones {
+                    picture: vec![crate::PictureZone {
+                        polygon: normalized_box_polygon(0.74, 0.35, 0.96, 0.67),
+                        layer: crate::PictureZoneLayer::Painter2,
+                    }],
+                    fill: vec![],
+                },
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let output_gray = output.image.to_gray();
+        let output_color = output
+            .color_image
+            .expect("independent color produces a Mixed color plane");
+
+        assert!(output_color
+            .get(20, 20)
+            .iter()
+            .all(|&channel| channel >= 250));
+        assert!(
+            output_gray
+                .data()
+                .iter()
+                .enumerate()
+                .filter(|(index, value)| index % output_gray.width() < 300 && **value == 0)
+                .count()
+                >= 1_500
+        );
+        let protected_red = output_color.get(350, 280);
+        assert!(protected_red[0] > protected_red[1].saturating_mul(2));
+        assert!(protected_red[0] > protected_red[2].saturating_mul(2));
+    }
+
     fn normalized_box_polygon(
         left: f64,
         top: f64,
@@ -1797,6 +2126,84 @@ mod tests {
     }
 
     #[test]
+    fn auto_mixed_owns_independent_color_when_picture_detection_is_empty() {
+        let mut color = RgbImage::new(360, 260, [205, 225, 245]);
+        for row in 0..8 {
+            for column in 0..14 {
+                let left = 18 + column * 22;
+                let top = 18 + row * 28;
+                for y in top..top + 14 {
+                    for x in left..left + 12 {
+                        if x < left + 2 || y < top + 2 || y >= top + 12 {
+                            color.set(x, y, [12, 32, 76]);
+                        }
+                    }
+                }
+            }
+        }
+        for y in 202..222 {
+            for x in 244..326 {
+                color.set(x, y, [150, 22, 35]);
+            }
+        }
+        let mut gray = GrayImage::new(color.width(), color.height(), 255);
+        for y in 0..color.height() {
+            for x in 0..color.width() {
+                let pixel = color.get(x, y);
+                gray.set(
+                    x,
+                    y,
+                    ((u32::from(pixel[0]) * 77
+                        + u32::from(pixel[1]) * 150
+                        + u32::from(pixel[2]) * 29
+                        + 128)
+                        >> 8) as u8,
+                );
+            }
+        }
+
+        let output = clean_page_with_color(
+            &gray,
+            Some(&color),
+            &CleanupOptions {
+                output_mode: OutputMode::Auto,
+                dpi: 150.0,
+                normalize_illumination: true,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert_eq!(output.metadata.output_mode, OutputMode::Mixed);
+        let layers = output
+            .mixed_layers
+            .as_ref()
+            .expect("Auto Mixed page must carry actual separable layers");
+        let color_background = layers
+            .color_background
+            .as_ref()
+            .expect("independent color must survive in the Mixed background");
+        let retained_red = color_background.get(270, 210);
+        assert!(
+            retained_red[0] > retained_red[1].saturating_add(60)
+                && retained_red[0] > retained_red[2].saturating_add(50),
+            "red mark was lost: {retained_red:?}"
+        );
+        assert!(
+            color_background
+                .get(350, 250)
+                .iter()
+                .all(|value| *value >= 245),
+            "uniform tinted paper was restored instead of whitened"
+        );
+    }
+
+    #[test]
     fn mixed_automatic_detector_retains_synthetic_photo_tones() {
         let mut source = GrayImage::new(260, 180, 242);
         for row in 0..4 {
@@ -1863,7 +2270,9 @@ mod tests {
             gray.set(x, 24, 54);
         }
 
-        let (mixed, _, layers) = compose_mixed(&gray, None, &binary, &mask, 300.0, true, true);
+        let (mixed, _, layers) = compose_mixed(
+            &gray, None, None, &binary, &mask, None, None, None, None, 300.0, false, true, true,
+        );
         let layers = layers.expect("final mixed render retains separable layers");
 
         assert!(
@@ -1886,6 +2295,434 @@ mod tests {
     }
 
     #[test]
+    fn soft_mixed_foreground_preserves_antialiased_coverage_and_leaves_photos_on_the_plate() {
+        let mut gray = GrayImage::new(24, 12, 255);
+        let mut picture_mask = BinaryImage::new(24, 12);
+        let mut text_vicinity = BinaryImage::new(24, 12);
+        let binary_fallback = BinaryImage::new(24, 12);
+        let mut detected_text = BinaryImage::new(24, 12);
+        for (x, value) in [0u8, 64, 128, 220].into_iter().enumerate() {
+            gray.set(3 + x, 4, value);
+            text_vicinity.set(3 + x, 4, true);
+        }
+        detected_text.set(3, 4, true);
+        detected_text.set(4, 4, true);
+        for y in 2..10 {
+            for x in 14..22 {
+                picture_mask.set(x, y, true);
+                gray.set(x, y, 80 + ((x + y) % 40) as u8);
+            }
+        }
+
+        let (composite, _, layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &binary_fallback,
+            &picture_mask,
+            None,
+            None,
+            Some(&detected_text),
+            Some(&text_vicinity),
+            300.0,
+            true,
+            true,
+            true,
+        );
+        let layers = layers.expect("soft mixed output retains separable layers");
+        let alpha = layers
+            .foreground_alpha
+            .as_ref()
+            .expect("soft mixed output publishes an alpha plane");
+
+        assert_eq!(
+            (3..7).map(|x| alpha.get(x, 4)).collect::<Vec<_>>(),
+            vec![255, 191, 127, 35]
+        );
+        assert!((3..7).all(|x| layers.background.get(x, 4) == 255));
+        assert_eq!(alpha.get(17, 5), 0);
+        assert_eq!(layers.background.get(17, 5), gray.get(17, 5));
+        assert_eq!(
+            (3..7).map(|x| composite.get(x, 4)).collect::<Vec<_>>(),
+            vec![0, 64, 128, 220]
+        );
+        assert_eq!(composite.get(17, 5), gray.get(17, 5));
+    }
+
+    #[test]
+    fn soft_mixed_foreground_keeps_binary_core_outside_text_vicinity() {
+        let mut gray = GrayImage::new(16, 10, 255);
+        let picture_mask = BinaryImage::new(16, 10);
+        let mut binary_fallback = BinaryImage::new(16, 10);
+        let text_vicinity = BinaryImage::new(16, 10);
+        gray.set(7, 5, 24);
+        binary_fallback.set(7, 5, true);
+
+        let (_, _, layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &binary_fallback,
+            &picture_mask,
+            None,
+            None,
+            None,
+            Some(&text_vicinity),
+            300.0,
+            true,
+            true,
+            true,
+        );
+        let alpha = layers
+            .expect("soft mixed output retains separable layers")
+            .foreground_alpha
+            .expect("soft mixed output publishes an alpha plane");
+
+        assert_eq!(alpha.get(7, 5), 231);
+    }
+
+    #[test]
+    fn soft_mixed_foreground_recovers_raw_ink_absorbed_by_illumination_normalization() {
+        let normalized = GrayImage::new(16, 10, 255);
+        let mut raw = GrayImage::new(16, 10, 220);
+        let picture_mask = BinaryImage::new(16, 10);
+        let mut binary_fallback = BinaryImage::new(16, 10);
+        raw.set(7, 5, 30);
+        binary_fallback.set(7, 5, true);
+
+        let (_, _, layers) = compose_mixed(
+            &normalized,
+            Some(&raw),
+            None,
+            &binary_fallback,
+            &picture_mask,
+            None,
+            None,
+            None,
+            None,
+            200.0,
+            true,
+            true,
+            true,
+        );
+        let layers = layers.expect("soft mixed output retains separable layers");
+        let alpha = layers
+            .foreground_alpha
+            .expect("soft mixed output publishes an alpha plane");
+
+        assert!(alpha.get(7, 5) >= 200);
+        assert_eq!(layers.background.get(7, 5), 255);
+    }
+
+    #[test]
+    fn raw_ink_rescue_keeps_small_marks_but_rejects_broad_shadows() {
+        let mut raw = GrayImage::new(200, 120, 220);
+        let picture_mask = BinaryImage::new(200, 120);
+        for y in 60..85 {
+            for x in 0..200 {
+                raw.set(x, y, 120);
+            }
+        }
+        for x in 30..50 {
+            raw.set(x, 20, 30);
+            raw.set(x, 39, 30);
+        }
+        for y in 20..40 {
+            raw.set(30, y, 30);
+            raw.set(49, y, 30);
+        }
+
+        let rescued = rescue_isolated_raw_ink(&raw, &picture_mask, 200.0);
+
+        assert!(rescued.get(30, 20));
+        assert!(rescued.get(49, 39));
+        assert!(!rescued.get(100, 72));
+    }
+
+    #[test]
+    fn soft_mixed_foreground_keeps_trusted_text_even_when_picture_detection_overlaps_it() {
+        let mut gray = GrayImage::new(16, 10, 220);
+        let mut picture_mask = BinaryImage::new(16, 10);
+        let mut text_mask = BinaryImage::new(16, 10);
+        let binary_fallback = BinaryImage::new(16, 10);
+        for y in 0..10 {
+            for x in 0..16 {
+                picture_mask.set(x, y, true);
+            }
+        }
+        gray.set(7, 5, 48);
+        text_mask.set(7, 5, true);
+
+        let (_, _, layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &binary_fallback,
+            &picture_mask,
+            None,
+            None,
+            Some(&text_mask),
+            Some(&text_mask),
+            300.0,
+            true,
+            true,
+            true,
+        );
+        let layers = layers.expect("soft mixed output retains separable layers");
+        let alpha = layers
+            .foreground_alpha
+            .expect("soft mixed output publishes an alpha plane");
+
+        assert!(
+            alpha.get(7, 5) >= 182,
+            "trusted text must override an over-broad picture mask"
+        );
+        assert_eq!(layers.background.get(7, 5), 255);
+    }
+
+    #[test]
+    fn soft_mixed_foreground_leaves_chromatic_picture_detail_on_the_plate() {
+        let mut gray = GrayImage::new(16, 10, 220);
+        let mut color = RgbImage::new(16, 10, [220; 3]);
+        let mut picture_mask = BinaryImage::new(16, 10);
+        let mut chroma_picture_mask = BinaryImage::new(16, 10);
+        let mut text_mask = BinaryImage::new(16, 10);
+        let mut binary_fallback = BinaryImage::new(16, 10);
+        gray.set(7, 5, 60);
+        color.set(7, 5, [140, 20, 30]);
+        picture_mask.set(7, 5, true);
+        chroma_picture_mask.set(7, 5, true);
+        text_mask.set(7, 5, true);
+        binary_fallback.set(7, 5, true);
+
+        let (_, _, layers) = compose_mixed(
+            &gray,
+            None,
+            Some(&color),
+            &binary_fallback,
+            &picture_mask,
+            Some(&chroma_picture_mask),
+            None,
+            Some(&text_mask),
+            Some(&text_mask),
+            300.0,
+            true,
+            true,
+            true,
+        );
+        let layers = layers.expect("soft mixed output retains separable layers");
+        let alpha = layers
+            .foreground_alpha
+            .expect("soft mixed output publishes an alpha plane");
+
+        assert_eq!(alpha.get(7, 5), 0);
+        assert_eq!(layers.color_background.unwrap().get(7, 5), [140, 20, 30]);
+    }
+
+    #[test]
+    fn mixed_composite_assigns_the_picture_protection_ring_to_paper_or_dark_edges() {
+        let mut gray = GrayImage::new(120, 80, 255);
+        let mut picture_mask = BinaryImage::new(120, 80);
+        let stencil = BinaryImage::new(120, 80);
+        for y in 15..65 {
+            for x in 30..90 {
+                picture_mask.set(x, y, true);
+                gray.set(x, y, 120);
+            }
+        }
+        for y in 25..55 {
+            gray.set(28, y, 220);
+            gray.set(29, y, 80);
+        }
+
+        let (mixed, _, _) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &stencil,
+            &picture_mask,
+            None,
+            None,
+            None,
+            None,
+            300.0,
+            false,
+            false,
+            true,
+        );
+
+        assert!(
+            (25..55).all(|y| mixed.get(28, y) >= 254),
+            "light paper in the protected annulus must not retain a gray halo"
+        );
+        assert!(
+            (25..55).all(|y| mixed.get(29, y) == 80),
+            "a dark photo edge in the protected annulus must remain owned by the picture"
+        );
+    }
+
+    #[test]
+    fn mixed_composite_whitens_dense_scanner_bands_without_removing_thin_rules() {
+        let mut gray = GrayImage::new(400, 600, 255);
+        let mut stencil = BinaryImage::new(400, 600);
+        let picture_mask = BinaryImage::new(400, 600);
+        for y in 5..21 {
+            for x in 18..382 {
+                stencil.set(x, y, true);
+                gray.set(x, y, 36);
+            }
+        }
+        for x in 24..376 {
+            stencil.set(x, 36, true);
+            gray.set(x, 36, 24);
+        }
+
+        let (stencil, removed) =
+            suppress_scanner_edge_bands(&stencil, &gray, &picture_mask, None, 100.0);
+        let (mixed, _, layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &stencil,
+            &picture_mask,
+            None,
+            Some(&removed),
+            None,
+            None,
+            100.0,
+            false,
+            true,
+            true,
+        );
+        let layers = layers.expect("mixed output keeps separable layers");
+
+        assert!((18..382).all(|x| mixed.get(x, 12) == 255));
+        assert!((18..382).all(|x| !layers.foreground_mask.get(x, 12)));
+        assert!(
+            (24..376).all(|x| layers.foreground_mask.get(x, 36)),
+            "a one-pixel printed rule must not be classified as a scanner band"
+        );
+    }
+
+    #[test]
+    fn scanner_band_suppression_does_not_erase_picture_owned_edges() {
+        let mut stencil = BinaryImage::new(400, 600);
+        let gray = GrayImage::new(400, 600, 150);
+        let mut picture_mask = BinaryImage::new(400, 600);
+        for y in 5..21 {
+            for x in 18..382 {
+                stencil.set(x, y, true);
+                picture_mask.set(x, y, true);
+            }
+        }
+
+        let (cleaned, removed) =
+            suppress_scanner_edge_bands(&stencil, &gray, &picture_mask, None, 100.0);
+
+        assert_eq!(cleaned.count_black(), stencil.count_black());
+        assert_eq!(removed.count_black(), 0);
+    }
+
+    #[test]
+    fn scanner_boundary_components_require_picture_or_text_ownership() {
+        let mut stencil = BinaryImage::new(400, 600);
+        let gray = GrayImage::new(400, 600, 150);
+        let mut picture_mask = BinaryImage::new(400, 600);
+        let mut text_vicinity = BinaryImage::new(400, 600);
+
+        for y in 100..500 {
+            for x in 0..60 {
+                stencil.set(x, y, true);
+            }
+        }
+        for y in 550..590 {
+            for x in 200..280 {
+                stencil.set(x, y, true);
+            }
+        }
+        for y in 150..450 {
+            for x in 80..120 {
+                stencil.set(x, y, true);
+                picture_mask.set(x, y, true);
+            }
+        }
+        for y in 10..16 {
+            for x in 100..300 {
+                stencil.set(x, y, true);
+                text_vicinity.set(x, y, true);
+            }
+        }
+
+        let (cleaned, removed) = suppress_scanner_edge_bands(
+            &stencil,
+            &gray,
+            &picture_mask,
+            Some(&text_vicinity),
+            100.0,
+        );
+
+        assert!(removed.get(5, 120));
+        assert!(removed.get(220, 570));
+        assert!(!cleaned.get(5, 120));
+        assert!(!cleaned.get(220, 570));
+        assert!(
+            cleaned.get(80, 300),
+            "picture-owned boundary content was removed"
+        );
+        assert!(
+            cleaned.get(180, 12),
+            "text-owned boundary content was removed"
+        );
+    }
+
+    #[test]
+    fn scanner_boundary_suppression_preserves_printable_line_art_inside_the_margin() {
+        let mut stencil = BinaryImage::new(400, 600);
+        let gray = GrayImage::new(400, 600, 150);
+        let picture_mask = BinaryImage::new(400, 600);
+        for x in 150..175 {
+            stencil.set(x, 75, true);
+            stencil.set(x, 99, true);
+        }
+        for y in 75..100 {
+            stencil.set(150, y, true);
+            stencil.set(174, y, true);
+        }
+
+        let (cleaned, removed) =
+            suppress_scanner_edge_bands(&stencil, &gray, &picture_mask, None, 100.0);
+
+        assert_eq!(cleaned.count_black(), stencil.count_black());
+        assert_eq!(removed.count_black(), 0);
+    }
+
+    #[test]
+    fn scanner_shadow_l_shape_is_removed_but_dark_printed_frame_survives() {
+        let mut shadow = BinaryImage::new(400, 600);
+        for y in 0..460 {
+            for x in 0..145 {
+                shadow.set(x, y, true);
+            }
+        }
+        for y in 0..70 {
+            for x in 0..400 {
+                shadow.set(x, y, true);
+            }
+        }
+        let picture_mask = BinaryImage::new(400, 600);
+        let pale_shadow = GrayImage::new(400, 600, 150);
+        let dark_print = GrayImage::new(400, 600, 30);
+
+        let (cleaned_shadow, _) =
+            suppress_scanner_edge_bands(&shadow, &pale_shadow, &picture_mask, None, 100.0);
+        let (cleaned_print, _) =
+            suppress_scanner_edge_bands(&shadow, &dark_print, &picture_mask, None, 100.0);
+
+        assert_eq!(cleaned_shadow.count_black(), 0);
+        assert_eq!(cleaned_print.count_black(), shadow.count_black());
+    }
+
+    #[test]
     fn mixed_composite_preserves_a_pale_vignette_away_from_the_stencil() {
         let mut gray = GrayImage::new(128, 96, 248);
         let mut picture_mask = BinaryImage::new(128, 96);
@@ -1905,8 +2742,21 @@ mod tests {
         }
         let source_vignette = (12..27).map(|y| gray.get(80, y)).collect::<Vec<_>>();
 
-        let (mixed, _, layers) =
-            compose_mixed(&gray, None, &stencil, &picture_mask, 300.0, true, true);
+        let (mixed, _, layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &stencil,
+            &picture_mask,
+            None,
+            None,
+            None,
+            None,
+            300.0,
+            false,
+            true,
+            true,
+        );
         let rendered_vignette = (12..27).map(|y| mixed.get(80, y)).collect::<Vec<_>>();
 
         assert_eq!(
@@ -1947,8 +2797,21 @@ mod tests {
                     }
                 }
 
-                let (_, _, layers) =
-                    compose_mixed(&gray, None, &stencil, &picture_mask, DPI, true, true);
+                let (_, _, layers) = compose_mixed(
+                    &gray,
+                    None,
+                    None,
+                    &stencil,
+                    &picture_mask,
+                    None,
+                    None,
+                    None,
+                    None,
+                    DPI,
+                    false,
+                    true,
+                    true,
+                );
                 let background = &layers.unwrap().background;
                 assert!(
                     (20..44).all(|y| background.get(text_left, y) == 255),
@@ -2009,26 +2872,32 @@ mod tests {
             PageCalibration::estimate(&gray, options.dpi, CalibrationConfig::default());
         let (stencil, _, _, _) = binarize_normalized_with_diagnostics_excluding(
             &gray,
+            None,
             &options,
             calibration,
             &picture_mask,
         );
-        let (_, _, layers) =
-            compose_mixed(
-                &gray,
-                None,
-                &stencil,
-                &picture_mask,
-                options.dpi,
-                true,
-                true,
-            );
+        let (_, _, layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &stencil,
+            &picture_mask,
+            None,
+            None,
+            None,
+            None,
+            options.dpi,
+            false,
+            true,
+            true,
+        );
         let layers = layers.expect("final mixed render retains separable layers");
 
         assert!(
-            caption_pixels.iter().all(|&(x, y)| {
-                stencil.get(x, y) || layers.background.get(x, y) <= 64
-            }),
+            caption_pixels
+                .iter()
+                .all(|&(x, y)| { stencil.get(x, y) || layers.background.get(x, y) <= 64 }),
             "every source caption stroke must survive in the stencil/background union"
         );
         assert!(
@@ -2071,6 +2940,10 @@ mod tests {
         let output = clean_page_with_color_and_calibration_config(
             &gray,
             None,
+            None,
+            None,
+            None,
+            None,
             &options,
             0,
             CalibrationConfig::default(),
@@ -2092,7 +2965,10 @@ mod tests {
         let composite = output.image.to_gray();
         assert!(
             composite.data().contains(&0)
-                && composite.data().iter().any(|&value| !matches!(value, 0 | 255)),
+                && composite
+                    .data()
+                    .iter()
+                    .any(|&value| !matches!(value, 0 | 255)),
             "preview keeps the mixed composite without retaining layer buffers"
         );
     }
@@ -2172,10 +3048,7 @@ mod tests {
                     ],
                     bottom_curve: vec![
                         Point::new(0.0, rotated_height as f64),
-                        Point::new(
-                            rotated_width as f64 / 2.0,
-                            rotated_height as f64 - 8.0,
-                        ),
+                        Point::new(rotated_width as f64 / 2.0, rotated_height as f64 - 8.0),
                         Point::new(rotated_width as f64, rotated_height as f64),
                     ],
                     depth: 0.08,
@@ -2184,10 +3057,7 @@ mod tests {
                 match_page_size: false,
                 ..CleanupOptions::default()
             };
-            let full = clean_page(&source, &base, 0)
-                .unwrap()
-                .outputs
-                .remove(0);
+            let full = clean_page(&source, &base, 0).unwrap().outputs.remove(0);
             let tile = clean_page(
                 &source,
                 &CleanupOptions {
@@ -2364,16 +3234,17 @@ mod tests {
             layout: crate::LayoutMode::Single,
             ..CleanupOptions::default()
         };
-        let base_metadata = clean_page(&base_source, &base_options, 0)
+        let base = clean_page(&base_source, &base_options, 0)
             .unwrap()
             .outputs
-            .remove(0)
-            .metadata;
+            .remove(0);
+        let base_cleaned = base.image.to_gray().into_owned();
+        let base_metadata = base.metadata;
         let detail_options = CleanupOptions {
             dpi: 300.0,
             source_dpi: Some(150.0),
             requested_render_dpi: Some(300.0),
-            ..base_options
+            ..base_options.clone()
         };
         let source_crop = Rect::new(46.0, 24.0, 148.0, 120.0);
         let cropped_source = crop_gray(&detail_source, source_crop);
@@ -2382,6 +3253,7 @@ mod tests {
         let detail_plan = DetailRenderPlan {
             base_metadata_path: std::path::PathBuf::from("unused-in-engine-test.json"),
             base_raster_path: std::path::PathBuf::from("unused-in-engine-test.png"),
+            base_cleaned_raster_path: None,
             source_crop: crate::protocol::manifest_v3::DetailPixelRect {
                 x_px: source_crop.x,
                 y_px: source_crop.y,
@@ -2405,9 +3277,13 @@ mod tests {
             },
         };
         let detail = clean_detail_page_with_color(
-            &cropped_source,
-            None,
-            &base_source,
+            DetailRenderSources {
+                source_crop: &cropped_source,
+                color_source_crop: None,
+                base_source: &base_source,
+                base_color_source: None,
+                base_cleaned: Some((&base_cleaned, None)),
+            },
             &detail_options,
             0,
             &detail_plan,
@@ -2451,9 +3327,13 @@ mod tests {
             ..detail_options.clone()
         };
         assert!(clean_detail_page_with_color(
-            &cropped_source,
-            None,
-            &base_source,
+            DetailRenderSources {
+                source_crop: &cropped_source,
+                color_source_crop: None,
+                base_source: &base_source,
+                base_color_source: None,
+                base_cleaned: None,
+            },
             &manual_zone_options,
             0,
             &detail_plan,
@@ -2468,9 +3348,13 @@ mod tests {
             ..detail_options.clone()
         };
         assert!(clean_detail_page_with_color(
-            &cropped_source,
-            None,
-            &base_source,
+            DetailRenderSources {
+                source_crop: &cropped_source,
+                color_source_crop: None,
+                base_source: &base_source,
+                base_color_source: None,
+                base_cleaned: None,
+            },
             &mixed_options,
             0,
             &detail_plan,
@@ -2485,9 +3369,13 @@ mod tests {
             ..detail_options
         };
         assert!(clean_detail_page_with_color(
-            &cropped_source,
-            None,
-            &base_source,
+            DetailRenderSources {
+                source_crop: &cropped_source,
+                color_source_crop: None,
+                base_source: &base_source,
+                base_color_source: None,
+                base_cleaned: None,
+            },
             &auto_options,
             0,
             &detail_plan,
@@ -2497,6 +3385,116 @@ mod tests {
         .err()
         .expect("an unresolved output mode must fail closed rather than be chosen per tile")
         .contains("resolved from the full page"));
+    }
+
+    #[test]
+    fn grayscale_detail_applies_pinned_text_tone_exactly_once() {
+        let mut source = GrayImage::new(120, 90, 255);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source.set(x, y, (115 + (x * 75 / source.width()) + (y % 9)) as u8);
+            }
+        }
+        for y in 18..72 {
+            for x in (12..108).step_by(13) {
+                source.set(x, y, 96);
+            }
+        }
+        let diagnostics = TextToneDiagnostics {
+            applied: true,
+            rule: crate::text_tone::TextToneRule::Applied,
+            text_line_count: 12,
+            text_ink_pixels: 2_000,
+            picture_fraction: 0.0,
+            outside_midtone_fraction: 0.0,
+            outside_midtone_largest_component_fraction: 0.0,
+            outside_midtone_largest_component_width_fraction: 0.0,
+            outside_midtone_largest_component_height_fraction: 0.0,
+            ink_anchor: Some(133),
+            black_point: Some(96.052_631_578_947_37),
+            slope: Some(1.623_931_623_931_624),
+        };
+        let base_options = CleanupOptions {
+            dpi: 150.0,
+            source_dpi: Some(150.0),
+            requested_render_dpi: Some(150.0),
+            output_mode: OutputMode::Grayscale,
+            normalize_illumination: false,
+            crop_content: false,
+            match_page_size: false,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            manual_skew_degrees: Some(0.0),
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let mut base_metadata = clean_page(&source, &base_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0)
+            .metadata;
+        base_metadata.text_tone_diagnostics = Some(diagnostics);
+        let detail_options = CleanupOptions {
+            resolved_text_tone_diagnostics: crate::domain::options::ResolvedTextToneDiagnostics {
+                full: Some(diagnostics),
+                ..Default::default()
+            },
+            ..base_options.clone()
+        };
+        let full_rect = Rect::new(0.0, 0.0, source.width() as f64, source.height() as f64);
+        let detail_plan = DetailRenderPlan {
+            base_metadata_path: std::path::PathBuf::from("unused-in-engine-test.json"),
+            base_raster_path: std::path::PathBuf::from("unused-in-engine-test.png"),
+            base_cleaned_raster_path: None,
+            source_crop: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: full_rect.x,
+                y_px: full_rect.y,
+                width_px: full_rect.width,
+                height_px: full_rect.height,
+            },
+            full_source_width_px: source.width(),
+            full_source_height_px: source.height(),
+            scale: 1.0,
+            render_region: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: full_rect.x,
+                y_px: full_rect.y,
+                width_px: full_rect.width,
+                height_px: full_rect.height,
+            },
+            sampled_region: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: full_rect.x,
+                y_px: full_rect.y,
+                width_px: full_rect.width,
+                height_px: full_rect.height,
+            },
+        };
+        let mut expected = clean_page(&source, &base_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0)
+            .image
+            .to_gray()
+            .into_owned();
+        apply_text_tone(&mut expected, diagnostics);
+        let detail = clean_detail_page_with_color(
+            DetailRenderSources {
+                source_crop: &source,
+                color_source_crop: None,
+                base_source: &source,
+                base_color_source: None,
+                base_cleaned: Some((&expected, None)),
+            },
+            &detail_options,
+            0,
+            &detail_plan,
+            &base_metadata,
+            &mut PageStageTimings::default(),
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        assert_eq!(detail.image.to_gray().as_ref(), &expected);
+        assert_eq!(detail.metadata.text_tone_diagnostics, Some(diagnostics));
     }
 
     #[test]
@@ -2566,7 +3564,10 @@ mod tests {
             tile.calibration.stroke_width_px,
             complete.calibration.stroke_width_px
         );
-        assert_eq!(tile.calibration.x_height_px, complete.calibration.x_height_px);
+        assert_eq!(
+            tile.calibration.x_height_px,
+            complete.calibration.x_height_px
+        );
         assert_eq!(tile.calibration.valid, complete.calibration.valid);
         assert!(
             tile_timings.normalization_ms < complete_timings.normalization_ms,
@@ -2577,7 +3578,8 @@ mod tests {
     #[test]
     fn bw_detail_tile_reproduces_the_full_page_render_it_replaces() {
         let base_source = illustrated_text_page();
-        let mut detail_source = GrayImage::new(base_source.width() * 2, base_source.height() * 2, 255);
+        let mut detail_source =
+            GrayImage::new(base_source.width() * 2, base_source.height() * 2, 255);
         for y in 0..detail_source.height() {
             for x in 0..detail_source.width() {
                 detail_source.set(x, y, base_source.get(x / 2, y / 2));
@@ -2613,6 +3615,7 @@ mod tests {
         let detail_plan = DetailRenderPlan {
             base_metadata_path: std::path::PathBuf::from("unused-in-engine-test.json"),
             base_raster_path: std::path::PathBuf::from("unused-in-engine-test.png"),
+            base_cleaned_raster_path: None,
             source_crop: crate::protocol::manifest_v3::DetailPixelRect {
                 x_px: sampled_region.x,
                 y_px: sampled_region.y,
@@ -2636,9 +3639,13 @@ mod tests {
             },
         };
         let detail = clean_detail_page_with_color(
-            &crop_gray(&detail_source, sampled_region),
-            None,
-            &base_source,
+            DetailRenderSources {
+                source_crop: &crop_gray(&detail_source, sampled_region),
+                color_source_crop: None,
+                base_source: &base_source,
+                base_color_source: None,
+                base_cleaned: None,
+            },
             &detail_options,
             0,
             &detail_plan,
@@ -2814,6 +3821,10 @@ mod tests {
         let prepared = prepare_page(
             &source,
             None,
+            None,
+            None,
+            None,
+            None,
             &options,
             CalibrationConfig::default(),
             None,
@@ -2850,6 +3861,10 @@ mod tests {
 
             let prepared = prepare_page(
                 &source,
+                None,
+                None,
+                None,
+                None,
                 None,
                 &options,
                 CalibrationConfig::default(),
@@ -3056,5 +4071,176 @@ mod tests {
             "the f32 interior accumulation must round with the f64 sampler on all but a handful of pixels: {off_by_one} of {}",
             width * height
         );
+    }
+
+    #[test]
+    fn routing_crop_area_averages_thin_strokes_instead_of_aliasing_them() {
+        let mut source = GrayImage::new(1_024, 1_024, 255);
+        for y in 0..source.height() {
+            source.set(2, y, 0);
+        }
+
+        let sample = crop_gray_to_fit(
+            &source,
+            Rect::new(0.0, 0.0, source.width() as f64, source.height() as f64),
+            256,
+            256,
+        );
+
+        assert_eq!((sample.width(), sample.height()), (256, 256));
+        assert!(
+            sample
+                .row(128)
+                .iter()
+                .any(|&value| (180..=200).contains(&value)),
+            "a one-pixel stem must contribute its area to the routing sample: {:?}",
+            &sample.row(128)[..4]
+        );
+        assert!(
+            sample.row(128).iter().all(|&value| value > 0),
+            "area sampling must not turn a narrow stem into an arbitrary full-black column"
+        );
+    }
+
+    #[test]
+    fn coherent_photo_field_excludes_rules_scanner_bands_and_text() {
+        let mut alpha = GrayImage::new(400, 600, 0);
+        let mut source = GrayImage::new(400, 600, 210);
+        for y in 100..430 {
+            for x in 120..350 {
+                alpha.set(x, y, 255);
+                source.set(x, y, 70 + ((x + y) % 80) as u8);
+            }
+        }
+        for y in 88..94 {
+            for x in 0..400 {
+                alpha.set(x, y, 255);
+                source.set(x, y, 40);
+            }
+        }
+        for band in 0..22 {
+            let top = 105 + band * 12;
+            for y in top..(top + 4) {
+                for x in 0..100 {
+                    alpha.set(x, y, 220);
+                    source.set(x, y, 80);
+                }
+            }
+        }
+        for line in 0..8 {
+            let top = 460 + line * 14;
+            for y in top..(top + 3) {
+                for x in 35..365 {
+                    alpha.set(x, y, 255);
+                    source.set(x, y, 30);
+                }
+            }
+        }
+
+        let field = coherent_photo_field(&alpha, &source).expect("photo field");
+        assert!(field.get(200, 250));
+        assert!(field.get(349, 429));
+        assert!(!field.get(40, 250), "scanner bands are paper, not photo");
+        assert!(!field.get(200, 90), "page rules are not photo");
+        assert!(!field.get(200, 470), "text lines are not photo");
+    }
+
+    #[test]
+    fn trusted_mrc_background_whitens_paper_outside_semantic_tone() {
+        let mut gray = GrayImage::new(40, 24, 192);
+        let mut color = RgbImage::new(40, 24, [184, 192, 188]);
+        let mut mask = BinaryImage::new(40, 24);
+        for y in 6..18 {
+            for x in 12..28 {
+                let value = 45 + ((x + y) % 100) as u8;
+                gray.set(x, y, value);
+                color.set(x, y, [value, value.saturating_add(8), value]);
+                mask.set(x, y, true);
+            }
+        }
+        let (retained, retained_color) =
+            white_outside_tonal_plate(&gray, Some(&color), &mask, 25.4);
+        for y in 0..24 {
+            for x in 0..40 {
+                if mask.get(x, y) {
+                    assert_eq!(retained.get(x, y), gray.get(x, y));
+                    assert_eq!(
+                        retained_color.as_ref().unwrap().get(x, y),
+                        color.get(x, y)
+                    );
+                } else if x < 10 || x >= 30 || y < 4 || y >= 20 {
+                    assert_eq!(retained.get(x, y), 255);
+                    assert_eq!(retained_color.as_ref().unwrap().get(x, y), [255; 3]);
+                }
+            }
+        }
+        assert!(
+            (193..255).contains(&retained.get(11, 12)),
+            "paper immediately outside a tonal plate should feather toward white"
+        );
+    }
+
+    #[test]
+    fn trusted_mrc_background_becomes_neutral_white_without_authored_tone() {
+        for paper in [72u8, 112, 152, 192, 232] {
+            let gray = GrayImage::new(5, 1, paper);
+            let color = RgbImage::new(5, 1, [paper, paper.saturating_add(8), paper]);
+            let mask = BinaryImage::new(5, 1);
+            let (retained, retained_color) =
+                white_outside_tonal_plate(&gray, Some(&color), &mask, 120.0);
+            assert_eq!(retained, GrayImage::new(5, 1, 255));
+            assert_eq!(
+                retained_color,
+                Some(RgbImage::new(5, 1, [255; 3])),
+                "tinted paper must become neutral rather than retain a color cast"
+            );
+        }
+    }
+
+    #[test]
+    fn trusted_mrc_background_is_preserved_only_when_tone_dominates() {
+        let mut dominant = BinaryImage::new(100, 100);
+        for y in 0..60 {
+            for x in 0..100 {
+                dominant.set(x, y, true);
+            }
+        }
+        assert!(should_preserve_trusted_background(&dominant));
+
+        let mut minority = BinaryImage::new(100, 100);
+        for y in 0..30 {
+            for x in 0..100 {
+                minority.set(x, y, true);
+            }
+        }
+        assert!(!should_preserve_trusted_background(&minority));
+        assert!(!should_preserve_trusted_background(&BinaryImage::new(0, 0)));
+    }
+
+    #[test]
+    fn trusted_mrc_preview_matches_the_recomposed_final_layers() {
+        let background = GrayImage::new(3, 1, 192);
+        let mut source_composite = background.clone();
+        source_composite.set(0, 0, 24);
+        source_composite.set(1, 0, 96);
+        source_composite.set(2, 0, 144);
+        let mut selection = BinaryImage::new(3, 1);
+        selection.set(0, 0, true);
+
+        let (preview, _, layers) = compose_trusted_mrc(
+            &background,
+            None,
+            &source_composite,
+            None,
+            &selection,
+            false,
+            false,
+            true,
+        );
+
+        assert_eq!(preview.get(0, 0), 24);
+        assert_eq!(preview.get(1, 0), 192);
+        assert_eq!(preview.get(2, 0), 192);
+        assert!(layers.is_none());
     }
 }

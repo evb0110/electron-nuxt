@@ -1,32 +1,44 @@
+#[cfg(test)]
+use crate::background::normalize_illumination;
 pub use crate::domain::geometry::{AppliedMargins, PageHalf};
 use crate::engine::prepare::{build_analysis_level, AnalysisLevel};
 use crate::engine::render_plan::{
     content_result_for_dimensions, output_regions, ComposedRenderPlan,
 };
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
-use crate::mode_select::{is_blank_scan_candidate, OutputModeRecommendation, PreparedModeEvidence};
+use crate::mode_select::{
+    independent_chroma_mask, is_blank_scan_candidate, protect_bilevel_text_fidelity,
+    recommend_output_mode_with_tone, should_veto_bilevel_fidelity, text_soft_edge_to_ink_ratio,
+    OutputModeDiagnostics, OutputModeRecommendation, PreparedModeEvidence,
+};
 use crate::{
     auto_dewarp::detect_curves_at_dpi_with_depth,
     background::{
-        normalize_illumination, normalize_illumination_for_layout_prepared,
-        normalize_illumination_pair_with_picture_mask, normalize_illumination_prepared,
-        normalize_illumination_rgb, normalize_illumination_rgb_with_picture_mask,
-        normalize_illumination_with_picture_mask, normalize_region_with_reusable_model,
+        normalize_illumination_for_layout_prepared, normalize_illumination_pair_with_masks,
+        normalize_illumination_prepared_with_masks, normalize_illumination_rgb_with_masks,
+        normalize_illumination_with_masks, normalize_region_with_reusable_model,
         normalize_rgb_region_with_reusable_model, prepare_illumination,
         reusable_illumination_model,
     },
     bw::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
-        binary_to_gray, postprocess_binary_with_diagnostics, BinarizationDiagnostics,
+        binary_to_gray, picture_protection_radius, postprocess_binary_with_diagnostics,
+        resolve_binarization_diagnostics, BinarizationDiagnostics,
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
-    content::detect_content_and_margins_calibrated,
+    content::{analyze_content_evidence_calibrated, detect_content_and_margins_calibrated},
     deskew::{detect_skew, DeskewResult},
     dewarp::{
         rasterize_inverse_area_rgb_with, rasterize_inverse_area_with, DewarpModel, DEWARP_GRID_SIZE,
     },
-    picture::{apply_manual_zones, detect_picture_mask, extend_picture_mask_for_content},
+    picture::{
+        apply_manual_zones, detect_continuous_tone_mask, detect_picture_mask_with_continuous_tone,
+        extend_picture_mask_for_content, extend_tone_mask_for_content,
+        flat_graphic_tone_preservation_alpha, photo_tone_preservation_alpha,
+        refine_line_art_preservation_alpha, refine_tone_preservation_alpha,
+        semantic_tone_preservation_alpha,
+    },
     png::RgbImage,
     protocol::{
         manifest_v3::{ContentDiagnostics, DetailRenderPlan},
@@ -36,12 +48,16 @@ use crate::{
         detect_split_at_analysis_level_with_threshold, DocumentPrior, LayoutClassification,
         ReconciliationMetadata, SplitResult, SPLIT_ANALYSIS_DPI,
     },
+    text_tone::{
+        apply_text_tone, apply_text_tone_excluding, derive_text_tone_diagnostics,
+        outside_tonal_evidence_with_mask, OutsideTonalEvidence, TextToneDiagnostics,
+    },
     CleanupOptions, OrthogonalRotation, OutputMode,
 };
 use rayon::prelude::*;
 use scan_primitives::{
-    distance::squared_euclidean_distance, threshold::otsu_threshold, Affine, BinaryImage,
-    GrayImage, Point, Polygon, Rect,
+    distance::squared_euclidean_distance, morphology::dilate, threshold::otsu_threshold, Affine,
+    BinaryImage, ComponentMap, GrayImage, Point, Polygon, Rect,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{borrow::Cow, sync::Arc, time::Instant};
@@ -113,9 +129,20 @@ pub struct CleanupMetadata {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub layered_written: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layered_foreground_kind: Option<LayeredForegroundKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layered_background_dpi: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layered_foreground_dpi: Option<f64>,
+    /// The trusted source-MRC continuous-tone background was deliberately
+    /// preserved because it contains authored tone. Final PDF assembly may
+    /// therefore reuse the compact source page instead of re-encoding it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trusted_mrc_background_preserved: bool,
     #[serde(default)]
     pub illumination_normalized: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_tone_diagnostics: Option<TextToneDiagnostics>,
     pub binarization_mode: Option<crate::BinarizationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binarization_diagnostics: Option<BinarizationDiagnostics>,
@@ -172,10 +199,20 @@ pub enum MatchedCanvasPolicy {
     StrictMaximum,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayeredForegroundKind {
+    Stencil,
+    SoftAlpha,
+    SourceMrc,
+}
+
 pub struct CleanupResult {
     pub image: CleanupRaster,
     pub color_image: Option<RgbImage>,
     pub metadata: CleanupMetadata,
+    pub(crate) picture_mask: Option<BinaryImage>,
+    pub(crate) tone_preservation_alpha: Option<GrayImage>,
     pub(crate) mixed_layers: Option<MixedLayers>,
     effectively_blank: bool,
 }
@@ -248,8 +285,15 @@ impl CleanupRaster {
 
 pub(crate) struct MixedLayers {
     pub foreground_mask: BinaryImage,
+    /// Eight-bit foreground opacity for undersampled antialiased text.
+    /// When present, this is the authoritative foreground and the bilevel
+    /// mask is retained only as diagnostic/fallback evidence.
+    pub foreground_alpha: Option<GrayImage>,
     pub background: GrayImage,
     pub color_background: Option<RgbImage>,
+    /// The foreground is the source MRC image through its exact source
+    /// selection mask. Publishing it as a black stencil is invalid.
+    pub source_mrc: bool,
 }
 
 pub struct PageCleanupResult {
@@ -265,16 +309,29 @@ pub struct PageCleanupResult {
     pub output_mode_recommendation: Option<OutputModeRecommendation>,
 }
 
+pub(crate) struct DetailRenderSources<'a> {
+    pub source_crop: &'a GrayImage,
+    pub color_source_crop: Option<&'a RgbImage>,
+    pub base_source: &'a GrayImage,
+    pub base_color_source: Option<&'a RgbImage>,
+    pub base_cleaned: Option<(&'a GrayImage, Option<&'a RgbImage>)>,
+}
+
 pub(crate) fn clean_detail_page_with_color(
-    source_crop: &GrayImage,
-    color_source_crop: Option<&RgbImage>,
-    base_source: &GrayImage,
+    sources: DetailRenderSources<'_>,
     options: &CleanupOptions,
     source_page_index: usize,
     plan: &DetailRenderPlan,
     base_metadata: &CleanupMetadata,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, String> {
+    let DetailRenderSources {
+        source_crop,
+        color_source_crop,
+        base_source,
+        base_color_source,
+        base_cleaned,
+    } = sources;
     options.validate()?;
     if options.output_mode == OutputMode::Mixed {
         return Err("Mixed-mode detail rendering requires the full-page picture mask".into());
@@ -294,9 +351,18 @@ pub(crate) fn clean_detail_page_with_color(
     {
         return Err("Detail source crop dimensions do not match its raster".into());
     }
+    let canonical_replay = base_cleaned.filter(|_| {
+        matches!(
+            options.output_mode,
+            OutputMode::Grayscale | OutputMode::Color
+        )
+    });
     let normalized_gray;
     let normalized_color;
-    let processing_source = if options.normalize_illumination {
+    let processing_source = if canonical_replay.is_some() {
+        normalized_color = color_source_crop.cloned();
+        source_crop
+    } else if options.normalize_illumination {
         let rotated_base = rotate_orthogonal(base_source, options.rotation);
         let model = reusable_illumination_model(&rotated_base);
         let coordinate = |x, y| {
@@ -342,11 +408,24 @@ pub(crate) fn clean_detail_page_with_color(
         );
         Some(cropped)
     };
-    let mapped_gray =
+    let mut mapped_gray =
         rasterize_inverse_area_with(processing_source, sampled_width, sampled_height, map_output);
-    let mapped_color = processing_color.map(|source| {
+    let mut mapped_color = processing_color.map(|source| {
         rasterize_inverse_area_rgb_with(source, sampled_width, sampled_height, map_output)
     });
+    if let Some((base_cleaned_gray, base_cleaned_color)) = canonical_replay {
+        replay_canonical_detail_transfer(
+            &mut mapped_gray,
+            mapped_color.as_mut(),
+            base_source,
+            base_color_source,
+            base_cleaned_gray,
+            base_cleaned_color,
+            sampled_region,
+            scale,
+            base_metadata,
+        );
+    }
 
     // Geometry is replayed from the trusted base metadata above. Reuse the
     // ordinary cleanup pipeline for tonal normalization, binarization,
@@ -371,10 +450,18 @@ pub(crate) fn clean_detail_page_with_color(
     tile_options.margins_pixels = None;
     tile_options.dewarp = None;
     tile_options.experimental = Default::default();
+    // The detail tile applies the canonical full-page curve below. Leaving
+    // reusable page-plan tone evidence here would apply the same LUT once in
+    // the ordinary pipeline and then a second time after geometry replay.
+    tile_options.resolved_text_tone_diagnostics = Default::default();
     tile_options.skip_blank_pages = false;
     let mut processed = clean_page_with_color_and_calibration_config(
         &mapped_gray,
         mapped_color.as_ref(),
+        None,
+        None,
+        None,
+        None,
         &tile_options,
         source_page_index,
         CalibrationConfig::default(),
@@ -387,6 +474,13 @@ pub(crate) fn clean_detail_page_with_color(
         .outputs
         .pop()
         .ok_or("Detail processing produced no output")?;
+    if canonical_replay.is_none() {
+        if let (CleanupRaster::Gray(image), Some(diagnostics)) =
+            (&mut output.image, base_metadata.text_tone_diagnostics)
+        {
+            apply_text_tone(image, diagnostics);
+        }
+    }
     let payload_rect = Rect::new(
         render_region.x - sampled_region.x,
         render_region.y - sampled_region.y,
@@ -397,12 +491,19 @@ pub(crate) fn clean_detail_page_with_color(
     output.color_image = output
         .color_image
         .map(|image| crop_rgb(&image, payload_rect));
+    output.picture_mask = output
+        .picture_mask
+        .map(|mask| crop_binary(&mask, payload_rect));
     output.mixed_layers = output.mixed_layers.map(|layers| MixedLayers {
         foreground_mask: crop_binary(&layers.foreground_mask, payload_rect),
+        foreground_alpha: layers
+            .foreground_alpha
+            .map(|alpha| crop_gray(&alpha, payload_rect)),
         background: crop_gray(&layers.background, payload_rect),
         color_background: layers
             .color_background
             .map(|image| crop_rgb(&image, payload_rect)),
+        source_mrc: layers.source_mrc,
     });
 
     let mut metadata = scale_detail_metadata(base_metadata, scale);
@@ -414,7 +515,7 @@ pub(crate) fn clean_detail_page_with_color(
     metadata.binarization_mode = output.metadata.binarization_mode;
     metadata.binarization_diagnostics = output.metadata.binarization_diagnostics;
     metadata.despeckle_fallback = output.metadata.despeckle_fallback;
-    metadata.illumination_normalized = output.metadata.illumination_normalized;
+    metadata.illumination_normalized = base_metadata.illumination_normalized;
     metadata.source_dpi = options.source_dpi();
     metadata.render_dpi = options.dpi;
     metadata.requested_render_dpi = options.requested_render_dpi();
@@ -449,6 +550,187 @@ pub(crate) fn clean_detail_page_with_color(
         rotation: base_metadata.rotation,
         output_mode_recommendation: None,
     })
+}
+
+#[derive(Clone, Copy)]
+struct CanonicalTransferTap {
+    weight: f64,
+    gray_gain: f64,
+    color_gain: Option<[f64; 3]>,
+}
+
+/// Replays the completed base preview's actual source-to-cleaned transfer.
+///
+/// The base raster already contains every page-global decision: protected
+/// picture/tone masks, paper calibration, cover policy, and the text-tone
+/// curve. A detail tile therefore samples that transfer instead of refitting
+/// those decisions on a viewport crop. Around a discontinuity, only taps from
+/// the nearest tap's gain class contribute; this keeps a paper whitening gain
+/// from bleeding into a protected photograph (and vice versa).
+#[allow(clippy::too_many_arguments)]
+fn replay_canonical_detail_transfer(
+    detail_gray: &mut GrayImage,
+    mut detail_color: Option<&mut RgbImage>,
+    base_source: &GrayImage,
+    base_color_source: Option<&RgbImage>,
+    base_cleaned_gray: &GrayImage,
+    base_cleaned_color: Option<&RgbImage>,
+    sampled_region: Rect,
+    scale: f64,
+    base_metadata: &CleanupMetadata,
+) {
+    const GAIN_CLASS_TOLERANCE: f64 = 0.18;
+    let width = detail_gray.width();
+    let height = detail_gray.height();
+    for y in 0..height {
+        for x in 0..width {
+            let base_output = Point::new(
+                (sampled_region.x + x as f64) / scale,
+                (sampled_region.y + y as f64) / scale,
+            );
+            let taps = canonical_transfer_taps(
+                base_output,
+                base_source,
+                base_color_source,
+                base_cleaned_gray,
+                base_cleaned_color,
+                base_metadata,
+            );
+            let reference = taps[0].map_or(1.0, |tap| tap.gray_gain);
+            let mut gray_weight = 0.0;
+            let mut gray_gain = 0.0;
+            for tap in taps.into_iter().flatten() {
+                if (tap.gray_gain - reference).abs() <= GAIN_CLASS_TOLERANCE {
+                    gray_weight += tap.weight;
+                    gray_gain += tap.weight * tap.gray_gain;
+                }
+            }
+            let gray_gain = if gray_weight > f64::EPSILON {
+                gray_gain / gray_weight
+            } else {
+                reference
+            };
+            detail_gray.set(
+                x,
+                y,
+                (f64::from(detail_gray.get(x, y)) * gray_gain)
+                    .round()
+                    .clamp(0.0, 255.0) as u8,
+            );
+
+            let Some(color) = detail_color.as_deref_mut() else {
+                continue;
+            };
+            let source_pixel = color.get(x, y);
+            let reference_color = taps[0].and_then(|tap| tap.color_gain);
+            let mut target = source_pixel;
+            for channel in 0..3 {
+                let reference_gain = reference_color.map_or(gray_gain, |gain| gain[channel]);
+                let mut weight = 0.0;
+                let mut gain = 0.0;
+                for tap in taps.into_iter().flatten() {
+                    let tap_gain = tap
+                        .color_gain
+                        .map_or(tap.gray_gain, |values| values[channel]);
+                    if (tap_gain - reference_gain).abs() <= GAIN_CLASS_TOLERANCE {
+                        weight += tap.weight;
+                        gain += tap.weight * tap_gain;
+                    }
+                }
+                let gain = if weight > f64::EPSILON {
+                    gain / weight
+                } else {
+                    reference_gain
+                };
+                target[channel] = (f64::from(source_pixel[channel]) * gain)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+            }
+            color.set(x, y, target);
+        }
+    }
+}
+
+fn canonical_transfer_taps(
+    base_output: Point,
+    base_source: &GrayImage,
+    base_color_source: Option<&RgbImage>,
+    base_cleaned_gray: &GrayImage,
+    base_cleaned_color: Option<&RgbImage>,
+    base_metadata: &CleanupMetadata,
+) -> [Option<CanonicalTransferTap>; 4] {
+    let maximum_x = base_cleaned_gray.width().saturating_sub(1) as f64;
+    let maximum_y = base_cleaned_gray.height().saturating_sub(1) as f64;
+    let x = base_output.x.clamp(0.0, maximum_x);
+    let y = base_output.y.clamp(0.0, maximum_y);
+    let left = x.floor() as usize;
+    let top = y.floor() as usize;
+    let right = (left + 1).min(base_cleaned_gray.width().saturating_sub(1));
+    let bottom = (top + 1).min(base_cleaned_gray.height().saturating_sub(1));
+    let tx = x - left as f64;
+    let ty = y - top as f64;
+    let coordinates = [
+        (left, top, (1.0 - tx) * (1.0 - ty)),
+        (right, top, tx * (1.0 - ty)),
+        (left, bottom, (1.0 - tx) * ty),
+        (right, bottom, tx * ty),
+    ];
+    coordinates.map(|(output_x, output_y, weight)| {
+        let source_point = base_output_to_unrotated_source(
+            base_metadata,
+            Point::new(output_x as f64, output_y as f64),
+        )?;
+        let source_gray =
+            sample_bilinear_white(base_source, source_point.x + 0.5, source_point.y + 0.5);
+        let cleaned_gray = base_cleaned_gray.get(output_x, output_y);
+        let gray_gain = transfer_gain(source_gray, cleaned_gray);
+        let color_gain = base_color_source
+            .zip(base_cleaned_color)
+            .map(|(source, cleaned)| {
+                let source_pixel =
+                    sample_bilinear_rgb_white(source, source_point.x + 0.5, source_point.y + 0.5);
+                let cleaned_pixel = cleaned.get(
+                    output_x.min(cleaned.width().saturating_sub(1)),
+                    output_y.min(cleaned.height().saturating_sub(1)),
+                );
+                std::array::from_fn(|channel| {
+                    transfer_gain(source_pixel[channel], cleaned_pixel[channel])
+                })
+            });
+        Some(CanonicalTransferTap {
+            weight,
+            gray_gain,
+            color_gain,
+        })
+    })
+}
+
+fn transfer_gain(source: u8, cleaned: u8) -> f64 {
+    if source <= 4 {
+        if cleaned <= 4 {
+            1.0
+        } else {
+            f64::from(cleaned) / 4.0
+        }
+    } else {
+        f64::from(cleaned) / f64::from(source)
+    }
+}
+
+fn base_output_to_unrotated_source(metadata: &CleanupMetadata, output: Point) -> Option<Point> {
+    let rotated_source = if let Some(inverse) = metadata.inverse_transform {
+        inverse.apply(output)
+    } else if let Some(grid) = &metadata.dewarp_mapping {
+        interpolate_dewarp_output_to_source(grid, output)?
+    } else {
+        return None;
+    };
+    Some(inverse_rotate_point(
+        rotated_source,
+        metadata.input_width,
+        metadata.input_height,
+        metadata.rotation,
+    ))
 }
 
 fn rotated_normalized_detail_coordinate(
@@ -620,6 +902,8 @@ pub struct AnalysisOutputMetadata {
     pub content_box: Option<Rect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_diagnostics: Option<ContentDiagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_tone_diagnostics: Option<TextToneDiagnostics>,
     #[serde(with = "pixel_rect_serde")]
     pub crop_rect: Rect,
     pub applied_margins: AppliedMargins,
@@ -737,10 +1021,22 @@ struct PreparedPage<'a> {
     rotated_color: Option<RgbImage>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
+    chroma_picture_mask: Option<Arc<BinaryImage>>,
+    tone_picture_mask: Option<Arc<BinaryImage>>,
+    tone_preservation_alpha: Option<Arc<GrayImage>>,
+    text_mask: Option<Arc<BinaryImage>>,
+    text_vicinity_mask: Option<Arc<BinaryImage>>,
+    trusted_foreground_mask: Option<BinaryImage>,
+    trusted_tone_mask: Option<BinaryImage>,
+    trusted_background_gray: Option<GrayImage>,
+    trusted_background_color: Option<RgbImage>,
+    trusted_composite_color: Option<RgbImage>,
     split: SplitResult,
     split_cache_key: Option<StageCacheKey>,
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
+    protect_tonal_text_vicinity: bool,
+    use_soft_alpha_foreground: bool,
     resolved_output_mode: OutputMode,
 }
 
@@ -757,9 +1053,18 @@ struct PreparedAnalysis {
     text_axis: Option<TextAxisHint>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
+    chroma_picture_mask: Option<Arc<BinaryImage>>,
+    tonal_protection_mask: Option<Arc<BinaryImage>>,
+    semantic_preservation_alpha: Option<Arc<GrayImage>>,
+    photo_preservation_alpha: Option<Arc<GrayImage>>,
+    tone_preservation_alpha: Option<Arc<GrayImage>>,
+    text_mask: Option<Arc<BinaryImage>>,
+    text_vicinity_mask: Option<Arc<BinaryImage>>,
     split_cache_key: Option<StageCacheKey>,
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
+    protect_tonal_text_vicinity: bool,
+    use_soft_alpha_foreground: bool,
     resolved_output_mode: OutputMode,
 }
 
@@ -773,12 +1078,135 @@ struct AnalysisArtifact {
     calibration: PageCalibration,
     effective_dpi: f64,
     picture_mask: Option<Arc<BinaryImage>>,
+    chroma_picture_mask: Option<Arc<BinaryImage>>,
+    tonal_protection_mask: Option<Arc<BinaryImage>>,
+    semantic_preservation_alpha: Option<Arc<GrayImage>>,
+    photo_preservation_alpha: Option<Arc<GrayImage>>,
+    tone_preservation_alpha: Option<Arc<GrayImage>>,
+    text_mask: Option<Arc<BinaryImage>>,
+    text_vicinity_mask: Option<Arc<BinaryImage>>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
+    protect_tonal_text_vicinity: bool,
+    use_soft_alpha_foreground: bool,
     resolved_output_mode: OutputMode,
     analysis_threshold: Option<u8>,
     text_axis: Option<TextAxisHint>,
+}
+
+fn union_optional_masks(
+    left: Option<&Arc<BinaryImage>>,
+    right: Option<&Arc<BinaryImage>>,
+) -> Option<Arc<BinaryImage>> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(Arc::new(left.or(right))),
+        (Some(mask), None) | (None, Some(mask)) => Some(Arc::clone(mask)),
+        (None, None) => None,
+    }
+}
+
+fn union_optional_gray_fields(
+    left: Option<&Arc<GrayImage>>,
+    right: Option<&Arc<GrayImage>>,
+) -> Option<Arc<GrayImage>> {
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            debug_assert_eq!(left.width(), right.width());
+            debug_assert_eq!(left.height(), right.height());
+            let mut combined = GrayImage::new(left.width(), left.height(), 0);
+            combined
+                .data_mut()
+                .iter_mut()
+                .zip(left.data())
+                .zip(right.data())
+                .for_each(|((target, &left), &right)| *target = left.max(right));
+            Some(Arc::new(combined))
+        }
+        (Some(field), None) | (None, Some(field)) => Some(Arc::clone(field)),
+        (None, None) => None,
+    }
+}
+
+fn coherent_photo_field(alpha: &GrayImage, source: &GrayImage) -> Option<Arc<BinaryImage>> {
+    debug_assert_eq!(alpha.width(), source.width());
+    debug_assert_eq!(alpha.height(), source.height());
+    let width = alpha.width();
+    let height = alpha.height();
+    let dark_tone_threshold = otsu_threshold(source).saturating_add(32);
+    let dense_rows = (0..height)
+        .map(|y| {
+            (0..width)
+                .filter(|&x| alpha.get(x, y) >= 128 && source.get(x, y) <= dark_tone_threshold)
+                .count()
+                .saturating_mul(5)
+                >= width
+        })
+        .collect::<Vec<_>>();
+    let mut retained = BinaryImage::new(width, height);
+    let mut row_start = None;
+    for (y, is_dense) in dense_rows
+        .iter()
+        .copied()
+        .chain(std::iter::once(false))
+        .enumerate()
+    {
+        match (row_start, is_dense) {
+            (None, true) => row_start = Some(y),
+            (Some(top), false) => {
+                let bottom = y - 1;
+                let row_span = bottom - top + 1;
+                if row_span.saturating_mul(8) >= height {
+                    let dense_columns = (0..width)
+                        .map(|x| {
+                            (top..=bottom)
+                                .filter(|&row| {
+                                    alpha.get(x, row) >= 128
+                                        && source.get(x, row) <= dark_tone_threshold
+                                })
+                                .count()
+                                .saturating_mul(5)
+                                >= row_span.saturating_mul(2)
+                        })
+                        .collect::<Vec<_>>();
+                    let mut column_start = None;
+                    let mut significant_runs = Vec::new();
+                    for (x, is_dense) in dense_columns
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(false))
+                        .enumerate()
+                    {
+                        match (column_start, is_dense) {
+                            (None, true) => column_start = Some(x),
+                            (Some(left), false) => {
+                                let right = x - 1;
+                                if (right - left + 1).saturating_mul(20) >= width {
+                                    significant_runs.push((left, right));
+                                }
+                                column_start = None;
+                            }
+                            _ => {}
+                        }
+                    }
+                    if let (Some((left, _)), Some((_, right))) =
+                        (significant_runs.first(), significant_runs.last())
+                    {
+                        if (right - left + 1).saturating_mul(8) >= width {
+                            for row in top..=bottom {
+                                for column in *left..=*right {
+                                    retained.set(column, row, true);
+                                }
+                            }
+                        }
+                    }
+                }
+                row_start = None;
+            }
+            _ => {}
+        }
+    }
+    (retained.count_black() > 0).then(|| Arc::new(retained))
 }
 
 #[derive(Clone)]
@@ -1004,6 +1432,27 @@ fn analyze_page_with_color_and_document_prior_impl(
             region.height * prepared.scale_y,
         );
         let working = crop_gray(&prepared.normalized, analysis_region);
+        let text_tone_diagnostics = if prepared.resolved_output_mode == OutputMode::Grayscale {
+            prepared
+                .text_mask
+                .as_ref()
+                .zip(prepared.text_vicinity_mask.as_ref())
+                .map(|(text_mask, text_vicinity_mask)| {
+                    let picture_mask = prepared
+                        .picture_mask
+                        .as_ref()
+                        .map(|mask| crop_binary(mask, analysis_region))
+                        .unwrap_or_else(|| BinaryImage::new(working.width(), working.height()));
+                    derive_text_tone_diagnostics(
+                        &working,
+                        &crop_binary(text_mask, analysis_region),
+                        &crop_binary(text_vicinity_mask, analysis_region),
+                        &picture_mask,
+                    )
+                })
+        } else {
+            None
+        };
         let content_picture_mask = prepared
             .content_picture_mask
             .as_ref()
@@ -1054,6 +1503,7 @@ fn analyze_page_with_color_and_document_prior_impl(
             source_region: region,
             content_box: content.content,
             content_diagnostics,
+            text_tone_diagnostics,
             crop_rect: Rect::new(
                 region.x + local_crop.x,
                 region.y + local_crop.y,
@@ -1127,6 +1577,10 @@ pub fn clean_page(
     clean_page_with_color_and_calibration_config(
         source,
         None,
+        None,
+        None,
+        None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1148,6 +1602,10 @@ pub fn clean_page_with_calibration_config(
     clean_page_with_color_and_calibration_config(
         source,
         None,
+        None,
+        None,
+        None,
+        None,
         options,
         source_page_index,
         calibration_config,
@@ -1168,6 +1626,10 @@ pub fn clean_page_with_color(
     clean_page_with_color_and_calibration_config(
         source,
         color_source,
+        None,
+        None,
+        None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1189,6 +1651,10 @@ pub fn clean_page_with_color_and_document_prior(
     clean_page_with_color_and_calibration_config(
         source,
         color_source,
+        None,
+        None,
+        None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1199,9 +1665,14 @@ pub fn clean_page_with_color_and_document_prior(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn clean_page_with_color_and_document_prior_cached(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
+    trusted_foreground_mask: Option<&BinaryImage>,
+    trusted_tone_mask: Option<&BinaryImage>,
+    trusted_background_gray: Option<&GrayImage>,
+    trusted_background_color: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     document_prior: Option<DocumentPrior>,
@@ -1213,6 +1684,10 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     clean_page_with_color_and_calibration_config(
         source,
         color_source,
+        trusted_foreground_mask,
+        trusted_tone_mask,
+        trusted_background_gray,
+        trusted_background_color,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1231,9 +1706,14 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn clean_page_with_color_and_calibration_config(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
+    trusted_foreground_mask: Option<&BinaryImage>,
+    trusted_tone_mask: Option<&BinaryImage>,
+    trusted_background_gray: Option<&GrayImage>,
+    trusted_background_color: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     calibration_config: CalibrationConfig,
@@ -1264,6 +1744,10 @@ fn clean_page_with_color_and_calibration_config(
     let prepared = prepare_page(
         source,
         color_source,
+        trusted_foreground_mask,
+        trusted_tone_mask,
+        trusted_background_gray,
+        trusted_background_color,
         options,
         calibration_config,
         document_prior,
@@ -1271,12 +1755,17 @@ fn clean_page_with_color_and_calibration_config(
         render_policy,
         timings,
     );
+    let auto_resolved_color = options.output_mode == OutputMode::Auto
+        && prepared.resolved_output_mode == OutputMode::Color;
     let mut resolved_options;
-    let options = if prepared.resolved_output_mode == options.output_mode {
+    let options = if prepared.resolved_output_mode == options.output_mode && !auto_resolved_color {
         options
     } else {
         resolved_options = options.clone();
         resolved_options.output_mode = prepared.resolved_output_mode;
+        if auto_resolved_color {
+            resolved_options.normalize_illumination = false;
+        }
         &resolved_options
     };
     let PreparedPage {
@@ -1289,10 +1778,22 @@ fn clean_page_with_color_and_calibration_config(
         rotated_color,
         content_picture_mask,
         picture_mask,
+        chroma_picture_mask,
+        tone_picture_mask,
+        tone_preservation_alpha,
+        text_mask,
+        text_vicinity_mask,
+        trusted_foreground_mask,
+        trusted_tone_mask,
+        trusted_background_gray,
+        trusted_background_color,
+        trusted_composite_color,
         split,
         split_cache_key,
         source_effectively_blank,
         output_mode_recommendation,
+        protect_tonal_text_vicinity,
+        use_soft_alpha_foreground,
         resolved_output_mode: _,
     } = prepared;
     let regions = output_regions(
@@ -1314,6 +1815,18 @@ fn clean_page_with_color_and_calibration_config(
             rotated_color.as_ref(),
             content_picture_mask.as_deref(),
             picture_mask.as_deref(),
+            chroma_picture_mask.as_deref(),
+            tone_picture_mask.as_deref(),
+            protect_tonal_text_vicinity,
+            use_soft_alpha_foreground,
+            tone_preservation_alpha.as_deref(),
+            text_mask.as_deref(),
+            text_vicinity_mask.as_deref(),
+            trusted_foreground_mask.as_ref(),
+            trusted_tone_mask.as_ref(),
+            trusted_background_gray.as_ref(),
+            trusted_background_color.as_ref(),
+            trusted_composite_color.as_ref(),
             options,
             source_page_index,
             &split,
@@ -1346,9 +1859,14 @@ fn clean_page_with_color_and_calibration_config(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare_page<'a>(
     source: &'a GrayImage,
     color_source: Option<&RgbImage>,
+    trusted_foreground_mask: Option<&BinaryImage>,
+    trusted_tone_mask: Option<&BinaryImage>,
+    trusted_background_gray: Option<&GrayImage>,
+    trusted_background_color: Option<&RgbImage>,
     options: &CleanupOptions,
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
@@ -1364,11 +1882,20 @@ fn prepare_page<'a>(
         calibration,
         content_picture_mask: analysis_content_picture_mask,
         picture_mask: analysis_picture_mask,
+        chroma_picture_mask: analysis_chroma_picture_mask,
+        tonal_protection_mask: analysis_tonal_protection_mask,
+        semantic_preservation_alpha: analysis_semantic_preservation_alpha,
+        photo_preservation_alpha: analysis_photo_preservation_alpha,
+        tone_preservation_alpha: analysis_tone_preservation_alpha,
+        text_mask: analysis_text_mask,
+        text_vicinity_mask: analysis_text_vicinity_mask,
         full_width,
         full_height,
         split_cache_key,
         source_effectively_blank,
         output_mode_recommendation,
+        protect_tonal_text_vicinity,
+        use_soft_alpha_foreground,
         resolved_output_mode,
         ..
     } = prepare_analysis_page(
@@ -1382,12 +1909,22 @@ fn prepare_page<'a>(
         cache,
         timings,
     );
+    // Auto Color is an explicit semantic abstention from paper cleanup: the
+    // page is continuous-tone/color content, not paper plus ink. Keeping
+    // illumination normalization enabled here made preview invent a visual
+    // change while the compact PDF assembler correctly wanted to preserve the
+    // source objects. Explicit Color remains user-controlled and may normalize.
+    let auto_resolved_color =
+        options.output_mode == OutputMode::Auto && resolved_output_mode == OutputMode::Color;
     let mut resolved_options;
-    let options = if resolved_output_mode == options.output_mode {
+    let options = if resolved_output_mode == options.output_mode && !auto_resolved_color {
         options
     } else {
         resolved_options = options.clone();
         resolved_options.output_mode = resolved_output_mode;
+        if auto_resolved_color {
+            resolved_options.normalize_illumination = false;
+        }
         &resolved_options
     };
     let rotated_source = match options.rotation {
@@ -1404,10 +1941,56 @@ fn prepare_page<'a>(
     // rebuilding the same mask over a 15–35 MP source dominated mixed-page
     // cleanup and only created an intermediate mask that was immediately
     // resampled again.
-    let mut picture_mask = if options.output_mode == OutputMode::Mixed {
+    let mut picture_mask = if options.output_mode != OutputMode::Bw {
         analysis_picture_mask.clone()
     } else {
         None
+    };
+    let normalization_model_exclusion = union_optional_masks(
+        analysis_picture_mask.as_ref(),
+        analysis_tonal_protection_mask.as_ref(),
+    );
+    let normalization_model_exclusion = match options.output_mode {
+        OutputMode::Grayscale => normalization_model_exclusion.as_deref(),
+        OutputMode::Mixed => picture_mask.as_deref(),
+        OutputMode::Color
+            if output_mode_recommendation
+                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
+        {
+            normalization_model_exclusion.as_deref()
+        }
+        // A Color page without an embedded picture is commonly a full-bleed
+        // cover. Supplying any mask makes RGB normalization assume that an
+        // external paper field exists and can turn the cover into pale noise.
+        // The unmasked color path already selects conservative levels when no
+        // plausible paper background exists.
+        OutputMode::Color => None,
+        OutputMode::Bw | OutputMode::Auto => None,
+    };
+    // Semantic tone is reconstructed from the illumination-corrected raster;
+    // only true photo regions may restore the raw scan. Their union remains
+    // the render-space suppression field for text enhancement.
+    let semantic_preservation_alpha = match options.output_mode {
+        OutputMode::Grayscale => analysis_semantic_preservation_alpha.as_deref(),
+        OutputMode::Mixed => analysis_semantic_preservation_alpha.as_deref(),
+        OutputMode::Color
+            if output_mode_recommendation
+                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
+        {
+            analysis_semantic_preservation_alpha.as_deref()
+        }
+        OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+    };
+    let photo_preservation_alpha = match options.output_mode {
+        OutputMode::Grayscale => analysis_photo_preservation_alpha.as_deref(),
+        OutputMode::Mixed => analysis_photo_preservation_alpha.as_deref(),
+        OutputMode::Color
+            if output_mode_recommendation
+                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
+        {
+            analysis_photo_preservation_alpha.as_deref()
+        }
+        OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
     };
     let rotated_color_source = color_source.map(|image| {
         let rotated = match options.rotation {
@@ -1416,12 +1999,28 @@ fn prepare_page<'a>(
         };
         rotated.into_owned()
     });
-    let paired_normalized = if !analysis_is_full && options.normalize_illumination {
+    let trusted_foreground_mask =
+        trusted_foreground_mask.map(|mask| rotate_binary_orthogonal(mask, options.rotation));
+    let trusted_tone_mask =
+        trusted_tone_mask.map(|mask| rotate_binary_orthogonal(mask, options.rotation));
+    let trusted_background_gray =
+        trusted_background_gray.map(|image| rotate_orthogonal(image, options.rotation));
+    let trusted_background_color =
+        trusted_background_color.map(|image| rotate_rgb_orthogonal(image, options.rotation));
+    let trusted_composite_color = trusted_tone_mask
+        .as_ref()
+        .and_then(|_| rotated_color_source.clone());
+    let paired_normalized = if !analysis_is_full
+        && options.normalize_illumination
+        && matches!(options.output_mode, OutputMode::Mixed | OutputMode::Color)
+    {
         rotated_color_source.as_ref().map(|rotated_color| {
-            normalize_illumination_pair_with_picture_mask(
+            normalize_illumination_pair_with_masks(
                 &rotated_source,
                 rotated_color,
-                picture_mask.as_deref(),
+                normalization_model_exclusion,
+                semantic_preservation_alpha,
+                photo_preservation_alpha,
             )
         })
     } else {
@@ -1431,16 +2030,13 @@ fn prepare_page<'a>(
         if let Some((_, normalized_color)) = paired_normalized.as_ref() {
             normalized_color.clone()
         } else if options.normalize_illumination {
-            if let Some(mask) = picture_mask.as_deref() {
-                normalize_illumination_rgb_with_picture_mask(
-                    &rotated_source,
-                    &rotated,
-                    options.dpi,
-                    Some(mask),
-                )
-            } else {
-                normalize_illumination_rgb(&rotated_source, &rotated, options.dpi)
-            }
+            normalize_illumination_rgb_with_masks(
+                &rotated_source,
+                &rotated,
+                normalization_model_exclusion,
+                semantic_preservation_alpha,
+                photo_preservation_alpha,
+            )
         } else {
             rotated
         }
@@ -1450,10 +2046,14 @@ fn prepare_page<'a>(
     } else if options.normalize_illumination {
         let normalized = if let Some((normalized, _)) = paired_normalized {
             normalized
-        } else if let Some(mask) = picture_mask.as_deref() {
-            normalize_illumination_with_picture_mask(&rotated_source, options.dpi, Some(mask))
         } else {
-            normalize_illumination(&rotated_source, options.dpi)
+            normalize_illumination_with_masks(
+                &rotated_source,
+                options.dpi,
+                normalization_model_exclusion,
+                semantic_preservation_alpha,
+                photo_preservation_alpha,
+            )
         };
         (
             Some(rotated_source),
@@ -1479,10 +2079,22 @@ fn prepare_page<'a>(
         rotated_color,
         content_picture_mask: analysis_content_picture_mask,
         picture_mask: picture_mask.take(),
+        chroma_picture_mask: analysis_chroma_picture_mask,
+        tone_picture_mask: analysis_tonal_protection_mask,
+        tone_preservation_alpha: analysis_tone_preservation_alpha,
+        text_mask: analysis_text_mask,
+        text_vicinity_mask: analysis_text_vicinity_mask,
+        trusted_foreground_mask,
+        trusted_tone_mask,
+        trusted_background_gray,
+        trusted_background_color,
+        trusted_composite_color,
         split,
         split_cache_key,
         source_effectively_blank,
         output_mode_recommendation,
+        protect_tonal_text_vicinity,
+        use_soft_alpha_foreground,
         resolved_output_mode,
     }
 }
@@ -1518,12 +2130,29 @@ fn prepare_analysis_page(
         .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<AnalysisArtifact>(key));
     let analysis = cached_analysis.unwrap_or_else(|| {
         let analysis_started = Instant::now();
+        // A compact MRC page has two independent sampling limits: its
+        // high-resolution bilevel foreground and its much coarser
+        // continuous-tone background. Running semantic tone detection above
+        // the latter's native DPI only measures interpolation around the
+        // foreground mask. The same page then acquires "new" coherent tone
+        // when the PDF rasterizer is asked for a larger final image even
+        // though the authored background contains no additional information.
+        //
+        // Keep ordinary raster scans at the normal 150-DPI analysis ceiling.
+        // For layered sources, cap the shared analysis grid at the actual
+        // background-layer DPI so preview and final-input analysis observe the
+        // same semantic evidence.
+        let analysis_dpi_ceiling = if options.source_has_bilevel_layer {
+            options.source_background_dpi().min(150.0)
+        } else {
+            150.0
+        };
         let AnalysisLevel {
             image,
             effective_dpi,
             scale_x: source_scale_x,
             scale_y: source_scale_y,
-        } = build_analysis_level(source, options.dpi, 150.0);
+        } = build_analysis_level(source, options.dpi, analysis_dpi_ceiling);
         let rotated = rotate_orthogonal(&image, options.rotation);
         let analysis_rgb = color_source
             .map(|rgb| downscale_rgb_to_dimensions(rgb, image.width(), image.height()))
@@ -1566,11 +2195,25 @@ fn prepare_analysis_page(
             PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
         timings.calibration_ms += calibration_started.elapsed().as_secs_f64() * 1_000.0;
         let picture_mask_started = Instant::now();
+        let continuous_tone_mask = render_policy.analyze_layout.then(|| {
+            Arc::new(if blank_scan_candidate {
+                BinaryImage::new(rotated.width(), rotated.height())
+            } else {
+                detect_continuous_tone_mask(&rotated, effective_dpi)
+            })
+        });
         let picture_mask = render_policy.analyze_layout.then(|| {
             let mut mask = if blank_scan_candidate {
                 BinaryImage::new(rotated.width(), rotated.height())
             } else {
-                detect_picture_mask(&rotated, effective_dpi, calibration)
+                detect_picture_mask_with_continuous_tone(
+                    &rotated,
+                    effective_dpi,
+                    calibration,
+                    continuous_tone_mask
+                        .as_deref()
+                        .expect("layout analysis must prepare continuous-tone evidence"),
+                )
             };
             apply_manual_zones(&mut mask, options);
             Arc::new(mask)
@@ -1603,7 +2246,7 @@ fn prepare_analysis_page(
                     })
             }
         };
-        let content_picture_mask = if options.crop_content && !content_evidence_complete {
+        let mut content_picture_mask = if options.crop_content && !content_evidence_complete {
             picture_mask
                 .as_deref()
                 .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)))
@@ -1623,37 +2266,158 @@ fn prepare_analysis_page(
         // blank-page cleanup itself depends only on raw luminance, chroma and
         // coherent edge structure: normalized texture is exactly the unstable
         // evidence that caused preview/final disagreements here.
-        let text_line_count = picture_mask.as_deref().map_or(0, |picture_mask| {
-            if render_policy.recommend_output_mode {
-                detect_content_and_margins_calibrated(
+        let content_evidence = picture_mask.as_deref().and_then(|picture_mask| {
+            if render_policy.recommend_output_mode
+                || matches!(
+                    options.output_mode,
+                    OutputMode::Grayscale | OutputMode::Mixed
+                )
+            {
+                Some(analyze_content_evidence_calibrated(
                     &layout_normalized,
                     Some(picture_mask),
-                    effective_dpi,
-                    None,
-                    Some([0.0; 4]),
                     calibration,
-                )
-                .diagnostics
-                .map(|diagnostics| diagnostics.text_mask.line_count)
-                .unwrap_or(0)
+                ))
             } else {
-                0
+                None
             }
         });
+        let text_line_count = content_evidence
+            .as_ref()
+            .map_or(0, |evidence| evidence.diagnostics.text_mask.line_count);
+        let (text_mask, text_vicinity_mask) = content_evidence.map_or((None, None), |evidence| {
+            (
+                Some(Arc::new(evidence.text_mask)),
+                Some(Arc::new(evidence.text_vicinity_mask)),
+            )
+        });
+        let (outside_tone, tonal_seed_mask) = text_vicinity_mask
+            .as_deref()
+            .map(|mask| outside_tonal_evidence_with_mask(&layout_normalized, mask))
+            .unwrap_or_else(|| {
+                (
+                    OutsideTonalEvidence::default(),
+                    BinaryImage::new(rotated.width(), rotated.height()),
+                )
+            });
+        // Any tone strong and coherent enough to veto destructive B&W must
+        // also own pixels in a Mixed result. Previously the mode selector
+        // could choose Mixed while the renderer kept an empty picture mask,
+        // silently publishing a bilevel page and destroying the very map fill
+        // or shaded region that caused the veto.
+        let destructive_tone_mask = outside_tone.vetoes_destructive_mode().then(|| {
+            Arc::new(extend_tone_mask_for_content(
+                &layout_normalized,
+                &tonal_seed_mask,
+                calibration,
+            ))
+        });
+        let structural_tone_mask = outside_tone
+            .coherent()
+            .then(|| destructive_tone_mask.as_ref().map(Arc::clone))
+            .flatten();
+        if options.crop_content && !content_evidence_complete {
+            // The crop planner needs the same vetted map/illustration geometry
+            // as the tone-preservation path. Picture detection can be empty on
+            // flat-shaded line art; without this union, cleanup preserves the
+            // tones but trims the outer frame or labels that establish their
+            // true page extent.
+            content_picture_mask =
+                union_optional_masks(content_picture_mask.as_ref(), structural_tone_mask.as_ref());
+        }
+        let continuous_tone_mask =
+            continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
+        let tonal_protection_mask = union_optional_masks(
+            destructive_tone_mask.as_ref(),
+            continuous_tone_mask.as_ref(),
+        );
+        // A textless illustration may legitimately use smooth tone across its
+        // full vetted enclosure. On document-like pages, isolate semantic tone
+        // from paper on the raw-source scale: deriving this alpha from the
+        // already-whitened layout raster erased the very middle-gray map fills
+        // it was meant to protect. The endpoint remains illumination-corrected,
+        // so this alpha does not restore the page's scanner/paper shade.
+        let tone_semantic_preservation_alpha = if text_line_count == 0 {
+            tonal_protection_mask
+                .as_deref()
+                .and_then(semantic_tone_preservation_alpha)
+        } else {
+            refine_tone_preservation_alpha(
+                &rotated,
+                &rotated,
+                None,
+                tonal_protection_mask.as_deref(),
+            )
+        }
+        .map(Arc::new);
+        // Text remains on the monotonic paper-normalization path and is
+        // darkened by the dedicated text-tone curve after geometry. A
+        // detector-resolution binary text alpha changed antialiased stroke
+        // coverage when resampled to the quality raster and made exact glyph
+        // geometry depend on source DPI. Semantic ownership is therefore for
+        // real tone only; text retention is verified separately against exact
+        // synthetic ink coverage.
+        let flat_graphic_preservation_alpha =
+            flat_graphic_tone_preservation_alpha(&layout_normalized).map(Arc::new);
+        let semantic_preservation_alpha = union_optional_gray_fields(
+            tone_semantic_preservation_alpha.as_ref(),
+            flat_graphic_preservation_alpha.as_ref(),
+        );
         let source_effectively_blank = blank_scan_candidate;
-        let output_mode_recommendation = picture_mask
+        let text_soft_edge_ratio = text_vicinity_mask
+            .as_deref()
+            .and_then(|mask| text_soft_edge_to_ink_ratio(&rotated, mask, picture_mask.as_deref()));
+        let mut output_mode_recommendation = picture_mask
             .as_deref()
             .filter(|_| render_policy.recommend_output_mode)
             .map(|picture_mask| {
-                crate::mode_select::recommend_output_mode(PreparedModeEvidence {
-                    analysis: &rotated,
-                    analysis_rgb: analysis_rgb.as_ref(),
-                    picture_mask,
+                let recommendation = recommend_output_mode_with_tone(
+                    PreparedModeEvidence {
+                        analysis: &rotated,
+                        analysis_rgb: analysis_rgb.as_ref(),
+                        picture_mask,
+                        text_line_count,
+                    },
+                    outside_tone,
+                );
+                protect_bilevel_text_fidelity(
+                    recommendation,
+                    calibration,
+                    options.source_dpi(),
+                    options.source_has_bilevel_layer,
                     text_line_count,
+                    text_soft_edge_ratio,
+                )
+            });
+        // Maps and dense line art often satisfy the generous picture detector
+        // over almost the whole page. Restoring that full rectangle also
+        // restores its gray paper. Use pixel-refined preservation when the
+        // page-global evidence says "large, bimodal, low-midtone line art";
+        // genuine continuous photographs keep their full mask so highlights
+        // and smooth gradients cannot become contrast stencils.
+        let picture_ownership_diagnostics = output_mode_recommendation
+            .map(|recommendation| recommendation.diagnostics)
+            .or_else(|| {
+                picture_mask.as_deref().map(|picture_mask| {
+                    protect_bilevel_text_fidelity(
+                        recommend_output_mode_with_tone(
+                            PreparedModeEvidence {
+                                analysis: &rotated,
+                                analysis_rgb: analysis_rgb.as_ref(),
+                                picture_mask,
+                                text_line_count,
+                            },
+                            outside_tone,
+                        ),
+                        calibration,
+                        options.source_dpi(),
+                        options.source_has_bilevel_layer,
+                        text_line_count,
+                        text_soft_edge_ratio,
+                    )
+                    .diagnostics
                 })
             });
-        timings.mode_recommendation_ms +=
-            mode_recommendation_started.elapsed().as_secs_f64() * 1_000.0;
         let resolved_output_mode = if options.output_mode == OutputMode::Auto {
             output_mode_recommendation
                 .map(|recommendation| recommendation.mode)
@@ -1661,19 +2425,195 @@ fn prepare_analysis_page(
         } else {
             options.output_mode
         };
+        let chroma_picture_mask = (resolved_output_mode == OutputMode::Mixed)
+            .then(|| {
+                independent_chroma_mask(&rotated, analysis_rgb.as_ref(), text_line_count)
+                    .map(Arc::new)
+            })
+            .flatten();
+        let significant_picture = picture_ownership_diagnostics
+            .is_some_and(|diagnostics| diagnostics.significant_picture);
+        let refine_picture_ownership = picture_ownership_diagnostics
+            .is_some_and(|diagnostics| should_refine_line_art_picture_ownership(&diagnostics));
+        // Stencil legality is a property of the newly encoded foreground, not
+        // of the semantic reason that selected Mixed. Spatial-tone pages can
+        // have no detector-owned picture at all, so restricting this check to
+        // photo-dominant Mixed output lets undersampled glyphs and map lines
+        // bypass the same source-sampling boundary enforced for B&W.
+        let mixed_foreground_fidelity_veto = resolved_output_mode == OutputMode::Mixed
+            && !options.source_has_bilevel_layer
+            && picture_ownership_diagnostics.is_some_and(|diagnostics| {
+                should_veto_bilevel_fidelity(
+                    calibration.valid,
+                    diagnostics.calibrated_source_stroke_width_px,
+                    diagnostics.calibrated_source_x_height_px,
+                    diagnostics.source_dpi,
+                    diagnostics.soft_edge_to_ink_ratio,
+                    text_line_count,
+                )
+            });
+        let computed_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
+            && !options.source_has_bilevel_layer
+            && text_line_count > 0
+            && picture_ownership_diagnostics.is_some_and(|diagnostics| {
+                mixed_foreground_fidelity_veto
+                    || diagnostics.bilevel_fidelity_veto
+                    || diagnostics.significant_color
+                    || (diagnostics.significant_picture && !refine_picture_ownership)
+            });
+        let use_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
+            && options
+                .prefer_soft_alpha_foreground
+                .unwrap_or(computed_soft_alpha_foreground);
+        if let Some(recommendation) = output_mode_recommendation.as_mut() {
+            recommendation.prefer_soft_alpha_foreground = use_soft_alpha_foreground;
+            recommendation.diagnostics.bilevel_fidelity_veto |= mixed_foreground_fidelity_veto;
+        }
+        let protect_tonal_text_vicinity = significant_picture && !refine_picture_ownership;
+        let mut output_picture_mask = if resolved_output_mode == OutputMode::Mixed {
+            // A directly detected photograph needs one coherent owner across
+            // all of its continuous-tone enclosure. The permissive picture
+            // detector can cover only one tonal lobe (for example, the dark
+            // upper half of a portrait), while the continuous-tone detector
+            // correctly covers the whole photograph. Splitting ownership at
+            // that detector boundary sends the remainder through bilevel
+            // routing and creates a hard posterization seam. Large bimodal
+            // line art deliberately keeps the narrower destructive-tone mask
+            // so its paper can still be normalized to white.
+            let layer_tone_mask = if significant_picture && !refine_picture_ownership {
+                tonal_protection_mask.as_ref()
+            } else {
+                destructive_tone_mask.as_ref()
+            };
+            let tonal_picture_mask = union_optional_masks(picture_mask.as_ref(), layer_tone_mask);
+            union_optional_masks(tonal_picture_mask.as_ref(), chroma_picture_mask.as_ref())
+        } else {
+            picture_mask.clone()
+        };
+        // Layer ownership and illumination ownership are deliberately
+        // different. A coherent line-art/map field must stay out of the
+        // bilevel foreground, but treating that entire field as a photograph
+        // also restores its gray paper after normalization. A page with direct
+        // significant-picture evidence extends that photographic treatment to
+        // the coherent tone mask so detector fragments cannot create seams
+        // through a real photo. Without that evidence, only detector-owned
+        // pictures and independent chroma bypass the paper model.
+        let mut photographic_picture_mask =
+            if resolved_output_mode == OutputMode::Mixed && significant_picture {
+                output_picture_mask.clone()
+            } else if resolved_output_mode == OutputMode::Mixed {
+                union_optional_masks(picture_mask.as_ref(), chroma_picture_mask.as_ref())
+            } else {
+                picture_mask.clone()
+            };
+        let detected_photo_preservation_alpha = photographic_picture_mask
+            .as_deref()
+            .and_then(|mask| {
+                if refine_picture_ownership {
+                    refine_line_art_preservation_alpha(&layout_normalized, &rotated, Some(mask))
+                } else {
+                    photo_tone_preservation_alpha(mask)
+                }
+            })
+            .map(Arc::new);
+        // On a genuine photograph the semantic tone detector can complete
+        // smooth highlights that the texture-based picture mask omits. That
+        // evidence must select the source-preservation branch, not merely the
+        // semantic contrast curve; otherwise the two branches meet as a hard
+        // horizontal seam through the image. Line-art pages keep semantic and
+        // photo alphas separate so gray paper is still driven to white.
+        let expanded_photo_preservation_alpha = if significant_picture && !refine_picture_ownership
+        {
+            union_optional_gray_fields(
+                detected_photo_preservation_alpha.as_ref(),
+                tone_semantic_preservation_alpha.as_ref(),
+            )
+        } else {
+            detected_photo_preservation_alpha
+        };
+        let coherent_photo_mask = (matches!(
+            resolved_output_mode,
+            OutputMode::Mixed | OutputMode::Grayscale
+        ) && significant_picture
+            && !refine_picture_ownership)
+            .then(|| {
+                expanded_photo_preservation_alpha
+                    .as_deref()
+                    .and_then(|alpha| coherent_photo_field(alpha, &rotated))
+            })
+            .flatten();
+        let photo_preservation_alpha = if let Some(field) = coherent_photo_mask.as_ref() {
+            // The high-confidence continuous field is the representation
+            // boundary. Detector fragments attached to a scanner shadow or a
+            // page rule remain outside it, so they can be whitened as paper;
+            // the whole photographic enclosure stays on one source-preserved
+            // low-DPI layer.
+            if resolved_output_mode == OutputMode::Mixed {
+                output_picture_mask =
+                    union_optional_masks(Some(field), chroma_picture_mask.as_ref());
+                photographic_picture_mask = output_picture_mask.clone();
+            } else {
+                photographic_picture_mask = Some(Arc::clone(field));
+            }
+            photo_tone_preservation_alpha(field).map(Arc::new)
+        } else {
+            expanded_photo_preservation_alpha
+        };
+        let tone_preservation_alpha = if protect_tonal_text_vicinity {
+            photo_preservation_alpha.clone()
+        } else {
+            union_optional_gray_fields(
+                semantic_preservation_alpha.as_ref(),
+                photo_preservation_alpha.as_ref(),
+            )
+        };
+        timings.mode_recommendation_ms +=
+            mode_recommendation_started.elapsed().as_secs_f64() * 1_000.0;
         let quality_normalization_started = Instant::now();
         let normalized = if options.normalize_illumination {
             if prepare_quality_raster {
-                let picture_mask = (resolved_output_mode == OutputMode::Mixed).then(|| {
-                    picture_mask
-                        .as_deref()
-                        .expect("mixed mode prepares a picture mask")
-                });
-                normalize_illumination_prepared(
+                let grayscale_normalization_exclusion = if resolved_output_mode
+                    == OutputMode::Grayscale
+                    && coherent_photo_mask.is_some()
+                {
+                    photographic_picture_mask.clone()
+                } else {
+                    union_optional_masks(picture_mask.as_ref(), tonal_protection_mask.as_ref())
+                };
+                let normalization_model_exclusion = match resolved_output_mode {
+                    OutputMode::Grayscale => grayscale_normalization_exclusion.as_deref(),
+                    OutputMode::Mixed => photographic_picture_mask.as_deref(),
+                    OutputMode::Color if significant_picture => {
+                        grayscale_normalization_exclusion.as_deref()
+                    }
+                    OutputMode::Color => None,
+                    OutputMode::Bw | OutputMode::Auto => None,
+                };
+                let semantic_alpha = match resolved_output_mode {
+                    OutputMode::Grayscale if protect_tonal_text_vicinity => None,
+                    OutputMode::Grayscale => semantic_preservation_alpha.as_deref(),
+                    OutputMode::Mixed if protect_tonal_text_vicinity => None,
+                    OutputMode::Mixed => semantic_preservation_alpha.as_deref(),
+                    OutputMode::Color if significant_picture => {
+                        semantic_preservation_alpha.as_deref()
+                    }
+                    OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+                };
+                let photo_alpha = match resolved_output_mode {
+                    OutputMode::Grayscale => photo_preservation_alpha.as_deref(),
+                    OutputMode::Mixed => photo_preservation_alpha.as_deref(),
+                    OutputMode::Color if significant_picture => photo_preservation_alpha.as_deref(),
+                    OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+                };
+                let preparation = illumination_preparation
+                    .expect("illumination preparation exists when normalization is enabled");
+                normalize_illumination_prepared_with_masks(
                     &rotated,
-                    picture_mask,
-                    illumination_preparation
-                        .expect("illumination preparation exists when normalization is enabled"),
+                    normalization_model_exclusion,
+                    semantic_alpha,
+                    photo_alpha,
+                    text_vicinity_mask.as_deref(),
+                    preparation,
                 )
             } else {
                 layout_normalized.clone()
@@ -1692,10 +2632,19 @@ fn prepare_analysis_page(
             full_height,
             calibration,
             effective_dpi,
-            picture_mask,
+            picture_mask: output_picture_mask,
+            chroma_picture_mask,
+            tonal_protection_mask,
+            semantic_preservation_alpha,
+            photo_preservation_alpha,
+            tone_preservation_alpha,
+            text_mask,
+            text_vicinity_mask,
             content_picture_mask,
             source_effectively_blank,
             output_mode_recommendation,
+            protect_tonal_text_vicinity,
+            use_soft_alpha_foreground,
             resolved_output_mode,
             analysis_threshold,
             text_axis,
@@ -1809,9 +2758,18 @@ fn prepare_analysis_page(
         text_axis,
         content_picture_mask: analysis.content_picture_mask.clone(),
         picture_mask: analysis.picture_mask.clone(),
+        chroma_picture_mask: analysis.chroma_picture_mask.clone(),
+        tonal_protection_mask: analysis.tonal_protection_mask.clone(),
+        semantic_preservation_alpha: analysis.semantic_preservation_alpha.clone(),
+        photo_preservation_alpha: analysis.photo_preservation_alpha.clone(),
+        tone_preservation_alpha: analysis.tone_preservation_alpha.clone(),
+        text_mask: analysis.text_mask.clone(),
+        text_vicinity_mask: analysis.text_vicinity_mask.clone(),
         split_cache_key: split_key,
         source_effectively_blank: analysis.source_effectively_blank,
         output_mode_recommendation: analysis.output_mode_recommendation,
+        protect_tonal_text_vicinity: analysis.protect_tonal_text_vicinity,
+        use_soft_alpha_foreground: analysis.use_soft_alpha_foreground,
         resolved_output_mode: analysis.resolved_output_mode,
     }
 }
@@ -1822,11 +2780,46 @@ fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
         .picture_mask
         .as_deref()
         .map_or(0, |mask| std::mem::size_of_val(mask.words()));
+    let chroma_picture_mask = artifact
+        .chroma_picture_mask
+        .as_deref()
+        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
+    let tonal_protection_mask = artifact
+        .tonal_protection_mask
+        .as_deref()
+        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
+    let tone_preservation_alpha = artifact
+        .tone_preservation_alpha
+        .as_deref()
+        .map_or(0, |alpha| alpha.data().len());
+    let semantic_preservation_alpha = artifact
+        .semantic_preservation_alpha
+        .as_deref()
+        .map_or(0, |alpha| alpha.data().len());
+    let photo_preservation_alpha = artifact
+        .photo_preservation_alpha
+        .as_deref()
+        .map_or(0, |alpha| alpha.data().len());
+    let text_mask = artifact
+        .text_mask
+        .as_deref()
+        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
+    let text_vicinity_mask = artifact
+        .text_vicinity_mask
+        .as_deref()
+        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
     let content_picture_mask = artifact
         .content_picture_mask
         .as_deref()
         .map_or(0, |mask| std::mem::size_of_val(mask.words()));
     gray.saturating_add(picture_mask)
+        .saturating_add(chroma_picture_mask)
+        .saturating_add(tonal_protection_mask)
+        .saturating_add(semantic_preservation_alpha)
+        .saturating_add(photo_preservation_alpha)
+        .saturating_add(tone_preservation_alpha)
+        .saturating_add(text_mask)
+        .saturating_add(text_vicinity_mask)
         .saturating_add(content_picture_mask)
         .saturating_add(std::mem::size_of::<AnalysisArtifact>())
 }
@@ -1879,6 +2872,157 @@ fn scale_split_result(
     }
 }
 
+fn should_refine_line_art_picture_ownership(diagnostics: &OutputModeDiagnostics) -> bool {
+    diagnostics.picture_fraction >= 0.60
+        && diagnostics.midtone_fraction <= 0.16
+        && diagnostics.bimodality >= 0.65
+}
+
+/// Illumination fitting can occasionally model a small isolated mark as part
+/// of the paper field before binarization sees it. Reclaim only raw-dark
+/// components that have printable line-art geometry and are outside the
+/// semantic picture/chroma owner. Broad scanner shadows and photo plates are
+/// therefore ineligible regardless of their absolute shade.
+fn rescue_isolated_raw_ink(raw: &GrayImage, picture_mask: &BinaryImage, dpi: f64) -> BinaryImage {
+    debug_assert_eq!(raw.width(), picture_mask.width());
+    debug_assert_eq!(raw.height(), picture_mask.height());
+    let threshold = otsu_threshold(raw);
+    let candidates = BinaryImage::from_fn_parallel(raw.width(), raw.height(), |x, y| {
+        raw.get(x, y) <= threshold && !picture_mask.get(x, y)
+    });
+    let px_per_mm = dpi.max(1.0) / 25.4;
+    let compact_extent = (px_per_mm * 12.0).round().max(2.0) as usize;
+    let compact_area = ((px_per_mm * 6.0).round().max(2.0) as usize).pow(2);
+    let rule_minor_extent = (px_per_mm * 1.5).round().max(1.0) as usize;
+    let rule_major_extent = (px_per_mm * 60.0).round().max(2.0) as usize;
+    ComponentMap::from_binary(&candidates).retain(|component| {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let major = width.max(height);
+        let minor = width.min(height);
+        component.area >= 2
+            && ((component.area <= compact_area && major <= compact_extent)
+                || (minor <= rule_minor_extent && major <= rule_major_extent))
+    })
+}
+
+fn trusted_mrc_paper_reference(gray: &GrayImage) -> u8 {
+    let mut histogram = [0usize; 256];
+    for &sample in gray.data() {
+        histogram[usize::from(sample)] += 1;
+    }
+    let target = gray.data().len().saturating_sub(1) * 3 / 4;
+    let mut cumulative = 0usize;
+    histogram
+        .iter()
+        .position(|count| {
+            cumulative += count;
+            cumulative > target
+        })
+        .unwrap_or(255) as u8
+}
+
+fn normalize_trusted_mrc_tone(sample: u8, paper: u8) -> u8 {
+    if paper == 0 || sample >= paper {
+        return 255;
+    }
+    let paper = f64::from(paper);
+    let value = f64::from(sample);
+    let scaled = value * 255.0 / paper;
+    let shoulder_low = (paper - 48.0).max(0.0);
+    if value <= shoulder_low {
+        return scaled.round().clamp(0.0, 255.0) as u8;
+    }
+    let t = ((value - shoulder_low) / (paper - shoulder_low).max(1.0)).clamp(0.0, 1.0);
+    let paper_weight = 1.0 - (1.0 - t).powi(3);
+    (scaled * (1.0 - paper_weight) + 255.0 * paper_weight)
+        .round()
+        .clamp(0.0, 255.0) as u8
+}
+
+/// A tone plate that dominates the page means cleanup has nothing meaningful
+/// to whiten: the page is a photograph or map. Whitening the remainder risks
+/// destroying pale content for no visible benefit, so the authored background
+/// is preserved instead.
+fn should_preserve_trusted_background(tonal_plate: &BinaryImage) -> bool {
+    let area = tonal_plate.width().saturating_mul(tonal_plate.height());
+    area > 0 && tonal_plate.count_black().saturating_mul(100) > area.saturating_mul(55)
+}
+
+fn white_outside_tonal_plate(
+    gray: &GrayImage,
+    color: Option<&RgbImage>,
+    tonal_plate: &BinaryImage,
+    dpi: f64,
+) -> (GrayImage, Option<RgbImage>) {
+    debug_assert_eq!(gray.width(), tonal_plate.width());
+    debug_assert_eq!(gray.height(), tonal_plate.height());
+    debug_assert!(color.is_none_or(|source| {
+        source.width() == gray.width() && source.height() == gray.height()
+    }));
+
+    // The caller supplies the semantic photo/map ownership mask, not the
+    // texture-derived trusted-MRC evidence mask. The latter contains faint
+    // text ghosts from compact producer backgrounds and is deliberately used
+    // only to establish that continuous tone exists. Pixels outside the
+    // semantic plate are paper and become neutral white; pixels inside retain
+    // the source producer's exact luminance and chroma. A narrow physical
+    // feather outside the plate avoids inventing a hard white cut-out where a
+    // scanned photograph or irregular subject naturally fades into its paper.
+    let feather_radius = (dpi * 2.0 / 25.4).round().clamp(1.0, 32.0) as usize;
+    let feather_radius_squared = (feather_radius * feather_radius) as u32;
+    let distance_to_plate = squared_euclidean_distance(tonal_plate);
+    let source_weight = |index: usize| {
+        let distance_squared = distance_to_plate[index];
+        if distance_squared == 0 {
+            return 1.0;
+        }
+        if distance_squared >= feather_radius_squared {
+            return 0.0;
+        }
+        let distance = f64::from(distance_squared).sqrt();
+        let t = (1.0 - distance / feather_radius as f64).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let mut cleaned_gray = gray.clone();
+    cleaned_gray
+        .data_mut()
+        .par_chunks_mut(gray.width())
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                if !tonal_plate.get(x, y) {
+                    let source = f64::from(*target);
+                    let weight = source_weight(y * gray.width() + x);
+                    *target = (255.0 * (1.0 - weight) + source * weight)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                }
+            }
+        });
+    let cleaned_color = color.map(|source| {
+        let mut output = source.clone();
+        output
+            .data_mut()
+            .par_chunks_mut(source.width() * 3)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                    if !tonal_plate.get(x, y) {
+                        let weight = source_weight(y * source.width() + x);
+                        for channel in target {
+                            *channel = (255.0 * (1.0 - weight) + f64::from(*channel) * weight)
+                                .round()
+                                .clamp(0.0, 255.0) as u8;
+                        }
+                    }
+                }
+            });
+        output
+    });
+    (cleaned_gray, cleaned_color)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn clean_region(
     source: &GrayImage,
@@ -1891,6 +3035,18 @@ fn clean_region(
     color_source: Option<&RgbImage>,
     analysis_picture_mask: Option<&BinaryImage>,
     source_picture_mask: Option<&BinaryImage>,
+    chroma_picture_mask: Option<&BinaryImage>,
+    tone_picture_mask: Option<&BinaryImage>,
+    protect_tonal_text_vicinity: bool,
+    use_soft_alpha_foreground: bool,
+    tone_preservation_alpha: Option<&GrayImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+    trusted_foreground_mask: Option<&BinaryImage>,
+    trusted_tone_mask: Option<&BinaryImage>,
+    trusted_background_gray: Option<&GrayImage>,
+    trusted_background_color: Option<&RgbImage>,
+    trusted_composite_color: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     split: &SplitResult,
@@ -1914,13 +3070,65 @@ fn clean_region(
     let analysis_working = crop_gray(analysis_normalized, analysis_region);
     let analysis_picture_working =
         analysis_picture_mask.map(|mask| crop_binary(mask, analysis_region));
+    let tone_picture_working = tone_picture_mask.map(|mask| crop_binary(mask, analysis_region));
+    let text_working = text_mask.map(|mask| crop_binary(mask, analysis_region));
+    let text_vicinity_working = text_vicinity_mask.map(|mask| crop_binary(mask, analysis_region));
+    let text_tone_diagnostics = if matches!(
+        options.output_mode,
+        OutputMode::Grayscale | OutputMode::Mixed
+    ) {
+        options
+            .resolved_text_tone_diagnostics
+            .for_half(half)
+            .or_else(|| {
+                text_working
+                    .as_ref()
+                    .zip(text_vicinity_working.as_ref())
+                    .map(|(text_mask, text_vicinity_mask)| {
+                        let empty_picture_mask;
+                        let picture_mask = if let Some(mask) = tone_picture_working.as_ref() {
+                            mask
+                        } else {
+                            empty_picture_mask = BinaryImage::new(
+                                analysis_working.width(),
+                                analysis_working.height(),
+                            );
+                            &empty_picture_mask
+                        };
+                        derive_text_tone_diagnostics(
+                            &analysis_working,
+                            text_mask,
+                            text_vicinity_mask,
+                            picture_mask,
+                        )
+                    })
+            })
+    } else {
+        None
+    };
     let local_scale_x = analysis_working.width() as f64 / working_width.max(1) as f64;
     let local_scale_y = analysis_working.height() as f64 / working_height.max(1) as f64;
     let deskew_key = cache
         .zip(split_cache_key)
         .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
     let deskew_started = Instant::now();
-    let deskew = if let Some(angle_degrees) = options
+    let preserves_trusted_mrc_identity = options.output_mode == OutputMode::Mixed
+        && trusted_foreground_mask.is_some()
+        && trusted_tone_mask.is_some_and(|mask| mask.count_black() > 0);
+    let deskew = if preserves_trusted_mrc_identity && options.manual_skew_degrees.is_none() {
+        // Automatic deskew would force a trusted compact MRC page through
+        // layer extraction and recomposition. Some producer masks are valid
+        // only in the original page content stream; reconstructing them
+        // creates contours and cut-outs even when both source images are
+        // retained. Ambiguous continuous-tone pages therefore abstain from
+        // automatic geometry changes so final assembly can reuse the whole
+        // source page object. An explicit manual angle remains authoritative.
+        DeskewResult {
+            angle_degrees: 0.0,
+            confidence: 1.0,
+            accepted: false,
+        }
+    } else if let Some(angle_degrees) = options
         .manual_skew_degrees
         .or_else(|| options.automatic_skew_for(half))
     {
@@ -2199,7 +3407,7 @@ fn clean_region(
     let skips_gray_twin = options.output_mode == OutputMode::Color
         && color_source.is_some()
         && !render_plan.has_dewarp();
-    let (rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
+    let (mut rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
         if render_plan.has_dewarp() {
             let gray =
                 rasterize_inverse_area_with(normalized, rendered_width, rendered_height, |point| {
@@ -2252,7 +3460,50 @@ fn clean_region(
                 None,
             )
         };
+    let rendered_routing_gray = (options.output_mode == OutputMode::Mixed).then(|| {
+        if render_plan.has_dewarp() {
+            rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
+                render_plan.output_to_source(point)
+            })
+        } else {
+            render_affine_gray(
+                routing_source,
+                rendered_width,
+                rendered_height,
+                render_plan
+                    .affine_inverse()
+                    .expect("cleanup affine render plan is available"),
+            )
+        }
+    });
     timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
+    // Coarse tonal evidence is valid for deriving the global tone curve, but
+    // only pixel-resolution picture geometry may form a boundary in the
+    // rendered raster.
+    let mut rendered_tone_alpha = tone_preservation_alpha.map(|alpha| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            alpha.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            alpha.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_gray_field(alpha, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
+    if let Some(diagnostics) = text_tone_diagnostics {
+        apply_text_tone_excluding(
+            &mut rendered_gray,
+            diagnostics,
+            rendered_tone_alpha.as_ref(),
+        );
+    }
     let (forward_transform, inverse_transform) =
         if let (Some(forward), Some(region)) = (forward_transform, sampled_region) {
             let intrinsic_forward = forward.then(Affine::translation(region.x, region.y));
@@ -2261,7 +3512,7 @@ fn clean_region(
             (forward_transform, inverse_transform)
         };
     let mask_rasterization_started = Instant::now();
-    let rendered_picture_mask = source_picture_mask.map(|mask| {
+    let mut rendered_picture_mask = source_picture_mask.map(|mask| {
         let mask_scale_x = if normalized.width() <= 1 {
             0.0
         } else {
@@ -2278,6 +3529,189 @@ fn clean_region(
                 .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
         })
     });
+    let rendered_chroma_picture_mask = chroma_picture_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
+    let rendered_tone_picture_mask = protect_tonal_text_vicinity
+        .then(|| {
+            rendered_tone_alpha.as_ref().map(|alpha| {
+                BinaryImage::from_fn_parallel(alpha.width(), alpha.height(), |x, y| {
+                    alpha.get(x, y) >= 128
+                })
+            })
+        })
+        .flatten();
+    let rendered_text_vicinity_mask = text_vicinity_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
+    let rendered_text_mask = text_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
+    let rendered_trusted_foreground_mask = trusted_foreground_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
+    let rendered_trusted_tone_mask = trusted_tone_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
+    if let Some(trusted_tone) = rendered_trusted_tone_mask.as_ref() {
+        // Verification and downstream composition must describe the plate
+        // that was actually authored into the cleaned MRC result. Reusing
+        // composite-derived picture/tone evidence here made a correct white
+        // background look like destructive tone loss to the artifact audit.
+        rendered_picture_mask = Some(trusted_tone.clone());
+        rendered_tone_alpha = Some(binary_to_gray(&trusted_tone.invert()));
+    }
+    let rendered_trusted_background_gray = trusted_background_gray.map(|background| {
+        let scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            background.width().saturating_sub(1) as f64
+                / normalized.width().saturating_sub(1) as f64
+        };
+        let scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            background.height().saturating_sub(1) as f64
+                / normalized.height().saturating_sub(1) as f64
+        };
+        render_gray_field(background, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * scale_x, source.y * scale_y))
+        })
+    });
+    let rendered_trusted_background_color = trusted_background_color.map(|background| {
+        let scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            background.width().saturating_sub(1) as f64
+                / normalized.width().saturating_sub(1) as f64
+        };
+        let scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            background.height().saturating_sub(1) as f64
+                / normalized.height().saturating_sub(1) as f64
+        };
+        render_rgb_field(background, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * scale_x, source.y * scale_y))
+        })
+    });
+    let rendered_trusted_composite_gray = rendered_trusted_tone_mask
+        .as_ref()
+        .map(|_| render_gray_with_plan(routing_source, &render_plan))
+        .transpose()?;
+    let rendered_trusted_composite_color = trusted_composite_color.map(|source| {
+        let scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            source.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            source.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_rgb_field(source, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * scale_x, source.y * scale_y))
+        })
+    });
+    if options.output_mode == OutputMode::Mixed && rendered_trusted_tone_mask.is_none() {
+        if let (Some(picture_mask), Some(text_vicinity)) = (
+            rendered_picture_mask.as_mut(),
+            rendered_text_vicinity_mask.as_ref(),
+        ) {
+            // Mixed is a representation partition: semantic text belongs to
+            // the high-resolution foreground even when a coarse picture mask
+            // surrounds it. Leaving text in the low-DPI JPEG plate erased
+            // small headers and map labels without changing the semantic mode.
+            // On a directly detected photograph, however, texture can look
+            // like text; coherent tone ownership wins there so false glyphs
+            // cannot cut a posterized block through the photo.
+            let mut text_owned = rendered_chroma_picture_mask.as_ref().map_or_else(
+                || text_vicinity.clone(),
+                |chroma| text_vicinity.subtract(chroma),
+            );
+            if let Some(tone) = rendered_tone_picture_mask.as_ref() {
+                text_owned = text_owned.subtract(tone);
+            }
+            *picture_mask = picture_mask.subtract(&text_owned);
+        }
+    }
     timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     let output_processing_started = Instant::now();
     let effectively_blank = source_effectively_blank
@@ -2287,6 +3721,15 @@ fn clean_region(
             is_effectively_blank(&rendered_gray, options.dpi)
         };
     let fail_closed_blank = force_clean_blank || content.content.is_none() && effectively_blank;
+    // Auto cleanup preserves the authored background when the plate dominates
+    // the page, and reconstructs it over normalized paper otherwise. Only a
+    // Mixed page can honor the preservation contract; B&W output is always a
+    // binarized reconstruction, so claiming preservation there would promise
+    // source identity the output cannot deliver.
+    let trusted_mrc_background_preserved = options.output_mode == OutputMode::Mixed
+        && rendered_trusted_tone_mask
+            .as_ref()
+            .is_some_and(|plate| should_preserve_trusted_background(plate));
     let (
         mut image,
         mut color_image,
@@ -2315,11 +3758,18 @@ fn clean_region(
         match options.output_mode {
             OutputMode::Bw => {
                 let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
+                let route = resolve_binarization_diagnostics(&routing_sample, options).route;
+                let global_threshold_source = if route == crate::BinarizationMode::Otsu {
+                    Some(render_gray_with_plan(routing_source, &render_plan)?)
+                } else {
+                    None
+                };
                 let binarization_started = Instant::now();
                 let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
                     binarize_normalized_with_diagnostics(
                         &rendered_gray,
                         &routing_sample,
+                        global_threshold_source.as_ref(),
                         options,
                         calibration,
                     );
@@ -2341,7 +3791,7 @@ fn clean_region(
                         && binary.width() == rendered_gray.width()
                         && binary.height() == rendered_gray.height()
                 });
-                let (binary, despeckle_fallback) = if let Some(binary) = reusable {
+                let (mut binary, despeckle_fallback) = if let Some(binary) = reusable {
                     postprocess_binary_with_diagnostics(
                         binary,
                         Some(&rendered_gray),
@@ -2351,6 +3801,9 @@ fn clean_region(
                 } else {
                     (fresh_binary, fresh_despeckle_fallback)
                 };
+                if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
+                    binary = trusted.clone();
+                }
                 (
                     CleanupRaster::Bilevel(binary),
                     None,
@@ -2364,16 +3817,26 @@ fn clean_region(
                 let picture_mask = rendered_picture_mask
                     .as_ref()
                     .expect("mixed output prepares a picture mask");
-                if picture_mask.count_black() == 0 {
+                if picture_mask.count_black() == 0 && rendered_trusted_foreground_mask.is_none() {
                     let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
+                    let route = resolve_binarization_diagnostics(&routing_sample, options).route;
+                    let global_threshold_source = if route == crate::BinarizationMode::Otsu {
+                        Some(render_gray_with_plan(routing_source, &render_plan)?)
+                    } else {
+                        None
+                    };
                     let binarization_started = Instant::now();
-                    let (binary, diagnostics, despeckle_fallback, stage_timings) =
+                    let (mut binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
                             &routing_sample,
+                            global_threshold_source.as_ref(),
                             options,
                             calibration,
                         );
+                    if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
+                        binary = trusted.clone();
+                    }
                     timings.threshold_preparation_ms += stage_timings.preparation_ms;
                     timings.thresholding_ms += stage_timings.thresholding_ms;
                     timings.binary_postprocess_ms += stage_timings.postprocess_ms;
@@ -2389,10 +3852,17 @@ fn clean_region(
                         None,
                     )
                 } else {
+                    // Mixed pages are uncommon and their picture-excluding route is
+                    // resolved inside the binarizer. Keep a geometry-matched raw
+                    // tone field available so a global route preserves the scan's
+                    // original glyph boundary. Adaptive routes ignore this field.
+                    let global_threshold_source =
+                        render_gray_with_plan(routing_source, &render_plan)?;
                     let binarization_started = Instant::now();
                     let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics_excluding(
                             &rendered_gray,
+                            Some(&global_threshold_source),
                             options,
                             calibration,
                             picture_mask,
@@ -2404,15 +3874,106 @@ fn clean_region(
                         binarization_started.elapsed().as_secs_f64() * 1_000.0;
                     let mode = diagnostics.route;
                     let composition_started = Instant::now();
-                    let (mixed_gray, mixed_color, layers) = compose_mixed(
-                        &rendered_gray,
-                        rendered_color.as_ref(),
-                        &binary,
-                        picture_mask,
-                        options.dpi,
-                        create_mixed_layers,
-                        create_mixed_composite,
-                    );
+                    // Semantic text recall may not reclaim pixels that the
+                    // representation has already assigned to a picture or an
+                    // independent-chroma plate. Red seals and map fills can
+                    // look text-like; OR-ing the raw text mask here painted
+                    // them into the black stencil and then whitened them out
+                    // of the continuous-tone background.
+                    let mut binary = rendered_text_mask
+                        .as_ref()
+                        .map_or(binary.clone(), |text_mask| {
+                            binary.or(&text_mask.subtract(picture_mask))
+                        });
+                    if let Some(raw) = rendered_routing_gray.as_ref() {
+                        binary =
+                            binary.or(&rescue_isolated_raw_ink(raw, picture_mask, options.dpi));
+                    }
+                    let removed_edge_bands;
+                    let trusted_mrc = if let (Some(trusted), Some(trusted_tone)) = (
+                        rendered_trusted_foreground_mask.as_ref(),
+                        rendered_trusted_tone_mask.as_ref(),
+                    ) {
+                        // The source selection owns topology and the source
+                        // foreground image owns its colors. Repainting this
+                        // selection black is what produced map/photo gashes.
+                        binary = trusted.clone();
+                        removed_edge_bands = BinaryImage::new(binary.width(), binary.height());
+                        Some((trusted, trusted_tone))
+                    } else {
+                        (binary, removed_edge_bands) = suppress_scanner_edge_bands(
+                            &binary,
+                            &rendered_gray,
+                            picture_mask,
+                            rendered_text_mask.as_ref(),
+                            options.dpi,
+                        );
+                        None
+                    };
+                    let (trusted_background_gray, trusted_background_color) =
+                        rendered_trusted_tone_mask
+                            .as_ref()
+                            .map_or((None, None), |trusted_plate| {
+                                // The plate was derived from the authored
+                                // background at its native DPI after removing
+                                // the foreground selection's residual. Do not
+                                // replace it with ownership inferred from the
+                                // flattened composite here.
+                                let gray = rendered_trusted_background_gray
+                                    .as_ref()
+                                    .or(rendered_trusted_composite_gray.as_ref())
+                                    .unwrap_or(&rendered_gray);
+                                let color = rendered_trusted_background_color
+                                    .as_ref()
+                                    .or(rendered_trusted_composite_color.as_ref())
+                                    .or(rendered_color.as_ref());
+                                if trusted_mrc_background_preserved {
+                                    (Some(gray.clone()), color.cloned())
+                                } else {
+                                    let (gray, color) = white_outside_tonal_plate(
+                                        gray,
+                                        color,
+                                        trusted_plate,
+                                        options.dpi,
+                                    );
+                                    (Some(gray), color)
+                                }
+                            });
+                    let (mixed_gray, mixed_color, layers) = if let Some((trusted, _)) = trusted_mrc
+                    {
+                        compose_trusted_mrc(
+                            trusted_background_gray.as_ref().unwrap_or(&rendered_gray),
+                            trusted_background_color
+                                .as_ref()
+                                .or(rendered_color.as_ref()),
+                            rendered_trusted_composite_gray
+                                .as_ref()
+                                .unwrap_or(&rendered_gray),
+                            rendered_trusted_composite_color
+                                .as_ref()
+                                .or(rendered_color.as_ref()),
+                            trusted,
+                            trusted_mrc_background_preserved,
+                            create_mixed_layers,
+                            create_mixed_composite,
+                        )
+                    } else {
+                        compose_mixed(
+                            &rendered_gray,
+                            rendered_routing_gray.as_ref(),
+                            rendered_color.as_ref(),
+                            &binary,
+                            picture_mask,
+                            rendered_chroma_picture_mask.as_ref(),
+                            Some(&removed_edge_bands),
+                            rendered_text_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
+                            options.dpi,
+                            use_soft_alpha_foreground,
+                            create_mixed_layers,
+                            create_mixed_composite,
+                        )
+                    };
                     timings.mixed_composition_ms +=
                         composition_started.elapsed().as_secs_f64() * 1_000.0;
                     (
@@ -2453,12 +4014,18 @@ fn clean_region(
         );
         image = image.cropped(payload_rect);
         color_image = color_image.map(|source| crop_rgb(&source, payload_rect));
+        rendered_picture_mask = rendered_picture_mask.map(|mask| crop_binary(&mask, payload_rect));
+        rendered_tone_alpha = rendered_tone_alpha.map(|alpha| crop_gray(&alpha, payload_rect));
         mixed_layers = mixed_layers.map(|layers| MixedLayers {
             foreground_mask: crop_binary(&layers.foreground_mask, payload_rect),
+            foreground_alpha: layers
+                .foreground_alpha
+                .map(|alpha| crop_gray(&alpha, payload_rect)),
             background: crop_gray(&layers.background, payload_rect),
             color_background: layers
                 .color_background
                 .map(|source| crop_rgb(&source, payload_rect)),
+            source_mrc: layers.source_mrc,
         });
     }
     timings.output_processing_ms += output_processing_started.elapsed().as_secs_f64() * 1_000.0;
@@ -2494,6 +4061,8 @@ fn clean_region(
     Ok(CleanupResult {
         image,
         color_image,
+        picture_mask: rendered_picture_mask,
+        tone_preservation_alpha: rendered_tone_alpha,
         mixed_layers,
         effectively_blank,
         metadata: CleanupMetadata {
@@ -2531,8 +4100,12 @@ fn clean_region(
             output_mode: options.output_mode,
             bilevel_written: false,
             layered_written: false,
+            layered_foreground_kind: None,
             layered_background_dpi: None,
+            layered_foreground_dpi: None,
+            trusted_mrc_background_preserved,
             illumination_normalized: options.normalize_illumination,
+            text_tone_diagnostics,
             binarization_mode,
             binarization_diagnostics,
             despeckle_fallback,
@@ -2582,21 +4155,104 @@ fn render_binary_mask(
     })
 }
 
+fn render_gray_field(
+    source: &GrayImage,
+    width: usize,
+    height: usize,
+    map: impl Fn(Point) -> Option<Point> + Sync,
+) -> GrayImage {
+    let mut output = GrayImage::new(width, height, 0);
+    output
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                let Some(mapped) = map(Point::new(x as f64, y as f64)) else {
+                    continue;
+                };
+                if mapped.x < 0.0
+                    || mapped.y < 0.0
+                    || mapped.x > source.width().saturating_sub(1) as f64
+                    || mapped.y > source.height().saturating_sub(1) as f64
+                {
+                    continue;
+                }
+                *target = sample_bilinear_white(source, mapped.x, mapped.y);
+            }
+        });
+    output
+}
+
+fn render_rgb_field(
+    source: &RgbImage,
+    width: usize,
+    height: usize,
+    map: impl Fn(Point) -> Option<Point> + Sync,
+) -> RgbImage {
+    let mut output = RgbImage::new(width, height, [255; 3]);
+    output
+        .data_mut()
+        .par_chunks_mut(width * 3)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                let Some(mapped) = map(Point::new(x as f64, y as f64)) else {
+                    continue;
+                };
+                if mapped.x < 0.0
+                    || mapped.y < 0.0
+                    || mapped.x > source.width().saturating_sub(1) as f64
+                    || mapped.y > source.height().saturating_sub(1) as f64
+                {
+                    continue;
+                }
+                target.copy_from_slice(&sample_bilinear_rgb_white(source, mapped.x, mapped.y));
+            }
+        });
+    output
+}
+
+#[allow(clippy::too_many_arguments)]
 fn compose_mixed(
     gray: &GrayImage,
+    raw_gray: Option<&GrayImage>,
     color: Option<&RgbImage>,
     binary: &BinaryImage,
     picture_mask: &BinaryImage,
+    chroma_picture_mask: Option<&BinaryImage>,
+    removed_edge_bands: Option<&BinaryImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
+    use_soft_alpha_foreground: bool,
     create_layers: bool,
     create_composite: bool,
 ) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
-    // The final stencil owns only its black pixels. Everything excluded from it,
-    // including the picture-mask dilation halo, must retain source tone here so
-    // no source content can disappear from both layers.
+    if use_soft_alpha_foreground {
+        return compose_soft_alpha_mixed(
+            gray,
+            raw_gray,
+            color,
+            binary,
+            picture_mask,
+            chroma_picture_mask,
+            removed_edge_bands,
+            text_mask,
+            text_vicinity_mask,
+            dpi,
+            create_layers,
+            create_composite,
+        );
+    }
+    // The final stencil owns only its black pixels. The picture mask owns
+    // continuous tone, while its narrow binarization-protection ring is paper
+    // unless it contains a genuinely dark picture edge.
     let mut mixed_gray = gray.clone();
     let mut mixed_color = color.cloned();
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
+    let protection_radius = picture_protection_radius(dpi);
+    let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
     let picture_exterior = picture_mask.invert();
     let (distance_to_picture_exterior, distance_to_stencil) = rayon::join(
         || squared_euclidean_distance(&picture_exterior),
@@ -2623,27 +4279,45 @@ fn compose_mixed(
             .enumerate()
             .for_each(|(y, (gray_row, color_row))| {
                 for (x, gray_target) in gray_row.iter_mut().enumerate() {
+                    if removed_edge_bands.is_some_and(|mask| mask.get(x, y)) {
+                        *gray_target = 255;
+                        color_row[x * 3..x * 3 + 3].fill(255);
+                        continue;
+                    }
                     if binary.get(x, y) {
                         let value = if create_composite { 0 } else { 255 };
                         *gray_target = value;
                         color_row[x * 3..x * 3 + 3].fill(value);
                         continue;
                     }
-                    if !picture_mask.get(x, y) {
+                    if !protected_picture_mask.get(x, y) {
                         continue;
                     }
                     let source_gray = gray.get(x, y);
-                    let alpha = alpha_at(x, y, source_gray);
-                    *gray_target = reserve_gray_endpoint(
-                        (255.0 * (1.0 - alpha) + f64::from(source_gray) * alpha)
-                            .round()
-                            .clamp(0.0, 255.0) as u8,
-                    );
-                    let rgb = reserve_rgb_endpoints(source_color.get(x, y).map(|channel| {
-                        (255.0 * (1.0 - alpha) + f64::from(channel) * alpha)
-                            .round()
-                            .clamp(0.0, 255.0) as u8
-                    }));
+                    let alpha = if picture_mask.get(x, y) {
+                        alpha_at(x, y, source_gray)
+                    } else {
+                        ((200.0 - f64::from(source_gray)) / 80.0).clamp(0.0, 1.0)
+                    };
+                    let paper_ring = !picture_mask.get(x, y) && alpha <= f64::EPSILON;
+                    *gray_target = if paper_ring {
+                        255
+                    } else {
+                        reserve_gray_endpoint(
+                            (255.0 * (1.0 - alpha) + f64::from(source_gray) * alpha)
+                                .round()
+                                .clamp(0.0, 255.0) as u8,
+                        )
+                    };
+                    let rgb = if paper_ring {
+                        [255; 3]
+                    } else {
+                        reserve_rgb_endpoints(source_color.get(x, y).map(|channel| {
+                            (255.0 * (1.0 - alpha) + f64::from(channel) * alpha)
+                                .round()
+                                .clamp(0.0, 255.0) as u8
+                        }))
+                    };
                     color_row[x * 3..x * 3 + 3].copy_from_slice(&rgb);
                 }
             });
@@ -2654,16 +4328,28 @@ fn compose_mixed(
             .enumerate()
             .for_each(|(y, row)| {
                 for (x, target) in row.iter_mut().enumerate() {
+                    if removed_edge_bands.is_some_and(|mask| mask.get(x, y)) {
+                        *target = 255;
+                        continue;
+                    }
                     if binary.get(x, y) {
                         *target = if create_composite { 0 } else { 255 };
-                    } else if picture_mask.get(x, y) {
+                    } else if protected_picture_mask.get(x, y) {
                         let source_gray = gray.get(x, y);
-                        let alpha = alpha_at(x, y, source_gray);
-                        *target = reserve_gray_endpoint(
-                            (255.0 * (1.0 - alpha) + f64::from(source_gray) * alpha)
-                                .round()
-                                .clamp(0.0, 255.0) as u8,
-                        );
+                        let alpha = if picture_mask.get(x, y) {
+                            alpha_at(x, y, source_gray)
+                        } else {
+                            ((200.0 - f64::from(source_gray)) / 80.0).clamp(0.0, 1.0)
+                        };
+                        *target = if !picture_mask.get(x, y) && alpha <= f64::EPSILON {
+                            255
+                        } else {
+                            reserve_gray_endpoint(
+                                (255.0 * (1.0 - alpha) + f64::from(source_gray) * alpha)
+                                    .round()
+                                    .clamp(0.0, 255.0) as u8,
+                            )
+                        };
                     }
                 }
             });
@@ -2675,8 +4361,10 @@ fn compose_mixed(
         if !create_composite {
             return MixedLayers {
                 foreground_mask,
+                foreground_alpha: None,
                 background,
                 color_background,
+                source_mrc: false,
             };
         }
         if let Some(color_background) = color_background.as_mut() {
@@ -2708,11 +4396,478 @@ fn compose_mixed(
         }
         MixedLayers {
             foreground_mask,
+            foreground_alpha: None,
             background,
             color_background,
+            source_mrc: false,
         }
     });
     (mixed_gray, mixed_color, layers)
+}
+
+fn compose_trusted_mrc(
+    background_gray: &GrayImage,
+    background_color: Option<&RgbImage>,
+    foreground_gray: &GrayImage,
+    foreground_color: Option<&RgbImage>,
+    foreground_mask: &BinaryImage,
+    preserve_source_composite: bool,
+    create_layers: bool,
+    create_composite: bool,
+) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
+    debug_assert_eq!(
+        (background_gray.width(), background_gray.height()),
+        (foreground_mask.width(), foreground_mask.height())
+    );
+    debug_assert_eq!(
+        (foreground_gray.width(), foreground_gray.height()),
+        (foreground_mask.width(), foreground_mask.height())
+    );
+
+    let mut composite_gray = if create_composite && preserve_source_composite {
+        foreground_gray.clone()
+    } else {
+        background_gray.clone()
+    };
+    if create_composite && !preserve_source_composite {
+        composite_gray
+            .data_mut()
+            .par_chunks_mut(background_gray.width())
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.iter_mut().enumerate() {
+                    if foreground_mask.get(x, y) {
+                        *target = foreground_gray.get(x, y);
+                    }
+                }
+            });
+    }
+
+    let mut composite_color = if create_composite && preserve_source_composite {
+        foreground_color.cloned()
+    } else {
+        background_color.cloned().or_else(|| {
+            foreground_color.map(|_| {
+                let mut output =
+                    RgbImage::new(background_gray.width(), background_gray.height(), [255; 3]);
+                output
+                    .data_mut()
+                    .par_chunks_mut(background_gray.width() * 3)
+                    .enumerate()
+                    .for_each(|(y, row)| {
+                        for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                            target.fill(background_gray.get(x, y));
+                        }
+                    });
+                output
+            })
+        })
+    };
+    if create_composite && !preserve_source_composite {
+        if let Some(output) = composite_color.as_mut() {
+            output
+                .data_mut()
+                .par_chunks_mut(background_gray.width() * 3)
+                .enumerate()
+                .for_each(|(y, row)| {
+                    for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                        if foreground_mask.get(x, y) {
+                            target.copy_from_slice(
+                                &foreground_color.map_or([foreground_gray.get(x, y); 3], |color| {
+                                    color.get(x, y)
+                                }),
+                            );
+                        }
+                    }
+                });
+        }
+    } else {
+        composite_color = background_color.cloned();
+    }
+
+    let layers = create_layers.then(|| MixedLayers {
+        foreground_mask: foreground_mask.clone(),
+        foreground_alpha: None,
+        background: background_gray.clone(),
+        color_background: background_color.cloned(),
+        source_mrc: true,
+    });
+    (composite_gray, composite_color, layers)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compose_soft_alpha_mixed(
+    gray: &GrayImage,
+    raw_gray: Option<&GrayImage>,
+    color: Option<&RgbImage>,
+    binary_fallback: &BinaryImage,
+    picture_mask: &BinaryImage,
+    chroma_picture_mask: Option<&BinaryImage>,
+    removed_edge_bands: Option<&BinaryImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+    dpi: f64,
+    create_layers: bool,
+    create_composite: bool,
+) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
+    debug_assert_eq!(gray.width(), picture_mask.width());
+    debug_assert_eq!(gray.height(), picture_mask.height());
+    debug_assert!(
+        raw_gray.is_none_or(|raw| raw.width() == gray.width() && raw.height() == gray.height())
+    );
+    debug_assert!(text_vicinity_mask
+        .is_none_or(|mask| mask.width() == gray.width() && mask.height() == gray.height()));
+
+    // The normalized raster already expresses the desired black-on-white
+    // coverage. Preserve that coverage as opacity in a narrow physical halo
+    // around actual binarized ink. Text-vicinity masks are deliberately much
+    // broader than glyphs and must not own every faint paper variation inside
+    // their rectangles: doing so creates visible block seams and dense alpha
+    // planes. The binarized core itself remains authoritative even outside a
+    // text rectangle so isolated rules, punctuation, and calibration-like
+    // marks cannot disappear merely because the line detector missed them.
+    // Conversely, a matching halo around the detected tonal plate remains
+    // plate-owned so picture borders and scanner shadows cannot leak into the
+    // foreground.
+    const TEXT_ALPHA_FLOOR: u8 = 6;
+    const MISSED_TEXT_LUMINANCE_CEILING: u8 = 112;
+    let ownership_radius = (dpi * 0.18 / 25.4).round().clamp(1.0, 4.0) as usize;
+    let ink_seed = text_mask.map_or_else(
+        || binary_fallback.clone(),
+        |text_mask| binary_fallback.or(text_mask),
+    );
+    let ink_ownership = dilate(&ink_seed, ownership_radius, ownership_radius);
+    let plate_ownership = dilate(picture_mask, ownership_radius, ownership_radius);
+    let raw_paper = raw_gray.map(trusted_mrc_paper_reference);
+    let mut foreground_alpha = GrayImage::new(gray.width(), gray.height(), 0);
+    foreground_alpha
+        .data_mut()
+        .par_chunks_mut(gray.width())
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                let owns_binary_core = binary_fallback.get(x, y);
+                let trusted_text = text_mask.is_some_and(|mask| mask.get(x, y));
+                let chromatic_plate_pixel = chroma_picture_mask.is_some_and(|mask| mask.get(x, y));
+                if (plate_ownership.get(x, y)
+                    && (chromatic_plate_pixel || (!trusted_text && !owns_binary_core)))
+                    || removed_edge_bands.is_some_and(|mask| mask.get(x, y))
+                {
+                    continue;
+                }
+                let mut value = gray.get(x, y);
+                if owns_binary_core {
+                    if let (Some(raw), Some(paper)) = (raw_gray, raw_paper) {
+                        value = value.min(normalize_trusted_mrc_tone(raw.get(x, y), paper));
+                    }
+                }
+                let in_text_vicinity = text_vicinity_mask.is_some_and(|mask| mask.get(x, y));
+                let vicinity_allows_ink = text_vicinity_mask.is_none() || in_text_vicinity;
+                let owns_antialias = ink_ownership.get(x, y) && vicinity_allows_ink;
+                let owns_missed_dark_ink =
+                    in_text_vicinity && value <= MISSED_TEXT_LUMINANCE_CEILING;
+                if !owns_binary_core && !owns_antialias && !owns_missed_dark_ink {
+                    continue;
+                }
+                let alpha = 255u8.saturating_sub(value);
+                if alpha >= TEXT_ALPHA_FLOOR {
+                    *target = alpha;
+                }
+            }
+        });
+
+    // Use the same plate construction as the bilevel Mixed representation.
+    // The foreground encoding must not change which tonal or chromatic pixels
+    // survive in the background layer.
+    let (_, _, bilevel_layers) = compose_mixed(
+        gray,
+        raw_gray,
+        color,
+        binary_fallback,
+        picture_mask,
+        chroma_picture_mask,
+        removed_edge_bands,
+        text_mask,
+        text_vicinity_mask,
+        dpi,
+        false,
+        true,
+        false,
+    );
+    let bilevel_layers = bilevel_layers.expect("requested mixed background layers");
+    let mut background = bilevel_layers.background;
+    let mut color_background = bilevel_layers.color_background;
+    background
+        .data_mut()
+        .par_chunks_mut(gray.width())
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                if foreground_alpha.get(x, y) > 0 {
+                    *target = 255;
+                } else if plate_ownership.get(x, y)
+                    && chroma_picture_mask.is_some_and(|mask| mask.get(x, y))
+                {
+                    *target = gray.get(x, y);
+                }
+            }
+        });
+    if let (Some(source), Some(background)) = (color, color_background.as_mut()) {
+        background
+            .data_mut()
+            .par_chunks_mut(gray.width() * 3)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                    if foreground_alpha.get(x, y) > 0 {
+                        target.fill(255);
+                    } else if plate_ownership.get(x, y)
+                        && chroma_picture_mask.is_some_and(|mask| mask.get(x, y))
+                    {
+                        target.copy_from_slice(&source.get(x, y));
+                    }
+                }
+            });
+    }
+
+    let mut composite = background.clone();
+    composite
+        .data_mut()
+        .par_chunks_mut(gray.width())
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                let alpha = foreground_alpha.get(x, y);
+                if alpha > 0 {
+                    *target = 255 - alpha;
+                }
+            }
+        });
+    let composite_color = color_background.as_ref().map(|background| {
+        let mut output = background.clone();
+        output
+            .data_mut()
+            .par_chunks_mut(gray.width() * 3)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                    let value = 255 - foreground_alpha.get(x, y);
+                    if value < 255 {
+                        target.fill(value);
+                    }
+                }
+            });
+        output
+    });
+    let layers = create_layers.then(|| MixedLayers {
+        foreground_mask: binary_fallback.clone(),
+        foreground_alpha: Some(foreground_alpha),
+        background,
+        color_background,
+        source_mrc: false,
+    });
+    if create_composite {
+        (composite, composite_color, layers)
+    } else {
+        let layer_background = layers
+            .as_ref()
+            .map_or_else(|| gray.clone(), |layers| layers.background.clone());
+        let layer_color = layers
+            .as_ref()
+            .and_then(|layers| layers.color_background.clone());
+        (layer_background, layer_color, layers)
+    }
+}
+
+fn suppress_scanner_edge_bands(
+    source: &BinaryImage,
+    gray: &GrayImage,
+    picture_mask: &BinaryImage,
+    text_vicinity_mask: Option<&BinaryImage>,
+    dpi: f64,
+) -> (BinaryImage, BinaryImage) {
+    debug_assert_eq!(source.width(), gray.width());
+    debug_assert_eq!(source.height(), gray.height());
+    debug_assert_eq!(source.width(), picture_mask.width());
+    debug_assert_eq!(source.height(), picture_mask.height());
+    debug_assert!(text_vicinity_mask
+        .is_none_or(|mask| { mask.width() == source.width() && mask.height() == source.height() }));
+    let minimum_thickness = (dpi * 0.6 / 25.4).round().max(2.0) as usize;
+    let maximum_thickness = (dpi * 12.0 / 25.4).round().max(3.0) as usize;
+    let edge_distance = (dpi * 10.0 / 25.4).round().max(4.0) as usize;
+    let mut row_counts = vec![0usize; source.height()];
+    let mut picture_row_counts = vec![0usize; source.height()];
+    let mut column_counts = vec![0usize; source.width()];
+    let mut picture_column_counts = vec![0usize; source.width()];
+    for y in 0..source.height() {
+        for x in 0..source.width() {
+            row_counts[y] += usize::from(source.get(x, y));
+            picture_row_counts[y] += usize::from(picture_mask.get(x, y));
+            column_counts[x] += usize::from(source.get(x, y));
+            picture_column_counts[x] += usize::from(picture_mask.get(x, y));
+        }
+    }
+    let horizontal_bands = dense_edge_band_runs(
+        &row_counts,
+        &picture_row_counts,
+        source.width(),
+        minimum_thickness,
+        maximum_thickness,
+        edge_distance,
+    );
+    let vertical_bands = dense_edge_band_runs(
+        &column_counts,
+        &picture_column_counts,
+        source.height(),
+        minimum_thickness,
+        maximum_thickness,
+        edge_distance,
+    );
+    let mut removed = BinaryImage::new(source.width(), source.height());
+    for (top, bottom) in horizontal_bands {
+        for y in top..=bottom {
+            for x in 0..source.width() {
+                removed.set(x, y, true);
+            }
+        }
+    }
+    for (left, right) in vertical_bands {
+        for y in 0..source.height() {
+            for x in left..=right {
+                removed.set(x, y, true);
+            }
+        }
+    }
+    let mut cleaned = source.subtract(&removed);
+    // Thresholding a scan shadow can produce a long crescent or a broken cloud
+    // rather than a row/column-dense band. Remove those connected components
+    // only when their geometry belongs to the physical scan boundary and the
+    // page's picture/text ownership masks do not claim them. This deliberately
+    // makes ownership, not darkness, the content decision.
+    let components = ComponentMap::from_binary(&cleaned);
+    let mut owned_pixels = vec![0usize; components.components().len() + 1];
+    let mut boundary_pixels = vec![0usize; components.components().len() + 1];
+    let mut luminance_sum = vec![0usize; components.components().len() + 1];
+    let boundary_depth = (dpi * 32.0 / 25.4).round().max(8.0) as usize;
+    for y in 0..cleaned.height() {
+        for x in 0..cleaned.width() {
+            if !cleaned.get(x, y) {
+                continue;
+            }
+            let label = components.label_at(x, y) as usize;
+            if label == 0 {
+                continue;
+            }
+            luminance_sum[label] += usize::from(gray.get(x, y));
+            if x < boundary_depth
+                || y < boundary_depth
+                || source.width().saturating_sub(x) <= boundary_depth
+                || source.height().saturating_sub(y) <= boundary_depth
+            {
+                boundary_pixels[label] += 1;
+            }
+            if picture_mask.get(x, y) || text_vicinity_mask.is_some_and(|mask| mask.get(x, y)) {
+                owned_pixels[label] += 1;
+            }
+        }
+    }
+    // "Contacts the scanner boundary" must mean the physical edge, not the
+    // ordinary page margin. A 30 mm contact band treated headings, ornaments,
+    // stamps, and marginal notes as scanner shadows. Broad inset shadows are
+    // still handled by `mostly_boundary_shadow` below.
+    let boundary_contact = (dpi * 3.0 / 25.4).round().max(2.0) as usize;
+    let minimum_boundary_span = (dpi * 3.0 / 25.4).round().max(3.0) as usize;
+    let minimum_boundary_area = ((dpi / 25.4).powi(2) * 12.0).round().max(16.0) as usize;
+    let remove_component = |component: &scan_primitives::Component| {
+        if owned_pixels[component.label as usize].saturating_mul(4) >= component.area {
+            return false;
+        }
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let left_boundary = component.left <= boundary_contact
+            && component.right <= boundary_depth
+            && height >= minimum_boundary_span
+            && width >= minimum_thickness;
+        let right_boundary = source
+            .width()
+            .saturating_sub(1)
+            .saturating_sub(component.right)
+            <= boundary_contact
+            && source.width().saturating_sub(component.left) <= boundary_depth
+            && height >= minimum_boundary_span
+            && width >= minimum_thickness;
+        let top_boundary = component.top <= boundary_contact
+            && component.bottom <= boundary_depth
+            && width >= minimum_boundary_span
+            && height >= minimum_thickness;
+        let bottom_boundary = source
+            .height()
+            .saturating_sub(1)
+            .saturating_sub(component.bottom)
+            <= boundary_contact
+            && source.height().saturating_sub(component.top) <= boundary_depth
+            && width >= minimum_boundary_span
+            && height >= minimum_thickness;
+        let mostly_boundary_shadow = component.area >= minimum_boundary_area
+            && boundary_pixels[component.label as usize].saturating_mul(4)
+                >= component.area.saturating_mul(3)
+            && luminance_sum[component.label as usize] >= component.area.saturating_mul(72);
+        left_boundary || right_boundary || top_boundary || bottom_boundary || mostly_boundary_shadow
+    };
+    let component_artifacts = components.retain(remove_component);
+    removed = removed.or(&component_artifacts);
+    cleaned = source.subtract(&removed);
+    (cleaned, removed)
+}
+
+fn dense_edge_band_runs(
+    counts: &[usize],
+    picture_counts: &[usize],
+    span: usize,
+    minimum_thickness: usize,
+    maximum_thickness: usize,
+    edge_distance: usize,
+) -> Vec<(usize, usize)> {
+    let mut bands = Vec::new();
+    let mut start = None;
+    for index in 0..=counts.len() {
+        let dense =
+            index < counts.len() && counts[index].saturating_mul(4) >= span.saturating_mul(3);
+        match (start, dense) {
+            (None, true) => start = Some(index),
+            (Some(first), false) => {
+                let last = index - 1;
+                let thickness = last - first + 1;
+                let near_edge = first <= edge_distance
+                    || counts.len().saturating_sub(1).saturating_sub(last) <= edge_distance;
+                let picture_owned = picture_counts[first..=last]
+                    .iter()
+                    .sum::<usize>()
+                    .saturating_mul(4)
+                    >= span.saturating_mul(thickness);
+                if near_edge
+                    && !picture_owned
+                    && (minimum_thickness..=maximum_thickness).contains(&thickness)
+                {
+                    let mut expanded_first = first;
+                    let mut expanded_last = last;
+                    while expanded_first > 0 && counts[expanded_first - 1].saturating_mul(5) >= span
+                    {
+                        expanded_first -= 1;
+                    }
+                    while expanded_last + 1 < counts.len()
+                        && counts[expanded_last + 1].saturating_mul(5) >= span
+                    {
+                        expanded_last += 1;
+                    }
+                    bands.push((expanded_first, expanded_last));
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    bands
 }
 
 fn reserve_gray_endpoint(value: u8) -> u8 {
@@ -2801,6 +4956,22 @@ fn rotate_rgb_orthogonal(source: &RgbImage, rotation: OrthogonalRotation) -> Rgb
                 }
             }
             output
+        }
+    }
+}
+
+fn rotate_binary_orthogonal(source: &BinaryImage, rotation: OrthogonalRotation) -> BinaryImage {
+    let (width, height) = (source.width(), source.height());
+    match rotation {
+        OrthogonalRotation::None => source.clone(),
+        OrthogonalRotation::Clockwise180 => BinaryImage::from_fn_parallel(width, height, |x, y| {
+            source.get(width - 1 - x, height - 1 - y)
+        }),
+        OrthogonalRotation::Clockwise90 => {
+            BinaryImage::from_fn_parallel(height, width, |x, y| source.get(y, height - 1 - x))
+        }
+        OrthogonalRotation::Clockwise270 => {
+            BinaryImage::from_fn_parallel(height, width, |x, y| source.get(width - 1 - y, x))
         }
     }
 }
@@ -2909,26 +5080,12 @@ fn crop_gray_to_fit(
     max_width: usize,
     max_height: usize,
 ) -> GrayImage {
-    let left = rect.x.round().clamp(0.0, source.width() as f64) as usize;
-    let top = rect.y.round().clamp(0.0, source.height() as f64) as usize;
-    let width =
-        (rect.width.round().max(1.0) as usize).min(source.width().saturating_sub(left).max(1));
-    let height =
-        (rect.height.round().max(1.0) as usize).min(source.height().saturating_sub(top).max(1));
-    let scale = (width as f64 / max_width.max(1) as f64)
-        .max(height as f64 / max_height.max(1) as f64)
-        .max(1.0);
-    let output_width = (width as f64 / scale).round().max(1.0) as usize;
-    let output_height = (height as f64 / scale).round().max(1.0) as usize;
-    let mut output = GrayImage::new(output_width, output_height, 255);
-    for y in 0..output_height {
-        let source_y = top + ((y * height + height / 2) / output_height).min(height - 1);
-        for x in 0..output_width {
-            let source_x = left + ((x * width + width / 2) / output_width).min(width - 1);
-            output.set(x, y, source.get(source_x, source_y));
-        }
-    }
-    output
+    // Mode and binarization routing must see the same aggregate structure as
+    // the full raster. Point sampling aliases narrow stems, counters and
+    // halftone cells into arbitrary black/white pixels (a 360-DPI Rome page
+    // consequently reported a one-pixel stroke). The primitive's area
+    // downscaler integrates every source pixel in the crop.
+    crop_gray(source, rect).downscale_to_fit(max_width, max_height)
 }
 
 fn transform_rect_bounds(rect: Rect, transform: Affine) -> Rect {
@@ -3104,6 +5261,29 @@ fn render_affine_gray(
             }
         });
     output
+}
+
+fn render_gray_with_plan(
+    source: &GrayImage,
+    plan: &ComposedRenderPlan,
+) -> Result<GrayImage, String> {
+    if plan.has_dewarp() {
+        return Ok(rasterize_inverse_area_with(
+            source,
+            plan.output_width(),
+            plan.output_height(),
+            |point| plan.output_to_source(point),
+        ));
+    }
+    let inverse = plan
+        .affine_inverse()
+        .ok_or("Cleanup affine render plan is unavailable")?;
+    Ok(render_affine_gray(
+        source,
+        plan.output_width(),
+        plan.output_height(),
+        inverse,
+    ))
 }
 
 fn render_affine_rgb(source: &RgbImage, width: usize, height: usize, inverse: Affine) -> RgbImage {

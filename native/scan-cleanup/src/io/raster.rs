@@ -5,6 +5,7 @@ use evb_raster_io::{
     decode_png, decode_png_gray, decode_ppm, decode_ppm_gray, read_png_dimensions,
     read_ppm_dimensions,
 };
+use jbig2_codec::{decode_pdf_generic_source, DecodeLimits};
 use scan_primitives::{GrayImage, RgbImage};
 use std::{
     fs::File,
@@ -23,6 +24,42 @@ pub fn read_gray(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<Gra
         decode_png_gray(file, limits)
     }
     .map_err(|error| error.to_string())
+}
+
+pub fn read_foreground_selection(
+    path: &Path,
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<GrayImage, String> {
+    if path
+        .extension()
+        .is_some_and(|extension| extension == "jb2e")
+    {
+        let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+        let decoded = decode_pdf_generic_source(&bytes, DecodeLimits::new(max_pixels))
+            .map_err(|error| error.to_string())?;
+        if decoded.width > max_dimension || decoded.height > max_dimension {
+            return Err(format!(
+                "decoded JBIG2 dimensions {}x{} exceed the limit of {}",
+                decoded.width, decoded.height, max_dimension,
+            ));
+        }
+        let width = decoded.width as usize;
+        let height = decoded.height as usize;
+        let stride = width.div_ceil(8);
+        let mut samples = Vec::with_capacity(width.saturating_mul(height));
+        for y in 0..height {
+            for x in 0..width {
+                let bit = decoded.rows[y * stride + x / 8] & (0x80 >> (x % 8));
+                // JBIG2 bitmap one is a black PDF sample (zero opacity in a
+                // default DeviceGray soft mask); bitmap zero is white/opaque.
+                samples.push(if bit == 0 { 255 } else { 0 });
+            }
+        }
+        return GrayImage::from_vec(width, height, width, samples)
+            .ok_or_else(|| "decoded JBIG2 selection has invalid dimensions".to_string());
+    }
+    read_gray(path, max_pixels, max_dimension)
 }
 
 pub fn read_image(
@@ -76,6 +113,15 @@ pub fn write_gray_ppm_atomic(path: &Path, image: &GrayImage) -> Result<(), Strin
             file.write_all(&row).map_err(|error| error.to_string())?;
         }
         Ok(())
+    })
+}
+
+pub fn write_gray_pgm_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
+    write_atomic_with(path, |file| {
+        write!(file, "P5\n{} {}\n255\n", image.width(), image.height())
+            .map_err(|error| error.to_string())?;
+        file.write_all(image.data())
+            .map_err(|error| error.to_string())
     })
 }
 
@@ -161,6 +207,27 @@ mod tests {
     }
 
     #[test]
+    fn reads_pdf_embedded_jbig2_selection_samples_as_white_opacity() {
+        let path = temp_path("selection.jb2e");
+        let encoded = jbig2_codec::encode_pdf_generic(jbig2_codec::Bilevel {
+            width: 8,
+            height: 1,
+            rows: &[0b1010_0000],
+        })
+        .unwrap();
+        fs::write(&path, encoded).unwrap();
+
+        let selection = read_foreground_selection(&path, 64, 64).unwrap();
+
+        assert_eq!(selection.width(), 8);
+        assert_eq!(selection.height(), 1);
+        assert_eq!(selection.get(0, 0), 0);
+        assert_eq!(selection.get(1, 0), 255);
+        assert_eq!(selection.get(2, 0), 0);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn rejects_ppm_inputs_beyond_the_pixel_guardrail() {
         let ppm_path = temp_path("oversized.ppm");
         fs::write(&ppm_path, b"P6\n4 4\n255\n").unwrap();
@@ -182,5 +249,19 @@ mod tests {
         assert_eq!(decoded.rgb.get(0, 0), [17, 17, 17]);
         assert_eq!(decoded.rgb.get(1, 0), [231, 231, 231]);
         fs::remove_file(&ppm_path).unwrap();
+    }
+
+    #[test]
+    fn writes_gray_planes_as_single_channel_pgm_handoffs() {
+        let mut source = GrayImage::new(2, 1, 255);
+        source.set(0, 0, 17);
+        source.set(1, 0, 231);
+        let pgm_path = temp_path("gray-output.pgm");
+
+        write_gray_pgm_atomic(&pgm_path, &source).unwrap();
+
+        let bytes = fs::read(&pgm_path).unwrap();
+        assert_eq!(bytes, b"P5\n2 1\n255\n\x11\xe7");
+        fs::remove_file(&pgm_path).unwrap();
     }
 }

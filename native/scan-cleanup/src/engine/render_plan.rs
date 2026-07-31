@@ -2,7 +2,7 @@
 //! margin decisions so classification and cleanup cannot drift.
 
 use crate::{
-    content::ContentResult,
+    content::{content_with_margins_for_dimensions, ContentResult},
     dewarp::DewarpModel,
     engine::render::PageHalf,
     split::{LayoutClassification, SplitResult},
@@ -125,18 +125,7 @@ pub(crate) fn content_result_for_dimensions(
     margins_mm: Option<[f64; 4]>,
     margins_pixels: Option<[f64; 4]>,
 ) -> ContentResult {
-    let margins = margins_pixels.unwrap_or_else(|| {
-        margins_mm
-            .unwrap_or([0.0; 4])
-            .map(|millimeters| millimeters * dpi / 25.4)
-    });
-    let base = content.unwrap_or(Rect::new(0.0, 0.0, width as f64, height as f64));
-    ContentResult {
-        content,
-        output_rect: base.expand(margins[0], margins[1], margins[2], margins[3]),
-        margins,
-        diagnostics: None,
-    }
+    content_with_margins_for_dimensions(width, height, dpi, content, margins_mm, margins_pixels)
 }
 
 pub(crate) fn output_regions(

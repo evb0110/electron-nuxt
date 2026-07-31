@@ -60,6 +60,8 @@ pub struct ContentBlockEvidence {
     pub picture_mask_overlap_pixels: usize,
     pub heading_evidence: bool,
     pub grayscale_evidence: bool,
+    #[serde(default)]
+    pub text_evidence: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -127,6 +129,18 @@ impl DocumentCanvas {
     pub fn dpi(&self) -> f64 {
         self.width_px as f64 / self.width_points * 72.0
     }
+
+    /// Keeps the document's physical page box while giving a continuous-tone
+    /// page the pixel grid it was actually rendered on. Matched page size is a
+    /// PDF geometry promise, not permission to inflate every low-resolution
+    /// gray/color scan to the finest page's raster dimensions.
+    pub fn at_dpi(self, dpi: f64) -> Self {
+        Self {
+            width_px: ((self.width_points / 72.0 * dpi).round() as usize).max(1),
+            height_px: ((self.height_points / 72.0 * dpi).round() as usize).max(1),
+            ..self
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -140,6 +154,12 @@ pub struct PageOutput {
     pub background_output_path: Option<PathBuf>,
     #[serde(default)]
     pub foreground_mask_output_path: Option<PathBuf>,
+    #[serde(default)]
+    pub foreground_alpha_output_path: Option<PathBuf>,
+    #[serde(default)]
+    pub picture_mask_output_path: Option<PathBuf>,
+    #[serde(default)]
+    pub tone_preservation_alpha_output_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -162,6 +182,11 @@ impl DetailPixelRect {
 pub struct DetailRenderPlan {
     pub base_metadata_path: PathBuf,
     pub base_raster_path: PathBuf,
+    /// Canonical cleaned base-preview raster for this output half. Detail
+    /// rendering replays its source-to-cleaned transfer instead of rebuilding
+    /// illumination and text-tone decisions from a viewport crop.
+    #[serde(default)]
+    pub base_cleaned_raster_path: Option<PathBuf>,
     pub source_crop: DetailPixelRect,
     pub full_source_width_px: usize,
     pub full_source_height_px: usize,
@@ -174,6 +199,14 @@ pub struct DetailRenderPlan {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Page {
     pub input_path: PathBuf,
+    /// White samples in this extracted one-bit PDF soft mask select the
+    /// source MRC foreground. It shares input_path's unrotated page grid.
+    #[serde(default)]
+    pub trusted_foreground_mask_path: Option<PathBuf>,
+    /// Native-resolution continuous-tone background extracted from the same
+    /// compact MRC page as trusted_foreground_mask_path.
+    #[serde(default)]
+    pub trusted_mrc_background_path: Option<PathBuf>,
     pub source_page_index: usize,
     pub page_metadata_path: PathBuf,
     /// Any serialized dewarp directrices inside `options` are authored in
@@ -240,7 +273,12 @@ impl ManifestV3 {
             ));
         }
         for page in &self.pages {
-            page.options.validate().map_err(invalid)?;
+            page.options.validate().map_err(|error| {
+                invalid(format!(
+                    "Page {}: {error}",
+                    page.source_page_index.saturating_add(1),
+                ))
+            })?;
             if page.options.render_crop.is_some()
                 && (self.operation != Operation::Render || self.render_mode != RenderMode::Preview)
             {
@@ -324,6 +362,21 @@ fn invalid(message: impl Into<String>) -> NativeError {
 mod tests {
     use super::*;
 
+    #[test]
+    fn document_canvas_can_keep_points_without_upscaling_continuous_tone_pixels() {
+        let canvas = DocumentCanvas {
+            width_points: 612.0,
+            height_points: 792.0,
+            width_px: 2_550,
+            height_px: 3_300,
+        };
+        let at_source_dpi = canvas.at_dpi(100.0);
+        assert_eq!(at_source_dpi.width_px, 850);
+        assert_eq!(at_source_dpi.height_px, 1_100);
+        assert_eq!(at_source_dpi.width_points, 612.0);
+        assert_eq!(at_source_dpi.height_points, 792.0);
+    }
+
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct SplitGeometryResult {
@@ -391,6 +444,23 @@ mod tests {
             assert_eq!(page.options.manual_skew_degrees, None);
             assert_eq!(page.options.experimental.auto_dewarp_depth, None);
         }
+    }
+
+    #[test]
+    fn option_validation_error_names_the_source_page() {
+        let json = r#"{
+            "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
+            "pages":[{"inputPath":"in.png","sourcePageIndex":336,"pageMetadataPath":"page.json",
+              "outputs":[],"options":{"automaticContentBoxes":{"right":{
+                "xNormalized":0.72,"yNormalized":0.1,"widthNormalized":0.29,
+                "heightNormalized":0.8,"rotationDegrees":0
+              }}}}]
+        }"#;
+        let manifest: ManifestV3 = serde_json::from_str(json).unwrap();
+        let error = manifest.validate().unwrap_err().to_string();
+
+        assert!(error.contains("Page 337"));
+        assert!(error.contains("automatic right content box"));
     }
 
     #[test]
@@ -469,6 +539,7 @@ mod tests {
         manifest.pages[0].detail_render_plan = Some(DetailRenderPlan {
             base_metadata_path: PathBuf::from("base.json"),
             base_raster_path: PathBuf::from("base.png"),
+            base_cleaned_raster_path: None,
             source_crop: DetailPixelRect {
                 x_px: 10.0,
                 y_px: 20.0,

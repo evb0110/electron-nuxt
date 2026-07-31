@@ -1,4 +1,6 @@
-use crate::{content::border_artifact_mask, io::png::RgbImage, OutputMode};
+use crate::{
+    calibration::PageCalibration, content::border_artifact_mask, io::png::RgbImage, OutputMode,
+};
 use scan_primitives::{threshold::otsu_threshold, BinaryImage, Component, ComponentMap, GrayImage};
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +10,14 @@ const DARK_LUMINANCE_CUTOFF: u8 = 48;
 const CHROMA_SATURATION_FLOOR: f64 = 0.08;
 const COLOR_PIXEL_FRACTION_FLOOR: f64 = 0.003;
 const COLOR_PIXEL_FRACTION_HYSTERESIS: f64 = 0.0005;
+const COLOR_DOMINANT_FRACTION_FLOOR: f64 = 0.18;
+const COLOR_DOMINANT_MAX_TEXT_LINES: usize = 6;
+// Tinted paper with sparse dark writing can use Mixed so the paper is whitened
+// while independent color survives. A dark chromatic field covering most of
+// the page is instead a cover or continuous-color surface; treating a small
+// sticker/barcode as "text on paper" would send the empty-picture-mask Mixed
+// path to destructive bilevel output.
+const COLOR_TEXT_MAX_INK_FRACTION: f64 = 0.70;
 const SIGNIFICANT_CHROMA_COMPONENT_PIXELS: usize = 500;
 const CHROMA_COMPONENT_HYSTERESIS_PIXELS: usize = 80;
 const MIN_PICTURE_COMPONENT_PIXELS: usize = 1_024;
@@ -19,17 +29,28 @@ const BLANK_EDGE_DIFFERENCE: u8 = 12;
 const BLANK_MAX_EDGE_FRACTION: f64 = 0.0015;
 const BLANK_MAX_ROBUST_LUMINANCE_RANGE: f64 = 48.0;
 const STRONG_BIMODALITY: f64 = 0.78;
-const BIMODALITY_HYSTERESIS: f64 = 0.03;
+const BIMODALITY_HYSTERESIS: f64 = 0.055;
 const MIN_LUMINANCE_MODE_DISTANCE: f64 = 60.0;
 const LUMINANCE_DISTANCE_HYSTERESIS: f64 = 6.0;
 const MAX_BW_MIDTONE_FRACTION: f64 = 0.16;
-const MIDTONE_HYSTERESIS: f64 = 0.02;
+const MIDTONE_HYSTERESIS: f64 = 0.03;
 const TONAL_MIDTONE_FRACTION: f64 = 0.24;
 const MIN_TEXT_LINES: usize = 2;
 const DENSE_TEXT_MIN_LINES: usize = 6;
 const DENSE_TEXT_BIMODALITY: f64 = 0.67;
 const DENSE_TEXT_MODE_DISTANCE: f64 = 78.0;
+const DENSE_TEXT_RELATIVE_MIN_MODE_DISTANCE: f64 = 30.0;
+const DENSE_TEXT_RELATIVE_MIN_SEPARATION: f64 = 0.60;
+const DENSE_TEXT_RELATIVE_MAX_LUMINANCE_RANGE: f64 = 110.0;
 const DENSE_TEXT_MAX_MIDTONE_FRACTION: f64 = 0.10;
+const VERY_DENSE_TEXT_MIN_LINES: usize = 20;
+const VERY_DENSE_TEXT_MIN_BIMODALITY: f64 = 0.80;
+const VERY_DENSE_TEXT_MIN_MODE_DISTANCE: f64 = 60.0;
+// Dense book spreads can devote a sizeable fraction of the raster to antialiased
+// glyph edges, gutter shade, and show-through. This broader ceiling is safe only
+// behind the very-high line-count, bimodality, separation, and no-picture gates
+// below; the spatial-tone veto still gets the final word before B&W is applied.
+const VERY_DENSE_TEXT_MAX_MIDTONE_FRACTION: f64 = 0.16;
 const STRONG_SINGLE_LINE_BIMODALITY: f64 = 0.85;
 const STRONG_SINGLE_LINE_MODE_DISTANCE: f64 = 144.0;
 const STRONG_SINGLE_LINE_MAX_MIDTONE_FRACTION: f64 = 0.08;
@@ -37,6 +58,9 @@ const MIN_TEXT_INK_FRACTION: f64 = 0.01;
 const MIN_SPARSE_TEXT_INK_FRACTION: f64 = 0.00005;
 const MAX_SPARSE_TEXT_INK_FRACTION: f64 = 0.002;
 const MIN_SPARSE_TEXT_MODE_DISTANCE: f64 = 36.0;
+const FLAT_FEW_LINE_TEXT_MAX_LINES: usize = 5;
+const FLAT_FEW_LINE_TEXT_MAX_INK_FRACTION: f64 = 0.012;
+const FLAT_FEW_LINE_TEXT_MIN_MODE_DISTANCE: f64 = 28.0;
 const MIN_TEXT_EDGE_TO_INK_RATIO: f64 = 0.5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -55,6 +79,85 @@ pub struct OutputModeRecommendation {
     pub mode: OutputMode,
     pub confidence: f64,
     pub reason: OutputModeRecommendationReason,
+    pub diagnostics: OutputModeDiagnostics,
+    /// Physical representation chosen with Auto's semantic mode. The caller
+    /// persists this so another rasterization cannot silently change it.
+    pub prefer_soft_alpha_foreground: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OutputModeRule {
+    Blank,
+    ColorTextWithPictures,
+    Color,
+    TextWithPictures,
+    Picture,
+    SparseText,
+    ContinuousTone,
+    ConfidentText,
+    DenseText,
+    StrongSingleLineText,
+    SpatialTone,
+    BilevelFidelity,
+    UncertainFallback,
+}
+
+/// The raw measurements and signed gate margins behind an automatic output-mode
+/// decision. Positive margins satisfy a lower-bound gate. Negative margins
+/// satisfy an upper-bound gate. Keeping the values in page metadata makes an
+/// Auto decision reproducible instead of exposing only its final label.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputModeDiagnostics {
+    pub rule: OutputModeRule,
+    pub fallback_used: bool,
+    pub analysis_width: usize,
+    pub analysis_height: usize,
+    pub otsu_threshold: u8,
+    pub dark_mean: f64,
+    pub light_mean: f64,
+    pub midtone_lower: f64,
+    pub midtone_upper: f64,
+    pub p01: f64,
+    pub p50: f64,
+    pub p99: f64,
+    pub bimodality: f64,
+    pub midtone_fraction: f64,
+    pub relative_midtone_fraction: f64,
+    pub mode_distance: f64,
+    pub ink_fraction: f64,
+    pub edge_fraction: f64,
+    pub robust_luminance_range: f64,
+    pub colored_fraction: f64,
+    pub largest_color_component_pixels: usize,
+    pub mean_saturation: f64,
+    pub picture_fraction: f64,
+    pub text_line_count: usize,
+    pub significant_color: bool,
+    pub significant_picture: bool,
+    pub picture_gate_margin: f64,
+    pub tonal_midtone_gate_margin: f64,
+    pub strong_bimodality_gate_margin: f64,
+    pub confident_text_bimodality_margin: f64,
+    pub confident_text_mode_distance_margin: f64,
+    pub confident_text_midtone_margin: f64,
+    pub dense_text_line_margin: f64,
+    pub dense_text_bimodality_margin: f64,
+    pub dense_text_mode_distance_margin: f64,
+    pub dense_text_midtone_margin: f64,
+    pub outside_tonal_fraction: f64,
+    pub outside_tonal_largest_component_fraction: f64,
+    pub outside_tonal_largest_component_width_fraction: f64,
+    pub outside_tonal_largest_component_height_fraction: f64,
+    pub coherent_outside_tonal_region: bool,
+    pub destructive_mode_tonal_veto: bool,
+    pub source_dpi: f64,
+    pub analysis_dpi: f64,
+    pub calibrated_source_stroke_width_px: f64,
+    pub calibrated_source_x_height_px: f64,
+    pub soft_edge_to_ink_ratio: f64,
+    pub bilevel_fidelity_veto: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -62,23 +165,354 @@ struct ChromaEvidence {
     colored_fraction: f64,
     largest_component_pixels: usize,
     mean_saturation: f64,
+    paper_tint: f64,
 }
 
 #[derive(Clone, Copy, Debug)]
 struct LuminanceEvidence {
+    otsu_threshold: u8,
+    dark_mean: f64,
+    light_mean: f64,
+    midtone_lower: f64,
+    midtone_upper: f64,
+    p01: f64,
+    p50: f64,
+    p99: f64,
     bimodality: f64,
     midtone_fraction: f64,
+    relative_midtone_fraction: f64,
     mode_distance: f64,
     ink_fraction: f64,
     edge_fraction: f64,
     robust_luminance_range: f64,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct PreparedModeEvidence<'a> {
     pub analysis: &'a GrayImage,
     pub analysis_rgb: Option<&'a RgbImage>,
     pub picture_mask: &'a BinaryImage,
     pub text_line_count: usize,
+}
+
+fn recommendation(
+    mode: OutputMode,
+    confidence: f64,
+    reason: OutputModeRecommendationReason,
+    rule: OutputModeRule,
+    evidence: PreparedModeEvidence<'_>,
+    luminance: LuminanceEvidence,
+    chroma: ChromaEvidence,
+    picture_fraction: f64,
+) -> OutputModeRecommendation {
+    let significant_color = has_significant_chroma(chroma);
+    let significant_picture = picture_fraction >= PICTURE_NOISE_FLOOR;
+    let dense_text_bimodality_floor = DENSE_TEXT_BIMODALITY + BIMODALITY_HYSTERESIS;
+    let dense_text_mode_distance_floor = DENSE_TEXT_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS;
+    let dense_text_midtone_ceiling = DENSE_TEXT_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS;
+    OutputModeRecommendation {
+        mode,
+        confidence,
+        reason,
+        prefer_soft_alpha_foreground: false,
+        diagnostics: OutputModeDiagnostics {
+            rule,
+            fallback_used: rule == OutputModeRule::UncertainFallback,
+            analysis_width: evidence.analysis.width(),
+            analysis_height: evidence.analysis.height(),
+            otsu_threshold: luminance.otsu_threshold,
+            dark_mean: luminance.dark_mean,
+            light_mean: luminance.light_mean,
+            midtone_lower: luminance.midtone_lower,
+            midtone_upper: luminance.midtone_upper,
+            p01: luminance.p01,
+            p50: luminance.p50,
+            p99: luminance.p99,
+            bimodality: luminance.bimodality,
+            midtone_fraction: luminance.midtone_fraction,
+            relative_midtone_fraction: luminance.relative_midtone_fraction,
+            mode_distance: luminance.mode_distance,
+            ink_fraction: luminance.ink_fraction,
+            edge_fraction: luminance.edge_fraction,
+            robust_luminance_range: luminance.robust_luminance_range,
+            colored_fraction: chroma.colored_fraction,
+            largest_color_component_pixels: chroma.largest_component_pixels,
+            mean_saturation: chroma.mean_saturation,
+            picture_fraction,
+            text_line_count: evidence.text_line_count,
+            significant_color,
+            significant_picture,
+            picture_gate_margin: picture_fraction - PICTURE_NOISE_FLOOR,
+            tonal_midtone_gate_margin: luminance.midtone_fraction - TONAL_MIDTONE_FRACTION,
+            strong_bimodality_gate_margin: luminance.bimodality - STRONG_BIMODALITY,
+            confident_text_bimodality_margin: luminance.bimodality
+                - (STRONG_BIMODALITY + BIMODALITY_HYSTERESIS),
+            confident_text_mode_distance_margin: luminance.mode_distance
+                - (MIN_LUMINANCE_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS),
+            confident_text_midtone_margin: (MAX_BW_MIDTONE_FRACTION - MIDTONE_HYSTERESIS)
+                - luminance.midtone_fraction,
+            dense_text_line_margin: evidence.text_line_count as f64 - DENSE_TEXT_MIN_LINES as f64,
+            dense_text_bimodality_margin: luminance.bimodality - dense_text_bimodality_floor,
+            dense_text_mode_distance_margin: luminance.mode_distance
+                - dense_text_mode_distance_floor,
+            dense_text_midtone_margin: dense_text_midtone_ceiling - luminance.midtone_fraction,
+            outside_tonal_fraction: 0.0,
+            outside_tonal_largest_component_fraction: 0.0,
+            outside_tonal_largest_component_width_fraction: 0.0,
+            outside_tonal_largest_component_height_fraction: 0.0,
+            coherent_outside_tonal_region: false,
+            destructive_mode_tonal_veto: false,
+            source_dpi: 0.0,
+            analysis_dpi: 0.0,
+            calibrated_source_stroke_width_px: 0.0,
+            calibrated_source_x_height_px: 0.0,
+            soft_edge_to_ink_ratio: 0.0,
+            bilevel_fidelity_veto: false,
+        },
+    }
+}
+
+// Binarization quantizes each antialiased edge by roughly half a render pixel.
+// A ten-pixel stem keeps that error near ten percent; the old 3.25-pixel floor
+// admitted pages where a one-pixel decision visibly fattened stems by 30–60%
+// and closed counters. This is a sampling-quality boundary, not a paper-shade
+// heuristic.
+const MIN_BILEVEL_SOURCE_STROKE_WIDTH_PX: f64 = 10.0;
+const MIN_BILEVEL_SOURCE_X_HEIGHT_PX: f64 = 36.0;
+const MIN_SOFT_EDGE_TO_INK_RATIO: f64 = 0.05;
+const UNCALIBRATED_BILEVEL_SOURCE_DPI_FLOOR: f64 = 180.0;
+
+pub(crate) fn should_veto_bilevel_fidelity(
+    calibration_valid: bool,
+    source_stroke_width_px: f64,
+    source_x_height_px: f64,
+    source_dpi: f64,
+    soft_edge_to_ink_ratio: f64,
+    text_line_count: usize,
+) -> bool {
+    if text_line_count == 0 || soft_edge_to_ink_ratio < MIN_SOFT_EDGE_TO_INK_RATIO {
+        return false;
+    }
+    if calibration_valid {
+        source_stroke_width_px < MIN_BILEVEL_SOURCE_STROKE_WIDTH_PX
+            || source_x_height_px < MIN_BILEVEL_SOURCE_X_HEIGHT_PX
+    } else {
+        source_dpi < UNCALIBRATED_BILEVEL_SOURCE_DPI_FLOOR
+    }
+}
+
+/// Keeps antialiased low-resolution text continuous-tone when thresholding
+/// cannot preserve the source glyph topology.
+///
+/// This gate is independent of the paper's absolute gray or tint. It compares
+/// calibrated source-space glyph sampling with the amount of soft edge ink.
+/// A genuinely bilevel fax page therefore remains eligible for B&W even at a
+/// low nominal DPI, while a 1–2 pixel antialiased stem stays grayscale after
+/// its paper field is normalized to white.
+pub(crate) fn protect_bilevel_text_fidelity(
+    mut recommendation: OutputModeRecommendation,
+    calibration: PageCalibration,
+    source_dpi: f64,
+    source_has_bilevel_layer: bool,
+    text_line_count: usize,
+    text_soft_edge_to_ink_ratio: Option<f64>,
+) -> OutputModeRecommendation {
+    // A source MRC/JBIG2 foreground is direct fidelity evidence. Preserve a
+    // tonal background only when the spatial-tone analysis found one; ordinary
+    // gray or tinted paper can be discarded and the trusted foreground written
+    // directly as black on white. Textless plates remain grayscale and
+    // covers/color pages retain their existing decisions.
+    if source_has_bilevel_layer
+        && recommendation.mode == OutputMode::Grayscale
+        && text_line_count > 0
+    {
+        let preserves_tone = recommendation.diagnostics.destructive_mode_tonal_veto;
+        recommendation.mode = if preserves_tone {
+            OutputMode::Mixed
+        } else {
+            OutputMode::Bw
+        };
+        recommendation.confidence = recommendation.confidence.max(0.82);
+        recommendation.reason = if preserves_tone {
+            OutputModeRecommendationReason::TextWithPictures
+        } else {
+            OutputModeRecommendationReason::BimodalText
+        };
+        recommendation.diagnostics.rule = if preserves_tone {
+            OutputModeRule::TextWithPictures
+        } else {
+            OutputModeRule::BilevelFidelity
+        };
+        recommendation.diagnostics.fallback_used = false;
+    }
+    let analysis_dpi = calibration.effective_dpi.max(1.0);
+    let source_scale = source_dpi.max(1.0) / analysis_dpi;
+    let source_stroke_width_px = calibration.stroke_width_px * source_scale;
+    let source_x_height_px = calibration.x_height_px * source_scale;
+    let soft_edge_to_ink_ratio = text_soft_edge_to_ink_ratio.unwrap_or_else(|| {
+        recommendation.diagnostics.relative_midtone_fraction
+            / recommendation.diagnostics.ink_fraction.max(1e-9)
+    });
+    let undersampled_soft_text = !source_has_bilevel_layer
+        && should_veto_bilevel_fidelity(
+            calibration.valid,
+            source_stroke_width_px,
+            source_x_height_px,
+            source_dpi,
+            soft_edge_to_ink_ratio,
+            text_line_count,
+        );
+    // A raster cleanup render cannot reuse the source PDF's bilevel object:
+    // it thresholds the normalized quality raster again. Therefore the mere
+    // existence of a compact source layer is not fidelity evidence for the
+    // newly generated foreground. When a genuine photograph shares the page
+    // with undersampled soft text, keep the whole result continuous-tone.
+    // Large low-midtone/bimodal picture fields are maps and line art; their
+    // Mixed representation remains useful and does not take this photo path.
+    let line_art_picture = recommendation.diagnostics.picture_fraction >= 0.60
+        && recommendation.diagnostics.midtone_fraction <= 0.16
+        && recommendation.diagnostics.bimodality >= 0.65;
+    let undersampled_photo_dominant_mixed = recommendation.mode == OutputMode::Mixed
+        && recommendation.diagnostics.significant_picture
+        && !line_art_picture
+        && should_veto_bilevel_fidelity(
+            calibration.valid,
+            source_stroke_width_px,
+            source_x_height_px,
+            source_dpi,
+            soft_edge_to_ink_ratio,
+            text_line_count,
+        );
+    let fidelity_veto = (recommendation.mode == OutputMode::Bw && undersampled_soft_text)
+        || undersampled_photo_dominant_mixed;
+    recommendation.diagnostics.source_dpi = source_dpi;
+    recommendation.diagnostics.analysis_dpi = analysis_dpi;
+    recommendation.diagnostics.calibrated_source_stroke_width_px = source_stroke_width_px;
+    recommendation.diagnostics.calibrated_source_x_height_px = source_x_height_px;
+    recommendation.diagnostics.soft_edge_to_ink_ratio = soft_edge_to_ink_ratio;
+    recommendation.diagnostics.bilevel_fidelity_veto = fidelity_veto;
+    if fidelity_veto {
+        let preserves_color = recommendation.mode == OutputMode::Mixed
+            && recommendation.diagnostics.significant_color;
+        // A photographic plate plus undersampled soft text is still
+        // semantically Mixed: the photograph and the foreground ink have
+        // different owners. The fidelity veto selects an 8-bit soft-alpha
+        // foreground later in the renderer; changing the semantic mode to
+        // Grayscale would flatten the compact layered source into a full-page
+        // high-resolution JPEG. Text-only B&W pages still become Grayscale,
+        // while independently colored content remains Color because a
+        // constant black alpha foreground cannot reproduce it.
+        recommendation.mode = if preserves_color {
+            OutputMode::Color
+        } else if recommendation.mode == OutputMode::Mixed {
+            OutputMode::Mixed
+        } else {
+            OutputMode::Grayscale
+        };
+        recommendation.confidence = if recommendation.mode == OutputMode::Mixed {
+            recommendation.confidence.max(0.82)
+        } else {
+            0.82
+        };
+        recommendation.reason = match recommendation.mode {
+            OutputMode::Color => OutputModeRecommendationReason::ColorChroma,
+            OutputMode::Mixed => OutputModeRecommendationReason::TextWithPictures,
+            OutputMode::Grayscale => OutputModeRecommendationReason::UncertainTonal,
+            OutputMode::Bw | OutputMode::Auto => {
+                unreachable!("fidelity veto resolves a concrete continuous representation")
+            }
+        };
+        recommendation.diagnostics.rule = OutputModeRule::BilevelFidelity;
+        recommendation.diagnostics.fallback_used = false;
+    }
+    recommendation
+}
+
+/// Measures antialiased edge samples only around detected text.
+///
+/// A page-wide ratio confuses gray scanner bars, gutter shadows and tonal
+/// pictures with soft glyph edges, which can needlessly demote an otherwise
+/// safe B&W or mixed result. The vicinity mask keeps the fidelity veto tied to
+/// the content it is meant to protect.
+pub(crate) fn text_soft_edge_to_ink_ratio(
+    analysis: &GrayImage,
+    text_vicinity: &BinaryImage,
+    picture_mask: Option<&BinaryImage>,
+) -> Option<f64> {
+    if analysis.width() == 0
+        || analysis.height() == 0
+        || analysis.width() != text_vicinity.width()
+        || analysis.height() != text_vicinity.height()
+        || picture_mask.is_some_and(|mask| {
+            mask.width() != analysis.width() || mask.height() != analysis.height()
+        })
+    {
+        return None;
+    }
+    let luminance = luminance_evidence(analysis);
+    let relative_lower = luminance.dark_mean + (luminance.light_mean - luminance.dark_mean) * 0.15;
+    let relative_upper = luminance.light_mean - (luminance.light_mean - luminance.dark_mean) * 0.15;
+    let mut ink = 0usize;
+    let mut soft_edges = 0usize;
+    for y in 0..analysis.height() {
+        for x in 0..analysis.width() {
+            if !text_vicinity.get(x, y) || picture_mask.is_some_and(|mask| mask.get(x, y)) {
+                continue;
+            }
+            let value = analysis.get(x, y);
+            ink += usize::from(value < luminance.otsu_threshold);
+            soft_edges += usize::from(
+                f64::from(value) >= relative_lower && f64::from(value) <= relative_upper,
+            );
+        }
+    }
+    (ink > 0).then(|| soft_edges as f64 / ink as f64)
+}
+
+pub(crate) fn recommend_output_mode_with_tone(
+    evidence: PreparedModeEvidence<'_>,
+    outside_tone: crate::text_tone::OutsideTonalEvidence,
+) -> OutputModeRecommendation {
+    let mut result = recommend_output_mode(evidence);
+    result.diagnostics.outside_tonal_fraction = outside_tone.fraction;
+    result.diagnostics.outside_tonal_largest_component_fraction =
+        outside_tone.largest_component_fraction;
+    result
+        .diagnostics
+        .outside_tonal_largest_component_width_fraction =
+        outside_tone.largest_component_width_fraction;
+    result
+        .diagnostics
+        .outside_tonal_largest_component_height_fraction =
+        outside_tone.largest_component_height_fraction;
+    result.diagnostics.coherent_outside_tonal_region = outside_tone.coherent();
+    result.diagnostics.destructive_mode_tonal_veto = outside_tone.vetoes_destructive_mode();
+
+    if result.mode == OutputMode::Bw && outside_tone.vetoes_destructive_mode() {
+        let spatial_extent = outside_tone
+            .largest_component_width_fraction
+            .min(outside_tone.largest_component_height_fraction);
+        // Tone beside text is a layering decision, not evidence that the
+        // complete sheet should become an 8-bit raster. Preserve the tone in a
+        // coarse background and keep text in the bilevel foreground. Pages
+        // without text have no useful foreground and remain grayscale.
+        result.mode = if evidence.text_line_count > 0 {
+            OutputMode::Mixed
+        } else {
+            OutputMode::Grayscale
+        };
+        result.confidence =
+            (0.68 + 0.18 * outside_tone.fraction + 0.14 * spatial_extent).clamp(0.0, 1.0);
+        result.reason = if result.mode == OutputMode::Mixed {
+            OutputModeRecommendationReason::TextWithPictures
+        } else {
+            OutputModeRecommendationReason::ContinuousTone
+        };
+        result.diagnostics.rule = OutputModeRule::SpatialTone;
+        result.diagnostics.fallback_used = false;
+    }
+
+    result
 }
 
 /// Chooses a concrete output mode from the renderer's prepared analysis artifacts.
@@ -92,7 +526,11 @@ pub(crate) fn recommend_output_mode(
     evidence: PreparedModeEvidence<'_>,
 ) -> OutputModeRecommendation {
     let luminance = luminance_evidence(evidence.analysis);
-    let chroma = chroma_evidence(evidence.analysis, evidence.analysis_rgb);
+    let chroma = chroma_evidence(
+        evidence.analysis,
+        evidence.analysis_rgb,
+        evidence.text_line_count,
+    );
     let significant_color = has_significant_chroma(chroma);
 
     // Blankness is source evidence, not a property of a later normalized or
@@ -101,18 +539,22 @@ pub(crate) fn recommend_output_mode(
     // normalization even though the raw scan contains no meaningful marks.
     if is_blank_luminance(luminance)
         && !significant_color
-        && evidence.text_line_count == 0
         && !has_coherent_edge_structure(evidence.analysis)
     {
         let range_margin = (1.0
             - luminance.robust_luminance_range / BLANK_MAX_ROBUST_LUMINANCE_RANGE)
             .clamp(0.0, 1.0);
         let edge_margin = (1.0 - luminance.edge_fraction / BLANK_MAX_EDGE_FRACTION).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Bw,
-            confidence: (0.8 + 0.08 * range_margin + 0.08 * edge_margin).clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::Blank,
-        };
+        return recommendation(
+            OutputMode::Bw,
+            (0.8 + 0.08 * range_margin + 0.08 * edge_margin).clamp(0.0, 1.0),
+            OutputModeRecommendationReason::Blank,
+            OutputModeRule::Blank,
+            evidence,
+            luminance,
+            chroma,
+            0.0,
+        );
     }
 
     let pixel_count = evidence
@@ -142,14 +584,25 @@ pub(crate) fn recommend_output_mode(
     let significant_picture = picture_fraction >= PICTURE_NOISE_FLOOR;
     let has_text = evidence.text_line_count >= MIN_TEXT_LINES;
 
-    if significant_color && significant_picture && has_text {
+    if significant_color
+        && (significant_picture
+            || chroma.paper_tint >= 8.0 && luminance.ink_fraction <= COLOR_TEXT_MAX_INK_FRACTION)
+        && has_text
+        && !(chroma.colored_fraction >= COLOR_DOMINANT_FRACTION_FLOOR
+            && evidence.text_line_count <= COLOR_DOMINANT_MAX_TEXT_LINES)
+    {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 8.0).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Mixed,
-            confidence: (0.72 + 0.16 * picture_margin + 0.12 * text_margin).clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::TextWithPictures,
-        };
+        return recommendation(
+            OutputMode::Mixed,
+            (0.72 + 0.16 * picture_margin + 0.12 * text_margin).clamp(0.0, 1.0),
+            OutputModeRecommendationReason::TextWithPictures,
+            OutputModeRule::ColorTextWithPictures,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
     if significant_color {
@@ -164,40 +617,49 @@ pub(crate) fn recommend_output_mode(
             .clamp(0.0, 1.0);
         let saturation_margin =
             (chroma.mean_saturation / (CHROMA_SATURATION_FLOOR * 3.0)).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Color,
-            confidence: (0.68
-                + 0.12 * fraction_margin
-                + 0.12 * component_margin
-                + 0.08 * saturation_margin)
+        return recommendation(
+            OutputMode::Color,
+            (0.68 + 0.12 * fraction_margin + 0.12 * component_margin + 0.08 * saturation_margin)
                 .clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::ColorChroma,
-        };
+            OutputModeRecommendationReason::ColorChroma,
+            OutputModeRule::Color,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
     if significant_picture && has_text {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 8.0).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Mixed,
-            confidence: (0.68 + 0.18 * picture_margin + 0.14 * text_margin).clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::TextWithPictures,
-        };
+        return recommendation(
+            OutputMode::Mixed,
+            (0.68 + 0.18 * picture_margin + 0.14 * text_margin).clamp(0.0, 1.0),
+            OutputModeRecommendationReason::TextWithPictures,
+            OutputModeRule::TextWithPictures,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
     if significant_picture {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let tonal_margin = (luminance.midtone_fraction / TONAL_MIDTONE_FRACTION).clamp(0.0, 1.0);
         let weak_bimodality = ((STRONG_BIMODALITY - luminance.bimodality) / 0.35).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Grayscale,
-            confidence: (0.66
-                + 0.16 * picture_margin
-                + 0.1 * tonal_margin
-                + 0.08 * weak_bimodality)
+        return recommendation(
+            OutputMode::Grayscale,
+            (0.66 + 0.16 * picture_margin + 0.1 * tonal_margin + 0.08 * weak_bimodality)
                 .clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::ContinuousTone,
-        };
+            OutputModeRecommendationReason::ContinuousTone,
+            OutputModeRule::Picture,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
     // A few glyphs can occupy far below one percent of a page. On otherwise
@@ -205,12 +667,17 @@ pub(crate) fn recommend_output_mode(
     // separation from the dominant paper tone, and coherent edge structure
     // are the useful evidence. Route that case to binary before the broad
     // midtone fallback interprets a gray sheet as continuous-tone content.
+    let sparse_ink_fraction = (MIN_SPARSE_TEXT_INK_FRACTION..=MAX_SPARSE_TEXT_INK_FRACTION)
+        .contains(&luminance.ink_fraction);
+    let few_line_ink_fraction = evidence.text_line_count <= FLAT_FEW_LINE_TEXT_MAX_LINES
+        && (MAX_SPARSE_TEXT_INK_FRACTION..=FLAT_FEW_LINE_TEXT_MAX_INK_FRACTION)
+            .contains(&luminance.ink_fraction);
     let sparse_text_on_flat_paper = evidence.text_line_count >= 1
         && picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
         && luminance.robust_luminance_range <= BLANK_MAX_ROBUST_LUMINANCE_RANGE
-        && luminance.mode_distance >= MIN_SPARSE_TEXT_MODE_DISTANCE
-        && (MIN_SPARSE_TEXT_INK_FRACTION..=MAX_SPARSE_TEXT_INK_FRACTION)
-            .contains(&luminance.ink_fraction)
+        && ((sparse_ink_fraction && luminance.mode_distance >= MIN_SPARSE_TEXT_MODE_DISTANCE)
+            || (few_line_ink_fraction
+                && luminance.mode_distance >= FLAT_FEW_LINE_TEXT_MIN_MODE_DISTANCE))
         && luminance.edge_fraction >= luminance.ink_fraction * MIN_TEXT_EDGE_TO_INK_RATIO
         && has_coherent_edge_structure(evidence.analysis);
     if sparse_text_on_flat_paper {
@@ -219,11 +686,16 @@ pub(crate) fn recommend_output_mode(
         let edge_margin = (luminance.edge_fraction
             / luminance.ink_fraction.max(MIN_SPARSE_TEXT_INK_FRACTION))
         .clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Bw,
-            confidence: (0.66 + 0.16 * separation_margin + 0.08 * edge_margin).clamp(0.0, 0.9),
-            reason: OutputModeRecommendationReason::BimodalText,
-        };
+        return recommendation(
+            OutputMode::Bw,
+            (0.66 + 0.16 * separation_margin + 0.08 * edge_margin).clamp(0.0, 0.9),
+            OutputModeRecommendationReason::BimodalText,
+            OutputModeRule::SparseText,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
     if luminance.midtone_fraction >= TONAL_MIDTONE_FRACTION
@@ -231,11 +703,16 @@ pub(crate) fn recommend_output_mode(
     {
         let tonal_margin = (luminance.midtone_fraction / TONAL_MIDTONE_FRACTION).clamp(0.0, 1.0);
         let weak_bimodality = ((STRONG_BIMODALITY - luminance.bimodality) / 0.35).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Grayscale,
-            confidence: (0.64 + 0.22 * tonal_margin + 0.14 * weak_bimodality).clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::ContinuousTone,
-        };
+        return recommendation(
+            OutputMode::Grayscale,
+            (0.64 + 0.22 * tonal_margin + 0.14 * weak_bimodality).clamp(0.0, 1.0),
+            OutputModeRecommendationReason::ContinuousTone,
+            OutputModeRule::ContinuousTone,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
     let confident_text = has_text
@@ -256,16 +733,21 @@ pub(crate) fn recommend_output_mode(
             / MAX_BW_MIDTONE_FRACTION)
             .clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 10.0).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Bw,
-            confidence: (0.72
+        return recommendation(
+            OutputMode::Bw,
+            (0.72
                 + 0.08 * bimodal_margin
                 + 0.08 * separation_margin
                 + 0.06 * tonal_margin
                 + 0.06 * text_margin)
                 .clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::BimodalText,
-        };
+            OutputModeRecommendationReason::BimodalText,
+            OutputModeRule::ConfidentText,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
     // Bleed-through and paper texture widen the background mode and depress
@@ -275,32 +757,52 @@ pub(crate) fn recommend_output_mode(
     let dense_text_bimodality_floor = DENSE_TEXT_BIMODALITY + BIMODALITY_HYSTERESIS;
     let dense_text_mode_distance_floor = DENSE_TEXT_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS;
     let dense_text_midtone_ceiling = DENSE_TEXT_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS;
-    let dense_text = evidence.text_line_count >= DENSE_TEXT_MIN_LINES
-        && picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
-        && luminance.bimodality >= dense_text_bimodality_floor
-        && luminance.mode_distance >= dense_text_mode_distance_floor
-        && luminance.midtone_fraction <= dense_text_midtone_ceiling
+    let dense_text_relative_separation =
+        luminance.mode_distance / luminance.robust_luminance_range.max(1.0);
+    let dense_text_separated = luminance.mode_distance >= dense_text_mode_distance_floor
+        || (luminance.mode_distance >= DENSE_TEXT_RELATIVE_MIN_MODE_DISTANCE
+            && luminance.robust_luminance_range <= DENSE_TEXT_RELATIVE_MAX_LUMINANCE_RANGE
+            && dense_text_relative_separation >= DENSE_TEXT_RELATIVE_MIN_SEPARATION);
+    let very_dense_text = evidence.text_line_count >= VERY_DENSE_TEXT_MIN_LINES
+        && luminance.bimodality >= VERY_DENSE_TEXT_MIN_BIMODALITY
+        && luminance.mode_distance >= VERY_DENSE_TEXT_MIN_MODE_DISTANCE
+        && luminance.midtone_fraction <= VERY_DENSE_TEXT_MAX_MIDTONE_FRACTION;
+    let dense_text = picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
+        && ((evidence.text_line_count >= DENSE_TEXT_MIN_LINES
+            && luminance.bimodality >= dense_text_bimodality_floor
+            && dense_text_separated
+            && luminance.midtone_fraction <= dense_text_midtone_ceiling)
+            || very_dense_text)
         && luminance.ink_fraction >= MIN_TEXT_INK_FRACTION
         && luminance.edge_fraction >= luminance.ink_fraction * MIN_TEXT_EDGE_TO_INK_RATIO;
     if dense_text {
         let bimodal_margin =
             ((luminance.bimodality - dense_text_bimodality_floor) / 0.08).clamp(0.0, 1.0);
-        let separation_margin =
-            ((luminance.mode_distance - dense_text_mode_distance_floor) / 100.0).clamp(0.0, 1.0);
+        let separation_margin = if luminance.mode_distance >= dense_text_mode_distance_floor {
+            ((luminance.mode_distance - dense_text_mode_distance_floor) / 100.0).clamp(0.0, 1.0)
+        } else {
+            ((dense_text_relative_separation - DENSE_TEXT_RELATIVE_MIN_SEPARATION) / 0.4)
+                .clamp(0.0, 1.0)
+        };
         let tonal_margin = ((dense_text_midtone_ceiling - luminance.midtone_fraction)
             / dense_text_midtone_ceiling)
             .clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 20.0).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Bw,
-            confidence: (0.64
+        return recommendation(
+            OutputMode::Bw,
+            (0.64
                 + 0.06 * bimodal_margin
                 + 0.06 * separation_margin
                 + 0.05 * tonal_margin
                 + 0.05 * text_margin)
                 .clamp(0.0, 0.8),
-            reason: OutputModeRecommendationReason::BimodalText,
-        };
+            OutputModeRecommendationReason::BimodalText,
+            OutputModeRule::DenseText,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
     // Dense or tightly spaced text can collapse to one provisional line. Keep the
@@ -326,28 +828,35 @@ pub(crate) fn recommend_output_mode(
         let tonal_margin = ((single_line_midtone_ceiling - luminance.midtone_fraction)
             / single_line_midtone_ceiling)
             .clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Bw,
-            confidence: (0.62
-                + 0.03 * bimodal_margin
-                + 0.03 * separation_margin
-                + 0.02 * tonal_margin)
+        return recommendation(
+            OutputMode::Bw,
+            (0.62 + 0.03 * bimodal_margin + 0.03 * separation_margin + 0.02 * tonal_margin)
                 .clamp(0.0, 0.7),
-            reason: OutputModeRecommendationReason::BimodalText,
-        };
+            OutputModeRecommendationReason::BimodalText,
+            OutputModeRule::StrongSingleLineText,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
     }
 
-    OutputModeRecommendation {
-        mode: OutputMode::Grayscale,
-        confidence: (0.52
+    recommendation(
+        OutputMode::Grayscale,
+        (0.52
             + 0.18 * (luminance.midtone_fraction / TONAL_MIDTONE_FRACTION).clamp(0.0, 1.0)
             + 0.1
                 * ((MIN_LUMINANCE_MODE_DISTANCE - luminance.mode_distance)
                     / MIN_LUMINANCE_MODE_DISTANCE)
                     .clamp(0.0, 1.0))
         .clamp(0.0, 1.0),
-        reason: OutputModeRecommendationReason::UncertainTonal,
-    }
+        OutputModeRecommendationReason::UncertainTonal,
+        OutputModeRule::UncertainFallback,
+        evidence,
+        luminance,
+        chroma,
+        picture_fraction,
+    )
 }
 
 /// Returns whether a bounded raw scan contains no meaningful luminance or
@@ -359,7 +868,7 @@ pub(crate) fn is_blank_scan_candidate(
 ) -> bool {
     is_blank_luminance(luminance_evidence(analysis))
         && !has_coherent_edge_structure(analysis)
-        && !has_significant_chroma(chroma_evidence(analysis, analysis_rgb))
+        && !has_significant_chroma(chroma_evidence(analysis, analysis_rgb, 0))
 }
 
 fn has_significant_chroma(chroma: ChromaEvidence) -> bool {
@@ -551,13 +1060,163 @@ fn has_gutter_shadow(analysis: &GrayImage) -> bool {
     maximum >= 0.12 && maximum >= (median + 0.01) * 4.0
 }
 
-fn chroma_evidence(gray: &GrayImage, rgb: Option<&RgbImage>) -> ChromaEvidence {
+fn chroma_vector(pixel: [f64; 3]) -> [f64; 3] {
+    let mean = pixel.iter().sum::<f64>() / 3.0;
+    [pixel[0] - mean, pixel[1] - mean, pixel[2] - mean]
+}
+
+fn dot(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left.into_iter()
+        .zip(right)
+        .map(|(left, right)| left * right)
+        .sum()
+}
+
+fn norm(vector: [f64; 3]) -> f64 {
+    dot(vector, vector).sqrt()
+}
+
+fn dominant_ink_color(
+    gray: &GrayImage,
+    rgb: &RgbImage,
+    background: [f64; 3],
+    bright_cutoff: u8,
+    text_line_count: usize,
+) -> Option<[f64; 3]> {
+    if text_line_count == 0 {
+        return None;
+    }
+    let ink_cutoff = otsu_threshold(gray).min(bright_cutoff.saturating_sub(12));
+    let paper_chroma = chroma_vector(background);
+    let paper_tint = norm(paper_chroma);
+    let mut histograms = [[0usize; 256]; 3];
+    let mut count = 0usize;
+    for y in 0..gray.height() {
+        for x in 0..gray.width() {
+            if gray.get(x, y) > ink_cutoff {
+                continue;
+            }
+            let pixel = rgb.get(x, y);
+            let ink_chroma = chroma_vector(pixel.map(f64::from));
+            let ink_tint = norm(ink_chroma);
+            let neutral_ink = ink_tint <= 18.0;
+            let same_tint_family = paper_tint >= 8.0
+                && ink_tint >= 8.0
+                && dot(paper_chroma, ink_chroma) / (paper_tint * ink_tint) >= 0.82;
+            if !neutral_ink && !same_tint_family {
+                // A seal or a photograph can occupy enough of the Otsu-dark
+                // class to corrupt independent per-channel quantiles into a
+                // color that never existed. Only samples plausibly belonging
+                // to the paper's ink family may estimate its endpoint.
+                continue;
+            }
+            for channel in 0..3 {
+                histograms[channel][pixel[channel] as usize] += 1;
+            }
+            count += 1;
+        }
+    }
+    let minimum_samples = gray.width().saturating_mul(gray.height()) / 10_000;
+    // Rasterized glyph edges can outnumber their solid cores by a wide margin.
+    // The median of the whole Otsu-dark class therefore lands halfway between
+    // paper and ink, causing the actual cores to fall beyond the modeled
+    // paper→ink segment and masquerade as independent color. A low robust
+    // quantile anchors the segment at the ink core while remaining insensitive
+    // to a handful of compression outliers.
+    (count >= minimum_samples.max(16)).then(|| {
+        histograms
+            .map(|histogram| histogram_percentile(&histogram, count.saturating_sub(1) / 10) as f64)
+    })
+}
+
+fn paper_ink_model(
+    gray: &GrayImage,
+    rgb: &RgbImage,
+    background: [f64; 3],
+    bright_cutoff: u8,
+    text_line_count: usize,
+) -> Option<([f64; 3], [f64; 3])> {
+    let ink = dominant_ink_color(gray, rgb, background, bright_cutoff, text_line_count)?;
+    let paper_chroma = chroma_vector(background);
+    let ink_chroma = chroma_vector(ink);
+    let paper_tint = norm(paper_chroma);
+    let ink_tint = norm(ink_chroma);
+    let neutral_ink = ink_tint <= 18.0;
+    let same_tint_family = paper_tint >= 8.0
+        && ink_tint >= 8.0
+        && dot(paper_chroma, ink_chroma) / (paper_tint * ink_tint) >= 0.82;
+    (neutral_ink || same_tint_family).then_some((background, ink))
+}
+
+fn explained_by_paper_ink_segment(pixel: [u8; 3], paper: [f64; 3], ink: [f64; 3]) -> bool {
+    let pixel = pixel.map(f64::from);
+    let direction = [ink[0] - paper[0], ink[1] - paper[1], ink[2] - paper[2]];
+    let length_squared = dot(direction, direction);
+    if length_squared <= f64::EPSILON {
+        return false;
+    }
+    let offset = [
+        pixel[0] - paper[0],
+        pixel[1] - paper[1],
+        pixel[2] - paper[2],
+    ];
+    let projection = dot(offset, direction) / length_squared;
+    if !(-0.08..=1.20).contains(&projection) {
+        return false;
+    }
+    let residual = [
+        offset[0] - projection * direction[0],
+        offset[1] - projection * direction[1],
+        offset[2] - projection * direction[2],
+    ];
+    // JPEG ringing around antialiased tinted glyphs can move a paper/ink
+    // mixture by roughly twenty channel levels away from the ideal segment.
+    // Keeping the tolerance below the independent-color noise floor still
+    // rejects seals and photos while preventing their presence from turning
+    // ordinary tinted text into Mixed-background ownership.
+    norm(residual) <= 24.0
+}
+
+fn chroma_evidence(
+    gray: &GrayImage,
+    rgb: Option<&RgbImage>,
+    text_line_count: usize,
+) -> ChromaEvidence {
+    chroma_evidence_and_mask(gray, rgb, text_line_count).0
+}
+
+/// Pixels whose color cannot be explained by the page's paper-to-ink color
+/// axis. This deliberately excludes uniform tinted paper and matching colored
+/// ink, but retains an independent seal, annotation, photograph, or plate.
+///
+/// The mode selector and renderer must share this ownership definition. A
+/// Mixed recommendation with an empty picture detector previously reached the
+/// writer as a pure bilevel page and silently discarded the color evidence
+/// that selected Mixed in the first place.
+pub(crate) fn independent_chroma_mask(
+    gray: &GrayImage,
+    rgb: Option<&RgbImage>,
+    text_line_count: usize,
+) -> Option<BinaryImage> {
+    let (_, mask) = chroma_evidence_and_mask(gray, rgb, text_line_count);
+    mask.filter(|mask| mask.count_black() > 0)
+}
+
+fn chroma_evidence_and_mask(
+    gray: &GrayImage,
+    rgb: Option<&RgbImage>,
+    text_line_count: usize,
+) -> (ChromaEvidence, Option<BinaryImage>) {
     let Some(rgb) = rgb else {
-        return ChromaEvidence {
-            colored_fraction: 0.0,
-            largest_component_pixels: 0,
-            mean_saturation: 0.0,
-        };
+        return (
+            ChromaEvidence {
+                colored_fraction: 0.0,
+                largest_component_pixels: 0,
+                mean_saturation: 0.0,
+                paper_tint: 0.0,
+            },
+            None,
+        );
     };
     let bright_cutoff = grayscale_percentile(gray, 0.7);
     let mut background_histograms = [[0usize; 256]; 3];
@@ -575,15 +1234,22 @@ fn chroma_evidence(gray: &GrayImage, rgb: Option<&RgbImage>) -> ChromaEvidence {
         }
     }
     if background_count == 0 {
-        return ChromaEvidence {
-            colored_fraction: 0.0,
-            largest_component_pixels: 0,
-            mean_saturation: 0.0,
-        };
+        return (
+            ChromaEvidence {
+                colored_fraction: 0.0,
+                largest_component_pixels: 0,
+                mean_saturation: 0.0,
+                paper_tint: 0.0,
+            },
+            None,
+        );
     }
     let background = background_histograms
         .map(|histogram| histogram_percentile(&histogram, background_count / 2).max(1) as f64);
     let background_mean = background.iter().sum::<f64>() / 3.0;
+    let background_chroma = chroma_vector(background);
+    let background_tint = norm(background_chroma);
+    let paper_ink_model = paper_ink_model(gray, rgb, background, bright_cutoff, text_line_count);
     let mut colored = 0usize;
     let mut saturation_sum = 0.0;
     let mut chroma_mask = BinaryImage::new(gray.width(), gray.height());
@@ -591,7 +1257,18 @@ fn chroma_evidence(gray: &GrayImage, rgb: Option<&RgbImage>) -> ChromaEvidence {
         for x in 0..gray.width() {
             let pixel = rgb.get(x, y);
             let dark_ink = gray.get(x, y) <= DARK_LUMINANCE_CUTOFF;
-            let compared = if dark_ink {
+            let pixel_chroma = chroma_vector(pixel.map(f64::from));
+            let pixel_tint = norm(pixel_chroma);
+            let follows_paper_tint = dark_ink
+                && background_tint >= 8.0
+                && pixel_tint >= 8.0
+                && dot(background_chroma, pixel_chroma) / (background_tint * pixel_tint) >= 0.82;
+            let compared = if paper_ink_model
+                .is_some_and(|(paper, ink)| explained_by_paper_ink_segment(pixel, paper, ink))
+                || follows_paper_tint
+            {
+                [0.0; 3]
+            } else if dark_ink {
                 pixel.map(f64::from)
             } else {
                 [
@@ -622,11 +1299,16 @@ fn chroma_evidence(gray: &GrayImage, rgb: Option<&RgbImage>) -> ChromaEvidence {
         .map(|component| component.area)
         .max()
         .unwrap_or(0);
-    ChromaEvidence {
-        colored_fraction: colored as f64 / gray.width().saturating_mul(gray.height()).max(1) as f64,
-        largest_component_pixels,
-        mean_saturation: saturation_sum / colored.max(1) as f64,
-    }
+    (
+        ChromaEvidence {
+            colored_fraction: colored as f64
+                / gray.width().saturating_mul(gray.height()).max(1) as f64,
+            largest_component_pixels,
+            mean_saturation: saturation_sum / colored.max(1) as f64,
+            paper_tint: norm(chroma_vector(background)),
+        },
+        Some(chroma_mask),
+    )
 }
 
 fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
@@ -683,6 +1365,18 @@ fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
     } else {
         0
     };
+    // A fixed number of gray levels cannot describe antialiasing on both
+    // charcoal paper and pale stock. This band is relative to the page's own
+    // dark/light modes, excluding the endpoint 15% at either side.
+    let relative_lower = (dark_mean + (light_mean - dark_mean) * 0.15).clamp(0.0, 255.0);
+    let relative_upper = (light_mean - (light_mean - dark_mean) * 0.15).clamp(0.0, 255.0);
+    let relative_midtone_count = if relative_lower < relative_upper {
+        histogram[relative_lower.ceil() as usize..=relative_upper.floor() as usize]
+            .iter()
+            .sum::<u64>()
+    } else {
+        0
+    };
     let mut strong_edges = 0usize;
     let mut edge_comparisons = 0usize;
     for y in 0..image.height() {
@@ -701,12 +1395,21 @@ fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
         }
     }
     LuminanceEvidence {
+        otsu_threshold: threshold as u8,
+        dark_mean,
+        light_mean,
+        midtone_lower: lower,
+        midtone_upper: upper,
+        p01: luminance_histogram_percentile(&histogram, total, 0.01),
+        p50: luminance_histogram_percentile(&histogram, total, 0.50),
+        p99: luminance_histogram_percentile(&histogram, total, 0.99),
         bimodality: if total_variance <= f64::EPSILON {
             0.0
         } else {
             (between_variance / total_variance).clamp(0.0, 1.0)
         },
         midtone_fraction: midtone_count as f64 / total as f64,
+        relative_midtone_fraction: relative_midtone_count as f64 / total as f64,
         mode_distance: light_mean - dark_mean,
         // The darker Otsu class is relative to this page's paper tone. An
         // absolute "ink is below N" cutoff makes the same black text occupy
@@ -760,6 +1463,61 @@ mod tests {
         picture::detect_picture_mask,
     };
     use std::path::PathBuf;
+
+    #[test]
+    fn bilevel_fidelity_veto_tracks_sampling_and_soft_edges_not_paper_shade() {
+        for source_dpi in [72.0, 100.0, 150.0] {
+            assert!(should_veto_bilevel_fidelity(
+                true, 2.0, 8.0, source_dpi, 0.2, 4,
+            ));
+        }
+        assert!(should_veto_bilevel_fidelity(true, 8.0, 30.0, 300.0, 0.2, 4,));
+        assert!(
+            !should_veto_bilevel_fidelity(true, 10.0, 36.0, 300.0, 0.2, 4),
+            "soft-edged glyphs need enough render samples to keep edge quantization near ten percent"
+        );
+        assert!(
+            !should_veto_bilevel_fidelity(true, 1.0, 6.0, 100.0, 0.0, 4),
+            "an already-bilevel source has no soft edge topology to preserve"
+        );
+        assert!(
+            !should_veto_bilevel_fidelity(false, 0.0, 0.0, 300.0, 0.2, 1),
+            "uncalibrated sparse text at print resolution is not rejected by DPI alone"
+        );
+    }
+
+    #[test]
+    fn soft_text_with_a_genuine_photo_uses_soft_mixed_but_line_art_uses_a_stencil() {
+        let (gray, rgb) = text_page([192, 192, 192]);
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 2.0,
+            x_height_px: 8.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let mut genuine_photo = classify(&gray, Some(&rgb));
+        genuine_photo.mode = OutputMode::Mixed;
+        genuine_photo.diagnostics.significant_picture = true;
+        genuine_photo.diagnostics.significant_color = false;
+        genuine_photo.diagnostics.picture_fraction = 0.55;
+        genuine_photo.diagnostics.midtone_fraction = 0.42;
+        genuine_photo.diagnostics.bimodality = 0.45;
+
+        let protected_photo =
+            protect_bilevel_text_fidelity(genuine_photo, calibration, 150.0, true, 8, Some(0.2));
+        assert_eq!(protected_photo.mode, OutputMode::Mixed);
+        assert!(protected_photo.diagnostics.bilevel_fidelity_veto);
+
+        let mut line_art = genuine_photo;
+        line_art.diagnostics.picture_fraction = 0.75;
+        line_art.diagnostics.midtone_fraction = 0.12;
+        line_art.diagnostics.bimodality = 0.80;
+        let protected_line_art =
+            protect_bilevel_text_fidelity(line_art, calibration, 150.0, true, 8, Some(0.2));
+        assert_eq!(protected_line_art.mode, OutputMode::Mixed);
+        assert!(!protected_line_art.diagnostics.bilevel_fidelity_veto);
+    }
 
     fn text_page(background: [u8; 3]) -> (GrayImage, RgbImage) {
         let mut rgb = RgbImage::new(360, 260, background);
@@ -903,7 +1661,7 @@ mod tests {
             let gray =
                 crate::png::decode_gray(&std::fs::read(path).unwrap(), 2_000_000, 2_000).unwrap();
             let luminance = luminance_evidence(&gray);
-            let chroma = chroma_evidence(&gray, None);
+            let chroma = chroma_evidence(&gray, None, 0);
             assert!(
                 is_blank_scan_candidate(&gray, None),
                 "page={page_number}, luminance={luminance:?}, chroma={chroma:?}, coherent_edges={}",
@@ -944,6 +1702,39 @@ mod tests {
     }
 
     #[test]
+    fn a_few_lines_of_faint_text_on_flat_paper_are_not_left_gray() {
+        let mut gray = GrayImage::new(620, 877, 205);
+        for line in 0..5 {
+            let top = 340 + line * 24;
+            for glyph in 0..24 {
+                let left = 145 + glyph * 10;
+                for y in top..top + 11 {
+                    gray.set(left, y, 145);
+                    gray.set(left + 1, y, 145);
+                }
+                for x in left..left + 7 {
+                    gray.set(x, top, 145);
+                    gray.set(x, top + 5, 145);
+                }
+            }
+        }
+
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &BinaryImage::new(gray.width(), gray.height()),
+            text_line_count: 5,
+        });
+
+        assert_eq!(
+            recommendation.mode,
+            OutputMode::Bw,
+            "{recommendation:?}; evidence={:?}",
+            luminance_evidence(&gray),
+        );
+    }
+
+    #[test]
     fn isolated_compact_dust_does_not_look_like_text() {
         let mut gray = GrayImage::new(620, 877, 170);
         for y in 436..441 {
@@ -955,7 +1746,7 @@ mod tests {
     }
 
     #[test]
-    fn even_one_detected_text_line_vetoes_blank_mode() {
+    fn a_spurious_line_counter_without_source_edges_does_not_veto_blank_mode() {
         let gray = GrayImage::new(620, 877, 190);
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
         let recommendation = recommend_output_mode(PreparedModeEvidence {
@@ -964,7 +1755,7 @@ mod tests {
             picture_mask: &picture_mask,
             text_line_count: 1,
         });
-        assert_ne!(recommendation.reason, OutputModeRecommendationReason::Blank,);
+        assert_eq!(recommendation.reason, OutputModeRecommendationReason::Blank);
     }
 
     #[test]
@@ -981,6 +1772,57 @@ mod tests {
                 "{background:?}: {recommendation:?}"
             );
             assert!(recommendation.confidence >= 0.75);
+        }
+    }
+
+    #[test]
+    fn uniform_light_paper_tint_and_shade_sweep_normalizes_to_bw() {
+        for background in [
+            [245, 245, 245],
+            [205, 225, 245],
+            [225, 205, 215],
+            [235, 220, 175],
+            [190, 215, 195],
+            [165, 180, 205],
+            [170, 170, 170],
+        ] {
+            let (_, mut rgb) = text_page(background);
+            let matching_ink = background
+                .map(|channel| (f64::from(channel) * 0.18).round().clamp(8.0, 64.0) as u8);
+            for y in 0..rgb.height() {
+                for x in 0..rgb.width() {
+                    if rgb.get(x, y) != background {
+                        rgb.set(x, y, matching_ink);
+                    }
+                }
+            }
+            let recommendation = classify(&rgb_to_gray(&rgb), Some(&rgb));
+            assert_eq!(
+                recommendation.mode,
+                OutputMode::Bw,
+                "paper={background:?} ink={matching_ink:?}: {recommendation:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dense_text_on_dark_or_low_contrast_uniform_gray_paper_is_bw() {
+        for (background, ink) in [(72_u8, 0_u8), (112, 8), (152, 96), (192, 20)] {
+            let (mut gray, _) = text_page([background; 3]);
+            for value in gray.data_mut() {
+                if *value != background {
+                    *value = ink;
+                }
+            }
+
+            let recommendation = classify(&gray, None);
+
+            assert_eq!(
+                recommendation.mode,
+                OutputMode::Bw,
+                "paper={background} ink={ink}: {recommendation:?}; evidence={:?}",
+                luminance_evidence(&gray),
+            );
         }
     }
 
@@ -1032,7 +1874,7 @@ mod tests {
             }
         }
         let gray = rgb_to_gray(&rgb);
-        let chroma = chroma_evidence(&gray, Some(&rgb));
+        let chroma = chroma_evidence(&gray, Some(&rgb), 18);
         assert!(
             chroma.colored_fraction + COLOR_PIXEL_FRACTION_HYSTERESIS < COLOR_PIXEL_FRACTION_FLOOR,
             "{chroma:?}"
@@ -1065,7 +1907,7 @@ mod tests {
     }
 
     #[test]
-    fn pale_blue_stock_with_dark_blue_ink_is_color_but_black_ink_on_yellow_stock_is_bw() {
+    fn dark_text_matching_tinted_stock_is_bw_but_independent_color_survives() {
         let mut blue_stock = RgbImage::new(360, 260, [205, 225, 245]);
         for row in 0..8 {
             for column in 0..14 {
@@ -1084,7 +1926,7 @@ mod tests {
         report("pale-blue-stock-dark-blue-ink", blue_recommendation);
         assert_eq!(
             blue_recommendation.mode,
-            OutputMode::Color,
+            OutputMode::Bw,
             "{blue_recommendation:?}"
         );
 
@@ -1094,6 +1936,79 @@ mod tests {
             yellow_recommendation.mode,
             OutputMode::Bw,
             "{yellow_recommendation:?}"
+        );
+
+        for y in 202..222 {
+            for x in 244..326 {
+                blue_stock.set(x, y, [150, 22, 35]);
+            }
+        }
+        let red_mark_recommendation = classify(&rgb_to_gray(&blue_stock), Some(&blue_stock));
+        assert_eq!(
+            red_mark_recommendation.mode,
+            OutputMode::Mixed,
+            "{red_mark_recommendation:?}"
+        );
+        assert!(red_mark_recommendation.diagnostics.significant_color);
+
+        let red_mark_gray = rgb_to_gray(&blue_stock);
+        let ownership = independent_chroma_mask(&red_mark_gray, Some(&blue_stock), 8)
+            .expect("independent red mark owns Mixed background pixels");
+        assert!(
+            ownership.get(270, 210),
+            "the independent red object was not retained"
+        );
+        assert!(
+            !ownership.get(350, 250),
+            "uniform blue paper was mistaken for independent color"
+        );
+        assert!(
+            !ownership.get(20, 20),
+            "matching blue ink was mistaken for independent color"
+        );
+    }
+
+    #[test]
+    fn color_photo_does_not_make_cream_paper_or_brown_ink_own_mixed_pixels() {
+        let mut page = RgbImage::new(360, 260, [235, 220, 175]);
+        for row in 0..8 {
+            for column in 0..14 {
+                let left = 18 + column * 22;
+                let top = 18 + row * 28;
+                for y in top..top + 14 {
+                    for x in left..left + 12 {
+                        if x < left + 2 || y < top + 2 || y >= top + 12 {
+                            page.set(x, y, [35, 30, 22]);
+                        }
+                    }
+                }
+            }
+        }
+        for y in 150..240 {
+            for x in 230..345 {
+                page.set(
+                    x,
+                    y,
+                    [
+                        30 + ((x * 11 + y * 7) % 190) as u8,
+                        25 + ((x * 3 + y * 17) % 170) as u8,
+                        55 + ((x * 19 + y * 5) % 180) as u8,
+                    ],
+                );
+            }
+        }
+
+        let gray = rgb_to_gray(&page);
+        let ownership = independent_chroma_mask(&gray, Some(&page), 8)
+            .expect("the independent color photo owns Mixed pixels");
+        assert!(ownership.get(300, 200));
+        assert!(
+            !ownership.get(20, 20),
+            "brown ink was contaminated by the photo's dark colors"
+        );
+        assert!(
+            !ownership.get(350, 250),
+            "cream paper was contaminated by the photo's color model"
         );
     }
 
@@ -1165,6 +2080,49 @@ mod tests {
     }
 
     #[test]
+    fn localized_tone_beside_text_uses_layers_instead_of_a_full_page_gray_raster() {
+        let (gray, _) = text_page([205; 3]);
+        let picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let recommendation = recommend_output_mode_with_tone(
+            PreparedModeEvidence {
+                analysis: &gray,
+                analysis_rgb: None,
+                picture_mask: &picture_mask,
+                text_line_count: 8,
+            },
+            crate::text_tone::OutsideTonalEvidence {
+                fraction: 0.025,
+                largest_component_fraction: 0.02,
+                largest_component_width_fraction: 0.12,
+                largest_component_height_fraction: 0.10,
+            },
+        );
+
+        assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
+        assert_eq!(
+            recommendation.reason,
+            OutputModeRecommendationReason::TextWithPictures
+        );
+        assert!(recommendation.diagnostics.destructive_mode_tonal_veto);
+    }
+
+    #[test]
+    fn photo_dominant_page_stays_semantically_mixed() {
+        let (mut gray, _) = text_page([245; 3]);
+        for y in 92..242 {
+            for x in 190..350 {
+                gray.set(x, y, 35 + ((x * 11 + y * 7 + x * y % 41) % 190) as u8);
+            }
+        }
+        let recommendation = classify(&gray, None);
+        assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
+        assert!(
+            recommendation.diagnostics.picture_fraction >= PICTURE_NOISE_FLOOR,
+            "{recommendation:?}"
+        );
+    }
+
+    #[test]
     fn color_plate_with_caption_routes_to_mixed_while_a_color_cover_stays_color() {
         let (_, mut plate_page) = text_page([245; 3]);
         for y in 125..235 {
@@ -1185,6 +2143,28 @@ mod tests {
         assert_eq!(
             plate_recommendation.reason,
             OutputModeRecommendationReason::TextWithPictures
+        );
+
+        let mut dominant_plate = RgbImage::new(360, 260, [242; 3]);
+        let mut dominant_picture_mask = BinaryImage::new(360, 260);
+        for y in 30..230 {
+            for x in 60..300 {
+                let colors = [[190, 35, 55], [35, 100, 205], [35, 155, 80], [225, 150, 30]];
+                dominant_plate.set(x, y, colors[(x / 40 + y / 40) % colors.len()]);
+                dominant_picture_mask.set(x, y, true);
+            }
+        }
+        let dominant_gray = rgb_to_gray(&dominant_plate);
+        let dominant_recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &dominant_gray,
+            analysis_rgb: Some(&dominant_plate),
+            picture_mask: &dominant_picture_mask,
+            text_line_count: 4,
+        });
+        assert_eq!(
+            dominant_recommendation.mode,
+            OutputMode::Color,
+            "{dominant_recommendation:?}"
         );
 
         let mut cover = RgbImage::new(360, 260, [28, 74, 132]);
@@ -1211,6 +2191,61 @@ mod tests {
         assert_eq!(
             cover_recommendation.reason,
             OutputModeRecommendationReason::ColorChroma
+        );
+    }
+
+    #[test]
+    fn dark_textured_cover_with_a_small_barcode_sticker_stays_color() {
+        let mut cover = RgbImage::new(360, 260, [62, 16, 12]);
+        for y in 0..cover.height() {
+            for x in 0..cover.width() {
+                let texture = ((x * 17 + y * 29 + x * y % 31) % 26) as u8;
+                cover.set(
+                    x,
+                    y,
+                    [
+                        52_u8.saturating_add(texture),
+                        12_u8.saturating_add(texture / 3),
+                        9_u8.saturating_add(texture / 5),
+                    ],
+                );
+            }
+        }
+        for y in 205..252 {
+            for x in 120..300 {
+                cover.set(x, y, [194, 181, 151]);
+            }
+        }
+        for stripe in 0..24 {
+            let left = 145 + stripe * 5;
+            let width = 1 + stripe % 2;
+            for y in 220..238 {
+                for x in left..left + width {
+                    cover.set(x, y, [32, 28, 24]);
+                }
+            }
+        }
+        let gray = rgb_to_gray(&cover);
+        let picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: Some(&cover),
+            picture_mask: &picture_mask,
+            text_line_count: 2,
+        });
+        report("dark-textured-cover-with-sticker", recommendation);
+        assert!(
+            recommendation.diagnostics.ink_fraction > COLOR_TEXT_MAX_INK_FRACTION,
+            "{recommendation:?}",
+        );
+        assert!(
+            recommendation.diagnostics.significant_color,
+            "{recommendation:?}",
+        );
+        assert_eq!(recommendation.mode, OutputMode::Color, "{recommendation:?}",);
+        assert_eq!(
+            recommendation.reason,
+            OutputModeRecommendationReason::ColorChroma,
         );
     }
 
@@ -1485,8 +2520,12 @@ mod tests {
         });
         assert_eq!(
             sparse_recommendation.mode,
-            OutputMode::Grayscale,
+            OutputMode::Bw,
             "{sparse_recommendation:?}"
+        );
+        assert_eq!(
+            sparse_recommendation.reason,
+            OutputModeRecommendationReason::BimodalText
         );
 
         let mut solid_blob = GrayImage::new(gray.width(), gray.height(), 245);

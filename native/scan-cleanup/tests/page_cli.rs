@@ -488,7 +488,7 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
 }
 
 #[test]
-fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
+fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foreground() {
     let scratch = Scratch::new("mixed-layers");
     let input = scratch.path("mixed-input.png");
     let output = scratch.path("mixed-output.png");
@@ -497,6 +497,7 @@ fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
     let bilevel_output = scratch.path("mixed-bilevel.pbm");
     let background_output = scratch.path("mixed-background.ppm");
     let foreground_mask_output = scratch.path("mixed-mask.pbm");
+    let foreground_alpha_output = scratch.path("mixed-alpha.pgm");
     let manifest = scratch.path("mixed-manifest.json");
     let mut image = RgbImage::new(180, 120, [248; 3]);
     for y in 24..94 {
@@ -560,6 +561,7 @@ fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
                 "bilevelOutputPath": bilevel_output,
                 "backgroundOutputPath": background_output,
                 "foregroundMaskOutputPath": foreground_mask_output,
+                "foregroundAlphaOutputPath": foreground_alpha_output,
             }],
         }],
     });
@@ -578,15 +580,24 @@ fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
 
     let metadata: Value = serde_json::from_slice(&fs::read(&output_metadata).unwrap()).unwrap();
     assert_eq!(metadata["layeredWritten"], true);
-    assert_eq!(metadata["layeredBackgroundDpi"], 300.0);
+    assert_eq!(metadata["layeredForegroundKind"], "soft-alpha");
+    assert_eq!(metadata["layeredBackgroundDpi"], 200.0);
+    assert_eq!(metadata["layeredForegroundDpi"], 300.0);
     assert!(
         !output.exists(),
         "a published layer pair must not be shadowed by a full-resolution composite"
     );
     assert!(!bilevel_output.exists());
-    let mask = decode_p4(&fs::read(&foreground_mask_output).unwrap(), 180 * 120, 200).unwrap();
-    assert_eq!((mask.width(), mask.height()), (180, 120));
-    assert_eq!(mask.get(30, 22), 0);
+    assert!(!foreground_mask_output.exists());
+    let alpha = fs::read(&foreground_alpha_output).unwrap();
+    let alpha_header = b"P5\n90 60\n255\n";
+    assert!(alpha.starts_with(alpha_header));
+    let alpha_samples = &alpha[alpha_header.len()..];
+    assert_eq!(alpha_samples.len(), 90 * 60);
+    assert!(
+        alpha_samples[11 * 90 + 15] > 200,
+        "dark text did not retain strong foreground opacity"
+    );
     let background = decode_ppm(
         fs::read(&background_output).unwrap().as_slice(),
         DecodeLimits {
@@ -598,16 +609,16 @@ fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
     .unwrap();
     assert_eq!(
         (background.gray.width(), background.gray.height()),
-        (90, 60)
+        (60, 40)
     );
     assert!(
-        background.gray.get(15, 11) >= 240,
+        background.gray.get(10, 7) >= 240,
         "foreground ink leaked into the downsampled JPEG background source"
     );
-    let picture = background.rgb.get(65, 30);
+    let picture = background.rgb.get(43, 20);
     assert!(
         picture[0] != picture[1] || picture[1] != picture[2],
-        "color plate chroma was lost from the mixed background"
+        "color plate chroma was lost from the mixed background: {picture:?}"
     );
 }
 
@@ -1794,7 +1805,7 @@ fn matched_canvas_normalizes_every_page_onto_one_rectangle_and_one_grid() {
 }
 
 #[test]
-fn matched_canvas_resamples_a_lower_resolution_scan_of_the_same_paper() {
+fn matched_canvas_keeps_lower_resolution_continuous_tone_at_its_native_grid() {
     let scratch = Scratch::new("matched-physical");
     let manifest = scratch.path("matched-physical-manifest.json");
     let mut pages = Vec::new();
@@ -1860,39 +1871,37 @@ fn matched_canvas_resamples_a_lower_resolution_scan_of_the_same_paper() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    let mut ink_rows = Vec::new();
+    let mut normalized_ink_extents = Vec::new();
     for index in 0..2 {
         let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 50_000, 300).unwrap();
         let metadata: Value =
             serde_json::from_slice(&fs::read(&metadata_paths[index]).unwrap()).unwrap();
+        let expected_dimension = if index == 0 { 100 } else { 200 };
         assert_eq!(
             (image.width(), image.height()),
-            (200, 200),
-            "the low-resolution scan must be resampled onto the document grid"
+            (expected_dimension, expected_dimension),
+            "continuous-tone pages must retain their source density"
         );
         assert_eq!(metadata["canvasPolicy"], "strict-maximum");
         assert_eq!(metadata["canvasOverflow"], false);
-        assert_eq!(metadata["matchedCanvasContentWidthPx"], 200);
-        assert_eq!(metadata["matchedCanvasContentHeightPx"], 200);
-        ink_rows.push(
-            (0..image.height())
-                .filter(|&y| (0..image.width()).any(|x| image.get(x, y) < 128))
-                .collect::<Vec<_>>(),
-        );
+        assert_eq!(metadata["matchedCanvasContentWidthPx"], expected_dimension);
+        assert_eq!(metadata["matchedCanvasContentHeightPx"], expected_dimension);
+        let ink_rows = (0..image.height())
+            .filter(|&y| (0..image.width()).any(|x| image.get(x, y) < 128))
+            .collect::<Vec<_>>();
+        assert!(!ink_rows.is_empty(), "the bar was lost");
+        normalized_ink_extents.push((
+            *ink_rows.first().unwrap() as f64 / image.height() as f64,
+            *ink_rows.last().unwrap() as f64 / image.height() as f64,
+        ));
     }
-    let first = ink_rows[0].clone();
-    let second = ink_rows[1].clone();
-    assert!(!first.is_empty() && !second.is_empty(), "the bar was lost");
-    // Same ink, same place, same size: the 100 DPI page was scaled rather than
-    // dropped into the corner of a 200 DPI sheet.
-    for (low, high) in [
-        (first.first(), second.first()),
-        (first.last(), second.last()),
-    ] {
-        let difference = *low.unwrap() as i64 - *high.unwrap() as i64;
+    let first = normalized_ink_extents[0];
+    let second = normalized_ink_extents[1];
+    for (low, high) in [(first.0, second.0), (first.1, second.1)] {
+        let difference = low - high;
         assert!(
-            difference.abs() <= 2,
-            "normalized bars disagree by {difference} rows ({first:?} vs {second:?})"
+            difference.abs() <= 0.02,
+            "physical bar placement disagrees by {difference:.4}"
         );
     }
 }

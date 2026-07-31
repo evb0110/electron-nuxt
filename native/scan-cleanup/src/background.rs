@@ -9,6 +9,13 @@ const MIN_PAPER_BACKGROUND_LUMINANCE: f64 = 128.0;
 const MIN_PAPER_LIKE_COVERAGE: f64 = 0.18;
 const PAPER_MODEL_TOLERANCE: f64 = 18.0;
 const CONSERVATIVE_LEVELS_BLEND: f64 = 0.2;
+const LAYOUT_WHITE_TARGET: f64 = 240.0;
+const MIN_MATERIAL_SHOULDER_COVERAGE_DENOMINATOR: usize = 32;
+// A normalized paper estimate is the display white point. Keeping headroom at
+// 240 made every grayscale fallback visibly sit inside a gray rectangle on the
+// PDF's white canvas. Robust fitting and the conservative color path handle
+// model uncertainty; paper itself must not be redefined as gray.
+const PAPER_WHITE_TARGET: f64 = 255.0;
 
 #[derive(Clone, Debug)]
 enum BackgroundModel {
@@ -79,8 +86,63 @@ pub fn normalize_illumination_with_picture_mask(
     _dpi: f64,
     picture_mask: Option<&BinaryImage>,
 ) -> GrayImage {
-    let model = background_model_from_preparation(prepare_illumination(source), picture_mask);
-    normalize_with_model(source, &model)
+    let photo_preservation_alpha = picture_mask.and_then(|mask| {
+        let preparation = prepare_illumination(source);
+        let layout = normalize_illumination_for_layout_prepared(source, &preparation);
+        crate::picture::refine_tone_preservation_alpha(&layout, source, Some(mask), None)
+    });
+    normalize_illumination_with_masks(
+        source,
+        _dpi,
+        picture_mask,
+        None,
+        photo_preservation_alpha.as_ref(),
+    )
+}
+
+/// `model_exclusion_mask` may be deliberately coarse because it only removes
+/// samples from the paper fit. Semantic tone is restored from the
+/// illumination-corrected raster; only true photo regions may restore raw
+/// source tone.
+pub(crate) fn normalize_illumination_with_masks(
+    source: &GrayImage,
+    _dpi: f64,
+    model_exclusion_mask: Option<&BinaryImage>,
+    semantic_preservation_alpha: Option<&GrayImage>,
+    photo_preservation_alpha: Option<&GrayImage>,
+) -> GrayImage {
+    let paper_model = paper_background_model(
+        prepare_illumination(source),
+        model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0),
+    );
+    let paper_corrected = normalize_with_model(source, &paper_model);
+    let semantic_corrected =
+        semantic_preservation_alpha.map(|_| normalize_semantic_luminance(source));
+    let mut normalized = paper_corrected.clone();
+    calibrate_paper_field(&mut normalized, None, model_exclusion_mask, None);
+    if let Some(alpha) = semantic_preservation_alpha {
+        // Semantic tone uses an exclusion-aware corrected endpoint while
+        // ordinary paper keeps the reconstruction model that removes local
+        // scanner clouds. Raw source remains photo-only.
+        blend_preserved_luminance(
+            semantic_corrected.as_ref().unwrap_or(&paper_corrected),
+            &mut normalized,
+            alpha,
+        );
+    }
+    if let Some(alpha) = photo_preservation_alpha {
+        blend_preserved_luminance(source, &mut normalized, alpha);
+    }
+    normalized
+}
+
+#[cfg(test)]
+pub(crate) fn normalize_illumination_preserving_tone(
+    source: &GrayImage,
+    dpi: f64,
+    protected_tone_mask: &BinaryImage,
+) -> GrayImage {
+    normalize_illumination_with_picture_mask(source, dpi, Some(protected_tone_mask))
 }
 
 pub fn normalize_illumination_rgb(luminance: &GrayImage, source: &RgbImage, _dpi: f64) -> RgbImage {
@@ -93,35 +155,217 @@ pub fn normalize_illumination_rgb_with_picture_mask(
     _dpi: f64,
     picture_mask: Option<&BinaryImage>,
 ) -> RgbImage {
-    let model = background_model(luminance, picture_mask);
-    if paper_background_plausible(luminance, &model) {
-        normalize_rgb_with_model(source, &model)
+    let photo_preservation_alpha = picture_mask.and_then(|mask| {
+        let preparation = prepare_illumination(luminance);
+        let layout = normalize_illumination_for_layout_prepared(luminance, &preparation);
+        crate::picture::refine_tone_preservation_alpha(&layout, luminance, Some(mask), None)
+    });
+    normalize_illumination_rgb_with_masks(
+        luminance,
+        source,
+        picture_mask,
+        None,
+        photo_preservation_alpha.as_ref(),
+    )
+}
+
+pub(crate) fn normalize_illumination_rgb_with_masks(
+    luminance: &GrayImage,
+    source: &RgbImage,
+    model_exclusion_mask: Option<&BinaryImage>,
+    semantic_preservation_alpha: Option<&GrayImage>,
+    photo_preservation_alpha: Option<&GrayImage>,
+) -> RgbImage {
+    let paper_model = paper_background_model(
+        prepare_illumination(luminance),
+        model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0),
+    );
+    let source_median = median_luminance(luminance);
+    let paper_is_plausible = source_median >= MIN_PAPER_BACKGROUND_LUMINANCE as u8
+        && paper_background_plausible(luminance, &paper_model);
+    let paper_corrected = if paper_is_plausible {
+        normalize_rgb_with_model(source, &paper_model)
     } else {
         conservative_luminance_levels(luminance, source)
+    };
+    let semantic_corrected =
+        semantic_preservation_alpha.map(|_| normalize_semantic_color(luminance, source));
+    let mut normalized = paper_corrected.clone();
+    let mut normalized_luminance = normalize_with_model(luminance, &paper_model);
+    // A full-bleed photograph or colored cover has no paper field to white
+    // balance. Treating its spatially dominant color as paper turns dark art
+    // into a pale, noisy rectangle. Mixed output still calibrates outside its
+    // explicit picture mask; an unmasked Color page is calibrated only after
+    // the background model establishes that paper is actually plausible.
+    if paper_is_plausible
+        || source_median >= MIN_PAPER_BACKGROUND_LUMINANCE as u8
+        || model_exclusion_mask.is_some()
+    {
+        calibrate_paper_field(
+            &mut normalized_luminance,
+            Some(&mut normalized),
+            model_exclusion_mask,
+            None,
+        );
     }
+    if let Some(alpha) = semantic_preservation_alpha {
+        blend_preserved_color(
+            semantic_corrected.as_ref().unwrap_or(&paper_corrected),
+            &mut normalized,
+            alpha,
+        );
+    }
+    if let Some(alpha) = photo_preservation_alpha {
+        blend_preserved_color(source, &mut normalized, alpha);
+    }
+    normalized
+}
+
+fn median_luminance(source: &GrayImage) -> u8 {
+    let mut histogram = [0usize; 256];
+    for &value in source.data() {
+        histogram[usize::from(value)] += 1;
+    }
+    let target = source.data().len().saturating_sub(1) / 2;
+    let mut cumulative = 0usize;
+    histogram
+        .iter()
+        .position(|&count| {
+            cumulative += count;
+            cumulative > target
+        })
+        .unwrap_or(255) as u8
 }
 
 /// Normalize the luminance and RGB views with one fitted paper model. Mixed
 /// cleanup consumes both views of the same source raster; fitting the identical
 /// model twice made full-resolution pages pay twice for preparation without
 /// changing either result.
+#[cfg(test)]
 pub(crate) fn normalize_illumination_pair_with_picture_mask(
     luminance: &GrayImage,
     source: &RgbImage,
     picture_mask: Option<&BinaryImage>,
 ) -> (GrayImage, RgbImage) {
-    let model = background_model(luminance, picture_mask);
-    let use_background_for_color = paper_background_plausible(luminance, &model);
-    rayon::join(
-        || normalize_with_model(luminance, &model),
+    let photo_preservation_alpha = picture_mask.and_then(|mask| {
+        let preparation = prepare_illumination(luminance);
+        let layout = normalize_illumination_for_layout_prepared(luminance, &preparation);
+        crate::picture::refine_tone_preservation_alpha(&layout, luminance, Some(mask), None)
+    });
+    normalize_illumination_pair_with_masks(
+        luminance,
+        source,
+        picture_mask,
+        None,
+        photo_preservation_alpha.as_ref(),
+    )
+}
+
+pub(crate) fn normalize_illumination_pair_with_masks(
+    luminance: &GrayImage,
+    source: &RgbImage,
+    model_exclusion_mask: Option<&BinaryImage>,
+    semantic_preservation_alpha: Option<&GrayImage>,
+    photo_preservation_alpha: Option<&GrayImage>,
+) -> (GrayImage, RgbImage) {
+    let paper_model = paper_background_model(
+        prepare_illumination(luminance),
+        model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0),
+    );
+    let color_page_has_paper = model_exclusion_mask.is_some()
+        || median_luminance(luminance) >= MIN_PAPER_BACKGROUND_LUMINANCE as u8;
+    let use_background_for_color =
+        color_page_has_paper && paper_background_plausible(luminance, &paper_model);
+    let (paper_corrected_luminance, paper_corrected_color) = rayon::join(
+        || normalize_with_model(luminance, &paper_model),
         || {
             if use_background_for_color {
-                normalize_rgb_with_model(source, &model)
+                normalize_rgb_with_model(source, &paper_model)
             } else {
                 conservative_luminance_levels(luminance, source)
             }
         },
-    )
+    );
+    let semantic_corrected = semantic_preservation_alpha.map(|_| {
+        rayon::join(
+            || normalize_semantic_luminance(luminance),
+            || normalize_semantic_color(luminance, source),
+        )
+    });
+    let mut normalized_luminance = paper_corrected_luminance.clone();
+    let mut normalized_color = paper_corrected_color.clone();
+    if color_page_has_paper {
+        calibrate_paper_field(
+            &mut normalized_luminance,
+            Some(&mut normalized_color),
+            model_exclusion_mask,
+            None,
+        );
+    }
+    if let Some(alpha) = semantic_preservation_alpha {
+        let (semantic_luminance, semantic_color) = semantic_corrected.as_ref().map_or(
+            (&paper_corrected_luminance, &paper_corrected_color),
+            |(luminance, color)| (luminance, color),
+        );
+        blend_preserved_luminance(semantic_luminance, &mut normalized_luminance, alpha);
+        blend_preserved_color(semantic_color, &mut normalized_color, alpha);
+    }
+    if let Some(alpha) = photo_preservation_alpha {
+        blend_preserved_luminance(luminance, &mut normalized_luminance, alpha);
+        blend_preserved_color(source, &mut normalized_color, alpha);
+    }
+    (normalized_luminance, normalized_color)
+}
+
+fn preservation_alpha_at(
+    alpha: &GrayImage,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> f64 {
+    let source_x = source_coordinate(x, width, alpha.width());
+    let source_y = source_coordinate(y, height, alpha.height());
+    sample_bilinear(alpha, source_x, source_y) / 255.0
+}
+
+fn blend_preserved_luminance(source: &GrayImage, normalized: &mut GrayImage, alpha: &GrayImage) {
+    let width = normalized.width();
+    let height = normalized.height();
+    normalized
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                let weight = preservation_alpha_at(alpha, x, y, width, height);
+                *target = (f64::from(*target) * (1.0 - weight)
+                    + f64::from(source.get(x, y)) * weight)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+            }
+        });
+}
+
+fn blend_preserved_color(source: &RgbImage, normalized: &mut RgbImage, alpha: &GrayImage) {
+    let width = normalized.width();
+    let height = normalized.height();
+    normalized
+        .data_mut()
+        .par_chunks_mut(width * 3)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                let weight = preservation_alpha_at(alpha, x, y, width, height);
+                let source_pixel = source.get(x, y);
+                for channel in 0..3 {
+                    target[channel] = (f64::from(target[channel]) * (1.0 - weight)
+                        + f64::from(source_pixel[channel]) * weight)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                }
+            }
+        });
 }
 
 fn background_model(source: &GrayImage, picture_mask: Option<&BinaryImage>) -> BackgroundModel {
@@ -138,14 +382,47 @@ fn background_model_from_preparation(
         picture_mask,
         &preparation.surface_basis,
     ) {
-        Some(fit) => select_background_model(&preparation.small, preparation.candidate, fit),
-        None => reconstruction_fallback(preparation.candidate),
+        Some(fit) => select_background_model(
+            &preparation.small,
+            preparation.candidate,
+            fit,
+            picture_mask.is_none(),
+        ),
+        None if picture_mask.is_none() => reconstruction_fallback(preparation.candidate),
+        None => constant_surface_fallback(&preparation.candidate),
+    }
+}
+
+/// Builds the spatial paper endpoint. Semantic content uses the separate
+/// robust multiplicative endpoint below: fitting a high-order surface from the
+/// narrow remainder around a large map is underconstrained.
+fn paper_background_model(
+    preparation: IlluminationPreparation,
+    protect_content_structure: bool,
+) -> BackgroundModel {
+    let paper_fit = fit_masked_surface_with_basis(
+        &preparation.small,
+        &preparation.candidate,
+        None,
+        &preparation.surface_basis,
+    );
+    match paper_fit {
+        Some(fit) => select_background_model(
+            &preparation.small,
+            preparation.candidate,
+            fit,
+            !protect_content_structure,
+        ),
+        None if !protect_content_structure => reconstruction_fallback(preparation.candidate),
+        None => constant_surface_fallback(&preparation.candidate),
     }
 }
 
 pub(crate) fn reusable_illumination_model(source: &GrayImage) -> ReusableIlluminationModel {
     let background = background_model(source, None);
-    let color_policy = if paper_background_plausible(source, &background) {
+    let color_policy = if median_luminance(source) >= MIN_PAPER_BACKGROUND_LUMINANCE as u8
+        && paper_background_plausible(source, &background)
+    {
         ReusableColorPolicy::Background
     } else {
         let mut values = source
@@ -184,7 +461,7 @@ where
             for (x, target) in output_row.iter_mut().enumerate() {
                 let (u, v) = normalized_coordinate(x, y);
                 let background = reusable_background_at(&model.background, u, v);
-                *target = (f64::from(source.get(x, y)) * 240.0 / background)
+                *target = (f64::from(source.get(x, y)) * PAPER_WHITE_TARGET / background)
                     .round()
                     .clamp(0.0, 255.0) as u8;
             }
@@ -213,7 +490,8 @@ where
                 let target_luminance = match model.color_policy {
                     ReusableColorPolicy::Background => {
                         let (u, v) = normalized_coordinate(x, y);
-                        source_luminance * 240.0 / reusable_background_at(&model.background, u, v)
+                        source_luminance * PAPER_WHITE_TARGET
+                            / reusable_background_at(&model.background, u, v)
                     }
                     ReusableColorPolicy::Conservative { low, high } => {
                         let stretched = (12.0 + (source_luminance - low) * 231.0 / (high - low))
@@ -294,16 +572,67 @@ pub(crate) fn normalize_illumination_for_layout_prepared(
     )
     .map(BackgroundModel::Surface)
     .unwrap_or_else(|| reconstruction_fallback(preparation.candidate.clone()));
-    normalize_with_model(source, &model)
+    // Layout thresholds, crop geometry, and deskew calibration are frozen to
+    // the historical 240 endpoint. The quality raster may map paper to 255,
+    // but feeding that display decision back into geometry causes subpixel
+    // preview/final shifts and makes exact glyph coordinates disagree across
+    // source resolutions.
+    normalize_with_model_target(source, &model, LAYOUT_WHITE_TARGET)
 }
 
+#[cfg(test)]
 pub(crate) fn normalize_illumination_prepared(
     source: &GrayImage,
     picture_mask: Option<&BinaryImage>,
     preparation: IlluminationPreparation,
 ) -> GrayImage {
-    let model = background_model_from_preparation(preparation, picture_mask);
-    normalize_with_model(source, &model)
+    let photo_preservation_alpha = picture_mask.and_then(|mask| {
+        let layout = normalize_illumination_for_layout_prepared(source, &preparation);
+        crate::picture::refine_tone_preservation_alpha(&layout, source, Some(mask), None)
+    });
+    normalize_illumination_prepared_with_masks(
+        source,
+        picture_mask,
+        None,
+        photo_preservation_alpha.as_ref(),
+        None,
+        preparation,
+    )
+}
+
+pub(crate) fn normalize_illumination_prepared_with_masks(
+    source: &GrayImage,
+    model_exclusion_mask: Option<&BinaryImage>,
+    semantic_preservation_alpha: Option<&GrayImage>,
+    photo_preservation_alpha: Option<&GrayImage>,
+    paper_shoulder_protection_mask: Option<&BinaryImage>,
+    preparation: IlluminationPreparation,
+) -> GrayImage {
+    let paper_model = paper_background_model(
+        preparation,
+        model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0),
+    );
+    let paper_corrected = normalize_with_model(source, &paper_model);
+    let semantic_corrected =
+        semantic_preservation_alpha.map(|_| normalize_semantic_luminance(source));
+    let mut normalized = paper_corrected.clone();
+    calibrate_paper_field(
+        &mut normalized,
+        None,
+        model_exclusion_mask,
+        paper_shoulder_protection_mask,
+    );
+    if let Some(alpha) = semantic_preservation_alpha {
+        blend_preserved_luminance(
+            semantic_corrected.as_ref().unwrap_or(&paper_corrected),
+            &mut normalized,
+            alpha,
+        );
+    }
+    if let Some(alpha) = photo_preservation_alpha {
+        blend_preserved_luminance(source, &mut normalized, alpha);
+    }
+    normalized
 }
 
 fn reconstructed_background(source: &GrayImage) -> (GrayImage, GrayImage) {
@@ -324,7 +653,30 @@ fn reconstruction_fallback(candidate: GrayImage) -> BackgroundModel {
     }
 }
 
+/// A quality-render correction field must be smoother than any printable page
+/// content. The reconstructed image is useful while selecting paper samples,
+/// but using it as the divisor copies maps, halftones, and bleed-through into
+/// the correction field and creates bright halos around their boundaries.
+///
+/// When the robust surface fit is unavailable, prefer one page-wide paper
+/// anchor. It cannot remove a local shadow, but it also cannot invent content-
+/// shaped illumination. Layout analysis keeps its frozen reconstruction
+/// fallback because changing that field would move split/crop calibration.
+fn constant_surface_fallback(candidate: &GrayImage) -> BackgroundModel {
+    let mut coefficients = vec![0.0; SURFACE_TERMS];
+    coefficients[0] = robust_image_percentile(candidate, 0.5).clamp(32.0, 255.0);
+    BackgroundModel::Surface(coefficients)
+}
+
 fn normalize_with_model(source: &GrayImage, model: &BackgroundModel) -> GrayImage {
+    normalize_with_model_target(source, model, PAPER_WHITE_TARGET)
+}
+
+fn normalize_with_model_target(
+    source: &GrayImage,
+    model: &BackgroundModel,
+    white_target: f64,
+) -> GrayImage {
     let mut normalized = GrayImage::new(source.width(), source.height(), 255);
     let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
     let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
@@ -357,7 +709,7 @@ fn normalize_with_model(source: &GrayImage, model: &BackgroundModel) -> GrayImag
                     .max(*floor),
                 }
                 .clamp(32.0, 255.0);
-                *target = (f64::from(source.get(x, y)) * 240.0 / background)
+                *target = (f64::from(source.get(x, y)) * white_target / background)
                     .round()
                     .clamp(0.0, 255.0) as u8;
             }
@@ -398,7 +750,7 @@ fn normalize_rgb_with_model(source: &RgbImage, model: &BackgroundModel) -> RgbIm
                     .max(*floor),
                 }
                 .clamp(32.0, 255.0);
-                let factor = 240.0 / background;
+                let factor = PAPER_WHITE_TARGET / background;
                 let source_pixel = source.get(x, y);
                 for channel in 0..3 {
                     target[channel] = (f64::from(source_pixel[channel]) * factor)
@@ -408,6 +760,295 @@ fn normalize_rgb_with_model(source: &RgbImage, model: &BackgroundModel) -> RgbIm
             }
         });
     normalized
+}
+
+/// Corrects semantic gray/color content with one robust page-white anchor.
+///
+/// A high-order spatial surface fitted from the thin paper remainder around a
+/// large map is underconstrained and can flatten the map into white. The 95th
+/// percentile is a shade-independent estimate of the page's light stock: the
+/// multiplicative transform keeps relative semantic contrast while mapping
+/// the page's light field toward display white.
+fn semantic_paper_anchor(source: &GrayImage) -> f64 {
+    let mut histogram = [0usize; 256];
+    for &value in source.data() {
+        histogram[usize::from(value)] += 1;
+    }
+    let target = source.data().len().saturating_sub(1) * 95 / 100;
+    let mut cumulative = 0usize;
+    histogram
+        .iter()
+        .position(|count| {
+            cumulative += count;
+            cumulative > target
+        })
+        .unwrap_or(255)
+        .max(32) as f64
+}
+
+fn normalize_semantic_luminance(source: &GrayImage) -> GrayImage {
+    let gain = PAPER_WHITE_TARGET / semantic_paper_anchor(source);
+    let mut normalized = source.clone();
+    normalized.data_mut().par_iter_mut().for_each(|value| {
+        *value = (f64::from(*value) * gain).round().clamp(0.0, 255.0) as u8;
+    });
+    normalized
+}
+
+fn normalize_semantic_color(luminance: &GrayImage, source: &RgbImage) -> RgbImage {
+    let gain = PAPER_WHITE_TARGET / semantic_paper_anchor(luminance);
+    let mut normalized = source.clone();
+    normalized.data_mut().par_iter_mut().for_each(|value| {
+        *value = (f64::from(*value) * gain).round().clamp(0.0, 255.0) as u8;
+    });
+    normalized
+}
+
+/// The spatial background solve can flatten illumination while leaving a
+/// uniform colored paper cast because it applies one luminance gain to all RGB
+/// channels. A second calibration is therefore a required post-condition for
+/// color as well as Mixed output: find the dominant, spatially distributed
+/// paper cluster, map it to display white, and use the same samples for RGB
+/// white balance. When a picture mask exists, protected picture pixels are
+/// untouched. Without one, the global per-channel gain is a conventional white
+/// balance: it removes the paper cast while retaining independent chroma.
+fn calibrate_paper_field(
+    normalized_luminance: &mut GrayImage,
+    normalized_color: Option<&mut RgbImage>,
+    sampling_exclusion_mask: Option<&BinaryImage>,
+    paper_shoulder_protection_mask: Option<&BinaryImage>,
+) {
+    const MAX_SAMPLES: usize = 200_000;
+    const CLUSTER_RADIUS: usize = 10;
+    const MIN_CLUSTER_COVERAGE_DENOMINATOR: usize = 5;
+    const MIN_SPATIAL_EXTENT_DENOMINATOR: usize = 3;
+
+    let width = normalized_luminance.width();
+    let height = normalized_luminance.height();
+    let sampling_exclusion_mask = sampling_exclusion_mask.filter(|mask| {
+        // A near-page-sized map/picture mask has no useful "outside" paper
+        // sample. Its renderer ownership field will restore true tone later;
+        // paper calibration must still find the dominant light field inside
+        // the geometry so the map's unprinted stock can become white.
+        mask.count_black() as f64 / (mask.width().saturating_mul(mask.height()).max(1) as f64)
+            < 0.60
+    });
+    debug_assert!(normalized_color
+        .as_ref()
+        .is_none_or(|color| color.width() == width && color.height() == height));
+    let sample_stride = ((width.saturating_mul(height) / MAX_SAMPLES).max(1) as f64)
+        .sqrt()
+        .ceil() as usize;
+    let mask_at = |mask: Option<&BinaryImage>, x: usize, y: usize| {
+        mask.is_some_and(|mask| {
+            let mask_x = x.saturating_mul(mask.width()) / width.max(1);
+            let mask_y = y.saturating_mul(mask.height()) / height.max(1);
+            mask.get(
+                mask_x.min(mask.width().saturating_sub(1)),
+                mask_y.min(mask.height().saturating_sub(1)),
+            )
+        })
+    };
+    let mut histogram = [0usize; 256];
+    let mut sampled_outside = 0usize;
+    for y in (0..height).step_by(sample_stride) {
+        for x in (0..width).step_by(sample_stride) {
+            if mask_at(sampling_exclusion_mask, x, y)
+                || mask_at(paper_shoulder_protection_mask, x, y)
+            {
+                continue;
+            }
+            sampled_outside += 1;
+            histogram[usize::from(normalized_luminance.get(x, y))] += 1;
+        }
+    }
+    let minimum_samples = 128usize.min(sampled_outside).max(sampled_outside / 100);
+    if sampled_outside < minimum_samples || sampled_outside == 0 {
+        return;
+    }
+
+    let quantile = |numerator: usize, denominator: usize| {
+        let target = sampled_outside.saturating_sub(1) * numerator / denominator;
+        let mut cumulative = 0usize;
+        histogram
+            .iter()
+            .position(|count| {
+                cumulative += count;
+                cumulative > target
+            })
+            .unwrap_or(255)
+    };
+    let median = quantile(1, 2);
+    let first_center = median.saturating_sub(CLUSTER_RADIUS);
+    let mut cluster_center = first_center;
+    let mut cluster_count = 0usize;
+    for center in first_center..=255 {
+        let first = center.saturating_sub(CLUSTER_RADIUS);
+        let last = (center + CLUSTER_RADIUS).min(255);
+        let count = histogram[first..=last].iter().sum::<usize>();
+        if count > cluster_count {
+            cluster_center = center;
+            cluster_count = count;
+        }
+    }
+    if cluster_count < minimum_samples.max(sampled_outside / MIN_CLUSTER_COVERAGE_DENOMINATOR) {
+        return;
+    }
+
+    let cluster_first = cluster_center.saturating_sub(CLUSTER_RADIUS);
+    let cluster_last = (cluster_center + CLUSTER_RADIUS).min(255);
+    let mut luminance_samples = Vec::with_capacity(cluster_count);
+    let mut channel_samples = [Vec::new(), Vec::new(), Vec::new()];
+    let mut minimum_x = width;
+    let mut maximum_x = 0usize;
+    let mut minimum_y = height;
+    let mut maximum_y = 0usize;
+    for y in (0..height).step_by(sample_stride) {
+        for x in (0..width).step_by(sample_stride) {
+            if mask_at(sampling_exclusion_mask, x, y)
+                || mask_at(paper_shoulder_protection_mask, x, y)
+            {
+                continue;
+            }
+            let luminance = normalized_luminance.get(x, y);
+            if usize::from(luminance) < cluster_first || usize::from(luminance) > cluster_last {
+                continue;
+            }
+            luminance_samples.push(luminance);
+            if let Some(color) = normalized_color.as_deref() {
+                let pixel = color.get(x, y);
+                for channel in 0..3 {
+                    channel_samples[channel].push(pixel[channel]);
+                }
+            }
+            minimum_x = minimum_x.min(x);
+            maximum_x = maximum_x.max(x);
+            minimum_y = minimum_y.min(y);
+            maximum_y = maximum_y.max(y);
+        }
+    }
+    if luminance_samples.len() < minimum_samples
+        || maximum_x.saturating_sub(minimum_x) * MIN_SPATIAL_EXTENT_DENOMINATOR < width
+        || maximum_y.saturating_sub(minimum_y) * MIN_SPATIAL_EXTENT_DENOMINATOR < height
+    {
+        return;
+    }
+    luminance_samples.sort_unstable();
+    for values in &mut channel_samples {
+        values.sort_unstable();
+    }
+    let sample_median = |values: &[u8]| values[values.len() / 2];
+    let paper_luminance = sample_median(&luminance_samples);
+    let paper_channels = normalized_color.as_ref().map(|_| {
+        channel_samples
+            .each_ref()
+            .map(|values| sample_median(values))
+    });
+    normalized_color
+        .zip(paper_channels)
+        .into_iter()
+        .for_each(|(color, paper)| {
+            if paper.iter().all(|&channel| channel >= 250) {
+                return;
+            }
+            let paper_mean = paper.iter().map(|&channel| f64::from(channel)).sum::<f64>() / 3.0;
+            let paper_chroma = paper.map(|channel| f64::from(channel) - paper_mean);
+            let paper_chroma_norm = paper_chroma
+                .iter()
+                .map(|channel| channel * channel)
+                .sum::<f64>()
+                .sqrt();
+            color.data_mut().par_chunks_mut(width * 3).for_each(|row| {
+                for pixel in row.chunks_exact_mut(3) {
+                    let pixel_mean =
+                        pixel.iter().map(|&channel| f64::from(channel)).sum::<f64>() / 3.0;
+                    let pixel_chroma = [
+                        f64::from(pixel[0]) - pixel_mean,
+                        f64::from(pixel[1]) - pixel_mean,
+                        f64::from(pixel[2]) - pixel_mean,
+                    ];
+                    let pixel_chroma_norm = pixel_chroma
+                        .iter()
+                        .map(|channel| channel * channel)
+                        .sum::<f64>()
+                        .sqrt();
+                    let neutral = pixel_chroma_norm <= 18.0;
+                    let follows_paper_tint = paper_chroma_norm >= 8.0
+                        && pixel_chroma_norm >= 8.0
+                        && paper_chroma
+                            .iter()
+                            .zip(pixel_chroma)
+                            .map(|(left, right)| left * right)
+                            .sum::<f64>()
+                            / (paper_chroma_norm * pixel_chroma_norm)
+                            >= 0.82;
+                    if !neutral && !follows_paper_tint {
+                        continue;
+                    }
+                    for channel in 0..3 {
+                        pixel[channel] = (f64::from(pixel[channel]) * 255.0
+                            / f64::from(paper[channel]).max(1.0))
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                    }
+                }
+            });
+        });
+    // Scanner show-through and broad lighting bands form a shallow shoulder
+    // immediately below the dominant paper mode. A linear white-point gain
+    // leaves that shoulder visibly gray. Lift it with a smooth, page-relative
+    // knee while keeping deeper ink on the ordinary multiplicative curve.
+    // True tone is restored by its ownership field after this paper endpoint
+    // is produced; text stays on the monotonic curve and is darkened later.
+    let paper = f64::from(paper_luminance).max(1.0);
+    let knee_low = (paper - 64.0).max(0.0);
+    // A shallow mark is a paper-field artifact only when it occupies material
+    // page area. Sparse low-contrast marks may be faint or tiny foreground
+    // text and must stay on the ordinary white-point curve.
+    let shoulder_first = paper_luminance.saturating_sub(63);
+    let shoulder_last = paper_luminance.saturating_sub(10);
+    let shoulder_count = if shoulder_first <= shoulder_last {
+        histogram[usize::from(shoulder_first)..=usize::from(shoulder_last)]
+            .iter()
+            .sum::<usize>()
+    } else {
+        0
+    };
+    let apply_paper_shoulder = shoulder_count
+        .saturating_mul(MIN_MATERIAL_SHOULDER_COVERAGE_DENOMINATOR)
+        >= sampled_outside;
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_PAPER").is_some() {
+        eprintln!(
+            "{{\"event\":\"paper-calibration\",\"width\":{width},\"height\":{height},\
+             \"paperLuminance\":{paper_luminance},\"sampleCount\":{sampled_outside},\
+             \"shoulderCount\":{shoulder_count},\"shoulderFraction\":{:.8},\
+             \"shoulderApplied\":{apply_paper_shoulder}}}",
+            shoulder_count as f64 / sampled_outside as f64,
+        );
+    }
+    normalized_luminance
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, pixel) in row.iter_mut().enumerate() {
+                let value = f64::from(*pixel);
+                let scaled = value * 255.0 / paper;
+                let normalized = if !apply_paper_shoulder
+                    || value <= knee_low
+                    || mask_at(paper_shoulder_protection_mask, x, y)
+                {
+                    scaled
+                } else {
+                    let t = ((value - knee_low) / (paper - knee_low).max(1.0)).clamp(0.0, 1.0);
+                    // Ease out quickly so a broad, low-contrast paper shoulder
+                    // reaches white without a hard contour.
+                    let weight = 1.0 - (1.0 - t).powi(3);
+                    scaled * (1.0 - weight) + 255.0 * weight
+                };
+                *pixel = normalized.round().clamp(0.0, 255.0) as u8;
+            }
+        });
 }
 
 fn paper_background_plausible(source: &GrayImage, model: &BackgroundModel) -> bool {
@@ -605,7 +1246,11 @@ fn select_background_model(
     source: &GrayImage,
     candidate: GrayImage,
     fit: SurfaceFit,
+    allow_reconstruction: bool,
 ) -> BackgroundModel {
+    if !allow_reconstruction {
+        return BackgroundModel::Surface(fit.coefficients);
+    }
     let surface_basis = SurfaceBasis::new(source.width(), source.height());
     let surface_residual = masked_model_residual(
         source,
@@ -1330,6 +1975,46 @@ mod tests {
     }
 
     #[test]
+    fn masked_semantic_gradient_uses_robust_multiplicative_white_balance() {
+        let mut source = GrayImage::new(240, 180, 210);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source.set(x, y, (196 + 18 * x / 239 + 8 * y / 179) as u8);
+            }
+        }
+        let mut semantic_mask = BinaryImage::new(source.width(), source.height());
+        let mut semantic_alpha = GrayImage::new(source.width(), source.height(), 0);
+        let center_x = 120.0;
+        let center_y = 90.0;
+        for y in 28..152 {
+            for x in 48..192 {
+                semantic_mask.set(x, y, true);
+                semantic_alpha.set(x, y, 255);
+                let radius =
+                    (((x as f64 - center_x).powi(2) + (y as f64 - center_y).powi(2)).sqrt() / 82.0)
+                        .clamp(0.0, 1.0);
+                source.set(x, y, (42.0 + 164.0 * radius).round() as u8);
+            }
+        }
+
+        let normalized = normalize_illumination_with_masks(
+            &source,
+            300.0,
+            Some(&semantic_mask),
+            Some(&semantic_alpha),
+            None,
+        );
+
+        assert!(normalized.get(12, 12) >= 245);
+        assert!(normalized.get(120, 90) < 80);
+        let middle = normalized.get(160, 90);
+        assert!(
+            (110..=190).contains(&middle),
+            "semantic middle tone was flattened: {middle}"
+        );
+    }
+
+    #[test]
     fn surface_fit_reports_bounded_residuals_and_sparse_input_uses_fallback() {
         let mut source = GrayImage::new(120, 80, 230);
         let mut candidate = GrayImage::new(120, 80, 230);
@@ -1394,12 +2079,15 @@ mod tests {
         }
         let normalized =
             normalize_illumination_with_picture_mask(&source, 300.0, Some(&picture_mask));
-        assert!(normalized.data().iter().all(|&value| value >= 180));
-        assert!(normalized.data().iter().any(|&value| value <= 245));
+        let minimum = normalized.data().iter().copied().min().unwrap_or(255);
+        assert!(
+            normalized.data().iter().all(|&value| value >= 254),
+            "a smooth paper field remained visibly shaded: minimum={minimum}"
+        );
     }
 
     #[test]
-    fn model_selection_prefers_reconstruction_for_a_local_shadow() {
+    fn quality_model_never_applies_content_shaped_reconstruction() {
         let mut source = GrayImage::new(180, 120, 230);
         for y in 25..95 {
             for x in 65..145 {
@@ -1411,8 +2099,87 @@ mod tests {
         let (small, candidate) = reconstructed_background(&source);
         let fit = fit_masked_surface(&small, &candidate, None)
             .expect("the local-shadow fixture must retain enough surface samples");
-        let model = select_background_model(&small, candidate, fit);
-        assert!(matches!(model, BackgroundModel::Reconstruction { .. }));
+        let model = select_background_model(&small, candidate, fit, false);
+        assert!(matches!(model, BackgroundModel::Surface(_)));
+    }
+
+    #[test]
+    fn layout_white_point_stays_frozen_while_quality_paper_reaches_display_white() {
+        let source = GrayImage::new(180, 120, 184);
+        let preparation = prepare_illumination(&source);
+        let layout = normalize_illumination_for_layout_prepared(&source, &preparation);
+        let quality = normalize_illumination_prepared_with_masks(
+            &source,
+            None,
+            None,
+            None,
+            None,
+            preparation,
+        );
+
+        assert_eq!(layout.get(90, 60), LAYOUT_WHITE_TARGET as u8);
+        assert_eq!(quality.get(90, 60), PAPER_WHITE_TARGET as u8);
+    }
+
+    #[test]
+    fn paper_shoulder_removes_low_contrast_show_through_but_keeps_sharp_faint_ink() {
+        // The background model normally maps the dominant paper cluster to
+        // 255 before this calibration runs. Keep that realistic endpoint here
+        // so the test catches an accidental early return before the shoulder.
+        let mut normalized = GrayImage::new(240, 180, 255);
+        for y in 40..72 {
+            for x in 36..92 {
+                normalized.set(x, y, 226);
+            }
+        }
+        for y in 104..116 {
+            for x in 52..188 {
+                normalized.set(x, y, 174);
+            }
+        }
+
+        calibrate_paper_field(&mut normalized, None, None, None);
+
+        assert!(normalized.get(64, 56) >= 248);
+        assert!(normalized.get(120, 110) <= 190);
+        assert_eq!(normalized.get(12, 12), 255);
+    }
+
+    #[test]
+    fn paper_shoulder_keeps_sparse_low_contrast_marks_on_the_base_curve() {
+        let mut normalized = GrayImage::new(240, 180, 255);
+        for y in 60..72 {
+            for x in 80..112 {
+                normalized.set(x, y, 220);
+            }
+        }
+
+        calibrate_paper_field(&mut normalized, None, None, None);
+
+        assert_eq!(normalized.get(90, 66), 220);
+        assert_eq!(normalized.get(12, 12), 255);
+    }
+
+    #[test]
+    fn paper_shoulder_does_not_lift_protected_faint_text() {
+        let mut normalized = GrayImage::new(240, 180, 255);
+        let mut protected = BinaryImage::new(240, 180);
+        for y in 36..104 {
+            for x in 28..118 {
+                normalized.set(x, y, 220);
+            }
+        }
+        for y in 120..132 {
+            for x in 64..176 {
+                normalized.set(x, y, 220);
+                protected.set(x, y, true);
+            }
+        }
+
+        calibrate_paper_field(&mut normalized, None, None, Some(&protected));
+
+        assert!(normalized.get(72, 64) >= 246);
+        assert_eq!(normalized.get(100, 126), 220);
     }
 
     #[test]
@@ -1429,7 +2196,237 @@ mod tests {
             checksum.update(normalized.row(y));
         }
 
-        assert_eq!(checksum.finalize(), 2_052_257_257);
+        assert_eq!(checksum.finalize(), 3_785_375_702);
+    }
+
+    #[test]
+    fn mixed_normalization_whitens_uniform_tinted_paper_outside_protected_color() {
+        let mut rgb = RgbImage::new(240, 180, [205, 225, 245]);
+        for y in 60..68 {
+            for x in 28..132 {
+                rgb.set(x, y, [25, 29, 34]);
+            }
+        }
+        for y in 42..128 {
+            for x in 160..214 {
+                rgb.set(x, y, [220, 48, 42]);
+            }
+        }
+        let mut luminance = GrayImage::new(rgb.width(), rgb.height(), 0);
+        for y in 0..rgb.height() {
+            for x in 0..rgb.width() {
+                let pixel = rgb.get(x, y);
+                luminance.set(
+                    x,
+                    y,
+                    ((u32::from(pixel[0]) * 77
+                        + u32::from(pixel[1]) * 150
+                        + u32::from(pixel[2]) * 29
+                        + 128)
+                        >> 8) as u8,
+                );
+            }
+        }
+        let mut picture_mask = BinaryImage::new(120, 90);
+        for y in 21..64 {
+            for x in 80..107 {
+                picture_mask.set(x, y, true);
+            }
+        }
+
+        let (normalized_gray, normalized_rgb) =
+            normalize_illumination_pair_with_picture_mask(&luminance, &rgb, Some(&picture_mask));
+
+        assert!(normalized_gray.get(20, 20) >= 250);
+        assert!(normalized_rgb
+            .get(20, 20)
+            .iter()
+            .all(|&channel| channel >= 250));
+        let ink = normalized_rgb.get(60, 64);
+        assert!(ink.iter().copied().max().unwrap_or(255) < 64);
+        let protected_red = normalized_rgb.get(180, 80);
+        assert!(
+            protected_red[0] > protected_red[1].saturating_mul(2),
+            "{protected_red:?}"
+        );
+        assert!(
+            protected_red[0] > protected_red[2].saturating_mul(2),
+            "{protected_red:?}"
+        );
+    }
+
+    #[test]
+    fn mixed_normalization_recovers_paper_like_pixels_inside_an_overbroad_picture_mask() {
+        let mut source = GrayImage::new(240, 180, 220);
+        for y in 24..156 {
+            for x in 118..228 {
+                let edge_distance = (x - 118).min(227 - x).min((y - 24).min(155 - y));
+                source.set(x, y, 220_u8.saturating_sub(edge_distance.min(18) as u8));
+            }
+        }
+        for y in 54..126 {
+            for x in 146..208 {
+                source.set(x, y, 45 + ((x * 7 + y * 11) % 105) as u8);
+            }
+        }
+        let mut picture_mask = BinaryImage::new(120, 90);
+        for y in 12..78 {
+            for x in 59..114 {
+                picture_mask.set(x, y, true);
+            }
+        }
+
+        let normalized =
+            normalize_illumination_with_picture_mask(&source, 300.0, Some(&picture_mask));
+
+        assert!(
+            normalized.get(128, 40) >= 250,
+            "paper-like mask halo remained gray: {}",
+            normalized.get(128, 40)
+        );
+        assert!(
+            normalized.get(176, 90) < 200,
+            "the protected photograph was mistaken for paper: {}",
+            normalized.get(176, 90)
+        );
+        assert_eq!(
+            normalized.get(176, 90),
+            source.get(176, 90),
+            "protected grayscale tone must not be flattened by the paper model"
+        );
+    }
+
+    #[test]
+    fn prepared_mixed_normalization_matches_the_final_paper_recovery_path() {
+        let mut source = GrayImage::new(240, 180, 218);
+        for y in 38..142 {
+            for x in 124..220 {
+                source.set(x, y, 48 + ((x * 5 + y * 9) % 150) as u8);
+            }
+        }
+        let mut picture_mask = BinaryImage::new(120, 90);
+        for y in 16..76 {
+            for x in 57..114 {
+                picture_mask.set(x, y, true);
+            }
+        }
+
+        let direct = normalize_illumination_with_picture_mask(&source, 150.0, Some(&picture_mask));
+        let prepared = normalize_illumination_prepared(
+            &source,
+            Some(&picture_mask),
+            prepare_illumination(&source),
+        );
+
+        assert_eq!(prepared, direct);
+        assert!(prepared.get(30, 30) >= 250);
+    }
+
+    #[test]
+    fn corroborated_tonal_mask_preserves_picture_interior_and_feathers_boundaries() {
+        let mut source = GrayImage::new(180, 120, 208);
+        let mut protected = BinaryImage::new(180, 120);
+        for y in 24..96 {
+            for x in 42..138 {
+                protected.set(x, y, true);
+                source.set(x, y, 18 + ((x * 3 + y * 5) % 208) as u8);
+            }
+        }
+
+        let normalized = normalize_illumination_preserving_tone(&source, 150.0, &protected);
+
+        assert!(normalized.get(12, 12) >= 250);
+        assert_eq!(normalized.get(80, 60), source.get(80, 60));
+        for (x, y) in [(42, 24), (137, 95)] {
+            assert!(normalized.get(x, y) >= source.get(x, y));
+            assert!(normalized.get(x, y) < 200);
+        }
+    }
+
+    #[test]
+    fn mixed_normalization_handles_large_photos_on_varied_uniform_paper_tints() {
+        for paper in [
+            [176, 176, 176],
+            [176, 202, 228],
+            [228, 207, 176],
+            [180, 222, 194],
+        ] {
+            let mut rgb = RgbImage::new(360, 240, paper);
+            for line in 0..8 {
+                let top = 24 + line * 24;
+                for y in top..top + 7 {
+                    for x in 20..146 {
+                        rgb.set(x, y, [28, 31, 35]);
+                    }
+                }
+            }
+            for y in 18..222 {
+                for x in 170..342 {
+                    let horizontal = ((x - 170) * 150 / 171) as u8;
+                    let vertical = ((y - 18) * 100 / 203) as u8;
+                    rgb.set(
+                        x,
+                        y,
+                        [
+                            35_u8.saturating_add(horizontal),
+                            26_u8.saturating_add(vertical),
+                            112_u8.saturating_add(horizontal / 2),
+                        ],
+                    );
+                }
+            }
+            let mut luminance = GrayImage::new(rgb.width(), rgb.height(), 0);
+            for y in 0..rgb.height() {
+                for x in 0..rgb.width() {
+                    let pixel = rgb.get(x, y);
+                    luminance.set(
+                        x,
+                        y,
+                        ((u32::from(pixel[0]) * 77
+                            + u32::from(pixel[1]) * 150
+                            + u32::from(pixel[2]) * 29
+                            + 128)
+                            >> 8) as u8,
+                    );
+                }
+            }
+            let mut picture_mask = BinaryImage::new(180, 120);
+            for y in 9..111 {
+                for x in 85..171 {
+                    picture_mask.set(x, y, true);
+                }
+            }
+
+            let (normalized_gray, normalized_rgb) = normalize_illumination_pair_with_picture_mask(
+                &luminance,
+                &rgb,
+                Some(&picture_mask),
+            );
+
+            assert!(
+                normalized_gray.get(154, 228) >= 248,
+                "paper={paper:?}, gray={}",
+                normalized_gray.get(154, 228)
+            );
+            assert!(
+                normalized_rgb
+                    .get(154, 228)
+                    .iter()
+                    .all(|&channel| channel >= 248),
+                "paper={paper:?}, rgb={:?}",
+                normalized_rgb.get(154, 228)
+            );
+            assert!(
+                normalized_gray.get(80, 75) < 96,
+                "paper={paper:?}, ink={}",
+                normalized_gray.get(80, 75)
+            );
+            let protected = normalized_rgb.get(280, 120);
+            assert!(
+                protected[2] > protected[1] && protected[0] > protected[1],
+                "paper={paper:?}, protected={protected:?}"
+            );
+        }
     }
 
     #[test]
@@ -1503,6 +2500,30 @@ mod tests {
         assert!(
             output_luminance_sum < source_luminance_sum * 13 / 10,
             "full-bleed fixture was washed out"
+        );
+        assert!(
+            normalized.get(10, 10)[0] < 130,
+            "full-bleed dark color was mistaken for paper: {:?}",
+            normalized.get(10, 10)
+        );
+        let reusable = reusable_illumination_model(&luminance);
+        let detail =
+            normalize_rgb_region_with_reusable_model(&luminance, &rgb, &reusable, |x, y| {
+                (
+                    normalized_coordinate(x, rgb.width()),
+                    normalized_coordinate(y, rgb.height()),
+                )
+            });
+        assert!(
+            detail.get(10, 10)[0] < 130,
+            "detail renderer mistook full-bleed dark color for paper: {:?}",
+            detail.get(10, 10)
+        );
+        let (_, paired) = normalize_illumination_pair_with_picture_mask(&luminance, &rgb, None);
+        assert!(
+            paired.get(10, 10)[0] < 130,
+            "paired renderer mistook full-bleed dark color for paper: {:?}",
+            paired.get(10, 10)
         );
     }
 

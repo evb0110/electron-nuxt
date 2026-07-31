@@ -1077,15 +1077,25 @@ mod tests {
         let output = clean_page(&image, &options, 0).unwrap().outputs.remove(0);
         assert_eq!(output.metadata.output_mode, OutputMode::Mixed);
         let output_ref = &output.image;
-        let text_black_pixels = (65..185)
+        // Mixed pages can publish an antialiased soft-alpha foreground rather
+        // than a pure bilevel stencil. Judge retained text by its dark rendered
+        // coverage, while the separate photo assertion below still requires
+        // genuine continuous tone.
+        let text_dark_pixels = (65..185)
             .flat_map(|y| (50..310).map(move |x| (x, y)))
-            .filter(|&(x, y)| output_ref.get(x, y) == 0)
+            .filter(|&(x, y)| output_ref.get(x, y) < 128)
             .count();
         let photo_tonal_pixels = (215..360)
             .flat_map(|y| (80..280).map(move |x| (x, y)))
             .filter(|&(x, y)| !matches!(output_ref.get(x, y), 0 | 255))
             .count();
-        assert!(text_black_pixels > 1_000);
-        assert!(photo_tonal_pixels > 1_000);
+        assert!(
+            text_dark_pixels > 1_000,
+            "expected retained dark text, found {text_dark_pixels} dark pixels"
+        );
+        assert!(
+            photo_tonal_pixels > 1_000,
+            "expected retained halftone tone, found {photo_tonal_pixels} non-bilevel pixels"
+        );
     }
 }
