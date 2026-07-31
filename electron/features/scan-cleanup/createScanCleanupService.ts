@@ -303,8 +303,13 @@ export function createScanCleanupService(): IScanCleanupService {
                         // takes Poppler's answer when it is missing, rather than
                         // dropping matching without telling anyone. Only the
                         // lossless assembler needs the tool itself.
+                        // Auto can retain an existing compact MRC/JPX page when
+                        // its resolved Color result only needs page geometry.
+                        // Page-ops applies that geometry without decoding or
+                        // recompressing the source image objects.
                         const requiresPageOps = request.options.preserveOriginalQuality === true
-                            || request.options.matchPageSize;
+                            || request.options.matchPageSize
+                            || request.options.outputMode === 'auto';
                         const pdfPageOpsBinary = requiresPageOps && !isNativePageOpsDisabled()
                             ? resolveNativePageOpsPath()
                             : null;

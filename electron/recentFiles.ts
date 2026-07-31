@@ -355,6 +355,19 @@ function cloneRecentFiles(files: readonly IRecentFile[]): IRecentFile[] {
     return files.map(file => ({...file}));
 }
 
+function recentFilesEqual(left: readonly IRecentFile[], right: readonly IRecentFile[]) {
+    return left.length === right.length && left.every((file, index) => {
+        const other = right[index];
+        return other !== undefined
+            && file.originalPath === other.originalPath
+            && file.backend === other.backend
+            && file.fileName === other.fileName
+            && file.timestamp === other.timestamp
+            && file.fileSize === other.fileSize
+            && file.modifiedAt === other.modifiedAt;
+    });
+}
+
 function enqueueRecentFilesOperation<T>(operation: () => Promise<T>): Promise<T> {
     const run = recentFilesOperationQueue.then(operation, operation);
     recentFilesOperationQueue = run.then(() => undefined, () => undefined);
@@ -369,6 +382,10 @@ function refreshRecentFilesCache(): Promise<IRecentFile[]> {
     const refreshPromise = enqueueRecentFilesOperation(async () => {
         const data = await loadRecentFilesData();
         const filtered = await filterExistingFiles(data.files);
+        if (!recentFilesEqual(data.files, filtered.files)) {
+            data.files = filtered.files;
+            await saveRecentFilesData(data);
+        }
         recentFilesCache = cloneRecentFiles(filtered.files);
         cacheTimestamp = Date.now();
         if (STARTUP_TRACE_ENABLED) {

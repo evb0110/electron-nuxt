@@ -9,6 +9,7 @@ const progress = s.refine(s.object({
         'queued',
         'normalizing',
         'probing',
+        'extracting',
         'rasterizing',
         'classifying',
         'rendering',

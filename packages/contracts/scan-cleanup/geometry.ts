@@ -6,7 +6,10 @@ export interface IScanCleanupNormalizedSplit {
     rotationDegrees: TScanCleanupPageRotation;
 }
 
-/** A half-local rectangle whose axes and scale are the rotated analysis page. */
+/**
+ * A rectangle with an output-half-local origin whose axes and scale are the
+ * complete rotated analysis page.
+ */
 export interface IScanCleanupNormalizedRect {
     xNormalized: number;
     yNormalized: number;

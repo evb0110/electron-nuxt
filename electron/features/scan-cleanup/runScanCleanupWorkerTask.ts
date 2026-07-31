@@ -17,9 +17,11 @@ import {
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
+import {createLogger} from '@electron/utils/createLogger';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const workerFileName = WORKER_BUNDLES_BY_ID['scan-cleanup'].fileName;
+const logger = createLogger('scan-cleanup-worker-task');
 
 function decodeProgress(value: unknown): TScanCleanupProgress | null {
     if (!isRecord(value) || value.type !== 'progress') {
@@ -27,7 +29,11 @@ function decodeProgress(value: unknown): TScanCleanupProgress | null {
     }
     try {
         return SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress);
-    } catch {
+    } catch (error) {
+        logger.error(
+            `Rejected scan cleanup worker progress: ${JSON.stringify(value)} `
+            + `(${error instanceof Error ? error.message : String(error)})`,
+        );
         return null;
     }
 }
@@ -80,5 +86,13 @@ export async function runScanCleanupWorkerTask(
         },
         decodeResult: decodeSummary,
     });
-    return task.promise;
+    try {
+        return await task.promise;
+    } catch (error) {
+        logger.error(
+            'Scan cleanup worker task rejected: '
+            + `${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+        );
+        throw error;
+    }
 }

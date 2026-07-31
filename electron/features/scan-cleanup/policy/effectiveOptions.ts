@@ -24,17 +24,64 @@ export function resolveReusablePagePlan(
     evidenceByPage: Partial<Record<string, IScanCleanupPagePlanEvidence>> | undefined,
     pageNumber: number,
 ) {
+    return resolveReusablePagePlanResult(
+        options,
+        layoutByPage,
+        evidenceByPage,
+        pageNumber,
+    ).plan;
+}
+
+export type TReusablePagePlanStatus =
+    | 'matched'
+    | 'absent'
+    | 'page-number-mismatch'
+    | 'rotation-mismatch'
+    | 'layout-mismatch';
+
+export function resolveReusablePagePlanResult(
+    options: IScanCleanupOptions,
+    layoutByPage: TScanCleanupLayoutByPage | undefined,
+    evidenceByPage: Partial<Record<string, IScanCleanupPagePlanEvidence>> | undefined,
+    pageNumber: number,
+): {
+    plan: ReturnType<typeof reusablePlanFromEvidence>;
+    status: TReusablePagePlanStatus
+} {
     const evidence = evidenceByPage?.[String(pageNumber)];
     const pageOverride = getScanCleanupPageOverride(options.pageOverrides, pageNumber);
     const observedLayout = layoutByPage?.[String(pageNumber)];
-    if (
-        evidence === undefined
-        || evidence.pageNumber !== pageNumber
-        || evidence.rotationDegrees !== pageOverride.rotationDegrees
-        || evidence.layoutClassification !== observedLayout
-    ) {
-        return {};
+    if (evidence === undefined) {
+        return {
+            plan: {},
+            status: 'absent',
+        };
     }
+    if (evidence.pageNumber !== pageNumber) {
+        return {
+            plan: {},
+            status: 'page-number-mismatch',
+        };
+    }
+    if (evidence.rotationDegrees !== pageOverride.rotationDegrees) {
+        return {
+            plan: {},
+            status: 'rotation-mismatch',
+        };
+    }
+    if (evidence.layoutClassification !== observedLayout) {
+        return {
+            plan: {},
+            status: 'layout-mismatch',
+        };
+    }
+    return {
+        plan: reusablePlanFromEvidence(evidence),
+        status: 'matched',
+    };
+}
+
+function reusablePlanFromEvidence(evidence: IScanCleanupPagePlanEvidence) {
     const automaticContentBoxes = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
         half,
         output,
@@ -49,10 +96,20 @@ export function resolveReusablePagePlan(
         half,
         output.detectedSkewDegrees,
     ]]));
+    const resolvedTextToneDiagnostics = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
+        half,
+        output,
+    ]) => output?.textToneDiagnostics === undefined ? [] : [[
+        half,
+        output.textToneDiagnostics,
+    ]]));
     return {
         ...(evidence.automaticSplit === undefined ? {} : {automaticSplit: evidence.automaticSplit}),
         ...(Object.keys(automaticContentBoxes).length === 0 ? {} : {automaticContentBoxes}),
         ...(Object.keys(automaticSkewDegrees).length === 0 ? {} : {automaticSkewDegrees}),
+        ...(Object.keys(resolvedTextToneDiagnostics).length === 0
+            ? {}
+            : {resolvedTextToneDiagnostics}),
     };
 }
 
@@ -70,9 +127,13 @@ export interface IResolveEffectiveScanCleanupOptionsInput {
     pageOverride: IScanCleanupPageOverride;
     dpi: number;
     sourceDpi?: number;
+    sourceHasBilevelLayer?: boolean;
+    sourceBackgroundDpi?: number;
     requestedRenderDpi?: number;
     renderCrop?: INativeScanCleanupOptionsV3['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
+    preferSoftAlphaForeground?: boolean;
+    resolvedTextToneDiagnostics?: INativeScanCleanupOptionsV3['resolvedTextToneDiagnostics'];
     observedLayout?: TScanCleanupLayoutClassification;
     automaticSplit?: INativeScanCleanupOptionsV3['automaticSplit'];
     automaticContentBoxes?: INativeScanCleanupOptionsV3['automaticContentBoxes'];
@@ -125,9 +186,9 @@ export function resolveScanCleanupPipelineMaxPixels(
         : MAX_CONTINUOUS_TONE_PIXELS;
 }
 
-// Rome p1/p7/p49 at source DPI retained scan texture, fine text, and mixed
-// illustration edges at these settings. Color gets two extra quality points
-// for chroma detail; grayscale and mixed pages do not spend bytes on it.
+// Tonal layers do not own crisp text on mixed pages; the high-resolution
+// bilevel mask does. Raising every background/full-page JPEG into the
+// near-lossless range bloats compact scans without creating source detail.
 export const SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY = 85;
 export const SCAN_CLEANUP_COLOR_JPEG_QUALITY = 87;
 
@@ -273,9 +334,13 @@ export function resolveEffectiveScanCleanupOptions({
     pageOverride,
     dpi,
     sourceDpi = dpi,
+    sourceHasBilevelLayer = false,
+    sourceBackgroundDpi,
     requestedRenderDpi = dpi,
     renderCrop,
     resolvedOutputMode,
+    preferSoftAlphaForeground,
+    resolvedTextToneDiagnostics,
     observedLayout,
     automaticSplit,
     automaticContentBoxes,
@@ -290,6 +355,10 @@ export function resolveEffectiveScanCleanupOptions({
             options,
             pageOverride,
         }) ?? 'auto';
+    const autoResolvedColor = !lossless
+        && options.outputMode === 'auto'
+        && pageOverride.outputModeOverride === undefined
+        && resolvedOutputMode === 'color';
     const hasBinaryLayer = outputMode === 'auto' || outputMode === 'bw' || outputMode === 'mixed';
     const dewarpRequested = !lossless && experimental.autoDewarp;
     const despeckleLevel = !lossless && hasBinaryLayer
@@ -311,14 +380,24 @@ export function resolveEffectiveScanCleanupOptions({
     return {
         dpi,
         sourceDpi,
+        ...(sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
+        ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
         requestedRenderDpi,
         ...(renderCrop === undefined ? {} : {renderCrop}),
         binarization: options.binarization ?? 'auto',
         thickness: lossless ? 0 : options.thickness,
-        normalizeIllumination: !lossless && (options.normalizeIllumination ?? true),
+        // Auto Color is an abstention: detection found continuous-tone/color
+        // content rather than paper plus ink. Normalizing it would make preview
+        // differ from the unchanged compact source objects final assembly keeps.
+        // Explicit Color remains user-controlled and may normalize.
+        normalizeIllumination: !lossless
+            && !autoResolvedColor
+            && (options.normalizeIllumination ?? true),
         despeckle: despeckleLevel !== 'off',
         despeckleLevel,
         outputMode,
+        ...(preferSoftAlphaForeground === undefined ? {} : {preferSoftAlphaForeground}),
+        ...(resolvedTextToneDiagnostics === undefined ? {} : {resolvedTextToneDiagnostics}),
         ocrMode: false,
         // Detection is durable page evidence, not merely a canvas hint. Reuse
         // it when the user left layout automatic so preview/final rendering do

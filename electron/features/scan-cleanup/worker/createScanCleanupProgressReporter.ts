@@ -43,8 +43,12 @@ const RASTER_STAGE_WEIGHTS = [
         4,
     ],
     [
+        'extracting',
+        4,
+    ],
+    [
         'rasterizing',
-        19,
+        17,
     ],
     [
         'rendering',
@@ -56,7 +60,7 @@ const RASTER_STAGE_WEIGHTS = [
     ],
     [
         'assembling',
-        14,
+        12,
     ],
     [
         'handoff',
@@ -72,6 +76,10 @@ const LOSSLESS_STAGE_WEIGHTS = [
     [
         'probing',
         4,
+    ],
+    [
+        'extracting',
+        0,
     ],
     [
         'rasterizing',

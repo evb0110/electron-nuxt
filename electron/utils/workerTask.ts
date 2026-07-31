@@ -295,6 +295,10 @@ function attachWorkerHandlers<T>({
         if (settled || hasPendingCancelError) {
             return;
         }
+        workerTaskLog.warn(
+            `Worker cancellation requested: path=${options.workerPath} reason=${reason} `
+            + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+        );
         const cancelMessage = options.createCancelMessage?.(reason);
         if (cancelMessage === undefined) {
             finalize(() => {
@@ -355,18 +359,35 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (!resultPayload.ok) {
+                workerTaskLog.error(
+                    `Worker reported failure: path=${options.workerPath} `
+                    + `elapsedMs=${Math.round(performance.now() - startedAt)} `
+                    + `message=${resultPayload.error}`,
+                );
                 reject(createWorkerTaskError(resultPayload));
                 return;
             }
             if (decodeResult) {
                 const decoded = decodeResult(resultPayload.data);
                 if (decoded === null) {
+                    workerTaskLog.error(
+                        `Worker returned an invalid result: path=${options.workerPath} `
+                        + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+                    );
                     reject(new Error(invalidResultMessage ?? invalidPayloadMessage));
                     return;
                 }
+                workerTaskLog.debug(
+                    `Worker completed: path=${options.workerPath} `
+                    + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+                );
                 resolve(decoded);
                 return;
             }
+            workerTaskLog.debug(
+                `Worker completed: path=${options.workerPath} `
+                + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+            );
             resolve(resultPayload.data as T);
         });
     };
@@ -378,6 +399,11 @@ function attachWorkerHandlers<T>({
     }
 
     worker.once('error', (error) => {
+        workerTaskLog.error(
+            `Worker emitted an error: path=${options.workerPath} `
+            + `online=${online} elapsedMs=${Math.round(performance.now() - startedAt)} `
+            + `message=${getErrorMessage(error)}`,
+        );
         finalize(() => {
             if (hasPendingCancelError) {
                 reject(pendingCancelError);
@@ -395,6 +421,11 @@ function attachWorkerHandlers<T>({
         if (settled) {
             return;
         }
+        workerTaskLog.error(
+            `Worker exited before returning a result: path=${options.workerPath} `
+            + `code=${code} online=${online} `
+            + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+        );
         finalize(() => {
             if (hasPendingCancelError) {
                 reject(pendingCancelError);

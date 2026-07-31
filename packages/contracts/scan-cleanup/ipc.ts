@@ -21,7 +21,11 @@ import type {
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
-import type {INativeScanCleanupBinarizationDiagnosticsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type {
+    INativeScanCleanupBinarizationDiagnosticsV3,
+    INativeScanCleanupOutputModeDiagnosticsV3,
+    INativeScanCleanupTextToneDiagnosticsV3,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
 import {
     runtimeSchema,
@@ -54,6 +58,11 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
      * the same mode analysis.
      */
     outputModeRecommendation?: TScanCleanupOutputMode;
+    /**
+     * Physical Mixed-layer representation selected by the same analysis as the
+     * Auto mode. False is meaningful: it locks the stencil path.
+     */
+    softAlphaForegroundRecommendation?: boolean;
     /**
      * How the caller expects each page of the document to be cut. Matched page
      * size is measured over produced pages, so the preview and the run derive
@@ -134,6 +143,8 @@ export interface IScanCleanupContentBlockEvidence {
     pictureMaskOverlapPixels: number;
     headingEvidence: boolean;
     grayscaleEvidence: boolean;
+    /** Present in current native metadata; absent in artifacts made before text hard-protection. */
+    textEvidence?: boolean;
 }
 
 export interface IScanCleanupContentAcceptedTrim {
@@ -155,6 +166,8 @@ export interface IScanCleanupContentDiagnostics {
 
 export interface IScanCleanupBinarizationDiagnostics extends INativeScanCleanupBinarizationDiagnosticsV3 {}
 
+export interface IScanCleanupTextToneDiagnostics extends INativeScanCleanupTextToneDiagnosticsV3 {}
+
 /** Renderer-facing per-page diagnostic summary assembled from page and first-output metadata. */
 export interface IScanCleanupPageDiagnostics {
     detectedSkewDegrees?: number;
@@ -162,6 +175,7 @@ export interface IScanCleanupPageDiagnostics {
     manualSkew?: boolean;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
     binarizationDiagnostics?: IScanCleanupBinarizationDiagnostics | null;
+    textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
     despeckleFallback?: boolean;
     autoDewarpAttempted?: boolean;
     dewarpApplied?: boolean;
@@ -235,6 +249,8 @@ export interface IScanCleanupPreviewMetadata {
     rasterScaleLimited?: boolean;
     /** True when multiplicative illumination normalization affected the rendered raster. */
     illuminationNormalized?: boolean;
+    /** Evidence and exact monotone curve shared by preview, export, and detail tiles. */
+    textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
     /** Concrete mode that produced this output; absent only for older sidecars. */
     outputMode?: TScanCleanupOutputMode;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
@@ -260,6 +276,7 @@ export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliat
     recommendedOutputMode?: TScanCleanupOutputMode;
     recommendedOutputModeConfidence?: number;
     recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
+    softAlphaForegroundRecommendation?: boolean;
 }
 
 export interface IScanCleanupPreviewOutput {
@@ -324,8 +341,9 @@ export interface IScanCleanupSourcePageMetadata {
 /**
  * Automatic geometry already measured by a base preview under the exact
  * document/settings cache key used to start a final run. Coordinates are
- * normalized within each output half, so the same plan can be replayed at the
- * source raster's final DPI without treating it as a user-authored override.
+ * clipped to the output half but normalized against the full rotated input, so
+ * the same plan can be replayed at the source raster's final DPI without
+ * treating it as a user-authored override.
  */
 export interface IScanCleanupPagePlanEvidence {
     pageNumber: number;
@@ -335,6 +353,7 @@ export interface IScanCleanupPagePlanEvidence {
     outputs: Partial<Record<TScanCleanupOutputHalf, {
         contentBox?: IScanCleanupNormalizedRect;
         detectedSkewDegrees?: number;
+        textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
     }>>;
 }
 
@@ -350,7 +369,15 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
     recommendedOutputMode?: TScanCleanupOutputMode;
     recommendedOutputModeConfidence?: number;
     recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
+    softAlphaForegroundRecommendation?: boolean;
+    outputModeDiagnostics?: INativeScanCleanupOutputModeDiagnosticsV3;
     sourcePageMetadata?: IScanCleanupSourcePageMetadata;
+    /**
+     * Resolution-independent geometry and text-tone decisions measured by the
+     * completed document analysis. Final cleanup replays this exact plan rather
+     * than silently reclassifying pages the user never opened in preview.
+     */
+    pagePlanEvidence?: IScanCleanupPagePlanEvidence;
 }
 
 interface IScanCleanupDetectionJobBase {
@@ -386,6 +413,7 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     /** Ordered one-based source pages included in this output. Omitted means the full document. */
     sourcePageNumbers?: number[];
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
+    softAlphaForegroundRecommendations?: Partial<Record<string, boolean>>;
     /** The layouts the preview was measured against, so this run matches the same rectangle. */
     layoutByPage?: TScanCleanupLayoutByPage;
     sourcePageMetadataByPage?: Partial<Record<string, IScanCleanupSourcePageMetadata>>;

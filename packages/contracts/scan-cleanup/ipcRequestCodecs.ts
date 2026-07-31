@@ -25,8 +25,154 @@ import type {
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
     IScanCleanupStartRequest,
+    IScanCleanupTextToneDiagnostics,
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
+
+function decodeTextToneEvidence(value: unknown, label: string): IScanCleanupTextToneDiagnostics {
+    if (
+        !isRecord(value)
+        || typeof value.applied !== 'boolean'
+        || ![
+            'applied',
+            'picture-evidence',
+            'insufficient-text',
+            'tonal-mass-outside-text',
+            'already-dark',
+        ].includes(String(value.rule))
+        || !Number.isSafeInteger(value.textLineCount)
+        || Number(value.textLineCount) < 0
+        || !Number.isSafeInteger(value.textInkPixels)
+        || Number(value.textInkPixels) < 0
+    ) throw new Error(`invalid scan-cleanup ${label}`);
+    const finiteFraction = (candidate: unknown) => (
+        typeof candidate === 'number'
+        && Number.isFinite(candidate)
+        && candidate >= 0
+        && candidate <= 1
+    );
+    const nullableFinite = (candidate: unknown) => (
+        candidate === null || typeof candidate === 'number' && Number.isFinite(candidate)
+    );
+    if (
+        !finiteFraction(value.pictureFraction)
+        || !finiteFraction(value.outsideMidtoneFraction)
+        || !finiteFraction(value.outsideMidtoneLargestComponentFraction)
+        || !finiteFraction(value.outsideMidtoneLargestComponentWidthFraction)
+        || !finiteFraction(value.outsideMidtoneLargestComponentHeightFraction)
+        || !(value.inkAnchor === null
+            || Number.isSafeInteger(value.inkAnchor)
+            && Number(value.inkAnchor) >= 0
+            && Number(value.inkAnchor) <= 255)
+        || !nullableFinite(value.blackPoint)
+        || !nullableFinite(value.slope)
+        || value.applied !== (value.rule === 'applied')
+        || value.applied !== (value.blackPoint !== null && value.slope !== null)
+    ) throw new Error(`invalid scan-cleanup ${label}`);
+    return {
+        applied: value.applied,
+        rule: value.rule as IScanCleanupTextToneDiagnostics['rule'],
+        textLineCount: Number(value.textLineCount),
+        textInkPixels: Number(value.textInkPixels),
+        pictureFraction: Number(value.pictureFraction),
+        outsideMidtoneFraction: Number(value.outsideMidtoneFraction),
+        outsideMidtoneLargestComponentFraction: Number(
+            value.outsideMidtoneLargestComponentFraction,
+        ),
+        outsideMidtoneLargestComponentWidthFraction: Number(
+            value.outsideMidtoneLargestComponentWidthFraction,
+        ),
+        outsideMidtoneLargestComponentHeightFraction: Number(
+            value.outsideMidtoneLargestComponentHeightFraction,
+        ),
+        inkAnchor: value.inkAnchor === null ? null : Number(value.inkAnchor),
+        blackPoint: value.blackPoint === null ? null : Number(value.blackPoint),
+        slope: value.slope === null ? null : Number(value.slope),
+    };
+}
+
+export function decodeScanCleanupPagePlanEvidence(
+    value: unknown,
+    pageNumber: number,
+): IScanCleanupPagePlanEvidence {
+    if (
+        !isRecord(value)
+        || value.pageNumber !== pageNumber
+        || ![
+            0,
+            90,
+            180,
+            270,
+        ].includes(Number(value.rotationDegrees))
+        || !isLayoutClassification(value.layoutClassification)
+        || !isRecord(value.outputs)
+    ) {
+        throw new Error('invalid scan-cleanup page-plan evidence');
+    }
+    const rotationDegrees = value.rotationDegrees as IScanCleanupPagePlanEvidence['rotationDegrees'];
+    const automaticSplit = value.automaticSplit === undefined
+        ? undefined
+        : (() => {
+            if (!isRecord(value.automaticSplit)) {
+                throw new Error('invalid scan-cleanup automatic split');
+            }
+            const xNormalized = decodeNormalizedValue(
+                value.automaticSplit.xNormalized,
+                'automatic split x',
+            );
+            if (xNormalized <= 0 || xNormalized >= 1) {
+                throw new Error('invalid scan-cleanup automatic split');
+            }
+            return {
+                xNormalized,
+                rotationDegrees: decodeGeometryRotation(
+                    value.automaticSplit.rotationDegrees,
+                    rotationDegrees,
+                    'automatic split',
+                ),
+            };
+        })();
+    const outputs = decodeOutputMap(value.outputs, (output, label) => {
+        if (!isRecord(output)) {
+            throw new Error(`invalid scan-cleanup ${label}`);
+        }
+        const detectedSkewDegrees = output.detectedSkewDegrees === undefined
+            ? undefined
+            : decodeFiniteNumber(output.detectedSkewDegrees, `${label} skew`);
+        if (
+            detectedSkewDegrees !== undefined
+            && (detectedSkewDegrees < SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES
+                || detectedSkewDegrees > SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES)
+        ) {
+            throw new Error(`invalid scan-cleanup ${label} skew`);
+        }
+        const contentBox = output.contentBox === undefined
+            ? undefined
+            : decodeNormalizedRect(output.contentBox, `${label} content box`, rotationDegrees);
+        const textToneDiagnostics = output.textToneDiagnostics === undefined
+            ? undefined
+            : decodeTextToneEvidence(output.textToneDiagnostics, `${label} text tone`);
+        if (
+            contentBox === undefined
+            && detectedSkewDegrees === undefined
+            && textToneDiagnostics === undefined
+        ) {
+            throw new Error(`invalid scan-cleanup ${label}`);
+        }
+        return {
+            ...(contentBox === undefined ? {} : {contentBox}),
+            ...(detectedSkewDegrees === undefined ? {} : {detectedSkewDegrees}),
+            ...(textToneDiagnostics === undefined ? {} : {textToneDiagnostics}),
+        };
+    }, 'automatic page-plan output');
+    return {
+        pageNumber,
+        rotationDegrees,
+        layoutClassification: value.layoutClassification,
+        ...(automaticSplit === undefined ? {} : {automaticSplit}),
+        outputs,
+    };
+}
 
 function requireIpcArgumentCount(
     args: readonly unknown[],
@@ -572,6 +718,22 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                 IScanCleanupStartRequest['outputModeRecommendations']
             >;
         })();
+    const softAlphaForegroundRecommendations = value.softAlphaForegroundRecommendations === undefined
+        ? undefined
+        : (() => {
+            if (
+                !isRecord(value.softAlphaForegroundRecommendations)
+                || Object.entries(value.softAlphaForegroundRecommendations).some(([
+                    pageNumber,
+                    recommendation,
+                ]) => !/^[1-9]\d*$/u.test(pageNumber) || typeof recommendation !== 'boolean')
+            ) {
+                throw new Error('invalid scan-cleanup soft-alpha foreground recommendations');
+            }
+            return value.softAlphaForegroundRecommendations as NonNullable<
+                IScanCleanupStartRequest['softAlphaForegroundRecommendations']
+            >;
+        })();
     const sourcePageNumbers = value.sourcePageNumbers === undefined
         ? undefined
         : (() => {
@@ -673,12 +835,20 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                     const contentBox = output.contentBox === undefined
                         ? undefined
                         : decodeNormalizedRect(output.contentBox, `${label} content box`, rotationDegrees);
-                    if (contentBox === undefined && detectedSkewDegrees === undefined) {
+                    const textToneDiagnostics = output.textToneDiagnostics === undefined
+                        ? undefined
+                        : decodeTextToneEvidence(output.textToneDiagnostics, `${label} text tone`);
+                    if (
+                        contentBox === undefined
+                        && detectedSkewDegrees === undefined
+                        && textToneDiagnostics === undefined
+                    ) {
                         throw new Error(`invalid scan-cleanup ${label}`);
                     }
                     return {
                         ...(contentBox === undefined ? {} : {contentBox}),
                         ...(detectedSkewDegrees === undefined ? {} : {detectedSkewDegrees}),
+                        ...(textToneDiagnostics === undefined ? {} : {textToneDiagnostics}),
                     };
                 }, 'automatic page-plan output');
                 return [
@@ -699,6 +869,9 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
         options: decodeOptions(value.options),
         ...(sourcePageNumbers === undefined ? {} : {sourcePageNumbers}),
         ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
+        ...(softAlphaForegroundRecommendations === undefined
+            ? {}
+            : {softAlphaForegroundRecommendations}),
         ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
         ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
         ...(pagePlanEvidenceByPage === undefined ? {} : {pagePlanEvidenceByPage}),
@@ -771,6 +944,14 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
                 }
                 return value.outputModeRecommendation;
             })()}),
+        ...(value.softAlphaForegroundRecommendation === undefined
+            ? {}
+            : (() => {
+                if (typeof value.softAlphaForegroundRecommendation !== 'boolean') {
+                    throw new Error('invalid scan-cleanup preview soft-alpha foreground recommendation');
+                }
+                return {softAlphaForegroundRecommendation: value.softAlphaForegroundRecommendation};
+            })()),
         ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
         ...(detail === undefined ? {} : {detail}),
         ...(value.visible === undefined ? {} : {visible: value.visible}),

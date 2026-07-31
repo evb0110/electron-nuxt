@@ -2,6 +2,7 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
+import {basename} from 'path';
 import type {TScanCleanupProgress} from '@contracts/electronApiScanCleanup';
 import { decodeScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { createLogger } from '@electron/utils/createLogger';
@@ -21,20 +22,37 @@ const data = workerData as {
 };
 const logger = createLogger('scan-cleanup-worker');
 const abortController = new AbortController();
+const startedAt = performance.now();
+let lastProgressStage: TScanCleanupProgress['stage'] | null = null;
 port.on('message', message => {
     if ((message as {type?: string}).type === 'cancel') abortController.abort(new DOMException('Scan cleanup canceled', 'AbortError'));
 });
 try {
     const runtimePolicy = decodeScanCleanupRuntimePolicy(data.runtimePolicy);
     if (!runtimePolicy) throw new Error('Scan cleanup worker received an invalid runtime policy');
+    logger.info(
+        `Run started: source=${basename(data.request.sourcePdfPath)} `
+        + `selectedPages=${String(data.request.sourcePageNumbers?.length ?? 'all')}`,
+    );
     const result = await runScanCleanupPipeline(
         data.request,
         data.paths,
         abortController.signal,
-        (progress: TScanCleanupProgress) => port.postMessage({
-            type: 'progress',
-            progress,
-        }),
+        (progress: TScanCleanupProgress) => {
+            if (progress.stage !== lastProgressStage) {
+                lastProgressStage = progress.stage;
+                logger.info(
+                    `Phase started: stage=${progress.stage} `
+                    + `completed=${String(progress.completedUnits)}/${String(progress.totalUnits)} `
+                    + `percent=${progress.percent.toFixed(1)} `
+                    + `completedPageNumbers=${JSON.stringify(progress.completedPageNumbers ?? null)}`,
+                );
+            }
+            port.postMessage({
+                type: 'progress',
+                progress,
+            });
+        },
         runtimePolicy,
         (level, message) => logger[level](message),
     );
@@ -43,7 +61,16 @@ try {
         ok: true,
         data: result,
     });
+    logger.info(
+        `Run completed: inputPages=${String(result.inputPages)} `
+        + `outputPages=${String(result.outputPages)} `
+        + `durationMs=${String(Math.round(performance.now() - startedAt))}`,
+    );
 } catch (error) {
+    logger.error(
+        `Run failed after ${String(Math.round(performance.now() - startedAt))} ms: `
+        + (error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)),
+    );
     port.postMessage({
         type: 'result',
         ok: false,

@@ -16,6 +16,14 @@ export interface IDetectedPageRaster {
     dpi: number;
     width: number;
     height: number;
+    /** The source page already carries a 1-bit image/mask layer (MRC/JBIG2). */
+    hasBilevelLayer?: boolean;
+    /**
+     * Resolution of the unmasked continuous-tone plate in a layered source.
+     * This is deliberately distinct from `dpi`: the latter is normally the
+     * high-resolution text/mask grid and must not size the JPEG background.
+     */
+    backgroundDpi?: number;
 }
 
 export interface ISourceDpiDetectionResult {
@@ -152,6 +160,14 @@ function createRecoverablePdfImagesLog(log: TSourceDpiLog): TSourceDpiLog {
 
 function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
     const pageRasterByNumber = new Map<number, IDetectedPageRaster>();
+    const bilevelPages = new Set<number>();
+    const maskObjectIdsByPage = new Map<number, Set<number>>();
+    const continuousImagesByPage = new Map<number, Array<{
+        dpi: number;
+        height: number;
+        objectId: number;
+        width: number
+    }>>();
     const lines = compact(output.split(/\r?\n/).map(line => line.trim()));
 
     for (const line of lines) {
@@ -163,6 +179,8 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
         const type = parts[2];
         const width = parseInt(parts[3] ?? '', 10);
         const height = parseInt(parts[4] ?? '', 10);
+        const bitsPerComponent = parseInt(parts[7] ?? '', 10);
+        const objectId = parseInt(parts[10] ?? '', 10);
         const xPpi = parseInt(parts[12] ?? '', 10);
         const yPpi = parseInt(parts[13] ?? '', 10);
         const dpi = Math.max(
@@ -170,9 +188,40 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
             Number.isFinite(yPpi) ? yPpi : 0,
         );
         const pixelArea = width * height;
+        if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+            continue;
+        }
+        if (
+            bitsPerComponent === 1
+            && (type === 'image' || type === 'mask' || type === 'smask')
+        ) {
+            bilevelPages.add(pageNumber);
+            if (Number.isSafeInteger(objectId) && objectId > 0) {
+                const ids = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
+                ids.add(objectId);
+                maskObjectIdsByPage.set(pageNumber, ids);
+            }
+        }
+        if (
+            type === 'image'
+            && bitsPerComponent > 1
+            && Number.isSafeInteger(objectId)
+            && objectId > 0
+            && Number.isSafeInteger(pixelArea)
+            && pixelArea > 0
+            && dpi > 0
+        ) {
+            const images = continuousImagesByPage.get(pageNumber) ?? [];
+            images.push({
+                dpi,
+                height,
+                objectId,
+                width,
+            });
+            continuousImagesByPage.set(pageNumber, images);
+        }
         if (
             type !== 'image'
-            || !Number.isFinite(pageNumber)
             || pageNumber <= 0
             || !Number.isSafeInteger(pixelArea)
             || pixelArea <= 0
@@ -190,6 +239,19 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
                 height,
             });
         }
+    }
+    for (const pageNumber of bilevelPages) {
+        const raster = pageRasterByNumber.get(pageNumber);
+        if (!raster) continue;
+        raster.hasBilevelLayer = true;
+        const maskedObjectIds = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
+        const background = (continuousImagesByPage.get(pageNumber) ?? [])
+            .filter(image => !maskedObjectIds.has(image.objectId))
+            .sort((left, right) =>
+                right.width * right.height - left.width * left.height
+                || right.dpi - left.dpi,
+            )[0];
+        if (background) raster.backgroundDpi = background.dpi;
     }
 
     return withDerivedPageDpi({
@@ -287,7 +349,20 @@ function mergeDpiDetectionResults(
         const existingArea = existing === undefined ? 0 : existing.width * existing.height;
         const incomingArea = raster.width * raster.height;
         if (incomingArea > existingArea || (incomingArea === existingArea && raster.dpi > (existing?.dpi ?? 0))) {
-            target.pageRasterByNumber.set(pageNumber, raster);
+            const backgroundDpi = raster.backgroundDpi ?? existing?.backgroundDpi;
+            const hasBilevelLayer = raster.hasBilevelLayer === true || existing?.hasBilevelLayer === true;
+            target.pageRasterByNumber.set(pageNumber, {
+                dpi: raster.dpi,
+                width: raster.width,
+                height: raster.height,
+                ...(hasBilevelLayer ? {hasBilevelLayer: true} : {}),
+                ...(backgroundDpi === undefined ? {} : {backgroundDpi}),
+            });
+        } else if (raster.hasBilevelLayer && existing && !existing.hasBilevelLayer) {
+            existing.hasBilevelLayer = true;
+        }
+        if (existing && existing.backgroundDpi === undefined && raster.backgroundDpi !== undefined) {
+            existing.backgroundDpi = raster.backgroundDpi;
         }
         target.pageDpiByNumber.set(pageNumber, Math.max(target.pageDpiByNumber.get(pageNumber) ?? 0, raster.dpi));
     }

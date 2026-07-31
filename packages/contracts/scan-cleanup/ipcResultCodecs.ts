@@ -14,6 +14,7 @@ import type {
 import {
     decodeDocumentPrior,
     decodeFiniteNumber,
+    decodeScanCleanupPagePlanEvidence,
     decodeSourcePageMetadata,
     isLayoutClassification,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
@@ -93,6 +94,7 @@ function decodeContentDiagnostics(
             !isRecord(block)
             || typeof block.headingEvidence !== 'boolean'
             || typeof block.grayscaleEvidence !== 'boolean'
+            || (block.textEvidence !== undefined && typeof block.textEvidence !== 'boolean')
         ) {
             throw new Error(`invalid scan-cleanup preview ${label}`);
         }
@@ -104,6 +106,7 @@ function decodeContentDiagnostics(
             ),
             headingEvidence: block.headingEvidence,
             grayscaleEvidence: block.grayscaleEvidence,
+            ...(block.textEvidence === undefined ? {} : {textEvidence: block.textEvidence}),
         };
     };
     const acceptedTrims = value.acceptedTrims === undefined
@@ -200,6 +203,64 @@ function decodeBinarizationDiagnostics(
         estimatedStrokeWidthPx: decodeFiniteNumber(value.estimatedStrokeWidthPx, 'binarization stroke width'),
         darkBorderCoverage: decodeFiniteNumber(value.darkBorderCoverage, 'binarization border coverage'),
         otsuAdaptiveAgreement: decodeFiniteNumber(value.otsuAdaptiveAgreement, 'binarization agreement'),
+    };
+}
+
+function decodeTextToneDiagnostics(
+    value: unknown,
+): NonNullable<IScanCleanupPreviewMetadata['textToneDiagnostics']> {
+    if (
+        !isRecord(value)
+        || typeof value.applied !== 'boolean'
+        || ![
+            'applied',
+            'picture-evidence',
+            'insufficient-text',
+            'tonal-mass-outside-text',
+            'already-dark',
+        ].includes(String(value.rule))
+    ) throw new Error('invalid scan-cleanup preview text-tone diagnostics');
+    const inkAnchor = value.inkAnchor === null
+        ? null
+        : decodeNonNegativeInteger(value.inkAnchor, 'text-tone ink anchor');
+    if (inkAnchor !== null && inkAnchor > 255) {
+        throw new Error('invalid scan-cleanup preview text-tone ink anchor');
+    }
+    const blackPoint = value.blackPoint === null
+        ? null
+        : decodeNonNegativeFiniteNumber(value.blackPoint, 'text-tone black point');
+    const slope = value.slope === null
+        ? null
+        : decodePositiveFiniteNumber(value.slope, 'text-tone slope');
+    if (
+        value.applied !== (value.rule === 'applied')
+        || value.applied !== (blackPoint !== null && slope !== null)
+    ) throw new Error('inconsistent scan-cleanup preview text-tone diagnostics');
+    return {
+        applied: value.applied,
+        rule: value.rule as NonNullable<IScanCleanupPreviewMetadata['textToneDiagnostics']>['rule'],
+        textLineCount: decodeNonNegativeInteger(value.textLineCount, 'text-tone line count'),
+        textInkPixels: decodeNonNegativeInteger(value.textInkPixels, 'text-tone ink pixels'),
+        pictureFraction: decodeUnitInterval(value.pictureFraction, 'text-tone picture fraction'),
+        outsideMidtoneFraction: decodeUnitInterval(
+            value.outsideMidtoneFraction,
+            'text-tone outside midtone fraction',
+        ),
+        outsideMidtoneLargestComponentFraction: decodeUnitInterval(
+            value.outsideMidtoneLargestComponentFraction,
+            'text-tone outside midtone largest component fraction',
+        ),
+        outsideMidtoneLargestComponentWidthFraction: decodeUnitInterval(
+            value.outsideMidtoneLargestComponentWidthFraction,
+            'text-tone outside midtone largest component width fraction',
+        ),
+        outsideMidtoneLargestComponentHeightFraction: decodeUnitInterval(
+            value.outsideMidtoneLargestComponentHeightFraction,
+            'text-tone outside midtone largest component height fraction',
+        ),
+        inkAnchor,
+        blackPoint,
+        slope,
     };
 }
 
@@ -344,6 +405,9 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         ...(value.illuminationNormalized === undefined
             ? {}
             : {illuminationNormalized: value.illuminationNormalized}),
+        ...(value.textToneDiagnostics === undefined
+            ? {}
+            : {textToneDiagnostics: decodeTextToneDiagnostics(value.textToneDiagnostics)}),
         ...(value.outputMode === undefined
             ? {}
             : {outputMode: value.outputMode}),
@@ -535,6 +599,8 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
         ))
         || (value.recommendedOutputModeReason !== undefined
             && !isScanCleanupOutputModeRecommendationReason(value.recommendedOutputModeReason))
+        || (value.softAlphaForegroundRecommendation !== undefined
+            && typeof value.softAlphaForegroundRecommendation !== 'boolean')
         || (value.outputDiagnostics !== undefined && (
             !Array.isArray(value.outputDiagnostics)
             || value.outputDiagnostics.length > 2
@@ -590,6 +656,9 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             : {binarizationDiagnostics: value.binarizationDiagnostics === null
                 ? null
                 : decodeBinarizationDiagnostics(value.binarizationDiagnostics)}),
+        ...(value.textToneDiagnostics === undefined
+            ? {}
+            : {textToneDiagnostics: decodeTextToneDiagnostics(value.textToneDiagnostics)}),
         ...(value.despeckleFallback === undefined
             ? {}
             : {despeckleFallback: value.despeckleFallback}),
@@ -615,6 +684,11 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
                     ...(output.contentDiagnostics === undefined
                         ? {}
                         : {contentDiagnostics: decodeContentDiagnostics(output.contentDiagnostics)}),
+                    ...(output.textToneDiagnostics === undefined
+                        ? {}
+                        : {textToneDiagnostics: decodeTextToneDiagnostics(
+                            output.textToneDiagnostics,
+                        )}),
                 };
             })}),
         ...(isScanCleanupOutputMode(value.recommendedOutputMode)
@@ -625,6 +699,9 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             : {}),
         ...(isScanCleanupOutputModeRecommendationReason(value.recommendedOutputModeReason)
             ? {recommendedOutputModeReason: value.recommendedOutputModeReason}
+            : {}),
+        ...(typeof value.softAlphaForegroundRecommendation === 'boolean'
+            ? {softAlphaForegroundRecommendation: value.softAlphaForegroundRecommendation}
             : {}),
     };
 }
@@ -788,7 +865,10 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             ))
             || (result.recommendedOutputModeReason !== undefined
                 && !isScanCleanupOutputModeRecommendationReason(result.recommendedOutputModeReason))
+            || (result.softAlphaForegroundRecommendation !== undefined
+                && typeof result.softAlphaForegroundRecommendation !== 'boolean')
         ) throw new Error('invalid scan-cleanup detection result');
+        const pageNumber = decodePositiveInteger(result.pageNumber, 'detection page number');
         const sourcePageMetadata = result.sourcePageMetadata === undefined
             ? undefined
             : decodeSourcePageMetadata(result.sourcePageMetadata);
@@ -798,8 +878,11 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         ) {
             throw new Error('invalid scan-cleanup detection source page metadata');
         }
+        const pagePlanEvidence = result.pagePlanEvidence === undefined
+            ? undefined
+            : decodeScanCleanupPagePlanEvidence(result.pagePlanEvidence, pageNumber);
         return {
-            pageNumber: decodePositiveInteger(result.pageNumber, 'detection page number'),
+            pageNumber,
             ...(result.revision === undefined ? {} : {revision: result.revision}),
             classification: result.classification as TScanCleanupDetectionJobState['results'][number]['classification'],
             confidence: decodeUnitInterval(result.confidence, 'detection confidence'),
@@ -831,7 +914,11 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             ...(isScanCleanupOutputModeRecommendationReason(result.recommendedOutputModeReason)
                 ? {recommendedOutputModeReason: result.recommendedOutputModeReason}
                 : {}),
+            ...(typeof result.softAlphaForegroundRecommendation === 'boolean'
+                ? {softAlphaForegroundRecommendation: result.softAlphaForegroundRecommendation}
+                : {}),
             ...(sourcePageMetadata === undefined ? {} : {sourcePageMetadata}),
+            ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
         };
     });
     if (

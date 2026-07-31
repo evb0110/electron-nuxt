@@ -19,6 +19,7 @@ import type {
     IScanCleanupDocumentCanvasPlan,
     IScanCleanupOwnerContext,
     IScanCleanupNormalizedRect,
+    IScanCleanupPagePlanEvidence,
     IScanCleanupPixelPoint,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewCancelRequest,
@@ -33,6 +34,8 @@ import type {
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import type {
+    INativeScanCleanupAnalysisOutputV3,
+    INativeScanCleanupPageMetadataV3,
     INativeScanCleanupReusableGeometryV3,
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
@@ -65,6 +68,12 @@ import {
     detectSourceDpiFromPageSizes,
 } from '@electron/pdf/sourceDpiDetection';
 import {
+    extractPdfMrcLayers,
+    extractPdfMrcLayersBatch,
+    type IPdfMrcLayers,
+} from '@electron/pdf/extractPdfMrcLayers';
+import {resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import {
     renderPdfPageToPng,
     renderPdfPageToPpm,
 } from '@electron/ocr/worker/popplerStage';
@@ -77,6 +86,7 @@ import {
     resolveRasterHandoff,
 } from '@electron/features/scan-cleanup/worker/resolveRasterHandoff';
 import {readPpmDimensions} from '@electron/features/scan-cleanup/worker/rasterLayerDimensions';
+import {preserveScanCleanupJsonEvidence} from '@electron/features/scan-cleanup/worker/preserveScanCleanupJsonEvidence';
 import {
     SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
     classifyScanCleanupError,
@@ -103,12 +113,21 @@ import {
 } from '@electron/file-access/workingCopyStore';
 
 const PREVIEW_DPI = 150;
-const DETECTION_DPI = 100;
+// Native mode selection and final rendering share a 150-DPI analysis ceiling.
+// A proven lower-resolution scan is analyzed on its own grid: upsampling it for
+// detection produces text-tone evidence that cannot be replayed by the final
+// renderer on the source grid.
+const DETECTION_DPI = 150;
 const DETAIL_TILE_MAX_PIXELS = 4_000_000;
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
 const DEFAULT_SOURCE_DPI = 300;
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
+// Canonical cleaned previews are retained only so detail tiles can replay the
+// exact page-global pixel transform. Bound them independently of the renderer
+// payloads so browsing a long document cannot turn detail parity into an
+// unbounded main-process heap.
+const BASE_ANALYSIS_CACHE_BYTE_LIMIT = 64 * 1024 * 1024;
 const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
 // How long a background prefetch may wait for the machine before it is dropped.
 // A prefetch is an optimisation, so it must never be the reason a page the user
@@ -134,19 +153,20 @@ function resolvePreviewRasterPlan(pageSizes: readonly IPdfPageSize[] | null) {
     const documentDpi = detected?.documentDpi ?? PREVIEW_DPI;
     const dpi = Math.min(PREVIEW_DPI, documentDpi);
     const renderDpiByPageNumber = new Map<number, number>();
+    const detectionDpiByPageNumber = new Map<number, number>();
     for (const pageSize of pageSizes ?? []) {
-        renderDpiByPageNumber.set(
+        const sourceDpi = detected?.pageDpiByNumber.get(pageSize.pageNumber);
+        const requestedDpi = Math.min(PREVIEW_DPI, sourceDpi ?? dpi);
+        const renderDpi = resolvePagePreviewDpi(pageSize, requestedDpi);
+        renderDpiByPageNumber.set(pageSize.pageNumber, renderDpi);
+        detectionDpiByPageNumber.set(
             pageSize.pageNumber,
-            resolvePagePreviewDpi(pageSize, dpi),
+            Math.min(DETECTION_DPI, renderDpi),
         );
     }
     return {
         dpi,
-        detectionDpi: Math.min(
-            DETECTION_DPI,
-            dpi,
-            ...renderDpiByPageNumber.values(),
-        ),
+        detectionDpiByPageNumber,
         pageDpiByNumber: detected?.pageDpiByNumber ?? new Map<number, number>(),
         renderDpiByPageNumber,
     };
@@ -160,6 +180,8 @@ function resolvePreviewRasterPlan(pageSizes: readonly IPdfPageSize[] | null) {
 export interface IScanCleanupDocumentRasterPages {
     detected: boolean;
     pages: ReadonlySet<number>;
+    bilevelLayerPages?: ReadonlySet<number>;
+    backgroundDpiByPage?: ReadonlyMap<number, number>;
 }
 
 interface IRetainedDocument {
@@ -206,6 +228,7 @@ interface ILosslessPreviewAnalysisOutput {
     sourceRegion: IScanCleanupPreviewMetadata['sourceRegion'];
     contentBox: IScanCleanupPreviewMetadata['contentBox'];
     contentDiagnostics?: IScanCleanupPreviewMetadata['contentDiagnostics'];
+    textToneDiagnostics?: IScanCleanupPreviewMetadata['textToneDiagnostics'];
     cropRect: IScanCleanupPreviewMetadata['sourceRegion'];
     appliedMargins: IScanCleanupPreviewMetadata['appliedMargins'];
     inputWidthPx: number;
@@ -224,6 +247,8 @@ interface IBasePreviewAnalysis {
     outputMode?: TScanCleanupOutputMode;
     pageMetadata: IScanCleanupPreviewResult['pageMetadata'];
     outputs: Partial<Record<IScanCleanupPreviewMetadata['half'], INativePreviewOutputMetadata>>;
+    canonicalRasters: Partial<Record<IScanCleanupPreviewMetadata['half'], Uint8Array>>;
+    canonicalRasterBytes: number;
 }
 
 // A run's admission is mutable for as long as it is still waiting for one: a
@@ -271,7 +296,19 @@ export interface IScanCleanupPreviewDependencies {
     getTempDir: () => string;
     getPdftoppmBinary: () => string;
     detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
-    detectRasterPages?: (sourcePdfPath: string, signal: AbortSignal) => Promise<IScanCleanupDocumentRasterPages>;
+    detectRasterPages?: (
+        sourcePdfPath: string,
+        signal: AbortSignal,
+        pageNumbers: readonly number[],
+    ) => Promise<IScanCleanupDocumentRasterPages>;
+    extractMrcLayers?: (
+        sourcePdfPath: string,
+        pageNumber: number,
+        selectionMaskOutputPath: string,
+        backgroundOutputPath: string,
+        signal: AbortSignal,
+        log: TWorkerLog,
+    ) => Promise<IPdfMrcLayers | null>;
     acquireDetectionLease?: (jobId: string, signal: AbortSignal) => Promise<{release: () => boolean}>;
     acquirePreviewLease?: (
         ownerId: string,
@@ -313,7 +350,7 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         );
         return result.pageDpiByNumber.get(pageNumber) ?? null;
     },
-    detectRasterPages: async (sourcePdfPath, signal) => {
+    detectRasterPages: async (sourcePdfPath, signal, pageNumbers) => {
         const paths = getPdfNativeToolPaths();
         const result = await detectSourceDpiDetails(
             sourcePdfPath,
@@ -321,11 +358,79 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
             (level, message) => logger[level](message),
             undefined,
             signal,
+            pageNumbers,
         );
         return {
             detected: paths.pdfimages !== undefined,
             pages: new Set(result.pageRasterByNumber.keys()),
+            bilevelLayerPages: new Set(
+                [...result.pageRasterByNumber]
+                    .filter(([
+                        , raster,
+                    ]) => raster.hasBilevelLayer)
+                    .map(([pageNumber]) => pageNumber),
+            ),
+            backgroundDpiByPage: new Map(
+                [...result.pageRasterByNumber].flatMap(([
+                    pageNumber,
+                    raster,
+                ]) =>
+                    raster.backgroundDpi === undefined
+                        ? []
+                        : [[
+                            pageNumber,
+                            raster.backgroundDpi,
+                        ] as const],
+                ),
+            ),
         };
+    },
+    extractMrcLayers: async (
+        sourcePdfPath,
+        pageNumber,
+        selectionMaskOutputPath,
+        backgroundOutputPath,
+        signal,
+        log,
+    ) => {
+        const paths = getPdfNativeToolPaths();
+        const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
+        if (pdfImageCombineBinary !== null) {
+            // The native raster reader intentionally dispatches by extension:
+            // compact JBIG2 selections and decoded PPM backgrounds must retain
+            // their real formats even though the legacy preview extractor's
+            // caller-facing destinations predate those representations.
+            const compactSelectionPath = `${selectionMaskOutputPath}.jb2e`;
+            const decodedBackgroundPath = `${backgroundOutputPath}.ppm`;
+            const extracted = await extractPdfMrcLayersBatch({
+                pdfPath: sourcePdfPath,
+                targets: [{
+                    pageNumber,
+                    selectionMaskOutputPath: compactSelectionPath,
+                    backgroundOutputPath: decodedBackgroundPath,
+                    foregroundOutputPath: `${backgroundOutputPath}.foreground.jp2`,
+                }],
+                pdfimagesBinary: paths.pdfimages,
+                qpdfBinary: paths.qpdf,
+                pdfImageCombineBinary,
+                pdftoppmBinary: paths.pdftoppm,
+                runCommand: runNativeToolCommand,
+                log,
+                signal,
+            });
+            return extracted.get(pageNumber) ?? null;
+        }
+        return extractPdfMrcLayers({
+            pdfPath: sourcePdfPath,
+            pageNumber,
+            selectionMaskOutputPath,
+            backgroundOutputPath,
+            foregroundOutputPath: `${backgroundOutputPath}.foreground.jp2`,
+            pdfimagesBinary: paths.pdfimages,
+            runCommand: runNativeToolCommand,
+            log,
+            signal,
+        });
     },
     acquireDetectionLease: (jobId, signal) => {
         const rasterConcurrency = resolveScanCleanupRasterConcurrency();
@@ -647,12 +752,22 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
             },
         },
         signal,
-        async () => await dependencies.detectRasterPages?.(
-            document.sourcePdfPath,
-            document.lifetime.signal,
-        ) ?? {
-            detected: false,
-            pages: new Set<number>(),
+        async () => {
+            if (!dependencies.detectRasterPages) {
+                return {
+                    detected: false,
+                    pages: new Set<number>(),
+                    bilevelLayerPages: new Set<number>(),
+                    backgroundDpiByPage: new Map<number, number>(),
+                };
+            }
+            const totalPages = await resolvePageCount(document, document.lifetime.signal);
+            const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
+            return dependencies.detectRasterPages(
+                document.sourcePdfPath,
+                document.lifetime.signal,
+                pageNumbers,
+            );
         },
     );
 
@@ -845,6 +960,7 @@ function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>)
         // requests with different recommendations produce different pixels and
         // must neither share nor adopt the same in-flight render.
         outputModeRecommendation: request.outputModeRecommendation ?? null,
+        softAlphaForegroundRecommendation: request.softAlphaForegroundRecommendation ?? null,
         layouts: request.options.matchPageSize
             ? scanCleanupLayoutSignature(request.layoutByPage ?? {})
             : '',
@@ -867,12 +983,29 @@ function baseAnalysisKey(
     // that base run started.
     const {
         outputModeRecommendation: _outputModeRecommendation,
+        softAlphaForegroundRecommendation: _softAlphaForegroundRecommendation,
         ...geometryRequest
     } = request;
     return JSON.stringify({
         identity: previewIdentityKey(geometryRequest),
         documentCanvas,
     });
+}
+
+function pruneBaseAnalysisCache(cache: Map<string, IBasePreviewAnalysis>) {
+    let retainedBytes = [...cache.values()]
+        .reduce((total, analysis) => total + analysis.canonicalRasterBytes, 0);
+    while (
+        cache.size > BASE_ANALYSIS_CACHE_PAGE_LIMIT
+        || retainedBytes > BASE_ANALYSIS_CACHE_BYTE_LIMIT
+    ) {
+        const oldest = cache.entries().next().value;
+        if (!oldest) {
+            return;
+        }
+        cache.delete(oldest[0]);
+        retainedBytes -= oldest[1].canonicalRasterBytes;
+    }
 }
 
 function resolveFallbackDetailDpi(
@@ -1344,6 +1477,12 @@ async function runDetailPreview(
         sourceCrop.height = renderedSource.height;
         const baseMetadataPath = join(scratch, `base-metadata-${half}.json`);
         await writeFile(baseMetadataPath, JSON.stringify(baseMetadata));
+        const canonicalRaster = analysis.canonicalRasters[half];
+        if (!canonicalRaster) {
+            throw new Error(`Scan cleanup detail has no canonical ${half} base raster`);
+        }
+        const baseCleanedRasterPath = join(scratch, `base-cleaned-${half}.png`);
+        await writeFile(baseCleanedRasterPath, canonicalRaster);
         const output = {
             outputPath: join(scratch, `detail-clean-${half}.png`),
             metadataPath: join(scratch, `detail-clean-${half}.json`),
@@ -1361,6 +1500,7 @@ async function runDetailPreview(
             detailRenderPlan: {
                 baseMetadataPath,
                 baseRasterPath,
+                baseCleanedRasterPath,
                 sourceCrop: {
                     xPx: sourceCrop.x,
                     yPx: sourceCrop.y,
@@ -1487,7 +1627,10 @@ async function runPreview(
                     : resolvePagePreviewDpi(pageSize, dpi);
                 previewRasterPlan = {
                     dpi,
-                    detectionDpi: Math.min(DETECTION_DPI, renderDpi),
+                    detectionDpiByPageNumber: new Map([[
+                        request.pageNumber,
+                        Math.min(DETECTION_DPI, renderDpi),
+                    ]]),
                     pageDpiByNumber: new Map([[
                         request.pageNumber,
                         sourceDpiCandidate,
@@ -1563,7 +1706,10 @@ async function runPreview(
             if (
                 !analysis
                 || analysis.mtimeMs !== baseRaw.document.mtimeMs
-                || (request.detail.outputMode !== 'mixed' && analysis.outputMode === 'mixed')
+                || (
+                    request.detail.outputMode !== 'mixed'
+                    && analysis.outputMode !== request.detail.outputMode
+                )
             ) {
                 throw new Error(
                     'Scan cleanup detail geometry is unavailable; rebuild the base preview'
@@ -1629,6 +1775,7 @@ async function runPreview(
         const manifestPath = join(scratch, 'manifest.json');
         const pageMetadataPath = join(scratch, 'page.json');
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+        const sourceRasterStructure = await retention.rasterPages(document, signal);
         // Matching a document onto one rectangle also means one pixel grid, and
         // the lossless assembler cannot give a page that carries its own raster
         // the document's grid without resampling it. Where the two collide the
@@ -1659,6 +1806,46 @@ async function runPreview(
                 matchPageSize: false,
             }
             : request.options;
+        const sourceBackgroundDpi = sourceRasterStructure.backgroundDpiByPage?.get(request.pageNumber);
+        let trustedMrcLayers: IPdfMrcLayers | null = null;
+        if (
+            request.options.outputMode === 'auto'
+            && request.options.thickness === 0
+            && request.options.autoDewarp !== true
+            && pageOverride.outputModeOverride === undefined
+            && pageOverride.rotationDegrees === 0
+            && (pageOverride.manualZones?.picture.length ?? 0) === 0
+            && (pageOverride.manualZones?.fill.length ?? 0) === 0
+            && sourceRasterStructure.bilevelLayerPages?.has(request.pageNumber) === true
+            && dependencies.extractMrcLayers !== undefined
+        ) {
+            const extractionStartedAt = performance.now();
+            try {
+                trustedMrcLayers = await dependencies.extractMrcLayers(
+                    document.sourcePdfPath,
+                    request.pageNumber,
+                    join(scratch, 'source-mrc-selection.png'),
+                    join(scratch, 'source-mrc-background.png'),
+                    signal,
+                    (level, message) => logger[level](message),
+                );
+                logger.debug(
+                    `Scan cleanup preview source-layer extraction page ${String(request.pageNumber)} `
+                    + `reused=${String(trustedMrcLayers !== null)} `
+                    + `durationMs=${(performance.now() - extractionStartedAt).toFixed(0)}`,
+                );
+            } catch (error) {
+                // Cancellation is not evidence that this page lacks reusable
+                // layers. Falling through started an ordinary raster cleanup
+                // for a request the renderer had already superseded, leaving a
+                // gray raw frame visible under the selected Cleaned tab.
+                signal.throwIfAborted();
+                logger.warn(
+                    `Scan cleanup preview could not reuse page ${String(request.pageNumber)}'s `
+                    + `compact MRC foreground; using raster reconstruction (${getErrorMessage(error)})`,
+                );
+            }
+        }
         const manifest = buildNativeScanCleanupManifest({
             operation: lossless ? 'analyze' : 'render',
             renderMode: 'preview',
@@ -1674,15 +1861,27 @@ async function runPreview(
             ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
             pages: [{
                 inputPath,
+                ...(trustedMrcLayers === null
+                    ? {}
+                    : {
+                        trustedForegroundMaskPath: trustedMrcLayers.selectionMaskPath,
+                        trustedMrcBackgroundPath: trustedMrcLayers.backgroundPath,
+                    }),
                 pageNumber: request.pageNumber,
                 dpi: renderDpi,
                 sourceDpi,
+                sourceHasBilevelLayer: sourceRasterStructure.bilevelLayerPages
+                    ?.has(request.pageNumber) ?? false,
+                ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
                 requestedRenderDpi,
                 ...(request.detail === undefined
                     ? (request.outputModeRecommendation === undefined
                         ? {}
                         : {resolvedOutputMode: request.outputModeRecommendation})
                     : {resolvedOutputMode: request.detail.outputMode}),
+                ...(request.softAlphaForegroundRecommendation === undefined
+                    ? {}
+                    : {preferSoftAlphaForeground: request.softAlphaForegroundRecommendation}),
                 ...(request.layoutByPage?.[String(request.pageNumber)] === undefined
                     ? {}
                     : {observedLayout: request.layoutByPage[String(request.pageNumber)]}),
@@ -1719,6 +1918,9 @@ async function runPreview(
                         ...(output.contentDiagnostics === undefined
                             ? {}
                             : {contentDiagnostics: output.contentDiagnostics}),
+                        ...(output.textToneDiagnostics === undefined
+                            ? {}
+                            : {textToneDiagnostics: output.textToneDiagnostics}),
                     })),
                 },
                 outputs: analyzedOutputs.map(output => {
@@ -1828,14 +2030,19 @@ async function runPreview(
         }
         const cleaned = [] as IScanCleanupPreviewResult['outputs'];
         const nativeOutputs: IBasePreviewAnalysis['outputs'] = {};
+        const canonicalRasters: IBasePreviewAnalysis['canonicalRasters'] = {};
+        let canonicalRasterBytes = 0;
         for (const output of outputs) {
             try {
                 const nativeMetadata = JSON.parse(
                     await readFile(output.metadataPath, 'utf8'),
                 ) as INativePreviewOutputMetadata;
                 nativeOutputs[nativeMetadata.half] = nativeMetadata;
+                const imageData = await readPreviewBytes(output.outputPath);
+                canonicalRasters[nativeMetadata.half] = imageData;
+                canonicalRasterBytes += imageData.byteLength;
                 cleaned.push({
-                    imageData: await readPreviewBytes(output.outputPath),
+                    imageData,
                     metadata: {
                         ...nativeMetadata,
                         ...(nativeMetadata.dewarpModel === undefined
@@ -1878,6 +2085,9 @@ async function runPreview(
                 ...(diagnosticMetadata?.binarizationDiagnostics === undefined
                     ? {}
                     : {binarizationDiagnostics: diagnosticMetadata.binarizationDiagnostics}),
+                ...(diagnosticMetadata?.textToneDiagnostics === undefined
+                    ? {}
+                    : {textToneDiagnostics: diagnosticMetadata.textToneDiagnostics}),
                 ...(diagnosticMetadata?.despeckleFallback === undefined
                     ? {}
                     : {despeckleFallback: diagnosticMetadata.despeckleFallback}),
@@ -1892,6 +2102,9 @@ async function runPreview(
                     ...(output.metadata.contentDiagnostics === undefined
                         ? {}
                         : {contentDiagnostics: output.metadata.contentDiagnostics}),
+                    ...(output.metadata.textToneDiagnostics === undefined
+                        ? {}
+                        : {textToneDiagnostics: output.metadata.textToneDiagnostics}),
                 })),
                 autoDewarpAttempted: request.options.autoDewarp === true,
             },
@@ -1910,12 +2123,10 @@ async function runPreview(
                     : {outputMode: result.outputs[0].metadata.outputMode}),
                 pageMetadata: result.pageMetadata,
                 outputs: nativeOutputs,
+                canonicalRasters,
+                canonicalRasterBytes,
             });
-            while (baseAnalysisCache.size > BASE_ANALYSIS_CACHE_PAGE_LIMIT) {
-                const oldest = baseAnalysisCache.keys().next().value;
-                if (typeof oldest !== 'string') break;
-                baseAnalysisCache.delete(oldest);
-            }
+            pruneBaseAnalysisCache(baseAnalysisCache);
         }
         return result;
     } finally {
@@ -1951,6 +2162,106 @@ async function mapDetectionPages<T>(
     return results;
 }
 
+function normalizeDetectionContentBox(
+    output: INativeScanCleanupAnalysisOutputV3,
+    rotationDegrees: IScanCleanupPagePlanEvidence['rotationDegrees'],
+) {
+    const contentBox = output.contentBox;
+    if (
+        contentBox === null
+        || contentBox === undefined
+        || output.inputWidthPx <= 0
+        || output.inputHeightPx <= 0
+        || output.sourceRegion.widthPx <= 0
+        || output.sourceRegion.heightPx <= 0
+    ) {
+        return undefined;
+    }
+    const analysisWidth = rotationDegrees === 90 || rotationDegrees === 270
+        ? output.inputHeightPx
+        : output.inputWidthPx;
+    const analysisHeight = rotationDegrees === 90 || rotationDegrees === 270
+        ? output.inputWidthPx
+        : output.inputHeightPx;
+    const left = Math.max(0, Math.min(output.sourceRegion.widthPx, contentBox.xPx));
+    const top = Math.max(0, Math.min(output.sourceRegion.heightPx, contentBox.yPx));
+    const right = Math.max(
+        left,
+        Math.min(output.sourceRegion.widthPx, contentBox.xPx + contentBox.widthPx),
+    );
+    const bottom = Math.max(
+        top,
+        Math.min(output.sourceRegion.heightPx, contentBox.yPx + contentBox.heightPx),
+    );
+    if (right <= left || bottom <= top) {
+        return undefined;
+    }
+    // Content coordinates are local to the output half, while their scale is
+    // the complete rotated analysis page. Normalize the two edges first and
+    // derive the extent from them. Besides documenting that mixed coordinate
+    // space, this makes a box that ends at the page edge serialize as
+    // `1 - start` instead of two independently rounded quotients whose sum can
+    // become 1.0000000000000002 and fail the final native manifest validator.
+    const leftNormalized = left / analysisWidth;
+    const topNormalized = top / analysisHeight;
+    const rightNormalized = right === analysisWidth ? 1 : right / analysisWidth;
+    const bottomNormalized = bottom === analysisHeight ? 1 : bottom / analysisHeight;
+    return {
+        xNormalized: leftNormalized,
+        yNormalized: topNormalized,
+        widthNormalized: rightNormalized - leftNormalized,
+        heightNormalized: bottomNormalized - topNormalized,
+        rotationDegrees,
+    };
+}
+
+function createDetectionPagePlanEvidence(
+    result: IScanCleanupDetectionResult,
+    metadata: INativeScanCleanupPageMetadataV3,
+    includeContentBoxes: boolean,
+): IScanCleanupPagePlanEvidence {
+    const rotationDegrees = metadata.rotationDegrees;
+    const firstOutput = metadata.outputs?.[0];
+    const analysisWidth = firstOutput === undefined
+        ? 0
+        : rotationDegrees === 90 || rotationDegrees === 270
+            ? firstOutput.inputHeightPx
+            : firstOutput.inputWidthPx;
+    const splitXNormalized = result.cutterXPx === null || analysisWidth <= 0
+        ? undefined
+        : result.cutterXPx / analysisWidth;
+    const automaticSplit = splitXNormalized === undefined
+        || splitXNormalized <= 0
+        || splitXNormalized >= 1
+        ? undefined
+        : {
+            xNormalized: splitXNormalized,
+            rotationDegrees,
+        };
+    const outputs: IScanCleanupPagePlanEvidence['outputs'] = {};
+    for (const output of metadata.outputs ?? []) {
+        const contentBox = includeContentBoxes
+            ? normalizeDetectionContentBox(output, rotationDegrees)
+            : undefined;
+        if (contentBox === undefined && output.textToneDiagnostics === undefined) {
+            continue;
+        }
+        outputs[output.half] = {
+            ...(contentBox === undefined ? {} : {contentBox}),
+            ...(output.textToneDiagnostics === undefined
+                ? {}
+                : {textToneDiagnostics: output.textToneDiagnostics}),
+        };
+    }
+    return {
+        pageNumber: result.pageNumber,
+        rotationDegrees,
+        layoutClassification: result.classification,
+        ...(automaticSplit === undefined ? {} : {automaticSplit}),
+        outputs,
+    };
+}
+
 async function runDetection(
     request: IScanCleanupDetectionRequest,
     signal: AbortSignal,
@@ -1976,21 +2287,45 @@ async function runDetection(
             return null;
         });
         const previewRasterPlan = resolvePreviewRasterPlan(pageSizes);
-        const previewDpi = previewRasterPlan.detectionDpi;
+        const sourceRasterStructure = await retention.rasterPages(document, signal);
+        const detectionDpiForPage = (pageNumber: number) =>
+            previewRasterPlan.detectionDpiByPageNumber.get(pageNumber)
+            ?? Math.min(DETECTION_DPI, previewRasterPlan.dpi);
         const results = new Map<number, IScanCleanupDetectionResult>();
         const publishedResults = () => [...results.values()]
             .sort((left, right) => left.pageNumber - right.pageNumber);
         let analyzedPages = 0;
-        // Detection rasters are 100-DPI analysis inputs, while visible preview
-        // rasters are 150 DPI. Retaining the former as display PNGs paid
-        // Poppler's deflate cost for hundreds of files the preview could not
-        // reuse. On POSIX, feed raw PPM through FIFOs instead: native starts
-        // classifying the first page while Poppler is still producing the rest.
+        // Detection and visible previews use the native classifier's 150-DPI
+        // ceiling without upsampling a proven lower-resolution page. On POSIX,
+        // feed raw PPM through FIFOs so native starts classifying the first page
+        // while Poppler is still producing the rest.
         const streamRasters = process.platform !== 'win32'
             && dependencies.createRasterPipes !== undefined;
-        const retained = streamRasters
-            ? new Map<number, IRetainedRawRaster>()
-            : await retention.retainedPaths(document, pageNumbers, previewDpi);
+        const retained = new Map<number, IRetainedRawRaster>();
+        if (!streamRasters) {
+            const pagesByDpi = new Map<number, number[]>();
+            for (const pageNumber of pageNumbers) {
+                const dpi = detectionDpiForPage(pageNumber);
+                const group = pagesByDpi.get(dpi) ?? [];
+                group.push(pageNumber);
+                pagesByDpi.set(dpi, group);
+            }
+            for (const [
+                dpi,
+                pages,
+            ] of pagesByDpi) {
+                for (const [
+                    pageNumber,
+                    raster,
+                ] of await retention.retainedPaths(
+                        document,
+                        pages,
+                        dpi,
+                    )) {
+                    retained.set(pageNumber, raster);
+                }
+            }
+        }
         const rasterScope = pageNumbers.filter(pageNumber => !retained.has(pageNumber));
         const rasterizedPageNumbers = new Set<number>(retained.keys());
         const publishRasterizing = () => publish([], {
@@ -2022,24 +2357,25 @@ async function runDetection(
                         pageNumber,
                         request.sourcePdfPath,
                         renderedPaths.get(pageNumber)!,
-                        previewDpi,
+                        detectionDpiForPage(pageNumber),
                         undefined,
                         operationSignal,
                     );
                     return;
                 }
-                const scratchPath = await retention.rasterScratchPath(document, pageNumber, previewDpi);
+                const pageDpi = detectionDpiForPage(pageNumber);
+                const scratchPath = await retention.rasterScratchPath(document, pageNumber, pageDpi);
                 const dimensions = await renderRasterToDisk(
                     request.sourcePdfPath,
                     pageNumber,
                     scratchPath,
                     operationSignal,
                     dependencies,
-                    previewDpi,
+                    pageDpi,
                 );
                 const raster = await retention.retain({
                     document,
-                    dpi: previewDpi,
+                    dpi: pageDpi,
                     height: dimensions.height,
                     pageNumber,
                     scratchPath,
@@ -2063,13 +2399,20 @@ async function runDetection(
                 : resolveScanCleanupRasterConcurrency());
         };
         if (!streamRasters) await rasterize(signal);
-        const manifestPages = pageNumbers.map(pageNumber => ({
-            inputPath: renderedPaths.get(pageNumber) ?? retained.get(pageNumber)!.path,
-            pageNumber,
-            dpi: previewDpi,
-            sourceDpi: previewRasterPlan.pageDpiByNumber.get(pageNumber) ?? previewDpi,
-            pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
-        }));
+        const manifestPages = pageNumbers.map(pageNumber => {
+            const sourceBackgroundDpi = sourceRasterStructure.backgroundDpiByPage?.get(pageNumber);
+            return {
+                inputPath: renderedPaths.get(pageNumber) ?? retained.get(pageNumber)!.path,
+                pageNumber,
+                dpi: detectionDpiForPage(pageNumber),
+                sourceDpi: previewRasterPlan.pageDpiByNumber.get(pageNumber)
+                    ?? detectionDpiForPage(pageNumber),
+                sourceHasBilevelLayer: sourceRasterStructure.bilevelLayerPages
+                    ?.has(pageNumber) ?? false,
+                ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
+                pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
+            };
+        });
         if (signal.aborted) throw signal.reason;
         // Every page stays in one manifest because final reconciliation
         // clusters the document's independent verdicts. The FIFO handoff does
@@ -2079,7 +2422,7 @@ async function runDetection(
         const manifestPath = join(scratch, 'classify-manifest.json');
         await writeFile(manifestPath, JSON.stringify(buildNativeScanCleanupManifest({
             operation: 'analyze',
-            analysisPurpose: 'classification',
+            analysisPurpose: 'page-plan',
             renderMode: 'preview',
             canvasScope: 'page',
             qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
@@ -2125,6 +2468,12 @@ async function runDetection(
                 ...(nativeProgress.recommendedOutputModeReason === undefined
                     ? {}
                     : {recommendedOutputModeReason: nativeProgress.recommendedOutputModeReason}),
+                ...(nativeProgress.softAlphaForegroundRecommendation === undefined
+                    ? {}
+                    : {softAlphaForegroundRecommendation: nativeProgress.softAlphaForegroundRecommendation}),
+                ...(nativeProgress.outputModeDiagnostics === undefined
+                    ? {}
+                    : {outputModeDiagnostics: nativeProgress.outputModeDiagnostics}),
                 ...(sourcePage === undefined || sourceDpi === undefined
                     ? {}
                     : {sourcePageMetadata: {
@@ -2194,6 +2543,20 @@ async function runDetection(
         } else {
             await runAnalysis(signal);
         }
+        for (const page of manifestPages) {
+            const result = results.get(page.pageNumber);
+            if (!result) {
+                continue;
+            }
+            const metadata = JSON.parse(
+                await readFile(page.pageMetadataPath, 'utf8'),
+            ) as INativeScanCleanupPageMetadataV3;
+            result.pagePlanEvidence = createDetectionPagePlanEvidence(
+                result,
+                metadata,
+                request.options.autoDewarp !== true,
+            );
+        }
         if (results.size !== totalPages) {
             throw new Error(`evb-scan-cleanup returned ${results.size} classifications for ${totalPages} pages`);
         }
@@ -2201,6 +2564,14 @@ async function runDetection(
     } finally {
         await retention.release(document);
         if (scratchDir !== null) {
+            await preserveScanCleanupJsonEvidence(
+                scratchDir,
+                (level, message) => logger[level](message),
+            ).catch(error => {
+                logger.warn(
+                    `Could not preserve scan-cleanup detection evidence: ${getErrorMessage(error)}`,
+                );
+            });
             await rm(scratchDir, {
                 recursive: true,
                 force: true,
@@ -2242,6 +2613,8 @@ export function createScanCleanupPreviewService(
         result.recommendedOutputMode,
         result.recommendedOutputModeConfidence,
         result.recommendedOutputModeReason,
+        result.softAlphaForegroundRecommendation,
+        result.pagePlanEvidence,
     ]);
     const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId}\u0000${jobId}`;
     const detectionJobs = createMainJobRegistry<
@@ -2504,7 +2877,13 @@ export function createScanCleanupPreviewService(
                         };
                 });
             }).catch(error => {
-                if (isPreviewCancellation(error)) {
+                // A tab/pane can retire its working-copy registration after the
+                // materialization abort check but before the queued request
+                // reaches the registry. In that race the registry correctly
+                // reports an ownership error, but the request has already been
+                // canceled and must settle like every other superseded preview
+                // instead of surfacing as an IPC handler failure.
+                if (controller.signal.aborted || isPreviewCancellation(error)) {
                     return {canceled: true} as const;
                 }
                 throw error;

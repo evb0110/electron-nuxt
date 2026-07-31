@@ -21,12 +21,18 @@ import {
 
 export interface IScanCleanupManifestPageInput {
     inputPath: string;
+    trustedForegroundMaskPath?: string;
+    trustedMrcBackgroundPath?: string;
     pageNumber: number;
     dpi: number;
     sourceDpi?: number;
+    sourceHasBilevelLayer?: boolean;
+    sourceBackgroundDpi?: number;
     requestedRenderDpi?: number;
     renderCrop?: INativeScanCleanupManifestV3['pages'][number]['options']['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
+    preferSoftAlphaForeground?: boolean;
+    resolvedTextToneDiagnostics?: INativeScanCleanupManifestV3['pages'][number]['options']['resolvedTextToneDiagnostics'];
     observedLayout?: TScanCleanupLayoutClassification;
     automaticSplit?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSplit'];
     automaticContentBoxes?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticContentBoxes'];
@@ -89,6 +95,12 @@ export function buildNativeScanCleanupManifest({
         ...(hostMemoryBytes !== undefined && hostMemoryBytes > 0 ? {hostMemoryBytes} : {}),
         pages: pages.map(page => ({
             inputPath: page.inputPath,
+            ...(page.trustedForegroundMaskPath === undefined
+                ? {}
+                : {trustedForegroundMaskPath: page.trustedForegroundMaskPath}),
+            ...(page.trustedMrcBackgroundPath === undefined
+                ? {}
+                : {trustedMrcBackgroundPath: page.trustedMrcBackgroundPath}),
             sourcePageIndex: page.pageNumber - 1,
             pageMetadataPath: page.pageMetadataPath,
             options: serializeNativeScanCleanupOptions(
@@ -97,6 +109,12 @@ export function buildNativeScanCleanupManifest({
                     pageOverride: getScanCleanupPageOverride(options.pageOverrides, page.pageNumber),
                     dpi: page.dpi,
                     ...(page.sourceDpi === undefined ? {} : {sourceDpi: page.sourceDpi}),
+                    ...(page.sourceHasBilevelLayer === undefined
+                        ? {}
+                        : {sourceHasBilevelLayer: page.sourceHasBilevelLayer}),
+                    ...(page.sourceBackgroundDpi === undefined
+                        ? {}
+                        : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
                     ...(page.requestedRenderDpi === undefined
                         ? {}
                         : {requestedRenderDpi: page.requestedRenderDpi}),
@@ -104,6 +122,12 @@ export function buildNativeScanCleanupManifest({
                     ...(page.resolvedOutputMode === undefined
                         ? {}
                         : {resolvedOutputMode: page.resolvedOutputMode}),
+                    ...(page.preferSoftAlphaForeground === undefined
+                        ? {}
+                        : {preferSoftAlphaForeground: page.preferSoftAlphaForeground}),
+                    ...(page.resolvedTextToneDiagnostics === undefined
+                        ? {}
+                        : {resolvedTextToneDiagnostics: page.resolvedTextToneDiagnostics}),
                     ...(page.observedLayout === undefined
                         ? {}
                         : {observedLayout: page.observedLayout}),

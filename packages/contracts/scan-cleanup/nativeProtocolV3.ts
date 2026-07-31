@@ -13,6 +13,7 @@ import type {
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
+    TScanCleanupOutputModeRecommendationReason,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
@@ -42,6 +43,8 @@ export interface INativeScanCleanupExperimentalOptionsV3 {
 export interface INativeScanCleanupOptionsV3 {
     dpi: number;
     sourceDpi: number;
+    sourceHasBilevelLayer?: boolean;
+    sourceBackgroundDpi?: number;
     requestedRenderDpi: number;
     /**
      * Optional preview-only tile in normalized final intrinsic-output space.
@@ -54,6 +57,11 @@ export interface INativeScanCleanupOptionsV3 {
     despeckle: boolean;
     despeckleLevel?: TScanCleanupDespeckleLevel;
     outputMode: TScanCleanupOutputModeSetting;
+    /** Locked Auto decision for Mixed-layer foreground encoding. */
+    preferSoftAlphaForeground?: boolean;
+    resolvedTextToneDiagnostics?: Partial<
+        Record<TScanCleanupOutputHalf, INativeScanCleanupTextToneDiagnosticsV3>
+    >;
     ocrMode: boolean;
     layout: 'auto' | 'force-single' | 'page-with-offcut' | 'keep-left' | 'keep-right' | 'force-two-page';
     manualSplit: IScanCleanupNormalizedSplit | null;
@@ -91,10 +99,19 @@ export interface INativeScanCleanupOutputV3 {
     bilevelOutputPath?: string;
     backgroundOutputPath?: string;
     foregroundMaskOutputPath?: string;
+    foregroundAlphaOutputPath?: string;
+    pictureMaskOutputPath?: string;
+    tonePreservationAlphaOutputPath?: string;
 }
 
 /** Metadata written beside each protocol-v3 rendered output. */
 export interface INativeScanCleanupOutputMetadataV3 {
+    sourcePageIndex?: number;
+    half?: TScanCleanupOutputHalf;
+    sourceRegion?: IScanCleanupPixelRect;
+    cropRect?: IScanCleanupPixelRect;
+    inputWidthPx?: number;
+    inputHeightPx?: number;
     outputWidthPx: number;
     outputHeightPx: number;
     canvasWidthPx: number;
@@ -108,26 +125,126 @@ export interface INativeScanCleanupOutputMetadataV3 {
     manualSkew?: boolean;
     bilevelWritten?: boolean;
     layeredWritten?: boolean;
+    layeredForegroundKind?: 'stencil' | 'soft-alpha' | 'source-mrc';
     layeredBackgroundDpi?: number;
+    layeredForegroundDpi?: number;
+    trustedMrcBackgroundPreserved?: boolean;
     illuminationNormalized?: boolean;
+    textToneDiagnostics?: INativeScanCleanupTextToneDiagnosticsV3;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
     binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
     outputMode?: TScanCleanupOutputMode;
     despeckleFallback?: boolean;
     dewarpConfidence?: number | null;
+    dewarpModel?: unknown | null;
     contentBox?: IScanCleanupPixelRect | null;
     warnings?: string[];
     renderDpi?: number;
     matchedCanvasTargetWidthPoints?: number | null;
     matchedCanvasTargetHeightPoints?: number | null;
+    matchedCanvasContentWidthPx?: number | null;
+    matchedCanvasContentHeightPx?: number | null;
+    placementOffsetXPx: number;
+    placementOffsetYPx: number;
+    forwardTransform: IScanCleanupPreviewAffine | null;
+    dewarpMapping?: INativeScanCleanupReusableGeometryV3['dewarpMapping'];
+    rotationDegrees: TScanCleanupPageRotation;
+}
+
+export type TNativeScanCleanupTextToneRuleV3 =
+    | 'applied'
+    | 'picture-evidence'
+    | 'insufficient-text'
+    | 'tonal-mass-outside-text'
+    | 'already-dark';
+
+export interface INativeScanCleanupTextToneDiagnosticsV3 {
+    applied: boolean;
+    rule: TNativeScanCleanupTextToneRuleV3;
+    textLineCount: number;
+    textInkPixels: number;
+    pictureFraction: number;
+    outsideMidtoneFraction: number;
+    outsideMidtoneLargestComponentFraction: number;
+    outsideMidtoneLargestComponentWidthFraction: number;
+    outsideMidtoneLargestComponentHeightFraction: number;
+    inkAnchor: number | null;
+    blackPoint: number | null;
+    slope: number | null;
 }
 
 export interface INativeScanCleanupAnalysisOutputV3 {
     half: TScanCleanupOutputHalf;
+    contentBox?: IScanCleanupPixelRect | null;
+    textToneDiagnostics?: INativeScanCleanupTextToneDiagnosticsV3;
     cropRect: IScanCleanupPixelRect;
     sourceRegion: IScanCleanupPixelRect;
     inputWidthPx: number;
     inputHeightPx: number;
+}
+
+export interface INativeScanCleanupOutputModeDiagnosticsV3 {
+    rule:
+        | 'blank'
+        | 'color-text-with-pictures'
+        | 'color'
+        | 'text-with-pictures'
+        | 'picture'
+        | 'sparse-text'
+        | 'continuous-tone'
+        | 'confident-text'
+        | 'dense-text'
+        | 'strong-single-line-text'
+        | 'spatial-tone'
+        | 'bilevel-fidelity'
+        | 'uncertain-fallback';
+    fallbackUsed: boolean;
+    analysisWidth: number;
+    analysisHeight: number;
+    otsuThreshold: number;
+    darkMean: number;
+    lightMean: number;
+    midtoneLower: number;
+    midtoneUpper: number;
+    p01: number;
+    p50: number;
+    p99: number;
+    bimodality: number;
+    midtoneFraction: number;
+    relativeMidtoneFraction: number;
+    modeDistance: number;
+    inkFraction: number;
+    edgeFraction: number;
+    robustLuminanceRange: number;
+    coloredFraction: number;
+    largestColorComponentPixels: number;
+    meanSaturation: number;
+    pictureFraction: number;
+    textLineCount: number;
+    significantColor: boolean;
+    significantPicture: boolean;
+    pictureGateMargin: number;
+    tonalMidtoneGateMargin: number;
+    strongBimodalityGateMargin: number;
+    confidentTextBimodalityMargin: number;
+    confidentTextModeDistanceMargin: number;
+    confidentTextMidtoneMargin: number;
+    denseTextLineMargin: number;
+    denseTextBimodalityMargin: number;
+    denseTextModeDistanceMargin: number;
+    denseTextMidtoneMargin: number;
+    outsideTonalFraction: number;
+    outsideTonalLargestComponentFraction: number;
+    outsideTonalLargestComponentWidthFraction: number;
+    outsideTonalLargestComponentHeightFraction: number;
+    coherentOutsideTonalRegion: boolean;
+    destructiveModeTonalVeto: boolean;
+    sourceDpi: number;
+    analysisDpi: number;
+    calibratedSourceStrokeWidthPx: number;
+    calibratedSourceXHeightPx: number;
+    softEdgeToInkRatio: number;
+    bilevelFidelityVeto: boolean;
 }
 
 /** Metadata written once for every page in a protocol-v3 batch. */
@@ -144,6 +261,10 @@ export interface INativeScanCleanupPageMetadataV3 {
     outputCount: number;
     outputs?: INativeScanCleanupAnalysisOutputV3[];
     recommendedOutputMode?: TScanCleanupOutputMode;
+    recommendedOutputModeConfidence?: number;
+    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
+    softAlphaForegroundRecommendation?: boolean;
+    outputModeDiagnostics?: INativeScanCleanupOutputModeDiagnosticsV3;
 }
 
 /** Additive geometry returned in page/output metadata by protocol-v3 sidecars. */
@@ -208,6 +329,8 @@ export interface INativeScanCleanupDetailRenderPlanV3 {
     baseMetadataPath: string;
     /** Full 150-DPI source raster used to reuse page-global processing models. */
     baseRasterPath: string;
+    /** Canonical base-preview pixels whose transfer the detail tile replays. */
+    baseCleanedRasterPath?: string;
     /** Actual Poppler crop in full, unrotated source-raster pixels at detail DPI. */
     sourceCrop: IScanCleanupPixelRect;
     fullSourceWidthPx: number;
@@ -236,6 +359,17 @@ export interface INativeScanCleanupReusableGeometryV3 {
 
 export interface INativeScanCleanupPageV3 {
     inputPath: string;
+    /**
+     * One-bit PDF soft mask extracted from a compact MRC source. White samples
+     * select trusted foreground pixels; native maps it through the same page
+     * geometry as inputPath instead of trying to rediscover glyphs.
+     */
+    trustedForegroundMaskPath?: string;
+    /**
+     * Native-resolution continuous-tone background extracted from the same
+     * compact MRC page as trustedForegroundMaskPath.
+     */
+    trustedMrcBackgroundPath?: string;
     sourcePageIndex: number;
     pageMetadataPath: string;
     options: INativeScanCleanupOptionsV3;
@@ -347,6 +481,73 @@ const pageStageTimings = s.object({
     exact: true,
     message: 'Invalid evb-scan-cleanup stage timings',
 });
+const outputModeDiagnostics = s.object({
+    rule: s.oneOf([
+        'blank',
+        'color-text-with-pictures',
+        'color',
+        'text-with-pictures',
+        'picture',
+        'sparse-text',
+        'continuous-tone',
+        'confident-text',
+        'dense-text',
+        'strong-single-line-text',
+        'spatial-tone',
+        'bilevel-fidelity',
+        'uncertain-fallback',
+    ] as const, 'Invalid evb-scan-cleanup output mode diagnostics'),
+    fallbackUsed: s.boolean(),
+    analysisWidth: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+    analysisHeight: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+    otsuThreshold: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+    darkMean: s.number(),
+    lightMean: s.number(),
+    midtoneLower: s.number(),
+    midtoneUpper: s.number(),
+    p01: s.number(),
+    p50: s.number(),
+    p99: s.number(),
+    bimodality: s.number(),
+    midtoneFraction: s.number(),
+    relativeMidtoneFraction: s.number(),
+    modeDistance: s.number(),
+    inkFraction: s.number(),
+    edgeFraction: s.number(),
+    robustLuminanceRange: s.number(),
+    coloredFraction: s.number(),
+    largestColorComponentPixels: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+    meanSaturation: s.number(),
+    pictureFraction: s.number(),
+    textLineCount: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+    significantColor: s.boolean(),
+    significantPicture: s.boolean(),
+    pictureGateMargin: s.number(),
+    tonalMidtoneGateMargin: s.number(),
+    strongBimodalityGateMargin: s.number(),
+    confidentTextBimodalityMargin: s.number(),
+    confidentTextModeDistanceMargin: s.number(),
+    confidentTextMidtoneMargin: s.number(),
+    denseTextLineMargin: s.number(),
+    denseTextBimodalityMargin: s.number(),
+    denseTextModeDistanceMargin: s.number(),
+    denseTextMidtoneMargin: s.number(),
+    outsideTonalFraction: s.number(),
+    outsideTonalLargestComponentFraction: s.number(),
+    outsideTonalLargestComponentWidthFraction: s.number(),
+    outsideTonalLargestComponentHeightFraction: s.number(),
+    coherentOutsideTonalRegion: s.boolean(),
+    destructiveModeTonalVeto: s.boolean(),
+    sourceDpi: s.number({min: 0}),
+    analysisDpi: s.number({min: 0}),
+    calibratedSourceStrokeWidthPx: s.number({min: 0}),
+    calibratedSourceXHeightPx: s.number({min: 0}),
+    softEdgeToInkRatio: s.number({min: 0}),
+    bilevelFidelityVeto: s.boolean(),
+}, {
+    exact: true,
+    message: 'Invalid evb-scan-cleanup output mode diagnostics',
+});
 const progress = s.refine(s.refine(s.object({
     stage: s.oneOf([
         'started',
@@ -392,6 +593,8 @@ const progress = s.refine(s.refine(s.object({
         'bimodal-text',
         'uncertain-tonal',
     ] as const, 'Invalid evb-scan-cleanup output mode recommendation reason')),
+    softAlphaForegroundRecommendation: s.optional(s.boolean()),
+    outputModeDiagnostics: s.optional(outputModeDiagnostics),
 }), value => value.completedPages <= value.totalPages,
 'Invalid evb-scan-cleanup progress envelope'), value =>
     value.pageNumber === undefined
