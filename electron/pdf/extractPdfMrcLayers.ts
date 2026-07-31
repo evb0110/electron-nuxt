@@ -193,6 +193,11 @@ async function inspectMrcMaskDecodes(input: {
             {
                 ...input.commandOptions,
                 commandLabel: 'qpdf(MRC-mask-dictionaries)',
+                // The object table of a full book (hundreds of pages, thousands
+                // of objects) runs to many megabytes; the 256 KB default
+                // silently truncates it and disables compact reuse for the
+                // whole document.
+                maxStdoutBytes: 268_435_456,
             },
         );
         const objects = qpdfObjectTable(JSON.parse(result.stdout) as unknown);

@@ -3733,6 +3733,7 @@ fn clean_region(
     // Mixed page can honor the preservation contract; B&W output is always a
     // binarized reconstruction, so claiming preservation there would promise
     // source identity the output cannot deliver.
+    let mut trusted_selection_applied = false;
     let trusted_mrc_background_preserved = options.output_mode == OutputMode::Mixed
         && rendered_trusted_tone_mask
             .as_ref()
@@ -3808,8 +3809,11 @@ fn clean_region(
                 } else {
                     (fresh_binary, fresh_despeckle_fallback)
                 };
-                if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
-                    binary = trusted.clone();
+                if !options.trusted_selection_incomplete {
+                    if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
+                        binary = trusted.clone();
+                        trusted_selection_applied = true;
+                    }
                 }
                 (
                     CleanupRaster::Bilevel(binary),
@@ -3841,8 +3845,11 @@ fn clean_region(
                             options,
                             calibration,
                         );
-                    if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
-                        binary = trusted.clone();
+                    if !options.trusted_selection_incomplete {
+                        if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
+                            binary = trusted.clone();
+                            trusted_selection_applied = true;
+                        }
                     }
                     timings.threshold_preparation_ms += stage_timings.preparation_ms;
                     timings.thresholding_ms += stage_timings.thresholding_ms;
@@ -3905,6 +3912,7 @@ fn clean_region(
                         // foreground image owns its colors. Repainting this
                         // selection black is what produced map/photo gashes.
                         binary = trusted.clone();
+                        trusted_selection_applied = true;
                         removed_edge_bands = BinaryImage::new(binary.width(), binary.height());
                         Some((trusted, trusted_tone))
                     } else {
@@ -4111,7 +4119,7 @@ fn clean_region(
             layered_background_dpi: None,
             layered_foreground_dpi: None,
             trusted_mrc_background_preserved,
-            trusted_selection_applied: rendered_trusted_foreground_mask.is_some(),
+            trusted_selection_applied,
             illumination_normalized: options.normalize_illumination,
             text_tone_diagnostics,
             binarization_mode,

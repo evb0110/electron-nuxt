@@ -340,6 +340,12 @@ pub struct CleanupOptions {
     pub source_dpi: Option<f64>,
     pub source_has_bilevel_layer: bool,
     pub source_background_dpi: Option<f64>,
+    /// The trusted MRC selection mask is known to be an incomplete ink
+    /// carrier (the producer authored a full-resolution background and left
+    /// detail there). Mixed composition keeps that background underneath and
+    /// stays safe; bilevel output must not adopt the selection as its ink.
+    #[serde(default)]
+    pub trusted_selection_incomplete: bool,
     pub requested_render_dpi: Option<f64>,
     /// Optional preview tile in normalized final intrinsic-output space.
     pub render_crop: Option<NormalizedRect>,
@@ -397,6 +403,7 @@ impl Default for CleanupOptions {
             source_dpi: None,
             source_has_bilevel_layer: false,
             source_background_dpi: None,
+            trusted_selection_incomplete: false,
             requested_render_dpi: None,
             render_crop: None,
             classify_only: None,

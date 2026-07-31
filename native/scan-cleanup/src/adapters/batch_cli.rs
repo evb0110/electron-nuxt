@@ -1231,16 +1231,12 @@ fn run_page(
     let effective_background_dpi = options.source_background_dpi() / background_factor as f64;
     // A full-resolution background marks producer pages whose selection mask
     // is not a complete ink carrier (the producer kept the detail in the
-    // background instead). Only Mixed output composes that background back
-    // into the page; B&W discards it and must keep binarizing the composite,
-    // so non-Mixed pages must not adopt these trusted layers.
-    let (trusted_mrc_background, trusted_foreground_mask) = if background_factor > 1
-        && options.output_mode != crate::OutputMode::Mixed
-    {
-        (None, None)
-    } else {
-        (trusted_mrc_background, trusted_foreground_mask)
-    };
+    // background instead). Mixed composition keeps that background underneath
+    // and stays safe; the render must not let bilevel output adopt the
+    // selection as its ink. Carried on the options so the decision survives
+    // late output-mode resolution (the app submits Auto).
+    let mut options = options;
+    options.trusted_selection_incomplete = background_factor > 1;
     let trusted_tone_mask = trusted_mrc_background
         .as_ref()
         .zip(trusted_foreground_mask.as_ref())
