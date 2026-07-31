@@ -12,8 +12,8 @@ use evb_native_support::{
 use evb_pdf_image_combine::{
     combine_tiff_paths, default_worker_threads, encode_netpbm_path_as_png, probe_netpbm_path,
     write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource,
-    JpegSizeGuardrail, PageSpec, PdfBuildOptions, PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS,
-    DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
+    JpegSizeGuardrail, PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfPageSize, Result,
+    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
 };
 
 struct Config {
@@ -153,6 +153,24 @@ fn write_pdf_file(
                 ..
             } => {
                 paths.push(background.source.clone());
+                paths.push(foreground_mask.clone());
+            }
+            PageSpec::SoftLayered {
+                background,
+                foreground_alpha,
+                ..
+            } => {
+                paths.push(background.source.clone());
+                paths.push(foreground_alpha.clone());
+            }
+            PageSpec::AffineMaskedLayered {
+                background,
+                foreground,
+                foreground_mask,
+                ..
+            } => {
+                paths.push(background.source.clone());
+                paths.push(foreground.source.clone());
                 paths.push(foreground_mask.clone());
             }
             PageSpec::Mask {
@@ -342,6 +360,58 @@ fn parse_compact_manifest_line(
             foreground_mask: source(5)?,
             foreground_color: None,
         }),
+        "soft-layered-jpeg" if parts.len() == 6 => Ok(PageSpec::SoftLayered {
+            page_size,
+            background: image_spec(
+                source(4)?,
+                ImageCompression::JpegWithFlateFallback {
+                    quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
+                },
+            ),
+            foreground_alpha: source(5)?,
+            foreground_color: None,
+        }),
+        "affine-masked-layered-jpeg" if parts.len() == 13 || parts.len() == 14 => {
+            let parse_matrix = |index: usize| -> Result<f64> {
+                let value = parts[index].parse::<f64>()?;
+                if !value.is_finite() {
+                    return Err(format!(
+                        "Invalid foreground matrix on compact manifest line {line_number}"
+                    )
+                    .into());
+                }
+                Ok(value)
+            };
+            Ok(PageSpec::AffineMaskedLayered {
+                page_size,
+                background: image_spec(
+                    source(4)?,
+                    ImageCompression::JpegWithFlateFallback {
+                        quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
+                    },
+                ),
+                foreground: image_spec(source(5)?, ImageCompression::Auto),
+                foreground_mask: source(6)?,
+                foreground_mask_decode: match parts.get(13).copied().unwrap_or("default") {
+                    "default" => PdfBilevelDecode::Default,
+                    "inverted" => PdfBilevelDecode::Inverted,
+                    _ => {
+                        return Err(format!(
+                            "Invalid source mask decode on compact manifest line {line_number}"
+                        )
+                        .into())
+                    }
+                },
+                foreground_matrix: [
+                    parse_matrix(7)?,
+                    parse_matrix(8)?,
+                    parse_matrix(9)?,
+                    parse_matrix(10)?,
+                    parse_matrix(11)?,
+                    parse_matrix(12)?,
+                ],
+            })
+        }
         "layered-color-jpeg" if parts.len() == 9 => Ok(PageSpec::Layered {
             page_size,
             background: image_spec(
@@ -361,8 +431,16 @@ fn parse_compact_manifest_line(
             page_size,
             foreground_mask: source(3)?,
         }),
-        "image" | "image-bilevel" | "image-jpeg" | "photo-jpeg" | "layered" | "layered-jpeg"
-        | "layered-color-jpeg" | "mask" => {
+        "image"
+        | "image-bilevel"
+        | "image-jpeg"
+        | "photo-jpeg"
+        | "layered"
+        | "layered-jpeg"
+        | "soft-layered-jpeg"
+        | "affine-masked-layered-jpeg"
+        | "layered-color-jpeg"
+        | "mask" => {
             Err(format!("Invalid compact manifest field count on line {line_number}").into())
         }
         _ => {
@@ -474,6 +552,8 @@ mod tests {
             "photo-jpeg\t72\t144\t85\t300\t/tmp/photo.ppm",
             "layered\t72\t144\t/tmp/background.ppm\t/tmp/mask.pbm",
             "layered-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/mask.pbm",
+            "soft-layered-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/alpha.pgm",
+            "affine-masked-layered-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/fg.jp2\t/tmp/mask.png\t72\t0\t0\t144\t0\t0\tinverted",
             "layered-color-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/mask.pbm\t128\t16\t16",
             "mask\t72\t144\t/tmp/mask.pbm",
         ];

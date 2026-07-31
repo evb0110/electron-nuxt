@@ -11,6 +11,7 @@ mod binary;
 mod flate;
 mod image;
 mod jpeg;
+mod jpx;
 mod netpbm;
 mod pdf;
 mod tiff_io;
@@ -27,7 +28,7 @@ use std::{
 };
 
 use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
-use evb_raster_io::{write_png, PixelBuffer};
+use evb_raster_io::{decode_png_gray, write_png, DecodeLimits, PixelBuffer};
 
 use crate::{
     image::{
@@ -36,8 +37,9 @@ use crate::{
     },
     netpbm::{is_rgb_data_grayscale, parse_netpbm, parse_pbm_p4},
     pdf::{
-        write_pdf_to_writer, BilevelStream, ImagePage, ImagePayload, LayeredImagePayload,
-        LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfWriter,
+        write_pdf_to_writer, AffineMaskedLayeredPdfPage, BilevelStream, ImagePage, ImagePayload,
+        LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfWriter,
+        SoftLayeredPdfPage, SoftMaskStream,
     },
     tiff_io::combine_tiff_pages,
 };
@@ -99,6 +101,13 @@ pub enum FramePolicy {
     ExactlyOne,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum PdfBilevelDecode {
+    #[default]
+    Default,
+    Inverted,
+}
+
 pub enum PageSpec<S> {
     Image {
         page_size: Option<PdfPageSize>,
@@ -110,6 +119,20 @@ pub enum PageSpec<S> {
         background: ImageSpec<S>,
         foreground_mask: S,
         foreground_color: Option<[u8; 3]>,
+    },
+    SoftLayered {
+        page_size: PdfPageSize,
+        background: ImageSpec<S>,
+        foreground_alpha: S,
+        foreground_color: Option<[u8; 3]>,
+    },
+    AffineMaskedLayered {
+        page_size: PdfPageSize,
+        background: ImageSpec<S>,
+        foreground: ImageSpec<S>,
+        foreground_mask: S,
+        foreground_mask_decode: PdfBilevelDecode,
+        foreground_matrix: [f64; 6],
     },
     Mask {
         page_size: PdfPageSize,
@@ -143,6 +166,32 @@ impl<S> PageSpec<S> {
                 background: background.map_source(mapper)?,
                 foreground_mask: mapper(foreground_mask)?,
                 foreground_color,
+            },
+            Self::SoftLayered {
+                page_size,
+                background,
+                foreground_alpha,
+                foreground_color,
+            } => PageSpec::SoftLayered {
+                page_size,
+                background: background.map_source(mapper)?,
+                foreground_alpha: mapper(foreground_alpha)?,
+                foreground_color,
+            },
+            Self::AffineMaskedLayered {
+                page_size,
+                background,
+                foreground,
+                foreground_mask,
+                foreground_mask_decode,
+                foreground_matrix,
+            } => PageSpec::AffineMaskedLayered {
+                page_size,
+                background: background.map_source(mapper)?,
+                foreground: foreground.map_source(mapper)?,
+                foreground_mask: mapper(foreground_mask)?,
+                foreground_mask_decode,
+                foreground_matrix,
             },
             Self::Mask {
                 page_size,
@@ -261,6 +310,8 @@ enum PreparedPage {
         page_size: Option<PdfPageSize>,
     },
     Layered(Box<LayeredPdfPage>),
+    SoftLayered(Box<SoftLayeredPdfPage>),
+    AffineMaskedLayered(Box<AffineMaskedLayeredPdfPage>),
     Mask(MaskPdfPage),
 }
 
@@ -275,6 +326,8 @@ fn write_prepared_page<W: Write>(pdf: &mut PdfWriter<W>, page: PreparedPage) -> 
             page_size: None,
         } => pdf.add_page(&page),
         PreparedPage::Layered(page) => pdf.add_layered_page(&page),
+        PreparedPage::SoftLayered(page) => pdf.add_soft_layered_page(&page),
+        PreparedPage::AffineMaskedLayered(page) => pdf.add_affine_masked_layered_page(&page),
         PreparedPage::Mask(page) => pdf.add_mask_page(&page),
     }
 }
@@ -303,6 +356,50 @@ fn prepare_page_spec(
                 foreground_mask,
                 foreground_color,
             }))])
+        }
+        PageSpec::SoftLayered {
+            page_size,
+            background,
+            foreground_alpha,
+            foreground_color,
+        } => {
+            let background = read_exact_image(background, options, Some(page_size))?;
+            let foreground_alpha = read_soft_mask(foreground_alpha, options.max_pixels)?;
+            Ok(vec![PreparedPage::SoftLayered(Box::new(
+                SoftLayeredPdfPage {
+                    page_size,
+                    background: image_page_to_layered_image(background)?,
+                    foreground_alpha,
+                    foreground_color,
+                },
+            ))])
+        }
+        PageSpec::AffineMaskedLayered {
+            page_size,
+            background,
+            foreground,
+            foreground_mask,
+            foreground_mask_decode,
+            foreground_matrix,
+        } => {
+            let background = read_exact_image(background, options, Some(page_size))?;
+            let foreground = read_exact_image(foreground, options, Some(page_size))?;
+            let foreground_mask = read_affine_foreground_mask(
+                foreground_mask,
+                foreground.width,
+                foreground.height,
+                options.max_bilevel_pixels,
+                foreground_mask_decode,
+            )?;
+            Ok(vec![PreparedPage::AffineMaskedLayered(Box::new(
+                AffineMaskedLayeredPdfPage {
+                    page_size,
+                    background: image_page_to_layered_image(background)?,
+                    foreground: image_page_to_layered_image(foreground)?,
+                    foreground_mask,
+                    foreground_matrix,
+                },
+            ))])
         }
         PageSpec::Mask {
             page_size,
@@ -504,11 +601,81 @@ fn read_mask(source: InputSource<'_>, max_pixels: u64) -> Result<BilevelStream> 
     BilevelStream::encode(&read_mask_bitmap(source, max_pixels)?)
 }
 
+fn read_affine_foreground_mask(
+    source: InputSource<'_>,
+    expected_width: u32,
+    expected_height: u32,
+    max_pixels: u64,
+    source_decode: PdfBilevelDecode,
+) -> Result<BilevelStream> {
+    let label = source.label();
+    let is_pdf_jbig2 = label
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("jb2e"));
+    if !is_pdf_jbig2 {
+        return read_mask(source, max_pixels);
+    }
+
+    assert_pixel_limit(expected_width, expected_height, max_pixels)?;
+    let bytes = source.read_all()?.into_owned();
+    let decoded =
+        jbig2_codec::decode_pdf_generic_source(&bytes, jbig2_codec::DecodeLimits::new(max_pixels))
+            .map_err(|error| format!("Invalid source JBIG2 selection mask: {error}"))?;
+    if (decoded.width, decoded.height) != (expected_width, expected_height) {
+        return Err(format!(
+            "Source JBIG2 selection mask dimensions {}x{} differ from foreground image dimensions {expected_width}x{expected_height}",
+            decoded.width, decoded.height
+        )
+        .into());
+    }
+    BilevelStream::from_pdf_jbig2(expected_width, expected_height, bytes, source_decode)
+}
+
 fn read_mask_bitmap(source: InputSource<'_>, max_pixels: u64) -> Result<crate::netpbm::PbmP4Image> {
+    let label = source.label();
     let bytes = source.read_all()?;
+    if label
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("png"))
+    {
+        let gray = decode_png_gray(
+            bytes.as_ref(),
+            DecodeLimits {
+                max_pixels,
+                max_dimension: u32::MAX,
+                max_compressed_bytes: bytes.len(),
+            },
+        )?;
+        let width = u32::try_from(gray.width())?;
+        let height = u32::try_from(gray.height())?;
+        let row_stride = gray.width().div_ceil(8);
+        let mut bitmap = vec![0u8; row_stride * gray.height()];
+        for y in 0..gray.height() {
+            for x in 0..gray.width() {
+                if gray.get(x, y) >= 128 {
+                    bitmap[y * row_stride + x / 8] |= 0x80 >> (x % 8);
+                }
+            }
+        }
+        return Ok(crate::netpbm::PbmP4Image {
+            width,
+            height,
+            row_stride,
+            bitmap,
+        });
+    }
     let mask = parse_pbm_p4(&bytes)?;
     assert_pixel_limit(mask.width, mask.height, max_pixels)?;
     Ok(mask)
+}
+
+fn read_soft_mask(source: InputSource<'_>, max_pixels: u64) -> Result<SoftMaskStream> {
+    let bytes = source.read_all()?;
+    let alpha = parse_netpbm(&bytes, max_pixels)?;
+    if alpha.channels != 1 {
+        return Err("Soft foreground alpha must be an 8-bit grayscale PGM".into());
+    }
+    SoftMaskStream::encode(alpha.width, alpha.height, alpha.pixels)
 }
 
 impl<'a> InputSource<'a> {
@@ -630,6 +797,7 @@ fn image_page_to_layered_image(page: ImagePage) -> Result<LayeredPdfImage> {
             decode_params,
         },
         ImagePayload::Jpeg { data } => LayeredImagePayload::Jpeg { data },
+        ImagePayload::Jpx { data } => LayeredImagePayload::Jpx { data },
         ImagePayload::Bilevel { .. } => {
             return Err("Bilevel images cannot be layered PDF backgrounds".into())
         }
@@ -1006,6 +1174,57 @@ mod tests {
         assert!(text.contains("0.5020 0.0627 0.0627 rg"));
         assert!(text.contains("/MediaBox [0 0 144.0000 72.0000]"));
         assert!(text.contains("1 g\n0 0 144.0000 72.0000 re f\n0 g\n"));
+    }
+
+    #[test]
+    fn affine_layered_spec_validates_and_preserves_source_jbig2_mask() {
+        let background = b"P5\n8 1\n255\n\xf0\xf0\xf0\xf0\xf0\xf0\xf0\xf0";
+        let foreground = b"P5\n8 1\n255\n\x10\x20\x30\x40\x50\x60\x70\x80";
+        let mask_rows = [0b1100_0000];
+        let mask = jbig2_codec::encode_pdf_generic(jbig2_codec::Bilevel {
+            width: 8,
+            height: 1,
+            rows: &mask_rows,
+        })
+        .unwrap();
+        let pdf = write_pdf(
+            Vec::new(),
+            [PageSpec::AffineMaskedLayered {
+                page_size: PAGE,
+                background: ImageSpec {
+                    source: InputSource::Bytes {
+                        file_name: "background.pgm",
+                        data: background,
+                    },
+                    compression: ImageCompression::Auto,
+                    processing: ImageProcessing::None,
+                    size_guardrail: None,
+                },
+                foreground: ImageSpec {
+                    source: InputSource::Bytes {
+                        file_name: "foreground.pgm",
+                        data: foreground,
+                    },
+                    compression: ImageCompression::Auto,
+                    processing: ImageProcessing::None,
+                    size_guardrail: None,
+                },
+                foreground_mask: InputSource::Bytes {
+                    file_name: "mask.jb2e",
+                    data: &mask,
+                },
+                foreground_mask_decode: PdfBilevelDecode::Default,
+                foreground_matrix: [72.0, 0.0, 0.0, 36.0, 0.0, 0.0],
+            }],
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/SMask"));
+        assert!(text.contains("/Filter /JBIG2Decode"));
+        assert!(!text.contains("/Decode [1 0] /Filter /JBIG2Decode"));
+        assert!(contains_bytes(&pdf, &mask));
     }
 
     #[test]

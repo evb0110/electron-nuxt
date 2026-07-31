@@ -6,6 +6,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+fax = "0.2.7"
 
 [dev-dependencies]
-fax = "0.2.7"

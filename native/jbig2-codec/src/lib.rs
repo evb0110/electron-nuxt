@@ -83,7 +83,9 @@ pub enum Jbig2Error {
     Truncated,
     InvalidSegment(&'static str),
     Unsupported(&'static str),
+    UnsupportedGenericRegionFlags(u8),
     InvalidArithmeticData,
+    InvalidMmrData,
     EncodedDataTooLarge,
     AllocationFailed,
     VerificationFailed,
@@ -114,7 +116,12 @@ impl fmt::Display for Jbig2Error {
             Self::Unsupported(message) => {
                 write!(formatter, "unsupported JBIG2 feature: {message}")
             }
+            Self::UnsupportedGenericRegionFlags(flags) => write!(
+                formatter,
+                "unsupported JBIG2 feature: generic region flags 0x{flags:02x} are not MMR or arithmetic template 0"
+            ),
             Self::InvalidArithmeticData => formatter.write_str("invalid JBIG2 arithmetic data"),
+            Self::InvalidMmrData => formatter.write_str("invalid JBIG2 MMR data"),
             Self::EncodedDataTooLarge => {
                 formatter.write_str("encoded JBIG2 segment exceeds the format size limit")
             }
@@ -138,6 +145,20 @@ pub fn encode_pdf_generic(image: Bilevel<'_>) -> Result<Vec<u8>, Jbig2Error> {
 /// crate and `jbig2enc -d -p`.
 pub fn decode_pdf_generic(data: &[u8], limits: DecodeLimits) -> Result<OwnedBilevel, Jbig2Error> {
     segments::decode(data, limits, true)
+}
+
+/// Decodes a structurally valid lossless PDF-embedded generic-region stream
+/// without requiring its arithmetic payload to be byte-for-byte identical to
+/// this crate's canonical encoder output.
+///
+/// This is intended for trusted streams extracted from an already-open PDF.
+/// Callers still receive all segment, dimension, allocation, and decoder
+/// validation; only the encoder-specific canonical byte check is omitted.
+pub fn decode_pdf_generic_source(
+    data: &[u8],
+    limits: DecodeLimits,
+) -> Result<OwnedBilevel, Jbig2Error> {
+    segments::decode(data, limits, false)
 }
 
 /// Encodes and immediately decodes one page, returning an error unless every

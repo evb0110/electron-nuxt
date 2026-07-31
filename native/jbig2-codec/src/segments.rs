@@ -93,7 +93,8 @@ pub(crate) fn decode(
             "unexpected data after generic region",
         ));
     }
-    if region_data.len() < GENERIC_REGION_HEADER_LENGTH {
+    const GENERIC_REGION_BASE_HEADER_LENGTH: usize = 18;
+    if region_data.len() < GENERIC_REGION_BASE_HEADER_LENGTH {
         return Err(Jbig2Error::Truncated);
     }
 
@@ -106,12 +107,31 @@ pub(crate) fn decode(
             "generic region does not cover the page",
         ));
     }
-    if region_data[16] != 0 || region_data[17] != 0x08 {
+    if region_data[16] != 0 {
         return Err(Jbig2Error::Unsupported(
-            "generic region is not arithmetic template 0 with TPGDON",
+            "generic region combination operator is not OR",
         ));
     }
-    if region_data[18..26] != NOMINAL_AT {
+    let generic_flags = region_data[17];
+    if generic_flags & 1 != 0 {
+        return generic::decode_mmr(
+            region_width,
+            region_height,
+            stride,
+            &region_data[GENERIC_REGION_BASE_HEADER_LENGTH..],
+        );
+    }
+    const TEMPLATE_MASK: u8 = 0x06;
+    const TYPICAL_PREDICTION: u8 = 0x08;
+    if generic_flags & TEMPLATE_MASK != 0
+        || generic_flags & !(TEMPLATE_MASK | TYPICAL_PREDICTION) != 0
+    {
+        return Err(Jbig2Error::UnsupportedGenericRegionFlags(generic_flags));
+    }
+    if region_data.len() < GENERIC_REGION_HEADER_LENGTH {
+        return Err(Jbig2Error::Truncated);
+    }
+    if region_data[18..GENERIC_REGION_HEADER_LENGTH] != NOMINAL_AT {
         return Err(Jbig2Error::Unsupported(
             "generic region does not use nominal template 0 AT pixels",
         ));
@@ -122,6 +142,7 @@ pub(crate) fn decode(
         region_height,
         stride,
         &region_data[GENERIC_REGION_HEADER_LENGTH..],
+        generic_flags & TYPICAL_PREDICTION != 0,
         require_canonical_arithmetic,
     )
 }

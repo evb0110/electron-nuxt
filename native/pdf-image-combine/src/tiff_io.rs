@@ -382,7 +382,7 @@ mod tests {
                 assert!(decode_params.contains("/Colors 3"));
                 assert!(decode_params.contains("/Columns 2"));
             }
-            ImagePayload::Jpeg { .. } | ImagePayload::Bilevel { .. } => {
+            ImagePayload::Jpeg { .. } | ImagePayload::Jpx { .. } | ImagePayload::Bilevel { .. } => {
                 panic!("expected flate payload")
             }
         }

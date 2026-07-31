@@ -3,7 +3,9 @@ use flate2::{write::ZlibEncoder, Compression};
 use jbig2_codec::Bilevel;
 use std::{fmt::Write as FmtWrite, io::Write as IoWrite};
 
-use crate::{netpbm::PbmP4Image, Result};
+use crate::{
+    flate::deflate_up_filtered_slices, netpbm::PbmP4Image, PdfBilevelDecode, Result,
+};
 
 pub(crate) enum ImagePayload {
     RawFlate {
@@ -11,6 +13,9 @@ pub(crate) enum ImagePayload {
         decode_params: String,
     },
     Jpeg {
+        data: Vec<u8>,
+    },
+    Jpx {
         data: Vec<u8>,
     },
     Bilevel(BilevelStream),
@@ -39,6 +44,9 @@ pub enum LayeredImagePayload {
     Jpeg {
         data: Vec<u8>,
     },
+    Jpx {
+        data: Vec<u8>,
+    },
 }
 
 pub struct LayeredPdfImage {
@@ -53,6 +61,48 @@ pub struct LayeredPdfPage {
     pub background: LayeredPdfImage,
     pub foreground_mask: BilevelStream,
     pub foreground_color: Option<[u8; 3]>,
+}
+
+pub struct SoftMaskStream {
+    width: u32,
+    height: u32,
+    data: Vec<u8>,
+    decode_params: String,
+}
+
+impl SoftMaskStream {
+    pub(crate) fn encode(width: u32, height: u32, pixels: &[u8]) -> Result<Self> {
+        let expected = width as usize * height as usize;
+        if width == 0 || height == 0 || pixels.len() != expected {
+            return Err("Invalid soft foreground alpha dimensions".into());
+        }
+        Ok(Self {
+            width,
+            height,
+            data: deflate_up_filtered_slices(pixels, width as usize, height as usize)?,
+            decode_params: format!(
+                "<< /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns {width} >>"
+            ),
+        })
+    }
+}
+
+pub struct SoftLayeredPdfPage {
+    pub page_size: PdfPageSize,
+    pub background: LayeredPdfImage,
+    pub foreground_alpha: SoftMaskStream,
+    pub foreground_color: Option<[u8; 3]>,
+}
+
+pub struct AffineMaskedLayeredPdfPage {
+    pub page_size: PdfPageSize,
+    pub background: LayeredPdfImage,
+    pub foreground: LayeredPdfImage,
+    pub foreground_mask: BilevelStream,
+    /// PDF user-space matrix mapping the foreground image's unit square to
+    /// the cleaned page. The foreground image and mask remain in their compact
+    /// source grid; crop, deskew, and page placement live in this matrix.
+    pub foreground_matrix: [f64; 6],
 }
 
 pub struct MaskPdfPage {
@@ -79,6 +129,22 @@ impl BilevelStream {
             payload: encode_mask_payload(mask)?,
         })
     }
+
+    pub(crate) fn from_pdf_jbig2(
+        width: u32,
+        height: u32,
+        data: Vec<u8>,
+        decode: PdfBilevelDecode,
+    ) -> Result<Self> {
+        if width == 0 || height == 0 || data.is_empty() {
+            return Err("Invalid source JBIG2 selection mask".into());
+        }
+        Ok(Self {
+            width,
+            height,
+            payload: BilevelPayload::PdfJbig2 { data, decode },
+        })
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +160,22 @@ pub(crate) fn build_pdf(pages: &[ImagePage]) -> Result<Vec<u8>> {
 pub(crate) fn build_layered_pdf_page(page: &LayeredPdfPage) -> Result<Vec<u8>> {
     let mut writer = PdfWriter::new(Vec::new())?;
     writer.add_layered_page(page)?;
+    writer.finish()
+}
+
+#[cfg(test)]
+pub(crate) fn build_soft_layered_pdf_page(page: &SoftLayeredPdfPage) -> Result<Vec<u8>> {
+    let mut writer = PdfWriter::new(Vec::new())?;
+    writer.add_soft_layered_page(page)?;
+    writer.finish()
+}
+
+#[cfg(test)]
+pub(crate) fn build_affine_masked_layered_pdf_page(
+    page: &AffineMaskedLayeredPdfPage,
+) -> Result<Vec<u8>> {
+    let mut writer = PdfWriter::new(Vec::new())?;
+    writer.add_affine_masked_layered_page(page)?;
     writer.finish()
 }
 
@@ -255,6 +337,119 @@ impl<W: IoWrite> PdfWriter<W> {
         Ok(())
     }
 
+    pub(crate) fn add_soft_layered_page(&mut self, page: &SoftLayeredPdfPage) -> Result<()> {
+        validate_page_size(&page.page_size)?;
+        let page_object = self.next_object;
+        let background_object = page_object + 1;
+        let foreground_object = page_object + 2;
+        let alpha_object = page_object + 3;
+        let content_object = page_object + 4;
+        self.next_object = content_object + 1;
+        self.page_objects.push(page_object);
+
+        let page_index = self.page_objects.len();
+        let background_name = format!("Bg{page_index}");
+        let foreground_name = format!("FgSoft{page_index}");
+        let page_width = page.page_size.width_points;
+        let page_height = page.page_size.height_points;
+        let xobjects = format!(
+            "/{} {} 0 R /{} {} 0 R",
+            background_name, background_object, foreground_name, foreground_object
+        );
+        let page_body = format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /XObject << {} >> >> /Contents {} 0 R >>",
+            page_width, page_height, xobjects, content_object
+        );
+        self.push_object(page_object, page_body.as_bytes())?;
+        self.push_layered_image_object(background_object, &page.background)?;
+        self.push_soft_foreground_object(
+            foreground_object,
+            alpha_object,
+            &page.foreground_alpha,
+            page.foreground_color.unwrap_or([0; 3]),
+        )?;
+        self.push_soft_mask_object(alpha_object, &page.foreground_alpha)?;
+
+        let content_stream = format!(
+            "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\nq {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
+            page_width, page_height, background_name, page_width, page_height, foreground_name
+        );
+        let content_dict = format!("<< /Length {} >>", content_stream.len());
+        self.push_stream_object(
+            content_object,
+            content_dict.as_bytes(),
+            content_stream.as_bytes(),
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn add_affine_masked_layered_page(
+        &mut self,
+        page: &AffineMaskedLayeredPdfPage,
+    ) -> Result<()> {
+        validate_page_size(&page.page_size)?;
+        if page.foreground.width != page.foreground_mask.width
+            || page.foreground.height != page.foreground_mask.height
+        {
+            return Err("Masked foreground image and selection mask dimensions differ".into());
+        }
+        if page
+            .foreground_matrix
+            .iter()
+            .any(|value| !value.is_finite())
+        {
+            return Err("Masked foreground matrix contains a non-finite value".into());
+        }
+
+        let page_object = self.next_object;
+        let background_object = page_object + 1;
+        let foreground_object = page_object + 2;
+        let mask_object = page_object + 3;
+        let content_object = page_object + 4;
+        self.next_object = content_object + 1;
+        self.page_objects.push(page_object);
+
+        let page_index = self.page_objects.len();
+        let background_name = format!("Bg{page_index}");
+        let foreground_name = format!("FgMrc{page_index}");
+        let page_width = page.page_size.width_points;
+        let page_height = page.page_size.height_points;
+        let xobjects = format!(
+            "/{} {} 0 R /{} {} 0 R",
+            background_name, background_object, foreground_name, foreground_object
+        );
+        let page_body = format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /XObject << {} >> >> /Contents {} 0 R >>",
+            page_width, page_height, xobjects, content_object
+        );
+        self.push_object(page_object, page_body.as_bytes())?;
+        self.push_layered_image_object(background_object, &page.background)?;
+        self.push_masked_layered_image_object(foreground_object, mask_object, &page.foreground)?;
+        self.push_bilevel_image_object(mask_object, &page.foreground_mask)?;
+
+        let [a, b, c, d, e, f] = page.foreground_matrix;
+        let content_stream = format!(
+            "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\nq {:.8} {:.8} {:.8} {:.8} {:.8} {:.8} cm /{} Do Q\n",
+            page_width,
+            page_height,
+            background_name,
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            foreground_name
+        );
+        let content_dict = format!("<< /Length {} >>", content_stream.len());
+        self.push_stream_object(
+            content_object,
+            content_dict.as_bytes(),
+            content_stream.as_bytes(),
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn add_mask_page(&mut self, page: &MaskPdfPage) -> Result<()> {
         validate_page_size(&page.page_size)?;
         let page_object = self.next_object;
@@ -346,6 +541,7 @@ impl<W: IoWrite> PdfWriter<W> {
                 decode_params,
             },
             ImagePayload::Jpeg { data } => ColorImagePayloadRef::Jpeg { data },
+            ImagePayload::Jpx { data } => ColorImagePayloadRef::Jpx { data },
         };
         self.push_color_image_stream(
             object_number,
@@ -370,6 +566,37 @@ impl<W: IoWrite> PdfWriter<W> {
             None,
             ColorImagePayloadRef::from(&image.payload),
         )
+    }
+
+    fn push_masked_layered_image_object(
+        &mut self,
+        object_number: usize,
+        mask_object: usize,
+        image: &LayeredPdfImage,
+    ) -> Result<()> {
+        let (filter, decode_params, data) = match &image.payload {
+            LayeredImagePayload::RawFlate {
+                data,
+                decode_params,
+            } => (
+                "/FlateDecode",
+                format!(" /DecodeParms {decode_params}"),
+                data,
+            ),
+            LayeredImagePayload::Jpeg { data } => ("/DCTDecode", String::new(), data),
+            LayeredImagePayload::Jpx { data } => ("/JPXDecode", String::new(), data),
+        };
+        let dict = format!(
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{} /BitsPerComponent 8 /SMask {} 0 R /Filter {}{} /Length {} >>",
+            image.width,
+            image.height,
+            image.color_space,
+            mask_object,
+            filter,
+            decode_params,
+            data.len()
+        );
+        self.push_stream_object(object_number, dict.as_bytes(), data)
     }
 
     fn push_color_image_stream(
@@ -409,12 +636,87 @@ impl<W: IoWrite> PdfWriter<W> {
                 );
                 self.push_stream_object(object_number, dict.as_bytes(), data)
             }
+            ColorImagePayloadRef::Jpx { data } => {
+                let dict = format!(
+                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {} /BitsPerComponent 8 /Filter /JPXDecode /Length {} >>",
+                    width,
+                    height,
+                    color_space_value,
+                    data.len()
+                );
+                self.push_stream_object(object_number, dict.as_bytes(), data)
+            }
         }
     }
 
     fn push_image_mask_object(&mut self, object_number: usize, mask: &BilevelStream) -> Result<()> {
         let dict = image_mask_dictionary(mask.width, mask.height, &mask.payload);
         self.push_stream_object(object_number, dict.as_bytes(), mask.payload.data())
+    }
+
+    fn push_bilevel_image_object(
+        &mut self,
+        object_number: usize,
+        mask: &BilevelStream,
+    ) -> Result<()> {
+        let dict = bilevel_soft_mask_dictionary(mask.width, mask.height, &mask.payload);
+        self.push_stream_object(object_number, dict.as_bytes(), mask.payload.data())
+    }
+
+    fn push_soft_foreground_object(
+        &mut self,
+        object_number: usize,
+        alpha_object: usize,
+        alpha: &SoftMaskStream,
+        color: [u8; 3],
+    ) -> Result<()> {
+        let is_gray = color[0] == color[1] && color[1] == color[2];
+        let colors = if is_gray { 1usize } else { 3usize };
+        let mut pixels = vec![0u8; alpha.width as usize * colors];
+        if is_gray {
+            pixels.fill(color[0]);
+        } else {
+            for pixel in pixels.chunks_exact_mut(3) {
+                pixel.copy_from_slice(&color);
+            }
+        }
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        let zero_delta = vec![0u8; pixels.len()];
+        for row in 0..alpha.height {
+            encoder.write_all(&[2])?;
+            encoder.write_all(if row == 0 { &pixels } else { &zero_delta })?;
+        }
+        let data = encoder.finish()?;
+        let color_space = if is_gray { "DeviceGray" } else { "DeviceRGB" };
+        let decode_params = format!(
+            "<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {} >>",
+            alpha.width
+        );
+        let dict = format!(
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{} /BitsPerComponent 8 /SMask {} 0 R /Filter /FlateDecode /DecodeParms {} /Length {} >>",
+            alpha.width,
+            alpha.height,
+            color_space,
+            alpha_object,
+            decode_params,
+            data.len()
+        );
+        self.push_stream_object(object_number, dict.as_bytes(), &data)
+    }
+
+    fn push_soft_mask_object(
+        &mut self,
+        object_number: usize,
+        alpha: &SoftMaskStream,
+    ) -> Result<()> {
+        let dict = format!(
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms {} /Length {} >>",
+            alpha.width,
+            alpha.height,
+            alpha.decode_params,
+            alpha.data.len()
+        );
+        self.push_stream_object(object_number, dict.as_bytes(), &alpha.data)
     }
 
     fn push_object(&mut self, object_number: usize, body: &[u8]) -> Result<()> {
@@ -511,6 +813,13 @@ fn deflate_bytes(data: &[u8]) -> Result<Vec<u8>> {
 
 #[derive(Debug, Eq, PartialEq)]
 enum BilevelPayload {
+    /// A JBIG2 stream copied from an existing PDF image. Its PDF sample
+    /// polarity is already authored for that image dictionary.
+    PdfJbig2 {
+        data: Vec<u8>,
+        decode: PdfBilevelDecode,
+    },
+    /// A JBIG2 stream encoded from PBM black/selected pixels by this crate.
     Jbig2(Vec<u8>),
     CcittG4(Vec<u8>),
     Flate(Vec<u8>),
@@ -519,7 +828,10 @@ enum BilevelPayload {
 impl BilevelPayload {
     fn data(&self) -> &[u8] {
         match self {
-            Self::Jbig2(data) | Self::CcittG4(data) | Self::Flate(data) => data,
+            Self::PdfJbig2 { data, .. }
+            | Self::Jbig2(data)
+            | Self::CcittG4(data)
+            | Self::Flate(data) => data,
         }
     }
 }
@@ -575,7 +887,9 @@ fn encode_fallback_bilevel_payload(mask: &PbmP4Image) -> Result<BilevelPayload> 
 
 fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
     let filter = match payload {
-        BilevelPayload::Jbig2(_) => "/Filter /JBIG2Decode".to_string(),
+        BilevelPayload::PdfJbig2 { .. } | BilevelPayload::Jbig2(_) => {
+            "/Filter /JBIG2Decode".to_string()
+        }
         BilevelPayload::CcittG4(_) => format!(
             "/Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
         ),
@@ -587,9 +901,40 @@ fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelPayload) -
     )
 }
 
+/// A PDF soft mask is opacity data, not a paint stencil. All three encoders
+/// represent PBM black/selected pixels identically, but PDF's JBIG2 decoder
+/// exposes that value with the opposite sample polarity to raw Flate and the
+/// configured CCITT stream. Invert exactly the JBIG2 samples encoded from PBM
+/// so every generated payload maps selected foreground to opacity one. A raw
+/// soft mask copied from a PDF already has PDF sample polarity and must retain
+/// the source dictionary's default decode mapping.
+fn bilevel_soft_mask_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
+    let filter = match payload {
+        BilevelPayload::PdfJbig2 {
+            decode: PdfBilevelDecode::Default,
+            ..
+        } => "/Filter /JBIG2Decode".to_string(),
+        BilevelPayload::PdfJbig2 {
+            decode: PdfBilevelDecode::Inverted,
+            ..
+        } => "/Decode [1 0] /Filter /JBIG2Decode".to_string(),
+        BilevelPayload::Jbig2(_) => "/Decode [1 0] /Filter /JBIG2Decode".to_string(),
+        BilevelPayload::CcittG4(_) => format!(
+            "/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
+        ),
+        BilevelPayload::Flate(_) => "/Filter /FlateDecode".to_string(),
+    };
+    format!(
+        "<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray /BitsPerComponent 1 {filter} /Length {} >>",
+        payload.data().len()
+    )
+}
+
 fn image_mask_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
     let filter = match payload {
-        BilevelPayload::Jbig2(_) => "/Filter /JBIG2Decode".to_string(),
+        BilevelPayload::PdfJbig2 { .. } | BilevelPayload::Jbig2(_) => {
+            "/Filter /JBIG2Decode".to_string()
+        }
         BilevelPayload::CcittG4(_) => format!(
             "/Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
         ),
@@ -637,6 +982,9 @@ enum ColorImagePayloadRef<'a> {
     Jpeg {
         data: &'a [u8],
     },
+    Jpx {
+        data: &'a [u8],
+    },
 }
 
 impl<'a> From<&'a LayeredImagePayload> for ColorImagePayloadRef<'a> {
@@ -650,6 +998,7 @@ impl<'a> From<&'a LayeredImagePayload> for ColorImagePayloadRef<'a> {
                 decode_params,
             },
             LayeredImagePayload::Jpeg { data } => Self::Jpeg { data },
+            LayeredImagePayload::Jpx { data } => Self::Jpx { data },
         }
     }
 }
@@ -662,6 +1011,331 @@ mod tests {
     fn computes_points_from_dpi() {
         assert_eq!(points(300, 300), 72.0);
         assert_eq!(points(144, 72), 144.0);
+    }
+
+    #[test]
+    fn soft_layered_page_uses_an_eight_bit_smask_instead_of_a_binary_image_mask() {
+        let background_pixels = vec![255u8; 8];
+        let page = SoftLayeredPdfPage {
+            page_size: PdfPageSize {
+                width_points: 4.0,
+                height_points: 2.0,
+            },
+            background: LayeredPdfImage {
+                width: 4,
+                height: 2,
+                color_space: "DeviceGray",
+                payload: LayeredImagePayload::RawFlate {
+                    data: deflate_up_filtered_slices(&background_pixels, 4, 2).unwrap(),
+                    decode_params: "<< /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 4 >>"
+                        .to_string(),
+                },
+            },
+            foreground_alpha: SoftMaskStream::encode(4, 2, &[0, 64, 128, 255, 255, 128, 64, 0])
+                .unwrap(),
+            foreground_color: None,
+        };
+
+        let pdf = build_soft_layered_pdf_page(&page).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/SMask "));
+        assert!(text.contains("/Width 4 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8"));
+        assert!(!text.contains("/ImageMask true"));
+    }
+
+    #[test]
+    fn affine_masked_page_preserves_foreground_stream_and_uses_noninverted_opacity_mask() {
+        let page = AffineMaskedLayeredPdfPage {
+            page_size: PdfPageSize {
+                width_points: 144.0,
+                height_points: 72.0,
+            },
+            background: LayeredPdfImage {
+                width: 4,
+                height: 2,
+                color_space: "DeviceGray",
+                payload: LayeredImagePayload::RawFlate {
+                    data: deflate_up_filtered_slices(&[255; 8], 4, 2).unwrap(),
+                    decode_params: "<< /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 4 >>"
+                        .to_string(),
+                },
+            },
+            foreground: LayeredPdfImage {
+                width: 8,
+                height: 2,
+                color_space: "DeviceRGB",
+                payload: LayeredImagePayload::Jpx {
+                    data: vec![0, 1, 2, 3],
+                },
+            },
+            foreground_mask: sample_mask(),
+            foreground_matrix: [120.0, 0.0, 0.0, 60.0, 12.0, 6.0],
+        };
+
+        let pdf = build_affine_masked_layered_pdf_page(&page).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/FgMrc1"));
+        assert!(text.contains("/Filter /JPXDecode"));
+        assert!(text.contains("/SMask "));
+        assert!(!text.contains("/ImageMask true"));
+        assert!(text.contains("/Decode [1 0]"));
+        assert!(text.contains(
+            "120.00000000 0.00000000 0.00000000 60.00000000 12.00000000 6.00000000 cm /FgMrc1 Do"
+        ));
+    }
+
+    #[test]
+    fn bundled_poppler_composites_binary_smask_with_selected_foreground_polarity() {
+        use std::{
+            fs,
+            path::PathBuf,
+            process::Command,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+
+        let tag = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("macos", "aarch64") => "darwin-arm64",
+            ("linux", "x86_64") => "linux-x64",
+            ("windows", "x86_64") => "win32-x64",
+            _ => return,
+        };
+        let executable = if std::env::consts::OS == "windows" {
+            "pdftoppm.exe"
+        } else {
+            "pdftoppm"
+        };
+        let pdftoppm = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/poppler")
+            .join(tag)
+            .join("bin")
+            .join(executable);
+        if !pdftoppm.is_file() {
+            eprintln!("bundled pdftoppm is unavailable for this host");
+            return;
+        }
+
+        const WIDTH: u32 = 8;
+        const HEIGHT: u32 = 8;
+        let foreground_pixels = [255, 0, 0].repeat((WIDTH * HEIGHT) as usize);
+        let page = AffineMaskedLayeredPdfPage {
+            page_size: PdfPageSize {
+                width_points: f64::from(WIDTH),
+                height_points: f64::from(HEIGHT),
+            },
+            background: LayeredPdfImage {
+                width: WIDTH,
+                height: HEIGHT,
+                color_space: "DeviceRGB",
+                payload: LayeredImagePayload::RawFlate {
+                    data: deflate_up_filtered_slices(
+                        &[255; (WIDTH * HEIGHT * 3) as usize],
+                        WIDTH as usize * 3,
+                        HEIGHT as usize,
+                    )
+                    .unwrap(),
+                    decode_params: format!(
+                        "<< /Predictor 12 /Colors 3 /BitsPerComponent 8 /Columns {WIDTH} >>"
+                    ),
+                },
+            },
+            foreground: LayeredPdfImage {
+                width: WIDTH,
+                height: HEIGHT,
+                color_space: "DeviceRGB",
+                payload: LayeredImagePayload::RawFlate {
+                    data: deflate_up_filtered_slices(
+                        &foreground_pixels,
+                        WIDTH as usize * 3,
+                        HEIGHT as usize,
+                    )
+                    .unwrap(),
+                    decode_params: format!(
+                        "<< /Predictor 12 /Colors 3 /BitsPerComponent 8 /Columns {WIDTH} >>"
+                    ),
+                },
+            },
+            foreground_mask: BilevelStream::encode(&PbmP4Image {
+                width: WIDTH,
+                height: HEIGHT,
+                row_stride: 1,
+                bitmap: vec![
+                    0,
+                    0,
+                    0b0011_1100,
+                    0b0011_1100,
+                    0b0011_1100,
+                    0b0011_1100,
+                    0,
+                    0,
+                ],
+            })
+            .unwrap(),
+            foreground_matrix: [f64::from(WIDTH), 0.0, 0.0, f64::from(HEIGHT), 0.0, 0.0],
+        };
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "evb-binary-smask-render-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let pdf_path = directory.join("binary-smask.pdf");
+        let output_prefix = directory.join("binary-smask");
+        fs::write(
+            &pdf_path,
+            build_affine_masked_layered_pdf_page(&page).unwrap(),
+        )
+        .unwrap();
+        let output = Command::new(pdftoppm)
+            .args(["-r", "72", "-singlefile"])
+            .arg(&pdf_path)
+            .arg(&output_prefix)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let ppm = fs::read(output_prefix.with_extension("ppm")).unwrap();
+        let raster =
+            crate::netpbm::parse_netpbm(&ppm, u64::from(WIDTH) * u64::from(HEIGHT)).unwrap();
+        let red_pixels = raster
+            .pixels
+            .chunks_exact(3)
+            .filter(|pixel| pixel[0] >= 245 && pixel[1] <= 10 && pixel[2] <= 10)
+            .count();
+        assert!(
+            (8..=16).contains(&red_pixels),
+            "only the selected 4x4 mask block may expose foreground; got {red_pixels} red pixels"
+        );
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn bundled_poppler_composites_soft_alpha_with_the_expected_polarity() {
+        use std::{
+            fs,
+            path::PathBuf,
+            process::Command,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+
+        let tag = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("macos", "aarch64") => "darwin-arm64",
+            ("linux", "x86_64") => "linux-x64",
+            ("windows", "x86_64") => "win32-x64",
+            _ => return,
+        };
+        let executable = if std::env::consts::OS == "windows" {
+            "pdftoppm.exe"
+        } else {
+            "pdftoppm"
+        };
+        let pdftoppm = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/poppler")
+            .join(tag)
+            .join("bin")
+            .join(executable);
+        if !pdftoppm.is_file() {
+            eprintln!("bundled pdftoppm is unavailable for this host");
+            return;
+        }
+
+        const WIDTH: u32 = 40;
+        const HEIGHT: u32 = 10;
+        let background_pixels = vec![255u8; (WIDTH * HEIGHT) as usize];
+        let mut alpha = Vec::with_capacity((WIDTH * HEIGHT) as usize);
+        for _ in 0..HEIGHT {
+            alpha.extend(std::iter::repeat_n(0, 10));
+            alpha.extend(std::iter::repeat_n(64, 10));
+            alpha.extend(std::iter::repeat_n(128, 10));
+            alpha.extend(std::iter::repeat_n(255, 10));
+        }
+        let page = SoftLayeredPdfPage {
+            page_size: PdfPageSize {
+                width_points: f64::from(WIDTH),
+                height_points: f64::from(HEIGHT),
+            },
+            background: LayeredPdfImage {
+                width: WIDTH,
+                height: HEIGHT,
+                color_space: "DeviceGray",
+                payload: LayeredImagePayload::RawFlate {
+                    data: deflate_up_filtered_slices(
+                        &background_pixels,
+                        WIDTH as usize,
+                        HEIGHT as usize,
+                    )
+                    .unwrap(),
+                    decode_params: format!(
+                        "<< /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns {WIDTH} >>"
+                    ),
+                },
+            },
+            foreground_alpha: SoftMaskStream::encode(WIDTH, HEIGHT, &alpha).unwrap(),
+            foreground_color: None,
+        };
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "evb-soft-mask-render-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let pdf_path = directory.join("soft-alpha.pdf");
+        let output_prefix = directory.join("soft-alpha");
+        fs::write(&pdf_path, build_soft_layered_pdf_page(&page).unwrap()).unwrap();
+        let output = Command::new(pdftoppm)
+            .args(["-r", "72", "-gray", "-singlefile"])
+            .arg(&pdf_path)
+            .arg(&output_prefix)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let pgm = fs::read(output_prefix.with_extension("pgm")).unwrap();
+        let raster =
+            crate::netpbm::parse_netpbm(&pgm, u64::from(WIDTH) * u64::from(HEIGHT)).unwrap();
+        assert_eq!((raster.width, raster.height), (WIDTH, HEIGHT));
+        assert_eq!(raster.channels, 1);
+        let row = (HEIGHT / 2 * WIDTH) as usize;
+        let samples = [
+            raster.pixels[row + 5],
+            raster.pixels[row + 15],
+            raster.pixels[row + 25],
+            raster.pixels[row + 35],
+        ];
+        assert!(
+            samples[0] >= 250,
+            "transparent foreground must leave white: {samples:?}"
+        );
+        assert!(
+            (185..=195).contains(&samples[1]),
+            "25% black must composite near 191: {samples:?}"
+        );
+        assert!(
+            (122..=132).contains(&samples[2]),
+            "50% black must composite near 127: {samples:?}"
+        );
+        assert!(
+            samples[3] <= 5,
+            "opaque foreground must render black: {samples:?}"
+        );
+
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -913,6 +1587,13 @@ mod tests {
     #[test]
     fn writes_bilevel_base_image_dictionaries_for_every_filter() {
         for (payload, expected_filter) in [
+            (
+                BilevelPayload::PdfJbig2 {
+                    data: vec![1, 2],
+                    decode: PdfBilevelDecode::Default,
+                },
+                "/Filter /JBIG2Decode",
+            ),
             (BilevelPayload::Jbig2(vec![1, 2]), "/Filter /JBIG2Decode"),
             (
                 BilevelPayload::CcittG4(vec![1, 2]),
@@ -925,7 +1606,10 @@ mod tests {
             assert!(dictionary.contains("/BitsPerComponent 1"));
             assert_eq!(
                 dictionary.contains("/Decode [1 0]"),
-                !matches!(payload, BilevelPayload::Jbig2(_))
+                !matches!(
+                    payload,
+                    BilevelPayload::PdfJbig2 { .. } | BilevelPayload::Jbig2(_)
+                )
             );
             assert!(dictionary.contains(expected_filter));
             assert!(!dictionary.contains("/ImageMask true"));
@@ -941,6 +1625,13 @@ mod tests {
     #[test]
     fn writes_image_mask_dictionaries_for_every_filter_and_polarity() {
         for (payload, expected_filter) in [
+            (
+                BilevelPayload::PdfJbig2 {
+                    data: vec![1, 2],
+                    decode: PdfBilevelDecode::Default,
+                },
+                "/Filter /JBIG2Decode",
+            ),
             (BilevelPayload::Jbig2(vec![1, 2]), "/Filter /JBIG2Decode"),
             (
                 BilevelPayload::CcittG4(vec![1, 2]),
@@ -954,7 +1645,10 @@ mod tests {
             assert!(!dictionary.contains("/ColorSpace"));
             assert_eq!(
                 dictionary.contains("/Decode [1 0]"),
-                !matches!(payload, BilevelPayload::Jbig2(_))
+                !matches!(
+                    payload,
+                    BilevelPayload::PdfJbig2 { .. } | BilevelPayload::Jbig2(_)
+                )
             );
             assert!(dictionary.contains(expected_filter));
             if matches!(payload, BilevelPayload::CcittG4(_)) {

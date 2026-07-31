@@ -294,6 +294,7 @@ dependencies = [
  "crc32fast",
  "evb-native-support",
  "evb-raster-io",
+ "jbig2-codec",
  "jpeg-encoder",
  "rayon",
  "scan-primitives",

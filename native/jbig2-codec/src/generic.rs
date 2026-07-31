@@ -2,6 +2,10 @@ use crate::{
     arith::{Decoder, Encoder},
     Jbig2Error, OwnedBilevel,
 };
+use fax::{
+    decoder::{decode_g4, pels},
+    Color,
+};
 
 const CONTEXT_COUNT: usize = 1 << 16;
 const TPGD_CONTEXT: usize = 0x9b25;
@@ -44,6 +48,7 @@ pub(crate) fn decode(
     height: u32,
     stride: usize,
     data: &[u8],
+    typical_prediction: bool,
     require_canonical_arithmetic: bool,
 ) -> Result<OwnedBilevel, Jbig2Error> {
     if data.len() < 2 || !data.ends_with(&[0xff, 0xac]) {
@@ -56,7 +61,9 @@ pub(crate) fn decode(
     let pixel_width = width as usize;
 
     for y in 0..height as usize {
-        ltp ^= coder.decode(&mut contexts, TPGD_CONTEXT) != 0;
+        if typical_prediction {
+            ltp ^= coder.decode(&mut contexts, TPGD_CONTEXT) != 0;
+        }
         let (before, current_and_after) = rows.split_at_mut(y * stride);
         if ltp {
             if y > 0 {
@@ -83,6 +90,48 @@ pub(crate) fn decode(
         return Err(Jbig2Error::InvalidArithmeticData);
     }
 
+    Ok(OwnedBilevel {
+        width,
+        height,
+        rows,
+    })
+}
+
+pub(crate) fn decode_mmr(
+    width: u32,
+    height: u32,
+    stride: usize,
+    data: &[u8],
+) -> Result<OwnedBilevel, Jbig2Error> {
+    let fax_width = u16::try_from(width)
+        .map_err(|_| Jbig2Error::Unsupported("MMR bitmap width exceeds the decoder limit"))?;
+    let fax_height = u16::try_from(height)
+        .map_err(|_| Jbig2Error::Unsupported("MMR bitmap height exceeds the decoder limit"))?;
+    let mut rows = allocate_zeroed(stride, height)?;
+    let mut decoded_rows = 0usize;
+    let decoded = decode_g4(
+        data.iter().copied(),
+        fax_width,
+        Some(fax_height),
+        |transitions| {
+            if decoded_rows >= height as usize {
+                return;
+            }
+            let row = &mut rows[decoded_rows * stride..(decoded_rows + 1) * stride];
+            for (x, color) in pels(transitions, fax_width)
+                .take(width as usize)
+                .enumerate()
+            {
+                if color == Color::Black {
+                    row[x >> 3] |= 0x80 >> (x & 7);
+                }
+            }
+            decoded_rows += 1;
+        },
+    );
+    if decoded.is_none() || decoded_rows != height as usize {
+        return Err(Jbig2Error::InvalidMmrData);
+    }
     Ok(OwnedBilevel {
         width,
         height,

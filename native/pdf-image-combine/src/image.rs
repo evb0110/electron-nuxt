@@ -13,6 +13,7 @@ use evb_raster_io::{
 use crate::{
     flate::{deflate_up_filtered_rgb_grayscale, deflate_up_filtered_slices},
     jpeg::parse_jpeg_metadata,
+    jpx::parse_jpx_metadata,
     netpbm::{is_rgb_data_grayscale, parse_netpbm},
     pdf::{ImagePage, ImagePayload},
     tiff_io::{visit_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
@@ -72,6 +73,7 @@ pub(crate) fn visit_image_pages_from_file(
     let page = match extension.as_str() {
         "png" => read_png_page_from_reader(BufReader::new(file), max_pixels, default_dpi)?,
         "jpg" | "jpeg" => read_jpeg_page(read_file(file)?, max_pixels, default_dpi)?,
+        "jp2" => read_jpx_page(read_file(file)?, max_pixels, default_dpi)?,
         "pgm" | "ppm" => read_netpbm_page(
             &read_file(file)?,
             max_pixels,
@@ -138,6 +140,9 @@ pub(crate) fn read_image_page_from_file(
         ("jpg" | "jpeg", _) => {
             read_jpeg_page(read_file(file)?, options.max_pixels, options.default_dpi)
         }
+        ("jp2", PdfImageCompression::Auto) => {
+            read_jpx_page(read_file(file)?, options.max_pixels, options.default_dpi)
+        }
         ("pgm" | "ppm", _) => read_netpbm_page(
             &read_file(file)?,
             options.max_pixels,
@@ -178,6 +183,7 @@ pub(crate) fn visit_image_pages_from_bytes(
     let page = match extension.as_str() {
         "png" => read_png_page_from_reader(Cursor::new(bytes), max_pixels, default_dpi)?,
         "jpg" | "jpeg" => read_jpeg_page(bytes.to_vec(), max_pixels, default_dpi)?,
+        "jp2" => read_jpx_page(bytes.to_vec(), max_pixels, default_dpi)?,
         "pgm" | "ppm" => read_netpbm_page(bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))?,
         _ => return Err(format!("Unsupported image extension: {file_name}").into()),
     };
@@ -261,6 +267,9 @@ pub(crate) fn read_image_page_from_bytes(
         ("jpg" | "jpeg", _) => {
             read_jpeg_page(bytes.to_vec(), options.max_pixels, options.default_dpi)
         }
+        ("jp2", PdfImageCompression::Auto) => {
+            read_jpx_page(bytes.to_vec(), options.max_pixels, options.default_dpi)
+        }
         _ => Err(format!("Unsupported image extension: {file_name}").into()),
     }
 }
@@ -334,6 +343,23 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> 
         color_space,
         icc_profile: metadata.icc_profile,
         payload: ImagePayload::Jpeg { data: bytes },
+    })
+}
+
+fn read_jpx_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
+    let metadata = parse_jpx_metadata(&bytes)?;
+    assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
+    Ok(ImagePage {
+        width: metadata.width,
+        height: metadata.height,
+        dpi: default_dpi.unwrap_or(DEFAULT_DPI),
+        color_space: if metadata.components == 1 {
+            "DeviceGray"
+        } else {
+            "DeviceRGB"
+        },
+        icc_profile: None,
+        payload: ImagePayload::Jpx { data: bytes },
     })
 }
 
@@ -923,7 +949,7 @@ mod tests {
                 assert!(decode_params.contains("/Colors 1"));
                 assert!(decode_params.contains("/Columns 2"));
             }
-            ImagePayload::Jpeg { .. } | ImagePayload::Bilevel { .. } => {
+            ImagePayload::Jpeg { .. } | ImagePayload::Jpx { .. } | ImagePayload::Bilevel { .. } => {
                 panic!("expected flate payload")
             }
         }
@@ -944,7 +970,7 @@ mod tests {
             ImagePayload::RawFlate { decode_params, .. } => {
                 assert!(decode_params.contains("/Colors 3"));
             }
-            ImagePayload::Jpeg { .. } | ImagePayload::Bilevel { .. } => {
+            ImagePayload::Jpeg { .. } | ImagePayload::Jpx { .. } | ImagePayload::Bilevel { .. } => {
                 panic!("expected flate payload")
             }
         }
@@ -972,7 +998,9 @@ mod tests {
             ImagePayload::Jpeg { data } => {
                 assert!(data.starts_with(&[0xff, 0xd8]));
             }
-            ImagePayload::RawFlate { .. } | ImagePayload::Bilevel { .. } => {
+            ImagePayload::RawFlate { .. }
+            | ImagePayload::Jpx { .. }
+            | ImagePayload::Bilevel { .. } => {
                 panic!("expected jpeg payload")
             }
         }
@@ -1006,7 +1034,9 @@ mod tests {
                 assert_eq!(metadata.width, 2);
                 assert_eq!(metadata.height, 2);
             }
-            ImagePayload::RawFlate { .. } | ImagePayload::Bilevel { .. } => {
+            ImagePayload::RawFlate { .. }
+            | ImagePayload::Jpx { .. }
+            | ImagePayload::Bilevel { .. } => {
                 panic!("expected jpeg payload")
             }
         }
