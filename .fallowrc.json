@@ -82,6 +82,7 @@
         "@playwright/test",
         "node-mock-http",
         "nuxt",
+        "pdfjs-dist-codex-preview",
         "puppeteer-core",
         "radix3",
         "sass-embedded",

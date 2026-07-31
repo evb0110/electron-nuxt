@@ -4168,7 +4168,7 @@ mod tests {
                         retained_color.as_ref().unwrap().get(x, y),
                         color.get(x, y)
                     );
-                } else if x < 10 || x >= 30 || y < 4 || y >= 20 {
+                } else if !(10..30).contains(&x) || !(4..20).contains(&y) {
                     assert_eq!(retained.get(x, y), 255);
                     assert_eq!(retained_color.as_ref().unwrap().get(x, y), [255; 3]);
                 }

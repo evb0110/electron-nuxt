@@ -3,9 +3,7 @@ use flate2::{write::ZlibEncoder, Compression};
 use jbig2_codec::Bilevel;
 use std::{fmt::Write as FmtWrite, io::Write as IoWrite};
 
-use crate::{
-    flate::deflate_up_filtered_slices, netpbm::PbmP4Image, PdfBilevelDecode, Result,
-};
+use crate::{flate::deflate_up_filtered_slices, netpbm::PbmP4Image, PdfBilevelDecode, Result};
 
 pub(crate) enum ImagePayload {
     RawFlate {

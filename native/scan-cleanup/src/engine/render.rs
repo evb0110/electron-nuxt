@@ -3729,7 +3729,7 @@ fn clean_region(
     let trusted_mrc_background_preserved = options.output_mode == OutputMode::Mixed
         && rendered_trusted_tone_mask
             .as_ref()
-            .is_some_and(|plate| should_preserve_trusted_background(plate));
+            .is_some_and(should_preserve_trusted_background);
     let (
         mut image,
         mut color_image,
