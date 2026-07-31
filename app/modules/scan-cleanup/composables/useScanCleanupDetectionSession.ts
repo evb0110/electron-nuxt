@@ -2,6 +2,7 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupSourcePageMetadata,
     IScanCleanupOptions,
+    IScanCleanupPagePlanEvidence,
     IScanCleanupPageOverride,
     IScanCleanupPreviewResult,
     TScanCleanupDetectionJobState,
@@ -90,6 +91,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const recommendedOutputModeByPage = reactive(
         new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputMode']>>(),
     );
+    const pagePlanEvidenceByPage = reactive(new Map<number, IScanCleanupPagePlanEvidence>());
     // Pages the running job has finished a stage for, accumulated across the
     // job: the rasterizing stage reports read pages and the detecting stage
     // reports analyzed ones, and neither set is a superset of the other. A page
@@ -100,6 +102,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const recommendedOutputModeReasonByPage = reactive(
         new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputModeReason']>>(),
     );
+    const softAlphaForegroundRecommendationByPage = reactive(new Map<number, boolean>());
     const sourcePageMetadataByPage = computed<ReadonlyMap<number, IScanCleanupSourcePageMetadata>>(
         () => new Map(
             (jobState.value?.results ?? []).flatMap(result => result.sourcePageMetadata === undefined
@@ -122,6 +125,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         recommendedOutputModeByPage.clear();
         recommendedOutputModeConfidenceByPage.clear();
         recommendedOutputModeReasonByPage.clear();
+        softAlphaForegroundRecommendationByPage.clear();
     }
 
     const manualLayoutOverrideByPage = computed<ReadonlyMap<number, TScanCleanupLayoutClassification>>(() => {
@@ -282,6 +286,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
         }
         for (const result of state.results) detectionResultsByPage.set(result.pageNumber, result);
+        for (const result of state.results) {
+            if (result.pagePlanEvidence !== undefined) {
+                pagePlanEvidenceByPage.set(result.pageNumber, result.pagePlanEvidence);
+            }
+        }
         const accumulatedState = {
             ...state,
             results: [...detectionResultsByPage.values()]
@@ -300,6 +309,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             recommendedOutputModeByPage,
             recommendedOutputModeConfidenceByPage,
             recommendedOutputModeReasonByPage,
+            softAlphaForegroundRecommendationByPage,
         );
         if (accumulatedState.status === 'failed') error.value = accumulatedState.error;
         if (!disposed && jobDocumentKey && completedWithCurrentEvidence) {
@@ -372,6 +382,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectionResultsByPage.clear();
         settledPages.clear();
         textAxisByPage.clear();
+        pagePlanEvidenceByPage.clear();
         clearOutputModeRecommendations();
         jobId = result.jobId;
         jobState.value = {
@@ -413,18 +424,20 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
     }
 
-    async function cancelAndWaitForTerminal() {
+    async function settleCurrentDetection(cancelCurrent: boolean) {
         return new Promise<void>((resolve, reject) => {
             let settled = false;
             let stopStarting: (() => void) | null = null;
             let targetJobId: string | null = null;
             let terminalWaiter: (() => void) | null = null;
-            const timeout = setTimeout(() => {
-                finish(new Error(t('scanCleanup.detectAll.cancelTimeout')));
-            }, DETECTION_CANCELLATION_TIMEOUT_MS);
+            const timeout = cancelCurrent
+                ? setTimeout(() => {
+                    finish(new Error(t('scanCleanup.detectAll.cancelTimeout')));
+                }, DETECTION_CANCELLATION_TIMEOUT_MS)
+                : null;
 
             function cleanup() {
-                clearTimeout(timeout);
+                if (timeout !== null) clearTimeout(timeout);
                 stopStarting?.();
                 if (targetJobId && terminalWaiter) {
                     const waiters = terminalWaiters.get(targetJobId);
@@ -476,7 +489,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 const waiters = terminalWaiters.get(targetJobId) ?? new Set<() => void>();
                 waiters.add(terminalWaiter);
                 terminalWaiters.set(targetJobId, waiters);
-                if (!cancelRequested.value) {
+                if (cancelCurrent && !cancelRequested.value) {
                     await capability.cancelDetection(targetJobId, {
                         ownerId: options.ownerId,
                         documentRevision: targetJobRevision,
@@ -499,6 +512,14 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 applyState(latest);
             })().catch(finish);
         });
+    }
+
+    async function cancelAndWaitForTerminal() {
+        await settleCurrentDetection(true);
+    }
+
+    async function waitForTerminal() {
+        await settleCurrentDetection(false);
     }
 
     function cacheIsFresh(entry: IDetectionSessionCacheEntry) {
@@ -540,7 +561,14 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             recommendedOutputModeByPage,
             recommendedOutputModeConfidenceByPage,
             recommendedOutputModeReasonByPage,
+            softAlphaForegroundRecommendationByPage,
         );
+        pagePlanEvidenceByPage.clear();
+        for (const result of cached.results) {
+            if (result.pagePlanEvidence !== undefined) {
+                pagePlanEvidenceByPage.set(result.pageNumber, result.pagePlanEvidence);
+            }
+        }
         return true;
     }
 
@@ -598,6 +626,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         documentPriorByPage.clear();
         settledPages.clear();
         textAxisByPage.clear();
+        pagePlanEvidenceByPage.clear();
         clearOutputModeRecommendations();
         autoPending.value = Boolean(options.active() && options.sourcePath.value);
         // The mounted hook owns the initial auto-detect; scheduling it here too
@@ -649,9 +678,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 documentPriorByPage.delete(pageNumber);
                 detectionResultsByPage.delete(pageNumber);
                 textAxisByPage.delete(pageNumber);
+                pagePlanEvidenceByPage.delete(pageNumber);
                 recommendedOutputModeByPage.delete(pageNumber);
                 recommendedOutputModeConfidenceByPage.delete(pageNumber);
                 recommendedOutputModeReasonByPage.delete(pageNumber);
+                softAlphaForegroundRecommendationByPage.delete(pageNumber);
             }
             if (!isDetecting.value) {
                 jobState.value = null;
@@ -688,6 +719,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         isDetecting,
         maybeAutoDetect,
         outputEstimate,
+        pagePlanEvidenceByPage,
         pending,
         progress,
         progressText,
@@ -695,8 +727,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         recommendedOutputModeByPage,
         recommendedOutputModeConfidenceByPage,
         recommendedOutputModeReasonByPage,
+        softAlphaForegroundRecommendationByPage,
         settledPages,
         sourcePageMetadataByPage,
         textAxisByPage,
+        waitForTerminal,
     };
 };

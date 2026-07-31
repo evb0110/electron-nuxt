@@ -15,6 +15,7 @@ export function applyScanCleanupDetectionResults(
     recommendedModes?: Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputMode']>>,
     recommendedModeConfidences?: Map<number, number>,
     recommendedModeReasons?: Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputModeReason']>>,
+    softAlphaForegroundRecommendations?: Map<number, boolean>,
 ) {
     for (const result of results) {
         if (!accepts(result.pageNumber)) {
@@ -49,6 +50,14 @@ export function applyScanCleanupDetectionResults(
             recommendedModeReasons?.delete(result.pageNumber);
         } else {
             recommendedModeReasons?.set(result.pageNumber, result.recommendedOutputModeReason);
+        }
+        if (result.softAlphaForegroundRecommendation === undefined) {
+            softAlphaForegroundRecommendations?.delete(result.pageNumber);
+        } else {
+            softAlphaForegroundRecommendations?.set(
+                result.pageNumber,
+                result.softAlphaForegroundRecommendation,
+            );
         }
     }
 }

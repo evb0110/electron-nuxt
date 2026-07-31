@@ -735,6 +735,7 @@ function diagnosticBlock(block: IScanCleanupContentBlockEvidence) {
         block.pictureMaskOverlapPixels > 0 ? t('scanCleanup.pages.diagnostics.pictureEvidence') : '',
         block.headingEvidence ? t('scanCleanup.pages.diagnostics.headingEvidence') : '',
         block.grayscaleEvidence ? t('scanCleanup.pages.diagnostics.grayscaleEvidence') : '',
+        block.textEvidence ? t('scanCleanup.pages.diagnostics.textEvidence') : '',
     ].filter(Boolean).join(', ') || t('scanCleanup.pages.diagnostics.noProtectedEvidence');
     return t('scanCleanup.pages.diagnostics.boundsValue', {
         x: Math.round(block.bounds.xPx),

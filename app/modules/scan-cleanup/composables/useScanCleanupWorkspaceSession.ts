@@ -68,22 +68,45 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         ownerId,
         previewPage: selection.leader,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
+        softAlphaForegroundRecommendationByPage:
+            detection.softAlphaForegroundRecommendationByPage,
         selectPage: selection.selectPage,
         settings: settings.values,
         sourcePath,
         totalPages,
     });
+    function resolvePagePlanEvidence(pageNumbers: readonly number[]) {
+        const evidence = new Map(
+            pageNumbers.flatMap(pageNumber => {
+                const detected = detection.pagePlanEvidenceByPage.get(pageNumber);
+                return detected === undefined
+                    ? []
+                    : [[
+                        pageNumber,
+                        detected,
+                    ] as const];
+            }),
+        );
+        for (const [
+            pageNumber,
+            previewEvidence,
+        ] of previewResult?.resolvePagePlanEvidence(pageNumbers) ?? []) {
+            evidence.set(pageNumber, previewEvidence);
+        }
+        return evidence;
+    }
     const run = useScanCleanupRunSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         beforeRun: () => previewResult?.cancel(false),
         cancelDetectionBeforeRun: detection.cancelAndWaitForTerminal,
+        detectionError: detection.error,
         detectionPending: detection.pending,
         documentRevision,
         onCompleted: settings.dismissFirstRunGuidance,
         ownerId,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
-        resolvePagePlanEvidence: pageNumbers => previewResult?.resolvePagePlanEvidence(pageNumbers) ?? new Map(),
+        resolvePagePlanEvidence,
         sourcePageNumbers: computed(() => {
             if (selection.settingsScope.value === 'all') {
                 return null;
@@ -95,9 +118,12 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         }),
         sourcePageMetadataByPage: detection.sourcePageMetadataByPage,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
+        softAlphaForegroundRecommendationByPage:
+            detection.softAlphaForegroundRecommendationByPage,
         settings: settings.values,
         sourcePath,
         totalPages,
+        waitForDetectionBeforeRun: detection.waitForTerminal,
     });
 
     return {

@@ -39,16 +39,43 @@ function normalizePreviewContentBox(
     const contentBox = metadata.contentBox;
     if (
         contentBox === null
+        || metadata.inputWidthPx <= 0
+        || metadata.inputHeightPx <= 0
         || metadata.sourceRegion.widthPx <= 0
         || metadata.sourceRegion.heightPx <= 0
     ) {
         return undefined;
     }
+    const analysisWidth = metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270
+        ? metadata.inputHeightPx
+        : metadata.inputWidthPx;
+    const analysisHeight = metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270
+        ? metadata.inputWidthPx
+        : metadata.inputHeightPx;
+    // Native content boxes are local to their output's source region, while
+    // normalized content overrides use the full rotated sheet as their scale.
+    // Clip in local space, then divide by the full-sheet dimensions. Adding
+    // sourceRegion.xPx here shifts a right-hand page by the cutter twice.
+    const regionWidth = metadata.sourceRegion.widthPx;
+    const regionHeight = metadata.sourceRegion.heightPx;
+    const left = Math.max(0, Math.min(regionWidth, contentBox.xPx));
+    const top = Math.max(0, Math.min(regionHeight, contentBox.yPx));
+    const right = Math.max(
+        left,
+        Math.min(regionWidth, contentBox.xPx + contentBox.widthPx),
+    );
+    const bottom = Math.max(
+        top,
+        Math.min(regionHeight, contentBox.yPx + contentBox.heightPx),
+    );
+    if (right <= left || bottom <= top) {
+        return undefined;
+    }
     return {
-        xNormalized: contentBox.xPx / metadata.sourceRegion.widthPx,
-        yNormalized: contentBox.yPx / metadata.sourceRegion.heightPx,
-        widthNormalized: contentBox.widthPx / metadata.sourceRegion.widthPx,
-        heightNormalized: contentBox.heightPx / metadata.sourceRegion.heightPx,
+        xNormalized: left / analysisWidth,
+        yNormalized: top / analysisHeight,
+        widthNormalized: (right - left) / analysisWidth,
+        heightNormalized: (bottom - top) / analysisHeight,
         rotationDegrees: metadata.rotationDegrees,
     };
 }
@@ -86,7 +113,12 @@ export function createScanCleanupPagePlanEvidence(
             && Number.isFinite(metadata.detectedSkewDegrees)
             ? metadata.detectedSkewDegrees
             : undefined;
-        if (contentBox === undefined && detectedSkewDegrees === undefined) {
+        const textToneDiagnostics = metadata.textToneDiagnostics;
+        if (
+            contentBox === undefined
+            && detectedSkewDegrees === undefined
+            && textToneDiagnostics === undefined
+        ) {
             return [];
         }
         return [[
@@ -94,6 +126,7 @@ export function createScanCleanupPagePlanEvidence(
             {
                 ...(contentBox === undefined ? {} : {contentBox}),
                 ...(detectedSkewDegrees === undefined ? {} : {detectedSkewDegrees}),
+                ...(textToneDiagnostics === undefined ? {} : {textToneDiagnostics}),
             },
         ]];
     }));
@@ -131,6 +164,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     ownerId: string;
     previewPage: Ref<number>;
     recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
+    softAlphaForegroundRecommendationByPage: ReadonlyMap<number, boolean>;
     selectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) => void;
     settings: IScanCleanupOptions;
     sourcePath: ComputedRef<TDocumentRef | null>;
@@ -155,6 +189,7 @@ export function createScanCleanupPreviewCacheKey(
     // Detection can settle after the first visible preview has already
     // started. It revalidates the one cached entry owned by this page.
     outputModeRecommendation: TScanCleanupOutputMode | null = null,
+    softAlphaForegroundRecommendation: boolean | null = null,
 ) {
     const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
     // Detection's contribution is keyed separately from the page's identity: it
@@ -168,6 +203,7 @@ export function createScanCleanupPreviewCacheKey(
     const validity = JSON.stringify({
         documentPrior,
         outputModeRecommendation,
+        softAlphaForegroundRecommendation,
         layouts: previewOptions.matchPageSize ? layoutSignature : '',
         canvasOverrides: previewOptions.matchPageSize ? matchedCanvasOverridesSignature : '',
     });
@@ -381,6 +417,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             layoutSignature.value,
             matchedCanvasOverridesSignature.value,
             resolveOutputModeRecommendation(pageNumber) ?? null,
+            resolveSoftAlphaForegroundRecommendation(pageNumber) ?? null,
         );
     }
 
@@ -416,6 +453,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             pageOverride,
             detectedOutputMode: options.recommendedOutputModeByPage.get(pageNumber),
         });
+    }
+
+    function resolveSoftAlphaForegroundRecommendation(pageNumber: number) {
+        return resolveOutputModeRecommendation(pageNumber) === 'mixed'
+            ? options.softAlphaForegroundRecommendationByPage.get(pageNumber)
+            : undefined;
     }
 
     function nextRequestId(key: string) {
@@ -500,6 +543,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         prefetcher.schedule(adjacentPages.map(pageNumber => {
             const documentPrior = options.documentPriorByPage.get(pageNumber);
             const outputModeRecommendation = resolveOutputModeRecommendation(pageNumber);
+            const softAlphaForegroundRecommendation =
+                resolveSoftAlphaForegroundRecommendation(pageNumber);
             const key = cacheKey(pageNumber, previewOptions, previewSourcePath);
             return {
                 key,
@@ -514,6 +559,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ...(outputModeRecommendation === undefined
                         ? {}
                         : {outputModeRecommendation}),
+                    ...(softAlphaForegroundRecommendation === undefined
+                        ? {}
+                        : {softAlphaForegroundRecommendation}),
                     layoutByPage: layoutByPage.value,
                 },
             };
@@ -540,6 +588,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestSourcePath = options.sourcePath.value;
         const documentPrior = options.documentPriorByPage.get(requestPage);
         const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
+        const softAlphaForegroundRecommendation =
+            resolveSoftAlphaForegroundRecommendation(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
         const requestId = nextRequestId(key);
         activeVisibleRequestId = requestId;
@@ -621,6 +671,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ...(outputModeRecommendation === undefined
                         ? {}
                         : {outputModeRecommendation}),
+                    ...(softAlphaForegroundRecommendation === undefined
+                        ? {}
+                        : {softAlphaForegroundRecommendation}),
                     layoutByPage: layoutByPage.value,
                 })), requestId);
                 // A cancelled request has no result to keep or display. When the
@@ -773,6 +826,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailLoading.value = true;
         try {
             const documentPrior = options.documentPriorByPage.get(requestPage);
+            const softAlphaForegroundRecommendation =
+                options.softAlphaForegroundRecommendationByPage.get(requestPage);
             const requestId = nextRequestId(tileKey);
             const next = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
                 requestId,
@@ -782,6 +837,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 pageNumber: requestPage,
                 options: requestOptions,
                 ...(documentPrior === undefined ? {} : {documentPrior}),
+                ...(softAlphaForegroundRecommendation === undefined
+                    ? {}
+                    : {softAlphaForegroundRecommendation}),
                 layoutByPage: layoutByPage.value,
                 detail: {
                     viewports,

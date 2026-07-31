@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TPaneDirection } from '@contracts/editorPanes';
 import type {
     IEvbAutomationEvent,
     TEvbAutomationEventListener,
@@ -49,6 +50,7 @@ export interface IEvbTestApi {
     readActiveWorkspaceStateValues: <TValues extends Record<string, unknown> = Record<string, unknown>>(
         propertyNames: string[],
     ) => TValues;
+    splitEditor: (direction: TPaneDirection) => Promise<void>;
     waitForAutomationEvent: (
         type: TEvbAutomationEventType,
         predicate?: TEvbAutomationEventPredicate,

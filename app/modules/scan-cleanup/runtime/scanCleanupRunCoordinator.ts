@@ -87,14 +87,15 @@ export function reportScanCleanupRunError(
     sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
 ) {
     setScanCleanupRunError(ownerId, error);
-    if (!dependencies || scanCleanupRun.workspaceOwnerIds.has(ownerId)) {
+    if (!dependencies) {
         return;
     }
+    const workspaceIsOpen = scanCleanupRun.workspaceOwnerIds.has(ownerId);
     dependencies.toast.add({
         color: 'error',
         title: dependencies.t('scanCleanup.failed'),
         description: error,
-        ...(sourceDocumentRef ? {actions: [{
+        ...(!workspaceIsOpen && sourceDocumentRef ? {actions: [{
             label: dependencies.t('scanCleanup.details'),
             color: 'neutral' as const,
             variant: 'outline' as const,

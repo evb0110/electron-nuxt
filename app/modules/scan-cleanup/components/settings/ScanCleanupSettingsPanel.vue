@@ -43,7 +43,6 @@
         </header>
 
         <div class="scan-cleanup-settings-scroll app-scrollbar app-scroll-region--balanced">
-            <div v-if="inlineError" class="scan-cleanup-error" role="alert">{{ inlineError }}</div>
             <div class="scan-cleanup-scope-area">
             <ScanCleanupScopeSelector
                 :model-value="scope"
@@ -665,7 +664,6 @@ const props = defineProps<{
     hasScopeOverrides: boolean;
     highlightedScope: TScanCleanupSettingsScope | null;
     inclusionItems: ISelectItem[];
-    inlineError: string;
     layout: IScanCleanupMixedValue<IScanCleanupOptions['layoutMode'] | TScanCleanupPageLayoutOverride>;
     layoutItems: ISelectItem[];
     manualSplit: IScanCleanupMixedValue<IScanCleanupNormalizedSplit | null>;

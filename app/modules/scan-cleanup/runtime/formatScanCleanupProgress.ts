@@ -14,6 +14,7 @@ interface IScanCleanupPageProgressCounts {
 
 const COUNTED_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set([
     'probing',
+    'extracting',
     'rasterizing',
     'classifying',
     'rendering',

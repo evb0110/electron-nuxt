@@ -81,7 +81,6 @@
                     :has-scope-overrides="hasScopeOverrides"
                     :highlighted-scope="highlightedScope"
                     :inclusion-items="scopeInclusionItems"
-                    :inline-error="inlineError"
                     :layout="scopeLayout"
                     :layout-items="scopeLayoutItems"
                     :manual-split="scopeManualSplit"
@@ -347,7 +346,6 @@ const {
     cancel,
     cancelRequested,
     canRun,
-    inlineError,
     isRunning,
     ownerId,
     processedPages,
@@ -1025,15 +1023,6 @@ watch(isRunning, running => {
     gap: var(--app-space-9xl);
     padding: var(--app-space-12xl);
     color: var(--ui-text-muted);
-    font-size: var(--app-text-size-body-sm);
-}
-
-.scan-cleanup-error {
-    margin-block-end: var(--app-space-12xl);
-    border-radius: var(--app-radius-md);
-    background: color-mix(in srgb, var(--ui-error) 12%, transparent);
-    padding: var(--app-space-9xl);
-    color: var(--ui-error);
     font-size: var(--app-text-size-body-sm);
 }
 

@@ -116,17 +116,19 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         pathOrResult: TWorkspaceOpenDocumentTarget,
     ) {
         const expected = buildPendingTabDocumentHint(pathOrResult);
-        if (expected.originalPath) {
-            return record.tab.originalPath === expected.originalPath;
-        }
+        const matchesManagedPdf = typeof pathOrResult !== 'string'
+            && pathOrResult.kind === 'pdf'
+            && record.documentIdentity?.documentRef === pathOrResult.workingPath;
+        const matchesOriginalPath = Boolean(
+            expected.originalPath
+            && record.tab.originalPath === expected.originalPath,
+        );
 
         if (expected.fileName && record.tab.fileName !== expected.fileName) {
             return false;
         }
 
-        return typeof pathOrResult !== 'string'
-            && pathOrResult.kind === 'pdf'
-            && record.documentIdentity?.documentRef === pathOrResult.workingPath;
+        return matchesOriginalPath || matchesManagedPdf;
     }
 
     function recordHasSettledDocumentEvidence(

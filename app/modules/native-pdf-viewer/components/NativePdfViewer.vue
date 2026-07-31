@@ -592,6 +592,15 @@ function cleanupViewerState() {
     pageSizes.value = [];
     pageStates.value = [];
     activePage.value = Math.max(1, Math.trunc(requestedCurrentPage));
+    if (viewerContainer.value) {
+        const intent = viewportWritePort.beginIntent('native-viewer-cleanup');
+        viewportWritePort.apply(viewerContainer.value, {
+            intent,
+            reason: 'native-viewer-cleanup',
+            left: 0,
+            top: 0,
+        });
+    }
     scrollTop.value = 0;
     viewerError.value = null;
     emit('update:document', null);
@@ -1280,33 +1289,4 @@ defineExpose<IDocumentViewerExpose & {
 });
 </script>
 
-<style scoped>
-.native-pdf-viewer-container,
-.native-pdf-continuous-surface,
-.native-pdf-page-shell {
-    overflow-anchor: none;
-}
-
-.native-pdf-continuous-surface {
-    position: relative;
-}
-
-.native-pdf-viewer-container--initial-visual-pending {
-    overflow: hidden;
-    pointer-events: none;
-}
-
-.native-pdf-viewer-container--initial-visual-pending > div {
-    visibility: hidden;
-}
-
-.native-pdf-page-shell {
-    position: absolute;
-    box-sizing: border-box;
-    overflow: hidden;
-    border-radius: var(--app-pdf-page-radius);
-    background: var(--app-pdf-page-bg);
-    box-shadow: var(--app-pdf-page-shadow);
-}
-
-</style>
+<style src="./NativePdfViewer.css"></style>
