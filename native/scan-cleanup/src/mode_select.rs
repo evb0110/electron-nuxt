@@ -452,10 +452,15 @@ pub(crate) fn text_soft_edge_to_ink_ratio(
     let luminance = luminance_evidence(analysis);
     let relative_lower = luminance.dark_mean + (luminance.light_mean - luminance.dark_mean) * 0.15;
     let relative_upper = luminance.light_mean - (luminance.light_mean - luminance.dark_mean) * 0.15;
+    // Soft tone hugging the page frame is scanner shadow, not glyph
+    // antialiasing; it must not push a crisp text page into the
+    // low-resolution-text veto. Same 1/20 border zone as content trimming.
+    let frame_x = analysis.width().div_ceil(20).max(1);
+    let frame_y = analysis.height().div_ceil(20).max(1);
     let mut ink = 0usize;
     let mut soft_edges = 0usize;
-    for y in 0..analysis.height() {
-        for x in 0..analysis.width() {
+    for y in frame_y..analysis.height().saturating_sub(frame_y) {
+        for x in frame_x..analysis.width().saturating_sub(frame_x) {
             if !text_vicinity.get(x, y) || picture_mask.is_some_and(|mask| mask.get(x, y)) {
                 continue;
             }
@@ -1519,6 +1524,17 @@ mod tests {
         assert!(!protected_line_art.diagnostics.bilevel_fidelity_veto);
     }
 
+    fn synthetic_photo_value(x: usize, y: usize) -> u8 {
+        // Shadow masses beside midtone fields at picture scale — what the
+        // halftone classifier's rank cascade and spread verdict actually
+        // see in a printed photograph (per-pixel noise is not a photo).
+        if (x / 24 + y / 24) % 2 == 0 {
+            30 + ((x * 37 + y * 61) % 24) as u8
+        } else {
+            120 + ((x * 13 + y * 41) % 48) as u8
+        }
+    }
+
     fn text_page(background: [u8; 3]) -> (GrayImage, RgbImage) {
         let mut rgb = RgbImage::new(360, 260, background);
         for row in 0..8 {
@@ -2065,9 +2081,9 @@ mod tests {
     #[test]
     fn ten_percent_photo_vetoes_bw_and_keeps_text_page_mixed() {
         let (mut gray, _) = text_page([245; 3]);
-        for y in 135..230 {
-            for x in 255..345 {
-                gray.set(x, y, 35 + ((x * 11 + y * 7 + x * y % 41) % 190) as u8);
+        for y in 115..235 {
+            for x in 225..345 {
+                gray.set(x, y, synthetic_photo_value(x, y));
             }
         }
         let recommendation = classify(&gray, None);
@@ -2111,7 +2127,7 @@ mod tests {
         let (mut gray, _) = text_page([245; 3]);
         for y in 92..242 {
             for x in 190..350 {
-                gray.set(x, y, 35 + ((x * 11 + y * 7 + x * y % 41) % 190) as u8);
+                gray.set(x, y, synthetic_photo_value(x, y));
             }
         }
         let recommendation = classify(&gray, None);
@@ -2127,9 +2143,10 @@ mod tests {
         let (_, mut plate_page) = text_page([245; 3]);
         for y in 125..235 {
             for x in 225..345 {
-                let red = 35 + ((x * 11 + y * 7) % 190) as u8;
-                let green = 25 + ((x * 3 + y * 17) % 150) as u8;
-                let blue = 80 + ((x * 19 + y * 5) % 170) as u8;
+                let base = synthetic_photo_value(x, y);
+                let red = base;
+                let green = base.saturating_sub(20);
+                let blue = base.saturating_add(35).min(255);
                 plate_page.set(x, y, [red, green, blue]);
             }
         }

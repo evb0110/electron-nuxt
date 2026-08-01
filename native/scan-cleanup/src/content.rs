@@ -591,6 +591,12 @@ fn annotate_heading_evidence(
     } else {
         (8.0 * calibration.effective_dpi / 150.0).max(4.0)
     };
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
+        eprintln!(
+            "{{\"event\":\"heading-nominal\",\"nominal\":{nominal_height:.2},\"valid\":{}}}",
+            calibration.valid,
+        );
+    }
     let maximum_gap = (12.0 * nominal_height).round().max(12.0) as usize;
     let alignment_tolerance = (2.0 * nominal_height).round().max(4.0) as usize;
     let heading_flags = blocks

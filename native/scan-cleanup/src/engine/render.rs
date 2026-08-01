@@ -34,7 +34,7 @@ use crate::{
     },
     mrc::derive_halftone_zones,
     picture::{
-        apply_manual_zones, detect_picture_mask_with_continuous_tone,
+        apply_manual_zones, detect_continuous_tone_mask, detect_picture_mask_with_continuous_tone,
         extend_picture_mask_for_content, extend_tone_mask_for_content,
         flat_graphic_tone_preservation_alpha, photo_tone_preservation_alpha,
         refine_line_art_preservation_alpha, refine_tone_preservation_alpha,
@@ -2340,7 +2340,10 @@ fn prepare_analysis_page(
         }
         let continuous_tone_mask =
             continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
-        let tonal_protection_mask = continuous_tone_mask.clone();
+        let tonal_protection_mask = union_optional_masks(
+            destructive_tone_mask.as_ref(),
+            continuous_tone_mask.as_ref(),
+        );
         // A textless illustration may legitimately use smooth tone across its
         // full vetted enclosure. On document-like pages, isolate semantic tone
         // from paper on the raw-source scale: deriving this alpha from the
@@ -2374,9 +2377,19 @@ fn prepare_analysis_page(
             flat_graphic_preservation_alpha.as_ref(),
         );
         let source_effectively_blank = blank_scan_candidate;
-        let text_soft_edge_ratio = text_vicinity_mask
-            .as_deref()
-            .and_then(|mask| text_soft_edge_to_ink_ratio(&rotated, mask, picture_mask.as_deref()));
+        let text_soft_edge_ratio = text_vicinity_mask.as_deref().and_then(|mask| {
+            // Permissive tonal evidence serves strictly as an EXCLUSION for
+            // glyph-topology measurement: a spread gutter shadow rightly
+            // earns no output zone from the halftone classifier, yet its
+            // soft tone must not read as antialiased glyph edges and veto
+            // a crisp bilevel page.
+            let permissive_tone = detect_continuous_tone_mask(&rotated, effective_dpi);
+            let exclusion = match picture_mask.as_deref() {
+                Some(zones) => zones.or(&permissive_tone),
+                None => permissive_tone,
+            };
+            text_soft_edge_to_ink_ratio(&rotated, mask, Some(&exclusion))
+        });
         let mut output_mode_recommendation = picture_mask
             .as_deref()
             .filter(|_| render_policy.recommend_output_mode)
@@ -2481,7 +2494,20 @@ fn prepare_analysis_page(
         }
         let protect_tonal_text_vicinity = significant_picture && !refine_picture_ownership;
         let mut output_picture_mask = if resolved_output_mode == OutputMode::Mixed {
-            let layer_tone_mask = tonal_protection_mask.as_ref();
+            // A directly detected photograph needs one coherent owner across
+            // all of its continuous-tone enclosure. The permissive picture
+            // detector can cover only one tonal lobe (for example, the dark
+            // upper half of a portrait), while the continuous-tone detector
+            // correctly covers the whole photograph. Splitting ownership at
+            // that detector boundary sends the remainder through bilevel
+            // routing and creates a hard posterization seam. Large bimodal
+            // line art deliberately keeps the narrower destructive-tone mask
+            // so its paper can still be normalized to white.
+            let layer_tone_mask = if significant_picture && !refine_picture_ownership {
+                tonal_protection_mask.as_ref()
+            } else {
+                destructive_tone_mask.as_ref()
+            };
             let tonal_picture_mask = union_optional_masks(picture_mask.as_ref(), layer_tone_mask);
             union_optional_masks(tonal_picture_mask.as_ref(), chroma_picture_mask.as_ref())
         } else {

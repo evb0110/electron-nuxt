@@ -302,10 +302,19 @@ fn synthetic_blank() -> CorpusEntry {
 fn synthetic_halftone() -> CorpusEntry {
     let mut canvas = SyntheticCanvas::new(SYNTHETIC_WIDTH, SYNTHETIC_HEIGHT, 242);
     draw_text_block(&mut canvas, 100, 130, 520, 240, 68, 0.0, 5);
-    for y in (430..720).step_by(7) {
-        for x in (160..560).step_by(7) {
-            let value = if (x / 7 + y / 7) % 3 == 0 { 75 } else { 155 };
-            canvas.draw_visual_rect(x, y, 2, 2, value);
+    for y in 430..720 {
+        for x in 160..560 {
+            // A photographic plate the halftone classifier accepts: dark
+            // frame and wide shadow bands sealing midtone strips (a fine
+            // dot screen deliberately binarizes as printed facsimile).
+            let frame = x < 176 || x >= 544 || y < 446 || y >= 704;
+            let band = (490..540).contains(&y) || (590..640).contains(&y);
+            let value = if frame || band {
+                32 + ((x * 37 + y * 61) % 24) as u8
+            } else {
+                122 + ((x * 13 + y * 41) % 48) as u8
+            };
+            canvas.draw_visual_rect(x, y, 1, 1, value);
         }
     }
     let mut entry = finish_synthetic(

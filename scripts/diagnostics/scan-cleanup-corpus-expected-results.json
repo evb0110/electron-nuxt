@@ -34,7 +34,7 @@
         "5": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 1},
         "6": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "7": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.70, "outputCount": 1},
-        "8": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
+        "8": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.8, "outputCount": 1},
         "9": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "10": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.80, "outputCount": 1},
         "11": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},

@@ -1249,42 +1249,30 @@ def _mapped_output_content_mask(
     except (KeyError, TypeError, ValueError, OverflowError):
         affine = None
     if affine is not None:
-        canvas_width = max(1.0, float(output_metadata["canvasWidthPx"]))
-        canvas_height = max(1.0, float(output_metadata["canvasHeightPx"]))
-        output_scale_x = output_size[0] / canvas_width
-        output_scale_y = output_size[1] / canvas_height
-        placement_x = float(output_metadata["placementOffsetXPx"])
-        placement_y = float(output_metadata["placementOffsetYPx"])
-        content_width = (
-            float(output_metadata["matchedCanvasContentWidthPx"])
-            * output_scale_x
-        )
-        content_height = (
-            float(output_metadata["matchedCanvasContentHeightPx"])
-            * output_scale_y
-        )
-        if content_width > 0 and content_height > 0:
-            output_left = placement_x * output_scale_x
-            output_top = placement_y * output_scale_y
-            output_right = output_left + content_width
-            output_bottom = output_top + content_height
+        # Everything the output raster covers survived cleanup — the content
+        # box is an annotation, not a crop, and content rendered outside it
+        # (a caption, a footer) must not read as lost.
+        output_left = 0.0
+        output_top = 0.0
+        output_right = float(output_size[0])
+        output_bottom = float(output_size[1])
 
-            def map_output_point(x: float, y: float) -> tuple[int, int]:
-                return (
-                    round(affine[0] * x + affine[1] * y + affine[2]),
-                    round(affine[3] * x + affine[4] * y + affine[5]),
-                )
-
-            ImageDraw.Draw(mask).polygon(
-                [
-                    map_output_point(output_left, output_top),
-                    map_output_point(output_right, output_top),
-                    map_output_point(output_right, output_bottom),
-                    map_output_point(output_left, output_bottom),
-                ],
-                fill=255,
+        def map_output_point(x: float, y: float) -> tuple[int, int]:
+            return (
+                round(affine[0] * x + affine[1] * y + affine[2]),
+                round(affine[3] * x + affine[4] * y + affine[5]),
             )
-            return mask
+
+        ImageDraw.Draw(mask).polygon(
+            [
+                map_output_point(output_left, output_top),
+                map_output_point(output_right, output_top),
+                map_output_point(output_right, output_bottom),
+                map_output_point(output_left, output_bottom),
+            ],
+            fill=255,
+        )
+        return mask
 
     input_width = max(1.0, float(output_metadata.get("inputWidthPx") or source_size[0]))
     input_height = max(1.0, float(output_metadata.get("inputHeightPx") or source_size[1]))

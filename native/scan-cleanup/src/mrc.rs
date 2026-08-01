@@ -375,7 +375,7 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
             && local_max.get(x, y).saturating_sub(local_min.get(x, y)) <= 12
     });
     let density_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 16.0) as usize;
-    let smooth_seed = filter_dense_regions(&smooth_candidates, density_radius);
+    let smooth_seed = filter_dense_regions(&smooth_candidates, density_radius, 1, 3);
     let seed = mass_seed.or(&smooth_seed);
     // Reconstruction recovers the photo's bright remainder through the
     // closed binary, but each seed CLUSTER grows inside its own clipped
@@ -420,6 +420,15 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
     // both. EDGE DENSITY: hatching, engraving and type are made of strokes
     // — a large share of their pixels sit on strong local gradients —
     // while photographic fields are smooth almost everywhere.
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some() {
+        eprintln!(
+            "{{\"event\":\"halftone-stages\",\"mass\":{},\"smooth\":{},\"clusters\":{},\"candidates\":{}}}",
+            mass_seed.count_black(),
+            smooth_seed.count_black(),
+            cluster_count,
+            candidates.count_black(),
+        );
+    }
     let paper_core_floor = paper_reference.saturating_sub(20);
     let regions = ComponentMap::from_binary(&candidates);
     let mut histograms = vec![[0usize; 256]; regions.components().len() + 1];
@@ -433,6 +442,30 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
                     edge_counts[label] += 1;
                 }
             }
+        }
+    }
+    // Maps carry typeset place labels INSIDE their tonal fills; photographs
+    // do not contain crisp word-shaped marks. Count word-like binarized
+    // components whose centroid lies in a region.
+    let glyph_min_height = (dpi * 1.0 / 25.4).round().max(4.0) as usize;
+    let glyph_max_height = (dpi * 4.0 / 25.4).round().max(8.0) as usize;
+    let glyph_max_width = (dpi * 20.0 / 25.4).round().max(16.0) as usize;
+    let mut label_counts = vec![0usize; regions.components().len() + 1];
+    for component in ComponentMap::from_binary(&binary).components() {
+        let component_width = component.right - component.left + 1;
+        let component_height = component.bottom - component.top + 1;
+        if component_height < glyph_min_height
+            || component_height > glyph_max_height
+            || component_width < component_height
+            || component_width > glyph_max_width
+        {
+            continue;
+        }
+        let center_x = (component.left + component.right) / 2;
+        let center_y = (component.top + component.bottom) / 2;
+        let label = regions.label_at(center_x, center_y) as usize;
+        if label > 0 {
+            label_counts[label] += 1;
         }
     }
     regions.retain(|component| {
@@ -458,22 +491,51 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
             })
             .map(|(_, &count)| count)
             .sum();
+        // Maps and diagrams keep large paper-white tracts between their
+        // lines and fills; photographs have almost none. That paper share
+        // is what lets the spread bar sit low enough for very dark relief
+        // photographs without re-admitting shaded maps.
+        let paper: usize = histogram
+            .iter()
+            .enumerate()
+            .filter(|&(value, _)| value >= usize::from(paper_core_floor))
+            .map(|(_, &count)| count)
+            .sum();
+        let spread_fraction = spread as f64 / total as f64;
+        let paper_fraction = paper as f64 / total as f64;
         let edge_fraction = edge_counts[component.label as usize] as f64 / total as f64;
+        // Label density in words per square decimetre at analysis scale.
+        let area_dm2 = total as f64 / (dpi / 25.4 * 100.0).powi(2);
+        let label_density = label_counts[component.label as usize] as f64 / area_dm2.max(1e-6);
         if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some() {
             eprintln!(
                 "{{\"event\":\"halftone-region\",\"left\":{},\"top\":{},\"right\":{},\
                  \"bottom\":{},\"area\":{},\"inkReference\":{ink_reference},\
-                 \"paperCoreFloor\":{paper_core_floor},\"spreadFraction\":{:.4},\
-                 \"edgeFraction\":{edge_fraction:.4}}}",
+                 \"paperCoreFloor\":{paper_core_floor},\"spreadFraction\":{spread_fraction:.4},\
+                 \"edgeFraction\":{edge_fraction:.4},\"paperFraction\":{paper_fraction:.4},\
+                 \"labelDensity\":{label_density:.2}}}",
                 component.left,
                 component.top,
                 component.right,
                 component.bottom,
                 component.area,
-                spread as f64 / total as f64,
             );
         }
-        spread.saturating_mul(4) >= total && edge_fraction < 0.55
+        // Typeset place labels betray a map body: only large regions can
+        // be judged by label density (small fills and busy small photos
+        // overlap irreducibly, and a residual small map fill preserved as
+        // near-black tone is visually harmless).
+        let map_like = label_density >= 90.0 && total >= 40_000;
+        // Two-tier verdict: strong tonal spread tolerates stroke texture
+        // (busy halftone prints), while marginal spread must be smooth —
+        // that is what separates a dark relief photograph from a line
+        // diagram whose spread is identical.
+        let tonal = if spread_fraction >= 0.30 {
+            edge_fraction < 0.55
+        } else {
+            spread_fraction >= 0.18 && edge_fraction < 0.30
+        };
+        tonal && !map_like
     })
 }
 
@@ -510,7 +572,12 @@ fn box_mean_gray(image: &GrayImage, radius: usize) -> GrayImage {
 
 /// Keeps mask pixels whose 2-D neighborhood is at least a third occupied by
 /// the mask; isolated marks and thin strokes fall below the ratio.
-fn filter_dense_regions(mask: &BinaryImage, radius: usize) -> BinaryImage {
+fn filter_dense_regions(
+    mask: &BinaryImage,
+    radius: usize,
+    numerator: u64,
+    denominator: u64,
+) -> BinaryImage {
     let width = mask.width();
     let height = mask.height();
     if width == 0 || height == 0 {
@@ -536,7 +603,7 @@ fn filter_dense_regions(mask: &BinaryImage, radius: usize) -> BinaryImage {
             - integral[top * (width + 1) + right]
             - integral[bottom * (width + 1) + left];
         let window = ((right - left) * (bottom - top)) as u64;
-        count.saturating_mul(3) >= window
+        count.saturating_mul(denominator) >= window.saturating_mul(numerator)
     })
 }
 
