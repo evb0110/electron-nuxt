@@ -322,5 +322,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         runDisabledReason,
         run,
         transitionText,
+        waitingForDetection: computed(() => transition.value === 'waiting-for-detection'),
     };
 };

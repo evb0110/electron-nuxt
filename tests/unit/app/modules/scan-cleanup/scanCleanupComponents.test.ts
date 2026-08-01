@@ -138,6 +138,17 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             outputEstimate: session.outputEstimate,
             pending: session.detectionPending,
             progress: session.detectionProgress,
+            progressCountText: session.detectionProgressCountText ?? ref(''),
+            progressPercent: session.detectionProgressPercent ?? computed(() => {
+                const progress = (session.detectionProgress as {value: {
+                    completedUnits: number;
+                    totalUnits: number
+                }}).value;
+                return progress.totalUnits === 0
+                    ? 0
+                    : progress.completedUnits / progress.totalUnits * 100;
+            }),
+            progressPhaseText: session.detectionProgressPhaseText ?? ref('Pre-analyzing pages'),
             progressText: session.detectionProgressText ?? computed(() => {
                 const progress = (session.detectionProgress as {value: {
                     completedUnits: number;
@@ -182,6 +193,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             runDisabledReason: session.runDisabledReason ?? ref(''),
             run: session.run,
             transitionText: session.transitionText ?? ref(''),
+            waitingForDetection: session.waitingForDetection ?? computed(() => false),
         },
     };
 }}));
@@ -761,6 +773,10 @@ const scanCleanupSegmentedSource = readFileSync(
 );
 const scanCleanupToolbarSource = readFileSync(
     'app/modules/scan-cleanup/components/ScanCleanupToolbar.vue',
+    'utf8',
+);
+const scanCleanupWorkspaceSource = readFileSync(
+    'app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue',
     'utf8',
 );
 
@@ -4177,6 +4193,43 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).not.toContain('0%');
         expect(meter?.getAttribute('aria-valuenow')).toBeNull();
         expect(meter?.getAttribute('aria-valuetext')).toBe(transitionText);
+    });
+
+    it('shows live pre-analysis progress in the run meter while a run waits for detection', () => {
+        // The queued run job sits at 0% for the entire pre-analysis of a large
+        // book; the meter must carry detection's counter and percent instead
+        // of a dead bar (observed as minutes at 0 on a 392-page scan).
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
+            canDetectAll: false,
+            canRun: false,
+            cancelRequested: false,
+            detectionCancelRequested: false,
+            detectionError: '',
+            detectionProgressText: '',
+            detectionProgressWidestText: '',
+            isDetecting: false,
+            isRunning: true,
+            outputEstimate: '',
+            percent: 25,
+            progressCountText: '98 / 392',
+            progressPercentText: '25%',
+            progressPhaseText: 'Pre-analyzing pages',
+            progressText: 'Pre-analyzing pages — 98 / 392',
+            runLabel: 'Clean up',
+            runDisabledReason: '',
+            transitionText: '',
+        })));
+        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+        const fill = harness.host.querySelector<HTMLElement>('.scan-cleanup-run-meter-fill');
+
+        expect(meter?.textContent).toContain('Pre-analyzing pages');
+        expect(meter?.textContent).toContain('98 / 392');
+        expect(fill?.style.width).toBe('25%');
+        expect(meter?.getAttribute('aria-valuenow')).toBe('25');
+        // The workspace feeds this state: while the run waits for detection it
+        // must swap the meter source to detection progress, not the run job.
+        expect(scanCleanupWorkspaceSource).toContain('waitingForDetection.value');
+        expect(scanCleanupWorkspaceSource).toContain(':percent="meterPercent"');
     });
 
     it('keeps every state-gated setting mounted so switching modes never moves the panel', async () => {

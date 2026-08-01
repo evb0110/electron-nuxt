@@ -174,7 +174,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         completedUnits: jobState.value?.results.length ?? 0,
         totalUnits: Math.max(1, options.totalPages.value),
     }));
-    const progressText = computed(() => formatScanCleanupPreAnalysisProgress(preAnalysisProgress.value, t).text);
+    const preAnalysisParts = computed(() => formatScanCleanupPreAnalysisProgress(preAnalysisProgress.value, t));
+    const progressText = computed(() => preAnalysisParts.value.text);
+    const progressPhaseText = computed(() => preAnalysisParts.value.phase);
+    const progressCountText = computed(() => preAnalysisParts.value.count);
+    const progressPercent = computed(() => preAnalysisProgress.value.totalUnits === 0
+        ? 0
+        : preAnalysisProgress.value.completedUnits / preAnalysisProgress.value.totalUnits * 100);
     // The same sentence at its widest counter, so the status line can reserve
     // its box and the cancel button beside it never moves as the count grows.
     const progressWidestText = computed(() => formatScanCleanupPreAnalysisProgress({
@@ -736,6 +742,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         pagePlanEvidenceByPage,
         pending,
         progress,
+        progressCountText,
+        progressPercent,
+        progressPhaseText,
         progressText,
         progressWidestText,
         recommendedOutputModeByPage,

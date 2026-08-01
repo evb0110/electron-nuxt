@@ -15,7 +15,7 @@
             :is-detecting="detectionPending"
             :is-running="isRunning"
             :output-estimate="outputEstimate"
-            :percent="jobProgress.percent"
+            :percent="meterPercent"
             :progress-count-text="progressCountText"
             :progress-percent-text="progressPercentText"
             :progress-phase-text="progressPhaseText"
@@ -319,6 +319,9 @@ const {
     error: detectionError,
     outputEstimate,
     pending: detectionPending,
+    progressCountText: detectionProgressCountText,
+    progressPercent: detectionProgressPercent,
+    progressPhaseText: detectionProgressPhaseText,
     progressText: detectionProgressText,
     progressWidestText: detectionProgressWidestText,
     settledPages: detectionSettledPages,
@@ -350,15 +353,36 @@ const {
     ownerId,
     processedPages,
     progress: jobProgress,
-    progressCountText,
-    progressPercentText,
-    progressPhaseText,
-    progressText,
+    progressCountText: runProgressCountText,
+    progressPercentText: runProgressPercentText,
+    progressPhaseText: runProgressPhaseText,
+    progressText: runProgressText,
     runLabel,
     runDisabledReason,
     run,
-    transitionText,
+    transitionText: runTransitionText,
+    waitingForDetection,
 } = workspaceSession.run;
+// While an engaged run waits for pre-analysis, the run job itself is still
+// queued at 0%, but detection is producing page verdicts. Drive the meter
+// from those verdicts so the bar and counter move from the first seconds of
+// a Clean Up instead of sitting dead until detection completes.
+const meterPercent = computed(() => waitingForDetection.value
+    ? detectionProgressPercent.value
+    : jobProgress.value.percent);
+const progressPhaseText = computed(() => waitingForDetection.value
+    ? detectionProgressPhaseText.value
+    : runProgressPhaseText.value);
+const progressCountText = computed(() => waitingForDetection.value
+    ? detectionProgressCountText.value
+    : runProgressCountText.value);
+const progressPercentText = computed(() => waitingForDetection.value
+    ? t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, detectionProgressPercent.value)))})
+    : runProgressPercentText.value);
+const progressText = computed(() => waitingForDetection.value
+    ? detectionProgressText.value
+    : runProgressText.value);
+const transitionText = computed(() => waitingForDetection.value ? '' : runTransitionText.value);
 const allScopeRotation = ref<TScanCleanupPageRotation>(0);
 const allScopeExcluded = ref(false);
 const zoneEditing = ref(false);
