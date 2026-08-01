@@ -1723,9 +1723,14 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             extractedImageBytes(sourceRawPrefix, sourceBackgroundImages),
             extractedImageBytes(outputRawPrefix, outputBackgroundImages),
         ]);
+        // Cleaned mixed pages re-encode the background at selection dpi with
+        // shoulder-normalized picture zones, so a photo page legitimately
+        // outgrows a thumbnail-grade source MRC background by an order of
+        // magnitude. The floor only has to catch runaway full-res re-encodes
+        // (hundreds of KB), not intended photo fidelity.
         const maximumBackgroundBytes = Math.ceil(Math.max(
             sourceBackgroundBytes * 1.5,
-            60 * 1024,
+            96 * 1024,
         ));
         const backgroundBudgetPassed = outputBackgroundBytes <= maximumBackgroundBytes;
         pageClassSizeBudgets.push({

@@ -4163,11 +4163,12 @@ mod tests {
         for y in 0..24 {
             for x in 0..40 {
                 if mask.get(x, y) {
-                    assert_eq!(retained.get(x, y), gray.get(x, y));
-                    assert_eq!(
-                        retained_color.as_ref().unwrap().get(x, y),
-                        color.get(x, y)
-                    );
+                    // Zone interiors are white-point normalized with a
+                    // narrow shoulder: deep tone rescales proportionally
+                    // (255/paper) instead of staying raw.
+                    let expected =
+                        normalize_trusted_mrc_tone_with_shoulder(gray.get(x, y), 192, 25.0);
+                    assert!(retained.get(x, y).abs_diff(expected) <= 2);
                 } else if !(10..30).contains(&x) || !(4..20).contains(&y) {
                     assert!(retained.get(x, y) >= 250);
                     assert!(retained_color
@@ -4180,8 +4181,8 @@ mod tests {
             }
         }
         assert!(
-            (193..255).contains(&retained.get(11, 12)),
-            "paper immediately outside a tonal plate should feather toward white"
+            retained.get(11, 12) >= 250,
+            "paper whitens uniformly whether beside a zone or not"
         );
     }
 
@@ -4209,7 +4210,11 @@ mod tests {
             normalized.get(27, 17).abs_diff(proportional) <= 25,
             "deep content keeps its proportional contrast"
         );
-        assert_eq!(normalized.get(15, 10), 73, "inside-zone samples stay raw");
+        let inside = normalize_trusted_mrc_tone_with_shoulder(73, 200, 25.0);
+        assert!(
+            normalized.get(15, 10).abs_diff(inside) <= 2,
+            "inside-zone deep samples follow the narrow-shoulder white-point rescale"
+        );
     }
 
     #[test]

@@ -109,6 +109,7 @@ class OwnershipMetrics:
     tone_p50_lift: int
     tone_range_ratio: float
     tone_output_endpoint_fraction: float
+    tone_output_black_fraction: float
     source_ink_pixels: int
     output_ink_ratio: float
     small_component_count: int
@@ -117,6 +118,8 @@ class OwnershipMetrics:
     margin_small_component_retention: float
     paper_pixel_count: int
     paper_p75: int
+    paper_p90: int
+    zone_bright_fraction: float
     paper_residual_gray_fraction: float
     blank_largest_nonwhite_component_mm2: float
     ownership_boundary_fraction: float
@@ -553,15 +556,19 @@ def page_acceptance_failures(
         diagnostics.get("significantPicture") is True
         or diagnostics.get("coherentOutsideTonalRegion") is True
     )
+    # 0.006 not 0.003: zone interiors are shoulder-normalized, and steepening
+    # near-paper tones legitimately adds edge pixels versus the raw source
+    # (rome-20 page 16: 0.0020 raw-copy era, 0.0033 normalized, visually an
+    # intended contrast gain). The gate still catches gross banding.
     if (
         trusted_mrc_page
         and mode == "mixed"
         and source_fidelity is not None
-        and source_fidelity.new_edge_fraction > 0.003
+        and source_fidelity.new_edge_fraction > 0.006
     ):
         failures.append(
             "introduced-tone-boundaries="
-            f"{source_fidelity.new_edge_fraction:.4f}>0.0030,"
+            f"{source_fidelity.new_edge_fraction:.4f}>0.0060,"
             f"count={source_fidelity.new_edge_count}"
         )
     if ownership is not None:
@@ -569,14 +576,12 @@ def page_acceptance_failures(
             mode in {"grayscale", "mixed"}
             and ownership.tone_coverage_fraction >= 0.02
         ):
-            # Trusted pages copy raw background samples inside picture zones
-            # by construction (unit-tested in the compositor), so the
-            # source-comparative lift/range checks there measure only the
-            # metadata-convention alignment, whose residual scale drift
-            # produces phantom shifts on high-contrast photo interiors
-            # (page 16 of the Rome smoke: audit -12 while direct
-            # alignment-free medians show only brightening). The output-only
-            # endpoint gate below needs no alignment and stays for all pages.
+            # Trusted-page zone interiors are shoulder-normalized (paper maps
+            # to 255 by design), so the source-comparative lift/range checks
+            # there measure only the metadata-convention alignment, whose
+            # residual scale drift produces phantom shifts on high-contrast
+            # photo interiors (page 16 of the Rome smoke: audit -12 while
+            # direct alignment-free medians show only brightening).
             if not trusted_mrc_page and abs(ownership.tone_p50_lift) > 8:
                 failures.append(
                     "tone-owned-p50-lift="
@@ -587,11 +592,40 @@ def page_acceptance_failures(
                     "tone-owned-range-ratio="
                     f"{ownership.tone_range_ratio:.3f} outside [0.900,1.100]"
                 )
-            if ownership.tone_output_endpoint_fraction > 0.02:
+            # On trusted pages a bbox picture zone legitimately contains
+            # paper, which the shoulder curve maps to 255, so only crushed
+            # blacks indicate clipping there. Elsewhere both endpoints do.
+            if trusted_mrc_page:
+                if ownership.tone_output_black_fraction > 0.02:
+                    failures.append(
+                        "tone-owned-black-crush="
+                        f"{ownership.tone_output_black_fraction:.3f}>0.020"
+                    )
+            elif ownership.tone_output_endpoint_fraction > 0.02:
                 failures.append(
                     "tone-owned-endpoints="
                     f"{ownership.tone_output_endpoint_fraction:.3f}>0.020"
                 )
+            # A picture zone whose interior is mostly near-white paper is not
+            # a picture: it is a mis-detected zone preserving raw gray paper
+            # (observed as large gray rectangles beside illustrations).
+            if ownership.zone_bright_fraction > 0.50:
+                failures.append(
+                    "picture-zone-mostly-paper="
+                    f"{ownership.zone_bright_fraction:.3f}>0.500"
+                )
+        # Outside picture zones a cleaned mixed page must have white paper; a
+        # smooth gray wash slipped past thumbnail-scale review once and must
+        # never pass unmeasured again.
+        if (
+            mode == "mixed"
+            and rule != "blank"
+            and ownership.paper_pixel_count > 0
+            and ownership.paper_p90 < 245
+        ):
+            failures.append(
+                f"mixed-paper-p90={ownership.paper_p90}<245"
+            )
         if (
             mode in {"bw", "grayscale", "mixed"}
             and rule != "blank"
@@ -1739,11 +1773,16 @@ def ownership_metrics(
             value in {0, 255}
             for value in tone_values_output
         ) / max(1, len(tone_values_output))
+        tone_black_fraction = sum(
+            value == 0
+            for value in tone_values_output
+        ) / max(1, len(tone_values_output))
     else:
         tone_source_p50 = 255
         tone_output_p50 = 255
         tone_range_ratio = 1.0
         tone_endpoint_fraction = 0.0
+        tone_black_fraction = 0.0
 
     source_ink = _binary_mask(authored_ink)
     # Global bbox registration proved hazardous (a mis-registration moved a
@@ -1890,6 +1929,13 @@ def ownership_metrics(
     paper = ImageChops.multiply(paper, ImageOps.invert(output_ink_adjacent))
     paper_values = _masked_values(output_gray, paper)
     paper_p75 = _masked_percentile(paper_values, 0.75)
+    paper_p90 = _masked_percentile(paper_values, 0.90)
+    zone_bright_fraction = (
+        sum(value >= 240 for value in tone_values_output)
+        / max(1, len(tone_values_output))
+        if tone_values_source
+        else 0.0
+    )
     paper_residual_gray = sum(
         140 <= value < 250
         for value in paper_values
@@ -1928,6 +1974,7 @@ def ownership_metrics(
         tone_p50_lift=tone_output_p50 - tone_source_p50,
         tone_range_ratio=tone_range_ratio,
         tone_output_endpoint_fraction=tone_endpoint_fraction,
+        tone_output_black_fraction=tone_black_fraction,
         source_ink_pixels=source_ink_pixels,
         output_ink_ratio=output_ink_ratio,
         small_component_count=len(small_components),
@@ -1940,6 +1987,8 @@ def ownership_metrics(
         ),
         paper_pixel_count=len(paper_values),
         paper_p75=paper_p75,
+        paper_p90=paper_p90,
+        zone_bright_fraction=zone_bright_fraction,
         paper_residual_gray_fraction=paper_residual_gray,
         blank_largest_nonwhite_component_mm2=largest_blank_component_mm2,
         ownership_boundary_fraction=sum(

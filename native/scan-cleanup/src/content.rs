@@ -163,6 +163,12 @@ fn detect_content_at_analysis_scale(
         if (border_shadow || ((solid_rule || isolated_thick_dirt) && !grayscale_supported))
             && !picture_supported
         {
+            if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
+                eprintln!(
+                    "{{\"event\":\"content-candidate-dropped\",\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"area\":{},\"borderShadow\":{border_shadow},\"solidRule\":{solid_rule},\"dirt\":{isolated_thick_dirt}}}",
+                    component.left, component.top, component.right, component.bottom, component.area,
+                );
+            }
             continue;
         }
         candidates.push(ContentCandidate {
@@ -346,7 +352,7 @@ fn border_artifact_mask_from_binary(working: &GrayImage, binary: &BinaryImage) -
     let vertical_seed = open(binary, 2, 40);
     let border_candidates = reconstruct_binary(&horizontal_seed, binary)
         .or(&reconstruct_binary(&vertical_seed, binary));
-    ComponentMap::from_binary(&border_candidates).retain(|component| {
+    let retained = ComponentMap::from_binary(&border_candidates).retain(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         let attached = component.left == 0
@@ -354,6 +360,21 @@ fn border_artifact_mask_from_binary(working: &GrayImage, binary: &BinaryImage) -
             || component.right + 1 == working.width()
             || component.bottom + 1 == working.height();
         attached && (width * 2 >= working.width() || height * 2 >= working.height())
+    });
+    // A scanner border is a thin band hugging the page edge. Threshold bloom
+    // on a normalized raster can bridge such a band to the nearest authored
+    // structure (observed: a top bar swallowing the running head and its
+    // rule through geodesic reconstruction), so the artifact mask is clipped
+    // to the same 1/40 edge zone the mode selector uses for border shapes —
+    // nothing deeper into the page may be removed as a border.
+    let horizontal_zone = working.width().div_ceil(40).max(1);
+    let vertical_zone = working.height().div_ceil(40).max(1);
+    BinaryImage::from_fn_parallel(working.width(), working.height(), |x, y| {
+        retained.get(x, y)
+            && (x < horizontal_zone
+                || x + horizontal_zone >= working.width()
+                || y < vertical_zone
+                || y + vertical_zone >= working.height())
     })
 }
 
@@ -471,6 +492,15 @@ fn cluster_content_blocks(
             });
         retained[component.label as usize] =
             dominant[block_label] || block.protected() || supported_marginalia;
+        if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some()
+            && !retained[component.label as usize]
+        {
+            eprintln!(
+                "{{\"event\":\"content-component-unretained\",\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"blockInk\":{},\"blockCount\":{},\"dominant\":{},\"marginalia\":{supported_marginalia}}}",
+                component.left, component.top, component.right, component.bottom,
+                block.ink_area, block.component_count, dominant[block_label],
+            );
+        }
     }
     retained
 }
@@ -973,6 +1003,62 @@ struct TrimGeometry {
     next_bounds: PixelBounds,
 }
 
+/// A running head or running foot: a shallow band near the horizontal edge
+/// of the content, wide like the text body, containing either a long thin
+/// rule or several separated small marks (page number + title). The
+/// text-line detector legitimately fails on this pattern, so garbage
+/// trimming must not use its absence as licence to remove the band.
+fn is_running_head_block(
+    block: &BlockStats,
+    map: &ComponentMap,
+    component_blocks: &[usize],
+    block_label: usize,
+    page_width: usize,
+    page_height: usize,
+) -> bool {
+    let height = block.bottom - block.top + 1;
+    let width = block.right - block.left + 1;
+    if height * 20 > page_height {
+        return false;
+    }
+    if width * 2 < page_width {
+        return false;
+    }
+    let near_top = block.top * 8 < page_height;
+    let near_bottom = (page_height - 1 - block.bottom) * 8 < page_height;
+    if !near_top && !near_bottom {
+        return false;
+    }
+    // A typographic rule is a hairline; a thick full-width slab is scanner
+    // garbage even when its aspect ratio is rule-like. Marks must stay at
+    // glyph scale (page number, short title) rather than page-wide ink.
+    let rule_height_cap = (page_height / 250).max(3);
+    let mark_width_cap = page_width / 6;
+    let mut rule_like = false;
+    let mut separate_marks = 0usize;
+    for (label, &owner) in component_blocks.iter().enumerate() {
+        if owner != block_label {
+            continue;
+        }
+        let Some(component) = label
+            .checked_sub(1)
+            .and_then(|index| map.components().get(index))
+        else {
+            continue;
+        };
+        let component_width = component.right - component.left + 1;
+        let component_height = component.bottom - component.top + 1;
+        if component_width >= component_height.saturating_mul(20)
+            && component_height <= rule_height_cap
+        {
+            rule_like = true;
+        } else if component_width <= mark_width_cap {
+            separate_marks += 1;
+        }
+    }
+    rule_like || separate_marks >= 2
+}
+
 #[allow(clippy::too_many_arguments)]
 fn trim_content_bounds(
     content: &BinaryImage,
@@ -1030,6 +1116,21 @@ fn trim_content_bounds(
             };
             confidence[side.index()] = confidence[side.index()].max(proposal.score);
             if proposal.score <= proposal.threshold {
+                continue;
+            }
+            if matches!(side, TrimSide::Top | TrimSide::Bottom)
+                && blocks.iter().enumerate().any(|(block_label, block)| {
+                    proposal.removed_blocks[block_label]
+                        && is_running_head_block(
+                            block,
+                            component_map,
+                            component_blocks,
+                            block_label,
+                            content.width(),
+                            content.height(),
+                        )
+                })
+            {
                 continue;
             }
             let margin = proposal.score - proposal.threshold;
@@ -1449,6 +1550,23 @@ pub(crate) fn content_with_margins_for_dimensions(
 
 #[cfg(test)]
 mod tests {
+    /// Developer diagnostic: run content detection on an external page image.
+    /// `EVB_CONTENT_IMAGE=/path.png EVB_SCAN_CLEANUP_TRACE_CONTENT=1
+    /// cargo test -p evb-scan-cleanup dump_external_content_box -- --ignored --nocapture`
+    #[test]
+    #[ignore = "requires EVB_CONTENT_IMAGE"]
+    fn dump_external_content_box() {
+        let path = std::env::var("EVB_CONTENT_IMAGE").unwrap();
+        let image =
+            crate::io::raster::read_image(std::path::Path::new(&path), 40_000_000, 10_000).unwrap();
+        let dpi = std::env::var("EVB_CONTENT_DPI")
+            .ok()
+            .and_then(|value| value.parse::<f64>().ok())
+            .unwrap_or(360.0);
+        let result = detect_content_and_margins(&image.gray, dpi, Some([5.0; 4]), None);
+        eprintln!("content result: {:?}", result.content);
+    }
+
     use super::*;
     use std::{
         sync::mpsc,
@@ -1781,6 +1899,35 @@ mod tests {
                 .any(|block| block.heading_evidence && block.bounds.y_px <= 116),
             "heading evidence was not recorded: {diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn running_head_is_not_removed_by_content_garbage_trimming() {
+        let mut image = GrayImage::new(700, 1000, 200);
+        for y in 40..52 {
+            for x in 60..75 {
+                image.set(x, y, 20);
+            }
+            for x in 560..640 {
+                image.set(x, y, 20);
+            }
+        }
+        for y in 58..61 {
+            for x in 60..641 {
+                image.set(x, y, 20);
+            }
+        }
+        for y in (120..900).step_by(18) {
+            for line_y in y..y + 2 {
+                for x in 60..641 {
+                    image.set(x, line_y, 20);
+                }
+            }
+        }
+
+        let result = detect_content_and_margins(&image, 120.0, None, Some([0.0; 4]));
+        let bounds = result.content.expect("running head and body are content");
+        assert!(bounds.y <= 45.0, "running head was trimmed: {bounds:?}");
     }
 
     #[test]

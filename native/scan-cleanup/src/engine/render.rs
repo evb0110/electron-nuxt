@@ -2930,13 +2930,21 @@ fn trusted_mrc_paper_reference(gray: &GrayImage) -> u8 {
 }
 
 fn normalize_trusted_mrc_tone(sample: u8, paper: u8) -> u8 {
+    normalize_trusted_mrc_tone_with_shoulder(sample, paper, 48.0)
+}
+
+/// Maps paper-level samples to white through a smooth shoulder while keeping
+/// darker content proportional. Zone interiors use a narrower shoulder so a
+/// producer-authored plate field or a map sea lifts to white while photo
+/// midtones and highlights keep their separation.
+fn normalize_trusted_mrc_tone_with_shoulder(sample: u8, paper: u8, shoulder: f64) -> u8 {
     if paper == 0 || sample >= paper {
         return 255;
     }
     let paper = f64::from(paper);
     let value = f64::from(sample);
     let scaled = value * 255.0 / paper;
-    let shoulder_low = (paper - 48.0).max(0.0);
+    let shoulder_low = (paper - shoulder).max(0.0);
     if value <= shoulder_low {
         return scaled.round().clamp(0.0, 255.0) as u8;
     }
@@ -3034,14 +3042,14 @@ fn white_outside_tonal_plate(
         .enumerate()
         .for_each(|(y, row)| {
             for (x, target) in row.iter_mut().enumerate() {
-                if !tonal_plate.get(x, y) {
-                    let source = f64::from(*target);
-                    let normalized = f64::from(normalize_trusted_mrc_tone(*target, gray_paper));
-                    let weight = source_weight(y * gray.width() + x);
-                    *target = (normalized * (1.0 - weight) + source * weight)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                }
+                let wide = f64::from(normalize_trusted_mrc_tone(*target, gray_paper));
+                let narrow = f64::from(normalize_trusted_mrc_tone_with_shoulder(
+                    *target, gray_paper, 25.0,
+                ));
+                let weight = source_weight(y * gray.width() + x);
+                *target = (wide * (1.0 - weight) + narrow * weight)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
             }
         });
     let cleaned_color = color.zip(color_paper).map(|(source, paper)| {
@@ -3052,17 +3060,18 @@ fn white_outside_tonal_plate(
             .enumerate()
             .for_each(|(y, row)| {
                 for (x, target) in row.chunks_exact_mut(3).enumerate() {
-                    if !tonal_plate.get(x, y) {
-                        let weight = source_weight(y * source.width() + x);
-                        for (channel_index, channel) in target.iter_mut().enumerate() {
-                            let normalized = f64::from(normalize_trusted_mrc_tone(
-                                *channel,
-                                paper[channel_index],
-                            ));
-                            *channel = (normalized * (1.0 - weight) + f64::from(*channel) * weight)
-                                .round()
-                                .clamp(0.0, 255.0) as u8;
-                        }
+                    let weight = source_weight(y * source.width() + x);
+                    for (channel_index, channel) in target.iter_mut().enumerate() {
+                        let wide =
+                            f64::from(normalize_trusted_mrc_tone(*channel, paper[channel_index]));
+                        let narrow = f64::from(normalize_trusted_mrc_tone_with_shoulder(
+                            *channel,
+                            paper[channel_index],
+                            25.0,
+                        ));
+                        *channel = (wide * (1.0 - weight) + narrow * weight)
+                            .round()
+                            .clamp(0.0, 255.0) as u8;
                     }
                 }
             });
@@ -3346,6 +3355,11 @@ fn clean_region(
                 diagnostics: None,
             }
         } else {
+            if let Some(dir) = std::env::var_os("EVB_SCAN_CLEANUP_DUMP_CONTENT_INPUT") {
+                let path = std::path::Path::new(&dir)
+                    .join(format!("content-input-{source_page_index}.pgm"));
+                let _ = crate::io::raster::write_gray_pgm_atomic(&path, content_analysis);
+            }
             let detected_result = detect_content_and_margins_calibrated(
                 content_analysis,
                 content_picture_mask,
@@ -3354,6 +3368,14 @@ fn clean_region(
                 Some([0.0; 4]),
                 calibration,
             );
+            if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
+                eprintln!(
+                    "{{\"event\":\"content-call\",\"page\":{source_page_index},\"dpi\":{},\"pictureMask\":{},\"detected\":{:?}}}",
+                    calibration.effective_dpi,
+                    content_picture_mask.is_some(),
+                    detected_result.content,
+                );
+            }
             let detected_content = detected_result.content.map(|rect| {
                 Rect::new(
                     rect.x / local_scale_x,
