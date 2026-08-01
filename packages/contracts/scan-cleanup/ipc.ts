@@ -297,9 +297,10 @@ export interface IScanCleanupPreviewResult {
 }
 
 /**
- * What `preview` puts on the wire. A base preview leaves `rawImageData` out:
- * those bytes reached the renderer over `onPreviewRaw` a sidecar run earlier,
- * and the renderer reattaches them. A detail tile still carries them.
+ * What `preview` puts on the wire. Base previews leave `rawImageData` out:
+ * those bytes reached the renderer over `onPreviewRaw` a sidecar run earlier.
+ * Detail tiles leave it out too: they reuse the renderer's already-held base
+ * raster and carry only the tile outputs and their metadata.
  *
  * A superseded or cancelled request answers with `canceled`. Cancellation is
  * the ordinary outcome of turning a page, so it is a result rather than a

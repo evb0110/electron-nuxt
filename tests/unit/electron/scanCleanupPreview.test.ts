@@ -65,6 +65,7 @@ const SCAN_CLEANUP_IPC_CODECS = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs;
 type TDetailPreviewManifest = Record<'pages', Array<{
     options: Record<string, unknown>;
     detailRenderPlan?: {
+        baseMetadataPath?: string;
         baseCleanedRasterPath?: string;
         sourceCrop: {
             xPx: number;
@@ -1362,6 +1363,7 @@ describe('scan cleanup preview', () => {
         });
         expect(renderCalls).toHaveLength(4);
         expect(detailPlan).toBeUndefined();
+        expect(manualZoneFallback).not.toHaveProperty('rawImageData');
         expect(manifestOptions).toMatchObject({
             dpi: 204,
             outputMode: 'bw',
@@ -1466,6 +1468,8 @@ describe('scan cleanup preview', () => {
         let tileInputPath: string | undefined;
         let tileInputBytes: Buffer | undefined;
         let baseCleanedRasterBytes: Buffer | undefined;
+        const baseMetadataPaths: string[] = [];
+        const baseCleanedRasterPaths: string[] = [];
         deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TDetailPreviewManifest & {pages: Array<{inputPath: string}>;};
             await originalSidecar(binary, manifestPath, signal, log, onProgress);
@@ -1497,6 +1501,10 @@ describe('scan cleanup preview', () => {
                     inputHeightPx: 1_500,
                 }));
                 return;
+            }
+            if (detailPlan.baseMetadataPath !== undefined) baseMetadataPaths.push(detailPlan.baseMetadataPath);
+            if (detailPlan.baseCleanedRasterPath !== undefined) {
+                baseCleanedRasterPaths.push(detailPlan.baseCleanedRasterPath);
             }
             tileInputPath = page.inputPath;
             tileInputBytes = await readFile(page.inputPath);
@@ -1548,6 +1556,7 @@ describe('scan cleanup preview', () => {
         expect(baseCleanedRasterBytes).toEqual(
             Buffer.from(baseResult.outputs[0]!.imageData),
         );
+        expect(result).not.toHaveProperty('rawImageData');
         expect(vi.mocked(deps.renderPagePpm).mock.calls).toHaveLength(1);
         expect(vi.mocked(deps.renderPagePpm).mock.calls[0]?.[8]).toEqual({
             x: expect.any(Number),
@@ -1558,6 +1567,49 @@ describe('scan cleanup preview', () => {
         // The base page still renders in the format the renderer displays.
         expect(vi.mocked(deps.renderPage).mock.calls.map(call => call[8])).toEqual([undefined]);
         expect(result.outputs[0]?.metadata.renderRegion).toEqual(detailPlan?.renderRegion);
+
+        const secondDetail = await previewOf(service, previewSender, {
+            ...request,
+            requestId: 'detail-second-tile',
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0.5,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.25,
+                    heightNormalized: 0.45,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'bw',
+            },
+        });
+
+        expect(secondDetail).not.toHaveProperty('rawImageData');
+        expect(deps.detectSourceDpi).toHaveBeenCalledOnce();
+        expect(vi.mocked(deps.renderPagePpm).mock.calls).toHaveLength(2);
+        expect(baseMetadataPaths).toHaveLength(2);
+        expect(baseCleanedRasterPaths).toHaveLength(2);
+        expect(new Set(baseMetadataPaths).size).toBe(1);
+        expect(new Set(baseCleanedRasterPaths).size).toBe(1);
+        await service.dispose();
+        await expect(stat(baseCleanedRasterPaths[0]!)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('probes only the requested page for the first preview raster structure', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const probedPages: number[][] = [];
+        deps.detectRasterPages = vi.fn(async (_sourcePdfPath, _signal, pageNumbers) => {
+            probedPages.push([...pageNumbers]);
+            return {
+                detected: true,
+                pages: new Set<number>(pageNumbers),
+            };
+        });
+
+        await previewOf(createScanCleanupPreviewService(deps), sender(), request);
+
+        expect(deps.detectRasterPages).toHaveBeenCalledOnce();
+        expect(probedPages).toEqual([[1]]);
     });
 
     it('keeps intrinsic page canvases when the document geometry cannot be read', async () => {

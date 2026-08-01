@@ -261,8 +261,12 @@ export function createScanCleanupDetailTileCacheKey(
     });
 }
 
+function isCanceledPreview(value: TScanCleanupPreviewWireResult): value is {canceled: true} {
+    return value.canceled === true;
+}
+
 function carriesRaster(value: TScanCleanupPreviewWireResult): value is IScanCleanupPreviewResult {
-    return value.canceled !== true && value.rawImageData !== undefined;
+    return !isCanceledPreview(value) && value.rawImageData !== undefined;
 }
 
 export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSessionOptions) => {
@@ -375,21 +379,31 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     /**
      * Puts the streamed raster back on the result it was rendered from. A
-     * detail tile answers with its own raster and needs nothing. A cancelled
+     * detail tile reuses the already-held base raster locally. A cancelled
      * request has no result at all and answers with null.
      */
     function withStreamedRaw(
         previewResult: TScanCleanupPreviewWireResult,
         requestId: string,
     ): IScanCleanupPreviewResult | null {
-        if (previewResult.canceled === true) {
+        if (isCanceledPreview(previewResult)) {
             return null;
         }
         if (carriesRaster(previewResult)) {
             return previewResult;
         }
+        // Detail tiles no longer echo the raw PNG. The page number is the
+        // inexpensive identity tying them to the base raster already held by
+        // this session; revision ownership was checked when that raster event
+        // was accepted.
+        const heldBase = rawResult.value?.pageNumber === previewResult.pageNumber
+            ? rawResult.value
+            : result.value?.pageNumber === previewResult.pageNumber
+                ? result.value
+                : undefined;
         const streamed = streamedRawByRequest.get(previewResult.requestId ?? requestId)
-            ?? retainedRawForPage(previewResult.pageNumber);
+            ?? retainedRawForPage(previewResult.pageNumber)
+            ?? heldBase;
         if (!streamed) throw new Error('Scan cleanup preview arrived without its page raster');
         return {
             ...previewResult,
