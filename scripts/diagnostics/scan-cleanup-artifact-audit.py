@@ -61,6 +61,17 @@ class CropMetrics:
 
 
 @dataclass(frozen=True)
+class CroppedContentBand:
+    component_count: int
+    left_px: int
+    top_px: int
+    right_px: int
+    bottom_px: int
+    top_mm: float
+    bottom_mm: float
+
+
+@dataclass(frozen=True)
 class ToneMetrics:
     coverage_fraction: float
     component_count: int
@@ -147,6 +158,7 @@ class PageAudit:
     acceptance_failures: tuple[str, ...]
     source_fidelity: SourceFidelityMetrics | None = None
     ownership: OwnershipMetrics | None = None
+    cropped_content_bands: tuple[CroppedContentBand, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -444,6 +456,7 @@ def page_acceptance_failures(
     source_identity_expected: bool = False,
     trusted_mrc_page: bool = False,
     ownership: OwnershipMetrics | None = None,
+    cropped_content_bands: Iterable[CroppedContentBand] = (),
 ) -> tuple[bool, list[str]]:
     text_cleanup_candidate = (
         mode in {"bw", "grayscale", "mixed"}
@@ -824,6 +837,11 @@ def page_acceptance_failures(
         )
     if crop is not None and crop.removed_text_evidence_count > 0:
         failures.append("content-crop-removed-text-evidence")
+    if rule != "blank":
+        failures.extend(
+            f"cropped-content-band={band.component_count}@y={band.top_mm:.1f}"
+            for band in cropped_content_bands
+        )
     return text_cleanup_candidate, failures
 
 
@@ -952,6 +970,8 @@ def affine_output_to_source_coefficients(
     source_size: tuple[int, int],
     output_metadata: dict[str, Any],
     output_size: tuple[int, int],
+    *,
+    intrinsic_output_size: tuple[float, float] | None = None,
 ) -> tuple[float, float, float, float, float, float] | None:
     """Map audit-output pixels through the canonical final affine to source."""
 
@@ -971,13 +991,15 @@ def affine_output_to_source_coefficients(
         return None
     canvas_width = max(1.0, float(output_metadata["canvasWidthPx"]))
     canvas_height = max(1.0, float(output_metadata["canvasHeightPx"]))
-    output_width = max(1.0, float(output_metadata["outputWidthPx"]))
-    output_height = max(1.0, float(output_metadata["outputHeightPx"]))
+    intrinsic_width, intrinsic_height = intrinsic_output_size or (
+        float(output_metadata["outputWidthPx"]),
+        float(output_metadata["outputHeightPx"]),
+    )
     match_scale_x = (
-        float(output_metadata["matchedCanvasContentWidthPx"]) / output_width
+        float(output_metadata["matchedCanvasContentWidthPx"]) / intrinsic_width
     )
     match_scale_y = (
-        float(output_metadata["matchedCanvasContentHeightPx"]) / output_height
+        float(output_metadata["matchedCanvasContentHeightPx"]) / intrinsic_height
     )
     audit_to_canvas_x = canvas_width / max(1, output_size[0])
     audit_to_canvas_y = canvas_height / max(1, output_size[1])
@@ -1152,6 +1174,259 @@ def align_source_to_output(
         ),
     )
     return aligned
+
+
+def _source_frame_bounds(
+    source_size: tuple[int, int],
+    output_metadata: dict[str, Any],
+) -> tuple[int, int, int, int]:
+    source_width, source_height = source_size
+    input_width = float(output_metadata.get("inputWidthPx") or source_width)
+    input_height = float(output_metadata.get("inputHeightPx") or source_height)
+    input_width = max(1.0, input_width)
+    input_height = max(1.0, input_height)
+    source_scale_x = source_width / input_width
+    source_scale_y = source_height / input_height
+    region = output_metadata.get("sourceRegion")
+    if isinstance(region, dict):
+        region_left = float(region.get("xPx", 0.0))
+        region_top = float(region.get("yPx", 0.0))
+        region_right = region_left + float(region.get("widthPx", input_width))
+        region_bottom = region_top + float(region.get("heightPx", input_height))
+    else:
+        region_left = 0.0
+        region_top = 0.0
+        region_right = input_width
+        region_bottom = input_height
+    left = max(0, min(source_width, round(region_left * source_scale_x)))
+    top = max(0, min(source_height, round(region_top * source_scale_y)))
+    right = max(left, min(source_width, round(region_right * source_scale_x)))
+    bottom = max(top, min(source_height, round(region_bottom * source_scale_y)))
+    return left, top, right, bottom
+
+
+def _source_frame_interior_mask(
+    source_size: tuple[int, int],
+    output_metadata: dict[str, Any],
+) -> tuple[Image.Image, tuple[int, int, int, int]]:
+    frame = _source_frame_bounds(source_size, output_metadata)
+    left, top, right, bottom = frame
+    mask = Image.new("L", source_size, 0)
+    zone_x = max(1, math.ceil((right - left) / 20))
+    zone_y = max(1, math.ceil((bottom - top) / 20))
+    inner_left = left + zone_x
+    inner_top = top + zone_y
+    inner_right = right - zone_x
+    inner_bottom = bottom - zone_y
+    if inner_left < inner_right and inner_top < inner_bottom:
+        ImageDraw.Draw(mask).rectangle(
+            (inner_left, inner_top, inner_right - 1, inner_bottom - 1),
+            fill=255,
+        )
+    return mask, frame
+
+
+def _mapped_output_content_mask(
+    source_size: tuple[int, int],
+    output_metadata: dict[str, Any],
+    output_size: tuple[int, int],
+) -> Image.Image:
+    mask = Image.new("L", source_size, 0)
+    crop = output_metadata.get("cropRect")
+    intrinsic_output_size = None
+    if isinstance(crop, dict):
+        crop_width = float(crop.get("widthPx", 0.0))
+        crop_height = float(crop.get("heightPx", 0.0))
+        if crop_width > 0 and crop_height > 0:
+            intrinsic_output_size = (crop_width, crop_height)
+    try:
+        affine = affine_output_to_source_coefficients(
+            source_size,
+            output_metadata,
+            output_size,
+            intrinsic_output_size=intrinsic_output_size,
+        )
+    except (KeyError, TypeError, ValueError, OverflowError):
+        affine = None
+    if affine is not None:
+        canvas_width = max(1.0, float(output_metadata["canvasWidthPx"]))
+        canvas_height = max(1.0, float(output_metadata["canvasHeightPx"]))
+        output_scale_x = output_size[0] / canvas_width
+        output_scale_y = output_size[1] / canvas_height
+        placement_x = float(output_metadata["placementOffsetXPx"])
+        placement_y = float(output_metadata["placementOffsetYPx"])
+        content_width = (
+            float(output_metadata["matchedCanvasContentWidthPx"])
+            * output_scale_x
+        )
+        content_height = (
+            float(output_metadata["matchedCanvasContentHeightPx"])
+            * output_scale_y
+        )
+        if content_width > 0 and content_height > 0:
+            output_left = placement_x * output_scale_x
+            output_top = placement_y * output_scale_y
+            output_right = output_left + content_width
+            output_bottom = output_top + content_height
+
+            def map_output_point(x: float, y: float) -> tuple[int, int]:
+                return (
+                    round(affine[0] * x + affine[1] * y + affine[2]),
+                    round(affine[3] * x + affine[4] * y + affine[5]),
+                )
+
+            ImageDraw.Draw(mask).polygon(
+                [
+                    map_output_point(output_left, output_top),
+                    map_output_point(output_right, output_top),
+                    map_output_point(output_right, output_bottom),
+                    map_output_point(output_left, output_bottom),
+                ],
+                fill=255,
+            )
+            return mask
+
+    input_width = max(1.0, float(output_metadata.get("inputWidthPx") or source_size[0]))
+    input_height = max(1.0, float(output_metadata.get("inputHeightPx") or source_size[1]))
+    source_scale_x = source_size[0] / input_width
+    source_scale_y = source_size[1] / input_height
+    region = output_metadata.get("sourceRegion")
+    if isinstance(region, dict):
+        region_left = float(region.get("xPx", 0.0))
+        region_top = float(region.get("yPx", 0.0))
+    else:
+        region_left = 0.0
+        region_top = 0.0
+    if not isinstance(crop, dict):
+        ImageDraw.Draw(mask).rectangle(
+            (0, 0, source_size[0] - 1, source_size[1] - 1),
+            fill=255,
+        )
+        return mask
+    left = round((region_left + float(crop.get("xPx", 0.0))) * source_scale_x)
+    top = round((region_top + float(crop.get("yPx", 0.0))) * source_scale_y)
+    right = round(
+        (
+            region_left
+            + float(crop.get("xPx", 0.0))
+            + float(crop.get("widthPx", input_width))
+        )
+        * source_scale_x
+    )
+    bottom = round(
+        (
+            region_top
+            + float(crop.get("yPx", 0.0))
+            + float(crop.get("heightPx", input_height))
+        )
+        * source_scale_y
+    )
+    left = max(0, min(source_size[0], left))
+    top = max(0, min(source_size[1], top))
+    right = max(left, min(source_size[0], right))
+    bottom = max(top, min(source_size[1], bottom))
+    if left < right and top < bottom:
+        ImageDraw.Draw(mask).rectangle((left, top, right - 1, bottom - 1), fill=255)
+    return mask
+
+
+def cropped_content_bands(
+    source: Image.Image,
+    output_metadata: dict[str, Any],
+    output_size: tuple[int, int],
+    dpi: int,
+) -> tuple[CroppedContentBand, ...]:
+    """Find structured source ink in the framed page area omitted by the crop."""
+
+    frame_mask, frame = _source_frame_interior_mask(source.size, output_metadata)
+    output_content_mask = _mapped_output_content_mask(
+        source.size,
+        output_metadata,
+        output_size,
+    )
+    outside_content = ImageChops.multiply(
+        frame_mask,
+        ImageOps.invert(output_content_mask),
+    )
+    gray = ImageOps.grayscale(source)
+    dark_mask = gray.point(lambda value: 255 if value <= 128 else 0)
+    dark_mask = ImageChops.multiply(dark_mask, outside_content)
+    minimum_height = max(1, math.ceil(dpi * 1.0 / 25.4))
+    maximum_height = max(minimum_height, math.ceil(dpi * 8.0 / 25.4))
+    glyphs = [
+        component
+        for component in _component_records(dark_mask)
+        if minimum_height
+        <= component["bottom"] - component["top"] + 1
+        <= maximum_height
+    ]
+    if len(glyphs) < 3:
+        return ()
+    band_height = max(1, math.ceil(dpi * 12.0 / 25.4))
+    glyphs.sort(key=lambda component: (component["top"], component["left"]))
+    candidate_groups: list[tuple[int, int, int, int]] = []
+    window_end = 0
+    anchor_index = 0
+    while anchor_index < len(glyphs):
+        anchor_top = glyphs[anchor_index]["top"]
+        start = anchor_index
+        while (
+            anchor_index < len(glyphs)
+            and glyphs[anchor_index]["top"] == anchor_top
+        ):
+            anchor_index += 1
+        window_end = max(window_end, anchor_index)
+        while (
+            window_end < len(glyphs)
+            and glyphs[window_end]["top"] <= anchor_top + band_height
+        ):
+            window_end += 1
+        if window_end - start >= 3:
+            candidate_groups.append(
+                (
+                    start,
+                    window_end,
+                    anchor_top,
+                    max(
+                        glyphs[index]["bottom"]
+                        for index in range(start, window_end)
+                    ),
+                )
+            )
+    if not candidate_groups:
+        return ()
+
+    merged: list[tuple[int, int, int, int]] = []
+    for start, end, top, bottom in candidate_groups:
+        if merged and top <= merged[-1][3]:
+            previous_start, previous_end, previous_top, previous_bottom = merged[-1]
+            merged[-1] = (
+                previous_start,
+                max(previous_end, end),
+                previous_top,
+                max(previous_bottom, bottom),
+            )
+        else:
+            merged.append((start, end, top, bottom))
+
+    frame_left, frame_top, _, _ = frame
+    pixels_per_mm = max(1e-6, dpi / 25.4)
+    bands = []
+    for start, end, top, bottom in merged:
+        left = min(glyphs[index]["left"] for index in range(start, end))
+        right = max(glyphs[index]["right"] for index in range(start, end))
+        bands.append(
+            CroppedContentBand(
+                component_count=end - start,
+                left_px=max(0, left - frame_left),
+                top_px=max(0, top - frame_top),
+                right_px=max(0, right - frame_left),
+                bottom_px=max(0, bottom - frame_top),
+                top_mm=max(0.0, (top - frame_top) / pixels_per_mm),
+                bottom_mm=max(0.0, (bottom + 1 - frame_top) / pixels_per_mm),
+            )
+        )
+    return tuple(bands)
 
 
 def confirmed_block_seam_metrics(
@@ -2698,6 +2973,7 @@ def write_csv(path: Path, audits: Iterable[PageAudit]) -> None:
             "tone_damage_score": audit.tone_damage_score,
             "white_fraction_gain": audit.white_fraction_gain,
             "dark_fraction_ratio": audit.dark_fraction_ratio,
+            "cropped_content_band_count": len(audit.cropped_content_bands),
         }
         row.update({
             f"edge_{key}": value
@@ -2913,6 +3189,12 @@ def main() -> None:
                         analysis_metadata_dir=analysis_metadata_dir,
                         analysis_page=page,
                     )
+                    cropped_bands = cropped_content_bands(
+                        source_image,
+                        output_metadata,
+                        output_image.size,
+                        args.dpi,
+                    )
                     source_region = source_region_image(source_image, output_metadata)
                     source_metrics = metrics(source_region)
                     output_metrics = metrics(output_image)
@@ -3053,6 +3335,7 @@ def main() -> None:
                             source_identity_expected,
                             trusted_mrc_page,
                             ownership,
+                            cropped_bands,
                         )
                     )
                     audit = PageAudit(
@@ -3078,6 +3361,7 @@ def main() -> None:
                         acceptance_failures=tuple(acceptance_failures),
                         source_fidelity=fidelity,
                         ownership=ownership,
+                        cropped_content_bands=cropped_bands,
                     )
                     audits.append(audit)
                     source_thumbnails[output_page] = thumbnail(
@@ -3284,6 +3568,9 @@ def main() -> None:
                 "mode": audit.mode,
                 "rule": audit.rule,
                 "failures": list(audit.acceptance_failures),
+                "croppedContentBands": [
+                    asdict(band) for band in audit.cropped_content_bands
+                ],
             }
             for audit in audits
             if audit.acceptance_failures

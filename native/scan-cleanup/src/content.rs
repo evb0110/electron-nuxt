@@ -1003,60 +1003,45 @@ struct TrimGeometry {
     next_bounds: PixelBounds,
 }
 
-/// A running head or running foot: a shallow band near the horizontal edge
-/// of the content, wide like the text body, containing either a long thin
-/// rule or several separated small marks (page number + title). The
-/// text-line detector legitimately fails on this pattern, so garbage
-/// trimming must not use its absence as licence to remove the band.
-fn is_running_head_block(
-    block: &BlockStats,
-    map: &ComponentMap,
-    component_blocks: &[usize],
-    block_label: usize,
+fn trim_is_frame_admissible(
+    side: TrimSide,
+    removed_blocks: &[bool],
+    blocks: &[BlockStats],
+    component_map: &ComponentMap,
     page_width: usize,
     page_height: usize,
 ) -> bool {
-    let height = block.bottom - block.top + 1;
-    let width = block.right - block.left + 1;
-    if height * 20 > page_height {
-        return false;
-    }
-    if width * 2 < page_width {
-        return false;
-    }
-    let near_top = block.top * 8 < page_height;
-    let near_bottom = (page_height - 1 - block.bottom) * 8 < page_height;
-    if !near_top && !near_bottom {
-        return false;
-    }
-    // A typographic rule is a hairline; a thick full-width slab is scanner
-    // garbage even when its aspect ratio is rule-like. Marks must stay at
-    // glyph scale (page number, short title) rather than page-wide ink.
-    let rule_height_cap = (page_height / 250).max(3);
-    let mark_width_cap = page_width / 6;
-    let mut rule_like = false;
-    let mut separate_marks = 0usize;
-    for (label, &owner) in component_blocks.iter().enumerate() {
-        if owner != block_label {
-            continue;
+    let horizontal_zone = page_width.div_ceil(20).max(1);
+    let vertical_zone = page_height.div_ceil(20).max(1);
+    let right_zone_start = page_width.saturating_sub(horizontal_zone);
+    let bottom_zone_start = page_height.saturating_sub(vertical_zone);
+
+    blocks.iter().enumerate().all(|(block_label, block)| {
+        if !removed_blocks.get(block_label).copied().unwrap_or(false) {
+            return true;
         }
-        let Some(component) = label
-            .checked_sub(1)
-            .and_then(|index| map.components().get(index))
-        else {
-            continue;
+        let in_border_zone = match side {
+            TrimSide::Left => block.right < horizontal_zone,
+            TrimSide::Top => block.bottom < vertical_zone,
+            TrimSide::Right => block.left >= right_zone_start,
+            TrimSide::Bottom => block.top >= bottom_zone_start,
         };
-        let component_width = component.right - component.left + 1;
-        let component_height = component.bottom - component.top + 1;
-        if component_width >= component_height.saturating_mul(20)
-            && component_height <= rule_height_cap
-        {
-            rule_like = true;
-        } else if component_width <= mark_width_cap {
-            separate_marks += 1;
-        }
-    }
-    rule_like || separate_marks >= 2
+        let edge_attached = block.labels.iter().any(|&component_label| {
+            let Some(component) = component_label
+                .checked_sub(1)
+                .and_then(|label| component_map.components().get(label as usize))
+            else {
+                return false;
+            };
+            match side {
+                TrimSide::Left => component.left == 0,
+                TrimSide::Top => component.top == 0,
+                TrimSide::Right => component.right.saturating_add(1) == page_width,
+                TrimSide::Bottom => component.bottom.saturating_add(1) == page_height,
+            }
+        });
+        in_border_zone || edge_attached
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1118,19 +1103,14 @@ fn trim_content_bounds(
             if proposal.score <= proposal.threshold {
                 continue;
             }
-            if matches!(side, TrimSide::Top | TrimSide::Bottom)
-                && blocks.iter().enumerate().any(|(block_label, block)| {
-                    proposal.removed_blocks[block_label]
-                        && is_running_head_block(
-                            block,
-                            component_map,
-                            component_blocks,
-                            block_label,
-                            content.width(),
-                            content.height(),
-                        )
-                })
-            {
+            if !trim_is_frame_admissible(
+                side,
+                &proposal.removed_blocks,
+                blocks,
+                component_map,
+                content.width(),
+                content.height(),
+            ) {
                 continue;
             }
             let margin = proposal.score - proposal.threshold;
@@ -1745,6 +1725,80 @@ mod tests {
         }
     }
 
+    fn direct_trim_fixture(
+        artifact_top: usize,
+        artifact_bottom: usize,
+    ) -> (Option<PixelBounds>, Vec<ContentAcceptedTrim>) {
+        let width = 200;
+        let height = 200;
+        let mut content = BinaryImage::new(width, height);
+        for y in artifact_top..=artifact_bottom {
+            for x in 20..31 {
+                content.set(x, y, true);
+            }
+        }
+        for y in 80..161 {
+            for x in 60..141 {
+                content.set(x, y, true);
+            }
+        }
+        let component_map = ComponentMap::from_binary(&content);
+        let artifact_label = component_map.label_at(20, artifact_top) as usize;
+        let body_label = component_map.label_at(60, 80) as usize;
+        let artifact = &component_map.components()[artifact_label - 1];
+        let body = &component_map.components()[body_label - 1];
+        let mut blocks = vec![BlockStats::default(); component_map.components().len() + 1];
+        blocks[artifact_label] = BlockStats {
+            component_count: 1,
+            ink_area: artifact.area,
+            left: artifact.left,
+            top: artifact.top,
+            right: artifact.right,
+            bottom: artifact.bottom,
+            initialized: true,
+            labels: vec![artifact.label],
+            ..BlockStats::default()
+        };
+        blocks[body_label] = BlockStats {
+            component_count: 1,
+            ink_area: body.area,
+            left: body.left,
+            top: body.top,
+            right: body.right,
+            bottom: body.bottom,
+            initialized: true,
+            labels: vec![body.label],
+            ..BlockStats::default()
+        };
+        let mut component_blocks = vec![0usize; component_map.components().len() + 1];
+        component_blocks[artifact_label] = artifact_label;
+        component_blocks[body_label] = body_label;
+        let mut garbage_labels = vec![0u32; width * height];
+        for y in artifact_top..=artifact_bottom {
+            for x in 20..31 {
+                garbage_labels[y * width + x] = HORIZONTAL_GARBAGE;
+            }
+        }
+        let text_mask = BinaryImage::new(width, height);
+        let protected_mask = BinaryImage::new(width, height);
+        let calibration = PageCalibration::estimate_from_binary(
+            &content,
+            150.0,
+            CalibrationConfig::default(),
+        );
+        let (bounds, _, accepted_trims) = trim_content_bounds(
+            &content,
+            &component_map,
+            &blocks,
+            &component_blocks,
+            &text_mask,
+            &protected_mask,
+            garbage_labels,
+            calibration,
+        );
+        (bounds, accepted_trims)
+    }
+
     fn iou(left: Rect, right: Rect) -> f64 {
         let x0 = left.x.max(right.x);
         let y0 = left.y.max(right.y);
@@ -1838,7 +1892,7 @@ mod tests {
             }
         }
         for y in 55..275 {
-            for x in 382..390 {
+            for x in 404..412 {
                 image.set(x, y, 18);
             }
         }
@@ -1902,7 +1956,7 @@ mod tests {
     }
 
     #[test]
-    fn running_head_is_not_removed_by_content_garbage_trimming() {
+    fn running_head_is_protected_by_the_page_frame_policy() {
         let mut image = GrayImage::new(700, 1000, 200);
         for y in 40..52 {
             for x in 60..75 {
@@ -1928,6 +1982,37 @@ mod tests {
         let result = detect_content_and_margins(&image, 120.0, None, Some([0.0; 4]));
         let bounds = result.content.expect("running head and body are content");
         assert!(bounds.y <= 45.0, "running head was trimmed: {bounds:?}");
+        let diagnostics = result.diagnostics.expect("content diagnostics");
+        assert!(
+            diagnostics
+                .accepted_trims
+                .iter()
+                .flat_map(|trim| trim.removed_blocks.iter())
+                .all(|block| block.bounds.y_px > 60),
+            "the in-frame running head entered an accepted trim: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn edge_attached_band_remains_trimmable_beyond_the_border_zone() {
+        let (bounds, accepted_trims) = direct_trim_fixture(0, 30);
+        let bounds = bounds.expect("edge-attached artifact and body are content");
+
+        assert!(accepted_trims.iter().any(|trim| {
+            trim.side == ContentTrimSide::Top && trim.iteration == 1
+        }));
+        assert!(bounds.top >= 80, "edge-attached band survived: {bounds:?}");
+    }
+
+    #[test]
+    fn in_frame_floating_artifact_is_not_trimmable_even_with_high_garbage_score() {
+        // Every artifact pixel is a garbage seed, so the score would be maximal
+        // without the page-frame admissibility filter.
+        let (bounds, accepted_trims) = direct_trim_fixture(25, 55);
+        let bounds = bounds.expect("floating artifact and body are content");
+
+        assert!(accepted_trims.is_empty());
+        assert_eq!(bounds.top, 25, "floating artifact was trimmed: {bounds:?}");
     }
 
     #[test]
@@ -2013,7 +2098,7 @@ mod tests {
     #[test]
     fn accepted_artifact_trim_cannot_cascade_through_picture_or_heading() {
         let mut image = GrayImage::new(620, 760, 245);
-        for y in 28..38 {
+        for y in 8..18 {
             for x in 32..588 {
                 image.set(x, y, 16);
             }
