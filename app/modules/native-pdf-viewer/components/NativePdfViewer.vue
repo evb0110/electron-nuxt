@@ -63,6 +63,7 @@ import {
     shouldInvalidateNativePdfRaster,
     shouldPresentNativePdfPageSkeleton,
 } from '@app/modules/native-pdf-viewer/runtime/nativePdfRasterPresentation';
+import { canRestoreNativePdfViewportLayout } from '@app/modules/native-pdf-viewer/runtime/canRestoreNativePdfViewportLayout';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
@@ -1093,9 +1094,10 @@ useDocumentViewportLayoutLifecycle({
     viewerContainer,
     pageLayouts,
     captureRestoreEpoch: () => loadGeneration,
-    canRestore: epoch => epoch === loadGeneration
-        && isActive.value
-        && chassisAuthority?.openSurface.viewportSession.value.identity !== null,
+    canRestore: epoch => canRestoreNativePdfViewportLayout(epoch, {
+        currentLoadGeneration: loadGeneration,
+        hasDocumentIdentity: chassisAuthority?.openSurface.viewportSession.value.identity !== null,
+    }),
     applyRestoredScroll: restored => {
         const container = viewerContainer.value;
         if (!container) {
