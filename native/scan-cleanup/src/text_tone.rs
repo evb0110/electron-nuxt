@@ -274,29 +274,14 @@ pub fn derive_text_tone_diagnostics(
         .width()
         .saturating_mul(normalized.height())
         .max(1);
-    let mut unprotected_text_mask = text_mask.clone();
-    for y in 0..normalized.height() {
-        for x in 0..normalized.width() {
-            if picture_mask.get(x, y) {
-                unprotected_text_mask.set(x, y, false);
-            }
-        }
-    }
+    let unprotected_text_mask = text_mask.subtract(picture_mask);
     let text_line_count = horizontal_band_count(&unprotected_text_mask);
     // This is the strong source-tone protection mask, not the deliberately
     // overbroad routing mask. It is derived from distributed local histograms
     // independently of text segmentation. It excludes protected pixels from
     // both curve derivation and application; its mere presence must not veto
     // darkening otherwise valid text elsewhere on the page.
-    let protected_tone_pixels = (0..normalized.height())
-        .into_par_iter()
-        .map(|y| {
-            (0..normalized.width())
-                .filter(|&x| picture_mask.get(x, y))
-                .count()
-        })
-        .sum::<usize>();
-    let picture_fraction = protected_tone_pixels as f64 / page_pixels as f64;
+    let picture_fraction = picture_mask.count_black() as f64 / page_pixels as f64;
     let text_ink_pixels = unprotected_text_mask.count_black();
     let outside_tone =
         outside_tonal_evidence_excluding(normalized, text_vicinity_mask, Some(picture_mask)).0;
@@ -365,14 +350,26 @@ pub fn derive_text_tone_diagnostics(
         );
     }
 
-    let mut histogram = [0usize; 256];
-    for y in 0..normalized.height() {
-        for x in 0..normalized.width() {
-            if unprotected_text_mask.get(x, y) {
-                histogram[normalized.get(x, y) as usize] += 1;
+    let histogram = (0..normalized.height())
+        .into_par_iter()
+        .map(|y| {
+            let mut local = [0usize; 256];
+            for x in 0..normalized.width() {
+                if unprotected_text_mask.get(x, y) {
+                    local[normalized.get(x, y) as usize] += 1;
+                }
             }
-        }
-    }
+            local
+        })
+        .reduce(
+            || [0usize; 256],
+            |mut left, right| {
+                for (target, value) in left.iter_mut().zip(right) {
+                    *target += value;
+                }
+                left
+            },
+        );
     let ink_anchor = percentile(&histogram, 0.10);
     let outside_midtone_fraction = outside_tone.fraction;
     let outside_midtone_largest_component_fraction = outside_tone.largest_component_fraction;

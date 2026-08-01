@@ -11,6 +11,7 @@ use scan_primitives::{
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::sync::OnceLock;
 
 pub(crate) const SPLIT_ANALYSIS_DPI: f64 = 150.0;
 const MAX_EVIDENCE_DISAGREEMENT: f64 = 0.04;
@@ -261,6 +262,22 @@ struct AnalysisImage<'a> {
     dpi: f64,
     deskew_angle_degrees: f64,
     deskew_confidence: f64,
+    // The full-image angle-x Hough voting pass costs far more than any
+    // window readout, and up to three fold searches read the same votes
+    // (global candidate, whitespace-local candidate, offcut candidate).
+    fold_votes: OnceLock<FoldVotes>,
+}
+
+impl AnalysisImage<'_> {
+    fn fold_votes(&self) -> &FoldVotes {
+        self.fold_votes
+            .get_or_init(|| build_fold_votes(&self.gray))
+    }
+}
+
+struct FoldVotes {
+    accumulator: Vec<u64>,
+    slopes: Vec<f64>,
 }
 
 pub fn detect_split(
@@ -344,7 +361,7 @@ fn detect_split_impl(
     let offcut_whitespace = whitespace_candidate(&analysis.cleaned, false, None);
     let aspect_ratio = analysis.gray.width() as f64 / analysis.gray.height().max(1) as f64;
     let fold = (aspect_ratio >= 1.0)
-        .then(|| fold_line_candidate(&analysis.gray, prior_ratio))
+        .then(|| fold_line_candidate(&analysis.gray, analysis.fold_votes(), prior_ratio))
         .flatten();
     let mut diagnostics = SplitDiagnostics {
         analysis_dpi: analysis.dpi,
@@ -426,6 +443,7 @@ fn prepare_analysis(
         dpi: analysis_dpi,
         deskew_angle_degrees: deskew.map_or(0.0, |result| result.angle_degrees),
         deskew_confidence: deskew.map_or(0.0, |result| result.confidence),
+        fold_votes: OnceLock::new(),
     }
 }
 
@@ -442,7 +460,12 @@ fn spread_decision(
         return None;
     }
 
-    let local_fold = fold_candidate_near_whitespace(&analysis.gray, &analysis.cleaned, whitespace);
+    let local_fold = fold_candidate_near_whitespace(
+        &analysis.gray,
+        analysis.fold_votes(),
+        &analysis.cleaned,
+        whitespace,
+    );
     let agrees = fold.is_some_and(|candidate| {
         let distance = (candidate.x - whitespace.x).abs() / analysis.gray.width().max(1) as f64;
         distance <= MAX_EVIDENCE_DISAGREEMENT
@@ -553,7 +576,12 @@ fn offcut_decision(
         !(0.28..=0.72).contains(&position)
     });
     let fold = edge_whitespace.and_then(|candidate| {
-        fold_candidate_near_whitespace(&analysis.gray, &analysis.cleaned, candidate)
+        fold_candidate_near_whitespace(
+            &analysis.gray,
+            analysis.fold_votes(),
+            &analysis.cleaned,
+            candidate,
+        )
     })?;
     let position = fold.x / analysis.gray.width().max(1) as f64;
     let discarded_fraction = position.min(1.0 - position);
@@ -1077,7 +1105,11 @@ fn prefixed_mean_luminance(prefix: &[u32], left: usize, right: usize) -> f64 {
     f64::from(prefix[right] - prefix[left]) / (right - left) as f64
 }
 
-fn fold_line_candidate(gray: &GrayImage, prior: Option<(f64, f64)>) -> Option<FoldCandidate> {
+fn fold_line_candidate(
+    gray: &GrayImage,
+    votes: &FoldVotes,
+    prior: Option<(f64, f64)>,
+) -> Option<FoldCandidate> {
     let (search_left, search_right) = prior.map_or(
         (gray.width() / 4, gray.width() * 3 / 4),
         |(ratio, strength)| {
@@ -1088,7 +1120,7 @@ fn fold_line_candidate(gray: &GrayImage, prior: Option<(f64, f64)>) -> Option<Fo
             )
         },
     );
-    let candidates = fold_line_candidates_in_range(gray, search_left, search_right);
+    let candidates = fold_line_candidates_in_range(gray, votes, search_left, search_right);
     candidates.into_iter().max_by(|left, right| {
         left.score
             .total_cmp(&right.score)
@@ -1097,13 +1129,12 @@ fn fold_line_candidate(gray: &GrayImage, prior: Option<(f64, f64)>) -> Option<Fo
     })
 }
 
-fn fold_line_candidates_in_range(
-    gray: &GrayImage,
-    search_left: usize,
-    search_right: usize,
-) -> Vec<FoldCandidate> {
+fn build_fold_votes(gray: &GrayImage) -> FoldVotes {
     if gray.width() < 8 || gray.height() < 8 {
-        return Vec::new();
+        return FoldVotes {
+            accumulator: Vec::new(),
+            slopes: Vec::new(),
+        };
     }
     let angle_steps = ((MAX_CUTTER_ANGLE_DEGREES - MIN_CUTTER_ANGLE_DEGREES)
         / CUTTER_ANGLE_STEP_DEGREES)
@@ -1135,6 +1166,24 @@ fn fold_line_candidates_in_range(
             }
         }
     }
+    FoldVotes {
+        accumulator,
+        slopes,
+    }
+}
+
+fn fold_line_candidates_in_range(
+    gray: &GrayImage,
+    votes: &FoldVotes,
+    search_left: usize,
+    search_right: usize,
+) -> Vec<FoldCandidate> {
+    if votes.accumulator.is_empty() {
+        return Vec::new();
+    }
+    let angle_steps = votes.slopes.len();
+    let slopes = &votes.slopes;
+    let accumulator = &votes.accumulator;
     let search_left = search_left.clamp(2, gray.width().saturating_sub(3));
     let search_right = search_right.clamp(search_left + 1, gray.width().saturating_sub(2));
     let mut total = 0u64;
@@ -1195,11 +1244,13 @@ fn fold_line_candidates_in_range(
 
 fn fold_candidate_near_whitespace(
     gray: &GrayImage,
+    votes: &FoldVotes,
     cleaned: &BinaryImage,
     whitespace: Candidate,
 ) -> Option<FoldCandidate> {
     let mut candidates = fold_line_candidates_in_range(
         gray,
+        votes,
         whitespace.start.saturating_sub(4),
         (whitespace.end + 4).min(gray.width()),
     );
@@ -1934,7 +1985,7 @@ mod tests {
     fn fold_candidates_retain_their_direct_slope_response() {
         let mut gray = GrayImage::new(480, 320, 245);
         add_sloped_fold(&mut gray, 240.0, 4.0, 65);
-        let candidates = fold_line_candidates_in_range(&gray, 200, 280);
+        let candidates = fold_line_candidates_in_range(&gray, &build_fold_votes(&gray), 200, 280);
         let best = candidates
             .into_iter()
             .max_by(|left, right| left.score.total_cmp(&right.score))
@@ -1955,8 +2006,9 @@ mod tests {
             gray.set(201, y, 185);
         }
         add_sloped_fold(&mut gray, 300.0, 0.0, 35);
-        let unconstrained = fold_line_candidate(&gray, None).unwrap();
-        let prior_guided = fold_line_candidate(&gray, Some((0.40, 1.0))).unwrap();
+        let votes = build_fold_votes(&gray);
+        let unconstrained = fold_line_candidate(&gray, &votes, None).unwrap();
+        let prior_guided = fold_line_candidate(&gray, &votes, Some((0.40, 1.0))).unwrap();
         assert!((unconstrained.x - 300.0).abs() <= 4.0, "{unconstrained:?}");
         assert!((prior_guided.x - 200.0).abs() <= 4.0, "{prior_guided:?}");
     }

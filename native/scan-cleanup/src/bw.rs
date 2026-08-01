@@ -668,29 +668,51 @@ fn edge_density(image: &GrayImage) -> f64 {
 }
 
 fn estimated_stroke_width(binary: &BinaryImage) -> f64 {
-    let mut runs = Vec::new();
-    for y in 0..binary.height() {
-        let mut start = None;
-        for x in 0..=binary.width() {
-            let black = x < binary.width() && binary.get(x, y);
-            match (start, black) {
-                (None, true) => start = Some(x),
-                (Some(run_start), false) => {
-                    let length = x - run_start;
-                    if length <= 32 {
-                        runs.push(length as f64);
+    // Run lengths live in 1..=32, so a fixed histogram replaces collecting
+    // and sorting millions of runs; rows accumulate independently.
+    let (histogram, total) = (0..binary.height())
+        .into_par_iter()
+        .map(|y| {
+            let mut local = [0usize; 33];
+            let mut count = 0usize;
+            let mut start = None;
+            for x in 0..=binary.width() {
+                let black = x < binary.width() && binary.get(x, y);
+                match (start, black) {
+                    (None, true) => start = Some(x),
+                    (Some(run_start), false) => {
+                        let length = x - run_start;
+                        if length <= 32 {
+                            local[length] += 1;
+                            count += 1;
+                        }
+                        start = None;
                     }
-                    start = None;
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-    }
-    if runs.is_empty() {
+            (local, count)
+        })
+        .reduce(
+            || ([0usize; 33], 0usize),
+            |(mut left, left_count), (right, right_count)| {
+                for (target, value) in left.iter_mut().zip(right) {
+                    *target += value;
+                }
+                (left, left_count + right_count)
+            },
+        );
+    if total == 0 {
         return 0.0;
     }
-    runs.sort_unstable_by(f64::total_cmp);
-    runs[runs.len() / 2]
+    let mut cumulative = 0usize;
+    for (length, &count) in histogram.iter().enumerate() {
+        cumulative += count;
+        if cumulative > total / 2 {
+            return length as f64;
+        }
+    }
+    0.0
 }
 
 fn dark_border_coverage(image: &GrayImage, threshold: u8) -> f64 {
