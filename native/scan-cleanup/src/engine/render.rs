@@ -3894,17 +3894,18 @@ fn clean_region(
                 if picture_mask.count_black() == 0 && rendered_trusted_foreground_mask.is_none() {
                     let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
                     let route = resolve_binarization_diagnostics(&routing_sample, options).route;
-                    let global_threshold_source = if route == crate::BinarizationMode::Otsu {
-                        Some(render_gray_with_plan(routing_source, &render_plan)?)
-                    } else {
-                        None
-                    };
+                    let global_threshold_source = (route == crate::BinarizationMode::Otsu)
+                        .then(|| {
+                            rendered_routing_gray
+                                .as_ref()
+                                .expect("mixed output prepares a routing raster")
+                        });
                     let binarization_started = Instant::now();
                     let (mut binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
                             &routing_sample,
-                            global_threshold_source.as_ref(),
+                            global_threshold_source,
                             options,
                             calibration,
                         );
@@ -3933,13 +3934,14 @@ fn clean_region(
                     // resolved inside the binarizer. Keep a geometry-matched raw
                     // tone field available so a global route preserves the scan's
                     // original glyph boundary. Adaptive routes ignore this field.
-                    let global_threshold_source =
-                        render_gray_with_plan(routing_source, &render_plan)?;
+                    let global_threshold_source = rendered_routing_gray
+                        .as_ref()
+                        .expect("mixed output prepares a routing raster");
                     let binarization_started = Instant::now();
                     let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics_excluding(
                             &rendered_gray,
-                            Some(&global_threshold_source),
+                            Some(global_threshold_source),
                             options,
                             calibration,
                             picture_mask,

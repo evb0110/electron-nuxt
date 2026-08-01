@@ -425,13 +425,8 @@ pub(crate) fn reusable_illumination_model(source: &GrayImage) -> ReusableIllumin
     {
         ReusableColorPolicy::Background
     } else {
-        let mut values = source
-            .data()
-            .iter()
-            .map(|&value| f64::from(value))
-            .collect::<Vec<_>>();
-        let low = percentile(&mut values, 0.02);
-        let high = percentile(&mut values, 0.98);
+        let low = robust_image_percentile(source, 0.02);
+        let high = robust_image_percentile(source, 0.98);
         if high - low < 48.0 || (low <= 12.0 && high >= 243.0) {
             ReusableColorPolicy::Unchanged
         } else {
@@ -1098,42 +1093,38 @@ fn paper_background_plausible(source: &GrayImage, model: &BackgroundModel) -> bo
 }
 
 fn conservative_luminance_levels(luminance: &GrayImage, source: &RgbImage) -> RgbImage {
-    let mut values = luminance
-        .data()
-        .iter()
-        .map(|&value| f64::from(value))
-        .collect::<Vec<_>>();
-    let low = percentile(&mut values, 0.02);
-    let high = percentile(&mut values, 0.98);
+    let low = robust_image_percentile(luminance, 0.02);
+    let high = robust_image_percentile(luminance, 0.98);
     if high - low < 48.0 || (low <= 12.0 && high >= 243.0) {
         return source.clone();
     }
+    let width = source.width();
     let mut output = source.clone();
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            let source_luminance = f64::from(luminance.get(x, y));
-            if source_luminance <= f64::EPSILON {
-                continue;
+    output
+        .data_mut()
+        .par_chunks_mut(width * 3)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                let source_luminance = f64::from(luminance.get(x, y));
+                if source_luminance <= f64::EPSILON {
+                    continue;
+                }
+                let stretched =
+                    (12.0 + (source_luminance - low) * 231.0 / (high - low)).clamp(0.0, 255.0);
+                let target_luminance = (source_luminance * (1.0 - CONSERVATIVE_LEVELS_BLEND)
+                    + stretched * CONSERVATIVE_LEVELS_BLEND)
+                    .clamp(0.0, 255.0);
+                let maximum_channel = f64::from(*target.iter().max().unwrap_or(&0));
+                if maximum_channel <= f64::EPSILON {
+                    continue;
+                }
+                let scale = (target_luminance / source_luminance).min(255.0 / maximum_channel);
+                for channel in target {
+                    *channel = (f64::from(*channel) * scale).round().clamp(0.0, 255.0) as u8;
+                }
             }
-            let stretched =
-                (12.0 + (source_luminance - low) * 231.0 / (high - low)).clamp(0.0, 255.0);
-            let target_luminance = (source_luminance * (1.0 - CONSERVATIVE_LEVELS_BLEND)
-                + stretched * CONSERVATIVE_LEVELS_BLEND)
-                .clamp(0.0, 255.0);
-            let source_pixel = source.get(x, y);
-            let maximum_channel = f64::from(*source_pixel.iter().max().unwrap_or(&0));
-            if maximum_channel <= f64::EPSILON {
-                continue;
-            }
-            let scale = (target_luminance / source_luminance).min(255.0 / maximum_channel);
-            output.set(
-                x,
-                y,
-                source_pixel
-                    .map(|channel| (f64::from(channel) * scale).round().clamp(0.0, 255.0) as u8),
-            );
-        }
-    }
+        });
     output
 }
 
