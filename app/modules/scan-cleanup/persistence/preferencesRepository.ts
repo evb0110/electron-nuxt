@@ -26,10 +26,18 @@ const SETTINGS_KEY = 'evb.scanCleanup.settings.v1';
 const OVERRIDES_KEY = 'evb.scanCleanup.documentOverrides.v1';
 const MAX_DOCUMENTS = 50;
 export const DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE: TScanCleanupOutputModeSetting = 'auto';
+export const SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS = 300;
 
 export interface IScanCleanupPreferenceStorage {
     get: (key: string) => string | null;
     set: (key: string, value: string) => void;
+}
+
+export interface IScanCleanupDocumentPreferencePatch {
+    overrides?: TScanCleanupPageOverrides;
+    marginsMm?: IScanCleanupMarginsMm;
+    outputMode?: TScanCleanupOutputModeSetting;
+    resetOverrides?: boolean;
 }
 
 const browserStorage: IScanCleanupPreferenceStorage = {
@@ -146,6 +154,59 @@ export function loadScanCleanupDocumentOutputMode(
     ].includes(String(entry?.outputMode))
         ? entry?.outputMode as TScanCleanupOutputModeSetting
         : DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE;
+}
+
+export function saveScanCleanupDocumentPreferences(
+    documentKey: string | null | undefined,
+    patch: IScanCleanupDocumentPreferencePatch,
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+) {
+    if (!documentKey) {
+        return;
+    }
+    if (patch.outputMode !== undefined && ![
+        'auto',
+        'bw',
+        'mixed',
+        'grayscale',
+        'color',
+    ].includes(patch.outputMode)) {
+        return;
+    }
+    if (patch.marginsMm !== undefined && Object.values(patch.marginsMm).some(margin => !Number.isFinite(margin))) {
+        throw new TypeError('Scan cleanup document margins require finite numeric values');
+    }
+
+    const entries = loadDocumentEntries(storage);
+    const existingEntry = scanCleanupPreferenceRecord(entries[documentKey]);
+    const nextEntry = {...(existingEntry ?? {})};
+    let writesUpdatedAt = false;
+    const resetToEmptyOverrides = patch.resetOverrides === true
+        && (patch.overrides === undefined || Object.keys(patch.overrides).length === 0);
+    if (resetToEmptyOverrides) {
+        Reflect.deleteProperty(nextEntry, 'overrides');
+    } else if (patch.overrides !== undefined) {
+        const plainOverrides = cloneScanCleanupPreferenceValue(patch.overrides);
+        nextEntry.overrides = migrateScanCleanupDocumentOverridesV1({overrides: plainOverrides}).overrides;
+        writesUpdatedAt = true;
+    }
+    if (patch.marginsMm !== undefined) {
+        nextEntry.marginsMm = decodeScanCleanupMarginsMm(patch.marginsMm);
+        writesUpdatedAt = true;
+    }
+    if (patch.outputMode !== undefined) {
+        nextEntry.outputMode = patch.outputMode;
+        writesUpdatedAt = true;
+    }
+    if (writesUpdatedAt) {
+        nextEntry.updatedAt = Date.now();
+    }
+    if (Object.keys(nextEntry).length === 0) {
+        Reflect.deleteProperty(entries, documentKey);
+    } else {
+        entries[documentKey] = nextEntry;
+    }
+    storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
 }
 
 export function saveScanCleanupDocumentOverrides(

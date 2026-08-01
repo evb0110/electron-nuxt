@@ -33,12 +33,14 @@ import {
     getScanCleanupPreferencesStore,
     resetScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import type * as preferencesRepositoryModule from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
     getScanCleanupRunError,
     scanCleanupRun,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
+const preferenceCloneCalls = vi.hoisted(() => ({count: 0}));
 // Counts the real reduction rather than replacing it: the document's layouts
 // are a pass over every page, and how often a session performs it is the thing
 // under test in `derives the document's layouts once per change`.
@@ -57,6 +59,16 @@ vi.mock('@contracts/scanCleanupPageOverrides', async importOriginal => {
     };
 });
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
+vi.mock('@app/modules/scan-cleanup/persistence/preferencesRepository', async importOriginal => {
+    const original = await importOriginal<typeof preferencesRepositoryModule>();
+    return {
+        ...original,
+        toPlainScanCleanupOptions: (...args: Parameters<typeof original.toPlainScanCleanupOptions>) => {
+            preferenceCloneCalls.count += 1;
+            return original.toPlainScanCleanupOptions(...args);
+        },
+    };
+});
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
     key: string,
     values?: Record<string, unknown>,
@@ -195,6 +207,7 @@ function capabilityHarness() {
 function mountSession(documentKey: string, overrides: {
     active?: () => boolean;
     currentPage?: () => number;
+    documentKey?: () => string | null;
     documentRevision?: () => string | null;
     initialPreviewPage?: () => number | undefined;
     sourcePath?: () => string | null;
@@ -207,7 +220,7 @@ function mountSession(documentKey: string, overrides: {
         session = useScanCleanupWorkspaceSession({
             active: overrides.active ?? (() => true),
             sourcePath: overrides.sourcePath ?? (() => `/docs/${documentKey}.pdf`),
-            documentKey: () => documentKey,
+            documentKey: overrides.documentKey ?? (() => documentKey),
             ...(overrides.documentRevision === undefined
                 ? {}
                 : {documentRevision: overrides.documentRevision}),
@@ -778,6 +791,95 @@ describe('scan cleanup workspace session detection guidance', () => {
         const reopened = mountSession(firstKey);
         expect(reopened.session.settings.values.outputMode).toBe('color');
         reopened.unmount();
+    });
+
+    it('coalesces document setting writes and flushes the old document before switching', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const firstKey = `debounced-preferences-a-${Date.now()}`;
+        const secondKey = `debounced-preferences-b-${Date.now()}`;
+        const documentKey = ref(firstKey);
+        const mounted = mountSession(firstKey, {documentKey: () => documentKey.value});
+        await nextTick();
+        const setItem = vi.spyOn(localStorage, 'setItem');
+        const documentWrites = () => setItem.mock.calls.filter(([key]) => (
+            key === 'evb.scanCleanup.documentOverrides.v1'
+        )).length;
+
+        mounted.session.settings.values.pageOverrides['1'] = {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+        };
+        mounted.session.settings.values.marginsMm.leftMm = 8;
+        mounted.session.settings.values.outputMode = 'color';
+        await nextTick();
+        expect(documentWrites()).toBe(0);
+        await vi.waitFor(() => expect(documentWrites()).toBe(1));
+        const persisted = JSON.parse(localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}');
+        expect(persisted[firstKey]).toMatchObject({
+            outputMode: 'color',
+            marginsMm: {leftMm: 8},
+            overrides: {'1': expect.any(Object)},
+        });
+
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await nextTick();
+        expect(documentWrites()).toBe(1);
+        documentKey.value = secondKey;
+        await nextTick();
+        expect(documentWrites()).toBe(2);
+        expect(JSON.parse(localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}'))
+            .toMatchObject({[firstKey]: {outputMode: 'grayscale'}});
+
+        setItem.mockRestore();
+        mounted.unmount();
+    });
+
+    it('takes one plain settings snapshot for a page-plan evidence lookup', () => {
+        const active = ref(false);
+        preferenceCloneCalls.count = 0;
+        const mounted = mountSession(`page-plan-snapshot-${Date.now()}`, {active: () => active.value});
+        const before = preferenceCloneCalls.count;
+
+        mounted.session.settings.values.thickness = 1;
+        mounted.session.preview.resolvePagePlanEvidence([
+            1,
+            2,
+            3,
+        ]);
+
+        expect(preferenceCloneCalls.count - before).toBe(1);
+        mounted.unmount();
+    });
+
+    it('keeps unchanged page evidence signatures stable after another page changes', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`signature-stability-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(scanCleanupDetectionSessionCache.size).toBe(1));
+        const before = [...scanCleanupDetectionSessionCache.values()][0]?.signatures;
+        expect(before).toBeDefined();
+
+        mounted.session.settings.values.pageOverrides['2'] = {
+            rotationDegrees: 90,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+        };
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await vi.waitFor(() => expect(
+            [...scanCleanupDetectionSessionCache.values()][0]?.signatures.get(2),
+        ).not.toBe(before?.get(2)));
+        const after = [...scanCleanupDetectionSessionCache.values()][0]?.signatures;
+        expect(after?.get(1)).toBe(before?.get(1));
+        expect(after?.get(3)).toBe(before?.get(3));
+        mounted.unmount();
     });
 
     it('does not restore a detection result that resolves after the surface is disposed', async () => {

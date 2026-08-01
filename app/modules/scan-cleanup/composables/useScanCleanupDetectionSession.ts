@@ -203,8 +203,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         });
     });
 
-    // Page evidence signature: only inputs that change what detection computes
-    // (layout classification and the output-mode recommendation). The configured
+    // Page evidence signatures contain document-wide inputs plus the override
+    // inputs that change what one page's detection computes. The configured
     // output mode is deliberately absent — the recommendation is a page
     // diagnostic and survives mode changes while the evidence is unchanged. So
     // is matchPageSize: the canvas is measured from the document's own page
@@ -212,42 +212,56 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // must not throw a whole document's evidence away. So is excluded: it only
     // decides whether the analyzed page reaches the output, so toggling it must
     // not drop the page back to a pending spinner.
-    function pageSignature(pageNumber: number) {
-        const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
+    const documentSignature = computed(() => {
         const lossless = options.settings.preserveOriginalQuality === true;
         return JSON.stringify({
             layoutMode: options.settings.layoutMode,
-            layoutOverride: pageOverride.layoutOverride,
             preserveOriginalQuality: lossless,
             crop: options.settings.crop,
             marginsMm: options.settings.marginsMm,
             normalizeIllumination: !lossless && (options.settings.normalizeIllumination ?? true),
             autoDewarp: !lossless && (options.settings.autoDewarp ?? false),
             autoDewarpDepth: options.settings.autoDewarpDepth,
-            rotationDegrees: pageOverride.rotationDegrees,
-            manualSplit: pageOverride.manualSplit,
-            manualSkewDegrees: pageOverride.manualSkewDegrees,
-            manualContentBoxes: pageOverride.manualContentBoxes ?? {},
-            manualZones: pageOverride.manualZones ?? {
-                picture: [],
-                fill: [],
-            },
         });
+    });
+    const pageOverrideSignatures = new Map<number, ComputedRef<string>>();
+
+    function pageOverrideSignature(pageNumber: number) {
+        let signature = pageOverrideSignatures.get(pageNumber);
+        if (!signature) {
+            signature = computed(() => {
+                const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
+                return JSON.stringify({
+                    layoutOverride: pageOverride.layoutOverride,
+                    rotationDegrees: pageOverride.rotationDegrees,
+                    manualSplit: pageOverride.manualSplit,
+                    manualSkewDegrees: pageOverride.manualSkewDegrees,
+                    manualContentBoxes: pageOverride.manualContentBoxes ?? {},
+                    manualZones: pageOverride.manualZones ?? {
+                        picture: [],
+                        fill: [],
+                    },
+                });
+            });
+            pageOverrideSignatures.set(pageNumber, signature);
+        }
+        return signature.value;
     }
 
     // Settings changes are the only thing that invalidates an evidence
-    // signature, so the whole document is signed once per change instead of
-    // once per detection result in every progress event.
+    // signature, so the document portion is serialized once per change and a
+    // page's override portion is recomputed only when that page's reactive
+    // override entry changes.
     const signatureByPage = computed(() => new Map(Array.from(
         {length: options.totalPages.value},
         (_, index) => [
             index + 1,
-            pageSignature(index + 1),
+            `${documentSignature.value}:${pageOverrideSignature(index + 1)}`,
         ] as const,
     )));
 
     function signature(pageNumber: number) {
-        return signatureByPage.value.get(pageNumber) ?? pageSignature(pageNumber);
+        return signatureByPage.value.get(pageNumber) ?? `${documentSignature.value}:${pageOverrideSignature(pageNumber)}`;
     }
 
     function evidenceIsCurrent(evidenceSignatures: ReadonlyMap<number, string> = signatures) {

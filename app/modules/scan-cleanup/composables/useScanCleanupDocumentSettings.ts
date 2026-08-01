@@ -3,6 +3,7 @@ import type {
     TScanCleanupPageAlignment,
 } from '@contracts/electronApiScanCleanup';
 import type {ComputedRef} from 'vue';
+import {tryOnScopeDispose} from '@vueuse/core';
 import {
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
@@ -12,12 +13,15 @@ import {
     loadScanCleanupDocumentMargins,
     loadScanCleanupDocumentOutputMode,
     loadScanCleanupDocumentOverrides,
-    resetScanCleanupDocumentOverrides,
-    saveScanCleanupDocumentMargins,
+    saveScanCleanupDocumentPreferences,
     saveScanCleanupDocumentOutputMode,
-    saveScanCleanupDocumentOverrides,
+    SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
+    type IScanCleanupDocumentPreferencePatch,
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
-import {getScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import {
+    flushScanCleanupPreferencesStore,
+    getScanCleanupPreferencesStore,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {
     resolveScanCleanupMarginPatch,
     scanCleanupMarginsUniform,
@@ -74,6 +78,64 @@ const alignmentIcons: Array<{
 export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentSettingsOptions) => {
     const {t} = useTypedI18n();
     const preferences = getScanCleanupPreferencesStore();
+    interface IPendingDocumentPersistence extends IScanCleanupDocumentPreferencePatch {documentKey: string;}
+    let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingPersistence: IPendingDocumentPersistence | null = null;
+
+    function flushDocumentPersistence() {
+        if (persistenceTimer !== null) {
+            clearTimeout(persistenceTimer);
+            persistenceTimer = null;
+        }
+        const pending = pendingPersistence;
+        pendingPersistence = null;
+        if (!pending) {
+            return;
+        }
+        const {
+            documentKey,
+            ...patch
+        } = pending;
+        saveScanCleanupDocumentPreferences(documentKey, patch);
+    }
+
+    function scheduleDocumentPersistence(
+        documentKey: string | null | undefined,
+        patch: IScanCleanupDocumentPreferencePatch,
+    ) {
+        if (!documentKey) {
+            flushDocumentPersistence();
+            return;
+        }
+        if (pendingPersistence?.documentKey !== documentKey) {
+            flushDocumentPersistence();
+        }
+        pendingPersistence ??= {documentKey};
+        if (patch.overrides !== undefined) pendingPersistence.overrides = patch.overrides;
+        if (patch.marginsMm !== undefined) pendingPersistence.marginsMm = patch.marginsMm;
+        if (patch.outputMode !== undefined) pendingPersistence.outputMode = patch.outputMode;
+        if (patch.resetOverrides === true) pendingPersistence.resetOverrides = true;
+        if (persistenceTimer !== null) clearTimeout(persistenceTimer);
+        persistenceTimer = setTimeout(flushDocumentPersistence, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
+    }
+
+    function flushPersistence() {
+        flushDocumentPersistence();
+        flushScanCleanupPreferencesStore();
+    }
+
+    const handleWindowLifecycle = () => flushPersistence();
+    if (typeof window !== 'undefined') {
+        window.addEventListener('beforeunload', handleWindowLifecycle);
+        window.addEventListener('pagehide', handleWindowLifecycle);
+    }
+    tryOnScopeDispose(() => {
+        flushPersistence();
+        if (typeof window !== 'undefined') {
+            window.removeEventListener('beforeunload', handleWindowLifecycle);
+            window.removeEventListener('pagehide', handleWindowLifecycle);
+        }
+    });
     const firstRunGuidanceDismissed = toRef(preferences, 'firstRunGuidanceDismissed');
     const marginsLinked = ref(true);
     const values: IScanCleanupOptions = reactive({
@@ -189,10 +251,14 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
 
     function resetPageOverrides() {
         values.pageOverrides = {};
-        resetScanCleanupDocumentOverrides(options.preferenceDocumentKey.value);
+        scheduleDocumentPersistence(options.preferenceDocumentKey.value, {
+            overrides: values.pageOverrides,
+            resetOverrides: true,
+        });
     }
 
     watch(options.documentLifecycleKey, () => {
+        flushPersistence();
         values.pageOverrides = loadScanCleanupDocumentOverrides(options.preferenceDocumentKey.value);
         const persistedOutputMode = loadScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value);
         values.outputMode = persistedOutputMode === 'mixed'
@@ -209,14 +275,14 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
     }, {immediate: true});
     watch(() => values.pageOverrides, overrides => {
-        saveScanCleanupDocumentOverrides(options.preferenceDocumentKey.value, overrides);
+        scheduleDocumentPersistence(options.preferenceDocumentKey.value, {overrides});
     }, {deep: true});
     watch(() => values.marginsMm, marginsMm => {
         Object.assign(preferences.marginsMm, marginsMm);
-        saveScanCleanupDocumentMargins(options.preferenceDocumentKey.value, marginsMm);
+        scheduleDocumentPersistence(options.preferenceDocumentKey.value, {marginsMm});
     }, {deep: true});
     watch(() => values.outputMode, outputMode => {
-        saveScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value, outputMode);
+        scheduleDocumentPersistence(options.preferenceDocumentKey.value, {outputMode});
     });
 
     return {
