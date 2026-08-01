@@ -8,6 +8,7 @@ import {
     stat,
     writeFile,
 } from 'fs/promises';
+import {constants as fsConstants} from 'fs';
 import {randomUUID} from 'crypto';
 import {
     isAbsolute,
@@ -2162,6 +2163,130 @@ async function mapDetectionPages<T>(
     return results;
 }
 
+type TScanCleanupFileHandle = Awaited<ReturnType<typeof open>>;
+
+function waitForAbort<T>(operation: Promise<T>, signal: AbortSignal) {
+    if (signal.aborted) {
+        return Promise.reject(signal.reason);
+    }
+    return new Promise<T>((resolve, reject) => {
+        const cleanup = () => signal.removeEventListener('abort', onAbort);
+        const onAbort = () => {
+            cleanup();
+            reject(signal.reason);
+        };
+        signal.addEventListener('abort', onAbort, {once: true});
+        void operation.then(value => {
+            cleanup();
+            resolve(value);
+        }, error => {
+            cleanup();
+            reject(error);
+        });
+        if (signal.aborted) onAbort();
+    });
+}
+
+async function openRasterPipeForWriting(pipePath: string, signal: AbortSignal) {
+    signal.throwIfAborted();
+    const opening = open(pipePath, 'w');
+    return new Promise<TScanCleanupFileHandle>((resolve, reject) => {
+        let aborted = false;
+        const cleanup = () => signal.removeEventListener('abort', onAbort);
+        const onOpened = (handle: TScanCleanupFileHandle) => {
+            // The abort handler owns the late handle and closes it after the
+            // rescue reader has released the blocked open.
+            if (aborted) {
+                return;
+            }
+            cleanup();
+            resolve(handle);
+        };
+        const onOpenFailed = (error: unknown) => {
+            if (aborted) {
+                return;
+            }
+            cleanup();
+            reject(error);
+        };
+        const onAbort = () => {
+            if (aborted) {
+                return;
+            }
+            aborted = true;
+            cleanup();
+            void (async () => {
+                let rescueReader: TScanCleanupFileHandle | null = null;
+                try {
+                    // POSIX does not make a blocking fs.open() interruptible by
+                    // AbortSignal. A non-blocking rescue reader wakes the
+                    // writer open; the final scratch cleanup then removes the
+                    // FIFO and every other stream artifact.
+                    rescueReader = await open(
+                        pipePath,
+                        fsConstants.O_RDONLY | fsConstants.O_NONBLOCK,
+                    );
+                } catch {
+                    // If the FIFO was already torn down, the blocked open will
+                    // fail on its own.
+                }
+                try {
+                    const handle = await opening;
+                    await handle.close().catch(() => undefined);
+                } catch {
+                    // The original open may fail as the scratch directory is
+                    // torn down during cancellation.
+                }
+                await rescueReader?.close().catch(() => undefined);
+                reject(signal.reason);
+            })();
+        };
+        signal.addEventListener('abort', onAbort, {once: true});
+        void opening.then(onOpened, onOpenFailed);
+        if (signal.aborted) onAbort();
+    });
+}
+
+async function copyRasterToPipe(
+    sourcePath: string,
+    pipePath: string,
+    signal: AbortSignal,
+) {
+    signal.throwIfAborted();
+    const source = await open(sourcePath, 'r');
+    let pipe: TScanCleanupFileHandle | null = null;
+    const closePipeOnAbort = () => {
+        void pipe?.close().catch(() => undefined);
+    };
+    signal.addEventListener('abort', closePipeOnAbort, {once: true});
+    try {
+        pipe = await openRasterPipeForWriting(pipePath, signal);
+        signal.throwIfAborted();
+        const buffer = Buffer.allocUnsafe(1024 * 1024);
+        for (;;) {
+            signal.throwIfAborted();
+            const {bytesRead} = await source.read(buffer, 0, buffer.byteLength, null);
+            if (bytesRead === 0) break;
+            let offset = 0;
+            while (offset < bytesRead) {
+                signal.throwIfAborted();
+                const {bytesWritten} = await pipe.write(
+                    buffer,
+                    offset,
+                    bytesRead - offset,
+                    null,
+                );
+                if (bytesWritten < 1) throw new Error('Scan cleanup FIFO writer made no progress');
+                offset += bytesWritten;
+            }
+        }
+    } finally {
+        signal.removeEventListener('abort', closePipeOnAbort);
+        if (pipe !== null) await pipe.close().catch(() => undefined);
+        await source.close().catch(() => undefined);
+    }
+}
+
 function normalizeDetectionContentBox(
     output: INativeScanCleanupAnalysisOutputV3,
     rotationDegrees: IScanCleanupPagePlanEvidence['rotationDegrees'],
@@ -2337,9 +2462,19 @@ async function runDetection(
         });
         publishRasterizing();
         const renderedPaths = new Map<number, string>();
+        const rasterScratchPaths = new Map<number, string>();
+        const rasterCompletionPromises = new Map<number, Promise<undefined>>();
+        const rasterCompletionResolvers = new Map<number, () => unknown>();
+        const rasterCompletionRejectors = new Map<number, (reason?: unknown) => unknown>();
         if (streamRasters) {
             for (const pageNumber of rasterScope) {
                 renderedPaths.set(pageNumber, join(scratch, `detect-${pageNumber}.ppm`));
+                rasterScratchPaths.set(pageNumber, join(scratch, `detect-${pageNumber}.raster.ppm`));
+                const completion = Promise.withResolvers<undefined>();
+                rasterCompletionPromises.set(pageNumber, completion.promise);
+                rasterCompletionResolvers.set(pageNumber, () => completion.resolve(undefined));
+                rasterCompletionRejectors.set(pageNumber, reason => completion.reject(reason));
+                void completion.promise.catch(() => undefined);
             }
             await dependencies.createRasterPipes!(
                 [...renderedPaths.values()],
@@ -2349,20 +2484,27 @@ async function runDetection(
         }
         const rasterize = async (operationSignal: AbortSignal) => {
             await mapDetectionPages(rasterScope, async pageNumber => {
-                operationSignal.throwIfAborted();
                 if (streamRasters) {
-                    await dependencies.renderPagePpm(
-                        {pdftoppmBinary: dependencies.getPdftoppmBinary()},
-                        (level, message) => logger[level](message),
-                        pageNumber,
-                        request.sourcePdfPath,
-                        renderedPaths.get(pageNumber)!,
-                        detectionDpiForPage(pageNumber),
-                        undefined,
-                        operationSignal,
-                    );
+                    try {
+                        operationSignal.throwIfAborted();
+                        await dependencies.renderPagePpm(
+                            {pdftoppmBinary: dependencies.getPdftoppmBinary()},
+                            (level, message) => logger[level](message),
+                            pageNumber,
+                            request.sourcePdfPath,
+                            rasterScratchPaths.get(pageNumber)!,
+                            detectionDpiForPage(pageNumber),
+                            undefined,
+                            operationSignal,
+                        );
+                        rasterCompletionResolvers.get(pageNumber)!();
+                    } catch (error) {
+                        rasterCompletionRejectors.get(pageNumber)!(error);
+                        throw error;
+                    }
                     return;
                 }
+                operationSignal.throwIfAborted();
                 const pageDpi = detectionDpiForPage(pageNumber);
                 const scratchPath = await retention.rasterScratchPath(document, pageNumber, pageDpi);
                 const dimensions = await renderRasterToDisk(
@@ -2389,14 +2531,18 @@ async function runDetection(
                 // progress would replace them with an older-stage empty
                 // snapshot. Detection progress is the useful foreground state.
                 if (results.size === 0) publishRasterizing();
-            }, streamRasters
-                // The native consumer opens FIFO inputs in manifest order.
-                // Multiple producers can run ahead, block while opening later
-                // pipes and exhaust every admitted process before the current
-                // page is available. One producer still overlaps Poppler with
-                // native analysis without creating that circular wait.
-                ? 1
-                : resolveScanCleanupRasterConcurrency());
+            }, resolveScanCleanupRasterConcurrency());
+        };
+        const pumpRasters = async (operationSignal: AbortSignal) => {
+            for (const pageNumber of rasterScope) {
+                await waitForAbort(rasterCompletionPromises.get(pageNumber)!, operationSignal);
+                operationSignal.throwIfAborted();
+                await copyRasterToPipe(
+                    rasterScratchPaths.get(pageNumber)!,
+                    renderedPaths.get(pageNumber)!,
+                    operationSignal,
+                );
+            }
         };
         if (!streamRasters) await rasterize(signal);
         const manifestPages = pageNumbers.map(pageNumber => {
@@ -2519,23 +2665,25 @@ async function runDetection(
                 signal,
                 streamAbort.signal,
             ]);
-            const analysis = runAnalysis(streamSignal).catch((error: unknown) => {
-                streamAbort.abort(error);
-                throw error;
-            });
-            const rasterization = rasterize(streamSignal).catch((error: unknown) => {
-                streamAbort.abort(error);
-                throw error;
-            });
+            const runStreamingOperation = (operation: (operationSignal: AbortSignal) => Promise<void>) =>
+                operation(streamSignal).catch((error: unknown) => {
+                    streamAbort.abort(error);
+                    throw error;
+                });
+            const analysis = runStreamingOperation(runAnalysis);
+            const rasterization = runStreamingOperation(rasterize);
+            const pumping = runStreamingOperation(pumpRasters);
             try {
                 await Promise.all([
                     rasterization,
+                    pumping,
                     analysis,
                 ]);
             } catch (error) {
                 streamAbort.abort(error);
                 await Promise.allSettled([
                     rasterization,
+                    pumping,
                     analysis,
                 ]);
                 throw error;

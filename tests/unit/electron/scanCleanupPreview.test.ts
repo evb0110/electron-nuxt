@@ -7,7 +7,9 @@ import {
     truncate,
     writeFile,
 } from 'fs/promises';
+import {execFile} from 'child_process';
 import {tmpdir} from 'os';
+import {promisify} from 'util';
 import {
     join,
     sep,
@@ -45,6 +47,8 @@ import {
     configureMainJobBroker,
     mainJobBroker,
 } from '@electron/resources/jobBroker';
+
+const execFileAsync = promisify(execFile);
 
 configureMainJobBroker({
     logicalCpus: 11,
@@ -2961,18 +2965,27 @@ describe('scan cleanup preview', () => {
         const deps = dependencies(dir);
         const firstRasterStarted = Promise.withResolvers<undefined>();
         const remainingRasters = Promise.withResolvers<undefined>();
+        const fifoPaths: string[] = [];
+        const rasterOutputPaths = new Map<number, string>();
+        const deliveredPageNumbers: number[] = [];
         let activeRasterizers = 0;
         let peakActiveRasterizers = 0;
-        deps.createRasterPipes = vi.fn(async () => undefined);
-        deps.renderPagePpm = vi.fn(async (_paths, _log, pageNumber) => {
+        deps.createRasterPipes = vi.fn(async (paths: readonly string[]) => {
+            fifoPaths.push(...paths);
+            await Promise.all(paths.map(path => writeFile(path, Buffer.alloc(0))));
+        });
+        deps.renderPagePpm = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
             activeRasterizers += 1;
             peakActiveRasterizers = Math.max(peakActiveRasterizers, activeRasterizers);
+            rasterOutputPaths.set(pageNumber, outputPath);
             try {
                 if (pageNumber === 1) {
+                    await writeFile(outputPath, Buffer.from([pageNumber]));
                     firstRasterStarted.resolve(undefined);
                     return;
                 }
                 await remainingRasters.promise;
+                await writeFile(outputPath, Buffer.from([pageNumber]));
             } finally {
                 activeRasterizers -= 1;
             }
@@ -2980,7 +2993,20 @@ describe('scan cleanup preview', () => {
         deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             await firstRasterStarted.promise;
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                inputPath: string;
+                sourcePageIndex: number;
+            }>};
             await writeDetectionMetadata(manifestPath);
+            const waitForDelivery = async (page: typeof manifest.pages[number]) => {
+                await vi.waitFor(async () => {
+                    const bytes = await readFile(page.inputPath);
+                    expect(bytes.byteLength).toBeGreaterThan(0);
+                });
+                const bytes = await readFile(page.inputPath);
+                deliveredPageNumbers.push(bytes[0]!);
+            };
+            await waitForDelivery(manifest.pages[0]!);
             onProgress({
                 stage: 'detecting',
                 completedUnits: 1,
@@ -3001,6 +3027,7 @@ describe('scan cleanup preview', () => {
                 2,
                 3,
             ]) {
+                await waitForDelivery(manifest.pages[pageNumber - 1]!);
                 onProgress({
                     stage: 'detecting',
                     completedUnits: pageNumber,
@@ -3048,7 +3075,7 @@ describe('scan cleanup preview', () => {
             detectionRequest,
         )?.results).toEqual([expect.objectContaining({pageNumber: 1})]));
         expect(deps.createRasterPipes).toHaveBeenCalledOnce();
-        expect(peakActiveRasterizers).toBe(1);
+        expect(peakActiveRasterizers).toBeGreaterThan(1);
         expect(deps.renderPage).not.toHaveBeenCalled();
 
         remainingRasters.resolve(undefined);
@@ -3057,6 +3084,51 @@ describe('scan cleanup preview', () => {
             started.jobId,
             detectionRequest,
         )?.status).toBe('completed'));
+        expect(deliveredPageNumbers).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        expect([...rasterOutputPaths.values()]).not.toEqual(fifoPaths);
+    });
+
+    it.runIf(process.platform !== 'win32')('does not hang when detection aborts during FIFO delivery', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const sidecarEntered = Promise.withResolvers<undefined>();
+        const rasterFinished = Promise.withResolvers<undefined>();
+        deps.createRasterPipes = vi.fn(async (paths: readonly string[]) => {
+            await execFileAsync('mkfifo', [...paths]);
+        });
+        deps.renderPagePpm = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+            await writeFile(outputPath, ppmWithDimensions(1, 1));
+            rasterFinished.resolve(undefined);
+        });
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
+            sidecarEntered.resolve(undefined);
+            await new Promise<void>((_resolve, reject) => {
+                const onAbort = () => {
+                    signal.removeEventListener('abort', onAbort);
+                    reject(signal.reason);
+                };
+                signal.addEventListener('abort', onAbort, {once: true});
+                if (signal.aborted) onAbort();
+            });
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await sidecarEntered.promise;
+        await rasterFinished.promise;
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(service.cancelDetection(owner, started.jobId, detectionRequest)).toBe(true);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('canceled'));
     });
 
     it('reconciles every detection classification against the whole document, not a window of it', async () => {
