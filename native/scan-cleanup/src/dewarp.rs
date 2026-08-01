@@ -341,7 +341,7 @@ pub fn rasterize_inverse_area_with<F>(
     output_to_source: F,
 ) -> GrayImage
 where
-    F: Fn(Point) -> Option<Point>,
+    F: Fn(Point) -> Option<Point> + Sync,
 {
     rasterize_inverse_area_impl(source, width, height, output_to_source)
 }
@@ -364,7 +364,7 @@ pub fn rasterize_inverse_area_rgb_with<F>(
     output_to_source: F,
 ) -> RgbImage
 where
-    F: Fn(Point) -> Option<Point>,
+    F: Fn(Point) -> Option<Point> + Sync,
 {
     rasterize_inverse_area_impl(source, width, height, output_to_source)
 }
@@ -504,7 +504,7 @@ fn rasterize_inverse_area_impl<I, F>(
 ) -> I
 where
     I: RasterImage,
-    F: Fn(Point) -> Option<Point>,
+    F: Fn(Point) -> Option<Point> + Sync,
 {
     let mut output = I::new_white(width, height);
     if width == 0 || height == 0 {
@@ -512,27 +512,47 @@ where
     }
     let row_len = I::row_len(width);
     let rows_per_batch = rayon::current_num_threads().max(1).saturating_mul(2);
+    // Adjacent pixels share quad corners, so each batch maps the shared
+    // (width+1) x (rows+1) corner grid once instead of evaluating the warp
+    // model four times per pixel, and the mapping runs across rows in
+    // parallel (it dominates wall time; sampling has a bilinear fast path).
+    let map_corner_row = |y: usize| {
+        (0..=width)
+            .map(|x| output_to_source(Point::new(x as f64, y as f64)))
+            .collect::<Vec<_>>()
+    };
     for (batch_index, output_rows) in output
         .data_mut()
         .chunks_mut(row_len.saturating_mul(rows_per_batch))
         .enumerate()
     {
         let first_y = batch_index * rows_per_batch;
-        let mapped_rows = (0..output_rows.len() / row_len)
-            .map(|row_offset| {
-                let y = first_y + row_offset;
-                (0..width)
-                    .map(|x| mapped_quad_with(&output_to_source, x, y))
-                    .collect::<Vec<_>>()
-            })
+        let batch_rows = output_rows.len() / row_len;
+        let corner_rows = (first_y..=first_y + batch_rows)
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(map_corner_row)
             .collect::<Vec<_>>();
         output_rows
             .par_chunks_mut(row_len)
-            .zip(mapped_rows.into_par_iter())
-            .for_each(|(output_row, quads)| {
-                for (x, quad) in quads.into_iter().enumerate() {
-                    let Some(quad) = quad else {
-                        continue;
+            .enumerate()
+            .for_each(|(row_offset, output_row)| {
+                let top = &corner_rows[row_offset];
+                let bottom = &corner_rows[row_offset + 1];
+                for x in 0..width {
+                    let quad = match (top[x], top[x + 1], bottom[x + 1], bottom[x]) {
+                        (
+                            Some(top_left),
+                            Some(top_right),
+                            Some(bottom_right),
+                            Some(bottom_left),
+                        ) => [
+                            top_left,
+                            top_right,
+                            bottom_right,
+                            bottom_left,
+                        ],
+                        _ => continue,
                     };
                     I::write_pixel(output_row, x, sample_quad(source, &quad));
                 }
@@ -541,6 +561,7 @@ where
     output
 }
 
+#[cfg(test)]
 fn mapped_quad_with<F>(output_to_source: &F, x: usize, y: usize) -> Option<[Point; 4]>
 where
     F: Fn(Point) -> Option<Point>,

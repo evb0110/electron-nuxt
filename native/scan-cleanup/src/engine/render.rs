@@ -3225,6 +3225,31 @@ fn clean_region(
     let analysis_deskew_inverse = analysis_deskew_forward
         .inverse()
         .ok_or("Cleanup analysis deskew transform is not invertible")?;
+    let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
+        // Curve detection is designed for the ~200-DPI working scale; handing
+        // it the full-resolution crop together with the capped analysis DPI
+        // made its internal downscale a no-op and ran thresholding, labeling
+        // and snake tracing on the full raster. Detect on the analysis-scale
+        // crop and map the curves back into region coordinates.
+        let mut detected = detect_curves_at_dpi_with_depth(
+            &analysis_working,
+            calibration.effective_dpi,
+            options.experimental.auto_dewarp_depth,
+        );
+        detected.model = detected.model.map(|model| {
+            transform_dewarp_options(
+                &model,
+                Affine::scaling(
+                    1.0 / local_scale_x.max(f64::EPSILON),
+                    1.0 / local_scale_y.max(f64::EPSILON),
+                )
+                .then(Affine::translation(region.x, region.y)),
+            )
+        });
+        Some(detected)
+    } else {
+        None
+    };
     let deskewed_analysis = if deskew.accepted {
         render_affine_gray(
             &analysis_working,
@@ -3246,19 +3271,6 @@ fn clean_region(
     });
     let source_rotated_to_deskewed =
         Affine::translation(-region.x, -region.y).then(local_deskew_forward);
-    let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
-        let mut detected = detect_curves_at_dpi_with_depth(
-            &crop_gray(normalized, region),
-            calibration.effective_dpi,
-            options.experimental.auto_dewarp_depth,
-        );
-        detected.model = detected
-            .model
-            .map(|model| transform_dewarp_options(&model, Affine::translation(region.x, region.y)));
-        Some(detected)
-    } else {
-        None
-    };
     let candidate_dewarp = options.dewarp.clone().or_else(|| {
         automatic_dewarp
             .as_ref()

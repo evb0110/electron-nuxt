@@ -91,6 +91,11 @@ impl Affine {
             matrix: [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]],
         }
     }
+    pub fn scaling(x: f64, y: f64) -> Self {
+        Self {
+            matrix: [[x, 0.0, 0.0], [0.0, y, 0.0], [0.0, 0.0, 1.0]],
+        }
+    }
     pub fn apply(self, point: Point) -> Point {
         Point::new(
             self.matrix[0][0] * point.x + self.matrix[0][1] * point.y + self.matrix[0][2],
