@@ -301,10 +301,13 @@ pub(crate) fn derive_tone_mask_excluding_foreground(
 }
 
 /// Reduces background-owned tone to genuine picture zones. A zone is the
-/// filled bounding box of a tone component that is physically large, densely
-/// occupied, and contains real dark mass; text-block claims on grainy paper
-/// have no deep interior and are rejected, so the paper they sit on gets
-/// normalized to white instead of being preserved as a gray panel.
+/// closed, hole-filled silhouette of a tone component that is physically
+/// large, densely occupied, and contains real dark mass. The silhouette, not
+/// the bounding box: paper inside the rectangle around a non-rectangular
+/// picture (an etched statue, a cut-out figure) carries show-through streaks
+/// that a box zone would protect verbatim, while the silhouette leaves that
+/// paper to page-wide whitening. Text-block claims on grainy paper have no
+/// deep interior and are rejected entirely.
 pub(crate) fn derive_picture_zones(
     tone: &BinaryImage,
     background: &GrayImage,
@@ -326,32 +329,110 @@ pub(crate) fn derive_picture_zones(
             }
         }
     }
-    let accepted: Vec<_> = components
-        .components()
-        .iter()
-        .filter(|component| {
-            let width = component.right - component.left + 1;
-            let height = component.bottom - component.top + 1;
-            width >= minimum_span
-                && height >= minimum_span
-                && component.area.saturating_mul(5)
-                    >= width.saturating_mul(height).saturating_mul(2)
-                && deep_counts[component.label as usize].saturating_mul(100)
-                    >= component.area.saturating_mul(8)
-        })
-        .map(|component| {
-            (
-                component.left,
-                component.top,
-                component.right,
-                component.bottom,
-            )
-        })
-        .collect();
-    BinaryImage::from_fn_parallel(tone.width(), tone.height(), |x, y| {
-        accepted.iter().any(|&(left, top, right, bottom)| {
-            (left..=right).contains(&x) && (top..=bottom).contains(&y)
-        })
+    let mut accepted_labels = vec![false; components.components().len() + 1];
+    for component in components.components() {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        if width >= minimum_span
+            && height >= minimum_span
+            && component.area.saturating_mul(5)
+                >= width.saturating_mul(height).saturating_mul(2)
+            && deep_counts[component.label as usize].saturating_mul(100)
+                >= component.area.saturating_mul(8)
+        {
+            accepted_labels[component.label as usize] = true;
+        }
+    }
+    if !accepted_labels.iter().any(|&accepted| accepted) {
+        return BinaryImage::new(tone.width(), tone.height());
+    }
+    // The recall-first tone mask is solid by construction (closing, edge
+    // recall, hole filling), so the picture shape must come from the raster
+    // itself, and only from STRONG evidence: genuinely dark mass that is
+    // locally dense (photo interiors, hatched plates), or near-solid gray
+    // fields (authored plates, aquatint halos). Verso show-through — thin
+    // ghost lines with paper between them — qualifies as neither even when
+    // it is connected to the artwork in the tone mask, so the closed
+    // silhouette wraps the artwork and leaves streaked paper to page-wide
+    // whitening.
+    let density_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 16.0) as usize;
+    let deep_evidence = BinaryImage::from_fn_parallel(tone.width(), tone.height(), |x, y| {
+        accepted_labels[components.label_at(x, y) as usize]
+            && background.get(x, y) < deep_threshold
+    });
+    let deep_dense = filter_sparse_regions(&deep_evidence, density_radius, 1, 3);
+    let plate_floor = paper_reference.saturating_sub(25);
+    let plate_evidence = BinaryImage::from_fn_parallel(tone.width(), tone.height(), |x, y| {
+        accepted_labels[components.label_at(x, y) as usize]
+            && background.get(x, y) < plate_floor
+    });
+    let plate_solid = filter_sparse_regions(&plate_evidence, density_radius, 4, 5);
+    let closure_radius = (dpi * 2.5 / 25.4).round().clamp(2.0, 12.0) as usize;
+    let silhouette = fill_enclosed_holes(&close(
+        &deep_dense.or(&plate_solid),
+        closure_radius,
+        closure_radius,
+    ));
+    // A dense verso ghost field (the facing page's plate showing through)
+    // passes the density test but is attenuated by the paper and never
+    // reaches genuine picture darkness. Silhouette regions without deep
+    // mass are ghosts, not artwork, and stay whitenable.
+    let silhouette_components = ComponentMap::from_binary(&silhouette);
+    let mut region_deep = vec![0usize; silhouette_components.components().len() + 1];
+    for y in 0..background.height() {
+        for x in 0..background.width() {
+            if background.get(x, y) >= deep_threshold {
+                continue;
+            }
+            let label = silhouette_components.label_at(x, y) as usize;
+            if label > 0 {
+                region_deep[label] += 1;
+            }
+        }
+    }
+    silhouette_components.retain(|component| {
+        region_deep[component.label as usize].saturating_mul(100)
+            >= component.area.saturating_mul(2)
+    })
+}
+
+/// Keeps mask pixels whose box neighborhood is at least
+/// `numerator/denominator` occupied by the mask; isolated thin structure
+/// falls below the ratio and is removed.
+fn filter_sparse_regions(
+    mask: &BinaryImage,
+    radius: usize,
+    numerator: usize,
+    denominator: usize,
+) -> BinaryImage {
+    let width = mask.width();
+    let height = mask.height();
+    if width == 0 || height == 0 {
+        return mask.clone();
+    }
+    let mut integral = vec![0u64; (width + 1) * (height + 1)];
+    for y in 0..height {
+        let mut row_sum = 0u64;
+        for x in 0..width {
+            row_sum += u64::from(mask.get(x, y));
+            integral[(y + 1) * (width + 1) + x + 1] =
+                integral[y * (width + 1) + x + 1] + row_sum;
+        }
+    }
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        if !mask.get(x, y) {
+            return false;
+        }
+        let left = x.saturating_sub(radius);
+        let top = y.saturating_sub(radius);
+        let right = (x + radius + 1).min(width);
+        let bottom = (y + radius + 1).min(height);
+        let count = integral[bottom * (width + 1) + right]
+            + integral[top * (width + 1) + left]
+            - integral[top * (width + 1) + right]
+            - integral[bottom * (width + 1) + left];
+        let window = ((right - left) * (bottom - top)) as u64;
+        count.saturating_mul(denominator as u64) >= window.saturating_mul(numerator as u64)
     })
 }
 
