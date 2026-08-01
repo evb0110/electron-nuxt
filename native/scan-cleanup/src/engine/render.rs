@@ -32,8 +32,9 @@ use crate::{
     dewarp::{
         rasterize_inverse_area_rgb_with, rasterize_inverse_area_with, DewarpModel, DEWARP_GRID_SIZE,
     },
+    mrc::derive_halftone_zones,
     picture::{
-        apply_manual_zones, detect_continuous_tone_mask, detect_picture_mask_with_continuous_tone,
+        apply_manual_zones, detect_picture_mask_with_continuous_tone,
         extend_picture_mask_for_content, extend_tone_mask_for_content,
         flat_graphic_tone_preservation_alpha, photo_tone_preservation_alpha,
         refine_line_art_preservation_alpha, refine_tone_preservation_alpha,
@@ -2206,17 +2207,22 @@ fn prepare_analysis_page(
             Arc::new(if blank_scan_candidate {
                 BinaryImage::new(rotated.width(), rotated.height())
             } else {
-                detect_continuous_tone_mask(&rotated, effective_dpi)
+                derive_halftone_zones(&rotated, effective_dpi)
             })
         });
         let picture_mask = render_policy.analyze_layout.then(|| {
             let mut mask = if blank_scan_candidate {
                 BinaryImage::new(rotated.width(), rotated.height())
             } else {
-                detect_picture_mask_with_continuous_tone(
+                let detected = detect_picture_mask_with_continuous_tone(
                     &rotated,
                     effective_dpi,
                     calibration,
+                    continuous_tone_mask
+                        .as_deref()
+                        .expect("layout analysis must prepare continuous-tone evidence"),
+                );
+                detected.or(
                     continuous_tone_mask
                         .as_deref()
                         .expect("layout analysis must prepare continuous-tone evidence"),
@@ -2334,10 +2340,7 @@ fn prepare_analysis_page(
         }
         let continuous_tone_mask =
             continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
-        let tonal_protection_mask = union_optional_masks(
-            destructive_tone_mask.as_ref(),
-            continuous_tone_mask.as_ref(),
-        );
+        let tonal_protection_mask = continuous_tone_mask.clone();
         // A textless illustration may legitimately use smooth tone across its
         // full vetted enclosure. On document-like pages, isolate semantic tone
         // from paper on the raw-source scale: deriving this alpha from the
@@ -2478,20 +2481,7 @@ fn prepare_analysis_page(
         }
         let protect_tonal_text_vicinity = significant_picture && !refine_picture_ownership;
         let mut output_picture_mask = if resolved_output_mode == OutputMode::Mixed {
-            // A directly detected photograph needs one coherent owner across
-            // all of its continuous-tone enclosure. The permissive picture
-            // detector can cover only one tonal lobe (for example, the dark
-            // upper half of a portrait), while the continuous-tone detector
-            // correctly covers the whole photograph. Splitting ownership at
-            // that detector boundary sends the remainder through bilevel
-            // routing and creates a hard posterization seam. Large bimodal
-            // line art deliberately keeps the narrower destructive-tone mask
-            // so its paper can still be normalized to white.
-            let layer_tone_mask = if significant_picture && !refine_picture_ownership {
-                tonal_protection_mask.as_ref()
-            } else {
-                destructive_tone_mask.as_ref()
-            };
+            let layer_tone_mask = tonal_protection_mask.as_ref();
             let tonal_picture_mask = union_optional_masks(picture_mask.as_ref(), layer_tone_mask);
             union_optional_masks(tonal_picture_mask.as_ref(), chroma_picture_mask.as_ref())
         } else {

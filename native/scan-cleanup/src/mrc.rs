@@ -1,5 +1,6 @@
 use scan_primitives::{
-    morphology::{close, dilate, dilate_gray, erode_gray, open},
+    morphology::{close, dilate, dilate_gray, erode_gray, open, reconstruct_binary},
+    threshold::{threshold_local, LocalThreshold},
     BinaryImage, ComponentMap, GrayImage,
 };
 use std::collections::VecDeque;
@@ -42,6 +43,33 @@ fn fill_enclosed_holes(mask: &BinaryImage) -> BinaryImage {
     }
     BinaryImage::from_fn_parallel(mask.width(), mask.height(), |x, y| {
         mask.get(x, y) || !exterior[y * mask.width() + x]
+    })
+}
+
+fn reduce_rank4(mask: &BinaryImage) -> BinaryImage {
+    let width = mask.width().div_ceil(2);
+    let height = mask.height().div_ceil(2);
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        let source_x = x * 2;
+        let source_y = y * 2;
+        source_x + 1 < mask.width()
+            && source_y + 1 < mask.height()
+            && mask.get(source_x, source_y)
+            && mask.get(source_x + 1, source_y)
+            && mask.get(source_x, source_y + 1)
+            && mask.get(source_x + 1, source_y + 1)
+    })
+}
+
+fn expand_replicate(mask: &BinaryImage, width: usize, height: usize, factor: usize) -> BinaryImage {
+    if mask.width() == 0 || mask.height() == 0 {
+        return BinaryImage::new(width, height);
+    }
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        mask.get(
+            (x / factor).min(mask.width() - 1),
+            (y / factor).min(mask.height() - 1),
+        )
     })
 }
 
@@ -300,111 +328,189 @@ pub(crate) fn derive_tone_mask_excluding_foreground(
     components.retain(|component| unexplained_counts[component.label as usize] > 0)
 }
 
-/// Reduces background-owned tone to genuine picture zones. A zone is the
-/// closed, hole-filled silhouette of a tone component that is physically
-/// large, densely occupied, and contains real dark mass. The silhouette, not
-/// the bounding box: paper inside the rectangle around a non-rectangular
-/// picture (an etched statue, a cut-out figure) carries show-through streaks
-/// that a box zone would protect verbatim, while the silhouette leaves that
-/// paper to page-wide whitening. Text-block claims on grainy paper have no
-/// deep interior and are rejected entirely.
-pub(crate) fn derive_picture_zones(
-    tone: &BinaryImage,
-    background: &GrayImage,
-    dpi: f64,
-) -> BinaryImage {
-    let paper_reference = luminance_percentile(background, 3, 4);
-    let deep_threshold = paper_reference.saturating_sub(45);
-    let minimum_span = (dpi * 12.0 / 25.4).round().max(8.0) as usize;
-    let components = ComponentMap::from_binary(tone);
-    let mut deep_counts = vec![0usize; components.components().len() + 1];
-    for y in 0..background.height() {
-        for x in 0..background.width() {
-            if !tone.get(x, y) || background.get(x, y) >= deep_threshold {
-                continue;
-            }
-            let label = components.label_at(x, y) as usize;
-            if label > 0 {
-                deep_counts[label] += 1;
-            }
-        }
+pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
+    if gray.width() == 0 || gray.height() == 0 {
+        return BinaryImage::new(gray.width(), gray.height());
     }
-    let mut accepted_labels = vec![false; components.components().len() + 1];
-    for component in components.components() {
+    let binary = threshold_local(
+        gray,
+        25,
+        LocalThreshold::Wolf {
+            k: 0.5,
+            deviation_floor: 3.0,
+            minimum_percentile: 0.01,
+            hard_ink: 48,
+            hard_paper: 248,
+        },
+    );
+    let reduced = reduce_rank4(&reduce_rank4(&binary));
+    let mass_seed = expand_replicate(&open(&reduced, 2, 2), gray.width(), gray.height(), 4);
+    // A photograph at analysis scale offers one of two signals: dense dark
+    // MASS (shadows, printed halftone) that survives the rank cascade, or
+    // smooth MID-GRAY fields (skin, stone, sky) that binarize to nothing.
+    // Text and line art offer neither — type is paper-and-ink, hatching is
+    // edge, not field. Seed from both signals; the verdict below rejects
+    // whatever line art sneaks through on mass alone. Bold type survives
+    // the cascade only as isolated pellets, which the smoothness-free
+    // 2 mm density test cannot turn into fields, and whose tight tonal
+    // concentration the spread verdict rejects.
+    let texture_radius = (dpi * 0.45 / 25.4).round().clamp(1.0, 3.0) as usize;
+    // Edge statistics run on a lightly blurred plane: halftone dots are
+    // finer than pen strokes, so a one-stroke-width mean filter collapses a
+    // printed photograph's dot micro-contrast while hatching and engraved
+    // lines keep theirs.
+    let blurred = box_mean_gray(gray, 1);
+    let local_max = erode_gray(&blurred, texture_radius, texture_radius);
+    let local_min = dilate_gray(&blurred, texture_radius, texture_radius);
+    let paper_reference = luminance_percentile(gray, 3, 4);
+    // The ceiling sits at genuine-tone depth: verso show-through is
+    // attenuated by the paper and stays within ~45 of the paper shade, so
+    // it must never seed a smooth field, or its page-wide tiles chain
+    // every cluster together.
+    let smooth_ceiling = paper_reference.saturating_sub(45);
+    let smooth_candidates = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
+        let value = gray.get(x, y);
+        value > 64
+            && value < smooth_ceiling
+            && local_max.get(x, y).saturating_sub(local_min.get(x, y)) <= 12
+    });
+    let density_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 16.0) as usize;
+    let smooth_seed = filter_dense_regions(&smooth_candidates, density_radius);
+    let seed = mass_seed.or(&smooth_seed);
+    // Reconstruction recovers the photo's bright remainder through the
+    // closed binary, but each seed CLUSTER grows inside its own clipped
+    // neighborhood and is judged alone: a photograph two text lines away
+    // from a show-through field must not share a verdict with it, and a
+    // chain of incidental bridges must never merge a picture with a text
+    // column before the tonal tests run.
+    let growth_radius = (dpi * 8.0 / 25.4).round().clamp(4.0, 64.0) as usize;
+    let cluster_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 24.0) as usize;
+    let closed = close(&binary, 4, 4);
+    let clusters = ComponentMap::from_binary(&dilate(&seed, cluster_radius, cluster_radius));
+    let cluster_count = clusters.components().len();
+    let minimum_span = (dpi * 12.0 / 25.4).round().max(8.0) as usize;
+    let mut candidates = BinaryImage::new(gray.width(), gray.height());
+    for cluster_index in 0..cluster_count {
+        let cluster = &clusters.components()[cluster_index];
+        let label = cluster.label;
+        let span_x = cluster.right - cluster.left + 1;
+        let span_y = cluster.bottom - cluster.top + 1;
+        if span_x < minimum_span || span_y < minimum_span {
+            continue;
+        }
+        let cluster_seed = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
+            seed.get(x, y) && clusters.label_at(x, y) == label
+        });
+        let growth_zone = dilate(&cluster_seed, growth_radius, growth_radius);
+        let clipped_mask = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
+            closed.get(x, y) && growth_zone.get(x, y)
+        });
+        let region = reconstruct_binary(&cluster_seed, &clipped_mask);
+        candidates = candidates.or(&region);
+    }
+    let sized = ComponentMap::from_binary(&candidates).retain(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
-        if width >= minimum_span
-            && height >= minimum_span
-            && component.area.saturating_mul(5)
-                >= width.saturating_mul(height).saturating_mul(2)
-            && deep_counts[component.label as usize].saturating_mul(100)
-                >= component.area.saturating_mul(8)
-        {
-            accepted_labels[component.label as usize] = true;
-        }
-    }
-    if !accepted_labels.iter().any(|&accepted| accepted) {
-        return BinaryImage::new(tone.width(), tone.height());
-    }
-    // The recall-first tone mask is solid by construction (closing, edge
-    // recall, hole filling), so the picture shape must come from the raster
-    // itself, and only from STRONG evidence: genuinely dark mass that is
-    // locally dense (photo interiors, hatched plates), or near-solid gray
-    // fields (authored plates, aquatint halos). Verso show-through — thin
-    // ghost lines with paper between them — qualifies as neither even when
-    // it is connected to the artwork in the tone mask, so the closed
-    // silhouette wraps the artwork and leaves streaked paper to page-wide
-    // whitening.
-    let density_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 16.0) as usize;
-    let deep_evidence = BinaryImage::from_fn_parallel(tone.width(), tone.height(), |x, y| {
-        accepted_labels[components.label_at(x, y) as usize]
-            && background.get(x, y) < deep_threshold
+        width >= minimum_span && height >= minimum_span
     });
-    let deep_dense = filter_sparse_regions(&deep_evidence, density_radius, 1, 3);
-    let plate_floor = paper_reference.saturating_sub(25);
-    let plate_evidence = BinaryImage::from_fn_parallel(tone.width(), tone.height(), |x, y| {
-        accepted_labels[components.label_at(x, y) as usize]
-            && background.get(x, y) < plate_floor
-    });
-    let plate_solid = filter_sparse_regions(&plate_evidence, density_radius, 4, 5);
-    let closure_radius = (dpi * 2.5 / 25.4).round().clamp(2.0, 12.0) as usize;
-    let silhouette = fill_enclosed_holes(&close(
-        &deep_dense.or(&plate_solid),
-        closure_radius,
-        closure_radius,
-    ));
-    // A dense verso ghost field (the facing page's plate showing through)
-    // passes the density test but is attenuated by the paper and never
-    // reaches genuine picture darkness. Silhouette regions without deep
-    // mass are ghosts, not artwork, and stay whitenable.
-    let silhouette_components = ComponentMap::from_binary(&silhouette);
-    let mut region_deep = vec![0usize; silhouette_components.components().len() + 1];
-    for y in 0..background.height() {
-        for x in 0..background.width() {
-            if background.get(x, y) >= deep_threshold {
-                continue;
-            }
-            let label = silhouette_components.label_at(x, y) as usize;
+    let candidates = fill_enclosed_holes(&sized);
+    // Two verdicts separate photographs from line art that also carries
+    // mass or smooth fields. SPREAD: a photograph's tones scatter away
+    // from both the ink core and the paper core; line art concentrates at
+    // both. EDGE DENSITY: hatching, engraving and type are made of strokes
+    // — a large share of their pixels sit on strong local gradients —
+    // while photographic fields are smooth almost everywhere.
+    let paper_core_floor = paper_reference.saturating_sub(20);
+    let regions = ComponentMap::from_binary(&candidates);
+    let mut histograms = vec![[0usize; 256]; regions.components().len() + 1];
+    let mut edge_counts = vec![0usize; regions.components().len() + 1];
+    for y in 0..gray.height() {
+        for x in 0..gray.width() {
+            let label = regions.label_at(x, y) as usize;
             if label > 0 {
-                region_deep[label] += 1;
+                histograms[label][usize::from(gray.get(x, y))] += 1;
+                if local_max.get(x, y).saturating_sub(local_min.get(x, y)) >= 48 {
+                    edge_counts[label] += 1;
+                }
             }
         }
     }
-    silhouette_components.retain(|component| {
-        region_deep[component.label as usize].saturating_mul(100)
-            >= component.area.saturating_mul(2)
+    regions.retain(|component| {
+        let histogram = &histograms[component.label as usize];
+        let total: usize = histogram.iter().sum();
+        if total == 0 {
+            return false;
+        }
+        let mut cumulative = 0usize;
+        let ink_reference = histogram
+            .iter()
+            .position(|&count| {
+                cumulative += count;
+                cumulative * 10 > total
+            })
+            .unwrap_or(0) as u8;
+        let ink_core_ceiling = ink_reference.saturating_add(20);
+        let spread: usize = histogram
+            .iter()
+            .enumerate()
+            .filter(|&(value, _)| {
+                value > usize::from(ink_core_ceiling) && value < usize::from(paper_core_floor)
+            })
+            .map(|(_, &count)| count)
+            .sum();
+        let edge_fraction = edge_counts[component.label as usize] as f64 / total as f64;
+        if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some() {
+            eprintln!(
+                "{{\"event\":\"halftone-region\",\"left\":{},\"top\":{},\"right\":{},\
+                 \"bottom\":{},\"area\":{},\"inkReference\":{ink_reference},\
+                 \"paperCoreFloor\":{paper_core_floor},\"spreadFraction\":{:.4},\
+                 \"edgeFraction\":{edge_fraction:.4}}}",
+                component.left,
+                component.top,
+                component.right,
+                component.bottom,
+                component.area,
+                spread as f64 / total as f64,
+            );
+        }
+        spread.saturating_mul(4) >= total && edge_fraction < 0.55
     })
 }
 
-/// Keeps mask pixels whose box neighborhood is at least
-/// `numerator/denominator` occupied by the mask; isolated thin structure
-/// falls below the ratio and is removed.
-fn filter_sparse_regions(
-    mask: &BinaryImage,
-    radius: usize,
-    numerator: usize,
-    denominator: usize,
-) -> BinaryImage {
+fn box_mean_gray(image: &GrayImage, radius: usize) -> GrayImage {
+    let width = image.width();
+    let height = image.height();
+    if width == 0 || height == 0 {
+        return image.clone();
+    }
+    let mut integral = vec![0u64; (width + 1) * (height + 1)];
+    for y in 0..height {
+        let mut row_sum = 0u64;
+        for x in 0..width {
+            row_sum += u64::from(image.get(x, y));
+            integral[(y + 1) * (width + 1) + x + 1] = integral[y * (width + 1) + x + 1] + row_sum;
+        }
+    }
+    let mut output = image.clone();
+    for y in 0..height {
+        for x in 0..width {
+            let left = x.saturating_sub(radius);
+            let top = y.saturating_sub(radius);
+            let right = (x + radius + 1).min(width);
+            let bottom = (y + radius + 1).min(height);
+            let sum = integral[bottom * (width + 1) + right] + integral[top * (width + 1) + left]
+                - integral[top * (width + 1) + right]
+                - integral[bottom * (width + 1) + left];
+            let window = ((right - left) * (bottom - top)) as u64;
+            output.set(x, y, (sum / window.max(1)) as u8);
+        }
+    }
+    output
+}
+
+/// Keeps mask pixels whose 2-D neighborhood is at least a third occupied by
+/// the mask; isolated marks and thin strokes fall below the ratio.
+fn filter_dense_regions(mask: &BinaryImage, radius: usize) -> BinaryImage {
     let width = mask.width();
     let height = mask.height();
     if width == 0 || height == 0 {
@@ -415,8 +521,7 @@ fn filter_sparse_regions(
         let mut row_sum = 0u64;
         for x in 0..width {
             row_sum += u64::from(mask.get(x, y));
-            integral[(y + 1) * (width + 1) + x + 1] =
-                integral[y * (width + 1) + x + 1] + row_sum;
+            integral[(y + 1) * (width + 1) + x + 1] = integral[y * (width + 1) + x + 1] + row_sum;
         }
     }
     BinaryImage::from_fn_parallel(width, height, |x, y| {
@@ -427,13 +532,20 @@ fn filter_sparse_regions(
         let top = y.saturating_sub(radius);
         let right = (x + radius + 1).min(width);
         let bottom = (y + radius + 1).min(height);
-        let count = integral[bottom * (width + 1) + right]
-            + integral[top * (width + 1) + left]
+        let count = integral[bottom * (width + 1) + right] + integral[top * (width + 1) + left]
             - integral[top * (width + 1) + right]
             - integral[bottom * (width + 1) + left];
         let window = ((right - left) * (bottom - top)) as u64;
-        count.saturating_mul(denominator as u64) >= window.saturating_mul(numerator as u64)
+        count.saturating_mul(3) >= window
     })
+}
+
+pub(crate) fn derive_picture_zones(
+    _tone: &BinaryImage,
+    background: &GrayImage,
+    dpi: f64,
+) -> BinaryImage {
+    derive_halftone_zones(background, dpi)
 }
 
 #[cfg(test)]
@@ -441,40 +553,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn picture_zones_keep_photos_and_reject_text_block_claims() {
-        let mut background = GrayImage::new(400, 400, 200);
-        // A photo: large, dense, with deep mass.
-        for y in 40..200 {
-            for x in 40..200 {
-                background.set(x, y, 40 + ((x * 7 + y * 11) % 120) as u8);
+    fn dense_random_photo_texture_survives_as_a_zone() {
+        // A photograph at analysis scale: contiguous shadow masses beside
+        // midtone fields, not a uniform ink slab and not per-pixel noise.
+        let mut image = GrayImage::new(320, 320, 255);
+        for y in 48..272 {
+            for x in 48..272 {
+                let cell = (x / 24 + y / 24) % 2 == 0;
+                let value = if cell {
+                    30 + ((x * 37 + y * 61) % 24) as u8
+                } else {
+                    120 + ((x * 13 + y * 41) % 48) as u8
+                };
+                image.set(x, y, value);
             }
         }
-        // A text-block claim: same size, but only faint ghost strokes.
-        for row in 0..16 {
-            let y = 240 + row * 9;
-            for x in 220..380 {
-                if (x / 6 + row) % 3 != 0 {
-                    background.set(x, y, 180);
+        let zones = derive_halftone_zones(&image, 150.0);
+        assert!(zones.get(160, 160));
+        assert!(!zones.get(20, 20));
+    }
+
+    #[test]
+    fn one_pixel_hatching_does_not_seed_a_zone() {
+        let mut image = GrayImage::new(320, 320, 255);
+        for y in (48..272).step_by(4) {
+            for x in 48..272 {
+                image.set(x, y, 20);
+            }
+        }
+        for x in (48..272).step_by(4) {
+            for y in 48..272 {
+                image.set(x, y, 20);
+            }
+        }
+        assert_eq!(derive_halftone_zones(&image, 150.0).count_black(), 0);
+    }
+
+    #[test]
+    fn text_lines_do_not_seed_a_zone() {
+        let mut image = GrayImage::new(320, 320, 255);
+        for y in (48..272).step_by(9) {
+            for x in 48..272 {
+                image.set(x, y, 20);
+            }
+        }
+        assert_eq!(derive_halftone_zones(&image, 150.0).count_black(), 0);
+    }
+
+    #[test]
+    fn hole_fill_keeps_a_bright_photo_interior() {
+        let mut image = GrayImage::new(320, 320, 255);
+        for y in 48..272 {
+            for x in 48..272 {
+                if !(112..208).contains(&x) || !(112..208).contains(&y) {
+                    let cell = (x / 24 + y / 24) % 2 == 0;
+                    let value = if cell {
+                        30 + ((x * 37 + y * 61) % 24) as u8
+                    } else {
+                        120 + ((x * 13 + y * 41) % 48) as u8
+                    };
+                    image.set(x, y, value);
                 }
             }
         }
-        let mut tone = BinaryImage::new(400, 400);
-        for y in 40..200 {
-            for x in 40..200 {
-                tone.set(x, y, true);
-            }
-        }
-        for y in 240..384 {
-            for x in 220..380 {
-                tone.set(x, y, true);
-            }
-        }
-        let zones = derive_picture_zones(&tone, &background, 120.0);
-        assert!(zones.get(120, 120), "dense deep photo becomes a zone");
-        assert!(
-            !zones.get(300, 300),
-            "a faint text-block claim is not a zone"
-        );
+        let zones = derive_halftone_zones(&image, 150.0);
+        assert!(zones.get(160, 160));
+        assert!(!zones.get(20, 20));
     }
 
     #[test]
@@ -711,6 +855,23 @@ mod tests {
     /// `EVB_MRC_BACKGROUND=/path/to/background.png EVB_MRC_TONE_MASK=/tmp/tone.pbm
     /// cargo test -p evb-scan-cleanup dump_external_mrc_tone_mask -- --ignored`
     #[test]
+    /// Developer diagnostic: run the halftone classifier on an external image.
+    /// `EVB_HALFTONE_IMAGE=/path.png EVB_SCAN_CLEANUP_TRACE_MRC=1
+    /// cargo test -p evb-scan-cleanup dump_halftone_zones -- --ignored --nocapture`
+    #[test]
+    #[ignore = "requires EVB_HALFTONE_IMAGE"]
+    fn dump_halftone_zones() {
+        let path = std::env::var("EVB_HALFTONE_IMAGE").unwrap();
+        let image = crate::io::raster::read_image(std::path::Path::new(&path), 40_000_000, 10_000)
+            .unwrap();
+        let dpi = std::env::var("EVB_HALFTONE_DPI")
+            .ok()
+            .and_then(|value| value.parse::<f64>().ok())
+            .unwrap_or(150.0);
+        let zones = derive_halftone_zones(&image.gray, dpi);
+        eprintln!("halftone zone pixels: {}", zones.count_black());
+    }
+
     #[ignore = "requires EVB_MRC_BACKGROUND and EVB_MRC_TONE_MASK"]
     fn dump_external_mrc_tone_mask() {
         let input_path = std::env::var("EVB_MRC_BACKGROUND").unwrap();
