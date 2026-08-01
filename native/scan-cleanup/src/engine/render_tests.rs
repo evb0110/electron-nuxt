@@ -314,8 +314,7 @@ mod tests {
                 // x-height from the body text, while the bands feed the
                 // halftone classifier's rank cascade and the sealed
                 // midtones carry the tonal spread.
-                let frame =
-                    x < 162 || x >= 412 || y < 144 || y >= 268;
+                let frame = x < 162 || x >= 412 || y < 144 || y >= 268;
                 let band = (170..206).contains(&y) || (226..262).contains(&y);
                 let value = if frame || band {
                     30 + ((x * 37 + y * 61) % 24) as u8
@@ -2926,6 +2925,77 @@ mod tests {
     }
 
     #[test]
+    fn producer_layers_do_not_replace_fresh_mixed_composition() {
+        let mut gray = GrayImage::new(160, 100, 232);
+        for y in 20..80 {
+            for x in 70..135 {
+                gray.set(x, y, 48 + ((x * 7 + y * 11) % 150) as u8);
+            }
+        }
+        for y in 42..46 {
+            for x in 12..56 {
+                gray.set(x, y, 18);
+            }
+        }
+        let mut trusted_foreground = BinaryImage::new(160, 100);
+        trusted_foreground.set(5, 5, true);
+        let mut trusted_tone = BinaryImage::new(160, 100);
+        for y in 0..100 {
+            for x in 0..160 {
+                trusted_tone.set(x, y, true);
+            }
+        }
+        let trusted_background = GrayImage::new(160, 100, 0);
+        let options = CleanupOptions {
+            dpi: 300.0,
+            output_mode: OutputMode::Mixed,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            manual_zones: crate::ManualZones {
+                picture: vec![crate::PictureZone {
+                    polygon: normalized_box_polygon(0.42, 0.12, 0.86, 0.88),
+                    layer: crate::PictureZoneLayer::Painter2,
+                }],
+                fill: vec![],
+            },
+            ..CleanupOptions::default()
+        };
+        let mut timings = PageStageTimings::default();
+        let output = clean_page_with_color_and_calibration_config(
+            &gray,
+            None,
+            Some(&trusted_foreground),
+            Some(&trusted_tone),
+            Some(&trusted_background),
+            None,
+            &options,
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy::COMPLETE,
+            &mut timings,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let layers = output
+            .mixed_layers
+            .as_ref()
+            .expect("fresh Mixed output retains separable layers");
+
+        assert!(!output.metadata.trusted_selection_applied);
+        assert!(!output.metadata.trusted_mrc_background_preserved);
+        assert!(!layers.source_mrc);
+        assert_eq!(layers.background.get(5, 5), 255);
+        assert!(
+            layers.foreground_mask.get(30, 43),
+            "fresh cleaned-raster ink must own the foreground"
+        );
+    }
+
+    #[test]
     fn mixed_preview_builds_only_the_composite() {
         let mut gray = GrayImage::new(120, 80, 242);
         for y in 15..65 {
@@ -4172,121 +4242,5 @@ mod tests {
         assert!(!field.get(40, 250), "scanner bands are paper, not photo");
         assert!(!field.get(200, 90), "page rules are not photo");
         assert!(!field.get(200, 470), "text lines are not photo");
-    }
-
-    #[test]
-    fn trusted_mrc_background_whitens_paper_outside_semantic_tone() {
-        let mut gray = GrayImage::new(40, 24, 192);
-        let mut color = RgbImage::new(40, 24, [184, 192, 188]);
-        let mut mask = BinaryImage::new(40, 24);
-        for y in 6..18 {
-            for x in 12..28 {
-                let value = 45 + ((x + y) % 100) as u8;
-                gray.set(x, y, value);
-                color.set(x, y, [value, value.saturating_add(8), value]);
-                mask.set(x, y, true);
-            }
-        }
-        let (retained, retained_color) =
-            white_outside_tonal_plate(&gray, Some(&color), &mask, 25.4);
-        for y in 0..24 {
-            for x in 0..40 {
-                if mask.get(x, y) {
-                    // Zone interiors are white-point normalized with a
-                    // narrow shoulder: deep tone rescales proportionally
-                    // (255/paper) instead of staying raw.
-                    let expected =
-                        normalize_trusted_mrc_tone_with_shoulder(gray.get(x, y), 192, 25.0);
-                    assert!(retained.get(x, y).abs_diff(expected) <= 2);
-                } else if !(10..30).contains(&x) || !(4..20).contains(&y) {
-                    assert!(retained.get(x, y) >= 250);
-                    assert!(retained_color
-                        .as_ref()
-                        .unwrap()
-                        .get(x, y)
-                        .iter()
-                        .all(|&channel| channel >= 250));
-                }
-            }
-        }
-        assert!(
-            retained.get(11, 12) >= 250,
-            "paper whitens uniformly whether beside a zone or not"
-        );
-    }
-
-    #[test]
-    fn paper_outside_zone_whitens_smoothly_and_dark_content_survives() {
-        let mut gray = GrayImage::new(30, 20, 200);
-        let mut zone = BinaryImage::new(30, 20);
-        for y in 6..14 {
-            for x in 11..19 {
-                zone.set(x, y, true);
-            }
-        }
-        gray.set(15, 10, 73);
-        gray.set(2, 2, 182);
-        gray.set(27, 17, 100);
-
-        let (normalized, _) = white_outside_tonal_plate(&gray, None, &zone, 25.4);
-        assert!(normalized.get(2, 17) >= 250, "paper maps to white");
-        assert!(
-            normalized.get(2, 2) >= 245,
-            "faint show-through maps into the paper shoulder"
-        );
-        let proportional = normalize_trusted_mrc_tone(100, 200);
-        assert!(
-            normalized.get(27, 17).abs_diff(proportional) <= 25,
-            "deep content keeps its proportional contrast"
-        );
-        let inside = normalize_trusted_mrc_tone_with_shoulder(73, 200, 25.0);
-        assert!(
-            normalized.get(15, 10).abs_diff(inside) <= 2,
-            "inside-zone deep samples follow the narrow-shoulder white-point rescale"
-        );
-    }
-
-    #[test]
-    fn trusted_mrc_background_becomes_neutral_white_without_authored_tone() {
-        for paper in [72u8, 112, 152, 192, 232] {
-            let gray = GrayImage::new(5, 1, paper);
-            let color = RgbImage::new(5, 1, [paper, paper.saturating_add(8), paper]);
-            let mask = BinaryImage::new(5, 1);
-            let (retained, retained_color) =
-                white_outside_tonal_plate(&gray, Some(&color), &mask, 120.0);
-            assert_eq!(retained, GrayImage::new(5, 1, 255));
-            assert_eq!(
-                retained_color,
-                Some(RgbImage::new(5, 1, [255; 3])),
-                "tinted paper must become neutral rather than retain a color cast"
-            );
-        }
-    }
-
-    #[test]
-    fn trusted_mrc_preview_matches_the_recomposed_final_layers() {
-        let background = GrayImage::new(3, 1, 192);
-        let mut source_composite = background.clone();
-        source_composite.set(0, 0, 24);
-        source_composite.set(1, 0, 96);
-        source_composite.set(2, 0, 144);
-        let mut selection = BinaryImage::new(3, 1);
-        selection.set(0, 0, true);
-
-        let (preview, _, layers) = compose_trusted_mrc(
-            &background,
-            None,
-            &source_composite,
-            None,
-            &selection,
-            false,
-            false,
-            true,
-        );
-
-        assert_eq!(preview.get(0, 0), 24);
-        assert_eq!(preview.get(1, 0), 192);
-        assert_eq!(preview.get(2, 0), 192);
-        assert!(layers.is_none());
     }
 }

@@ -1,6 +1,12 @@
 {
   "version": 1,
   "fixtures": {
+    "rome-raw-drawings": {
+      "requireOutputSmallerThanSource": true
+    },
+    "rome-raw-body": {
+      "requireOutputSmallerThanSource": true
+    },
     "luther-p6-9": {
       "expectedOutputBytes": 727236,
       "pages": {

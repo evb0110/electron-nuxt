@@ -34,6 +34,24 @@ import {
 } from './scan-cleanup-corpus-plan.mjs';
 export {resolveFixturePages} from './scan-cleanup-corpus-plan.mjs';
 
+function corpusPagePlan(analysis, previewOutputs, analysisDimensions) {
+    const plan = reusablePagePlan(analysis, previewOutputs, analysisDimensions);
+    // The native classifier can conservatively label an offcut when it has no
+    // cutter coordinate. There is then no reproducible split geometry for the
+    // preview to hand to final rendering; replay the page as one canonical
+    // sheet so both resolutions exercise identical page-frame semantics.
+    if (
+        analysis.layoutClassification === 'page-with-offcut'
+        && plan.automaticSplit === undefined
+    ) {
+        return {
+            ...plan,
+            layout: 'force-single',
+        };
+    }
+    return plan;
+}
+
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const defaultConfigPath = join(projectRoot, '.devkit/scan-cleanup-corpus.json');
 const defaultExpectedPath = join(projectRoot, 'scripts/diagnostics/scan-cleanup-corpus-expected-results.json');
@@ -125,6 +143,12 @@ export function resolveFixtureExpectations(fixture, canonicalExpected) {
             throw new Error(`Invalid expected maxOutputToSourceRatio for fixture "${fixture.id}"`);
         }
         resolved.maxOutputToSourceRatio = fixture.maxOutputToSourceRatio;
+    }
+    if (fixture.requireOutputSmallerThanSource !== undefined) {
+        if (typeof fixture.requireOutputSmallerThanSource !== 'boolean') {
+            throw new Error(`Invalid expected requireOutputSmallerThanSource for fixture "${fixture.id}"`);
+        }
+        resolved.requireOutputSmallerThanSource = fixture.requireOutputSmallerThanSource;
     }
     if (fixture.expectedModeDistribution !== undefined) {
         const distribution = fixture.expectedModeDistribution;
@@ -655,10 +679,8 @@ function sourceMrcForegroundPdfMatrix(page, pageWidthPoints, pageHeightPoints) {
 
 function compactSourceInstruction(page, pageBox) {
     const metadata = page.metadata;
-    const preservesTrustedMrcTone = page.mode === 'mixed'
-        && metadata.trustedMrcBackgroundPreserved === true;
     if (
-        (page.mode !== 'color' && !preservesTrustedMrcTone)
+        page.preserveOriginalQuality !== true
         || !page.sourceHasBilevelLayer
         || metadata.half !== 'full'
         || metadata.skewApplied
@@ -1221,7 +1243,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             // document canvases are a final-PDF assembly concern and require a
             // documentCanvas plan that is not available until all sheets exist.
             matchPageSize: false,
-            ...reusablePagePlan(page.analysis, [], page.detectionDimensions),
+            ...corpusPagePlan(page.analysis, [], page.detectionDimensions),
         },
         outputs: [
             0,
@@ -1284,7 +1306,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 ? {}
                 : {preferSoftAlphaForeground:
                     page.analysis.softAlphaForegroundRecommendation}),
-            ...reusablePagePlan(page.analysis, page.previewOutputs, page.detectionDimensions),
+            ...corpusPagePlan(page.analysis, page.previewOutputs, page.detectionDimensions),
         },
         outputs: [
             0,
@@ -1393,6 +1415,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 mode: page.analysis.recommendedOutputMode,
                 outputPath: output.outputPath,
                 renderDpi: metadata.renderDpi ?? page.renderDpi,
+                preserveOriginalQuality: fixture.preserveOriginalQuality === true,
                 sourceHasBilevelLayer: page.sourceHasBilevelLayer,
                 sourcePageNumber: page.pageNumber,
                 trustedMrcLayers: page.trustedMrcLayers,
@@ -1454,6 +1477,17 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             ? 'exact agreement'
             : modeEvidence.unstablePages.slice(0, 20).join(', '),
     );
+    const unauthorizedSourceMrcPages = combinedPages.filter(page =>
+        page.metadata.layeredForegroundKind === 'source-mrc'
+        && page.preserveOriginalQuality !== true,
+    );
+    report.add(
+        'fresh raster pages do not publish source-MRC layers',
+        unauthorizedSourceMrcPages.length === 0,
+        unauthorizedSourceMrcPages.length === 0
+            ? 'none'
+            : unauthorizedSourceMrcPages.map(page => String(page.sourcePageNumber)).join(', '),
+    );
 
     const compactManifestPath = join(fixtureDir, 'combine-manifest.tsv');
     await writeFile(compactManifestPath, combinedPages.map(page => {
@@ -1473,7 +1507,10 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             ].join('\t');
         }
         if (page.backgroundPath && page.foregroundMaskPath) {
-            if (page.metadata.layeredForegroundKind === 'source-mrc') {
+            if (
+                page.metadata.layeredForegroundKind === 'source-mrc'
+                && page.preserveOriginalQuality === true
+            ) {
                 const matrix = sourceMrcForegroundPdfMatrix(
                     page,
                     pageWidthPoints,
@@ -1521,9 +1558,9 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 page.outputPath,
             ].join('\t');
     }).join('\n') + '\n');
-    // Auto keeps compact source pages whose raster content did not change.
-    // JPEG 2000 compatibility is classified separately; it is not a reason to
-    // transcode a quality-bearing source layer or expand the document.
+    // Only the explicit lossless path keeps compact source pages. Raster
+    // cleanup, including Auto pages with producer MRC hints, always assembles
+    // the fresh render artifacts above.
     const compactSourceInstructions = combinedPages.map(page =>
         compactSourceInstruction(page, sourcePageBoxes.get(page.sourcePageNumber)),
     );
@@ -1649,8 +1686,11 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         outputPageIndex,
         page,
     ] of combinedPages.entries()) {
-        const expectsPreservedMrc = page.metadata.layeredForegroundKind === 'source-mrc'
-            || compactSourceInstructions[outputPageIndex] !== null;
+        const expectsPreservedMrc = page.preserveOriginalQuality === true
+            && (
+                page.metadata.layeredForegroundKind === 'source-mrc'
+                || compactSourceInstructions[outputPageIndex] !== null
+            );
         if (!expectsPreservedMrc) {
             continue;
         }
@@ -1837,7 +1877,10 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         );
     }
     for (const page of layeredPages) {
-        if (page.metadata.layeredForegroundKind === 'source-mrc') {
+        if (
+            page.metadata.layeredForegroundKind === 'source-mrc'
+            && page.preserveOriginalQuality === true
+        ) {
             if (compactSourceInstructions[page.pdfPage - 1] !== null) {
                 report.add(
                     `output page ${page.pdfPage} bypasses source-MRC reconstruction`,
@@ -1899,7 +1942,8 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     // rendered artifact audit below; applying the old heuristic to the unused
     // intermediary falsely rejects legitimate map and photograph edges.
     const reconstructedLayeredPages = layeredPages.filter(page =>
-        page.metadata.layeredForegroundKind !== 'source-mrc',
+        page.metadata.layeredForegroundKind !== 'source-mrc'
+        || page.preserveOriginalQuality !== true,
     );
     const sourceMrcLayeredCount = layeredPages.length - reconstructedLayeredPages.length;
     const boundaryComponentAudits = await mapWithConcurrency(
@@ -2108,6 +2152,13 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             'output/source size budget',
             outputToSourceRatio <= expectedFixture.maxOutputToSourceRatio,
             `${outputToSourceRatio.toFixed(3)}x (maximum ${expectedFixture.maxOutputToSourceRatio.toFixed(3)}x)`,
+        );
+    }
+    if (expectedFixture?.requireOutputSmallerThanSource === true) {
+        report.add(
+            'output is smaller than source',
+            outputToSourceRatio < 1,
+            `${outputToSourceRatio.toFixed(3)}x (required <1.000x)`,
         );
     }
     const stats = timingStats(timings);

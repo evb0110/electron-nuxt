@@ -580,23 +580,32 @@ fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foregr
 
     let metadata: Value = serde_json::from_slice(&fs::read(&output_metadata).unwrap()).unwrap();
     assert_eq!(metadata["layeredWritten"], true);
-    assert_eq!(metadata["layeredForegroundKind"], "soft-alpha");
+    // Final layered handoffs publish a compact 1-bit stencil: an 8-bit
+    // alpha plane would defeat the JBIG2 foreground representation. Soft
+    // alpha remains a preview/composite feature.
+    assert_eq!(metadata["layeredForegroundKind"], "stencil");
     assert_eq!(metadata["layeredBackgroundDpi"], 200.0);
-    assert_eq!(metadata["layeredForegroundDpi"], 300.0);
+    // A fresh stencil lives on the rendered page grid; it carries no
+    // separate foreground DPI (that was soft-alpha metadata).
+    assert!(metadata["layeredForegroundDpi"].is_null());
     assert!(
         !output.exists(),
         "a published layer pair must not be shadowed by a full-resolution composite"
     );
     assert!(!bilevel_output.exists());
-    assert!(!foreground_mask_output.exists());
-    let alpha = fs::read(&foreground_alpha_output).unwrap();
-    let alpha_header = b"P5\n90 60\n255\n";
-    assert!(alpha.starts_with(alpha_header));
-    let alpha_samples = &alpha[alpha_header.len()..];
-    assert_eq!(alpha_samples.len(), 90 * 60);
+    assert!(!foreground_alpha_output.exists());
+    let mask = fs::read(&foreground_mask_output).unwrap();
+    let mask_header = b"P4\n180 120\n";
     assert!(
-        alpha_samples[11 * 90 + 15] > 200,
-        "dark text did not retain strong foreground opacity"
+        mask.starts_with(mask_header),
+        "unexpected mask header: {:?}",
+        String::from_utf8_lossy(&mask[..mask.len().min(16)])
+    );
+    let mask_bits = &mask[mask_header.len()..];
+    let set_bits: u32 = mask_bits.iter().map(|byte| byte.count_ones()).sum();
+    assert!(
+        set_bits > 40,
+        "dark text did not reach the published stencil, set bits = {set_bits}"
     );
     let background = decode_ppm(
         fs::read(&background_output).unwrap().as_slice(),

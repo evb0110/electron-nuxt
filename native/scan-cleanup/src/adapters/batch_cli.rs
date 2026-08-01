@@ -1230,11 +1230,9 @@ fn run_page(
         .transpose()?;
     let effective_background_dpi = options.source_background_dpi() / background_factor as f64;
     // A full-resolution background marks producer pages whose selection mask
-    // is not a complete ink carrier (the producer kept the detail in the
-    // background instead). Mixed composition keeps that background underneath
-    // and stays safe; the render must not let bilevel output adopt the
-    // selection as its ink. Carried on the options so the decision survives
-    // late output-mode resolution (the app submits Auto).
+    // is not a complete ink carrier. Keep the compatibility hint available to
+    // late output-mode resolution, but the renderer always rebuilds output
+    // from its cleaned raster and never adopts this selection or background.
     let mut options = options;
     options.trusted_selection_incomplete = background_factor > 1;
     let trusted_tone_mask = trusted_mrc_background

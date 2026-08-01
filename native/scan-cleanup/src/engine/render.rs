@@ -7,9 +7,10 @@ use crate::engine::render_plan::{
 };
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
 use crate::mode_select::{
-    independent_chroma_mask, is_blank_scan_candidate, protect_bilevel_text_fidelity,
-    recommend_output_mode_with_tone, should_veto_bilevel_fidelity, text_soft_edge_to_ink_ratio,
-    OutputModeDiagnostics, OutputModeRecommendation, PreparedModeEvidence,
+    independent_chroma_mask, is_blank_scan_candidate, is_line_art_picture,
+    protect_bilevel_text_fidelity, recommend_output_mode_with_tone, should_veto_bilevel_fidelity,
+    text_soft_edge_to_ink_ratio, OutputModeDiagnostics, OutputModeRecommendation,
+    PreparedModeEvidence,
 };
 use crate::{
     auto_dewarp::detect_curves_at_dpi_with_depth,
@@ -135,16 +136,13 @@ pub struct CleanupMetadata {
     pub layered_background_dpi: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layered_foreground_dpi: Option<f64>,
-    /// The trusted source-MRC continuous-tone background was deliberately
-    /// preserved because it contains authored tone. Final PDF assembly may
-    /// therefore reuse the compact source page instead of re-encoding it.
+    /// Compatibility field for the explicit lossless source path. Fresh
+    /// raster cleanup never sets this bit, even when producer MRC layers are
+    /// supplied as analysis hints.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trusted_mrc_background_preserved: bool,
-    /// The authored MRC selection mask replaced or constrained this page's
-    /// foreground. Audits may treat that selection as the page's ink
-    /// reference only when this is set; a selection that was extracted but
-    /// never consumed (for example on full-resolution-background pages) is
-    /// not a complete ink carrier.
+    /// Compatibility field for legacy consumers. Fresh raster cleanup keeps
+    /// producer selection masks as hints and never sets this bit.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trusted_selection_applied: bool,
     #[serde(default)]
@@ -299,8 +297,8 @@ pub(crate) struct MixedLayers {
     pub foreground_alpha: Option<GrayImage>,
     pub background: GrayImage,
     pub color_background: Option<RgbImage>,
-    /// The foreground is the source MRC image through its exact source
-    /// selection mask. Publishing it as a black stencil is invalid.
+    /// Legacy marker for a source-owned layer. Fresh Mixed composition always
+    /// publishes a cleaned-raster foreground and sets this to false.
     pub source_mrc: bool,
 }
 
@@ -2146,15 +2144,10 @@ fn prepare_analysis_page(
         // when the PDF rasterizer is asked for a larger final image even
         // though the authored background contains no additional information.
         //
-        // Keep ordinary raster scans at the normal 150-DPI analysis ceiling.
-        // For layered sources, cap the shared analysis grid at the actual
-        // background-layer DPI so preview and final-input analysis observe the
-        // same semantic evidence.
-        let analysis_dpi_ceiling = if options.source_has_bilevel_layer {
-            options.source_background_dpi().min(150.0)
-        } else {
-            150.0
-        };
+        // Keep every source at the same 150-DPI analysis ceiling. Producer
+        // layers are evidence for optional hints, never a mode-resolution
+        // override.
+        let analysis_dpi_ceiling = 150.0;
         let AnalysisLevel {
             image,
             effective_dpi,
@@ -2222,11 +2215,9 @@ fn prepare_analysis_page(
                         .as_deref()
                         .expect("layout analysis must prepare continuous-tone evidence"),
                 );
-                detected.or(
-                    continuous_tone_mask
-                        .as_deref()
-                        .expect("layout analysis must prepare continuous-tone evidence"),
-                )
+                detected.or(continuous_tone_mask
+                    .as_deref()
+                    .expect("layout analysis must prepare continuous-tone evidence"))
             };
             apply_manual_zones(&mut mask, options);
             Arc::new(mask)
@@ -2407,7 +2398,6 @@ fn prepare_analysis_page(
                     recommendation,
                     calibration,
                     options.source_dpi(),
-                    options.source_has_bilevel_layer,
                     text_line_count,
                     text_soft_edge_ratio,
                 )
@@ -2434,7 +2424,6 @@ fn prepare_analysis_page(
                         ),
                         calibration,
                         options.source_dpi(),
-                        options.source_has_bilevel_layer,
                         text_line_count,
                         text_soft_edge_ratio,
                     )
@@ -2464,19 +2453,18 @@ fn prepare_analysis_page(
         // photo-dominant Mixed output lets undersampled glyphs and map lines
         // bypass the same source-sampling boundary enforced for B&W.
         let mixed_foreground_fidelity_veto = resolved_output_mode == OutputMode::Mixed
-            && !options.source_has_bilevel_layer
             && picture_ownership_diagnostics.is_some_and(|diagnostics| {
-                should_veto_bilevel_fidelity(
-                    calibration.valid,
-                    diagnostics.calibrated_source_stroke_width_px,
-                    diagnostics.calibrated_source_x_height_px,
-                    diagnostics.source_dpi,
-                    diagnostics.soft_edge_to_ink_ratio,
-                    text_line_count,
-                )
+                !should_refine_line_art_picture_ownership(&diagnostics)
+                    && should_veto_bilevel_fidelity(
+                        calibration.valid,
+                        diagnostics.calibrated_source_stroke_width_px,
+                        diagnostics.calibrated_source_x_height_px,
+                        diagnostics.source_dpi,
+                        diagnostics.soft_edge_to_ink_ratio,
+                        text_line_count,
+                    )
             });
         let computed_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
-            && !options.source_has_bilevel_layer
             && text_line_count > 0
             && picture_ownership_diagnostics.is_some_and(|diagnostics| {
                 mixed_foreground_fidelity_veto
@@ -2487,7 +2475,14 @@ fn prepare_analysis_page(
         let use_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
             && options
                 .prefer_soft_alpha_foreground
-                .unwrap_or(computed_soft_alpha_foreground);
+                .unwrap_or(computed_soft_alpha_foreground)
+            // The final layered handoff is a fresh MRC composition. Its
+            // high-resolution stencil owns ink, while the calibrated plate
+            // owns continuous tone. Keeping the preview/library composite
+            // soft preserves antialiasing there; publishing an 8-bit alpha
+            // plane for final pages defeats the compact JBIG2 foreground
+            // representation and carries no additional source ownership.
+            && !render_policy.create_mixed_layers;
         if let Some(recommendation) = output_mode_recommendation.as_mut() {
             recommendation.prefer_soft_alpha_foreground = use_soft_alpha_foreground;
             recommendation.diagnostics.bilevel_fidelity_veto |= mixed_foreground_fidelity_veto;
@@ -2896,9 +2891,7 @@ fn scale_split_result(
 }
 
 fn should_refine_line_art_picture_ownership(diagnostics: &OutputModeDiagnostics) -> bool {
-    diagnostics.picture_fraction >= 0.60
-        && diagnostics.midtone_fraction <= 0.16
-        && diagnostics.bimodality >= 0.65
+    is_line_art_picture(diagnostics)
 }
 
 /// Illumination fitting can occasionally model a small isolated mark as part
@@ -2929,7 +2922,7 @@ fn rescue_isolated_raw_ink(raw: &GrayImage, picture_mask: &BinaryImage, dpi: f64
     })
 }
 
-fn trusted_mrc_paper_reference(gray: &GrayImage) -> u8 {
+fn paper_reference(gray: &GrayImage) -> u8 {
     let mut histogram = [0usize; 256];
     for &sample in gray.data() {
         histogram[usize::from(sample)] += 1;
@@ -2945,15 +2938,15 @@ fn trusted_mrc_paper_reference(gray: &GrayImage) -> u8 {
         .unwrap_or(255) as u8
 }
 
-fn normalize_trusted_mrc_tone(sample: u8, paper: u8) -> u8 {
-    normalize_trusted_mrc_tone_with_shoulder(sample, paper, 48.0)
+fn normalize_tone_to_paper(sample: u8, paper: u8) -> u8 {
+    normalize_tone_to_paper_with_shoulder(sample, paper, 48.0)
 }
 
 /// Maps paper-level samples to white through a smooth shoulder while keeping
 /// darker content proportional. Zone interiors use a narrower shoulder so a
 /// producer-authored plate field or a map sea lifts to white while photo
 /// midtones and highlights keep their separation.
-fn normalize_trusted_mrc_tone_with_shoulder(sample: u8, paper: u8, shoulder: f64) -> u8 {
+fn normalize_tone_to_paper_with_shoulder(sample: u8, paper: u8, shoulder: f64) -> u8 {
     if paper == 0 || sample >= paper {
         return 255;
     }
@@ -2971,131 +2964,6 @@ fn normalize_trusted_mrc_tone_with_shoulder(sample: u8, paper: u8, shoulder: f64
         .clamp(0.0, 255.0) as u8
 }
 
-fn white_outside_tonal_plate(
-    gray: &GrayImage,
-    color: Option<&RgbImage>,
-    tonal_plate: &BinaryImage,
-    dpi: f64,
-) -> (GrayImage, Option<RgbImage>) {
-    debug_assert_eq!(gray.width(), tonal_plate.width());
-    debug_assert_eq!(gray.height(), tonal_plate.height());
-    debug_assert!(color.is_none_or(|source| {
-        source.width() == gray.width() && source.height() == gray.height()
-    }));
-
-    let percentile = |histogram: &[usize; 256], sample_count: usize| {
-        let target = sample_count.saturating_sub(1) * 3 / 4;
-        let mut cumulative = 0usize;
-        histogram
-            .iter()
-            .position(|count| {
-                cumulative += count;
-                cumulative > target
-            })
-            .unwrap_or(255) as u8
-    };
-    let mut gray_histogram = [0usize; 256];
-    let mut outside_count = 0usize;
-    for y in 0..gray.height() {
-        for x in 0..gray.width() {
-            if !tonal_plate.get(x, y) {
-                gray_histogram[usize::from(gray.get(x, y))] += 1;
-                outside_count += 1;
-            }
-        }
-    }
-    let gray_paper = if outside_count == 0 {
-        trusted_mrc_paper_reference(gray)
-    } else {
-        percentile(&gray_histogram, outside_count)
-    };
-    let color_paper: Option<[u8; 3]> = color.map(|source| {
-        let mut histograms = [[0usize; 256]; 3];
-        let mut count = 0usize;
-        for y in 0..source.height() {
-            for x in 0..source.width() {
-                if !tonal_plate.get(x, y) {
-                    let sample = source.get(x, y);
-                    for channel in 0..3 {
-                        histograms[channel][usize::from(sample[channel])] += 1;
-                    }
-                    count += 1;
-                }
-            }
-        }
-        if count == 0 {
-            let mut histograms = [[0usize; 256]; 3];
-            for sample in source.data().chunks_exact(3) {
-                for channel in 0..3 {
-                    histograms[channel][usize::from(sample[channel])] += 1;
-                }
-            }
-            let count = source.width().saturating_mul(source.height());
-            std::array::from_fn(|channel| percentile(&histograms[channel], count))
-        } else {
-            std::array::from_fn(|channel| percentile(&histograms[channel], count))
-        }
-    });
-    let feather_radius = (dpi * 2.0 / 25.4).round().clamp(1.0, 32.0) as usize;
-    let feather_radius_squared = (feather_radius * feather_radius) as u32;
-    let distance_to_plate = squared_euclidean_distance(tonal_plate);
-    let source_weight = |index: usize| {
-        let distance_squared = distance_to_plate[index];
-        if distance_squared == 0 {
-            return 1.0;
-        }
-        if distance_squared >= feather_radius_squared {
-            return 0.0;
-        }
-        let distance = f64::from(distance_squared).sqrt();
-        let t = (1.0 - distance / feather_radius as f64).clamp(0.0, 1.0);
-        t * t * (3.0 - 2.0 * t)
-    };
-    let mut cleaned_gray = gray.clone();
-    cleaned_gray
-        .data_mut()
-        .par_chunks_mut(gray.width())
-        .enumerate()
-        .for_each(|(y, row)| {
-            for (x, target) in row.iter_mut().enumerate() {
-                let wide = f64::from(normalize_trusted_mrc_tone(*target, gray_paper));
-                let narrow = f64::from(normalize_trusted_mrc_tone_with_shoulder(
-                    *target, gray_paper, 25.0,
-                ));
-                let weight = source_weight(y * gray.width() + x);
-                *target = (wide * (1.0 - weight) + narrow * weight)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
-            }
-        });
-    let cleaned_color = color.zip(color_paper).map(|(source, paper)| {
-        let mut output = source.clone();
-        output
-            .data_mut()
-            .par_chunks_mut(source.width() * 3)
-            .enumerate()
-            .for_each(|(y, row)| {
-                for (x, target) in row.chunks_exact_mut(3).enumerate() {
-                    let weight = source_weight(y * source.width() + x);
-                    for (channel_index, channel) in target.iter_mut().enumerate() {
-                        let wide =
-                            f64::from(normalize_trusted_mrc_tone(*channel, paper[channel_index]));
-                        let narrow = f64::from(normalize_trusted_mrc_tone_with_shoulder(
-                            *channel,
-                            paper[channel_index],
-                            25.0,
-                        ));
-                        *channel = (wide * (1.0 - weight) + narrow * weight)
-                            .round()
-                            .clamp(0.0, 255.0) as u8;
-                    }
-                }
-            });
-        output
-    });
-    (cleaned_gray, cleaned_color)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn clean_region(
     source: &GrayImage,
@@ -3110,16 +2978,16 @@ fn clean_region(
     source_picture_mask: Option<&BinaryImage>,
     chroma_picture_mask: Option<&BinaryImage>,
     tone_picture_mask: Option<&BinaryImage>,
-    protect_tonal_text_vicinity: bool,
+    _protect_tonal_text_vicinity: bool,
     use_soft_alpha_foreground: bool,
     tone_preservation_alpha: Option<&GrayImage>,
     text_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
-    trusted_foreground_mask: Option<&BinaryImage>,
-    trusted_tone_mask: Option<&BinaryImage>,
-    trusted_background_gray: Option<&GrayImage>,
-    trusted_background_color: Option<&RgbImage>,
-    trusted_composite_color: Option<&RgbImage>,
+    _trusted_foreground_mask: Option<&BinaryImage>,
+    _trusted_tone_mask: Option<&BinaryImage>,
+    _trusted_background_gray: Option<&GrayImage>,
+    _trusted_background_color: Option<&RgbImage>,
+    _trusted_composite_color: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     split: &SplitResult,
@@ -3185,23 +3053,7 @@ fn clean_region(
         .zip(split_cache_key)
         .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
     let deskew_started = Instant::now();
-    let preserves_trusted_mrc_identity = options.output_mode == OutputMode::Mixed
-        && trusted_foreground_mask.is_some()
-        && trusted_tone_mask.is_some_and(|mask| mask.count_black() > 0);
-    let deskew = if preserves_trusted_mrc_identity && options.manual_skew_degrees.is_none() {
-        // Automatic deskew would force a trusted compact MRC page through
-        // layer extraction and recomposition. Some producer masks are valid
-        // only in the original page content stream; reconstructing them
-        // creates contours and cut-outs even when both source images are
-        // retained. Ambiguous continuous-tone pages therefore abstain from
-        // automatic geometry changes so final assembly can reuse the whole
-        // source page object. An explicit manual angle remains authoritative.
-        DeskewResult {
-            angle_degrees: 0.0,
-            confidence: 1.0,
-            accepted: false,
-        }
-    } else if let Some(angle_degrees) = options
+    let deskew = if let Some(angle_degrees) = options
         .manual_skew_degrees
         .or_else(|| options.automatic_skew_for(half))
     {
@@ -3644,15 +3496,28 @@ fn clean_region(
                 .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
         })
     });
-    let rendered_tone_picture_mask = protect_tonal_text_vicinity
-        .then(|| {
-            rendered_tone_alpha.as_ref().map(|alpha| {
-                BinaryImage::from_fn_parallel(alpha.width(), alpha.height(), |x, y| {
-                    alpha.get(x, y) >= 128
-                })
-            })
+    // Keep calibrated tone zones as geometry in render space. The alpha field
+    // is useful for semantic protection, but it is not a complete layer
+    // boundary: a bimodal photo or map can have low alpha over a valid
+    // midtone region. Fresh Mixed composition must still own that region from
+    // the cleaned raster rather than whitening it as unclassified paper.
+    let rendered_tone_picture_mask = tone_picture_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
         })
-        .flatten();
+    });
     let rendered_text_vicinity_mask = text_vicinity_mask.map(|mask| {
         let mask_scale_x = if normalized.width() <= 1 {
             0.0
@@ -3687,108 +3552,7 @@ fn clean_region(
                 .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
         })
     });
-    let rendered_trusted_foreground_mask = trusted_foreground_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
-        })
-    });
-    let rendered_trusted_tone_mask = trusted_tone_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
-        })
-    });
-    if let Some(trusted_tone) = rendered_trusted_tone_mask.as_ref() {
-        // Verification and downstream composition must describe the plate
-        // that was actually authored into the cleaned MRC result. Reusing
-        // composite-derived picture/tone evidence here made a correct white
-        // background look like destructive tone loss to the artifact audit.
-        rendered_picture_mask = Some(trusted_tone.clone());
-        rendered_tone_alpha = Some(binary_to_gray(&trusted_tone.invert()));
-    }
-    let rendered_trusted_background_gray = trusted_background_gray.map(|background| {
-        let scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            background.width().saturating_sub(1) as f64
-                / normalized.width().saturating_sub(1) as f64
-        };
-        let scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            background.height().saturating_sub(1) as f64
-                / normalized.height().saturating_sub(1) as f64
-        };
-        render_gray_field(background, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * scale_x, source.y * scale_y))
-        })
-    });
-    let rendered_trusted_background_color = trusted_background_color.map(|background| {
-        let scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            background.width().saturating_sub(1) as f64
-                / normalized.width().saturating_sub(1) as f64
-        };
-        let scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            background.height().saturating_sub(1) as f64
-                / normalized.height().saturating_sub(1) as f64
-        };
-        render_rgb_field(background, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * scale_x, source.y * scale_y))
-        })
-    });
-    let rendered_trusted_composite_gray = rendered_trusted_tone_mask
-        .as_ref()
-        .map(|_| render_gray_with_plan(routing_source, &render_plan))
-        .transpose()?;
-    let rendered_trusted_composite_color = trusted_composite_color.map(|source| {
-        let scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            source.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            source.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
-        render_rgb_field(source, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * scale_x, source.y * scale_y))
-        })
-    });
-    if options.output_mode == OutputMode::Mixed && rendered_trusted_tone_mask.is_none() {
+    if options.output_mode == OutputMode::Mixed {
         if let (Some(picture_mask), Some(text_vicinity)) = (
             rendered_picture_mask.as_mut(),
             rendered_text_vicinity_mask.as_ref(),
@@ -3822,12 +3586,9 @@ fn clean_region(
     // Whole-page abstention guarded against the old destructive whitening.
     // Picture zones now preserve continuous tone exactly while everything
     // else is smoothly normalized toward white, so cleanup is always safe and
-    // every page keeps the white-paper contract; color covers still reuse the
-    // source page through their own preservation route. The flag, its
-    // metadata field, and the mixed-preservation branches downstream are
-    // retained only for protocol compatibility and can be deleted together
-    // with the contract field in the next native protocol revision.
-    let mut trusted_selection_applied = false;
+    // every page keeps the white-paper contract. The flags and metadata fields
+    // remain protocol-compatible markers; fresh output never sets them.
+    let trusted_selection_applied = false;
     let trusted_mrc_background_preserved = false;
     let (
         mut image,
@@ -3890,7 +3651,7 @@ fn clean_region(
                         && binary.width() == rendered_gray.width()
                         && binary.height() == rendered_gray.height()
                 });
-                let (mut binary, despeckle_fallback) = if let Some(binary) = reusable {
+                let (binary, despeckle_fallback) = if let Some(binary) = reusable {
                     postprocess_binary_with_diagnostics(
                         binary,
                         Some(&rendered_gray),
@@ -3900,12 +3661,6 @@ fn clean_region(
                 } else {
                     (fresh_binary, fresh_despeckle_fallback)
                 };
-                if !options.trusted_selection_incomplete {
-                    if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
-                        binary = trusted.clone();
-                        trusted_selection_applied = true;
-                    }
-                }
                 (
                     CleanupRaster::Bilevel(binary),
                     None,
@@ -3919,17 +3674,17 @@ fn clean_region(
                 let picture_mask = rendered_picture_mask
                     .as_ref()
                     .expect("mixed output prepares a picture mask");
-                if picture_mask.count_black() == 0 && rendered_trusted_foreground_mask.is_none() {
+                if picture_mask.count_black() == 0 {
                     let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
                     let route = resolve_binarization_diagnostics(&routing_sample, options).route;
-                    let global_threshold_source = (route == crate::BinarizationMode::Otsu)
-                        .then(|| {
+                    let global_threshold_source =
+                        (route == crate::BinarizationMode::Otsu).then(|| {
                             rendered_routing_gray
                                 .as_ref()
                                 .expect("mixed output prepares a routing raster")
                         });
                     let binarization_started = Instant::now();
-                    let (mut binary, diagnostics, despeckle_fallback, stage_timings) =
+                    let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
                             &routing_sample,
@@ -3937,12 +3692,6 @@ fn clean_region(
                             options,
                             calibration,
                         );
-                    if !options.trusted_selection_incomplete {
-                        if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
-                            binary = trusted.clone();
-                            trusted_selection_applied = true;
-                        }
-                    }
                     timings.threshold_preparation_ms += stage_timings.preparation_ms;
                     timings.thresholding_ms += stage_timings.thresholding_ms;
                     timings.binary_postprocess_ms += stage_timings.postprocess_ms;
@@ -3996,99 +3745,28 @@ fn clean_region(
                         binary =
                             binary.or(&rescue_isolated_raw_ink(raw, picture_mask, options.dpi));
                     }
-                    let removed_edge_bands;
-                    let trusted_mrc = if let (Some(trusted), Some(trusted_tone)) = (
-                        rendered_trusted_foreground_mask.as_ref(),
-                        rendered_trusted_tone_mask.as_ref(),
-                    ) {
-                        // The source selection owns topology and the source
-                        // foreground image owns its colors. Repainting this
-                        // selection black is what produced map/photo gashes.
-                        binary = trusted.clone();
-                        trusted_selection_applied = true;
-                        removed_edge_bands = BinaryImage::new(binary.width(), binary.height());
-                        Some((trusted, trusted_tone))
-                    } else {
-                        (binary, removed_edge_bands) = suppress_scanner_edge_bands(
-                            &binary,
-                            &rendered_gray,
-                            picture_mask,
-                            rendered_text_mask.as_ref(),
-                            options.dpi,
-                        );
-                        None
-                    };
-                    let (trusted_background_gray, trusted_background_color) =
-                        rendered_trusted_tone_mask
-                            .as_ref()
-                            .map_or((None, None), |trusted_plate| {
-                                // The plate was derived from the authored
-                                // background at its native DPI after removing
-                                // the foreground selection's residual. Do not
-                                // replace it with ownership inferred from the
-                                // flattened composite here.
-                                let gray = rendered_trusted_background_gray
-                                    .as_ref()
-                                    .or(rendered_trusted_composite_gray.as_ref())
-                                    .unwrap_or(&rendered_gray);
-                                let color = rendered_trusted_background_color
-                                    .as_ref()
-                                    .or(rendered_trusted_composite_color.as_ref())
-                                    .or(rendered_color.as_ref());
-                                if trusted_mrc_background_preserved {
-                                    (Some(gray.clone()), color.cloned())
-                                } else {
-                                    let (gray, color) = white_outside_tonal_plate(
-                                        gray,
-                                        color,
-                                        trusted_plate,
-                                        options.dpi,
-                                    );
-                                    (Some(gray), color)
-                                }
-                            });
-                    let (mixed_gray, mixed_color, layers) = if let Some((trusted, _)) = trusted_mrc
-                    {
-                        compose_trusted_mrc(
-                            trusted_background_gray.as_ref().unwrap_or(&rendered_gray),
-                            trusted_background_color
-                                .as_ref()
-                                .or(rendered_color.as_ref()),
-                            rendered_trusted_composite_gray
-                                .as_ref()
-                                .unwrap_or(&rendered_gray),
-                            rendered_trusted_composite_color
-                                .as_ref()
-                                .or(rendered_color.as_ref()),
-                            trusted,
-                            trusted_mrc_background_preserved,
-                            create_mixed_layers,
-                            create_mixed_composite,
-                        )
-                    } else {
-                        compose_mixed(
-                            &rendered_gray,
-                            rendered_routing_gray.as_ref(),
-                            rendered_color.as_ref(),
-                            &binary,
-                            picture_mask,
-                            rendered_chroma_picture_mask.as_ref(),
-                            Some(&removed_edge_bands),
-                            rendered_text_mask.as_ref(),
-                            rendered_text_vicinity_mask.as_ref(),
-                            options.dpi,
-                            use_soft_alpha_foreground,
-                            create_mixed_layers,
-                            create_mixed_composite,
-                        )
-                    };
-                    if trusted_mrc.is_some() {
-                        // The zones are the authoritative continuous-tone
-                        // record for this page; publish them as the picture
-                        // mask so audits measure what composition preserved
-                        // rather than the raw flattened-path detector claims.
-                        rendered_picture_mask = rendered_trusted_tone_mask.clone();
-                    }
+                    let (binary, removed_edge_bands) = suppress_scanner_edge_bands(
+                        &binary,
+                        &rendered_gray,
+                        picture_mask,
+                        rendered_text_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let (mixed_gray, mixed_color, layers) = compose_mixed(
+                        &rendered_gray,
+                        None,
+                        rendered_color.as_ref(),
+                        &binary,
+                        picture_mask,
+                        rendered_chroma_picture_mask.as_ref(),
+                        Some(&removed_edge_bands),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                        use_soft_alpha_foreground,
+                        create_mixed_layers,
+                        create_mixed_composite,
+                    );
                     timings.mixed_composition_ms +=
                         composition_started.elapsed().as_secs_f64() * 1_000.0;
                     (
@@ -4109,14 +3787,32 @@ fn clean_region(
                 false,
                 None,
             ),
-            OutputMode::Color => (
-                CleanupRaster::Gray(rendered_gray),
-                rendered_color,
-                None,
-                None,
-                false,
-                None,
-            ),
+            OutputMode::Color => {
+                let color_layers = create_mixed_layers
+                    .then(|| {
+                        rendered_color.as_ref().map(|color| MixedLayers {
+                            // A fresh Color page has no separate ink owner.
+                            // Publishing an empty stencil beside the fresh
+                            // color raster lets the assembler use its compact
+                            // layered JPEG handoff without implying source-
+                            // layer identity.
+                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+                            foreground_alpha: None,
+                            background: rendered_gray.clone(),
+                            color_background: Some(color.clone()),
+                            source_mrc: false,
+                        })
+                    })
+                    .flatten();
+                (
+                    CleanupRaster::Gray(rendered_gray),
+                    rendered_color,
+                    None,
+                    None,
+                    false,
+                    color_layers,
+                )
+            }
             OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
         }
     };
@@ -4300,35 +3996,6 @@ fn render_gray_field(
     output
 }
 
-fn render_rgb_field(
-    source: &RgbImage,
-    width: usize,
-    height: usize,
-    map: impl Fn(Point) -> Option<Point> + Sync,
-) -> RgbImage {
-    let mut output = RgbImage::new(width, height, [255; 3]);
-    output
-        .data_mut()
-        .par_chunks_mut(width * 3)
-        .enumerate()
-        .for_each(|(y, row)| {
-            for (x, target) in row.chunks_exact_mut(3).enumerate() {
-                let Some(mapped) = map(Point::new(x as f64, y as f64)) else {
-                    continue;
-                };
-                if mapped.x < 0.0
-                    || mapped.y < 0.0
-                    || mapped.x > source.width().saturating_sub(1) as f64
-                    || mapped.y > source.height().saturating_sub(1) as f64
-                {
-                    continue;
-                }
-                target.copy_from_slice(&sample_bilinear_rgb_white(source, mapped.x, mapped.y));
-            }
-        });
-    output
-}
-
 #[allow(clippy::too_many_arguments)]
 fn compose_mixed(
     gray: &GrayImage,
@@ -4361,11 +4028,14 @@ fn compose_mixed(
             create_composite,
         );
     }
-    // The final stencil owns only its black pixels. The picture mask owns
-    // continuous tone, while its narrow binarization-protection ring is paper
-    // unless it contains a genuinely dark picture edge.
-    let mut mixed_gray = gray.clone();
-    let mut mixed_color = color.cloned();
+    // The final stencil and the calibrated picture mask are both rebuilt from
+    // the cleaned raster. Start the background at neutral white so no
+    // producer-authored composite or unclassified scanner tone can travel
+    // into the output. The narrow picture ring may reclaim genuinely dark
+    // boundary detail, but pale pixels outside the calibrated zone remain
+    // white.
+    let mut mixed_gray = GrayImage::new(gray.width(), gray.height(), 255);
+    let mut mixed_color = color.map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
     let protection_radius = picture_protection_radius(dpi);
     let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
@@ -4521,96 +4191,6 @@ fn compose_mixed(
     (mixed_gray, mixed_color, layers)
 }
 
-fn compose_trusted_mrc(
-    background_gray: &GrayImage,
-    background_color: Option<&RgbImage>,
-    foreground_gray: &GrayImage,
-    foreground_color: Option<&RgbImage>,
-    foreground_mask: &BinaryImage,
-    preserve_source_composite: bool,
-    create_layers: bool,
-    create_composite: bool,
-) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
-    debug_assert_eq!(
-        (background_gray.width(), background_gray.height()),
-        (foreground_mask.width(), foreground_mask.height())
-    );
-    debug_assert_eq!(
-        (foreground_gray.width(), foreground_gray.height()),
-        (foreground_mask.width(), foreground_mask.height())
-    );
-
-    let mut composite_gray = if create_composite && preserve_source_composite {
-        foreground_gray.clone()
-    } else {
-        background_gray.clone()
-    };
-    if create_composite && !preserve_source_composite {
-        composite_gray
-            .data_mut()
-            .par_chunks_mut(background_gray.width())
-            .enumerate()
-            .for_each(|(y, row)| {
-                for (x, target) in row.iter_mut().enumerate() {
-                    if foreground_mask.get(x, y) {
-                        *target = foreground_gray.get(x, y);
-                    }
-                }
-            });
-    }
-
-    let mut composite_color = if create_composite && preserve_source_composite {
-        foreground_color.cloned()
-    } else {
-        background_color.cloned().or_else(|| {
-            foreground_color.map(|_| {
-                let mut output =
-                    RgbImage::new(background_gray.width(), background_gray.height(), [255; 3]);
-                output
-                    .data_mut()
-                    .par_chunks_mut(background_gray.width() * 3)
-                    .enumerate()
-                    .for_each(|(y, row)| {
-                        for (x, target) in row.chunks_exact_mut(3).enumerate() {
-                            target.fill(background_gray.get(x, y));
-                        }
-                    });
-                output
-            })
-        })
-    };
-    if create_composite && !preserve_source_composite {
-        if let Some(output) = composite_color.as_mut() {
-            output
-                .data_mut()
-                .par_chunks_mut(background_gray.width() * 3)
-                .enumerate()
-                .for_each(|(y, row)| {
-                    for (x, target) in row.chunks_exact_mut(3).enumerate() {
-                        if foreground_mask.get(x, y) {
-                            target.copy_from_slice(
-                                &foreground_color.map_or([foreground_gray.get(x, y); 3], |color| {
-                                    color.get(x, y)
-                                }),
-                            );
-                        }
-                    }
-                });
-        }
-    } else {
-        composite_color = background_color.cloned();
-    }
-
-    let layers = create_layers.then(|| MixedLayers {
-        foreground_mask: foreground_mask.clone(),
-        foreground_alpha: None,
-        background: background_gray.clone(),
-        color_background: background_color.cloned(),
-        source_mrc: true,
-    });
-    (composite_gray, composite_color, layers)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn compose_soft_alpha_mixed(
     gray: &GrayImage,
@@ -4654,7 +4234,7 @@ fn compose_soft_alpha_mixed(
     );
     let ink_ownership = dilate(&ink_seed, ownership_radius, ownership_radius);
     let plate_ownership = dilate(picture_mask, ownership_radius, ownership_radius);
-    let raw_paper = raw_gray.map(trusted_mrc_paper_reference);
+    let raw_paper = raw_gray.map(paper_reference);
     let mut foreground_alpha = GrayImage::new(gray.width(), gray.height(), 0);
     foreground_alpha
         .data_mut()
@@ -4674,7 +4254,7 @@ fn compose_soft_alpha_mixed(
                 let mut value = gray.get(x, y);
                 if owns_binary_core {
                     if let (Some(raw), Some(paper)) = (raw_gray, raw_paper) {
-                        value = value.min(normalize_trusted_mrc_tone(raw.get(x, y), paper));
+                        value = value.min(normalize_tone_to_paper(raw.get(x, y), paper));
                     }
                 }
                 let in_text_vicinity = text_vicinity_mask.is_some_and(|mask| mask.get(x, y));

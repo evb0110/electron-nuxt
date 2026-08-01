@@ -313,38 +313,9 @@ pub(crate) fn protect_bilevel_text_fidelity(
     mut recommendation: OutputModeRecommendation,
     calibration: PageCalibration,
     source_dpi: f64,
-    source_has_bilevel_layer: bool,
     text_line_count: usize,
     text_soft_edge_to_ink_ratio: Option<f64>,
 ) -> OutputModeRecommendation {
-    // A source MRC/JBIG2 foreground is direct fidelity evidence. Preserve a
-    // tonal background only when the spatial-tone analysis found one; ordinary
-    // gray or tinted paper can be discarded and the trusted foreground written
-    // directly as black on white. Textless plates remain grayscale and
-    // covers/color pages retain their existing decisions.
-    if source_has_bilevel_layer
-        && recommendation.mode == OutputMode::Grayscale
-        && text_line_count > 0
-    {
-        let preserves_tone = recommendation.diagnostics.destructive_mode_tonal_veto;
-        recommendation.mode = if preserves_tone {
-            OutputMode::Mixed
-        } else {
-            OutputMode::Bw
-        };
-        recommendation.confidence = recommendation.confidence.max(0.82);
-        recommendation.reason = if preserves_tone {
-            OutputModeRecommendationReason::TextWithPictures
-        } else {
-            OutputModeRecommendationReason::BimodalText
-        };
-        recommendation.diagnostics.rule = if preserves_tone {
-            OutputModeRule::TextWithPictures
-        } else {
-            OutputModeRule::BilevelFidelity
-        };
-        recommendation.diagnostics.fallback_used = false;
-    }
     let analysis_dpi = calibration.effective_dpi.max(1.0);
     let source_scale = source_dpi.max(1.0) / analysis_dpi;
     let source_stroke_width_px = calibration.stroke_width_px * source_scale;
@@ -353,7 +324,22 @@ pub(crate) fn protect_bilevel_text_fidelity(
         recommendation.diagnostics.relative_midtone_fraction
             / recommendation.diagnostics.ink_fraction.max(1e-9)
     });
-    let undersampled_soft_text = !source_has_bilevel_layer
+    // The stencil shortcut may only bypass the fidelity veto when the
+    // SOURCE geometry can actually carry a stencil: ordinary book print
+    // measures soft-edge ratios up to ~1.3 at analysis scale and still
+    // binarizes perfectly because its glyphs are large at source scale,
+    // while a genuinely undersampled scan (x-height ~8 px at 82 dpi) shows
+    // the same bimodal histogram and must stay continuous-tone.
+    // Capable on either signal: large source glyphs (ordinary book print,
+    // soft-looking ratios up to ~1.3 still binarize) OR measured crispness
+    // (a title page's small imprint type at ratio ~0.3). An undersampled
+    // soft scan fails both (x-height ~8 px AND ratio ~0.9) and keeps the
+    // veto's protection.
+    let stencil_capable_source =
+        source_x_height_px >= 24.0 || soft_edge_to_ink_ratio <= 0.35;
+    let crisp_stencil = stencil_capable_source
+        && is_bimodal_stencil_page(&recommendation.diagnostics);
+    let undersampled_soft_text = !crisp_stencil
         && should_veto_bilevel_fidelity(
             calibration.valid,
             source_stroke_width_px,
@@ -369,9 +355,7 @@ pub(crate) fn protect_bilevel_text_fidelity(
     // with undersampled soft text, keep the whole result continuous-tone.
     // Large low-midtone/bimodal picture fields are maps and line art; their
     // Mixed representation remains useful and does not take this photo path.
-    let line_art_picture = recommendation.diagnostics.picture_fraction >= 0.60
-        && recommendation.diagnostics.midtone_fraction <= 0.16
-        && recommendation.diagnostics.bimodality >= 0.65;
+    let line_art_picture = is_line_art_picture(&recommendation.diagnostics);
     let undersampled_photo_dominant_mixed = recommendation.mode == OutputMode::Mixed
         && recommendation.diagnostics.significant_picture
         && !line_art_picture
@@ -426,6 +410,95 @@ pub(crate) fn protect_bilevel_text_fidelity(
         recommendation.diagnostics.fallback_used = false;
     }
     recommendation
+}
+
+/// Returns whether a detector-owned picture field is a predominantly bimodal
+/// drawing/map rather than a photographic plate.  The picture detector can
+/// cover only the printed field's darker lobes, so a 60% area threshold would
+/// classify perfectly good line-art pages as photographs whenever their paper
+/// is bright.  Keep the decision tied to the same low-midtone/high-bimodality
+/// evidence used by the fidelity gate and allow the compositor to use a crisp
+/// stencil for smaller, sparse drawing fields as well.
+pub(crate) fn is_line_art_picture(diagnostics: &OutputModeDiagnostics) -> bool {
+    diagnostics.picture_fraction >= 0.20
+        && diagnostics.midtone_fraction <= 0.16
+        && diagnostics.bimodality >= 0.65
+}
+
+fn has_bimodal_stencil_signal(
+    significant_picture: bool,
+    significant_color: bool,
+    text_line_count: usize,
+    bimodality: f64,
+    mode_distance: f64,
+    midtone_fraction: f64,
+    ink_fraction: f64,
+    edge_fraction: f64,
+) -> bool {
+    if significant_picture || significant_color {
+        return false;
+    }
+    let strong_text_or_line_art = text_line_count >= 6
+        && bimodality >= 0.78
+        && mode_distance >= 80.0
+        && midtone_fraction <= 0.18
+        && edge_fraction >= ink_fraction * 0.75;
+    // At print resolution, a dense page with a very clean two-mode histogram
+    // is still a stencil candidate even when the calibration estimates a
+    // slightly undersized x-height. This is the common raw-book case where
+    // the page is text-only but antialiased paper texture pulls the mode gap
+    // just below the general 80-level boundary.
+    let dense_text_stencil = text_line_count >= 20
+        && bimodality >= 0.76
+        && mode_distance >= 72.0
+        && midtone_fraction <= 0.12
+        && edge_fraction >= ink_fraction * 0.45;
+    let flat_dense_text_stencil = text_line_count >= 20
+        && bimodality >= 0.70
+        && mode_distance >= 60.0
+        && midtone_fraction <= 0.05
+        && edge_fraction >= ink_fraction * 0.75;
+    let dense_dark_page = text_line_count >= 20
+        && bimodality >= 0.65
+        && mode_distance >= 80.0
+        && midtone_fraction <= 0.10
+        && edge_fraction >= ink_fraction * 0.45;
+    let sparse_dark_page = (1..=5).contains(&text_line_count)
+        && bimodality >= 0.50
+        && mode_distance >= 90.0
+        && midtone_fraction <= 0.10
+        && edge_fraction >= ink_fraction * 0.75;
+    strong_text_or_line_art
+        || dense_text_stencil
+        || flat_dense_text_stencil
+        || dense_dark_page
+        || sparse_dark_page
+}
+
+/// A detector-independent line-art/text signal used when a gray drawing's
+/// texture mask is empty. It deliberately requires text-like edge density and
+/// strong luminance separation, so faint pencil and continuous-tone pages stay
+/// on the tonal path. A small, shallow tone island is retained for line-art
+/// pages because hatching and flat washes can be classifier-owned evidence
+/// without being a photographic plate.
+pub(crate) fn is_bimodal_stencil_page(diagnostics: &OutputModeDiagnostics) -> bool {
+    if !has_bimodal_stencil_signal(
+        diagnostics.significant_picture,
+        diagnostics.significant_color,
+        diagnostics.text_line_count,
+        diagnostics.bimodality,
+        diagnostics.mode_distance,
+        diagnostics.midtone_fraction,
+        diagnostics.ink_fraction,
+        diagnostics.edge_fraction,
+    ) {
+        return false;
+    }
+    let isolated_line_art_tone = diagnostics.coherent_outside_tonal_region
+        && diagnostics.outside_tonal_fraction <= 0.12
+        && diagnostics.outside_tonal_largest_component_width_fraction <= 0.50
+        && diagnostics.outside_tonal_largest_component_height_fraction <= 0.10;
+    diagnostics.outside_tonal_fraction <= 0.06 || isolated_line_art_tone
 }
 
 /// Measures antialiased edge samples only around detected text.
@@ -493,7 +566,17 @@ pub(crate) fn recommend_output_mode_with_tone(
     result.diagnostics.coherent_outside_tonal_region = outside_tone.coherent();
     result.diagnostics.destructive_mode_tonal_veto = outside_tone.vetoes_destructive_mode();
 
-    if result.mode == OutputMode::Bw && outside_tone.vetoes_destructive_mode() {
+    let outside_tone_requires_mixed = outside_tone.vetoes_destructive_mode()
+        // Some fresh raster pages contain a broad gray band that is not
+        // coherent enough for the destructive-mode veto, but is still a
+        // continuous-tone owner beside text. Keep it in the calibrated Mixed
+        // background rather than allowing the stencil branch to flatten it.
+        || outside_tone.fraction >= 0.12
+        || outside_tone.largest_component_width_fraction >= 0.50;
+    if result.mode == OutputMode::Bw
+        && outside_tone_requires_mixed
+        && !is_bimodal_stencil_page(&result.diagnostics)
+    {
         let spatial_extent = outside_tone
             .largest_component_width_fraction
             .min(outside_tone.largest_component_height_fraction);
@@ -506,8 +589,9 @@ pub(crate) fn recommend_output_mode_with_tone(
         } else {
             OutputMode::Grayscale
         };
-        result.confidence =
-            (0.68 + 0.18 * outside_tone.fraction + 0.14 * spatial_extent).clamp(0.0, 1.0);
+        result.confidence = (0.68 + 0.18 * outside_tone.fraction + 0.14 * spatial_extent)
+            .max(0.82)
+            .clamp(0.0, 1.0);
         result.reason = if result.mode == OutputMode::Mixed {
             OutputModeRecommendationReason::TextWithPictures
         } else {
@@ -696,6 +780,42 @@ pub(crate) fn recommend_output_mode(
             (0.66 + 0.16 * separation_margin + 0.08 * edge_margin).clamp(0.0, 0.9),
             OutputModeRecommendationReason::BimodalText,
             OutputModeRule::SparseText,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
+    }
+
+    // A classifier can miss a large line drawing when its gray wash is too
+    // broad for the texture picture mask. Strongly separated, edge-dense
+    // pages with no independent picture or color ownership are still
+    // bimodal text/line-art pages, not uncertain full-page photographs. Keep
+    // them on the 1-bit path so a fresh raster actually earns the compact
+    // representation promised by Auto.
+    let bimodal_stencil_page = has_bimodal_stencil_signal(
+        significant_picture,
+        significant_color,
+        evidence.text_line_count,
+        luminance.bimodality,
+        luminance.mode_distance,
+        luminance.midtone_fraction,
+        luminance.ink_fraction,
+        luminance.edge_fraction,
+    );
+    if bimodal_stencil_page {
+        return recommendation(
+            OutputMode::Bw,
+            (0.76
+                + 0.08 * ((luminance.bimodality - 0.78) / 0.12).clamp(0.0, 1.0)
+                + 0.08 * ((luminance.mode_distance - 80.0) / 80.0).clamp(0.0, 1.0)
+                + 0.08
+                    * (luminance.edge_fraction
+                        / luminance.ink_fraction.max(MIN_TEXT_INK_FRACTION))
+                    .clamp(0.0, 1.0))
+            .clamp(0.0, 0.92),
+            OutputModeRecommendationReason::BimodalText,
+            OutputModeRule::DenseText,
             evidence,
             luminance,
             chroma,
@@ -1510,7 +1630,7 @@ mod tests {
         genuine_photo.diagnostics.bimodality = 0.45;
 
         let protected_photo =
-            protect_bilevel_text_fidelity(genuine_photo, calibration, 150.0, true, 8, Some(0.2));
+            protect_bilevel_text_fidelity(genuine_photo, calibration, 150.0, 8, Some(0.2));
         assert_eq!(protected_photo.mode, OutputMode::Mixed);
         assert!(protected_photo.diagnostics.bilevel_fidelity_veto);
 
@@ -1519,7 +1639,7 @@ mod tests {
         line_art.diagnostics.midtone_fraction = 0.12;
         line_art.diagnostics.bimodality = 0.80;
         let protected_line_art =
-            protect_bilevel_text_fidelity(line_art, calibration, 150.0, true, 8, Some(0.2));
+            protect_bilevel_text_fidelity(line_art, calibration, 150.0, 8, Some(0.2));
         assert_eq!(protected_line_art.mode, OutputMode::Mixed);
         assert!(!protected_line_art.diagnostics.bilevel_fidelity_veto);
     }
