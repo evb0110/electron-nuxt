@@ -58,8 +58,10 @@ use crate::{
 };
 use rayon::prelude::*;
 use scan_primitives::{
-    distance::squared_euclidean_distance, morphology::dilate, threshold::otsu_threshold, Affine,
-    BinaryImage, ComponentMap, GrayImage, Point, Polygon, Rect,
+    distance::squared_euclidean_distance,
+    morphology::{dilate, dilate_gray, erode, erode_gray},
+    threshold::otsu_threshold,
+    Affine, BinaryImage, ComponentMap, GrayImage, Point, Polygon, Rect,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{borrow::Cow, sync::Arc, time::Instant};
@@ -2933,6 +2935,95 @@ fn rescue_isolated_raw_ink(raw: &GrayImage, picture_mask: &BinaryImage, dpi: f64
     })
 }
 
+fn filter_soft_shallow_bleed_components(
+    binary: &BinaryImage,
+    raw: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    dpi: f64,
+) -> BinaryImage {
+    debug_assert_eq!(binary.width(), raw.width());
+    debug_assert_eq!(binary.height(), raw.height());
+    debug_assert!(picture_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    if binary.count_black() == 0 {
+        return binary.clone();
+    }
+
+    const CRISPNESS_FLOOR: f64 = 32.0;
+    const SHALLOW_DEPTH: u8 = 80;
+    const LARGE_CRISPNESS_FLOOR: f64 = 24.0;
+    const LARGE_SHALLOW_DEPTH: u8 = 72;
+
+    let gradient_radius = (dpi * 0.12 / 25.4).round().clamp(1.0, 4.0) as usize;
+    let boundary_radius = (dpi * 0.07 / 25.4).round().clamp(1.0, 3.0) as usize;
+    let boundary = erode(binary, boundary_radius, boundary_radius);
+    let (raw_max, raw_min) = rayon::join(
+        || erode_gray(raw, gradient_radius, gradient_radius),
+        || dilate_gray(raw, gradient_radius, gradient_radius),
+    );
+    let components = ComponentMap::from_binary(binary);
+    let (raw_sums, raw_counts) = components.gray_sums_by_component(raw);
+    let mut gradient_sums = vec![0u64; components.components().len() + 1];
+    let mut gradient_counts = vec![0usize; components.components().len() + 1];
+    let mut protected = vec![false; components.components().len() + 1];
+    let protected_picture = picture_mask.map(|mask| {
+        let radius = picture_protection_radius(dpi);
+        dilate(mask, radius, radius)
+    });
+    for y in 0..binary.height() {
+        for x in 0..binary.width() {
+            if !binary.get(x, y) {
+                continue;
+            }
+            let label = components.label_at(x, y) as usize;
+            if protected_picture
+                .as_ref()
+                .is_some_and(|mask| mask.get(x, y))
+            {
+                protected[label] = true;
+            }
+            if !boundary.get(x, y) {
+                gradient_sums[label] +=
+                    u64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)));
+                gradient_counts[label] += 1;
+            }
+        }
+    }
+    let paper = paper_reference(raw);
+    let area_ceiling = ((dpi.max(1.0) * 2.0 / 25.4).powi(2)).round().max(16.0) as usize;
+    let retained = components.retain(|component| {
+        let label = component.label as usize;
+        if protected[label] || gradient_counts[label] == 0 || raw_counts[label] == 0 {
+            return true;
+        }
+        let mean = raw_sums[label] as f64 / raw_counts[label] as f64;
+        let crispness = gradient_sums[label] as f64 / gradient_counts[label] as f64;
+        if component.area <= area_ceiling {
+            !(crispness < CRISPNESS_FLOOR && mean >= f64::from(paper.saturating_sub(SHALLOW_DEPTH)))
+        } else {
+            !(crispness < LARGE_CRISPNESS_FLOOR
+                && mean >= f64::from(paper.saturating_sub(LARGE_SHALLOW_DEPTH)))
+        }
+    });
+    // A bleed rule that crosses a running head merges with the glyphs into
+    // one component that the verdict above rightly keeps, so the merged
+    // strike must be removed pixelwise: a bleed pixel is simultaneously
+    // shallow and locally soft, while every genuine glyph pixel is either
+    // deep (stroke interior) or crisp (antialiased edge). Erasing only the
+    // pixels that fail both tests strips the strike and leaves the glyphs
+    // it crossed intact.
+    let shallow_floor = paper.saturating_sub(SHALLOW_DEPTH);
+    BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
+        retained.get(x, y)
+            && (raw.get(x, y) < shallow_floor
+                || f64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)))
+                    >= CRISPNESS_FLOOR
+                || protected_picture
+                    .as_ref()
+                    .is_some_and(|mask| mask.get(x, y)))
+    })
+}
+
 fn paper_reference(gray: &GrayImage) -> u8 {
     let mut histogram = [0usize; 256];
     for &sample in gray.data() {
@@ -3421,22 +3512,26 @@ fn clean_region(
                 None,
             )
         };
-    let rendered_routing_gray = (options.output_mode == OutputMode::Mixed).then(|| {
-        if render_plan.has_dewarp() {
-            rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
-                render_plan.output_to_source(point)
-            })
-        } else {
-            render_affine_gray(
-                routing_source,
-                rendered_width,
-                rendered_height,
-                render_plan
-                    .affine_inverse()
-                    .expect("cleanup affine render plan is available"),
-            )
-        }
-    });
+    let rendered_routing_gray = matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed)
+        .then(|| {
+            if render_plan.has_dewarp() {
+                rasterize_inverse_area_with(
+                    routing_source,
+                    rendered_width,
+                    rendered_height,
+                    |point| render_plan.output_to_source(point),
+                )
+            } else {
+                render_affine_gray(
+                    routing_source,
+                    rendered_width,
+                    rendered_height,
+                    render_plan
+                        .affine_inverse()
+                        .expect("cleanup affine render plan is available"),
+                )
+            }
+        });
     timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     // Coarse tonal evidence is valid for deriving the global tone curve, but
     // only pixel-resolution picture geometry may form a boundary in the
@@ -3630,17 +3725,17 @@ fn clean_region(
             OutputMode::Bw => {
                 let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
                 let route = resolve_binarization_diagnostics(&routing_sample, options).route;
-                let global_threshold_source = if route == crate::BinarizationMode::Otsu {
-                    Some(render_gray_with_plan(routing_source, &render_plan)?)
-                } else {
-                    None
-                };
+                let global_threshold_source = (route == crate::BinarizationMode::Otsu).then(|| {
+                    rendered_routing_gray
+                        .as_ref()
+                        .expect("bilevel output prepares a routing raster")
+                });
                 let binarization_started = Instant::now();
                 let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
                     binarize_normalized_with_diagnostics(
                         &rendered_gray,
                         &routing_sample,
-                        global_threshold_source.as_ref(),
+                        global_threshold_source,
                         options,
                         calibration,
                     );
@@ -3672,6 +3767,14 @@ fn clean_region(
                 } else {
                     (fresh_binary, fresh_despeckle_fallback)
                 };
+                let binary = filter_soft_shallow_bleed_components(
+                    &binary,
+                    rendered_routing_gray
+                        .as_ref()
+                        .expect("bilevel output prepares a routing raster"),
+                    rendered_picture_mask.as_ref(),
+                    options.dpi,
+                );
                 (
                     CleanupRaster::Bilevel(binary),
                     None,
@@ -3709,6 +3812,14 @@ fn clean_region(
                     timings.binarization_ms +=
                         binarization_started.elapsed().as_secs_f64() * 1_000.0;
                     let mode = diagnostics.route;
+                    let binary = filter_soft_shallow_bleed_components(
+                        &binary,
+                        rendered_routing_gray
+                            .as_ref()
+                            .expect("mixed output prepares a routing raster"),
+                        None,
+                        options.dpi,
+                    );
                     (
                         CleanupRaster::Bilevel(binary),
                         None,
@@ -3761,6 +3872,14 @@ fn clean_region(
                         &rendered_gray,
                         picture_mask,
                         rendered_text_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = filter_soft_shallow_bleed_components(
+                        &binary,
+                        rendered_routing_gray
+                            .as_ref()
+                            .expect("mixed output prepares a routing raster"),
+                        Some(picture_mask),
                         options.dpi,
                     );
                     let (mixed_gray, mixed_color, layers) = compose_mixed(
@@ -4975,29 +5094,6 @@ fn render_affine_gray(
             }
         });
     output
-}
-
-fn render_gray_with_plan(
-    source: &GrayImage,
-    plan: &ComposedRenderPlan,
-) -> Result<GrayImage, String> {
-    if plan.has_dewarp() {
-        return Ok(rasterize_inverse_area_with(
-            source,
-            plan.output_width(),
-            plan.output_height(),
-            |point| plan.output_to_source(point),
-        ));
-    }
-    let inverse = plan
-        .affine_inverse()
-        .ok_or("Cleanup affine render plan is unavailable")?;
-    Ok(render_affine_gray(
-        source,
-        plan.output_width(),
-        plan.output_height(),
-        inverse,
-    ))
 }
 
 fn render_affine_rgb(source: &RgbImage, width: usize, height: usize, inverse: Affine) -> RgbImage {

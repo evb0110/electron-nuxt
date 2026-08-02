@@ -354,12 +354,20 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
     // the cascade only as isolated pellets, which the smoothness-free
     // 2 mm density test cannot turn into fields, and whose tight tonal
     // concentration the spread verdict rejects.
-    let texture_radius = (dpi * 0.45 / 25.4).round().clamp(1.0, 3.0) as usize;
+    // Both radii are physical, not pixel, quantities: at 150 dpi they
+    // resolve to the calibrated 1 px blur / 3 px texture window, and at a
+    // 360 dpi final render they grow with the raster instead of clamping
+    // to a sub-stroke window. The old 3 px ceiling made bold glyph
+    // interiors read as flat-and-deep at final scale, so zones seeded on
+    // text that the detection pass had correctly excluded, and the two
+    // scales disagreed about every zone boundary near a caption.
+    let texture_radius = (dpi * 0.45 / 25.4).round().clamp(1.0, 8.0) as usize;
+    let blur_radius = (dpi * 0.12 / 25.4).round().clamp(1.0, 4.0) as usize;
     // Edge statistics run on a lightly blurred plane: halftone dots are
     // finer than pen strokes, so a one-stroke-width mean filter collapses a
     // printed photograph's dot micro-contrast while hatching and engraved
     // lines keep theirs.
-    let blurred = box_mean_gray(gray, 1);
+    let blurred = box_mean_gray(gray, blur_radius);
     let local_max = erode_gray(&blurred, texture_radius, texture_radius);
     let local_min = dilate_gray(&blurred, texture_radius, texture_radius);
     let paper_reference = luminance_percentile(gray, 3, 4);

@@ -187,6 +187,54 @@ mod tests {
     }
 
     #[test]
+    fn soft_shallow_horizontal_bleed_is_removed_without_losing_crisp_glyphs() {
+        let mut raw = GrayImage::new(180, 100, 220);
+        let mut binary = BinaryImage::new(180, 100);
+        let mut glyph_pixels = 0;
+        for left in [24, 70, 116] {
+            for y in 22..44 {
+                for x in left..left + 12 {
+                    raw.set(x, y, 35);
+                    binary.set(x, y, true);
+                    glyph_pixels += 1;
+                }
+            }
+        }
+        for y in 43usize..64 {
+            let distance = y.abs_diff(53).min(10);
+            let value = 180 + (distance * 4) as u8;
+            for x in 12..168 {
+                raw.set(x, y, value);
+            }
+        }
+        for y in 50..56 {
+            for x in 12..168 {
+                binary.set(x, y, true);
+            }
+        }
+
+        let filtered = filter_soft_shallow_bleed_components(&binary, &raw, None, 360.0);
+
+        assert_eq!(
+            (12..168)
+                .flat_map(|x| (50..56).map(move |y| (x, y)))
+                .filter(|&(x, y)| filtered.get(x, y))
+                .count(),
+            0
+        );
+        assert_eq!(
+            (24..36)
+                .chain(70..82)
+                .chain(116..128)
+                .flat_map(|x| (22..44).map(move |y| (x, y)))
+                .filter(|&(x, y)| filtered.get(x, y))
+                .count(),
+            glyph_pixels
+        );
+        assert_eq!(filtered.count_black(), glyph_pixels);
+    }
+
+    #[test]
     fn reused_analysis_otsu_is_bit_exact_to_independent_final_binarization() {
         let mut source = GrayImage::new(513, 377, 242);
         let mut state = 0x84b5_13d9_u64;
