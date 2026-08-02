@@ -368,11 +368,25 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
     // it must never seed a smooth field, or its page-wide tiles chain
     // every cluster together.
     let smooth_ceiling = paper_reference.saturating_sub(45);
+    // Depth below the show-through ceiling is itself the seed evidence; a
+    // flatness test here would reject the very fields this seed exists for.
+    // A photographic reproduction of a textured subject (stone, fabric,
+    // relief) is mottled at stroke scale — never locally flat — while its
+    // tone runs deeper than paper attenuation physically allows verso bleed
+    // to reach. Type is also deep but never 1/3-dense over a 2 mm disc, and
+    // whatever bold blocks pass the density test concentrate at the ink
+    // core, which the spread verdict rejects.
+    // Strong-edge pixels are excluded with the same threshold the edge
+    // verdict uses: a glyph at analysis scale is nothing but strong edges,
+    // and admitting glyph ink as depth evidence lets a photo's cluster
+    // reconstruct across its caption into the text column, where typeset
+    // labels then misclassify the merged region as a map. Photo mottle
+    // stays below this gradient almost everywhere, so photos keep seeding.
     let smooth_candidates = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
         let value = gray.get(x, y);
-        value > 64
+        value > 8
             && value < smooth_ceiling
-            && local_max.get(x, y).saturating_sub(local_min.get(x, y)) <= 12
+            && local_max.get(x, y).saturating_sub(local_min.get(x, y)) < 48
     });
     let density_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 16.0) as usize;
     let smooth_seed = filter_dense_regions(&smooth_candidates, density_radius, 1, 3);
@@ -383,7 +397,14 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
     // from a show-through field must not share a verdict with it, and a
     // chain of incidental bridges must never merge a picture with a text
     // column before the tonal tests run.
-    let growth_radius = (dpi * 8.0 / 25.4).round().clamp(4.0, 64.0) as usize;
+    // Depth seeds cover a photograph densely, so the recovery halo only
+    // needs to bridge highlight gaps, not span the whole subject the way
+    // the old sparse flat-field seeds required. A tight halo matters: body
+    // text starts 3-4 mm below a plate, and a wider halo lets the closed
+    // binary flood the region across that gap, after which the absorbed
+    // words read as typeset labels and the map rule binarizes the photo.
+    // Enclosed highlights are recovered by the hole fill below instead.
+    let growth_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 64.0) as usize;
     let cluster_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 24.0) as usize;
     let closed = close(&binary, 4, 4);
     let clusters = ComponentMap::from_binary(&dilate(&seed, cluster_radius, cluster_radius));
@@ -402,8 +423,12 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
             seed.get(x, y) && clusters.label_at(x, y) == label
         });
         let growth_zone = dilate(&cluster_seed, growth_radius, growth_radius);
+        // Seed pixels are direct tone evidence and belong in the recovery
+        // substrate: a low-contrast photograph barely registers under Wolf,
+        // so reconstructing only through the binarized plane would shrink
+        // its region to the few strokes Wolf happened to mark.
         let clipped_mask = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
-            closed.get(x, y) && growth_zone.get(x, y)
+            (closed.get(x, y) || seed.get(x, y)) && growth_zone.get(x, y)
         });
         let region = reconstruct_binary(&cluster_seed, &clipped_mask);
         candidates = candidates.or(&region);
@@ -521,21 +546,24 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
                 component.area,
             );
         }
-        // Typeset place labels betray a map body: only large regions can
-        // be judged by label density (small fills and busy small photos
-        // overlap irreducibly, and a residual small map fill preserved as
-        // near-black tone is visually harmless).
-        let map_like = label_density >= 90.0 && total >= 40_000;
+        // Label density stays in the trace for calibration, but it is no
+        // longer a verdict input: with depth-based seeds it stopped
+        // separating the populations — a busy photograph's textures
+        // binarize into the same word-shaped blobs (ship rigging at
+        // 118/dm² vs a shaded map's 98-145/dm²), every tone-shaded map in
+        // the calibrated book is a legitimate keep, and line-art maps
+        // never seed a region at all now because their hatching is pure
+        // strong-edge.
+        let _ = label_density;
         // Two-tier verdict: strong tonal spread tolerates stroke texture
         // (busy halftone prints), while marginal spread must be smooth —
         // that is what separates a dark relief photograph from a line
         // diagram whose spread is identical.
-        let tonal = if spread_fraction >= 0.30 {
+        if spread_fraction >= 0.30 {
             edge_fraction < 0.55
         } else {
             spread_fraction >= 0.18 && edge_fraction < 0.30
-        };
-        tonal && !map_like
+        }
     })
 }
 

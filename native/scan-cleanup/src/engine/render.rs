@@ -2331,6 +2331,14 @@ fn prepare_analysis_page(
         }
         let continuous_tone_mask =
             continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
+        // On pages that carry text, the calibrated halftone classifier is
+        // the sole owner of layered tone: granting the destructive-tone
+        // field ownership there let verso show-through — coherent gray
+        // outside every text line — carve tone holes through stencils and
+        // republish bleed as "photograph" on plain text pages. A textless
+        // sheet has no stencil to protect and no show-through/text
+        // ambiguity; its broad tone evidence (a full-page plate or wash)
+        // keeps the wider protection.
         let tonal_protection_mask = union_optional_masks(
             destructive_tone_mask.as_ref(),
             continuous_tone_mask.as_ref(),
@@ -2498,11 +2506,14 @@ fn prepare_analysis_page(
             // routing and creates a hard posterization seam. Large bimodal
             // line art deliberately keeps the narrower destructive-tone mask
             // so its paper can still be normalized to white.
-            let layer_tone_mask = if significant_picture && !refine_picture_ownership {
-                tonal_protection_mask.as_ref()
-            } else {
-                destructive_tone_mask.as_ref()
-            };
+            // Published Mixed layers carry a stencil, and stencil tone
+            // ownership belongs to the calibrated halftone classifier alone:
+            // the broader protection field admits verso show-through —
+            // coherent gray outside every text line — which carved tone
+            // holes through stencils and republished bleed as "photograph"
+            // on plain text pages. The wider union still guards
+            // normalization and semantic alphas on stencil-free pages.
+            let layer_tone_mask = continuous_tone_mask.as_ref();
             let tonal_picture_mask = union_optional_masks(picture_mask.as_ref(), layer_tone_mask);
             union_optional_masks(tonal_picture_mask.as_ref(), chroma_picture_mask.as_ref())
         } else {
@@ -4035,7 +4046,14 @@ fn compose_mixed(
     // boundary detail, but pale pixels outside the calibrated zone remain
     // white.
     let mut mixed_gray = GrayImage::new(gray.width(), gray.height(), 255);
-    let mut mixed_color = color.map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
+    // A color plane is only produced when the page owns independent chroma.
+    // Scanner noise keeps neutral pages from ever measuring exactly r=g=b,
+    // so publishing RGB here forces every downstream encoder into a
+    // three-channel JPEG at ~3x the bytes for tone the gray plane already
+    // carries.
+    let mut mixed_color = color
+        .filter(|_| chroma_picture_mask.is_some())
+        .map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
     let protection_radius = picture_protection_radius(dpi);
     let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);

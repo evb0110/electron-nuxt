@@ -27,10 +27,10 @@
     "rome-representative-20": {
       "maxOutputToSourceRatio": 1.3,
       "expectedModeDistribution": {
-        "bw": 7,
+        "bw": 10,
         "grayscale": 0,
         "color": 2,
-        "mixed": 11
+        "mixed": 8
       },
       "pages": {
         "1": {"mode": "color", "reason": "color-chroma", "minConfidence": 0.95, "outputCount": 1},
@@ -40,16 +40,16 @@
         "5": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 1},
         "6": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "7": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.70, "outputCount": 1},
-        "8": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.8, "outputCount": 1},
+        "8": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.55, "outputCount": 1},
         "9": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
-        "10": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.80, "outputCount": 1},
+        "10": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
         "11": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "12": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "13": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "14": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "15": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.80, "outputCount": 1},
         "16": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.80, "outputCount": 1},
-        "17": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.80, "outputCount": 1},
+        "17": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
         "18": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
         "19": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
         "20": {"mode": "color", "reason": "color-chroma", "minConfidence": 0.95, "outputCount": 1}

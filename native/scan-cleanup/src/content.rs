@@ -477,6 +477,23 @@ fn cluster_content_blocks(
                     || block.component_count >= (maximum_count / 8).max(3))
         })
         .collect::<Vec<_>>();
+    // Running heads, folio lines and chapter ornaments sit above the whole
+    // text column, and on chapter openers the whitespace below them exceeds
+    // any marginalia gap (16.8-38.8 mm measured against pages 208/339/360
+    // of the calibration book) because the only block in between — the
+    // chapter heading — is not yet protected at this stage. Positional
+    // evidence identifies this furniture directly: a band above the primary
+    // block, sharing its horizontal extent, at least half its width, and
+    // reaching below the outer 1/20 scanner-junk frame is page content no
+    // matter how far the body starts.
+    let primary_block = dominant
+        .iter()
+        .enumerate()
+        .filter(|&(_, &is_dominant)| is_dominant)
+        .map(|(label, _)| &blocks[label])
+        .filter(|block| block.initialized)
+        .max_by_key(|block| block.ink_area);
+    let frame_band_bottom = block_map.height() / 20;
     let mut retained = vec![false; map.components().len() + 1];
     for candidate in candidates {
         let component = candidate.component;
@@ -490,8 +507,14 @@ fn cluster_content_blocks(
                 dominant.get(other_label).copied().unwrap_or(false)
                     && block_is_supported_outlier(block, other, calibration)
             });
+        let top_furniture = primary_block.is_some_and(|primary| {
+            block.bottom < primary.top
+                && block.bottom >= frame_band_bottom
+                && axis_gap(block.left, block.right, primary.left, primary.right) == 0
+                && block.width().saturating_mul(2) >= primary.width()
+        });
         retained[component.label as usize] =
-            dominant[block_label] || block.protected() || supported_marginalia;
+            dominant[block_label] || block.protected() || supported_marginalia || top_furniture;
         if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some()
             && !retained[component.label as usize]
         {

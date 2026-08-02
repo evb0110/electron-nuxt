@@ -272,13 +272,21 @@ fn recommendation(
     }
 }
 
-// Binarization quantizes each antialiased edge by roughly half a render pixel.
-// A ten-pixel stem keeps that error near ten percent; the old 3.25-pixel floor
-// admitted pages where a one-pixel decision visibly fattened stems by 30–60%
-// and closed counters. This is a sampling-quality boundary, not a paper-shade
-// heuristic.
-const MIN_BILEVEL_SOURCE_STROKE_WIDTH_PX: f64 = 10.0;
-const MIN_BILEVEL_SOURCE_X_HEIGHT_PX: f64 = 36.0;
+// Binarization quantizes each antialiased edge by roughly half a render
+// pixel, so the relative stem error is ~0.5/stroke_width. Measured against
+// the calibrated 360 dpi book corpus: real print spans strokes 4.8–9.6 px
+// and x-heights 14.4–26.4 px, is stored as bilevel JBIG2 by its own
+// producer, and binarizes cleanly (≤10% stem error). The undersampled class
+// this veto exists for (an 82 dpi scan) measures stroke ~2.4 px and
+// x-height 8 px, where a one-pixel decision closes counters. These floors
+// are a sampling-quality boundary between those measured populations, not a
+// paper-shade heuristic.
+// The x-height floor sits between the two measured populations: an 82 dpi
+// soft scan calibrates at 8 px and visibly loses glyph topology, while
+// 6 pt map labels on a 360 dpi plate calibrate at 12 px with crisp 4.8 px
+// strokes and binarize cleanly (their source stores them as bilevel).
+const MIN_BILEVEL_SOURCE_STROKE_WIDTH_PX: f64 = 4.0;
+const MIN_BILEVEL_SOURCE_X_HEIGHT_PX: f64 = 10.0;
 const MIN_SOFT_EDGE_TO_INK_RATIO: f64 = 0.05;
 const UNCALIBRATED_BILEVEL_SOURCE_DPI_FLOOR: f64 = 180.0;
 
@@ -325,18 +333,14 @@ pub(crate) fn protect_bilevel_text_fidelity(
             / recommendation.diagnostics.ink_fraction.max(1e-9)
     });
     // The stencil shortcut may only bypass the fidelity veto when the
-    // SOURCE geometry can actually carry a stencil: ordinary book print
-    // measures soft-edge ratios up to ~1.3 at analysis scale and still
-    // binarizes perfectly because its glyphs are large at source scale,
-    // while a genuinely undersampled scan (x-height ~8 px at 82 dpi) shows
-    // the same bimodal histogram and must stay continuous-tone.
-    // Capable on either signal: large source glyphs (ordinary book print,
-    // soft-looking ratios up to ~1.3 still binarize) OR measured crispness
-    // (a title page's small imprint type at ratio ~0.3). An undersampled
-    // soft scan fails both (x-height ~8 px AND ratio ~0.9) and keeps the
-    // veto's protection.
-    let stencil_capable_source =
-        source_x_height_px >= 24.0 || soft_edge_to_ink_ratio <= 0.35;
+    // SOURCE geometry can actually carry a stencil. Capable on either
+    // signal: adequately sampled glyphs (ordinary book print measures
+    // soft-edge ratios up to ~1.3 at analysis scale and still binarizes)
+    // OR measured crispness (a title page's small imprint type at ratio
+    // ~0.3). An undersampled soft scan fails both (x-height ~8 px at
+    // 82 dpi AND ratio ~0.9) and keeps the veto's protection.
+    let stencil_capable_source = source_x_height_px >= MIN_BILEVEL_SOURCE_X_HEIGHT_PX
+        || soft_edge_to_ink_ratio <= 0.35;
     let crisp_stencil = stencil_capable_source
         && is_bimodal_stencil_page(&recommendation.diagnostics);
     let undersampled_soft_text = !crisp_stencil
@@ -575,6 +579,12 @@ pub(crate) fn recommend_output_mode_with_tone(
         || outside_tone.largest_component_width_fraction >= 0.50;
     if result.mode == OutputMode::Bw
         && outside_tone_requires_mixed
+        // Outside tone may only promote a page the picture detector actually
+        // granted ownership on. Verso show-through is coherent gray outside
+        // every text line and passes the spatial tests above on hundreds of
+        // plain text pages; without detector corroboration the promoted page
+        // would publish a Mixed manifest that owns no tone at all.
+        && evidence.picture_mask.count_black() > 0
         && !is_bimodal_stencil_page(&result.diagnostics)
     {
         let spatial_extent = outside_tone
@@ -719,7 +729,14 @@ pub(crate) fn recommend_output_mode(
         );
     }
 
-    if significant_picture && has_text {
+    // A sheet the picture detector mostly owns is one photograph, not a
+    // text page with an illustration: whatever the line detector found
+    // inside it is the photograph's own periodic structure, and a Mixed
+    // manifest would publish a worthless stencil over it. Real
+    // text-with-picture pages in the calibrated book measure picture
+    // fractions of 0.1-0.45, while a full-bleed tonal sheet measures 0.59
+    // even when only its darker half seeds zones.
+    if significant_picture && has_text && picture_fraction < 0.55 {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 8.0).clamp(0.0, 1.0);
         return recommendation(
@@ -966,6 +983,30 @@ pub(crate) fn recommend_output_mode(
         );
     }
 
+    // A text-bearing page reaching this point was cleared of picture, color
+    // and broad-midtone ownership; only its histogram margins were too weak
+    // for the confident gates. When the ink itself is emphatically dark
+    // (full mode separation), that weakness comes from texture the cleanup
+    // exists to remove — map hatching, verso show-through — and a full-page
+    // continuous-tone fallback would republish it at 30-60x the encoded
+    // size. Faint media (pencil, low-contrast reproduction) keeps the
+    // grayscale fallback: its mode separation is genuinely small and
+    // thresholding would destroy the marks.
+    if has_text
+        && luminance.mode_distance >= MIN_LUMINANCE_MODE_DISTANCE
+        && luminance.midtone_fraction <= MAX_BW_MIDTONE_FRACTION
+    {
+        return recommendation(
+            OutputMode::Bw,
+            0.58,
+            OutputModeRecommendationReason::BimodalText,
+            OutputModeRule::DenseText,
+            evidence,
+            luminance,
+            chroma,
+            picture_fraction,
+        );
+    }
     recommendation(
         OutputMode::Grayscale,
         (0.52
@@ -1596,10 +1637,10 @@ mod tests {
                 true, 2.0, 8.0, source_dpi, 0.2, 4,
             ));
         }
-        assert!(should_veto_bilevel_fidelity(true, 8.0, 30.0, 300.0, 0.2, 4,));
+        assert!(should_veto_bilevel_fidelity(true, 3.0, 12.0, 100.0, 0.9, 4,));
         assert!(
-            !should_veto_bilevel_fidelity(true, 10.0, 36.0, 300.0, 0.2, 4),
-            "soft-edged glyphs need enough render samples to keep edge quantization near ten percent"
+            !should_veto_bilevel_fidelity(true, 4.8, 14.4, 360.0, 0.6, 4),
+            "measured 360 dpi book print (stroke 4.8 px, x-height 14.4 px) binarizes cleanly"
         );
         assert!(
             !should_veto_bilevel_fidelity(true, 1.0, 6.0, 100.0, 0.0, 4),
@@ -2218,28 +2259,52 @@ mod tests {
     #[test]
     fn localized_tone_beside_text_uses_layers_instead_of_a_full_page_gray_raster() {
         let (gray, _) = text_page([205; 3]);
-        let picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let outside_tone = crate::text_tone::OutsideTonalEvidence {
+            fraction: 0.025,
+            largest_component_fraction: 0.02,
+            largest_component_width_fraction: 0.12,
+            largest_component_height_fraction: 0.10,
+        };
+
+        // With detector-corroborated ownership, localized tone beside text
+        // is layered rather than flattening the sheet to an 8-bit raster.
+        let mut owned_picture_mask = BinaryImage::new(gray.width(), gray.height());
+        for y in 40..90 {
+            for x in 250..330 {
+                owned_picture_mask.set(x, y, true);
+            }
+        }
         let recommendation = recommend_output_mode_with_tone(
             PreparedModeEvidence {
                 analysis: &gray,
                 analysis_rgb: None,
-                picture_mask: &picture_mask,
+                picture_mask: &owned_picture_mask,
                 text_line_count: 8,
             },
-            crate::text_tone::OutsideTonalEvidence {
-                fraction: 0.025,
-                largest_component_fraction: 0.02,
-                largest_component_width_fraction: 0.12,
-                largest_component_height_fraction: 0.10,
-            },
+            outside_tone,
         );
-
         assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
         assert_eq!(
             recommendation.reason,
             OutputModeRecommendationReason::TextWithPictures
         );
         assert!(recommendation.diagnostics.destructive_mode_tonal_veto);
+
+        // Without detector ownership the same tone evidence must NOT promote:
+        // verso show-through measures as coherent gray outside every text
+        // line on plain text pages, and a promoted page would publish a
+        // Mixed manifest that owns no tone at all.
+        let empty_picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let unowned = recommend_output_mode_with_tone(
+            PreparedModeEvidence {
+                analysis: &gray,
+                analysis_rgb: None,
+                picture_mask: &empty_picture_mask,
+                text_line_count: 8,
+            },
+            outside_tone,
+        );
+        assert_eq!(unowned.mode, OutputMode::Bw, "{unowned:?}");
     }
 
     #[test]
