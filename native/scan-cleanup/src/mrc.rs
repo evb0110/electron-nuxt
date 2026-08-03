@@ -328,6 +328,175 @@ pub(crate) fn derive_tone_mask_excluding_foreground(
     components.retain(|component| unexplained_counts[component.label as usize] > 0)
 }
 
+/// Completes an accepted photo zone across a dark glossy continuation.
+///
+/// Glossy black relief can be too edge-dense for the normal seed cascade even
+/// when it is the lower part of a photograph that already earned a zone. Only
+/// compact dark masses that are physically close to an accepted zone are
+/// eligible here; thin rules and text never acquire the minimum two-dimensional
+/// span or density. Reconstruction still uses the existing Wolf substrate and
+/// its physical halo, so the completion adds the subject's recoverable tone
+/// rather than changing the calibrated region verdict.
+fn complete_adjacent_dark_zones(
+    gray: &GrayImage,
+    accepted: &BinaryImage,
+    binary: &BinaryImage,
+    closed: &BinaryImage,
+    dpi: f64,
+) -> BinaryImage {
+    if accepted.count_black() == 0 {
+        return accepted.clone();
+    }
+
+    // The producer's coarse background averages a glossy black base into the
+    // lower midtones, so its near-black evidence is just below this ceiling.
+    // This is still below the paper core; density, span, grouping, and the
+    // accepted-zone corridor jointly narrow the completion rule.
+    let dark_ceiling = luminance_percentile(gray, 3, 4).saturating_sub(8);
+    let recovery_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 64.0) as usize;
+    let completion_context = dilate(accepted, recovery_radius, recovery_radius);
+    let dark_candidates = BinaryImage::from_fn_parallel(
+        gray.width(),
+        gray.height(),
+        |x, y| gray.get(x, y) <= dark_ceiling && completion_context.get(x, y),
+    );
+    let density_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 16.0) as usize;
+    let dense_dark = filter_dense_regions(&dark_candidates, density_radius, 1, 3);
+    if dense_dark.count_black() == 0 {
+        return accepted.clone();
+    }
+
+    let grouping_radius = (dpi * 1.0 / 25.4).round().clamp(1.0, 16.0) as usize;
+    // Group the complete dark footprint, not only its dense interior. The
+    // lower rim of a glossy foot is often a sparse near-black contour; the
+    // dense field remains the compactness guard while the raw footprint gives
+    // reconstruction the width profile that continues below the plate.
+    let grouped = ComponentMap::from_binary(&dilate(
+        &dark_candidates,
+        grouping_radius,
+        grouping_radius,
+    ));
+    let minimum_span = (dpi * 3.0 / 25.4).round().max(8.0) as usize;
+    let adjacency_radius = (dpi * 1.5 / 25.4).round().clamp(2.0, 32.0) as usize;
+    let accepted_halo = dilate(accepted, adjacency_radius, adjacency_radius);
+    let component_count = grouped.components().len();
+    let mut dark_counts = vec![0usize; component_count + 1];
+    let mut dense_counts = vec![0usize; component_count + 1];
+    let mut dark_bounds =
+        vec![None::<(usize, usize, usize, usize)>; component_count + 1];
+    let mut touches_accepted = vec![false; component_count + 1];
+    let mut profile_min_width = vec![usize::MAX; component_count + 1];
+    let mut profile_max_width = vec![0usize; component_count + 1];
+    let mut row_left = vec![usize::MAX; component_count + 1];
+    let mut row_right = vec![0usize; component_count + 1];
+    let mut row_labels = Vec::new();
+    for y in 0..gray.height() {
+        for x in 0..gray.width() {
+            if !dark_candidates.get(x, y) {
+                continue;
+            }
+            let label = grouped.label_at(x, y) as usize;
+            if label == 0 {
+                continue;
+            }
+            dark_counts[label] += 1;
+            dark_bounds[label] = Some(dark_bounds[label].map_or(
+                (x, y, x, y),
+                |(left, top, right, bottom)| {
+                    (left.min(x), top.min(y), right.max(x), bottom.max(y))
+                },
+            ));
+            if dense_dark.get(x, y) {
+                dense_counts[label] += 1;
+            }
+            if accepted_halo.get(x, y) {
+                touches_accepted[label] = true;
+            }
+            if row_left[label] == usize::MAX {
+                row_labels.push(label);
+            }
+            row_left[label] = row_left[label].min(x);
+            row_right[label] = row_right[label].max(x);
+        }
+        for label in row_labels.drain(..) {
+            let width = row_right[label] - row_left[label] + 1;
+            profile_min_width[label] = profile_min_width[label].min(width);
+            profile_max_width[label] = profile_max_width[label].max(width);
+            row_left[label] = usize::MAX;
+            row_right[label] = 0;
+        }
+    }
+
+    let trace = std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some();
+    let mut absorb = vec![false; component_count + 1];
+    let mut touching_count = 0usize;
+    for component in grouped.components() {
+        let label = component.label as usize;
+        let Some((left, top, right, bottom)) = dark_bounds[label] else {
+            continue;
+        };
+        let width = right - left + 1;
+        let height = bottom - top + 1;
+        let area = width.saturating_mul(height);
+        // A component's grouped bbox includes the physical joining halo; use
+        // the unexpanded dark bbox for compactness so a sparse line cannot
+        // pass merely because its dilation is long.
+        let compact = dense_counts[label].saturating_mul(10) >= area;
+        // A dark rule can be both dense and adjacent to a photo. A real
+        // three-dimensional foot changes width as it descends; requiring a
+        // modest row-profile change keeps a constant-width rule out without
+        // requiring texture or an absolute luminance value.
+        let profile_varies = profile_min_width[label] != usize::MAX
+            && profile_min_width[label].saturating_mul(5)
+                <= profile_max_width[label].saturating_mul(4);
+        if touches_accepted[label] {
+            touching_count += 1;
+            if trace {
+                eprintln!(
+                    "{{\"event\":\"mrc-dark-component\",\"left\":{left},\"top\":{top},\
+                     \"right\":{right},\"bottom\":{bottom},\"darkPixels\":{},\
+                     \"compact\":{compact},\"profileVaries\":{profile_varies}}}",
+                    dark_counts[label],
+                );
+            }
+        }
+        if width >= minimum_span
+            && height >= minimum_span
+            && compact
+            && profile_varies
+            && touches_accepted[label]
+        {
+            absorb[label] = true;
+        }
+    }
+    if trace {
+        eprintln!(
+            "{{\"event\":\"mrc-dark-completion\",\"dark\":{},\
+             \"dense\":{},\"groups\":{},\"touching\":{},\"absorbed\":{}}}",
+            dark_candidates.count_black(),
+            dense_dark.count_black(),
+            component_count,
+            touching_count,
+            absorb.iter().filter(|&&value| value).count(),
+        );
+    }
+    if !absorb.iter().any(|&value| value) {
+        return accepted.clone();
+    }
+
+    let completion_seed = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
+        let label = grouped.label_at(x, y) as usize;
+        label > 0 && absorb[label] && dark_candidates.get(x, y)
+    });
+    let recovery_zone = dilate(&completion_seed, recovery_radius, recovery_radius);
+    let recovery_mask = binary.or(&closed).or(&completion_seed).and(&recovery_zone);
+    let recovered = fill_enclosed_holes(&reconstruct_binary(
+        &completion_seed,
+        &recovery_mask,
+    ));
+    accepted.or(&recovered)
+}
+
 pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
     if gray.width() == 0 || gray.height() == 0 {
         return BinaryImage::new(gray.width(), gray.height());
@@ -501,7 +670,7 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
             label_counts[label] += 1;
         }
     }
-    regions.retain(|component| {
+    let accepted = regions.retain(|component| {
         let histogram = &histograms[component.label as usize];
         let total: usize = histogram.iter().sum();
         if total == 0 {
@@ -568,7 +737,8 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
         } else {
             spread_fraction >= 0.18 && edge_fraction < 0.30
         }
-    })
+    });
+    complete_adjacent_dark_zones(gray, &accepted, &binary, &closed, dpi)
 }
 
 fn box_mean_gray(image: &GrayImage, radius: usize) -> GrayImage {
@@ -650,6 +820,67 @@ pub(crate) fn derive_picture_zones(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_dark_mass_adjacent_to_a_photo_zone_is_completed() {
+        let mut gray = GrayImage::new(240, 240, 255);
+        let mut accepted = BinaryImage::new(240, 240);
+        let mut binary = BinaryImage::new(240, 240);
+        for y in 32..112 {
+            for x in 64..176 {
+                accepted.set(x, y, true);
+            }
+        }
+        for y in 112..130 {
+            let inset = (y - 112).min(8);
+            for x in 80 + inset..160 - inset {
+                gray.set(x, y, 16 + ((x + y) % 20) as u8);
+                binary.set(x, y, true);
+            }
+        }
+        let completed = complete_adjacent_dark_zones(&gray, &accepted, &binary, &binary, 150.0);
+        assert!(completed.get(120, 120));
+        assert!(!completed.get(120, 144));
+        assert!(!completed.get(32, 144));
+    }
+
+    #[test]
+    fn thin_dark_rule_adjacent_to_a_photo_zone_is_not_completed() {
+        let mut gray = GrayImage::new(240, 240, 255);
+        let mut accepted = BinaryImage::new(240, 240);
+        let mut binary = BinaryImage::new(240, 240);
+        for y in 32..112 {
+            for x in 64..176 {
+                accepted.set(x, y, true);
+            }
+        }
+        for x in 64..176 {
+            gray.set(x, 112, 16);
+            binary.set(x, 112, true);
+        }
+        let completed = complete_adjacent_dark_zones(&gray, &accepted, &binary, &binary, 150.0);
+        assert_eq!(completed, accepted);
+    }
+
+    #[test]
+    fn constant_width_dark_rule_adjacent_to_a_photo_is_not_completed() {
+        let mut gray = GrayImage::new(240, 240, 255);
+        let mut accepted = BinaryImage::new(240, 240);
+        let mut binary = BinaryImage::new(240, 240);
+        for y in 32..112 {
+            for x in 64..176 {
+                accepted.set(x, y, true);
+            }
+        }
+        for y in 112..132 {
+            for x in 64..176 {
+                gray.set(x, y, 16);
+                binary.set(x, y, true);
+            }
+        }
+        let completed = complete_adjacent_dark_zones(&gray, &accepted, &binary, &binary, 150.0);
+        assert_eq!(completed, accepted);
+    }
 
     #[test]
     fn dense_random_photo_texture_survives_as_a_zone() {

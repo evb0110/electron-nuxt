@@ -34,6 +34,9 @@ const WOLF_MINIMUM_PERCENTILE: f64 = 0.01;
 const WOLF_HARD_INK: u8 = 48;
 const WOLF_HARD_PAPER: u8 = 248;
 const STROKE_EDGE_THRESHOLD: u16 = 24;
+const TILE_PAPER_DELTA: u8 = 48;
+const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
+const MIN_QUALIFYING_PAPER_TILES: usize = 4;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -623,6 +626,32 @@ fn image_percentile(image: &GrayImage, fraction: f64) -> u8 {
 }
 
 fn tile_paper_deviation(image: &GrayImage) -> f64 {
+    let paper = paper_reference(image);
+    let paper_floor = paper.saturating_sub(TILE_PAPER_DELTA);
+    let filtered_paper = tile_paper_values(image, Some(paper_floor));
+    if filtered_paper.len() >= MIN_QUALIFYING_PAPER_TILES {
+        return paper_spread(&filtered_paper);
+    }
+    paper_spread(&tile_paper_values(image, None))
+}
+
+fn paper_reference(image: &GrayImage) -> u8 {
+    let mut histogram = [0usize; 256];
+    for &value in image.data() {
+        histogram[value as usize] += 1;
+    }
+    let target = image.data().len().saturating_sub(1) * 3 / 4;
+    let mut cumulative = 0usize;
+    histogram
+        .iter()
+        .position(|frequency| {
+            cumulative += frequency;
+            cumulative > target
+        })
+        .unwrap_or(255) as u8
+}
+
+fn tile_paper_values(image: &GrayImage, paper_floor: Option<u8>) -> Vec<f64> {
     let mut paper = Vec::with_capacity(16);
     for tile_y in 0..4 {
         let top = tile_y * image.height() / 4;
@@ -632,11 +661,19 @@ fn tile_paper_deviation(image: &GrayImage) -> f64 {
             let right = ((tile_x + 1) * image.width() / 4).max(left + 1);
             let mut histogram = [0usize; 256];
             let mut count = 0usize;
+            let mut visible_paper = 0usize;
             for y in top..bottom.min(image.height()) {
                 for x in left..right.min(image.width()) {
-                    histogram[image.get(x, y) as usize] += 1;
+                    let value = image.get(x, y);
+                    histogram[value as usize] += 1;
+                    visible_paper += usize::from(paper_floor.is_none_or(|floor| value >= floor));
                     count += 1;
                 }
+            }
+            if paper_floor.is_some()
+                && visible_paper as f64 / (count.max(1) as f64) < TILE_PAPER_FRACTION_FLOOR
+            {
+                continue;
             }
             let target = ((count.saturating_sub(1)) as f64 * 0.8).round() as usize;
             let mut cumulative = 0usize;
@@ -651,6 +688,10 @@ fn tile_paper_deviation(image: &GrayImage) -> f64 {
             paper.push(value);
         }
     }
+    paper
+}
+
+fn paper_spread(paper: &[f64]) -> f64 {
     let mean = paper.iter().sum::<f64>() / paper.len().max(1) as f64;
     (paper
         .iter()
