@@ -176,7 +176,7 @@ const projectConfig = withNuxt(
         ['app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts', 441],
         ['scripts/diagnostics/pdfNavigationBlinkTrace.ts', 1530],
         ['scripts/diagnostics/scan-cleanup-corpus-verify.mjs', 1429],
-        ['scripts/diagnostics/scan-cleanup-word-loss-audit.mjs', 2350],
+        ['scripts/diagnostics/scan-cleanup-word-loss-audit.mjs', 2850],
         ['app/modules/workspace-shell/components/DocumentWorkspace.vue', 1556],
         ['app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue', 1475],
         ['app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts', 1216],

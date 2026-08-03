@@ -67,6 +67,7 @@ function parseArgs(argv) {
     const options = {
         cleaned: null,
         from: null,
+        mapping: null,
         baseline: null,
         failOn: 'none',
         minArea: 24,
@@ -86,6 +87,7 @@ function parseArgs(argv) {
 Options:
   --source <pdf>       Source PDF with the original text smask
   --cleaned <pdf>      Cleaned MRC PDF to audit
+  --mapping <summary>  Converter summary with source/output page mapping
   --from <page>        First PDF page (default: 1)
   --to <page>          Last PDF page (default: source page count)
   --out <json>         JSON report path (default: ${defaultOutputPath})
@@ -103,6 +105,7 @@ Options:
             '--cleaned',
             '--fail-on',
             '--from',
+            '--mapping',
             '--min-area',
             '--out',
             '--source',
@@ -116,7 +119,7 @@ Options:
         if (!value || value.startsWith('--')) {
             throw new Error(`Missing value for ${argument}`);
         }
-        if (argument === '--source' || argument === '--cleaned' || argument === '--baseline') {
+        if (argument === '--source' || argument === '--cleaned' || argument === '--baseline' || argument === '--mapping') {
             options[argument.slice(2)] = resolve(value);
         } else if (argument === '--out') {
             options.out = resolve(value);
@@ -238,10 +241,29 @@ function groupRowsByPage(rows) {
 }
 
 function selectSourceMaskRow(rows) {
-    return rows
+    const maskRows = rows
         .filter(row => row.type === 'smask' && row.bpc === 1)
-        .sort((left, right) => right.width * right.height - left.width * left.height)[0]
-        ?? null;
+        .sort((left, right) => right.width * right.height - left.width * left.height);
+    if (maskRows.length > 0) {
+        return maskRows[0];
+    }
+    const imageRows = rows.filter(row => row.type === 'image' || row.type === 'stencil');
+    const bilevelRows = imageRows
+        .filter(row => row.bpc === 1)
+        .sort((left, right) => {
+            if (left.type !== right.type) {
+                return left.type === 'stencil' ? -1 : 1;
+            }
+            return right.width * right.height - left.width * left.height;
+        });
+    if (bilevelRows.length > 0) {
+        return bilevelRows[0];
+    }
+    if (imageRows.length !== 1) {
+        return null;
+    }
+    const [singleImage] = imageRows;
+    return singleImage?.color === 'gray' ? singleImage : null;
 }
 
 function selectCleanedInkRow(rows) {
@@ -560,6 +582,174 @@ function makeBitmap(width, height, pixels) {
         pixels,
         width,
     };
+}
+
+function bitmapBounds(bitmap) {
+    let minX = bitmap.width;
+    let minY = bitmap.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < bitmap.height; y += 1) {
+        const offset = y * bitmap.width;
+        for (let x = 0; x < bitmap.width; x += 1) {
+            if (!bitmap.pixels[offset + x]) {
+                continue;
+            }
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+    }
+    return maxX < 0
+        ? null
+        : {
+            maxX,
+            maxY,
+            minX,
+            minY,
+        };
+}
+
+function rotateBitmap(bitmap, quarterTurns) {
+    const turns = ((quarterTurns % 4) + 4) % 4;
+    if (turns === 0) {
+        return bitmap;
+    }
+    const width = turns % 2 === 0 ? bitmap.width : bitmap.height;
+    const height = turns % 2 === 0 ? bitmap.height : bitmap.width;
+    const pixels = new Uint8Array(width * height);
+    for (let y = 0; y < bitmap.height; y += 1) {
+        for (let x = 0; x < bitmap.width; x += 1) {
+            let targetX;
+            let targetY;
+            if (turns === 1) {
+                targetX = bitmap.height - 1 - y;
+                targetY = x;
+            } else if (turns === 2) {
+                targetX = bitmap.width - 1 - x;
+                targetY = bitmap.height - 1 - y;
+            } else {
+                targetX = y;
+                targetY = bitmap.width - 1 - x;
+            }
+            pixels[targetY * width + targetX] = bitmap.pixels[y * bitmap.width + x];
+        }
+    }
+    return makeBitmap(width, height, pixels);
+}
+
+function cropBitmap(bitmap, x, y, width, height) {
+    const pixels = new Uint8Array(width * height);
+    for (let row = 0; row < height; row += 1) {
+        const sourceOffset = (y + row) * bitmap.width + x;
+        pixels.set(
+            bitmap.pixels.subarray(sourceOffset, sourceOffset + width),
+            row * width,
+        );
+    }
+    return makeBitmap(width, height, pixels);
+}
+
+function rotateGrayBitmap(bitmap, quarterTurns) {
+    const turns = ((quarterTurns % 4) + 4) % 4;
+    if (turns === 0) {
+        return bitmap;
+    }
+    const width = turns % 2 === 0 ? bitmap.width : bitmap.height;
+    const height = turns % 2 === 0 ? bitmap.height : bitmap.width;
+    const values = new Uint8Array(width * height);
+    for (let y = 0; y < bitmap.height; y += 1) {
+        for (let x = 0; x < bitmap.width; x += 1) {
+            let targetX;
+            let targetY;
+            if (turns === 1) {
+                targetX = bitmap.height - 1 - y;
+                targetY = x;
+            } else if (turns === 2) {
+                targetX = bitmap.width - 1 - x;
+                targetY = bitmap.height - 1 - y;
+            } else {
+                targetX = y;
+                targetY = bitmap.width - 1 - x;
+            }
+            values[targetY * width + targetX] = bitmap.values[y * bitmap.width + x];
+        }
+    }
+    return {
+        height,
+        values,
+        width,
+    };
+}
+
+function cropGrayBitmap(bitmap, x, y, width, height) {
+    const values = new Uint8Array(width * height);
+    for (let row = 0; row < height; row += 1) {
+        const sourceOffset = (y + row) * bitmap.width + x;
+        values.set(
+            bitmap.values.subarray(sourceOffset, sourceOffset + width),
+            row * width,
+        );
+    }
+    return {
+        height,
+        values,
+        width,
+    };
+}
+
+function resolveSplitSourceTransform(source, cleanedRows, splitCount, splitIndex) {
+    const outputWidth = cleanedRows.reduce((total, row) => total + row.width, 0) / cleanedRows.length;
+    const outputHeight = cleanedRows.reduce((total, row) => total + row.height, 0) / cleanedRows.length;
+    const targetAspect = outputWidth * splitCount / outputHeight;
+    const candidates = [
+        0,
+        1,
+        3,
+    ].map(quarterTurns => {
+        const width = quarterTurns % 2 === 0 ? source.width : source.height;
+        const height = quarterTurns % 2 === 0 ? source.height : source.width;
+        return {
+            quarterTurns,
+            score: Math.abs(Math.log((width / height) / targetAspect)),
+            width,
+            height,
+        };
+    });
+    const orientation = candidates.reduce((best, candidate) =>
+        candidate.score < best.score ? candidate : best,
+    );
+    const left = Math.floor(orientation.width * splitIndex / splitCount);
+    const right = Math.floor(orientation.width * (splitIndex + 1) / splitCount);
+    return {
+        height: orientation.height,
+        quarterTurns: orientation.quarterTurns,
+        width: orientation.width,
+        x: left,
+        y: 0,
+        cropWidth: right - left,
+    };
+}
+
+function applySourceSplitTransform(source, transform) {
+    return cropBitmap(
+        rotateBitmap(source, transform.quarterTurns),
+        transform.x,
+        transform.y,
+        transform.cropWidth,
+        transform.height,
+    );
+}
+
+function applySourceGraySplitTransform(source, transform) {
+    return cropGrayBitmap(
+        rotateGrayBitmap(source, transform.quarterTurns),
+        transform.x,
+        transform.y,
+        transform.cropWidth,
+        transform.height,
+    );
 }
 
 function downsampleBitmap(bitmap, factor) {
@@ -976,15 +1166,25 @@ function alignAtScale(
         );
     const sourceBroad = downsampleBitmap(scaledQuarter, BROAD_DOWNSAMPLE / QUARTER_DOWNSAMPLE);
     const cleanedBroad = downsampleBitmap(cleanedQuarter, BROAD_DOWNSAMPLE / QUARTER_DOWNSAMPLE);
+    const usesUniformFitAlignment = typeof scale === 'object'
+        && scale.label.startsWith('uniform-fit(');
+    const sourceBounds = usesUniformFitAlignment ? bitmapBounds(sourceBroad) : null;
+    const cleanedBounds = usesUniformFitAlignment ? bitmapBounds(cleanedBroad) : null;
+    const preferredBroadDx = sourceBounds && cleanedBounds
+        ? Math.round(cleanedBounds.minX - sourceBounds.minX)
+        : 0;
+    const preferredBroadDy = sourceBounds && cleanedBounds
+        ? Math.round(cleanedBounds.minY - sourceBounds.minY)
+        : 0;
     const broadRows = collectBlackRows(cleanedBroad, MAX_BROAD_ALIGNMENT_SAMPLES);
     const broadRadius = Math.ceil(ALIGNMENT_RADIUS_FULL_PX / BROAD_DOWNSAMPLE);
     const broad = searchReverseRows({
-        maxDx: broadRadius,
-        maxDy: broadRadius,
-        minDx: -broadRadius,
-        minDy: -broadRadius,
-        preferredDx: 0,
-        preferredDy: 0,
+        maxDx: preferredBroadDx + broadRadius,
+        maxDy: preferredBroadDy + broadRadius,
+        minDx: preferredBroadDx - broadRadius,
+        minDy: preferredBroadDy - broadRadius,
+        preferredDx: preferredBroadDx,
+        preferredDy: preferredBroadDy,
         sourceRows: broadRows.rows,
         sourceWidth: cleanedBroad.width,
         step: 2,
@@ -1007,20 +1207,30 @@ function alignAtScale(
         target: scaledQuarter.pixels,
         targetWidth: scaledQuarter.width,
     });
-    const fullPoints = collectMappedBlackPoints(alignmentCleaned, 1, MAX_FULL_ALIGNMENT_SAMPLES);
-    const fullCenterDx = quarter.dx * QUARTER_DOWNSAMPLE;
-    const fullCenterDy = quarter.dy * QUARTER_DOWNSAMPLE;
+    const fullPoints = collectMappedBlackPoints(
+        usesUniformFitAlignment ? cleaned : alignmentCleaned,
+        1,
+        MAX_FULL_ALIGNMENT_SAMPLES,
+    );
+    const sourceFullBounds = usesUniformFitAlignment ? bitmapBounds(source) : null;
+    const cleanedFullBounds = usesUniformFitAlignment ? bitmapBounds(cleaned) : null;
+    const fullCenterDx = sourceFullBounds && cleanedFullBounds
+        ? Math.round(cleanedFullBounds.minX - Math.floor((sourceFullBounds.minX + 0.5) * scaleX))
+        : quarter.dx * QUARTER_DOWNSAMPLE;
+    const fullCenterDy = sourceFullBounds && cleanedFullBounds
+        ? Math.round(cleanedFullBounds.minY - Math.floor((sourceFullBounds.minY + 0.5) * scaleY))
+        : quarter.dy * QUARTER_DOWNSAMPLE;
     const full = searchInverseMappedPoints({
-        maxDx: fullCenterDx + 4,
-        maxDy: fullCenterDy + 4,
-        minDx: fullCenterDx - 4,
-        minDy: fullCenterDy - 4,
+        maxDx: fullCenterDx + (usesUniformFitAlignment ? 8 : 4),
+        maxDy: fullCenterDy + (usesUniformFitAlignment ? 8 : 4),
+        minDx: fullCenterDx - (usesUniformFitAlignment ? 8 : 4),
+        minDy: fullCenterDy - (usesUniformFitAlignment ? 8 : 4),
         points: fullPoints,
         preferredDx: fullCenterDx,
         preferredDy: fullCenterDy,
         scaleX,
         scaleY,
-        source: alignmentSource,
+        source: usesUniformFitAlignment ? source : alignmentSource,
     });
     const quarterOverlap = exactOverlap(
         scaledQuarter,
@@ -1743,9 +1953,10 @@ function roundNumber(value, digits = 6) {
     return Number(value.toFixed(digits));
 }
 
-function pageError(pageNumber, error) {
+function pageError(pageNumber, outputPageNumber, error) {
     return {
         flagged: false,
+        outputPage: outputPageNumber,
         page: pageNumber,
         status: 'error',
         error: error instanceof Error ? error.message : String(error),
@@ -1756,21 +1967,26 @@ function pageError(pageNumber, error) {
 
 async function analyzePage({
     cleanedRowsByPage,
+    mappingActive,
     minArea,
+    outputPageNumber,
+    outputPageNumbers,
     pageNumber,
+    splitIndex,
     sourceRowsByPage,
     sourcePdf,
     cleanedPdf,
     workDirectory,
 }) {
     const sourceRows = sourceRowsByPage.get(pageNumber) ?? [];
-    const cleanedRows = cleanedRowsByPage.get(pageNumber) ?? [];
+    const cleanedRows = cleanedRowsByPage.get(outputPageNumber) ?? [];
     const sourceRow = selectSourceMaskRow(sourceRows);
     if (!sourceRow) {
         return {
             flagged: false,
             page: pageNumber,
-            reason: 'source has no 1-bit smask',
+            outputPage: outputPageNumber,
+            reason: 'source has no bilevel mask or single grayscale image',
             status: 'skipped',
         };
     }
@@ -1778,6 +1994,7 @@ async function analyzePage({
     if (!cleanedRow) {
         return {
             flagged: false,
+            outputPage: outputPageNumber,
             page: pageNumber,
             reason: 'cleaned page publishes no bilevel image or stencil',
             status: 'skipped',
@@ -1793,21 +2010,30 @@ async function analyzePage({
             workDirectory,
         });
         const cleaned = await extractPngMask({
-            pageNumber,
+            pageNumber: outputPageNumber,
             pdfPath: cleanedPdf,
             role: 'cleaned',
             row: cleanedRow,
             rows: cleanedRows,
             workDirectory,
         });
-        const sourceAlignment = makeAlignmentBitmap(source, minArea, true);
+        const splitRows = outputPageNumbers
+            .map(outputPage => selectCleanedInkRow(cleanedRowsByPage.get(outputPage) ?? []))
+            .filter(row => row !== null);
+        const sourceSplitTransform = outputPageNumbers.length > 1
+            ? resolveSplitSourceTransform(source, splitRows, outputPageNumbers.length, splitIndex)
+            : null;
+        const sourceForAudit = sourceSplitTransform === null
+            ? source
+            : applySourceSplitTransform(source, sourceSplitTransform);
+        const sourceAlignment = makeAlignmentBitmap(sourceForAudit, minArea, true);
         const cleanedAlignment = makeAlignmentBitmap(cleaned, minArea);
         const alignmentSource = sourceAlignment.bitmap;
         const alignmentCleaned = cleanedAlignment.bitmap;
         const alignmentSourceTop = alignmentSource;
         const alignmentCleanedTop = alignmentCleaned;
         const alignmentOne = alignAtScale(
-            source,
+            sourceForAudit,
             cleaned,
             1,
             alignmentSourceTop,
@@ -1816,7 +2042,7 @@ async function analyzePage({
         const alignments = [alignmentOne];
         if (alignmentOne.overlapScore < 0.4) {
             alignments.push(alignAtScale(
-                source,
+                sourceForAudit,
                 cleaned,
                 CROP_SCALE,
                 alignmentSourceTop,
@@ -1824,8 +2050,8 @@ async function analyzePage({
             ));
         }
         if (Math.max(...alignments.map(candidate => candidate.fullOverlapScore)) < 0.7) {
-            const dimensionScaleX = cleaned.width / source.width;
-            const dimensionScaleY = cleaned.height / source.height;
+            const dimensionScaleX = cleaned.width / sourceForAudit.width;
+            const dimensionScaleY = cleaned.height / sourceForAudit.height;
             const dimensionScale = {
                 label: `dimension-fit(${dimensionScaleX.toFixed(6)}x${dimensionScaleY.toFixed(6)})`,
                 x: dimensionScaleX,
@@ -1836,7 +2062,7 @@ async function analyzePage({
                 || Math.abs(dimensionScale.y - 1) > 1e-6
             ) {
                 alignments.push(alignAtScale(
-                    source,
+                    sourceForAudit,
                     cleaned,
                     dimensionScale,
                     alignmentSourceTop,
@@ -1844,12 +2070,26 @@ async function analyzePage({
                 ));
             }
         }
+        const uniformScaleValue = cleaned.height / sourceForAudit.height;
+        if (mappingActive && Math.abs(uniformScaleValue - 1) > 1e-6) {
+            alignments.push(alignAtScale(
+                sourceForAudit,
+                cleaned,
+                {
+                    label: `uniform-fit(${uniformScaleValue.toFixed(6)})`,
+                    x: uniformScaleValue,
+                    y: uniformScaleValue,
+                },
+                alignmentSourceTop,
+                alignmentCleanedTop,
+            ));
+        }
         const alignment = alignments.reduce((best, candidate) =>
             candidate.fullOverlapScore > best.fullOverlapScore ? candidate : best,
         );
         const cleanedDilated = dilateOnePixel(cleaned);
         const preliminaryMetrics = analyzeComponents(
-            source,
+            sourceForAudit,
             cleanedDilated,
             alignment,
             minArea,
@@ -1869,17 +2109,20 @@ async function analyzePage({
                 role: 'source',
                 workDirectory,
             });
-            sourceGray = resizeGrayBitmap(
+            const sourceGrayFrame = resizeGrayBitmap(
                 renderedSource,
-                source.width,
-                source.height,
-                renderedSource.width / source.width,
-                renderedSource.height / source.height,
+                sourceSplitTransform?.width ?? source.width,
+                sourceSplitTransform?.height ?? source.height,
+                renderedSource.width / (sourceSplitTransform?.width ?? source.width),
+                renderedSource.height / (sourceSplitTransform?.height ?? source.height),
             );
+            sourceGray = sourceSplitTransform === null
+                ? sourceGrayFrame
+                : applySourceGraySplitTransform(sourceGrayFrame, sourceSplitTransform);
             if (preliminaryMetrics.lostCount > 0) {
                 const renderedCleaned = await renderPdfPageGray({
                     dpi: Math.round(Math.max(cleanedRow.xPpi || dpi, cleanedRow.yPpi || dpi)),
-                    pageNumber,
+                    pageNumber: outputPageNumber,
                     pdfPath: cleanedPdf,
                     role: 'cleaned',
                     workDirectory,
@@ -1895,7 +2138,7 @@ async function analyzePage({
         }
         const componentMetrics = preliminaryMetrics.lostCount > 0
             ? analyzeComponents(
-                source,
+                sourceForAudit,
                 cleanedDilated,
                 alignment,
                 minArea,
@@ -1958,16 +2201,19 @@ async function analyzePage({
             lostCount: componentMetrics.lostCount,
             lostInkFraction: roundNumber(componentMetrics.lostInkFraction),
             localRealignment: componentMetrics.localRealignment,
+            outputPage: outputPageNumber,
             page: pageNumber,
             silhouetteFlagged,
             silhouettes,
             sourceImage: {
+                bpc: sourceRow.bpc,
+                color: sourceRow.color,
                 encoding: sourceRow.encoding,
-                height: source.height,
+                height: sourceForAudit.height,
                 type: sourceRow.type,
-                width: source.width,
+                width: sourceForAudit.width,
             },
-            sourceInkPixels: source.blackCount,
+            sourceInkPixels: sourceForAudit.blackCount,
             status: 'analyzed',
             totalTextComponents: componentMetrics.totalTextComponents,
             textInkPixels: componentMetrics.textInkPixels,
@@ -1977,8 +2223,141 @@ async function analyzePage({
         }
         return result;
     } catch (error) {
-        return pageError(pageNumber, error);
+        return pageError(pageNumber, outputPageNumber, error);
     }
+}
+
+function sumPageValues(pages, key) {
+    return pages.reduce((total, page) => total + (page[key] ?? 0), 0);
+}
+
+function weightedPageFraction(pages, fractionKey, weightKey) {
+    const weight = sumPageValues(pages, weightKey);
+    return weight === 0
+        ? 0
+        : pages.reduce(
+            (total, page) => total + (page[fractionKey] ?? 0) * (page[weightKey] ?? 0),
+            0,
+        ) / weight;
+}
+
+function summarizeMappedPage(pageNumber, outputPageNumbers, pageAudits) {
+    const analyzed = pageAudits.filter(page => page.status === 'analyzed');
+    const first = pageAudits[0] ?? {
+        flagged: false,
+        page: pageNumber,
+        status: 'skipped',
+    };
+    if (analyzed.length === 0) {
+        return {
+            ...first,
+            outputPage: outputPageNumbers.length === 1 ? outputPageNumbers[0] : null,
+            outputPages: outputPageNumbers,
+            page: pageNumber,
+        };
+    }
+    if (analyzed.length === 1 && pageAudits.length === 1) {
+        return {
+            ...analyzed[0],
+            outputPages: outputPageNumbers,
+        };
+    }
+    const silhouettes = pageAudits.flatMap(page => (page.silhouettes ?? []).map(silhouette => ({
+        ...silhouette,
+        outputPage: page.outputPage,
+    })));
+    const components = pageAudits.flatMap(page => (page.components ?? []).map(component => ({
+        ...component,
+        outputPage: page.outputPage,
+    })));
+    const textInkPixels = sumPageValues(analyzed, 'textInkPixels');
+    const result = {
+        alignment: null,
+        alignmentCleanedInkPixels: sumPageValues(analyzed, 'alignmentCleanedInkPixels'),
+        alignmentSourceInkPixels: sumPageValues(analyzed, 'alignmentSourceInkPixels'),
+        cleanedImage: analyzed[0].cleanedImage,
+        cleanedInkPixels: sumPageValues(analyzed, 'cleanedInkPixels'),
+        damagedCount: sumPageValues(analyzed, 'damagedCount'),
+        flagged: analyzed.some(page => page.flagged),
+        globalLostCount: sumPageValues(analyzed, 'globalLostCount'),
+        globalLostInkFraction: weightedPageFraction(analyzed, 'globalLostInkFraction', 'textInkPixels'),
+        grayPreservedCount: sumPageValues(analyzed, 'grayPreservedCount'),
+        grayPreservedInkPixels: sumPageValues(analyzed, 'grayPreservedInkPixels'),
+        ignoredDustCount: sumPageValues(analyzed, 'ignoredDustCount'),
+        ignoredDustInkPixels: sumPageValues(analyzed, 'ignoredDustInkPixels'),
+        localRealignment: {
+            improvedComponents: analyzed.reduce(
+                (total, page) => total + (page.localRealignment?.improvedComponents ?? 0),
+                0,
+            ),
+            maxCoverageGain: Math.max(...analyzed.map(page => page.localRealignment?.maxCoverageGain ?? 0)),
+            maxShiftDistance: Math.max(...analyzed.map(page => page.localRealignment?.maxShiftDistance ?? 0)),
+            radiusPx: Math.max(...analyzed.map(page => page.localRealignment?.radiusPx ?? 0)),
+            searchedComponents: analyzed.reduce(
+                (total, page) => total + (page.localRealignment?.searchedComponents ?? 0),
+                0,
+            ),
+        },
+        lostCount: sumPageValues(analyzed, 'lostCount'),
+        lostInkFraction: weightedPageFraction(analyzed, 'lostInkFraction', 'textInkPixels'),
+        outputAudits: pageAudits,
+        outputPage: null,
+        outputPages: outputPageNumbers,
+        page: pageNumber,
+        silhouetteFlagged: silhouettes.length > 0,
+        silhouettes,
+        sourceImage: analyzed[0].sourceImage,
+        sourceInkPixels: sumPageValues(analyzed, 'sourceInkPixels'),
+        status: 'analyzed',
+        textInkPixels,
+        totalTextComponents: sumPageValues(analyzed, 'totalTextComponents'),
+    };
+    if (result.flagged || result.grayPreservedCount > 0 || components.length > 0) {
+        result.components = components;
+    }
+    return result;
+}
+
+async function analyzeMappedPage({
+    cleanedRowsByPage,
+    mappingActive,
+    minArea,
+    outputPageNumbers,
+    pageNumber,
+    sourceRowsByPage,
+    sourcePdf,
+    cleanedPdf,
+    workDirectory,
+}) {
+    if (outputPageNumbers.length === 0) {
+        return {
+            flagged: false,
+            outputPages: [],
+            page: pageNumber,
+            reason: 'mapping has no cleaned output page',
+            status: 'skipped',
+        };
+    }
+    const pageAudits = [];
+    for (const [
+        splitIndex,
+        outputPageNumber,
+    ] of outputPageNumbers.entries()) {
+        pageAudits.push(await analyzePage({
+            cleanedRowsByPage,
+            mappingActive,
+            minArea,
+            outputPageNumber,
+            outputPageNumbers,
+            pageNumber,
+            splitIndex,
+            sourceRowsByPage,
+            sourcePdf,
+            cleanedPdf,
+            workDirectory,
+        }));
+    }
+    return summarizeMappedPage(pageNumber, outputPageNumbers, pageAudits);
 }
 
 async function mapPages(pages, workers, task) {
@@ -2002,6 +2381,130 @@ async function readPageCount(pdfPath, fallback) {
     const result = await run('pdfinfo', [pdfPath]);
     const match = /^Pages:\s+(\d+)$/mu.exec(result.stdout);
     return match ? Number(match[1]) : fallback;
+}
+
+function outputPageNumbers(value) {
+    if (Array.isArray(value)) {
+        return value.flatMap(item => outputPageNumbers(item));
+    }
+    if (typeof value === 'number') {
+        return Number.isSafeInteger(value) && value > 0 ? [value] : [];
+    }
+    if (!value || typeof value !== 'object') {
+        return [];
+    }
+    return outputPageNumbers(
+        value.outputPages
+        ?? value.outputs
+        ?? value.outputPageNumber
+        ?? value.outputPage,
+    );
+}
+
+function addPageMapping(mapping, sourcePage, outputs) {
+    const parsedSourcePage = Number(sourcePage);
+    if (!Number.isSafeInteger(parsedSourcePage) || parsedSourcePage <= 0) {
+        return;
+    }
+    const current = mapping.get(parsedSourcePage) ?? [];
+    for (const outputPage of outputs) {
+        if (!current.includes(outputPage)) {
+            current.push(outputPage);
+        }
+    }
+    mapping.set(parsedSourcePage, current);
+}
+
+function parsePageMappingValue(value) {
+    const mapping = new Map();
+    if (Array.isArray(value)) {
+        for (const entry of value) {
+            if (Array.isArray(entry) && entry.length >= 2) {
+                addPageMapping(mapping, entry[0], outputPageNumbers(entry[1]));
+                continue;
+            }
+            if (!entry || typeof entry !== 'object') {
+                continue;
+            }
+            const sourcePage = entry.sourcePage
+                ?? entry.sourcePageNumber
+                ?? entry.page;
+            if (sourcePage !== undefined) {
+                addPageMapping(
+                    mapping,
+                    sourcePage,
+                    outputPageNumbers(entry),
+                );
+            }
+        }
+        return mapping;
+    }
+    if (!value || typeof value !== 'object') {
+        return mapping;
+    }
+    for (const [
+        sourcePage,
+        outputs,
+    ] of Object.entries(value)) {
+        addPageMapping(mapping, sourcePage, outputPageNumbers(outputs));
+    }
+    return mapping;
+}
+
+function readSummaryPageMapping(summary) {
+    const explicitMapping = summary.sourcePageToOutputPages
+        ?? summary.pageMapping
+        ?? summary.mapping?.sourcePageToOutputPages;
+    const parsedExplicitMapping = parsePageMappingValue(explicitMapping);
+    if (parsedExplicitMapping.size > 0) {
+        return parsedExplicitMapping;
+    }
+    const perPageRows = summary.perPageStreamSizes
+        ?? summary.representation?.pages;
+    const parsedPerPageMapping = new Map();
+    if (Array.isArray(perPageRows)) {
+        for (const row of perPageRows) {
+            if (!row || typeof row !== 'object') {
+                continue;
+            }
+            const sourcePage = row.sourcePageNumber ?? row.sourcePage;
+            const outputPage = row.outputPageNumber ?? row.outputPage;
+            addPageMapping(parsedPerPageMapping, sourcePage, outputPageNumbers(outputPage));
+        }
+    }
+    return parsedPerPageMapping;
+}
+
+async function loadPageMapping(options) {
+    const automaticPath = `${options.cleaned}.summary.json`;
+    const mappingPath = options.mapping ?? automaticPath;
+    let summaryText;
+    try {
+        summaryText = await readFile(mappingPath, 'utf8');
+    } catch (error) {
+        if (!options.mapping && error?.code === 'ENOENT') {
+            return null;
+        }
+        throw new Error(
+            `Could not read mapping summary ${mappingPath}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+    let summary;
+    try {
+        summary = JSON.parse(summaryText);
+    } catch (error) {
+        throw new Error(
+            `Could not parse mapping summary ${mappingPath}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+    const pages = readSummaryPageMapping(summary);
+    if (pages.size === 0) {
+        throw new Error(`Mapping summary ${mappingPath} contains no source-to-output page entries`);
+    }
+    return {
+        pages,
+        path: mappingPath,
+    };
 }
 
 function tableLine(page) {
@@ -2155,6 +2658,7 @@ async function main() {
         readPageCount(options.source, Math.max(...sourceRows.map(row => row.page), 0)),
         readPageCount(options.cleaned, Math.max(...cleanedRows.map(row => row.page), 0)),
     ]);
+    const pageMapping = await loadPageMapping(options);
     const from = options.from ?? 1;
     const to = options.to ?? sourcePageCount;
     if (from > to) {
@@ -2163,22 +2667,38 @@ async function main() {
     if (to > sourcePageCount) {
         throw new Error(`--to ${String(to)} exceeds source page count ${String(sourcePageCount)}`);
     }
-    if (to > cleanedPageCount) {
+    if (pageMapping === null && to > cleanedPageCount) {
         throw new Error(`--to ${String(to)} exceeds cleaned page count ${String(cleanedPageCount)}`);
     }
     const pages = Array.from({length: to - from + 1}, (_, index) => from + index);
+    const pagePlans = pages.map(pageNumber => ({
+        outputPageNumbers: pageMapping?.pages.get(pageNumber) ?? [pageNumber],
+        pageNumber,
+    }));
+    for (const pagePlan of pagePlans) {
+        for (const outputPageNumber of pagePlan.outputPageNumbers) {
+            if (outputPageNumber > cleanedPageCount) {
+                throw new Error(
+                    `Mapping sends source page ${String(pagePlan.pageNumber)} to cleaned page ${String(outputPageNumber)}, `
+                    + `but cleaned page count is ${String(cleanedPageCount)}`,
+                );
+            }
+        }
+    }
     const temporaryRoot = await mkdtemp(join(artifactDirectory, '.word-loss-audit-'));
     try {
         await Promise.all(Array.from({length: Math.min(options.workers, pages.length || 1)}, (_, index) =>
             mkdir(join(temporaryRoot, `worker-${String(index)}`), {recursive: true}),
         ));
         const startedAt = Date.now();
-        const pageResults = await mapPages(pages, options.workers, (pageNumber, workerIndex) =>
-            analyzePage({
+        const pageResults = await mapPages(pagePlans, options.workers, (pagePlan, workerIndex) =>
+            analyzeMappedPage({
                 cleanedPdf: options.cleaned,
                 cleanedRowsByPage,
+                mappingActive: pageMapping !== null,
                 minArea: options.minArea,
-                pageNumber,
+                outputPageNumbers: pagePlan.outputPageNumbers,
+                pageNumber: pagePlan.pageNumber,
                 sourcePdf: options.source,
                 sourceRowsByPage,
                 workDirectory: join(temporaryRoot, `worker-${String(workerIndex)}`),
@@ -2198,11 +2718,24 @@ async function main() {
                 from,
                 baseline: options.baseline,
                 failOn: options.failOn,
+                mapping: pageMapping?.path ?? null,
                 minArea: options.minArea,
                 source: options.source,
                 to,
                 workers: options.workers,
             },
+            mapping: pageMapping === null
+                ? null
+                : {
+                    path: pageMapping.path,
+                    sourcePageToOutputPages: [...pageMapping.pages].map(([
+                        sourcePage,
+                        outputPages,
+                    ]) => ({
+                        outputPages,
+                        sourcePage,
+                    })),
+                },
             pages: pageResults,
             summary: {
                 analyzedPages: pageResults.filter(page => page.status === 'analyzed').length,
@@ -2248,7 +2781,7 @@ async function main() {
                     minAreaMillimeters: SILHOUETTE_MIN_SIZE_MM,
                     minFillRatio: 0.8,
                 },
-                version: 2,
+                version: 3,
             },
         };
         if (options.baseline) {

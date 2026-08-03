@@ -92,6 +92,26 @@ interface IScanCleanupRepresentationReport {
     sourceBytes: number;
 }
 
+function buildSourcePageToOutputPages(
+    pages: IScanCleanupRepresentationReport['pages'],
+) {
+    const outputPagesBySource = new Map<number, number[]>();
+    for (const page of pages) {
+        const outputPages = outputPagesBySource.get(page.sourcePageNumber) ?? [];
+        outputPages.push(page.outputPageNumber);
+        outputPagesBySource.set(page.sourcePageNumber, outputPages);
+    }
+    return [...outputPagesBySource]
+        .sort(([left], [right]) => left - right)
+        .map(([
+            sourcePage,
+            outputPages,
+        ]) => ({
+            outputPages,
+            sourcePage,
+        }));
+}
+
 function printUsage() {
     process.stderr.write([
         'Usage: pnpm tsx scripts/scan-cleanup-convert.ts --source <pdf> --out <pdf> [flags]',
@@ -1046,6 +1066,7 @@ async function main() {
             },
             detection: {pages: detection.results.length},
             conversionSummary: summary,
+            sourcePageToOutputPages: buildSourcePageToOutputPages(report.pages),
             perPageStreamSizes: report.pages,
             representation: {
                 outputBytes: report.outputBytes,
