@@ -1,27 +1,27 @@
 {
   "areas": {
     "app-core": {
-      "fileCount": 1230,
+      "fileCount": 1158,
       "include": [
         "app/"
       ],
       "metrics": {
-        "statements": 67.66,
-        "branches": 60.02,
-        "functions": 68.22,
-        "lines": 68.03
+        "statements": 70,
+        "branches": 62.26,
+        "functions": 70.52,
+        "lines": 70.3
       }
     },
     "electron-core": {
-      "fileCount": 390,
+      "fileCount": 402,
       "include": [
         "electron/"
       ],
       "metrics": {
-        "statements": 72.94,
-        "branches": 64.21,
-        "functions": 75.08,
-        "lines": 73.52
+        "statements": 74.86,
+        "branches": 65.99,
+        "functions": 76.36,
+        "lines": 75.33
       }
     },
     "electron-djvu-feature": {
@@ -30,10 +30,10 @@
         "electron/features/djvu/"
       ],
       "metrics": {
-        "statements": 74.49,
-        "branches": 60.63,
-        "functions": 75.31,
-        "lines": 75.11
+        "statements": 74.31,
+        "branches": 60.7,
+        "functions": 75.95,
+        "lines": 74.95
       }
     },
     "electron-ocr": {
@@ -42,66 +42,66 @@
         "electron/ocr/"
       ],
       "metrics": {
-        "statements": 67.28,
-        "branches": 60.6,
-        "functions": 73.92,
-        "lines": 67.34
+        "statements": 70.67,
+        "branches": 63.16,
+        "functions": 77.82,
+        "lines": 70.78
       }
     },
     "pdf-viewer": {
-      "fileCount": 592,
+      "fileCount": 538,
       "include": [
         "app/modules/pdf-viewer/"
       ],
       "metrics": {
-        "statements": 66.33,
-        "branches": 59.29,
-        "functions": 67.31,
-        "lines": 66.62
+        "statements": 70.03,
+        "branches": 62.32,
+        "functions": 71.97,
+        "lines": 70.19
       }
     },
     "release-scripts": {
-      "fileCount": 25,
+      "fileCount": 27,
       "include": [
         "scripts/release/"
       ],
       "metrics": {
-        "statements": 54.59,
-        "branches": 54.39,
-        "functions": 63.37,
-        "lines": 54.1
+        "statements": 48.29,
+        "branches": 51.31,
+        "functions": 53.83,
+        "lines": 47.71
       }
     },
     "scripts-core": {
-      "fileCount": 127,
+      "fileCount": 146,
       "include": [
         "scripts/"
       ],
       "metrics": {
-        "statements": 38.01,
-        "branches": 38.11,
-        "functions": 44.39,
-        "lines": 38.07
+        "statements": 37.43,
+        "branches": 38.83,
+        "functions": 43.76,
+        "lines": 37.56
       }
     },
     "workspace-shell": {
-      "fileCount": 220,
+      "fileCount": 212,
       "include": [
         "app/modules/workspace-shell/"
       ],
       "metrics": {
-        "statements": 65.92,
-        "branches": 57.7,
-        "functions": 65.14,
-        "lines": 66.2
+        "statements": 67.11,
+        "branches": 58.9,
+        "functions": 65.48,
+        "lines": 67.39
       }
     }
   },
   "metrics": {
-    "statements": 66.65,
-    "branches": 59.64,
-    "functions": 68.65,
-    "lines": 67.03
+    "statements": 67.87,
+    "branches": 61.18,
+    "functions": 69.84,
+    "lines": 68.22
   },
   "tolerancePercentagePoints": 0.5,
   "version": 1
