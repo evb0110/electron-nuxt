@@ -2991,6 +2991,7 @@ fn filter_soft_shallow_bleed_components(
     }
     let paper = paper_reference(raw);
     let area_ceiling = ((dpi.max(1.0) * 2.0 / 25.4).powi(2)).round().max(16.0) as usize;
+    let trace_bleed = std::env::var_os("EVB_SCAN_CLEANUP_TRACE_BLEED").is_some();
     let retained = components.retain(|component| {
         let label = component.label as usize;
         if protected[label] || gradient_counts[label] == 0 || raw_counts[label] == 0 {
@@ -2998,12 +2999,21 @@ fn filter_soft_shallow_bleed_components(
         }
         let mean = raw_sums[label] as f64 / raw_counts[label] as f64;
         let crispness = gradient_sums[label] as f64 / gradient_counts[label] as f64;
-        if component.area <= area_ceiling {
+        let kept = if component.area <= area_ceiling {
             !(crispness < CRISPNESS_FLOOR && mean >= f64::from(paper.saturating_sub(SHALLOW_DEPTH)))
         } else {
             !(crispness < LARGE_CRISPNESS_FLOOR
                 && mean >= f64::from(paper.saturating_sub(LARGE_SHALLOW_DEPTH)))
+        };
+        if trace_bleed && component.area >= 8 {
+            eprintln!(
+                "{{\"event\":\"bleed-component\",\"left\":{},\"top\":{},\
+                 \"right\":{},\"bottom\":{},\"area\":{},\"mean\":{mean:.2},\
+                 \"crispness\":{crispness:.2},\"paper\":{paper},\"kept\":{kept}}}",
+                component.left, component.top, component.right, component.bottom, component.area,
+            );
         }
+        kept
     });
     // A bleed rule that crosses a running head merges with the glyphs into
     // one component that the verdict above rightly keeps, so the merged
@@ -3013,7 +3023,7 @@ fn filter_soft_shallow_bleed_components(
     // pixels that fail both tests strips the strike and leaves the glyphs
     // it crossed intact.
     let shallow_floor = paper.saturating_sub(SHALLOW_DEPTH);
-    BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
+    let stripped = BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
         retained.get(x, y)
             && (raw.get(x, y) < shallow_floor
                 || f64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)))
@@ -3021,7 +3031,29 @@ fn filter_soft_shallow_bleed_components(
                 || protected_picture
                     .as_ref()
                     .is_some_and(|mask| mask.get(x, y)))
-    })
+    });
+    if trace_bleed {
+        let mut erased = vec![0usize; components.components().len() + 1];
+        for y in 0..retained.height() {
+            for x in 0..retained.width() {
+                if retained.get(x, y) && !stripped.get(x, y) {
+                    erased[components.label_at(x, y) as usize] += 1;
+                }
+            }
+        }
+        for component in components.components() {
+            let count = erased[component.label as usize];
+            if count * 4 >= component.area.max(1) {
+                eprintln!(
+                    "{{\"event\":\"bleed-pixel-erase\",\"left\":{},\"top\":{},\
+                     \"right\":{},\"bottom\":{},\"area\":{},\"erased\":{count}}}",
+                    component.left, component.top, component.right, component.bottom,
+                    component.area,
+                );
+            }
+        }
+    }
+    stripped
 }
 
 fn paper_reference(gray: &GrayImage) -> u8 {

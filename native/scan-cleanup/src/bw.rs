@@ -573,9 +573,16 @@ fn choose_mode(
     dark_border_coverage: f64,
     otsu_adaptive_agreement: f64,
 ) -> BinarizationMode {
+    // On a flat-lit sheet Wolf has no illumination to correct and its local
+    // contrast normalization erases faint strokes outright, so the agreement
+    // guard must not be the deciding vote there: the disagreement it measures
+    // on such pages IS Wolf dropping faint text, and routing by it sends the
+    // page into the very mode that damages it. Flat pages accept a lower
+    // agreement before giving up on the global threshold.
+    let agreement_floor = if illumination_deviation <= 2.0 { 0.95 } else { 0.975 };
     let clean_uniform = illumination_deviation <= 8.0
         && dark_border_coverage <= 0.08
-        && otsu_adaptive_agreement >= 0.975
+        && otsu_adaptive_agreement >= agreement_floor
         && (robust_contrast >= 64.0 || edge_density <= 0.18);
     if clean_uniform {
         return BinarizationMode::Otsu;
