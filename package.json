@@ -37,6 +37,7 @@
     "build:pdf-page-ops": "node scripts/validation-gates.mjs heavy --id=native-pdf-page-ops --weight=1 -- node scripts/build-native-tool.mjs pdf-page-ops",
     "build:pdf-search": "node scripts/validation-gates.mjs heavy --id=native-pdf-search --weight=1 -- node scripts/build-native-tool.mjs pdf-search",
     "build:scan-cleanup": "node scripts/validation-gates.mjs heavy --id=native-scan-cleanup --weight=1 -- node scripts/build-native-tool.mjs scan-cleanup",
+    "scan-cleanup:convert": "node --import tsx scripts/scan-cleanup-convert.ts",
     "generate:build-artifacts": "node --import tsx scripts/generateBuildArtifacts.ts",
     "preview": "pnpm exec nuxi preview",
     "postinstall": "pnpm exec nuxi prepare && pnpm run copy:pdfjs",

@@ -166,7 +166,7 @@ describe('package scripts', () => {
         ];
 
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(96);
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(97);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);

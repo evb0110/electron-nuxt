@@ -323,6 +323,8 @@ const projectConfig = withNuxt(
             'electron/**',
             'tests/**',
             'scripts/**/*.ts',
+            'scan-cleanup-core/**/*.ts',
+            'scan-cleanup-adapters/**/*.ts',
             '**/*.d.ts',
         ],
         languageOptions: {parserOptions: {projectService: true}},
@@ -343,7 +345,11 @@ const projectConfig = withNuxt(
         },
     },
     {
-        files: ['scripts/**/*.ts'],
+        files: [
+            'scripts/**/*.ts',
+            'scan-cleanup-core/**/*.ts',
+            'scan-cleanup-adapters/**/*.ts',
+        ],
         languageOptions: {parserOptions: {
             project: ['./tsconfig.scripts.json'],
             tsconfigRootDir: import.meta.dirname,

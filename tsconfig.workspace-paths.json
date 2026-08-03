@@ -13,6 +13,8 @@
             "@electron-worker-bundles/*": ["./packages/electron-worker-bundles/*"],
             "@evb/electron-worker-bundles/*": ["./packages/electron-worker-bundles/*"],
             "@electron/*": ["./electron/*"],
+            "@scan-cleanup-core/*": ["./scan-cleanup-core/*"],
+            "@scan-cleanup-adapters/*": ["./scan-cleanup-adapters/*"],
             "@root-package": ["./package.json"],
             "@i18n-core": ["./packages/i18n-core/index.ts"],
             "@i18n-core/*": ["./packages/i18n-core/*"],

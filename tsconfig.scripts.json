@@ -10,7 +10,9 @@
         "types": ["node"]
     },
     "include": [
-        "scripts/**/*.ts"
+        "scripts/**/*.ts",
+        "scan-cleanup-adapters/**/*.ts",
+        "scan-cleanup-core/**/*.ts"
     ],
     "exclude": [
         "node_modules"
