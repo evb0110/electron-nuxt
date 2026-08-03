@@ -32,7 +32,7 @@ export function matchesChangedAreaPattern(filePath, pattern) {
 }
 
 export function classifyChangedFiles(files, policy = getCiChangedAreaPolicy()) {
-    const normalizedFiles = files.map(normalizePath).filter(Boolean);
+    const normalizedFiles = files?.map(normalizePath).filter(Boolean) ?? null;
     return Object.fromEntries(Object.entries(policy).map(([
         area,
         definition,
@@ -40,9 +40,10 @@ export function classifyChangedFiles(files, policy = getCiChangedAreaPolicy()) {
         definition.output,
         {
             area,
-            matched: normalizedFiles.some(file => definition.paths.some(pattern => (
-                matchesChangedAreaPattern(file, pattern)
-            ))),
+            matched: normalizedFiles === null
+                || normalizedFiles.some(file => definition.paths.some(pattern => (
+                    matchesChangedAreaPattern(file, pattern)
+                ))),
             owner: definition.owner,
         },
     ]));
@@ -64,15 +65,23 @@ export function getChangedFiles({
     if (!base || !head) {
         throw new Error('Both --base=<sha> and --head=<sha> are required when --file is not provided.');
     }
-    const output = execFileSync('git', [
-        'diff',
-        '--no-renames',
-        '--name-only',
-        '--diff-filter=ACDMR',
-        '-z',
-        `${base}...${head}`,
-    ], { encoding: 'utf8' });
-    return output.split('\0').filter(Boolean);
+    try {
+        const output = execFileSync('git', [
+            'diff',
+            '--no-renames',
+            '--name-only',
+            '--diff-filter=ACDMR',
+            '-z',
+            `${base}...${head}`,
+        ], { encoding: 'utf8' });
+        return output.split('\0').filter(Boolean);
+    } catch {
+        // A force-push replaces the event's `before` commit, so the push
+        // payload references a SHA this checkout cannot resolve. There is no
+        // honest diff to classify in that case; returning null tells the
+        // classifier to run every gate rather than skip any.
+        return null;
+    }
 }
 
 export function runChangedAreaClassifier({
