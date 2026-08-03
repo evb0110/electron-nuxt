@@ -546,12 +546,7 @@ where
                             Some(top_right),
                             Some(bottom_right),
                             Some(bottom_left),
-                        ) => [
-                            top_left,
-                            top_right,
-                            bottom_right,
-                            bottom_left,
-                        ],
+                        ) => [top_left, top_right, bottom_right, bottom_left],
                         _ => continue,
                     };
                     I::write_pixel(output_row, x, sample_quad(source, &quad));

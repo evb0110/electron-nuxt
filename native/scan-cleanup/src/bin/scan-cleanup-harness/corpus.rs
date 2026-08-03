@@ -307,7 +307,7 @@ fn synthetic_halftone() -> CorpusEntry {
             // A photographic plate the halftone classifier accepts: dark
             // frame and wide shadow bands sealing midtone strips (a fine
             // dot screen deliberately binarizes as printed facsimile).
-            let frame = x < 176 || x >= 544 || y < 446 || y >= 704;
+            let frame = !(176..544).contains(&x) || !(446..704).contains(&y);
             let band = (490..540).contains(&y) || (590..640).contains(&y);
             let value = if frame || band {
                 32 + ((x * 37 + y * 61) % 24) as u8

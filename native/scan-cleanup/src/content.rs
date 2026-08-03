@@ -1810,11 +1810,8 @@ mod tests {
         }
         let text_mask = BinaryImage::new(width, height);
         let protected_mask = BinaryImage::new(width, height);
-        let calibration = PageCalibration::estimate_from_binary(
-            &content,
-            150.0,
-            CalibrationConfig::default(),
-        );
+        let calibration =
+            PageCalibration::estimate_from_binary(&content, 150.0, CalibrationConfig::default());
         let (bounds, _, accepted_trims) = trim_content_bounds(
             &content,
             &component_map,
@@ -2027,9 +2024,9 @@ mod tests {
         let (bounds, accepted_trims) = direct_trim_fixture(0, 30);
         let bounds = bounds.expect("edge-attached artifact and body are content");
 
-        assert!(accepted_trims.iter().any(|trim| {
-            trim.side == ContentTrimSide::Top && trim.iteration == 1
-        }));
+        assert!(accepted_trims
+            .iter()
+            .any(|trim| { trim.side == ContentTrimSide::Top && trim.iteration == 1 }));
         assert!(bounds.top >= 80, "edge-attached band survived: {bounds:?}");
     }
 

@@ -202,7 +202,7 @@ source_metrics = module.metrics(photo_source)
 damaged_metrics = module.metrics(damaged)
 _, failures = module.page_acceptance_failures(
     "grayscale", "bilevel-fidelity", source_metrics, damaged_metrics, None,
-    {"significantPicture": True}, damaged_tone
+    {"significantPicture": True}, damaged_tone, trusted_mrc_page=True
 )
 dense_text_tone = module.ToneMetrics(
     coverage_fraction=0.03,
@@ -314,7 +314,7 @@ _, photo_failures = module.page_acceptance_failures(
         "pictureFraction": 0.45,
         "midtoneFraction": 0.20,
         "bimodality": 0.55,
-    }, damaged_photo_tone, photo_seams
+    }, damaged_photo_tone, photo_seams, trusted_mrc_page=True
 )
 _, line_art_failures = module.page_acceptance_failures(
     "grayscale", "text-with-pictures", module.metrics(photo_source),
@@ -379,6 +379,8 @@ for box in [
     (275, 55, 332, 145),
     (35, 180, 110, 252),
     (245, 182, 330, 250),
+    (120, 30, 165, 82),
+    (185, 205, 232, 264),
 ]:
     output_draw.ellipse(box, fill="white")
 
@@ -563,6 +565,8 @@ def page(number, source, output, candidate=True):
         rule="bilevel-fidelity", source=source, output=output, crop=None,
         tone=None, seams=module.SeamMetrics(0, 0, 0, 0),
         edge_artifacts=module.EdgeArtifactMetrics(1, 0, 0, 0),
+        registration=module.RegistrationMetrics(0, 0, 0, 0, 0, 0),
+        text_evenness=module.TextEvennessMetrics(False, 0, 0, 0, 0, 0),
         tone_damage_score=0, gray_severity=0, white_fraction_gain=0,
         dark_fraction_ratio=1, relative_ink_fraction_ratio=1,
         text_cleanup_candidate=candidate, acceptance_failures=(),

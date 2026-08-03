@@ -339,10 +339,10 @@ pub(crate) fn protect_bilevel_text_fidelity(
     // OR measured crispness (a title page's small imprint type at ratio
     // ~0.3). An undersampled soft scan fails both (x-height ~8 px at
     // 82 dpi AND ratio ~0.9) and keeps the veto's protection.
-    let stencil_capable_source = source_x_height_px >= MIN_BILEVEL_SOURCE_X_HEIGHT_PX
-        || soft_edge_to_ink_ratio <= 0.35;
-    let crisp_stencil = stencil_capable_source
-        && is_bimodal_stencil_page(&recommendation.diagnostics);
+    let stencil_capable_source =
+        source_x_height_px >= MIN_BILEVEL_SOURCE_X_HEIGHT_PX || soft_edge_to_ink_ratio <= 0.35;
+    let crisp_stencil =
+        stencil_capable_source && is_bimodal_stencil_page(&recommendation.diagnostics);
     let undersampled_soft_text = !crisp_stencil
         && should_veto_bilevel_fidelity(
             calibration.valid,
@@ -2331,7 +2331,7 @@ mod tests {
                 let base = synthetic_photo_value(x, y);
                 let red = base;
                 let green = base.saturating_sub(20);
-                let blue = base.saturating_add(35).min(255);
+                let blue = base.saturating_add(35);
                 plate_page.set(x, y, [red, green, blue]);
             }
         }

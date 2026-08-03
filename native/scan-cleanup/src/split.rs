@@ -270,8 +270,7 @@ struct AnalysisImage<'a> {
 
 impl AnalysisImage<'_> {
     fn fold_votes(&self) -> &FoldVotes {
-        self.fold_votes
-            .get_or_init(|| build_fold_votes(&self.gray))
+        self.fold_votes.get_or_init(|| build_fold_votes(&self.gray))
     }
 }
 

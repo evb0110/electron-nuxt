@@ -547,11 +547,7 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
                  \"paperCoreFloor\":{paper_core_floor},\"spreadFraction\":{spread_fraction:.4},\
                  \"edgeFraction\":{edge_fraction:.4},\"paperFraction\":{paper_fraction:.4},\
                  \"labelDensity\":{label_density:.2}}}",
-                component.left,
-                component.top,
-                component.right,
-                component.bottom,
-                component.area,
+                component.left, component.top, component.right, component.bottom, component.area,
             );
         }
         // Label density stays in the trace for calibration, but it is no
@@ -951,13 +947,6 @@ mod tests {
         );
     }
 
-    /// Developer diagnostic for inspecting tone ownership on an extracted MRC
-    /// background without running the full PDF pipeline.
-    ///
-    /// Run with:
-    /// `EVB_MRC_BACKGROUND=/path/to/background.png EVB_MRC_TONE_MASK=/tmp/tone.pbm
-    /// cargo test -p evb-scan-cleanup dump_external_mrc_tone_mask -- --ignored`
-    #[test]
     /// Developer diagnostic: run the halftone classifier on an external image.
     /// `EVB_HALFTONE_IMAGE=/path.png EVB_SCAN_CLEANUP_TRACE_MRC=1
     /// cargo test -p evb-scan-cleanup dump_halftone_zones -- --ignored --nocapture`
@@ -965,8 +954,8 @@ mod tests {
     #[ignore = "requires EVB_HALFTONE_IMAGE"]
     fn dump_halftone_zones() {
         let path = std::env::var("EVB_HALFTONE_IMAGE").unwrap();
-        let image = crate::io::raster::read_image(std::path::Path::new(&path), 40_000_000, 10_000)
-            .unwrap();
+        let image =
+            crate::io::raster::read_image(std::path::Path::new(&path), 40_000_000, 10_000).unwrap();
         let dpi = std::env::var("EVB_HALFTONE_DPI")
             .ok()
             .and_then(|value| value.parse::<f64>().ok())
@@ -975,6 +964,13 @@ mod tests {
         eprintln!("halftone zone pixels: {}", zones.count_black());
     }
 
+    /// Developer diagnostic for inspecting tone ownership on an extracted MRC
+    /// background without running the full PDF pipeline.
+    ///
+    /// Run with:
+    /// `EVB_MRC_BACKGROUND=/path/to/background.png EVB_MRC_TONE_MASK=/tmp/tone.pbm
+    /// cargo test -p evb-scan-cleanup dump_external_mrc_tone_mask -- --ignored`
+    #[test]
     #[ignore = "requires EVB_MRC_BACKGROUND and EVB_MRC_TONE_MASK"]
     fn dump_external_mrc_tone_mask() {
         let input_path = std::env::var("EVB_MRC_BACKGROUND").unwrap();

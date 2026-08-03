@@ -362,7 +362,7 @@ mod tests {
                 // x-height from the body text, while the bands feed the
                 // halftone classifier's rank cascade and the sealed
                 // midtones carry the tonal spread.
-                let frame = x < 162 || x >= 412 || y < 144 || y >= 268;
+                let frame = !(162..412).contains(&x) || !(144..268).contains(&y);
                 let band = (170..206).contains(&y) || (226..262).contains(&y);
                 let value = if frame || band {
                     30 + ((x * 37 + y * 61) % 24) as u8

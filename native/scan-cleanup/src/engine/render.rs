@@ -3047,7 +3047,10 @@ fn filter_soft_shallow_bleed_components(
                 eprintln!(
                     "{{\"event\":\"bleed-pixel-erase\",\"left\":{},\"top\":{},\
                      \"right\":{},\"bottom\":{},\"area\":{},\"erased\":{count}}}",
-                    component.left, component.top, component.right, component.bottom,
+                    component.left,
+                    component.top,
+                    component.right,
+                    component.bottom,
                     component.area,
                 );
             }

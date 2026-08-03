@@ -579,7 +579,11 @@ fn choose_mode(
     // on such pages IS Wolf dropping faint text, and routing by it sends the
     // page into the very mode that damages it. Flat pages accept a lower
     // agreement before giving up on the global threshold.
-    let agreement_floor = if illumination_deviation <= 2.0 { 0.95 } else { 0.975 };
+    let agreement_floor = if illumination_deviation <= 2.0 {
+        0.95
+    } else {
+        0.975
+    };
     let clean_uniform = illumination_deviation <= 8.0
         && dark_border_coverage <= 0.08
         && otsu_adaptive_agreement >= agreement_floor
