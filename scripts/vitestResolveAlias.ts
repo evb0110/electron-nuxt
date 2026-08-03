@@ -8,6 +8,8 @@ export const vitestResolveAlias = {
     '@electron-worker-bundles': resolve(projectRoot, 'packages/electron-worker-bundles'),
     '@contracts': resolve(projectRoot, 'packages/contracts'),
     '@pdf-core': resolve(projectRoot, 'packages/pdf-core'),
+    '@scan-cleanup-core': resolve(projectRoot, 'scan-cleanup-core'),
+    '@scan-cleanup-adapters': resolve(projectRoot, 'scan-cleanup-adapters'),
     '@i18n-core': resolve(projectRoot, 'packages/i18n-core'),
     '@evb/i18n-core': resolve(projectRoot, 'packages/i18n-core'),
     '@i18n-app': resolve(projectRoot, 'packages/i18n-app'),
