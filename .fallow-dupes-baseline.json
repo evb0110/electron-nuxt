@@ -26,8 +26,6 @@
     "app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics.ts:11-73|app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth.ts:10-72",
     "app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics.ts:11-55|app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode.ts:4-48|app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth.ts:10-54",
     "app/modules/pdf-viewer/runtime/composables/usePdfSearch.ts:108-117|app/modules/pdf-viewer/runtime/composables/usePdfSearch.ts:144-157",
-    "app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts:82-100|app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController.ts:25-43",
-    "app/modules/pdf-viewer/tools/useAnnotationShapes.ts:580-595|app/modules/pdf-viewer/tools/useAnnotationShapes.ts:616-631",
     "app/modules/workspace-shell/agent/createDocumentAgentBookmarks.ts:117-164|app/modules/workspace-shell/agent/createDocumentAgentPageLabels.ts:118-154",
     "app/modules/workspace-shell/agent/createDocumentAgentResources.ts:39-55|electron/features/agent/mcp/mcpServerCore.ts:696-715",
     "app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.ts:468-477|app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.ts:497-506",
@@ -49,7 +47,7 @@
     "electron/features/agent/mcp/mcpToolDefinitions.ts:301-368|scripts/evb-mcp-proxy.mjs:306-373",
     "electron/features/agent/workspaceBridge.ts:360-369|electron/features/agent/workspaceBridge.ts:418-427",
     "electron/features/documents/main/documentSave.service.ts:114-128|electron/features/documents/main/documentSave.service.ts:202-219",
-    "electron/features/scan-cleanup/worker/rasterLayerDimensions.ts:7-26|scripts/diagnostics/scan-cleanup-corpus-verify.mjs:315-334",
+    "electron/features/scan-cleanup/worker/rasterLayerDimensions.ts:7-26|scripts/diagnostics/scan-cleanup-corpus-verify.mjs:820-839",
     "electron/image/tryCreatePdfWithNativeImageCombiner.ts:159-174|electron/utils/printHandoff.ts:86-101",
     "electron/image/tryCreatePdfWithNativeImageCombiner.ts:215-238|electron/image/tryCreatePdfWithNativeImageCombiner.ts:246-269",
     "electron/search/extractTextWithPdfjs.ts:145-170|electron/search/extractTextWithPdfjs.ts:221-247",
@@ -57,7 +55,11 @@
     "packages/contracts/agentPlatformFeature.ts:1041-1048|packages/contracts/agentPlatformFeature.ts:972-981",
     "packages/contracts/agentPlatformFeature.ts:1363-1379|packages/contracts/ocrPlatformFeature.ts:135-151",
     "packages/contracts/nativePdfMutations.ts:1032-1042|packages/contracts/nativePdfMutations.ts:989-998",
+    "packages/contracts/scan-cleanup/ipcRequestCodecs.ts:135-174|packages/contracts/scan-cleanup/ipcRequestCodecs.ts:821-863",
     "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:469-483|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:512-526",
-    "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:530-541|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:594-605"
+    "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:530-541|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:594-605",
+    "scripts/diagnostics/scan-cleanup-corpus-plan.mjs:156-164|scripts/diagnostics/scan-cleanup-corpus-plan.mjs:77-85",
+    "scripts/diagnostics/scan-cleanup-corpus-verify.mjs:1246-1258|scripts/diagnostics/scan-cleanup-corpus-verify.mjs:1309-1321",
+    "scripts/release/verifyPackagedCorePdfSmoke.ts:66-95|scripts/release/verifyPackagedScanCleanup.ts:272-300"
   ]
 }
