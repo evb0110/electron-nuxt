@@ -223,6 +223,38 @@ function resolveCanvasGrid(
 }
 
 /**
+ * The DPI represented by the pixel grid in a document-canvas plan.
+ *
+ * The final sidecar render reconstructs a page canvas from its physical
+ * rectangle and that page's render DPI. Keeping this conversion beside the
+ * planner makes the DPI used by that consumer explicit instead of allowing a
+ * page's independent render plan to recreate a grid larger than the plan.
+ */
+export function resolveScanCleanupDocumentCanvasDpi(
+    canvas: IScanCleanupDocumentCanvasPlan,
+) {
+    return canvas.widthPx / canvas.widthPoints * 72;
+}
+
+/**
+ * Caps a page render to the grid the shared document canvas can safely carry.
+ * The floor is intentional: the native canvas reconstruction rounds pixel
+ * dimensions, so a fractional cap could round an axis above the planned grid.
+ */
+export function resolveScanCleanupDocumentCanvasRenderDpi(
+    renderDpi: number,
+    canvas: IScanCleanupDocumentCanvasPlan | null,
+) {
+    if (canvas === null) {
+        return renderDpi;
+    }
+    return Math.max(
+        1,
+        Math.min(renderDpi, Math.floor(resolveScanCleanupDocumentCanvasDpi(canvas))),
+    );
+}
+
+/**
  * The one rectangle and pixel grid every matched output of a document is
  * normalized onto, or null when the document carries no readable geometry.
  *

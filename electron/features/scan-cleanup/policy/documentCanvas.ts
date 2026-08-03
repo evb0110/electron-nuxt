@@ -8,6 +8,8 @@ export {
     placeUniformBox,
     resolveMatchedCanvasResamplePages,
     resolveScanCleanupCanvasFitScale,
+    resolveScanCleanupDocumentCanvasDpi,
+    resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarning,
     resolveScanCleanupPageCanvasBox,

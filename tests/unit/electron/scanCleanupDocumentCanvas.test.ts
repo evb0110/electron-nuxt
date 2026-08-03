@@ -11,6 +11,7 @@ import type {
 import {
     resolveMatchedCanvasResamplePages,
     resolveScanCleanupCanvasFitScale,
+    resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarning,
     resolveScanCleanupOutputPageRect,
@@ -332,6 +333,31 @@ describe('scan cleanup document canvas', () => {
         expect(canvas!.widthPx * canvas!.heightPx).toBeLessThanOrEqual(160_000_000);
         // Still the same shape, so nothing is distorted by the clamp.
         expect(canvas!.widthPx / canvas!.heightPx).toBeCloseTo(3 / 4, 3);
+    });
+
+    it('keeps a mixed normal and absurd-paper document inside the engine budget', () => {
+        const canvas = resolveScanCleanupDocumentCanvas([
+            page({pageNumber: 1}),
+            page({
+                pageNumber: 2,
+                widthPoints: 4_766.9,
+                heightPoints: 6_355.86,
+            }),
+        ], 600, {
+            ...options,
+            outputMode: 'auto',
+        });
+
+        expect(canvas).not.toBeNull();
+        expect(canvas!.widthPx * canvas!.heightPx).toBeLessThanOrEqual(80_000_000);
+        // The final consumer reconstructs its canvas from the page DPI, so
+        // prove the capped DPI reproduces a grid that is safe too.
+        const cappedDpi = resolveScanCleanupDocumentCanvasRenderDpi(600, canvas);
+        const reconstructedWidth = Math.round(canvas!.widthPoints / 72 * cappedDpi);
+        const reconstructedHeight = Math.round(canvas!.heightPoints / 72 * cappedDpi);
+        expect(reconstructedWidth * reconstructedHeight).toBeLessThanOrEqual(80_000_000);
+        expect(reconstructedWidth).toBeLessThanOrEqual(40_000);
+        expect(reconstructedHeight).toBeLessThanOrEqual(40_000);
     });
 
     it('holds the rounded grid inside the pixel budget for the paper that lands on it exactly', () => {

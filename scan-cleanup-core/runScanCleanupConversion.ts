@@ -44,6 +44,8 @@ import {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
 import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {assertNativeScanCleanupManifestGeometry} from '@scan-cleanup-core/policy/assertNativeScanCleanupManifestGeometry';
 import {
+    resolveScanCleanupDocumentCanvasDpi,
+    resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarning,
     resolveMatchedCanvasResamplePages,
@@ -420,7 +422,7 @@ export async function runScanCleanupConversion(
         // What this run renders each page at, read off the mode the run
         // resolved for it. The shared canvas may not read that mode: see
         // resolveScanCleanupCanvasPageDpi.
-        const rasterPlans = pageNumbers.map(pageNumber => {
+        const uncappedRasterPlans = pageNumbers.map(pageNumber => {
             const resolvedOutputMode = resolvedOutputModeByPage.get(pageNumber);
             const guardrail = guardrailByPage.get(pageNumber);
             return {
@@ -434,6 +436,65 @@ export async function runScanCleanupConversion(
                     guardrail,
                 }),
                 guardrail,
+            };
+        });
+        // The rectangle the preview presented, on the finest resolution the
+        // *document* is rendered at, so it has one output DPI and no page is
+        // resampled below the detail it arrived with. Auto decisions are already
+        // locked at this point; canvas planning must consume those same modes or
+        // a Color/Gray book is silently allocated on the binary synthesis grid.
+        // Run scope still cannot affect the grid because decisions and source
+        // raster facts are supplied for the complete document.
+        const finestCanvasDpi = canvasPageNumbers.reduce((finest, pageNumber) => {
+            const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
+            return pageOverride.excluded ? finest : Math.max(finest, resolveScanCleanupCanvasPageDpi({
+                configuredMode: resolvedOutputModeByPage.get(pageNumber)
+                    ?? pageOverride.outputModeOverride
+                    ?? request.options.outputMode,
+                sourceDpi: sourceDpiByPage.get(pageNumber)!,
+                hasDetectedRaster: detectedRasterByPage.has(pageNumber),
+                guardrail: resolveScanCleanupDocumentGuardrail(
+                    detectedRasterByPage.get(pageNumber),
+                    sourceDpiByPage.get(pageNumber),
+                    pageSizes?.[pageNumber - 1],
+                ),
+            }));
+        }, 0);
+        const documentCanvas = canvasPageNumbers.length > 0 && pageSizes
+            ? resolveScanCleanupDocumentCanvas(pageSizes, finestCanvasDpi, request.options, request.layoutByPage)
+            : null;
+        // One page scanned far finer than the rest raises the grid the whole
+        // document is normalized onto, and the pixel budget its output modes
+        // allow is what stops that becoming a document nothing can render —
+        // a real loss against what the finest page asked for, so the run names
+        // the resolution it actually normalized at.
+        const canvasDpi = documentCanvas === null
+            ? finestCanvasDpi
+            : resolveScanCleanupDocumentCanvasDpi(documentCanvas);
+        if (canvasDpi < finestCanvasDpi * 0.99) {
+            warn(
+                `Matched page size normalized this document at ${String(Math.round(canvasDpi))} DPI `
+                + `instead of the ${String(Math.round(finestCanvasDpi))} DPI its finest page was rendered at, `
+                + 'to keep one shared page inside the output pixel budget',
+            );
+        }
+        // Native reconstructs the final uniform canvas from each page's render
+        // DPI and the document rectangle. The plan's pixel fields alone cannot
+        // constrain that reconstruction, so every page that would recreate a
+        // larger grid is capped before its raster is rendered. Keep the
+        // requested DPI on the plan for native diagnostics and name each page
+        // whose quality was bounded by the shared canvas.
+        const rasterPlans = uncappedRasterPlans.map(plan => {
+            const dpi = resolveScanCleanupDocumentCanvasRenderDpi(plan.dpi, documentCanvas);
+            if (dpi < plan.dpi) {
+                warn(
+                    `Matched page size capped page ${String(plan.pageNumber)} at ${String(dpi)} DPI `
+                    + `from ${String(plan.dpi)} DPI to keep its uniform canvas inside cleanup guardrails`,
+                );
+            }
+            return dpi === plan.dpi ? plan : {
+                ...plan,
+                dpi,
             };
         });
         const pagePlanResolver = createPagePlanResolver(request, log, 'final');
@@ -652,46 +713,6 @@ export async function runScanCleanupConversion(
                 })),
             };
         });
-        // The rectangle the preview presented, on the finest resolution the
-        // *document* is rendered at, so it has one output DPI and no page is
-        // resampled below the detail it arrived with. Auto decisions are already
-        // locked at this point; canvas planning must consume those same modes or
-        // a Color/Gray book is silently allocated on the binary synthesis grid.
-        // Run scope still cannot affect the grid because decisions and source
-        // raster facts are supplied for the complete document.
-        const finestCanvasDpi = canvasPageNumbers.reduce((finest, pageNumber) => {
-            const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
-            return pageOverride.excluded ? finest : Math.max(finest, resolveScanCleanupCanvasPageDpi({
-                configuredMode: resolvedOutputModeByPage.get(pageNumber)
-                    ?? pageOverride.outputModeOverride
-                    ?? request.options.outputMode,
-                sourceDpi: sourceDpiByPage.get(pageNumber)!,
-                hasDetectedRaster: detectedRasterByPage.has(pageNumber),
-                guardrail: resolveScanCleanupDocumentGuardrail(
-                    detectedRasterByPage.get(pageNumber),
-                    sourceDpiByPage.get(pageNumber),
-                    pageSizes?.[pageNumber - 1],
-                ),
-            }));
-        }, 0);
-        const documentCanvas = canvasPageNumbers.length > 0 && pageSizes
-            ? resolveScanCleanupDocumentCanvas(pageSizes, finestCanvasDpi, request.options, request.layoutByPage)
-            : null;
-        // One page scanned far finer than the rest raises the grid the whole
-        // document is normalized onto, and the pixel budget its output modes
-        // allow is what stops that becoming a document nothing can render —
-        // a real loss against what the finest page asked for, so the run names
-        // the resolution it actually normalized at.
-        const canvasDpi = documentCanvas && documentCanvas.widthPoints > 0
-            ? documentCanvas.widthPx / documentCanvas.widthPoints * 72
-            : finestCanvasDpi;
-        if (canvasDpi < finestCanvasDpi * 0.99) {
-            warn(
-                `Matched page size normalized this document at ${String(Math.round(canvasDpi))} DPI `
-                + `instead of the ${String(Math.round(finestCanvasDpi))} DPI its finest page was rendered at, `
-                + 'to keep one shared page inside the output pixel budget',
-            );
-        }
         // A document whose geometry cannot be read has no canvas to match, and
         // the preview showed none either: matching is dropped rather than
         // letting the sidecar invent one from the largest output it happens to
