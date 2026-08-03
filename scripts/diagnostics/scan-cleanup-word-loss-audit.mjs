@@ -21,7 +21,7 @@ import {fileURLToPath} from 'node:url';
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const artifactDirectory = join(
     projectRoot,
-    '.devkit/tasks/scan-cleanup/stage21-audit',
+    '.devkit/tasks/scan-cleanup/stage22-audit2',
 );
 const defaultOutputPath = join(
     artifactDirectory,
@@ -31,9 +31,23 @@ const CROP_SCALE = 2197 / 2261;
 const ALIGNMENT_RADIUS_FULL_PX = 160;
 const QUARTER_DOWNSAMPLE = 4;
 const BROAD_DOWNSAMPLE = 16;
-const MAX_BROAD_ALIGNMENT_SAMPLES = 50_000;
-const MAX_QUARTER_ALIGNMENT_SAMPLES = 50_000;
-const MAX_FULL_ALIGNMENT_SAMPLES = 8_000;
+const MAX_BROAD_ALIGNMENT_SAMPLES = 30_000;
+const MAX_QUARTER_ALIGNMENT_SAMPLES = 30_000;
+const MAX_FULL_ALIGNMENT_SAMPLES = 4_000;
+const LOCAL_ALIGNMENT_RADIUS_FULL_PX = 8;
+const MAX_COMPONENT_PIXELS_FOR_LOCAL_SEARCH = 50_000;
+const SILHOUETTE_MIN_SIZE_MM = 3;
+const SILHOUETTE_COARSE_DOWNSAMPLE = 24;
+const SILHOUETTE_COARSE_MAX_BBOX_PX = 600;
+const SILHOUETTE_COARSE_MIN_BBOX_PX = 120;
+const SILHOUETTE_COARSE_MIN_DARK_FRACTION = 0.1;
+const GRAY_INK_THRESHOLD = 192;
+const GRAY_MEAN_TOLERANCE = 112;
+const GRAY_MIN_SHAPE_IOU = 0.28;
+const GRAY_MIN_SHAPE_RECALL = 0.38;
+const GRAY_EDGE_MIN_SHAPE_IOU = 0.06;
+const GRAY_EDGE_MIN_SHAPE_RECALL = 0.15;
+const GRAY_EDGE_MAX_MEAN = 245;
 const BLACK_THRESHOLD = 128;
 
 function scaleLabel(scale) {
@@ -53,6 +67,8 @@ function parseArgs(argv) {
     const options = {
         cleaned: null,
         from: null,
+        baseline: null,
+        failOn: 'none',
         minArea: 24,
         out: defaultOutputPath,
         source: null,
@@ -73,6 +89,8 @@ Options:
   --from <page>        First PDF page (default: 1)
   --to <page>          Last PDF page (default: source page count)
   --out <json>         JSON report path (default: ${defaultOutputPath})
+  --baseline <report>  Previous JSON report for regression comparison
+  --fail-on <class>    Exit 1 for text-loss, silhouette, any, or none (default: none)
   --min-area <pixels>  Minimum source component area (default: 24)
   --workers <count>    Concurrent page workers (default: 4)`);
             return {
@@ -81,7 +99,9 @@ Options:
             };
         }
         const valueArguments = new Set([
+            '--baseline',
             '--cleaned',
+            '--fail-on',
             '--from',
             '--min-area',
             '--out',
@@ -96,10 +116,12 @@ Options:
         if (!value || value.startsWith('--')) {
             throw new Error(`Missing value for ${argument}`);
         }
-        if (argument === '--source' || argument === '--cleaned') {
+        if (argument === '--source' || argument === '--cleaned' || argument === '--baseline') {
             options[argument.slice(2)] = resolve(value);
         } else if (argument === '--out') {
             options.out = resolve(value);
+        } else if (argument === '--fail-on') {
+            options.failOn = parseFailOn(value);
         } else if (argument === '--from' || argument === '--to') {
             options[argument.slice(2)] = parsePositiveInteger(value, argument);
         } else if (argument === '--min-area') {
@@ -121,6 +143,19 @@ function parsePositiveInteger(value, argument) {
         throw new Error(`${argument} must be a positive integer`);
     }
     return parsed;
+}
+
+function parseFailOn(value) {
+    const allowed = new Set([
+        'any',
+        'none',
+        'silhouette',
+        'text-loss',
+    ]);
+    if (!allowed.has(value)) {
+        throw new Error('--fail-on must be one of text-loss, silhouette, any, or none');
+    }
+    return value;
 }
 
 async function run(command, args) {
@@ -273,7 +308,7 @@ async function extractPngMask({
     }
 }
 
-function decodePng(buffer) {
+function decodePng(buffer, includeGray = false) {
     const signature = Buffer.from([
         0x89,
         0x50,
@@ -318,18 +353,22 @@ function decodePng(buffer) {
     if (
         width <= 0
         || height <= 0
-        || colorType !== 0
-        || (bitDepth !== 1 && bitDepth !== 8)
+        || (colorType !== 0 && colorType !== 2)
+        || (colorType === 2 && bitDepth !== 8)
+        || (colorType === 0 && bitDepth !== 1 && bitDepth !== 8)
         || interlaceMethod !== 0
     ) {
         throw new Error(
             `Unsupported grayscale PNG: ${String(width)}x${String(height)}, bit depth ${String(bitDepth)}, color type ${String(colorType)}, interlace ${String(interlaceMethod)}`,
         );
     }
-    const rowBytes = Math.ceil(width * bitDepth / 8);
-    const bytesPerPixel = 1;
+    const rowBytes = colorType === 2
+        ? width * 3
+        : Math.ceil(width * bitDepth / 8);
+    const bytesPerPixel = colorType === 2 ? 3 : 1;
     const inflated = inflateSync(Buffer.concat(imageData));
     const pixels = new Uint8Array(width * height);
+    const gray = includeGray ? new Uint8Array(width * height) : null;
     const previous = Buffer.alloc(rowBytes);
     const current = Buffer.alloc(rowBytes);
     let inputOffset = 0;
@@ -346,7 +385,17 @@ function decodePng(buffer) {
         const outputOffset = y * width;
         if (bitDepth === 8) {
             for (let x = 0; x < width; x += 1) {
-                if (current[x] < BLACK_THRESHOLD) {
+                const grayValue = colorType === 2
+                    ? Math.round(
+                        current[x * 3] * 0.299
+                        + current[x * 3 + 1] * 0.587
+                        + current[x * 3 + 2] * 0.114,
+                    )
+                    : current[x];
+                if (gray) {
+                    gray[outputOffset + x] = grayValue;
+                }
+                if (grayValue < BLACK_THRESHOLD) {
                     pixels[outputOffset + x] = 1;
                     darkPixelCount += 1;
                 }
@@ -354,6 +403,9 @@ function decodePng(buffer) {
         } else {
             for (let x = 0; x < width; x += 1) {
                 const sample = (current[x >> 3] >> (7 - (x & 7))) & 1;
+                if (gray) {
+                    gray[outputOffset + x] = sample === 0 ? 0 : 255;
+                }
                 if (sample === 0) {
                     pixels[outputOffset + x] = 1;
                     darkPixelCount += 1;
@@ -367,15 +419,83 @@ function decodePng(buffer) {
     if (invertForeground) {
         for (let index = 0; index < pixels.length; index += 1) {
             pixels[index] = pixels[index] ? 0 : 1;
+            if (gray) {
+                gray[index] = 255 - gray[index];
+            }
         }
     }
     return {
         blackCount: invertForeground ? totalPixels - darkPixelCount : darkPixelCount,
         height,
         inverted: invertForeground,
+        gray,
         pixels,
         width,
     };
+}
+
+function resizeGrayBitmap(bitmap, width, height, scaleX, scaleY = scaleX) {
+    const values = new Uint8Array(width * height);
+    for (let y = 0; y < height; y += 1) {
+        const sourceY = Math.min(
+            bitmap.height - 1,
+            Math.max(0, Math.floor((y + 0.5) / scaleY - 0.5)),
+        );
+        const sourceOffset = sourceY * bitmap.width;
+        const targetOffset = y * width;
+        for (let x = 0; x < width; x += 1) {
+            const sourceX = Math.min(
+                bitmap.width - 1,
+                Math.max(0, Math.floor((x + 0.5) / scaleX - 0.5)),
+            );
+            values[targetOffset + x] = bitmap.values[sourceOffset + sourceX];
+        }
+    }
+    return {
+        height,
+        values,
+        width,
+    };
+}
+
+async function renderPdfPageGray({
+    dpi,
+    pageNumber,
+    pdfPath,
+    role,
+    workDirectory,
+}) {
+    const prefix = join(
+        workDirectory,
+        `${role}-gray-page-${String(pageNumber)}`,
+    );
+    const outputPath = `${prefix}.png`;
+    await run('pdftoppm', [
+        '-f',
+        String(pageNumber),
+        '-l',
+        String(pageNumber),
+        '-r',
+        String(dpi),
+        '-gray',
+        '-png',
+        '-singlefile',
+        pdfPath,
+        prefix,
+    ]);
+    try {
+        const decoded = decodePng(await readFile(outputPath), true);
+        if (!decoded.gray) {
+            throw new Error(`pdftoppm did not produce grayscale pixels for page ${pageNumber}`);
+        }
+        return {
+            height: decoded.height,
+            values: decoded.gray,
+            width: decoded.width,
+        };
+    } finally {
+        await rm(outputPath, {force: true});
+    }
 }
 
 function unfilterPngRow(current, previous, filter, bytesPerPixel) {
@@ -715,6 +835,7 @@ function makeAlignmentBitmap(source, minArea, collectComponents = false) {
         let maxY = -1;
         let keepPixels = true;
         let componentPixels = [];
+        let metricPixelsAvailable = true;
         while (stack.length > 0) {
             const current = stack.pop();
             const currentX = current % source.width;
@@ -727,7 +848,7 @@ function makeAlignmentBitmap(source, minArea, collectComponents = false) {
             if (componentLabels) {
                 componentLabels[current] = componentId;
             }
-            if (keepPixels) {
+            if (keepPixels || (collectComponents && metricPixelsAvailable)) {
                 componentPixels.push(current);
             }
             if (
@@ -736,7 +857,16 @@ function makeAlignmentBitmap(source, minArea, collectComponents = false) {
                 || maxY - minY + 1 > maxAlignmentHeight
             ) {
                 keepPixels = false;
+                if (!collectComponents) {
+                    componentPixels = [];
+                }
+            }
+            if (
+                collectComponents
+                && componentPixels.length > MAX_COMPONENT_PIXELS_FOR_LOCAL_SEARCH
+            ) {
                 componentPixels = [];
+                metricPixelsAvailable = false;
             }
             for (let neighborY = Math.max(0, currentY - 1); neighborY <= Math.min(source.height - 1, currentY + 1); neighborY += 1) {
                 const neighborOffset = neighborY * source.width;
@@ -792,6 +922,7 @@ function makeAlignmentBitmap(source, minArea, collectComponents = false) {
                 area,
                 height: componentHeight,
                 id: componentId,
+                pixels: metricPixelsAvailable ? componentPixels : null,
                 width: componentWidth,
                 x: minX,
                 y: minY,
@@ -950,6 +1081,264 @@ function dilateOnePixel(bitmap) {
     };
 }
 
+function ensureComponentPixels(component, componentLabels, sourceWidth) {
+    if (component.pixels || !componentLabels) {
+        return component.pixels ?? [];
+    }
+    const pixels = [];
+    for (let y = component.y; y <= component.y + component.height - 1; y += 1) {
+        const offset = y * sourceWidth;
+        for (let x = component.x; x <= component.x + component.width - 1; x += 1) {
+            if (componentLabels[offset + x] === component.id) {
+                pixels.push(offset + x);
+            }
+        }
+    }
+    component.pixels = pixels;
+    return pixels;
+}
+
+function mapComponentPixels(
+    component,
+    componentLabels,
+    sourceWidth,
+    xMap,
+    yMap,
+    alignment,
+    targetWidth,
+    targetHeight,
+) {
+    const sourcePixels = ensureComponentPixels(component, componentLabels, sourceWidth);
+    const mappedPixels = new Int32Array(sourcePixels.length);
+    let count = 0;
+    let minX = targetWidth;
+    let minY = targetHeight;
+    let maxX = -1;
+    let maxY = -1;
+    for (const pixelIndex of sourcePixels) {
+        const sourceX = pixelIndex % sourceWidth;
+        const sourceY = Math.floor(pixelIndex / sourceWidth);
+        const targetX = xMap[sourceX] + alignment.dx;
+        const targetY = yMap[sourceY] + alignment.dy;
+        if (
+            targetX < 0
+            || targetX >= targetWidth
+            || targetY < 0
+            || targetY >= targetHeight
+        ) {
+            continue;
+        }
+        mappedPixels[count] = targetY * targetWidth + targetX;
+        count += 1;
+        minX = Math.min(minX, targetX);
+        minY = Math.min(minY, targetY);
+        maxX = Math.max(maxX, targetX);
+        maxY = Math.max(maxY, targetY);
+    }
+    return {
+        maxX,
+        maxY,
+        minX,
+        minY,
+        pixels: mappedPixels.subarray(0, count),
+        sourcePixels,
+    };
+}
+
+function countComponentCoverage(
+    component,
+    componentLabels,
+    sourceWidth,
+    xMap,
+    yMap,
+    alignment,
+    target,
+) {
+    const sourcePixels = ensureComponentPixels(component, componentLabels, sourceWidth);
+    let overlap = 0;
+    for (const pixelIndex of sourcePixels) {
+        const sourceX = pixelIndex % sourceWidth;
+        const sourceY = Math.floor(pixelIndex / sourceWidth);
+        const targetX = xMap[sourceX] + alignment.dx;
+        const targetY = yMap[sourceY] + alignment.dy;
+        if (
+            targetX >= 0
+            && targetX < target.width
+            && targetY >= 0
+            && targetY < target.height
+            && target.pixels[targetY * target.width + targetX]
+        ) {
+            overlap += 1;
+        }
+    }
+    return overlap;
+}
+
+function countMappedComponentCoverage(mapped, target, deltaX = 0, deltaY = 0) {
+    if (mapped.pixels.length === 0) {
+        return 0;
+    }
+    const targetWidth = target.width;
+    const targetHeight = target.height;
+    const translatedMinX = mapped.minX + deltaX;
+    const translatedMaxX = mapped.maxX + deltaX;
+    const translatedMinY = mapped.minY + deltaY;
+    const translatedMaxY = mapped.maxY + deltaY;
+    let overlap = 0;
+    if (
+        translatedMinX >= 0
+        && translatedMaxX < targetWidth
+        && translatedMinY >= 0
+        && translatedMaxY < targetHeight
+    ) {
+        const offset = deltaY * targetWidth + deltaX;
+        for (const pixelIndex of mapped.pixels) {
+            if (target.pixels[pixelIndex + offset]) {
+                overlap += 1;
+            }
+        }
+        return overlap;
+    }
+    for (const pixelIndex of mapped.pixels) {
+        const baseX = pixelIndex % targetWidth;
+        const baseY = Math.floor(pixelIndex / targetWidth);
+        const targetX = baseX + deltaX;
+        const targetY = baseY + deltaY;
+        if (
+            targetX >= 0
+            && targetX < targetWidth
+            && targetY >= 0
+            && targetY < targetHeight
+            && target.pixels[targetY * targetWidth + targetX]
+        ) {
+            overlap += 1;
+        }
+    }
+    return overlap;
+}
+
+function searchLocalComponentCoverage(mapped, target, initialCount) {
+    let best = {
+        dx: 0,
+        dy: 0,
+        score: initialCount,
+    };
+    for (let dy = -LOCAL_ALIGNMENT_RADIUS_FULL_PX; dy <= LOCAL_ALIGNMENT_RADIUS_FULL_PX; dy += 1) {
+        for (let dx = -LOCAL_ALIGNMENT_RADIUS_FULL_PX; dx <= LOCAL_ALIGNMENT_RADIUS_FULL_PX; dx += 1) {
+            const candidate = {
+                dx,
+                dy,
+                score: countMappedComponentCoverage(mapped, target, dx, dy),
+            };
+            if (preferCandidate(candidate, best, 0, 0)) {
+                best = candidate;
+            }
+        }
+    }
+    return best;
+}
+
+function evaluateGrayPreservation({
+    alignment,
+    cleanedGray,
+    component,
+    localDx,
+    localDy,
+    mapped,
+    source,
+    sourceGray,
+    xMap,
+    yMap,
+}) {
+    if (!cleanedGray || !sourceGray || !mapped || mapped.pixels.length === 0) {
+        return null;
+    }
+    let sourceSum = 0;
+    let cleanedSum = 0;
+    let darkAtSource = 0;
+    let sampleCount = 0;
+    const sourceWidth = source.width;
+    const cleanedWidth = cleanedGray.width;
+    const sourcePixels = mapped.sourcePixels;
+    for (const pixelIndex of sourcePixels) {
+        const sourceX = pixelIndex % sourceWidth;
+        const sourceY = Math.floor(pixelIndex / sourceWidth);
+        const targetX = xMap[sourceX] + alignment.dx + localDx;
+        const targetY = yMap[sourceY] + alignment.dy + localDy;
+        if (
+            targetX < 0
+            || targetX >= cleanedGray.width
+            || targetY < 0
+            || targetY >= cleanedGray.height
+        ) {
+            continue;
+        }
+        const sourceGrayValue = sourceGray.values[sourceY * sourceGray.width + sourceX];
+        const cleanedGrayValue = cleanedGray.values[targetY * cleanedWidth + targetX];
+        sourceSum += sourceGrayValue;
+        cleanedSum += cleanedGrayValue;
+        if (cleanedGrayValue <= GRAY_INK_THRESHOLD) {
+            darkAtSource += 1;
+        }
+        sampleCount += 1;
+    }
+    if (sampleCount === 0) {
+        return null;
+    }
+    const minX = mapped.minX + localDx;
+    const maxX = mapped.maxX + localDx;
+    const minY = mapped.minY + localDy;
+    const maxY = mapped.maxY + localDy;
+    let targetDarkCount = 0;
+    if (
+        minX <= maxX
+        && minY <= maxY
+        && minX >= 0
+        && minY >= 0
+        && maxX < cleanedGray.width
+        && maxY < cleanedGray.height
+    ) {
+        for (let y = minY; y <= maxY; y += 1) {
+            const offset = y * cleanedGray.width;
+            for (let x = minX; x <= maxX; x += 1) {
+                if (cleanedGray.values[offset + x] <= GRAY_INK_THRESHOLD) {
+                    targetDarkCount += 1;
+                }
+            }
+        }
+    }
+    const sourceMean = sourceSum / sampleCount;
+    const cleanedMean = cleanedSum / sampleCount;
+    const shapeRecall = darkAtSource / sampleCount;
+    const shapeIntersection = darkAtSource;
+    const shapeUnion = sampleCount + targetDarkCount - shapeIntersection;
+    const shapeIoU = shapeUnion === 0 ? 0 : shapeIntersection / shapeUnion;
+    const regularPreserved =
+        Math.abs(cleanedMean - sourceMean) <= GRAY_MEAN_TOLERANCE
+        && shapeRecall >= GRAY_MIN_SHAPE_RECALL
+        && shapeIoU >= GRAY_MIN_SHAPE_IOU;
+    const edgeCandidate =
+        component.x <= 16
+        || component.y <= 16
+        || component.x + component.width >= source.width - 16
+        || component.y + component.height >= source.height - 16;
+    const edgePreserved =
+        edgeCandidate
+        && cleanedMean <= GRAY_EDGE_MAX_MEAN
+        && shapeRecall >= GRAY_EDGE_MIN_SHAPE_RECALL
+        && shapeIoU >= GRAY_EDGE_MIN_SHAPE_IOU;
+    return {
+        cleanedMeanGray: roundNumber(cleanedMean, 2),
+        meanGrayDelta: roundNumber(Math.abs(cleanedMean - sourceMean), 2),
+        preserved: regularPreserved || edgePreserved,
+        preservationRule: edgePreserved ? 'edge' : regularPreserved ? 'shape' : null,
+        shapeIoU: roundNumber(shapeIoU),
+        shapeRecall: roundNumber(shapeRecall),
+        sourceMeanGray: roundNumber(sourceMean, 2),
+        targetDarkPixels: targetDarkCount,
+    };
+}
+
 function analyzeComponents(
     source,
     cleanedDilated,
@@ -958,27 +1347,33 @@ function analyzeComponents(
     plateRegions = [],
     sourceComponents = [],
     componentLabels = null,
-    componentCount = 0,
+    cleanedGray = null,
+    sourceGray = null,
 ) {
     const sourceWidth = source.width;
     const components = [];
     const dustArea = Math.max(minArea, 200);
     const eligibleComponents = [];
-    const coveredPixelsByComponent = new Int32Array(componentCount + 1);
-    const eligibleById = new Array(componentCount + 1);
     let ignoredDustCount = 0;
     let ignoredDustInkPixels = 0;
     let lostCount = 0;
     let damagedCount = 0;
     let lostInkPixels = 0;
+    let globalLostCount = 0;
+    let globalLostInkPixels = 0;
+    let grayPreservedCount = 0;
+    let grayPreservedInkPixels = 0;
     let textInkPixels = 0;
+    let localSearchCount = 0;
+    let localImprovedCount = 0;
+    let maxLocalCoverageGain = 0;
+    let maxLocalShiftDistance = 0;
     const xMap = makeScaleMap(source.width, alignment.scaleX ?? alignment.scale);
     const yMap = makeScaleMap(source.height, alignment.scaleY ?? alignment.scale);
     for (const component of sourceComponents) {
         const {
             area,
             height: componentHeight,
-            id,
             width: componentWidth,
             x: minX,
             y: minY,
@@ -1000,49 +1395,90 @@ function analyzeComponents(
         )) {
             continue;
         }
-        eligibleById[id] = component;
         eligibleComponents.push(component);
         textInkPixels += area;
-    }
-    if (componentLabels) {
-        for (let pixelIndex = 0; pixelIndex < source.pixels.length; pixelIndex += 1) {
-            const componentId = componentLabels[pixelIndex];
-            if (!componentId || !eligibleById[componentId]) {
-                continue;
-            }
-            const sourceX = pixelIndex % sourceWidth;
-            const sourceY = Math.floor(pixelIndex / sourceWidth);
-            const cleanedX = xMap[sourceX] + alignment.dx;
-            const cleanedY = yMap[sourceY] + alignment.dy;
-            if (
-                cleanedX >= 0
-                && cleanedX < cleanedDilated.width
-                && cleanedY >= 0
-                && cleanedY < cleanedDilated.height
-                && cleanedDilated.pixels[cleanedY * cleanedDilated.width + cleanedX]
-            ) {
-                coveredPixelsByComponent[componentId] += 1;
-            }
-        }
     }
     for (const component of eligibleComponents) {
         const {
             area,
             height: componentHeight,
-            id,
             width: componentWidth,
             x: minX,
             y: minY,
         } = component;
-        const coverage = area === 0 ? 0 : coveredPixelsByComponent[id] / area;
+        const globalCoveredPixels = countComponentCoverage(
+            component,
+            componentLabels,
+            sourceWidth,
+            xMap,
+            yMap,
+            alignment,
+            cleanedDilated,
+        );
+        let localDx = 0;
+        let localDy = 0;
+        let coveredPixels = globalCoveredPixels;
+        let coverage = area === 0 ? 0 : coveredPixels / area;
+        let mapped = null;
         const isDust = area < dustArea;
-        const classification = isDust
+        if (!isDust && coverage < 0.25) {
+            globalLostCount += 1;
+            globalLostInkPixels += area;
+        }
+        if (coverage < 0.6) {
+            localSearchCount += 1;
+            mapped = mapComponentPixels(
+                component,
+                componentLabels,
+                sourceWidth,
+                xMap,
+                yMap,
+                alignment,
+                cleanedDilated.width,
+                cleanedDilated.height,
+            );
+            const local = searchLocalComponentCoverage(
+                mapped,
+                cleanedDilated,
+                globalCoveredPixels,
+            );
+            localDx = local.dx;
+            localDy = local.dy;
+            coveredPixels = local.score;
+            coverage = area === 0 ? 0 : coveredPixels / area;
+            const coverageGain = coverage - (area === 0 ? 0 : globalCoveredPixels / area);
+            const shiftDistance = Math.abs(local.dx) + Math.abs(local.dy);
+            maxLocalCoverageGain = Math.max(maxLocalCoverageGain, coverageGain);
+            maxLocalShiftDistance = Math.max(maxLocalShiftDistance, shiftDistance);
+            if (local.score > globalCoveredPixels) {
+                localImprovedCount += 1;
+            }
+        }
+        let classification = isDust
             ? 'ignored-dust'
             : coverage < 0.25
                 ? 'lost'
                 : coverage < 0.6
                     ? 'damaged'
                     : 'preserved';
+        let gray = null;
+        if (classification === 'lost') {
+            gray = evaluateGrayPreservation({
+                alignment,
+                cleanedGray,
+                localDx,
+                localDy,
+                mapped,
+                component,
+                source,
+                sourceGray,
+                xMap,
+                yMap,
+            });
+            if (gray?.preserved) {
+                classification = 'gray-preserved';
+            }
+        }
         if (isDust) {
             ignoredDustCount += 1;
             ignoredDustInkPixels += area;
@@ -1051,8 +1487,12 @@ function analyzeComponents(
             lostCount += 1;
             lostInkPixels += area;
         }
-        if (classification === 'lost' || classification === 'damaged') {
+        if (classification === 'damaged') {
             damagedCount += 1;
+        }
+        if (classification === 'gray-preserved') {
+            grayPreservedCount += 1;
+            grayPreservedInkPixels += area;
         }
         components.push({
             area,
@@ -1064,18 +1504,239 @@ function analyzeComponents(
             },
             classification,
             coverage: roundNumber(coverage),
+            ...(localDx !== 0 || localDy !== 0
+                ? {localAlignment: {
+                    dx: localDx,
+                    dy: localDy,
+                }}
+                : {}),
+            ...(gray ? {gray} : {}),
         });
     }
     return {
         components,
         damagedCount,
+        globalLostCount,
+        globalLostInkFraction: textInkPixels === 0
+            ? 0
+            : globalLostInkPixels / textInkPixels,
+        grayPreservedCount,
+        grayPreservedInkPixels,
         ignoredDustCount,
         ignoredDustInkPixels,
         lostCount,
         lostInkFraction: textInkPixels === 0 ? 0 : lostInkPixels / textInkPixels,
+        localRealignment: {
+            improvedComponents: localImprovedCount,
+            maxCoverageGain: roundNumber(maxLocalCoverageGain),
+            maxShiftDistance: maxLocalShiftDistance,
+            radiusPx: LOCAL_ALIGNMENT_RADIUS_FULL_PX,
+            searchedComponents: localSearchCount,
+        },
         textInkPixels,
         totalTextComponents: components.length,
     };
+}
+
+function collectBinaryComponents(bitmap) {
+    const visited = new Uint8Array(bitmap.pixels.length);
+    const stack = [];
+    const components = [];
+    for (let start = 0; start < bitmap.pixels.length; start += 1) {
+        if (!bitmap.pixels[start] || visited[start]) {
+            continue;
+        }
+        stack.length = 0;
+        stack.push(start);
+        visited[start] = 1;
+        let area = 0;
+        let minX = bitmap.width;
+        let minY = bitmap.height;
+        let maxX = -1;
+        let maxY = -1;
+        while (stack.length > 0) {
+            const current = stack.pop();
+            const currentX = current % bitmap.width;
+            const currentY = Math.floor(current / bitmap.width);
+            area += 1;
+            minX = Math.min(minX, currentX);
+            minY = Math.min(minY, currentY);
+            maxX = Math.max(maxX, currentX);
+            maxY = Math.max(maxY, currentY);
+            for (
+                let neighborY = Math.max(0, currentY - 1);
+                neighborY <= Math.min(bitmap.height - 1, currentY + 1);
+                neighborY += 1
+            ) {
+                const neighborOffset = neighborY * bitmap.width;
+                for (
+                    let neighborX = Math.max(0, currentX - 1);
+                    neighborX <= Math.min(bitmap.width - 1, currentX + 1);
+                    neighborX += 1
+                ) {
+                    const neighbor = neighborOffset + neighborX;
+                    if (bitmap.pixels[neighbor] && !visited[neighbor]) {
+                        visited[neighbor] = 1;
+                        stack.push(neighbor);
+                    }
+                }
+            }
+        }
+        components.push({
+            area,
+            fillRatio: area / ((maxX - minX + 1) * (maxY - minY + 1)),
+            height: maxY - minY + 1,
+            width: maxX - minX + 1,
+            x: minX,
+            y: minY,
+        });
+    }
+    return components;
+}
+
+function sourceRegionHistogram(sourceGray, bbox, alignment) {
+    const histogram = new Uint32Array(256);
+    const scaleX = alignment.scaleX ?? alignment.scale;
+    const scaleY = alignment.scaleY ?? alignment.scale;
+    let sampleCount = 0;
+    const step = Math.max(1, Math.ceil(Math.sqrt(
+        (bbox.width * bbox.height) / 60_000,
+    )));
+    for (let y = bbox.y; y < bbox.y + bbox.height; y += step) {
+        const sourceY = Math.min(
+            sourceGray.height - 1,
+            Math.max(0, Math.round((y - alignment.dy) / scaleY)),
+        );
+        for (let x = bbox.x; x < bbox.x + bbox.width; x += step) {
+            const sourceX = Math.min(
+                sourceGray.width - 1,
+                Math.max(0, Math.round((x - alignment.dx) / scaleX)),
+            );
+            histogram[sourceGray.values[sourceY * sourceGray.width + sourceX]] += 1;
+            sampleCount += 1;
+        }
+    }
+    let darkPixels = 0;
+    let midtonePixels = 0;
+    let lightPixels = 0;
+    let weightedSum = 0;
+    let weightedSquareSum = 0;
+    let populatedBins = 0;
+    for (let value = 0; value < histogram.length; value += 1) {
+        const count = histogram[value];
+        if (count > 0) {
+            populatedBins += 1;
+        }
+        weightedSum += value * count;
+        weightedSquareSum += value * value * count;
+        if (value < 64) {
+            darkPixels += count;
+        } else if (value < 192) {
+            midtonePixels += count;
+        } else {
+            lightPixels += count;
+        }
+    }
+    const mean = sampleCount === 0 ? 0 : weightedSum / sampleCount;
+    const variance = sampleCount === 0
+        ? 0
+        : Math.max(0, weightedSquareSum / sampleCount - mean * mean);
+    const midtoneFraction = sampleCount === 0 ? 0 : midtonePixels / sampleCount;
+    const darkFraction = sampleCount === 0 ? 0 : darkPixels / sampleCount;
+    const lightFraction = sampleCount === 0 ? 0 : lightPixels / sampleCount;
+    const bimodal =
+        darkFraction >= 0.12
+        && lightFraction >= 0.35
+        && midtoneFraction < 0.18;
+    return {
+        bimodal,
+        darkFraction: roundNumber(darkFraction),
+        lightFraction: roundNumber(lightFraction),
+        meanGray: roundNumber(mean, 2),
+        midtoneFraction: roundNumber(midtoneFraction),
+        populatedBins,
+        photographic:
+            sampleCount > 0
+            && !bimodal
+            && midtoneFraction >= 0.18
+            && populatedBins >= 20
+            && variance >= 400,
+        sampleCount,
+        standardDeviation: roundNumber(Math.sqrt(variance), 2),
+    };
+}
+
+function collectSilhouetteComponents(cleaned, cleanedRow) {
+    if (cleanedRow.type !== 'stencil') {
+        return [];
+    }
+    const xPpi = cleanedRow.xPpi || 360;
+    const yPpi = cleanedRow.yPpi || xPpi;
+    const minArea =
+        (SILHOUETTE_MIN_SIZE_MM * xPpi / 25.4)
+        * (SILHOUETTE_MIN_SIZE_MM * yPpi / 25.4);
+    const fullResolutionComponents = collectBinaryComponents(cleaned)
+        .filter(component => component.area >= minArea && component.fillRatio >= 0.8)
+        .map(component => ({
+            component,
+            factor: 1,
+        }));
+    return fullResolutionComponents.length > 0
+        ? fullResolutionComponents
+        : collectBinaryComponents(downsampleBitmap(cleaned, SILHOUETTE_COARSE_DOWNSAMPLE))
+            .filter(component =>
+                component.area * SILHOUETTE_COARSE_DOWNSAMPLE ** 2 >= minArea
+                && component.fillRatio >= 0.8,
+            )
+            .filter(component =>
+                component.width * SILHOUETTE_COARSE_DOWNSAMPLE <= SILHOUETTE_COARSE_MAX_BBOX_PX
+                && component.height * SILHOUETTE_COARSE_DOWNSAMPLE <= SILHOUETTE_COARSE_MAX_BBOX_PX,
+            )
+            .filter(component =>
+                component.width * SILHOUETTE_COARSE_DOWNSAMPLE >= SILHOUETTE_COARSE_MIN_BBOX_PX
+                && component.height * SILHOUETTE_COARSE_DOWNSAMPLE >= SILHOUETTE_COARSE_MIN_BBOX_PX,
+            )
+            .map(component => ({
+                component,
+                factor: SILHOUETTE_COARSE_DOWNSAMPLE,
+            }));
+}
+
+function detectSilhouettes(cleaned, cleanedRow, sourceGray, alignment, candidates = null) {
+    if (cleanedRow.type !== 'stencil' || !sourceGray) {
+        return [];
+    }
+    const candidateComponents = candidates ?? collectSilhouetteComponents(cleaned, cleanedRow);
+    return candidateComponents.flatMap(({
+        component,
+        factor,
+    }) => {
+        const x = component.x * factor;
+        const y = component.y * factor;
+        const bbox = {
+            height: Math.min(cleaned.height, y + component.height * factor) - y,
+            width: Math.min(cleaned.width, x + component.width * factor) - x,
+            x,
+            y,
+        };
+        const histogram = sourceRegionHistogram(sourceGray, bbox, alignment);
+        if (
+            !histogram.photographic
+                || (
+                    factor > 1
+                    && histogram.darkFraction < SILHOUETTE_COARSE_MIN_DARK_FRACTION
+                )
+        ) {
+            return [];
+        }
+        return [{
+            area: component.area * factor ** 2,
+            bbox,
+            fillRatio: roundNumber(component.fillRatio),
+            resolution: factor === 1 ? 'full' : `coarse-${String(factor)}x`,
+            sourceHistogram: histogram,
+        }];
+    });
 }
 
 function roundNumber(value, digits = 6) {
@@ -1088,6 +1749,8 @@ function pageError(pageNumber, error) {
         page: pageNumber,
         status: 'error',
         error: error instanceof Error ? error.message : String(error),
+        silhouetteFlagged: false,
+        silhouettes: [],
     };
 }
 
@@ -1161,11 +1824,12 @@ async function analyzePage({
             ));
         }
         if (Math.max(...alignments.map(candidate => candidate.fullOverlapScore)) < 0.7) {
-            const dimensionScaleValue = cleaned.width / source.width;
+            const dimensionScaleX = cleaned.width / source.width;
+            const dimensionScaleY = cleaned.height / source.height;
             const dimensionScale = {
-                label: `dimension-fit(${dimensionScaleValue.toFixed(6)})`,
-                x: dimensionScaleValue,
-                y: dimensionScaleValue,
+                label: `dimension-fit(${dimensionScaleX.toFixed(6)}x${dimensionScaleY.toFixed(6)})`,
+                x: dimensionScaleX,
+                y: dimensionScaleY,
             };
             if (
                 Math.abs(dimensionScale.x - 1) > 1e-6
@@ -1184,7 +1848,7 @@ async function analyzePage({
             candidate.fullOverlapScore > best.fullOverlapScore ? candidate : best,
         );
         const cleanedDilated = dilateOnePixel(cleaned);
-        const componentMetrics = analyzeComponents(
+        const preliminaryMetrics = analyzeComponents(
             source,
             cleanedDilated,
             alignment,
@@ -1192,11 +1856,63 @@ async function analyzePage({
             sourceAlignment.plateRegions,
             sourceAlignment.components,
             sourceAlignment.componentLabels,
-            sourceAlignment.componentCount,
         );
+        const silhouetteCandidates = collectSilhouetteComponents(cleaned, cleanedRow);
+        let sourceGray = null;
+        let cleanedGray = null;
+        if (preliminaryMetrics.lostCount > 0 || silhouetteCandidates.length > 0) {
+            const dpi = Math.round(Math.max(sourceRow.xPpi || 360, sourceRow.yPpi || 360));
+            const renderedSource = await renderPdfPageGray({
+                dpi,
+                pageNumber,
+                pdfPath: sourcePdf,
+                role: 'source',
+                workDirectory,
+            });
+            sourceGray = resizeGrayBitmap(
+                renderedSource,
+                source.width,
+                source.height,
+                renderedSource.width / source.width,
+                renderedSource.height / source.height,
+            );
+            if (preliminaryMetrics.lostCount > 0) {
+                const renderedCleaned = await renderPdfPageGray({
+                    dpi: Math.round(Math.max(cleanedRow.xPpi || dpi, cleanedRow.yPpi || dpi)),
+                    pageNumber,
+                    pdfPath: cleanedPdf,
+                    role: 'cleaned',
+                    workDirectory,
+                });
+                cleanedGray = resizeGrayBitmap(
+                    renderedCleaned,
+                    cleaned.width,
+                    cleaned.height,
+                    renderedCleaned.width / cleaned.width,
+                    renderedCleaned.height / cleaned.height,
+                );
+            }
+        }
+        const componentMetrics = preliminaryMetrics.lostCount > 0
+            ? analyzeComponents(
+                source,
+                cleanedDilated,
+                alignment,
+                minArea,
+                sourceAlignment.plateRegions,
+                sourceAlignment.components,
+                sourceAlignment.componentLabels,
+                cleanedGray,
+                sourceGray,
+            )
+            : preliminaryMetrics;
+        const silhouettes = silhouetteCandidates.length > 0
+            ? detectSilhouettes(cleaned, cleanedRow, sourceGray, alignment, silhouetteCandidates)
+            : [];
         const flagged =
             componentMetrics.lostCount >= 3
             || componentMetrics.lostInkFraction >= 0.01;
+        const silhouetteFlagged = silhouettes.length > 0;
         const result = {
             alignment: {
                 attemptedScales: alignments.map(candidate =>
@@ -1233,11 +1949,18 @@ async function analyzePage({
             },
             damagedCount: componentMetrics.damagedCount,
             flagged,
+            globalLostCount: componentMetrics.globalLostCount,
+            globalLostInkFraction: roundNumber(componentMetrics.globalLostInkFraction),
+            grayPreservedCount: componentMetrics.grayPreservedCount,
+            grayPreservedInkPixels: componentMetrics.grayPreservedInkPixels,
             ignoredDustCount: componentMetrics.ignoredDustCount,
             ignoredDustInkPixels: componentMetrics.ignoredDustInkPixels,
             lostCount: componentMetrics.lostCount,
             lostInkFraction: roundNumber(componentMetrics.lostInkFraction),
+            localRealignment: componentMetrics.localRealignment,
             page: pageNumber,
+            silhouetteFlagged,
+            silhouettes,
             sourceImage: {
                 encoding: sourceRow.encoding,
                 height: source.height,
@@ -1249,7 +1972,7 @@ async function analyzePage({
             totalTextComponents: componentMetrics.totalTextComponents,
             textInkPixels: componentMetrics.textInkPixels,
         };
-        if (flagged) {
+        if (flagged || componentMetrics.grayPreservedCount > 0) {
             result.components = componentMetrics.components;
         }
         return result;
@@ -1297,6 +2020,108 @@ function tableLine(page) {
         overlap.padStart(7),
         scale.padStart(10),
     ].join(' ');
+}
+
+function makePageMap(report) {
+    return new Map((report.pages ?? [])
+        .filter(page => Number.isSafeInteger(page.page))
+        .map(page => [
+            page.page,
+            page,
+        ]));
+}
+
+async function compareBaseline(report, baselinePath) {
+    const baseline = JSON.parse(await readFile(baselinePath, 'utf8'));
+    const previousPages = makePageMap(baseline);
+    const currentPages = makePageMap(report);
+    const lostCountDeltas = [];
+    const silhouetteDeltas = [];
+    for (const [
+        pageNumber,
+        currentPage,
+    ] of currentPages) {
+        const previousPage = previousPages.get(pageNumber);
+        const previousLostCount = previousPage?.lostCount ?? 0;
+        const currentLostCount = currentPage.lostCount ?? 0;
+        const previousSilhouetteCount = previousPage?.silhouettes?.length ?? 0;
+        const currentSilhouetteCount = currentPage.silhouettes?.length ?? 0;
+        lostCountDeltas.push({
+            current: currentLostCount,
+            delta: currentLostCount - previousLostCount,
+            page: pageNumber,
+            previous: previousLostCount,
+        });
+        silhouetteDeltas.push({
+            current: currentSilhouetteCount,
+            delta: currentSilhouetteCount - previousSilhouetteCount,
+            page: pageNumber,
+            previous: previousSilhouetteCount,
+        });
+    }
+    const previousFlaggedPages = new Set(
+        baseline.summary?.flaggedPages ?? baseline.pages
+            ?.filter(page => page.flagged)
+            .map(page => page.page) ?? [],
+    );
+    const currentFlaggedPages = new Set(
+        report.summary?.flaggedPages ?? report.pages
+            ?.filter(page => page.flagged)
+            .map(page => page.page) ?? [],
+    );
+    const previousSilhouettePages = new Set(
+        baseline.summary?.silhouettePages ?? baseline.pages
+            ?.filter(page => page.silhouetteFlagged)
+            .map(page => page.page) ?? [],
+    );
+    const currentSilhouettePages = new Set(
+        report.summary?.silhouettePages ?? report.pages
+            ?.filter(page => page.silhouetteFlagged)
+            .map(page => page.page) ?? [],
+    );
+    const newlyFlaggedPages = [...currentFlaggedPages]
+        .filter(page => !previousFlaggedPages.has(page))
+        .sort((left, right) => left - right);
+    const resolvedPages = [...previousFlaggedPages]
+        .filter(page => !currentFlaggedPages.has(page))
+        .sort((left, right) => left - right);
+    const newlySilhouettePages = [...currentSilhouettePages]
+        .filter(page => !previousSilhouettePages.has(page))
+        .sort((left, right) => left - right);
+    const resolvedSilhouettePages = [...previousSilhouettePages]
+        .filter(page => !currentSilhouettePages.has(page))
+        .sort((left, right) => left - right);
+    return {
+        baseline: baselinePath,
+        newlyFlaggedPages,
+        newlySilhouettePages,
+        resolvedPages,
+        resolvedSilhouettePages,
+        lostCountDeltas,
+        silhouetteDeltas,
+        hasRegressions:
+            newlyFlaggedPages.length > 0
+            || newlySilhouettePages.length > 0
+            || lostCountDeltas.some(item => item.delta > 0)
+            || silhouetteDeltas.some(item => item.delta > 0),
+    };
+}
+
+function formatPageList(pages) {
+    return pages.length === 0 ? '(none)' : pages.join(', ');
+}
+
+function shouldFailFor(options, flaggedPages, silhouettePages) {
+    if (options.failOn === 'text-loss') {
+        return flaggedPages.length > 0;
+    }
+    if (options.failOn === 'silhouette') {
+        return silhouettePages.length > 0;
+    }
+    if (options.failOn === 'any') {
+        return flaggedPages.length > 0 || silhouettePages.length > 0;
+    }
+    return false;
 }
 
 async function main() {
@@ -1363,11 +2188,16 @@ async function main() {
         const flaggedPages = pageResults
             .filter(page => page.status === 'analyzed' && page.flagged)
             .map(page => page.page);
+        const silhouettePages = pageResults
+            .filter(page => page.status === 'analyzed' && page.silhouetteFlagged)
+            .map(page => page.page);
         const report = {
             generatedAt: new Date().toISOString(),
             inputs: {
                 cleaned: options.cleaned,
                 from,
+                baseline: options.baseline,
+                failOn: options.failOn,
                 minArea: options.minArea,
                 source: options.source,
                 to,
@@ -1380,8 +2210,17 @@ async function main() {
                 errorPages: pageResults.filter(page => page.status === 'error').map(page => page.page),
                 flaggedCount: flaggedPages.length,
                 flaggedPages,
+                grayPreservedCount: pageResults.reduce(
+                    (total, page) => total + (page.grayPreservedCount ?? 0),
+                    0,
+                ),
                 pageCount: pageResults.length,
                 skippedPages: pageResults.filter(page => page.status === 'skipped').map(page => page.page),
+                silhouetteCount: pageResults.reduce(
+                    (total, page) => total + (page.silhouettes?.length ?? 0),
+                    0,
+                ),
+                silhouettePages,
             },
             tool: {
                 alignment: {
@@ -1391,13 +2230,34 @@ async function main() {
                     searchRadiusFullPixels: ALIGNMENT_RADIUS_FULL_PX,
                     scaleFallback: '2197/2261',
                 },
+                grayPreserved: {
+                    edgeMaxMeanGray: GRAY_EDGE_MAX_MEAN,
+                    edgeMinShapeIoU: GRAY_EDGE_MIN_SHAPE_IOU,
+                    edgeMinShapeRecall: GRAY_EDGE_MIN_SHAPE_RECALL,
+                    inkThreshold: GRAY_INK_THRESHOLD,
+                    meanTolerance: GRAY_MEAN_TOLERANCE,
+                    minShapeIoU: GRAY_MIN_SHAPE_IOU,
+                    minShapeRecall: GRAY_MIN_SHAPE_RECALL,
+                },
                 name: 'scan-cleanup-word-loss-audit',
-                version: 1,
+                silhouette: {
+                    coarseDownsample: SILHOUETTE_COARSE_DOWNSAMPLE,
+                    coarseMaxBboxPixels: SILHOUETTE_COARSE_MAX_BBOX_PX,
+                    coarseMinBboxPixels: SILHOUETTE_COARSE_MIN_BBOX_PX,
+                    coarseMinDarkFraction: SILHOUETTE_COARSE_MIN_DARK_FRACTION,
+                    minAreaMillimeters: SILHOUETTE_MIN_SIZE_MM,
+                    minFillRatio: 0.8,
+                },
+                version: 2,
             },
         };
+        if (options.baseline) {
+            report.regressions = await compareBaseline(report, options.baseline);
+        }
         await writeFile(options.out, `${JSON.stringify(report, null, 2)}\n`);
         console.log(`Wrote JSON report: ${options.out}`);
         console.log(`Pages: ${String(from)}-${String(to)}; flagged: ${String(flaggedPages.length)}; elapsed: ${(elapsedMs / 1000).toFixed(1)}s`);
+        console.log(`Silhouettes: ${formatPageList(silhouettePages)}`);
         console.log('');
         console.log('page components lost damaged lost-ink offset overlap scale');
         console.log('---- ---------- ---- ------- -------- -------- ------- ----------');
@@ -1408,6 +2268,27 @@ async function main() {
                 console.log(tableLine(pageResults[pageNumber - from]));
             }
         }
+        if (report.regressions) {
+            console.log('');
+            console.log('REGRESSIONS');
+            console.log(`newly flagged pages: ${formatPageList(report.regressions.newlyFlaggedPages)}`);
+            console.log(`resolved pages: ${formatPageList(report.regressions.resolvedPages)}`);
+            console.log(`new silhouette pages: ${formatPageList(report.regressions.newlySilhouettePages)}`);
+            console.log(`resolved silhouette pages: ${formatPageList(report.regressions.resolvedSilhouettePages)}`);
+            const changedLost = report.regressions.lostCountDeltas
+                .filter(item => item.delta !== 0)
+                .map(item => `${String(item.page)}:${item.delta > 0 ? '+' : ''}${String(item.delta)}`);
+            const changedSilhouettes = report.regressions.silhouetteDeltas
+                .filter(item => item.delta !== 0)
+                .map(item => `${String(item.page)}:${item.delta > 0 ? '+' : ''}${String(item.delta)}`);
+            console.log(`lostCount deltas: ${formatPageList(changedLost)}`);
+            console.log(`silhouette deltas: ${formatPageList(changedSilhouettes)}`);
+        }
+        const fail = shouldFailFor(options, flaggedPages, silhouettePages);
+        if (fail) {
+            console.error(`FAIL: --fail-on ${options.failOn} found a matching flag`);
+        }
+        return fail;
     } finally {
         await rm(temporaryRoot, {
             force: true,
@@ -1417,9 +2298,8 @@ async function main() {
 }
 
 try {
-    await main();
+    process.exitCode = (await main()) ? 1 : 0;
 } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
-} finally {
-    process.exitCode = 0;
+    process.exitCode = 1;
 }
