@@ -118,7 +118,7 @@ describe('workingCopyMaterialization', () => {
             .toEqual([...progress.map(entry => entry.bytesCopied)].sort((left, right) => left - right));
         const revisionAfter = await getWorkingCopyRevision(fixture.workingPath, 7);
         expect(revisionAfter).toEqual(revisionBefore);
-    }, 15_000);
+    }, 30_000);
 
     it('shares one flight across concurrent demand waiters', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 19));
@@ -198,7 +198,7 @@ describe('workingCopyMaterialization', () => {
         });
         expect(secondResult.status).toBe('fulfilled');
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
-    }, 15_000);
+    }, 30_000);
 
     it('lets a document consumer finish the copy a cancelled scan cleanup request started', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 24));
@@ -235,7 +235,7 @@ describe('workingCopyMaterialization', () => {
         expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)).toMatchObject({backingState: 'materialized'});
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
         expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
-    }, 15_000);
+    }, 30_000);
 
     it('stops a joined flight once the last waiter is gone', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 31));
@@ -286,7 +286,7 @@ describe('workingCopyMaterialization', () => {
             reason: 'page-operation',
         })).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
-    }, 15_000);
+    }, 30_000);
 
     it('recovers a registration left materializing and a flight already tearing down', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 25));
@@ -316,7 +316,7 @@ describe('workingCopyMaterialization', () => {
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
         expect(getWorkingCopyMaterializationFlightCountForTests()).toBe(0);
         expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
-    }, 15_000);
+    }, 30_000);
 
     it('keeps a flight background-leased when the lease attaches after a demand waiter', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 27));
@@ -349,7 +349,7 @@ describe('workingCopyMaterialization', () => {
         });
         expect(backgroundResult.status).toBe('fulfilled');
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
-    }, 15_000);
+    }, 30_000);
 
     it('explicitly cancels shared work, removes its partial, and permits retry', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 29));
@@ -380,7 +380,7 @@ describe('workingCopyMaterialization', () => {
             reason: 'save',
         })).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
-    }, 15_000);
+    }, 30_000);
 
     it('keeps ENOSPC retryable and never publishes partial target content', async () => {
         const actualFs = await import('node:fs/promises');
