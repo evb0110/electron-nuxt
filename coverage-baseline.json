@@ -8,7 +8,7 @@
       "metrics": {
         "statements": 70,
         "branches": 62.26,
-        "functions": 70.52,
+        "functions": 70.53,
         "lines": 70.3
       }
     },
@@ -18,10 +18,10 @@
         "electron/"
       ],
       "metrics": {
-        "statements": 74.86,
-        "branches": 65.99,
-        "functions": 76.36,
-        "lines": 75.33
+        "statements": 74.21,
+        "branches": 64.88,
+        "functions": 75.76,
+        "lines": 74.65
       }
     },
     "electron-djvu-feature": {
@@ -55,8 +55,8 @@
       ],
       "metrics": {
         "statements": 70.03,
-        "branches": 62.32,
-        "functions": 71.97,
+        "branches": 62.31,
+        "functions": 71.99,
         "lines": 70.19
       }
     },
@@ -73,15 +73,15 @@
       }
     },
     "scripts-core": {
-      "fileCount": 146,
+      "fileCount": 149,
       "include": [
         "scripts/"
       ],
       "metrics": {
-        "statements": 37.43,
-        "branches": 38.83,
-        "functions": 43.76,
-        "lines": 37.56
+        "statements": 33.2,
+        "branches": 34.64,
+        "functions": 40.4,
+        "lines": 33.4
       }
     },
     "workspace-shell": {
@@ -98,10 +98,10 @@
     }
   },
   "metrics": {
-    "statements": 67.87,
-    "branches": 61.18,
-    "functions": 69.84,
-    "lines": 68.22
+    "statements": 66.51,
+    "branches": 59.94,
+    "functions": 68.91,
+    "lines": 66.88
   },
   "tolerancePercentagePoints": 0.5,
   "version": 1

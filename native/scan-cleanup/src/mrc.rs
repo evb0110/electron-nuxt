@@ -355,11 +355,9 @@ fn complete_adjacent_dark_zones(
     let dark_ceiling = luminance_percentile(gray, 3, 4).saturating_sub(8);
     let recovery_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 64.0) as usize;
     let completion_context = dilate(accepted, recovery_radius, recovery_radius);
-    let dark_candidates = BinaryImage::from_fn_parallel(
-        gray.width(),
-        gray.height(),
-        |x, y| gray.get(x, y) <= dark_ceiling && completion_context.get(x, y),
-    );
+    let dark_candidates = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
+        gray.get(x, y) <= dark_ceiling && completion_context.get(x, y)
+    });
     let density_radius = (dpi * 2.0 / 25.4).round().clamp(2.0, 16.0) as usize;
     let dense_dark = filter_dense_regions(&dark_candidates, density_radius, 1, 3);
     if dense_dark.count_black() == 0 {
@@ -371,19 +369,15 @@ fn complete_adjacent_dark_zones(
     // lower rim of a glossy foot is often a sparse near-black contour; the
     // dense field remains the compactness guard while the raw footprint gives
     // reconstruction the width profile that continues below the plate.
-    let grouped = ComponentMap::from_binary(&dilate(
-        &dark_candidates,
-        grouping_radius,
-        grouping_radius,
-    ));
+    let grouped =
+        ComponentMap::from_binary(&dilate(&dark_candidates, grouping_radius, grouping_radius));
     let minimum_span = (dpi * 3.0 / 25.4).round().max(8.0) as usize;
     let adjacency_radius = (dpi * 1.5 / 25.4).round().clamp(2.0, 32.0) as usize;
     let accepted_halo = dilate(accepted, adjacency_radius, adjacency_radius);
     let component_count = grouped.components().len();
     let mut dark_counts = vec![0usize; component_count + 1];
     let mut dense_counts = vec![0usize; component_count + 1];
-    let mut dark_bounds =
-        vec![None::<(usize, usize, usize, usize)>; component_count + 1];
+    let mut dark_bounds = vec![None::<(usize, usize, usize, usize)>; component_count + 1];
     let mut touches_accepted = vec![false; component_count + 1];
     let mut profile_min_width = vec![usize::MAX; component_count + 1];
     let mut profile_max_width = vec![0usize; component_count + 1];
@@ -400,12 +394,11 @@ fn complete_adjacent_dark_zones(
                 continue;
             }
             dark_counts[label] += 1;
-            dark_bounds[label] = Some(dark_bounds[label].map_or(
-                (x, y, x, y),
-                |(left, top, right, bottom)| {
+            dark_bounds[label] = Some(
+                dark_bounds[label].map_or((x, y, x, y), |(left, top, right, bottom)| {
                     (left.min(x), top.min(y), right.max(x), bottom.max(y))
-                },
-            ));
+                }),
+            );
             if dense_dark.get(x, y) {
                 dense_counts[label] += 1;
             }
@@ -489,11 +482,8 @@ fn complete_adjacent_dark_zones(
         label > 0 && absorb[label] && dark_candidates.get(x, y)
     });
     let recovery_zone = dilate(&completion_seed, recovery_radius, recovery_radius);
-    let recovery_mask = binary.or(&closed).or(&completion_seed).and(&recovery_zone);
-    let recovered = fill_enclosed_holes(&reconstruct_binary(
-        &completion_seed,
-        &recovery_mask,
-    ));
+    let recovery_mask = binary.or(closed).or(&completion_seed).and(&recovery_zone);
+    let recovered = fill_enclosed_holes(&reconstruct_binary(&completion_seed, &recovery_mask));
     accepted.or(&recovered)
 }
 
