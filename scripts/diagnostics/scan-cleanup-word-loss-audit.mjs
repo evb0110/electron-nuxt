@@ -34,7 +34,9 @@ const AUDIT_TOOL_CRATES = {
 const auditToolPaths = new Map();
 function resolveAuditTool(command) {
     const crate = AUDIT_TOOL_CRATES[command];
-    if (crate === undefined) return command;
+    if (crate === undefined) {
+        return command;
+    }
     let resolved = auditToolPaths.get(command);
     if (resolved === undefined) {
         resolved = resolveCliNativeToolPath(command, crate, projectRoot) ?? command;
