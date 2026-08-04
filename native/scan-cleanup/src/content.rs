@@ -656,7 +656,11 @@ fn annotate_heading_evidence(
             }
             component_heights.sort_unstable();
             let median_height = component_heights[component_heights.len() / 2] as f64;
-            if median_height < 1.15 * nominal_height || median_height > 4.0 * nominal_height {
+            // Running heads are often set at the body text's x-height. Requiring
+            // a heading to be visibly larger misclassified the narrow header on
+            // dictionary pages as scanner-edge garbage, so a text-like line at
+            // the same calibrated height remains ownership evidence too.
+            if median_height < 0.9 * nominal_height || median_height > 4.0 * nominal_height {
                 return false;
             }
             let candidate_center = (candidate.left + candidate.right) / 2;
@@ -1544,10 +1548,17 @@ pub(crate) fn content_with_margins_for_dimensions(
     // changing every antialiased glyph before it was placed back on the
     // matched canvas. Round outward so the requested margin is never reduced
     // and integer-aligned scans retain their exact sample grid.
-    let left = expanded.x.floor();
-    let top = expanded.y.floor();
-    let right = expanded.right().ceil();
-    let bottom = expanded.bottom().ceil();
+    // A margin may extend past the physical page edge. Keep the crop rect in
+    // page coordinates: downstream PDF assembly clips negative-origin rasters
+    // before placing them on the matched canvas, which can remove authored ink
+    // at the top or left edge even though the requested margin was meant to
+    // preserve it.
+    let page_width = width as f64;
+    let page_height = height as f64;
+    let left = expanded.x.floor().clamp(0.0, page_width);
+    let top = expanded.y.floor().clamp(0.0, page_height);
+    let right = expanded.right().ceil().clamp(left, page_width);
+    let bottom = expanded.bottom().ceil().clamp(top, page_height);
     let output_rect = Rect::new(left, top, right - left, bottom - top);
     ContentResult {
         content,
@@ -1598,6 +1609,24 @@ mod tests {
 
         assert_eq!(result.output_rect, Rect::new(36.0, 26.0, 785.0, 987.0));
         assert_eq!(result.margins, [5.0 / 25.4 * 100.0; 4]);
+    }
+
+    #[test]
+    fn physical_margins_clamp_at_page_edges_without_negative_crop_origin() {
+        let image = GrayImage::new(2_199, 3_279, 255);
+        let result = content_with_margins(
+            &image,
+            400.0,
+            Some(Rect::new(50.64, 34.66, 2_097.71, 3_145.71)),
+            Some([5.0; 4]),
+            None,
+        );
+
+        assert_eq!(result.output_rect, Rect::new(0.0, 0.0, 2_199.0, 3_260.0));
+        assert!(result.output_rect.x >= 0.0);
+        assert!(result.output_rect.y >= 0.0);
+        assert!(result.output_rect.right() <= image.width() as f64);
+        assert!(result.output_rect.bottom() <= image.height() as f64);
     }
 
     fn component_census(columns: usize, rows: usize) -> Vec<Component> {

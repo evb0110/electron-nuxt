@@ -29,6 +29,7 @@ const defaultOutputPath = join(
 );
 const CROP_SCALE = 2197 / 2261;
 const ALIGNMENT_RADIUS_FULL_PX = 160;
+const ALIGNMENT_MIN_RELIABLE_OVERLAP = 0.4;
 const QUARTER_DOWNSAMPLE = 4;
 const BROAD_DOWNSAMPLE = 16;
 const MAX_BROAD_ALIGNMENT_SAMPLES = 30_000;
@@ -41,6 +42,15 @@ const SILHOUETTE_COARSE_DOWNSAMPLE = 24;
 const SILHOUETTE_COARSE_MAX_BBOX_PX = 600;
 const SILHOUETTE_COARSE_MIN_BBOX_PX = 120;
 const SILHOUETTE_COARSE_MIN_DARK_FRACTION = 0.1;
+const SILHOUETTE_MIN_DIMENSION_FACTOR = 2;
+const SILHOUETTE_SOURCE_MAX_LIGHT_FRACTION = 0.02;
+const SILHOUETTE_SOURCE_MAX_DARK_FRACTION = 0.35;
+const SILHOUETTE_SOURCE_MIN_MIDTONE_FRACTION = 0.6;
+const SILHOUETTE_SOURCE_MAX_STANDARD_DEVIATION = 64;
+// A mapped gray source pixel can cover a several-pixel stencil cell after
+// matched-canvas fitting. Permit at most one source-grid pixel of stencil
+// tolerance; this is deliberately scoped to mapped bpc8->stencil comparisons.
+const MAPPED_GRAY_MAX_DILATION_RADIUS = 8;
 const GRAY_INK_THRESHOLD = 192;
 const GRAY_MEAN_TOLERANCE = 112;
 const GRAY_MIN_SHAPE_IOU = 0.28;
@@ -1291,6 +1301,28 @@ function dilateOnePixel(bitmap) {
     };
 }
 
+function dilateBitmap(bitmap, radius) {
+    let result = bitmap;
+    for (let pass = 0; pass < radius; pass += 1) {
+        result = dilateOnePixel(result);
+    }
+    return result;
+}
+
+function resolveAuditDilationRadius(sourceRow, cleanedRow, mappingActive, alignment) {
+    if (!mappingActive || sourceRow.bpc <= 1 || cleanedRow.type !== 'stencil') {
+        return 1;
+    }
+    const scale = Math.max(alignment.scaleX ?? alignment.scale, alignment.scaleY ?? alignment.scale);
+    if (scale < 2) {
+        return 1;
+    }
+    return Math.min(
+        MAPPED_GRAY_MAX_DILATION_RADIUS,
+        Math.max(1, Math.ceil(scale)),
+    );
+}
+
 function ensureComponentPixels(component, componentLabels, sourceWidth) {
     if (component.pixels || !componentLabels) {
         return component.pixels ?? [];
@@ -1917,6 +1949,12 @@ function detectSilhouettes(cleaned, cleanedRow, sourceGray, alignment, candidate
         return [];
     }
     const candidateComponents = candidates ?? collectSilhouetteComponents(cleaned, cleanedRow);
+    const xPpi = cleanedRow.xPpi || 360;
+    const yPpi = cleanedRow.yPpi || xPpi;
+    const minimumDimensionPx = SILHOUETTE_MIN_SIZE_MM
+        * Math.min(xPpi, yPpi)
+        / 25.4
+        * SILHOUETTE_MIN_DIMENSION_FACTOR;
     return candidateComponents.flatMap(({
         component,
         factor,
@@ -1931,7 +1969,13 @@ function detectSilhouettes(cleaned, cleanedRow, sourceGray, alignment, candidate
         };
         const histogram = sourceRegionHistogram(sourceGray, bbox, alignment);
         if (
-            !histogram.photographic
+            component.width * factor < minimumDimensionPx
+                || component.height * factor < minimumDimensionPx
+                || histogram.lightFraction > SILHOUETTE_SOURCE_MAX_LIGHT_FRACTION
+                || histogram.darkFraction > SILHOUETTE_SOURCE_MAX_DARK_FRACTION
+                || histogram.midtoneFraction < SILHOUETTE_SOURCE_MIN_MIDTONE_FRACTION
+                || histogram.standardDeviation > SILHOUETTE_SOURCE_MAX_STANDARD_DEVIATION
+                || !histogram.photographic
                 || (
                     factor > 1
                     && histogram.darkFraction < SILHOUETTE_COARSE_MIN_DARK_FRACTION
@@ -2087,7 +2131,14 @@ async function analyzePage({
         const alignment = alignments.reduce((best, candidate) =>
             candidate.fullOverlapScore > best.fullOverlapScore ? candidate : best,
         );
-        const cleanedDilated = dilateOnePixel(cleaned);
+        const alignmentReliable = alignment.overlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP;
+        const auditDilationRadius = resolveAuditDilationRadius(
+            sourceRow,
+            cleanedRow,
+            mappingActive,
+            alignment,
+        );
+        const cleanedDilated = dilateBitmap(cleaned, auditDilationRadius);
         const preliminaryMetrics = analyzeComponents(
             sourceForAudit,
             cleanedDilated,
@@ -2149,12 +2200,13 @@ async function analyzePage({
                 sourceGray,
             )
             : preliminaryMetrics;
-        const silhouettes = silhouetteCandidates.length > 0
+        const silhouettes = alignmentReliable && silhouetteCandidates.length > 0
             ? detectSilhouettes(cleaned, cleanedRow, sourceGray, alignment, silhouetteCandidates)
             : [];
-        const flagged =
+        const potentialFlagged =
             componentMetrics.lostCount >= 3
             || componentMetrics.lostInkFraction >= 0.01;
+        const flagged = alignmentReliable && potentialFlagged;
         const silhouetteFlagged = silhouettes.length > 0;
         const result = {
             alignment: {
@@ -2165,7 +2217,7 @@ async function analyzePage({
                 dy: alignment.dy,
                 fullOverlapScore: roundNumber(alignment.fullOverlapScore),
                 overlapScore: roundNumber(alignment.overlapScore),
-                reliable: alignment.overlapScore >= 0.4,
+                reliable: alignmentReliable,
                 scale: scaleLabel(alignment.scale),
                 scaleX: roundNumber(alignment.scaleX),
                 scaleY: roundNumber(alignment.scaleY),
@@ -2201,6 +2253,10 @@ async function analyzePage({
             lostCount: componentMetrics.lostCount,
             lostInkFraction: roundNumber(componentMetrics.lostInkFraction),
             localRealignment: componentMetrics.localRealignment,
+            auditDilationRadius,
+            ...(potentialFlagged && !alignmentReliable
+                ? {comparisonSuppressed: 'alignment overlap below reliable threshold'}
+                : {}),
             outputPage: outputPageNumber,
             page: pageNumber,
             silhouetteFlagged,
