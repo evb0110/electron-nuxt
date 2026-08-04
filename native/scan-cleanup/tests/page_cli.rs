@@ -2762,10 +2762,10 @@ fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
 }
 
 #[test]
-fn matched_canvas_reports_a_page_it_had_to_fit_below_the_document_scale() {
-    // Margins can push content past the paper it was measured on. The page is
-    // fitted rather than clipped, and the run says which page and how far,
-    // because a page smaller than its neighbours is a visible result.
+fn matched_canvas_clamps_requested_margins_to_the_physical_page() {
+    // Margins cannot invent paper outside the source page. Clamping the crop
+    // keeps authored edge ink in page coordinates without falsely reporting
+    // that the matched document had to shrink this page.
     let scratch = Scratch::new("matched-overflow-warning");
     let manifest = scratch.path("matched-overflow-manifest.json");
     let input = scratch.path("matched-overflow-input.png");
@@ -2822,12 +2822,12 @@ fn matched_canvas_reports_a_page_it_had_to_fit_below_the_document_scale() {
         String::from_utf8_lossy(&result.stderr)
     );
     let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
-    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(true));
+    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
     let warnings = metadata_json["warnings"].as_array().unwrap();
     assert!(
         warnings
             .iter()
-            .any(|warning| warning.as_str().unwrap_or("").contains("document canvas")),
+            .all(|warning| !warning.as_str().unwrap_or("").contains("document canvas")),
         "warnings={warnings:?}"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
@@ -2921,7 +2921,7 @@ fn matched_canvas_reports_a_sheet_larger_than_the_rectangle_it_was_measured_for(
 /// metadata reads the placement from the content box, so this is the shape the
 /// bridge has to accept rather than reject as an impossible placement.
 #[test]
-fn matched_canvas_preview_reports_an_overflowing_page_inside_the_canvas() {
+fn matched_canvas_preview_clamps_margins_inside_the_physical_page() {
     let scratch = Scratch::new("matched-overflow-preview");
     let manifest = scratch.path("matched-overflow-preview-manifest.json");
     let input = scratch.path("matched-overflow-preview-input.png");
@@ -2990,15 +2990,12 @@ fn matched_canvas_preview_reports_an_overflowing_page_inside_the_canvas() {
     let offset_x = metadata_json["placementOffsetXPx"].as_u64().unwrap();
     let offset_y = metadata_json["placementOffsetYPx"].as_u64().unwrap();
     assert_eq!((canvas_width, canvas_height), (200, 180));
-    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(true));
-    // The page was fitted, and the box it was fitted into is on the canvas.
+    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
+    // The clamped page and its placement both remain on the canvas.
     assert!(offset_x + content_width <= canvas_width);
     assert!(offset_y + content_height <= canvas_height);
-    // Its raster is the one the preview rendered, which is larger than the
-    // canvas — the fact the placement invariant must not be read from.
-    assert!(metadata_json["outputWidthPx"].as_u64().unwrap() > canvas_width);
-    // The preview publishes that raster untouched, so the renderer scales it
-    // into the content box rather than presenting a resampled copy.
+    assert!(metadata_json["outputWidthPx"].as_u64().unwrap() <= canvas_width);
+    // The preview publishes the physically bounded raster unchanged.
     let published = decode_gray(&fs::read(&output).unwrap(), 200_000, 400).unwrap();
     assert_eq!(
         u64::try_from(published.width()).unwrap(),
