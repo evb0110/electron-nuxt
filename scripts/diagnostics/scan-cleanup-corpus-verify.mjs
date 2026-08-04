@@ -22,6 +22,7 @@ import {
     resolve,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {tsImport} from 'tsx/esm/api';
 import {
     assertStagedCargoArtifactFresh,
     collectCargoSourceInputs,
@@ -33,6 +34,14 @@ import {
     reusablePagePlan,
 } from './scan-cleanup-corpus-plan.mjs';
 export {resolveFixturePages} from './scan-cleanup-corpus-plan.mjs';
+
+const {
+    buildNativeScanCleanupManifest,
+    buildScanCleanupCompactManifest,
+    buildScanCleanupPageOpsInstructions,
+    serializeLegacyScanCleanupCompactManifest,
+    serializeLegacyScanCleanupPageOpsInstructions,
+} = await tsImport('../../scan-cleanup-core/index.ts', import.meta.url);
 
 function corpusPagePlan(analysis, previewOutputs, analysisDimensions) {
     const plan = reusablePagePlan(analysis, previewOutputs, analysisDimensions);
@@ -98,6 +107,28 @@ const nativeTools = [
 const MAX_DIMENSION_PX = 40_000;
 const MAX_BILEVEL_PIXELS = 160_000_000;
 const MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
+const corpusOptions = {
+    preserveOriginalQuality: false,
+    layoutMode: 'auto',
+    outputMode: 'auto',
+    binarization: 'auto',
+    normalizeIllumination: true,
+    thickness: 0,
+    crop: true,
+    matchPageSize: true,
+    pageAlignment: 'top-center',
+    marginsMm: {
+        leftMm: 5,
+        topMm: 5,
+        rightMm: 5,
+        bottomMm: 5,
+    },
+    despeckleLevel: 'normal',
+    autoDewarp: false,
+    readingOrder: 'ltr',
+    skipBlankPages: false,
+    pageOverrides: {},
+};
 // The production preview service makes the durable Auto decision at 150 DPI.
 // Verify that decision on the same grid, then replay it on final-quality input.
 const DETECTION_DPI = 150;
@@ -735,50 +766,6 @@ function compactSourceInstruction(page, pageBox) {
     };
 }
 
-function nativeOptions(
-    dpi,
-    sourceDpi,
-    requestedRenderDpi,
-    outputMode = 'auto',
-    sourceHasBilevelLayer = false,
-    sourceBackgroundDpi,
-) {
-    return {
-        dpi,
-        sourceDpi,
-        ...(sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
-        ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
-        requestedRenderDpi,
-        binarization: 'auto',
-        thickness: 0,
-        normalizeIllumination: true,
-        despeckle: true,
-        outputMode,
-        ocrMode: false,
-        layout: 'auto',
-        manualSplit: null,
-        manualContentBoxes: {},
-        cropContent: true,
-        matchPageSize: true,
-        pageAlignment: 'top-center',
-        placementOverrides: {},
-        margins: {
-            leftMm: 5,
-            topMm: 5,
-            rightMm: 5,
-            bottomMm: 5,
-        },
-        experimental: {autoDewarp: false},
-        rotationDegrees: 0,
-        excluded: false,
-        skipBlankPages: false,
-        maxPixels: outputMode === 'bw' || outputMode === 'auto'
-            ? MAX_BILEVEL_PIXELS
-            : MAX_CONTINUOUS_TONE_PIXELS,
-        maxDimensionPx: MAX_DIMENSION_PX,
-    };
-}
-
 function tonalJpegQuality(mode) {
     if (mode === 'color') {
         return 87;
@@ -1075,26 +1062,24 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         fixtureDir,
         'detection-analysis-manifest.json',
     );
-    await writeFile(detectionAnalysisManifestPath, JSON.stringify({
-        version: 3,
+    const detectionAnalysisManifest = buildNativeScanCleanupManifest({
         operation: 'analyze',
         renderMode: 'final',
         canvasScope: 'page',
+        qualityPath: 'raster',
+        options: corpusOptions,
         pages: rasterRuns.map(page => ({
             inputPath: page.detectionRaster,
-            sourcePageIndex: page.pageNumber - 1,
+            pageNumber: page.pageNumber,
+            dpi: page.detectionDpi,
+            sourceDpi: page.sourceDpi,
+            ...(page.sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
+            ...(page.sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
             pageMetadataPath: join(fixtureDir, `analysis-${page.pageNumber}.json`),
-            options: nativeOptions(
-                page.detectionDpi,
-                page.sourceDpi,
-                page.detectionDpi,
-                'auto',
-                page.sourceHasBilevelLayer,
-                page.sourceBackgroundDpi,
-            ),
             outputs: [],
         })),
-    }, null, 2));
+    });
+    await writeFile(detectionAnalysisManifestPath, JSON.stringify(detectionAnalysisManifest, null, 2));
     const detectionAnalysisRun = await runSidecar(detectionAnalysisManifestPath);
     await Promise.all([
         writeFile(
@@ -1178,26 +1163,25 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         fixtureDir,
         'final-input-analysis-manifest.json',
     );
-    await writeFile(finalAnalysisManifestPath, JSON.stringify({
-        version: 3,
+    const finalAnalysisManifest = buildNativeScanCleanupManifest({
         operation: 'analyze',
         renderMode: 'final',
         canvasScope: 'page',
+        qualityPath: 'raster',
+        options: corpusOptions,
         pages: renderedRuns.map(page => ({
             inputPath: page.renderRaster,
-            sourcePageIndex: page.pageNumber - 1,
+            pageNumber: page.pageNumber,
+            dpi: page.renderDpi,
+            sourceDpi: page.sourceDpi,
+            ...(page.sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
+            ...(page.sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
+            requestedRenderDpi: page.requestedRenderDpi,
             pageMetadataPath: page.finalAnalysisMetadataPath,
-            options: nativeOptions(
-                page.renderDpi,
-                page.sourceDpi,
-                page.requestedRenderDpi,
-                'auto',
-                page.sourceHasBilevelLayer,
-                page.sourceBackgroundDpi,
-            ),
             outputs: [],
         })),
-    }, null, 2));
+    });
+    await writeFile(finalAnalysisManifestPath, JSON.stringify(finalAnalysisManifest, null, 2));
     const finalAnalysisRun = await runSidecar(finalAnalysisManifestPath);
     await Promise.all([
         writeFile(
@@ -1224,21 +1208,18 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 trustedForegroundMaskPath: page.trustedMrcLayers.selectionMaskPath,
                 trustedMrcBackgroundPath: page.trustedMrcLayers.backgroundPath,
             }),
-        sourcePageIndex: page.pageNumber - 1,
+        pageNumber: page.pageNumber,
+        dpi: page.detectionDpi,
+        sourceDpi: page.sourceDpi,
+        ...(page.sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
+        ...(page.sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
+        requestedRenderDpi: page.detectionDpi,
         pageMetadataPath: join(fixtureDir, `preview-${page.pageNumber}-page.json`),
-        options: {
-            ...nativeOptions(
-                page.detectionDpi,
-                page.sourceDpi,
-                page.detectionDpi,
-                page.analysis.recommendedOutputMode,
-                page.sourceHasBilevelLayer,
-                page.sourceBackgroundDpi,
-            ),
-            ...(page.analysis.softAlphaForegroundRecommendation === undefined
-                ? {}
-                : {preferSoftAlphaForeground:
-                    page.analysis.softAlphaForegroundRecommendation}),
+        resolvedOutputMode: page.analysis.recommendedOutputMode,
+        ...(page.analysis.softAlphaForegroundRecommendation === undefined
+            ? {}
+            : {preferSoftAlphaForeground: page.analysis.softAlphaForegroundRecommendation}),
+        resolvedOptions: {
             // The UI preview is rendered in intrinsic output space. Matched
             // document canvases are a final-PDF assembly concern and require a
             // documentCanvas plan that is not available until all sheets exist.
@@ -1259,13 +1240,15 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         })),
     }));
     const previewManifestPath = join(fixtureDir, 'preview-render-manifest.json');
-    await writeFile(previewManifestPath, JSON.stringify({
-        version: 3,
+    const previewManifest = buildNativeScanCleanupManifest({
         operation: 'render',
         renderMode: 'preview',
         canvasScope: 'page',
+        qualityPath: 'raster',
+        options: corpusOptions,
         pages: previewPages,
-    }, null, 2));
+    });
+    await writeFile(previewManifestPath, JSON.stringify(previewManifest, null, 2));
     await clearRenderTargets(previewPages);
     await runSidecar(previewManifestPath);
     const previewRuns = await Promise.all(pageRuns.map(async (page, pageIndex) => {
@@ -1291,23 +1274,18 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 trustedForegroundMaskPath: page.trustedMrcLayers.selectionMaskPath,
                 trustedMrcBackgroundPath: page.trustedMrcLayers.backgroundPath,
             }),
-        sourcePageIndex: page.pageNumber - 1,
+        pageNumber: page.pageNumber,
+        dpi: page.renderDpi,
+        sourceDpi: page.sourceDpi,
+        ...(page.sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
+        ...(page.sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
+        requestedRenderDpi: page.requestedRenderDpi,
         pageMetadataPath: join(fixtureDir, `clean-${page.pageNumber}-page.json`),
-        options: {
-            ...nativeOptions(
-                page.renderDpi,
-                page.sourceDpi,
-                page.requestedRenderDpi,
-                page.analysis.recommendedOutputMode,
-                page.sourceHasBilevelLayer,
-                page.sourceBackgroundDpi,
-            ),
-            ...(page.analysis.softAlphaForegroundRecommendation === undefined
-                ? {}
-                : {preferSoftAlphaForeground:
-                    page.analysis.softAlphaForegroundRecommendation}),
-            ...corpusPagePlan(page.analysis, page.previewOutputs, page.detectionDimensions),
-        },
+        resolvedOutputMode: page.analysis.recommendedOutputMode,
+        ...(page.analysis.softAlphaForegroundRecommendation === undefined
+            ? {}
+            : {preferSoftAlphaForeground: page.analysis.softAlphaForegroundRecommendation}),
+        resolvedOptions: {...corpusPagePlan(page.analysis, page.previewOutputs, page.detectionDimensions)},
         outputs: [
             0,
             1,
@@ -1338,18 +1316,20 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         widthPoints: Math.max(...sourceSheets.map(sheet => sheet.widthPoints)),
     };
     const renderManifestPath = join(fixtureDir, 'render-manifest.json');
-    await writeFile(renderManifestPath, JSON.stringify({
-        version: 3,
+    const renderManifest = buildNativeScanCleanupManifest({
         operation: 'render',
         renderMode: 'final',
         canvasScope: 'document',
+        qualityPath: 'raster',
+        options: corpusOptions,
         documentCanvas: {
             ...documentCanvas,
             heightPx: Math.max(1, Math.round(documentCanvas.heightPoints / 72 * canvasDpi)),
             widthPx: Math.max(1, Math.round(documentCanvas.widthPoints / 72 * canvasDpi)),
         },
         pages: renderPages,
-    }, null, 2));
+    });
+    await writeFile(renderManifestPath, JSON.stringify(renderManifest, null, 2));
     await clearRenderTargets(renderPages);
     await runSidecar(renderManifestPath);
 
@@ -1490,7 +1470,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     );
 
     const compactManifestPath = join(fixtureDir, 'combine-manifest.tsv');
-    await writeFile(compactManifestPath, combinedPages.map(page => {
+    const compactManifestPages = combinedPages.map(page => {
         const pageWidthPoints = page.metadata.matchedCanvasTargetWidthPoints
             ?? page.metadata.canvasWidthPx / page.renderDpi * 72;
         const pageHeightPoints = page.metadata.matchedCanvasTargetHeightPoints
@@ -1557,7 +1537,12 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 jpegQuality,
                 page.outputPath,
             ].join('\t');
-    }).join('\n') + '\n');
+    });
+    const compactManifest = buildScanCleanupCompactManifest(compactManifestPages);
+    await writeFile(
+        compactManifestPath,
+        serializeLegacyScanCleanupCompactManifest(compactManifest),
+    );
     // Only the explicit lossless path keeps compact source pages. Raster
     // cleanup, including Auto pages with producer MRC hints, always assembles
     // the fresh render artifacts above.
@@ -1583,7 +1568,11 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     if (preservedInstructions.length > 0) {
         const instructionsPath = join(fixtureDir, 'preserved-source-pages.json');
         const preservedPdfPath = join(fixtureDir, 'preserved-source-pages.pdf');
-        await writeFile(instructionsPath, JSON.stringify({pages: preservedInstructions}, null, 2));
+        const instructions = buildScanCleanupPageOpsInstructions(preservedInstructions);
+        await writeFile(
+            instructionsPath,
+            serializeLegacyScanCleanupPageOpsInstructions(instructions),
+        );
         await run(defaultPageOpsBinary, [
             'split-pages',
             '--input',

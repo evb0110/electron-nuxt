@@ -34,12 +34,28 @@ import {
     type IRunScanCleanupPipelineRequest,
     type IScanCleanupWorkerPaths,
     type IScanCleanupOutputPageForSummary,
+    type IScanCleanupOutputMapping,
+    type IScanCleanupRepresentationReport,
     type IPdfMrcLayers,
     type IPdfPageSize,
     type ISourceDpiDetectionResult,
     type TScanCleanupLog,
 } from '@scan-cleanup-core/types';
+import {resolveScanCleanupPageScope} from '@scan-cleanup-core/pageScope';
 import {createPdfCombineProgressHandler} from '@scan-cleanup-core/createPdfCombineProgressHandler';
+import {
+    buildScanCleanupCompactManifest,
+    serializeLegacyScanCleanupCompactManifest,
+    serializeScanCleanupCompactManifest,
+} from '@scan-cleanup-core/compactManifest';
+import {buildScanCleanupStampBuildIds} from '@scan-cleanup-core/buildManifest';
+import {
+    buildScanCleanupPagePlanDigest,
+    buildScanCleanupProvenanceStamp,
+    encodeScanCleanupProvenanceStampHex,
+    materializeScanCleanupStampOptions,
+    sha256ScanCleanupFile,
+} from '@scan-cleanup-core/provenanceStamp';
 import {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
 import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {assertNativeScanCleanupManifestGeometry} from '@scan-cleanup-core/policy/assertNativeScanCleanupManifestGeometry';
@@ -153,19 +169,14 @@ export async function runScanCleanupConversion(
             warnings: [] as string[],
         };
         const documentPageCount = await dependencies.getPageCount(prepared.pdfPath, {signal});
-        const pageNumbers = request.sourcePageNumbers === undefined
-            ? Array.from({length: documentPageCount}, (_, index) => index + 1)
-            : [...request.sourcePageNumbers];
+        const pageNumbers = resolveScanCleanupPageScope(
+            request.sourcePageNumbers,
+            documentPageCount,
+        );
         const documentPageNumbers = Array.from(
             {length: documentPageCount},
             (_, index) => index + 1,
         );
-        if (
-            pageNumbers.length === 0
-            || pageNumbers.some(pageNumber => pageNumber > documentPageCount)
-        ) {
-            throw new Error('Scan cleanup source page scope is outside the document');
-        }
         const pageCount = pageNumbers.length;
         const warnings = [...prepared.warnings];
         // What the run tells the user reaches them through the summary, and
@@ -827,6 +838,8 @@ export async function runScanCleanupConversion(
         });
         emitProgress('collecting', 0, pages.length, []);
         const outputPages: IRenderedCleanupOutputPage[] = [];
+        const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
+        const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
         const summary = createEmptyScanCleanupSummary(pageCount, warnings);
         for (const [
             pageIndex,
@@ -834,9 +847,19 @@ export async function runScanCleanupConversion(
         ] of pages.entries()) {
             const {outputs} = page;
             const pageMetadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as INativeScanCleanupPageMetadataV3;
+            const sourcePageNumber = pageNumbers[pageIndex]!;
+            pageMetadataBySource.set(sourcePageNumber, pageMetadata);
             emitProgress('collecting', pageIndex + 1, pages.length);
             if (pageMetadata.excluded) {
                 summary.excludedPages += 1;
+                emptyOutputMappings.push({
+                    sourcePage: sourcePageNumber,
+                    half: 'full',
+                    outputOrdinal: null,
+                    rotationDegrees: pageMetadata.rotationDegrees ?? 0,
+                    excluded: true,
+                    blank: false,
+                });
                 continue;
             }
             summary.blankPagesSkipped += pageMetadata.blankOutputsSkipped;
@@ -853,7 +876,7 @@ export async function runScanCleanupConversion(
                     continue;
                 }
                 const metadata = JSON.parse(metadataJson) as INativeScanCleanupOutputMetadataV3;
-                const pageNumber = pageNumbers[pageIndex]!;
+                const pageNumber = sourcePageNumber;
                 let bilevelPath: string | undefined;
                 let backgroundPath: string | undefined;
                 let foregroundMaskPath: string | undefined;
@@ -992,13 +1015,22 @@ export async function runScanCleanupConversion(
                 pageOutputPages.reverse();
             }
             outputPages.push(...pageOutputPages);
+            if (pageOutputPages.length === 0) {
+                emptyOutputMappings.push({
+                    sourcePage: sourcePageNumber,
+                    half: 'full',
+                    outputOrdinal: null,
+                    rotationDegrees: pageMetadata.rotationDegrees ?? 0,
+                    excluded: false,
+                    blank: true,
+                });
+            }
             if (pageMetadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
             if (pageMetadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
         }
         summary.outputPages = outputPages.length;
         if (outputPages.length === 0) throw new Error('evb-scan-cleanup produced no output pages');
-        const combineManifestPath = join(scratch, 'combine-manifest.tsv');
-        await writeFile(combineManifestPath, outputPages.map(output => {
+        const combineManifestPages = outputPages.map(output => {
             const pageWidthPoints = output.metadata.matchedCanvasTargetWidthPoints
                 ?? output.metadata.canvasWidthPx / output.dpi * 72;
             const pageHeightPoints = output.metadata.matchedCanvasTargetHeightPoints
@@ -1082,9 +1114,78 @@ export async function runScanCleanupConversion(
                     jpegQuality,
                     output.path,
                 ]).join('\t');
-        }).join('\n') + '\n');
-        emitProgress('assembling', 0, outputPages.length, []);
+        });
         const hasCompactSourcePages = outputPages.some(output => output.preservedSource !== undefined);
+        const outputMappings: IScanCleanupOutputMapping[] = outputPages.map((output, outputIndex) => ({
+            sourcePage: output.sourcePageNumber,
+            half: output.metadata.half ?? 'full',
+            outputOrdinal: outputIndex + 1,
+            rotationDegrees: output.metadata.rotationDegrees ?? 0,
+            excluded: false,
+            blank: false,
+        }));
+        outputMappings.push(...emptyOutputMappings);
+        const effectiveOptions = pages.map((page, index) => ({
+            sourcePage: pageNumbers[index]!,
+            options: materializeScanCleanupStampOptions({
+                nativeOptions: page.options,
+                options,
+                qualityPath: 'raster',
+            }),
+        }));
+        const pagePlanDigests = effectiveOptions.map(record => buildScanCleanupPagePlanDigest(
+            record.sourcePage,
+            record.options,
+            pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
+        ));
+        const assemblerBackend = request.assemblyBackend
+            ?? paths.assemblyBackend
+            ?? (hasCompactSourcePages
+                ? paths.pdfPageOpsBinary?.startsWith('__scan_cleanup_cli_') === true
+                    ? 'cli-fallback-qpdf-page-ops'
+                    : 'native-pdf-page-ops'
+                : paths.pdfImageCombineBinary.startsWith('__scan_cleanup_cli_')
+                    ? 'cli-fallback-wasm-or-img2pdf-qpdf'
+                    : 'native-pdf-image-combine');
+        const transportMode = request.transportMode
+            ?? paths.transportMode
+            ?? (canStreamRasters && rasterHandoff.format === 'ppm'
+                ? 'fifo-ppm'
+                : rasterHandoff.format === 'ppm' ? 'file-ppm' : 'file-png');
+        const buildIds = await buildScanCleanupStampBuildIds({
+            paths,
+            assemblerBackend,
+            transportMode,
+        });
+        const stamp = buildScanCleanupProvenanceStamp({
+            sourceSha256: await sha256ScanCleanupFile(prepared.pdfPath),
+            effectiveOptions,
+            outputMappings,
+            pagePlanDigests,
+            buildIds,
+        });
+        const provenanceStampHex = encodeScanCleanupProvenanceStampHex(stamp);
+        await writeFile(join(scratch, 'scan-cleanup-provenance-stamp.json'), `${JSON.stringify(stamp, null, 2)}\n`);
+        const combineManifest = buildScanCleanupCompactManifest(
+            combineManifestPages,
+            provenanceStampHex,
+        );
+        const combineManifestEnvelopePath = join(scratch, 'combine-manifest.json');
+        const combineManifestLegacyPath = join(scratch, 'combine-manifest.tsv');
+        await Promise.all([
+            writeFile(
+                combineManifestEnvelopePath,
+                serializeScanCleanupCompactManifest(combineManifest),
+            ),
+            writeFile(
+                combineManifestLegacyPath,
+                serializeLegacyScanCleanupCompactManifest(combineManifest),
+            ),
+        ]);
+        const combineManifestPath = paths.provenanceStampSupport === false
+            ? combineManifestLegacyPath
+            : combineManifestEnvelopePath;
+        emitProgress('assembling', 0, outputPages.length, []);
         const rasterizedPdfPath = hasCompactSourcePages
             ? join(scratch, 'rasterized-cleaned.pdf')
             : stagedPdfPath;
@@ -1120,6 +1221,7 @@ export async function runScanCleanupConversion(
             signal,
             log,
             dependencies,
+            provenanceStampHex,
         );
         const [
             sourceFile,
@@ -1170,15 +1272,17 @@ export async function runScanCleanupConversion(
             });
         }));
         const representationReport = {
-            schemaVersion: 1,
+            schemaVersion: 1 as const,
             sourceBytes: sourceFile.size,
             outputBytes: outputFile.size,
             outputToSourceByteRatio: outputFile.size / sourceFile.size,
             compactSourceBudget,
+            outputMappings,
             pages: outputPages.map((output, outputIndex) => {
                 const sourceRaster = detectedRasterByPage.get(output.sourcePageNumber);
                 return {
                     outputPageNumber: outputIndex + 1,
+                    outputOrdinal: outputIndex + 1,
                     sourcePageNumber: output.sourcePageNumber,
                     semanticMode: output.resolvedOutputMode,
                     representation: output.preservedSource !== undefined
@@ -1195,10 +1299,16 @@ export async function runScanCleanupConversion(
                     illuminationNormalized: output.metadata.illuminationNormalized === true,
                     textToneApplied: output.metadata.textToneDiagnostics?.applied === true,
                     binarizationMode: output.metadata.binarizationMode ?? null,
-                    streamBytes: streamBytesByOutput.get(output),
+                    half: output.metadata.half ?? 'full',
+                    rotationDegrees: output.metadata.rotationDegrees ?? 0,
+                    excluded: false,
+                    blank: false,
+                    ...(streamBytesByOutput.get(output) === undefined
+                        ? {}
+                        : {streamBytes: streamBytesByOutput.get(output)!}),
                 };
             }),
-        };
+        } satisfies IScanCleanupRepresentationReport;
         await writeFile(
             join(scratch, 'scan-cleanup-representation-report.json'),
             JSON.stringify(representationReport, null, 2),

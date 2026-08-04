@@ -4,7 +4,7 @@ export type {
     IScanCleanupExperimentalOptions,
     TReusablePagePlanStatus,
     TScanCleanupQualityPath,
-} from '@scan-cleanup-core/policy/effectiveOptions';
+} from '@scan-cleanup-core/index';
 export {
     resolveEffectiveScanCleanupOptions,
     resolveReusablePagePlan,
@@ -19,4 +19,4 @@ export {
     SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
     SCAN_CLEANUP_SIZE_PROBE_DPI,
-} from '@scan-cleanup-core/policy/effectiveOptions';
+} from '@scan-cleanup-core/index';

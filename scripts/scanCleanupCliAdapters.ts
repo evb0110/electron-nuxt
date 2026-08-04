@@ -683,6 +683,25 @@ function platformArchTag() {
     return `${process.platform}-${architecture}`;
 }
 
+function rustTargetTag() {
+    const targets: Partial<Record<NodeJS.Platform, Partial<Record<'arm64' | 'x64', string>>>> = {
+        darwin: {
+            arm64: 'aarch64-apple-darwin',
+            x64: 'x86_64-apple-darwin',
+        },
+        linux: {
+            arm64: 'aarch64-unknown-linux-gnu',
+            x64: 'x86_64-unknown-linux-gnu',
+        },
+        win32: {
+            arm64: 'aarch64-pc-windows-msvc',
+            x64: 'x86_64-pc-windows-msvc',
+        },
+    };
+    const architecture = process.arch === 'arm64' ? 'arm64' : 'x64';
+    return targets[process.platform]?.[architecture];
+}
+
 export function resolveCliNativeToolPath(
     binaryName: string,
     crateName: string,
@@ -695,6 +714,10 @@ export function resolveCliNativeToolPath(
         join(currentDir, 'resources', crateName, platformArchTag(), 'bin', binaryName),
         join(currentDir, 'resources', 'poppler', platformArchTag(), 'bin', binaryName),
         join(currentDir, 'resources', 'qpdf', platformArchTag(), 'bin', binaryName),
+        ...(rustTargetTag() === undefined
+            ? []
+            : [join(currentDir, 'native', 'target', rustTargetTag()!, 'release', binaryName)]),
+        join(currentDir, 'native', 'target', 'release', binaryName),
         `/opt/homebrew/bin/${binaryName}`,
         `/usr/local/bin/${binaryName}`,
         `/usr/bin/${binaryName}`,

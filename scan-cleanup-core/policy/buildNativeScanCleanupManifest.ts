@@ -37,6 +37,8 @@ export interface IScanCleanupManifestPageInput {
     automaticSplit?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSplit'];
     automaticContentBoxes?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticContentBoxes'];
     automaticSkewDegrees?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSkewDegrees'];
+    /** Trusted replay values supplied by a core consumer such as the corpus harness. */
+    resolvedOptions?: Partial<IEffectiveNativeScanCleanupOptionsV3>;
     pageMetadataPath: string;
     outputs?: INativeScanCleanupOutputV3[];
     documentPrior?: IScanCleanupDocumentPrior;
@@ -103,8 +105,8 @@ export function buildNativeScanCleanupManifest({
                 : {trustedMrcBackgroundPath: page.trustedMrcBackgroundPath}),
             sourcePageIndex: page.pageNumber - 1,
             pageMetadataPath: page.pageMetadataPath,
-            options: serializeNativeScanCleanupOptions(
-                resolveEffectiveScanCleanupOptions({
+            options: serializeNativeScanCleanupOptions({
+                ...resolveEffectiveScanCleanupOptions({
                     options,
                     pageOverride: getScanCleanupPageOverride(options.pageOverrides, page.pageNumber),
                     dpi: page.dpi,
@@ -143,7 +145,8 @@ export function buildNativeScanCleanupManifest({
                     qualityPath,
                     ...(experimental === undefined ? {} : {experimental}),
                 }),
-            ),
+                ...(page.resolvedOptions ?? {}),
+            }),
             outputs: page.outputs ?? [],
             ...(page.documentPrior === undefined ? {} : {documentPrior: page.documentPrior}),
             ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),

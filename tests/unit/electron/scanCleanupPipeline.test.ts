@@ -190,6 +190,7 @@ function pipelinePaths(dir: string, includePageOps = true, includePdfInfo = fals
         pdfImageCombineBinary: '/combine',
         ...(includePageOps ? {pdfPageOpsBinary: '/page-ops'} : {}),
         ...(includePdfInfo ? {pdfinfoBinary: '/pdfinfo'} : {}),
+        provenanceStampSupport: false,
         tempDir: dir,
     };
 }

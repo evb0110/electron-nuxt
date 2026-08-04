@@ -1,0 +1,101 @@
+export interface IScanCleanupCompactManifestEnvelope {
+    provenanceStampHex?: string;
+    pages: string[];
+}
+
+export function buildScanCleanupCompactManifest(
+    pages: readonly string[],
+    provenanceStampHex?: string,
+): IScanCleanupCompactManifestEnvelope {
+    return {
+        ...(provenanceStampHex === undefined ? {} : {provenanceStampHex}),
+        pages: [...pages],
+    };
+}
+
+export function serializeScanCleanupCompactManifest(
+    manifest: IScanCleanupCompactManifestEnvelope,
+) {
+    return JSON.stringify(manifest);
+}
+
+export function serializeLegacyScanCleanupCompactManifest(
+    manifest: IScanCleanupCompactManifestEnvelope,
+) {
+    return manifest.pages.join('\n') + (manifest.pages.length === 0 ? '' : '\n');
+}
+
+export function parseScanCleanupCompactManifest(serialized: string): string[] {
+    const trimmed = serialized.trim();
+    if (!trimmed.startsWith('{')) {
+        return trimmed.length === 0
+            ? []
+            : trimmed.split(/\r?\n/u).filter(line => line.trim().length > 0);
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(trimmed);
+    } catch {
+        throw new Error('compact manifest is not valid JSON');
+    }
+    if (!isRecord(value) || !isStringArray(value.pages)) {
+        throw new Error('compact manifest JSON must contain string pages');
+    }
+    return [...value.pages];
+}
+
+export interface IScanCleanupPageOpsInstruction {
+    sourcePageIndex: number;
+    rotationQuarterTurns: number;
+    outputs: Array<{
+        cropRect: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+        contentTransform?: {
+            scale: number;
+            translateX: number;
+            translateY: number;
+        };
+    }>;
+}
+
+export interface IScanCleanupPageOpsInstructionEnvelope {
+    provenanceStampHex?: string;
+    pages: IScanCleanupPageOpsInstruction[];
+}
+
+export function buildScanCleanupPageOpsInstructions(
+    pages: readonly IScanCleanupPageOpsInstruction[],
+    provenanceStampHex?: string,
+): IScanCleanupPageOpsInstructionEnvelope {
+    return {
+        ...(provenanceStampHex === undefined ? {} : {provenanceStampHex}),
+        pages: pages.map(page => ({
+            ...page,
+            outputs: page.outputs.map(output => ({...output})),
+        })),
+    };
+}
+
+export function serializeScanCleanupPageOpsInstructions(
+    instructions: IScanCleanupPageOpsInstructionEnvelope,
+) {
+    return JSON.stringify(instructions);
+}
+
+export function serializeLegacyScanCleanupPageOpsInstructions(
+    instructions: IScanCleanupPageOpsInstructionEnvelope,
+) {
+    return JSON.stringify({pages: instructions.pages});
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every(item => typeof item === 'string');
+}

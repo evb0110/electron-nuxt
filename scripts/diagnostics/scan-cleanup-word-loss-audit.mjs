@@ -17,8 +17,13 @@ import {
     resolve,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {tsImport} from 'tsx/esm/api';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const {
+    sha256ScanCleanupFile,
+    verifyScanCleanupProvenanceStampHex,
+} = await tsImport('../../scan-cleanup-core/index.ts', import.meta.url);
 const artifactDirectory = join(
     projectRoot,
     '.devkit/tasks/scan-cleanup/stage22-audit2',
@@ -84,6 +89,7 @@ function parseArgs(argv) {
         out: defaultOutputPath,
         source: null,
         to: null,
+        verifyStamp: false,
         workers: 4,
     };
     for (let index = 0; index < argv.length; index += 1) {
@@ -104,6 +110,7 @@ Options:
   --baseline <report>  Previous JSON report for regression comparison
   --fail-on <class>    Exit 1 for text-loss, silhouette, any, or none (default: none)
   --min-area <pixels>  Minimum source component area (default: 24)
+  --verify-stamp       Verify the cleaned PDF's /EVBScanCleanup provenance stamp
   --workers <count>    Concurrent page workers (default: 4)`);
             return {
                 ...options,
@@ -122,6 +129,10 @@ Options:
             '--to',
             '--workers',
         ]);
+        if (argument === '--verify-stamp') {
+            options.verifyStamp = true;
+            continue;
+        }
         if (!valueArguments.has(argument)) {
             throw new Error(`Unknown argument: ${argument}`);
         }
@@ -2439,6 +2450,98 @@ async function readPageCount(pdfPath, fallback) {
     return match ? Number(match[1]) : fallback;
 }
 
+async function readProvenanceStampHex(pdfPath) {
+    const trailerResult = await run('qpdf', [
+        '--json',
+        '--object-streams=disable',
+        pdfPath,
+        '-',
+    ]);
+    let document;
+    try {
+        document = JSON.parse(trailerResult.stdout);
+    } catch {
+        throw new Error(`qpdf returned invalid JSON while reading ${pdfPath}`);
+    }
+    const trailer = Array.isArray(document?.qpdf)
+        ? document.qpdf.find(entry => entry?.trailer?.value !== undefined)?.trailer?.value
+        : undefined;
+    const infoReference = trailer?.['/Info'];
+    if (infoReference === undefined) {
+        return null;
+    }
+    if (typeof infoReference !== 'string') {
+        return '__invalid_info_reference__';
+    }
+    const reference = /^(\d+) (\d+) R$/u.exec(infoReference);
+    if (!reference) {
+        return '__invalid_info_reference__';
+    }
+    const infoResult = await run('qpdf', [
+        `--show-object=${reference[1]},${reference[2]}`,
+        pdfPath,
+    ]);
+    const hexStamp = /\/EVBScanCleanup\s+<([0-9A-Fa-f]+)>/u.exec(infoResult.stdout);
+    if (hexStamp) {
+        return hexStamp[1];
+    }
+    // Native writers currently store the lowercase hex payload as a PDF
+    // literal string; qpdf renders that form with parentheses. Test-only
+    // qpdf injections commonly use a hexadecimal string instead, so accept
+    // both wire spellings while keeping the core decoder fail-closed.
+    const literalStamp = /\/EVBScanCleanup\s+\(([0-9a-fA-F]+)\)/u.exec(infoResult.stdout);
+    if (literalStamp) {
+        return literalStamp[1];
+    }
+    return /\/EVBScanCleanup\b/u.test(infoResult.stdout)
+        ? '__invalid_stamp_encoding__'
+        : null;
+}
+
+function stampMappingMismatch(payload, pageMapping, from, to) {
+    if (pageMapping === null) {
+        return null;
+    }
+    const mappingsBySource = new Map();
+    for (const mapping of payload.outputMappings) {
+        const current = mappingsBySource.get(mapping.sourcePage) ?? [];
+        current.push(mapping);
+        mappingsBySource.set(mapping.sourcePage, current);
+    }
+    for (let sourcePage = from; sourcePage <= to; sourcePage += 1) {
+        const actualMappings = mappingsBySource.get(sourcePage);
+        const expectedOutputPages = pageMapping.pages.get(sourcePage);
+        if (actualMappings === undefined || expectedOutputPages === undefined) {
+            return `stamp mapping is missing source page ${String(sourcePage)}`;
+        }
+        const actualOutputPages = actualMappings
+            .filter(mapping => mapping.outputOrdinal !== null)
+            .map(mapping => mapping.outputOrdinal)
+            .sort((left, right) => left - right);
+        const expected = [...expectedOutputPages].sort((left, right) => left - right);
+        if (JSON.stringify(actualOutputPages) !== JSON.stringify(expected)) {
+            return `stamp mapping disagrees with published output mapping for source page ${String(sourcePage)}`;
+        }
+    }
+    return null;
+}
+
+async function verifyCleanedStamp(options, pageMapping, from, to) {
+    const stampHex = await readProvenanceStampHex(options.cleaned);
+    const sourceSha256 = await sha256ScanCleanupFile(options.source);
+    const verification = verifyScanCleanupProvenanceStampHex(stampHex, {expectedSourceSha256: sourceSha256});
+    if (verification.status !== 'valid') {
+        return verification;
+    }
+    const mappingError = stampMappingMismatch(verification.payload, pageMapping, from, to);
+    return mappingError === null
+        ? verification
+        : {
+            status: 'invalid',
+            reason: mappingError,
+        };
+}
+
 function outputPageNumbers(value) {
     if (Array.isArray(value)) {
         return value.flatMap(item => outputPageNumbers(item));
@@ -2741,6 +2844,9 @@ async function main() {
             }
         }
     }
+    const stampVerification = options.verifyStamp
+        ? await verifyCleanedStamp(options, pageMapping, from, to)
+        : null;
     const temporaryRoot = await mkdtemp(join(artifactDirectory, '.word-loss-audit-'));
     try {
         await Promise.all(Array.from({length: Math.min(options.workers, pages.length || 1)}, (_, index) =>
@@ -2778,8 +2884,10 @@ async function main() {
                 minArea: options.minArea,
                 source: options.source,
                 to,
+                verifyStamp: options.verifyStamp,
                 workers: options.workers,
             },
+            stampVerification,
             mapping: pageMapping === null
                 ? null
                 : {
@@ -2873,7 +2981,11 @@ async function main() {
             console.log(`lostCount deltas: ${formatPageList(changedLost)}`);
             console.log(`silhouette deltas: ${formatPageList(changedSilhouettes)}`);
         }
-        const fail = shouldFailFor(options, flaggedPages, silhouettePages);
+        const stampFail = options.verifyStamp && stampVerification?.status !== 'valid';
+        if (stampFail) {
+            console.error(`FAIL: provenance stamp verification is ${stampVerification?.status ?? 'missing'}`);
+        }
+        const fail = shouldFailFor(options, flaggedPages, silhouettePages) || stampFail;
         if (fail) {
             console.error(`FAIL: --fail-on ${options.failOn} found a matching flag`);
         }

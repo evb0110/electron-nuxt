@@ -23,6 +23,11 @@ import {
     mapLosslessAnalysisRectToPdf,
     placeUniformBox,
 } from '@scan-cleanup-core/policy/documentCanvas';
+import {
+    buildScanCleanupPageOpsInstructions,
+    serializeLegacyScanCleanupPageOpsInstructions,
+    serializeScanCleanupPageOpsInstructions,
+} from '@scan-cleanup-core/compactManifest';
 
 const REPORTED_PAGE_NUMBER_LIMIT = 20;
 
@@ -234,6 +239,7 @@ export async function assembleWithCompactSourcePages(
     signal: AbortSignal,
     log: TScanCleanupLog,
     dependencies: IRunScanCleanupPipelineDependencies,
+    provenanceStampHex?: string,
 ) {
     const preservedPages = outputPages.flatMap(output => (
         output.preservedSource === undefined ? [] : [output.preservedSource]
@@ -249,14 +255,20 @@ export async function assembleWithCompactSourcePages(
     }
     const instructionsPath = join(scratch, 'preserved-source-pages.json');
     const preservedPdfPath = join(scratch, 'preserved-source-pages.pdf');
-    await writeFile(instructionsPath, JSON.stringify({pages: preservedPages.map(page => ({
+    const instructions = buildScanCleanupPageOpsInstructions(preservedPages.map(page => ({
         sourcePageIndex: page.sourcePageIndex,
         rotationQuarterTurns: page.rotationQuarterTurns,
         outputs: [{
             cropRect: page.cropRect,
             contentTransform: page.contentTransform,
         }],
-    }))}));
+    })), provenanceStampHex);
+    await writeFile(
+        instructionsPath,
+        paths.provenanceStampSupport === false
+            ? serializeLegacyScanCleanupPageOpsInstructions(instructions)
+            : serializeScanCleanupPageOpsInstructions(instructions),
+    );
     await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'split-pages',
         '--input',

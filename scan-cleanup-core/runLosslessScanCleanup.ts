@@ -1,5 +1,6 @@
 import {
     readFile,
+    stat,
     writeFile,
 } from 'fs/promises';
 import {join} from 'path';
@@ -15,10 +16,25 @@ import {
     type IRunScanCleanupPipelineRequest,
     type IScanCleanupWorkerPaths,
     type IPdfPageSize,
+    type IScanCleanupOutputMapping,
+    type IScanCleanupRepresentationReport,
     type ISourceDpiDetectionResult,
     type TScanCleanupLog,
 } from '@scan-cleanup-core/types';
 import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
+import {
+    buildScanCleanupPageOpsInstructions,
+    serializeLegacyScanCleanupPageOpsInstructions,
+    serializeScanCleanupPageOpsInstructions,
+} from '@scan-cleanup-core/compactManifest';
+import {buildScanCleanupStampBuildIds} from '@scan-cleanup-core/buildManifest';
+import {
+    buildScanCleanupPagePlanDigest,
+    buildScanCleanupProvenanceStamp,
+    encodeScanCleanupProvenanceStampHex,
+    materializeScanCleanupStampOptions,
+    sha256ScanCleanupFile,
+} from '@scan-cleanup-core/provenanceStamp';
 import {
     CANVAS_CONTENT_SCALE_EPSILON,
     type IScanCleanupRect,
@@ -172,6 +188,7 @@ export async function runLosslessScanCleanup(
         pageOverride: ReturnType<typeof getScanCleanupPageOverride>;
         pageSize: IPdfPageSize;
     }> = [];
+    const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
     for (const [
         index,
         page,
@@ -179,6 +196,7 @@ export async function runLosslessScanCleanup(
         const metadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as INativeScanCleanupPageMetadataV3;
         emitProgress('collecting', index + 1, pages.length);
         const sourcePageNumber = pageNumbers[index]!;
+        pageMetadataBySource.set(sourcePageNumber, metadata);
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, sourcePageNumber);
         if (metadata.excluded) {
             summary.excludedPages += 1;
@@ -218,7 +236,10 @@ export async function runLosslessScanCleanup(
             pageSize,
         });
     }
-    const allOutputs = analyzedPages.flatMap(page => page.outputs);
+    const allOutputs = analyzedPages.flatMap(page => page.outputs.map(output => ({
+        ...output,
+        sourcePageIndex: page.sourcePageIndex,
+    })));
     if (allOutputs.length === 0) {
         throw new Error('evb-scan-cleanup analysis produced no output pages');
     }
@@ -317,15 +338,90 @@ export async function runLosslessScanCleanup(
     }
     for (const warning of fittedPageWarnings) warn(warning);
     summary.outputPages = allOutputs.length;
+    const sourceDpiByPage = new Map(rasterPlans.map(plan => [
+        plan.pageNumber,
+        plan.dpi,
+    ]));
+    const outputMappings: IScanCleanupOutputMapping[] = allOutputs.map((output, outputIndex) => {
+        const sourcePage = output.sourcePageIndex + 1;
+        const metadata = pageMetadataBySource.get(sourcePage);
+        return {
+            sourcePage,
+            half: output.half ?? 'full',
+            outputOrdinal: outputIndex + 1,
+            rotationDegrees: metadata?.rotationDegrees ?? 0,
+            excluded: false,
+            blank: false,
+        };
+    });
+    for (const pageNumber of pageNumbers) {
+        const metadata = pageMetadataBySource.get(pageNumber);
+        const hasOutput = outputMappings.some(mapping => mapping.sourcePage === pageNumber);
+        if (hasOutput) continue;
+        outputMappings.push({
+            sourcePage: pageNumber,
+            half: 'full',
+            outputOrdinal: null,
+            rotationDegrees: metadata?.rotationDegrees ?? getScanCleanupPageOverride(
+                request.options.pageOverrides,
+                pageNumber,
+            ).rotationDegrees,
+            excluded: metadata?.excluded === true,
+            blank: metadata?.excluded !== true,
+        });
+    }
+    const effectiveOptions = pages.map((page, index) => {
+        const sourcePage = pageNumbers[index]!;
+        const materialized = materializeScanCleanupStampOptions({
+            nativeOptions: page.options,
+            options: request.options,
+            qualityPath: 'lossless',
+        });
+        return {
+            sourcePage,
+            options: materialized,
+        };
+    });
+    const pagePlanDigests = effectiveOptions.map(record => buildScanCleanupPagePlanDigest(
+        record.sourcePage,
+        record.options,
+        pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
+    ));
+    const buildIds = await buildScanCleanupStampBuildIds({
+        paths,
+        assemblerBackend: request.assemblyBackend
+            ?? paths.assemblyBackend
+            ?? (paths.pdfPageOpsBinary.startsWith('__scan_cleanup_cli_')
+                ? 'cli-fallback-qpdf-page-ops'
+                : 'native-pdf-page-ops'),
+        transportMode: request.transportMode
+            ?? paths.transportMode
+            ?? 'source-preserved',
+    });
+    const stamp = buildScanCleanupProvenanceStamp({
+        sourceSha256: await sha256ScanCleanupFile(preparedPdfPath),
+        effectiveOptions,
+        outputMappings,
+        pagePlanDigests,
+        buildIds,
+    });
+    const provenanceStampHex = encodeScanCleanupProvenanceStampHex(stamp);
+    await writeFile(join(scratch, 'scan-cleanup-provenance-stamp.json'), `${JSON.stringify(stamp, null, 2)}\n`);
     const instructionsPath = join(scratch, 'split-pages.json');
-    await writeFile(instructionsPath, JSON.stringify({pages: analyzedPages.map(page => ({
+    const instructions = buildScanCleanupPageOpsInstructions(analyzedPages.map(page => ({
         sourcePageIndex: page.sourcePageIndex,
         rotationQuarterTurns: page.rotationQuarterTurns,
         outputs: page.outputs.map(output => ({
             cropRect: output.cropRect,
             ...(output.contentTransform ? {contentTransform: output.contentTransform} : {}),
         })),
-    }))}));
+    })), provenanceStampHex);
+    await writeFile(
+        instructionsPath,
+        paths.provenanceStampSupport === false
+            ? serializeLegacyScanCleanupPageOpsInstructions(instructions)
+            : serializeScanCleanupPageOpsInstructions(instructions),
+    );
     emitProgress('assembling', 0, allOutputs.length, []);
     await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'split-pages',
@@ -342,5 +438,46 @@ export async function runLosslessScanCleanup(
         log,
     });
     emitProgress('assembling', allOutputs.length, allOutputs.length);
+    const [
+        sourceFile,
+        outputFile,
+    ] = await Promise.all([
+        stat(preparedPdfPath),
+        stat(stagedPdfPath),
+    ]);
+    const representationReport = {
+        schemaVersion: 1 as const,
+        sourceBytes: sourceFile.size,
+        outputBytes: outputFile.size,
+        outputToSourceByteRatio: outputFile.size / sourceFile.size,
+        compactSourceBudget: null,
+        outputMappings,
+        pages: allOutputs.map((output, outputIndex) => {
+            const sourcePageNumber = output.sourcePageIndex + 1;
+            const metadata = pageMetadataBySource.get(sourcePageNumber);
+            return {
+                outputPageNumber: outputIndex + 1,
+                outputOrdinal: outputIndex + 1,
+                sourcePageNumber,
+                semanticMode: 'color' as const,
+                representation: 'source-preserved',
+                preservationReason: 'source-preserved',
+                sourceDpi: sourceDpiByPage.get(sourcePageNumber) ?? null,
+                sourceBackgroundDpi: null,
+                renderDpi: sourceDpiByPage.get(sourcePageNumber) ?? 1,
+                illuminationNormalized: false,
+                textToneApplied: false,
+                binarizationMode: null,
+                half: output.half ?? 'full',
+                rotationDegrees: metadata?.rotationDegrees ?? 0,
+                excluded: false,
+                blank: false,
+            };
+        }),
+    } satisfies IScanCleanupRepresentationReport;
+    await writeFile(
+        join(scratch, 'scan-cleanup-representation-report.json'),
+        `${JSON.stringify(representationReport, null, 2)}\n`,
+    );
     return summary;
 }

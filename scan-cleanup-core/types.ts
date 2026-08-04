@@ -5,7 +5,9 @@ import type {
     TNativeScanCleanupProgressV3,
     TScanCleanupProgress,
     TScanCleanupLayoutByPage,
+    TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
+    TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 
@@ -13,6 +15,21 @@ export type TScanCleanupLog = (
     level: 'debug' | 'warn' | 'error',
     message: string,
 ) => void;
+
+export type TScanCleanupAssemblerBackend =
+    | 'native-pdf-image-combine'
+    | 'native-pdf-page-ops'
+    | 'cli-wasm-pdf-image-combine'
+    | 'cli-fallback-img2pdf-qpdf'
+    | 'cli-fallback-wasm-or-img2pdf-qpdf'
+    | 'cli-fallback-qpdf-page-ops'
+    | 'source-preserved';
+
+export type TScanCleanupTransportMode =
+    | 'fifo-ppm'
+    | 'file-ppm'
+    | 'file-png'
+    | 'source-preserved';
 
 export interface IPdfPageSize {
     pageNumber: number;
@@ -250,6 +267,10 @@ export interface IScanCleanupWorkerPaths {
     scanCleanupBinary: string;
     pdfImageCombineBinary: string;
     pdfPageOpsBinary?: string;
+    /** Whether the selected assembler accepts the Wave 1a JSON envelope. */
+    provenanceStampSupport?: boolean;
+    assemblyBackend?: TScanCleanupAssemblerBackend;
+    transportMode?: TScanCleanupTransportMode;
     tempDir: string;
 }
 
@@ -263,6 +284,8 @@ export interface IRunScanCleanupPipelineRequest {
     layoutByPage?: TScanCleanupLayoutByPage;
     sourcePageMetadataByPage?: Partial<Record<string, IScanCleanupSourcePageMetadata>>;
     pagePlanEvidenceByPage?: Partial<Record<string, IScanCleanupPagePlanEvidence>>;
+    assemblyBackend?: TScanCleanupAssemblerBackend;
+    transportMode?: TScanCleanupTransportMode;
 }
 
 export interface IRunScanCleanupPipelineDependencies {
@@ -302,6 +325,11 @@ export interface IScanCleanupOutputPageForSummary {
     illuminationNormalized: boolean;
     textToneApplied: boolean;
     binarizationMode: string | null;
+    half: TScanCleanupOutputHalf;
+    outputOrdinal: number;
+    rotationDegrees: TScanCleanupPageRotation;
+    excluded: boolean;
+    blank: boolean;
     streamBytes?: {
         composite?: number;
         bilevel?: number;
@@ -311,11 +339,21 @@ export interface IScanCleanupOutputPageForSummary {
     };
 }
 
+export interface IScanCleanupOutputMapping {
+    sourcePage: number;
+    half: TScanCleanupOutputHalf;
+    outputOrdinal: number | null;
+    rotationDegrees: TScanCleanupPageRotation;
+    excluded: boolean;
+    blank: boolean;
+}
+
 export interface IScanCleanupRepresentationReport {
     schemaVersion: 1;
     sourceBytes: number;
     outputBytes: number;
     outputToSourceByteRatio: number;
     compactSourceBudget: unknown;
+    outputMappings: IScanCleanupOutputMapping[];
     pages: IScanCleanupOutputPageForSummary[];
 }

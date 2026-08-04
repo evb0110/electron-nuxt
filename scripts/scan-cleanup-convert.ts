@@ -39,6 +39,12 @@ import {
     type IRunScanCleanupPipelineRequest,
     type IScanCleanupWorkerPaths,
 } from '@scan-cleanup-core/runScanCleanupConversion';
+import {
+    parseScanCleanupCompactManifest,
+    resolveScanCleanupPageScope,
+    type IScanCleanupProvenanceStamp,
+    type IScanCleanupRepresentationReport,
+} from '@scan-cleanup-core/index';
 import type {
     IScanCleanupProcessResult,
     IRunScanCleanupPipelineDependencies,
@@ -66,6 +72,7 @@ interface IScanCleanupCliArguments {
     sourcePdfPath: string;
     outputPdfPath: string;
     pages?: number[];
+    parity: boolean;
     options: IScanCleanupOptions;
 }
 
@@ -74,32 +81,22 @@ interface IScanCleanupCliDocument {
     sourcePdfPath: string;
 }
 
-interface IScanCleanupRepresentationReport {
-    outputBytes: number;
-    outputToSourceByteRatio: number;
-    pages: Array<{
-        outputPageNumber: number;
-        sourcePageNumber: number;
-        representation: string;
-        streamBytes?: {
-            composite?: number;
-            bilevel?: number;
-            background?: number;
-            foregroundMask?: number;
-            foregroundAlpha?: number;
-        };
-    }>;
-    sourceBytes: number;
-}
-
-function buildSourcePageToOutputPages(
-    pages: IScanCleanupRepresentationReport['pages'],
-) {
+function buildSourcePageToOutputPages(report: IScanCleanupRepresentationReport) {
+    const outputPageByOrdinal = new Map(report.pages.map(page => [
+        page.outputOrdinal,
+        page.outputPageNumber,
+    ] as const));
     const outputPagesBySource = new Map<number, number[]>();
-    for (const page of pages) {
-        const outputPages = outputPagesBySource.get(page.sourcePageNumber) ?? [];
-        outputPages.push(page.outputPageNumber);
-        outputPagesBySource.set(page.sourcePageNumber, outputPages);
+    for (const mapping of report.outputMappings) {
+        const outputPages = outputPagesBySource.get(mapping.sourcePage) ?? [];
+        if (mapping.outputOrdinal !== null) {
+            const outputPageNumber = outputPageByOrdinal.get(mapping.outputOrdinal);
+            if (outputPageNumber === undefined) {
+                throw new Error(`Representation report is missing output ordinal ${String(mapping.outputOrdinal)}`);
+            }
+            outputPages.push(outputPageNumber);
+        }
+        outputPagesBySource.set(mapping.sourcePage, outputPages);
     }
     return [...outputPagesBySource]
         .sort(([left], [right]) => left - right)
@@ -130,11 +127,12 @@ function printUsage() {
         '  --despeckle-level off|cautious|normal|aggressive',
         '  --auto-dewarp [--auto-dewarp-depth <number>]',
         '  --skip-blank-pages',
+        '  --parity',
     ].join('\n') + '\n');
 }
 
 function parsePageList(value: string) {
-    const pages = new Set<number>();
+    const pages: number[] = [];
     for (const token of value.split(',')) {
         const range = token.trim();
         if (!range) continue;
@@ -144,7 +142,7 @@ function parsePageList(value: string) {
             if (!Number.isSafeInteger(page) || page < 1) {
                 throw new Error(`Invalid page selector: ${range}`);
             }
-            pages.add(page);
+            pages.push(page);
             continue;
         }
         const first = Number.parseInt(range.slice(0, separator), 10);
@@ -157,10 +155,16 @@ function parsePageList(value: string) {
         ) {
             throw new Error(`Invalid page range: ${range}`);
         }
-        for (let page = first; page <= last; page += 1) pages.add(page);
+        for (let page = first; page <= last; page += 1) pages.push(page);
     }
-    if (pages.size === 0) throw new Error('The --pages selector is empty');
-    return [...pages].sort((left, right) => left - right);
+    if (pages.length === 0) throw new Error('The --pages selector is empty');
+    const orderedPages = pages.sort((left, right) => left - right);
+    for (let index = 1; index < orderedPages.length; index += 1) {
+        if (orderedPages[index] === orderedPages[index - 1]) {
+            throw new Error(`Duplicate page selector: ${String(orderedPages[index])}`);
+        }
+    }
+    return orderedPages;
 }
 
 function parseMargins(value: string) {
@@ -211,6 +215,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
     let sourcePdfPath: string | undefined;
     let outputPdfPath: string | undefined;
     let pages: number[] | undefined;
+    let parity = false;
     const valueFor = (index: number, flag: string) => {
         const value = argv[index + 1];
         if (value === undefined || value.startsWith('--')) {
@@ -339,6 +344,9 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
             case '--skip-blank-pages':
                 options.skipBlankPages = true;
                 break;
+            case '--parity':
+                parity = true;
+                break;
             case '--help':
             case '-h':
                 printUsage();
@@ -357,6 +365,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
         sourcePdfPath,
         outputPdfPath,
         ...(pages === undefined ? {} : {pages}),
+        parity,
         options,
     };
 }
@@ -582,9 +591,7 @@ async function runImageCombineFallback(
 ) {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'scan-cleanup-combine-'));
     try {
-        const lines = (await readFile(manifestPath, 'utf8'))
-            .split(/\r?\n/u)
-            .filter(line => line.trim().length > 0);
+        const lines = parseScanCleanupCompactManifest(await readFile(manifestPath, 'utf8'));
         const pagePdfPaths: string[] = [];
         for (const [
             index,
@@ -768,6 +775,12 @@ async function main() {
     const pdftoppmBinary = resolveTool('pdftoppm', 'poppler');
     const pdfimagesBinary = resolveTool('pdfimages', 'poppler');
     const scanCleanupBinary = resolveTool('evb-scan-cleanup', 'scan-cleanup', 'EVB_SCAN_CLEANUP_PATH');
+    const pageOpsBinary = argumentsValue.parity
+        ? resolveTool('evb-pdf-page-ops', 'pdf-page-ops', 'EVB_PDF_PAGE_OPS_PATH')
+        : PAGE_OPS_FALLBACK;
+    const imageCombineBinary = argumentsValue.parity
+        ? resolveTool('evb-pdf-image-combine', 'pdf-image-combine', 'EVB_PDF_IMAGE_COMBINE_PATH')
+        : IMAGE_COMBINE_FALLBACK;
     const img2pdfBinary = process.env.EVB_SCAN_CLEANUP_IMG2PDF_PATH ?? 'img2pdf';
     const magickBinary = process.env.EVB_SCAN_CLEANUP_MAGICK_PATH ?? 'magick';
     const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-cli-'));
@@ -775,8 +788,6 @@ async function main() {
     const conversionEvidenceDirectory = join(temporaryRoot, 'conversion-evidence');
     await mkdir(detectionEvidenceDirectory, {recursive: true});
     await mkdir(conversionEvidenceDirectory, {recursive: true});
-    const pageOpsBinary = PAGE_OPS_FALLBACK;
-    const imageCombineBinary = IMAGE_COMBINE_FALLBACK;
     const log = cliLog satisfies TScanCleanupLog;
     const runCommand: TScanCleanupRunCommand = async (command, args, options) => {
         if (command === imageCombineBinary) {
@@ -917,6 +928,8 @@ async function main() {
     };
     const startedAt = performance.now();
     try {
+        const documentPageCount = await getPageCount(argumentsValue.sourcePdfPath);
+        const sourcePageNumbers = resolveScanCleanupPageScope(argumentsValue.pages, documentPageCount);
         process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = detectionEvidenceDirectory;
         const detectionStartedAt = performance.now();
         const detectionDependencies: IScanCleanupDetectionDependencies = {
@@ -1017,13 +1030,14 @@ async function main() {
             scanCleanupBinary,
             pdfImageCombineBinary: imageCombineBinary,
             pdfPageOpsBinary: pageOpsBinary,
+            provenanceStampSupport: true,
             tempDir: temporaryRoot,
         };
         const request: IRunScanCleanupPipelineRequest = {
             sourcePdfPath: argumentsValue.sourcePdfPath,
             outputPdfPath: argumentsValue.outputPdfPath,
             options: argumentsValue.options,
-            ...(argumentsValue.pages === undefined ? {} : {sourcePageNumbers: argumentsValue.pages}),
+            ...(argumentsValue.pages === undefined ? {} : {sourcePageNumbers}),
             layoutByPage,
             pagePlanEvidenceByPage,
             outputModeRecommendations,
@@ -1050,6 +1064,10 @@ async function main() {
             join(conversionEvidenceDirectory, 'scan-cleanup-representation-report.json'),
             'utf8',
         )) as IScanCleanupRepresentationReport;
+        const stamp = JSON.parse(await readFile(
+            join(conversionEvidenceDirectory, 'scan-cleanup-provenance-stamp.json'),
+            'utf8',
+        )) as IScanCleanupProvenanceStamp;
         const summaryPath = `${argumentsValue.outputPdfPath}.summary.json`;
         const machineSummary = {
             source: argumentsValue.sourcePdfPath,
@@ -1059,6 +1077,9 @@ async function main() {
             sourceBytes: sourceStats.size,
             outputBytes: outputStats.size,
             outputToSourceRatio: outputStats.size / sourceStats.size,
+            parity: argumentsValue.parity,
+            assemblerBackend: stamp.buildIds.assemblerBackend,
+            transportMode: stamp.buildIds.transportMode,
             timings: {
                 detectionMs: detectionDurationMs,
                 conversionMs: conversionDurationMs,
@@ -1066,11 +1087,15 @@ async function main() {
             },
             detection: {pages: detection.results.length},
             conversionSummary: summary,
-            sourcePageToOutputPages: buildSourcePageToOutputPages(report.pages),
+            sourcePageToOutputPages: buildSourcePageToOutputPages(report),
             perPageStreamSizes: report.pages,
             representation: {
                 outputBytes: report.outputBytes,
                 outputToSourceByteRatio: report.outputToSourceByteRatio,
+                outputMappings: report.outputMappings,
+                resolvedPlanSha256: stamp.resolvedPlanSha256,
+                assemblerBackend: stamp.buildIds.assemblerBackend,
+                transportMode: stamp.buildIds.transportMode,
             },
         };
         await writeFile(summaryPath, JSON.stringify(machineSummary, null, 2) + '\n');
