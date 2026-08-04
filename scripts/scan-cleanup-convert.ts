@@ -790,7 +790,7 @@ async function main() {
     await mkdir(conversionEvidenceDirectory, {recursive: true});
     const log = cliLog satisfies TScanCleanupLog;
     const runCommand: TScanCleanupRunCommand = async (command, args, options) => {
-        if (command === imageCombineBinary) {
+        if (command === IMAGE_COMBINE_FALLBACK) {
             return runImageCombineFallback(
                 args[args.indexOf('--output') + 1]!,
                 args[args.indexOf('--compact-manifest') + 1]!,
@@ -800,7 +800,7 @@ async function main() {
                 nativeOptions(options, log),
             );
         }
-        if (command === pageOpsBinary) {
+        if (command === PAGE_OPS_FALLBACK) {
             return runPageOpsFallback(args, qpdfBinary, nativeOptions(options, log));
         }
         return runCliNativeToolCommand(command, args, nativeOptions(options, log));

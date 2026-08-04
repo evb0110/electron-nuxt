@@ -285,7 +285,10 @@ export async function assembleWithCompactSourcePages(
     });
 
     const qpdfArgs = [
-        '--empty',
+        // The rasterized PDF is the primary input so its document-level Info
+        // dictionary — the native writer's provenance stamp — survives the
+        // interleave; --empty would emit a document without any Info entry.
+        rasterizedPdfPath,
         // Some otherwise capable PDF consumers only render the first stream in
         // a page Contents array. split-pages wraps preserved source content in
         // separate graphics-state streams, so leaving the array intact can make
