@@ -5,6 +5,7 @@ import type {
     IScanCleanupPagePlanEvidence,
     IScanCleanupPageOverride,
     IScanCleanupPreviewResult,
+    TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
 import {
@@ -83,6 +84,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const jobState = shallowRef<TScanCleanupDetectionJobState | null>(null);
     const detectionResultsByPage = new Map<number, IScanCleanupDetectionResult>();
     const error = ref('');
+    const errorCode = ref<TScanCleanupErrorCode | null>(null);
     const signatures = new Map<number, string>();
     const detectedLayoutByPage = reactive(new Map<number, TScanCleanupLayoutClassification>());
     const confidenceByPage = reactive(new Map<number, number>());
@@ -152,6 +154,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const isDetecting = computed(() => jobState.value?.status === 'queued'
         || jobState.value?.status === 'running'
         || jobState.value?.status === 'canceling');
+    const terminalStatus = computed<'completed' | 'failed' | 'canceled' | null>(() => {
+        const status = jobState.value?.status;
+        return status === 'completed' || status === 'failed' || status === 'canceled'
+            ? status
+            : null;
+    });
     const cancelRequested = computed(() => jobState.value?.status === 'canceling');
     const pending = computed(() => autoPending.value || starting.value || isDetecting.value);
     const canStart = computed(() => Boolean(options.sourcePath.value)
@@ -331,7 +339,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             recommendedOutputModeReasonByPage,
             softAlphaForegroundRecommendationByPage,
         );
-        if (accumulatedState.status === 'failed') error.value = accumulatedState.error;
+        if (accumulatedState.status === 'failed') {
+            error.value = accumulatedState.error;
+            errorCode.value = accumulatedState.errorCode;
+        } else if (accumulatedState.status === 'completed') {
+            error.value = '';
+            errorCode.value = null;
+        } else if (accumulatedState.status === 'canceled') {
+            error.value = '';
+            errorCode.value = null;
+        }
         if (!disposed && jobDocumentKey && completedWithCurrentEvidence) {
             detectionSessionCache.set(jobDocumentKey, {
                 ownerId: options.ownerId,
@@ -356,6 +373,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         error.value = '';
+        errorCode.value = null;
         if (!automatic && options.lifecycleDocumentKey.value) {
             autoDetectionCanceledDocuments.delete(options.lifecycleDocumentKey.value);
         }
@@ -366,6 +384,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         const requestSourcePath = options.sourcePath.value;
         jobDocumentKey = options.lifecycleDocumentKey.value;
         jobDocumentRevision = options.documentRevision.value;
+        jobId = null;
+        jobState.value = null;
         starting.value = true;
         let result;
         try {
@@ -378,6 +398,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         } catch (caught) {
             if (!disposed) {
                 error.value = caught instanceof Error ? caught.message : t('scanCleanup.detectAll.failed');
+                errorCode.value = 'internal';
             }
             return;
         } finally {
@@ -394,6 +415,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         if (!result.started) {
             error.value = result.error ?? t('scanCleanup.detectAll.failed');
+            errorCode.value = result.errorCode;
             return;
         }
         detectedLayoutByPage.clear();
@@ -639,6 +661,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobDocumentKey = options.lifecycleDocumentKey.value;
         jobState.value = null;
         error.value = '';
+        errorCode.value = null;
         signatures.clear();
         detectionResultsByPage.clear();
         detectedLayoutByPage.clear();
@@ -736,6 +759,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectAllPages,
         documentPriorByPage,
         error,
+        errorCode,
         isDetecting,
         maybeAutoDetect,
         outputEstimate,
@@ -754,6 +778,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         settledPages,
         sourcePageMetadataByPage,
         textAxisByPage,
+        terminalStatus,
         waitForTerminal,
     };
 };

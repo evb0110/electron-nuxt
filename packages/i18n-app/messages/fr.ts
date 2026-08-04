@@ -385,6 +385,7 @@ export default {
             'canceling': 'Annulation…',
             'cancelTimeout': 'La détection ne s’est pas arrêtée à temps. Réessayez.',
             'failed': 'La détection de la page a échoué.',
+            'evidenceMissing': 'Le nettoyage nécessite une analyse uniforme complète des pages. Relancez la détection.',
         },
         'cancelingDetection': 'Arrêt de l’analyse en arrière-plan…',
         'startingCleanup': 'Démarrage du nettoyage…',

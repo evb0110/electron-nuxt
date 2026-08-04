@@ -3,6 +3,8 @@ import type {
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
     TScanCleanupLayoutClassification,
+    TScanCleanupErrorCode,
+    TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {
@@ -37,9 +39,10 @@ interface IUseScanCleanupRunSessionOptions {
      */
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
     beforeRun: () => void;
-    cancelDetectionBeforeRun: () => Promise<void>;
     detectionError: Readonly<Ref<string>>;
+    detectionErrorCode: Readonly<Ref<TScanCleanupErrorCode | null>>;
     detectionPending: ComputedRef<boolean>;
+    detectionStatus: ComputedRef<Extract<TScanCleanupDetectionJobState['status'], 'completed' | 'failed' | 'canceled'> | null>;
     documentRevision: ComputedRef<string>;
     onCompleted: () => void;
     ownerId: string;
@@ -58,17 +61,16 @@ interface IUseScanCleanupRunSessionOptions {
 export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptions) => {
     const {t} = useTypedI18n();
     const transition = ref<
-        'idle' | 'waiting-for-detection' | 'canceling-detection' | 'starting-cleanup'
+        'idle' | 'waiting-for-detection' | 'starting-cleanup'
     >('idle');
     // The user asked to stop an attempt that has no job to cancel yet: cleanup
-    // is still cancelling detection, or its start is still crossing the bridge.
-    // The ask outlives that window, so the attempt either never starts or is
-    // cancelled the moment it has an id. Dropping it let a run the user had
-    // already stopped finish and replace their document with its output.
+    // is still waiting for detection, or its start is still crossing the
+    // bridge. The ask outlives that window, so the attempt either never starts
+    // or is canceled the moment it has an id.
     const stopRequested = ref(false);
     // A run is under way from the click, not from the job id: everything the
-    // click set in motion — cancelling detection, the start request itself — is
-    // work the user must be able to stop.
+    // click set in motion — waiting for detection and the start request itself
+    // — is work the user must be able to stop.
     const isRunning = computed(() => isScanCleanupRunning.value || transition.value !== 'idle');
     let interruptPendingTransition: (() => void) | null = null;
     const cancelRequested = computed(() => (stopRequested.value && isRunning.value)
@@ -109,17 +111,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         && !isRunning.value
         && hasIncludedPage.value
         && marginsAreValid.value
-        && (
-            missingAutomaticModeDecisions.value.length === 0
-            || options.detectionPending.value
-        )
         && getScanCleanupCapability() !== null);
     const transitionText = computed(() => {
         if (transition.value === 'waiting-for-detection') {
             return t('scanCleanup.detectAll.preAnalyzing');
-        }
-        if (transition.value === 'canceling-detection') {
-            return t('scanCleanup.cancelingDetection');
         }
         return transition.value === 'starting-cleanup'
             ? t('scanCleanup.startingCleanup')
@@ -137,12 +132,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         if (!marginsAreValid.value) {
             return t('scanCleanup.runDisabled.invalidMargins');
-        }
-        if (
-            missingAutomaticModeDecisions.value.length > 0
-            && !options.detectionPending.value
-        ) {
-            return t('scanCleanup.pages.outputModeRecommendationPending');
         }
         if (getScanCleanupCapability() === null) {
             return t('scanCleanup.runDisabled.unavailable');
@@ -208,15 +197,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         });
         beginScanCleanupAttempt();
         try {
-            // Auto decisions are durable run inputs. A click made while their
-            // pre-analysis is still running becomes one visible, cancelable
-            // cleanup attempt and proceeds as soon as the complete evidence
-            // set lands; it must not silently no-op or cancel the very analysis
-            // it needs.
-            if (
-                options.detectionPending.value
-                && missingAutomaticModeDecisions.value.length > 0
-            ) {
+            // The detection pass is a uniform run input. A click made while it
+            // is still running becomes one visible, cancelable cleanup attempt
+            // and proceeds only after that pass reaches a terminal state.
+            if (options.detectionPending.value) {
                 transition.value = 'waiting-for-detection';
                 await Promise.race([
                     options.waitForDetectionBeforeRun(),
@@ -225,21 +209,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 if (stopRequested.value) {
                     return;
                 }
-                if (missingAutomaticModeDecisions.value.length > 0) {
-                    reportScanCleanupRunError(
-                        options.ownerId,
-                        options.detectionError.value
-                            || t('scanCleanup.pages.outputModeRecommendationPending'),
-                        requestSourcePdfPath,
-                    );
-                    return;
-                }
-            } else if (options.detectionPending.value) {
-                transition.value = 'canceling-detection';
-                await Promise.race([
-                    options.cancelDetectionBeforeRun(),
-                    stopWait,
-                ]);
             }
             if (stopRequested.value) {
                 return;
@@ -252,6 +221,42 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     options.ownerId,
                     t('scanCleanup.documentChangedBeforeRun'),
                     requestSourcePdfPath,
+                );
+                return;
+            }
+            const detectionStatus = options.detectionStatus.value;
+            if (detectionStatus !== 'completed') {
+                const errorCode = detectionStatus === 'failed'
+                    ? options.detectionErrorCode.value ?? 'internal'
+                    : detectionStatus === 'canceled'
+                        ? 'canceled'
+                        : 'internal';
+                reportScanCleanupRunError(
+                    options.ownerId,
+                    detectionStatus === 'failed' && options.detectionError.value
+                        ? options.detectionError.value
+                        : t('scanCleanup.detectAll.evidenceMissing'),
+                    requestSourcePdfPath,
+                    errorCode,
+                );
+                return;
+            }
+            const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
+            if (requestedPageNumbers.some(pageNumber => !pagePlanEvidence.has(pageNumber))) {
+                reportScanCleanupRunError(
+                    options.ownerId,
+                    t('scanCleanup.detectAll.evidenceMissing'),
+                    requestSourcePdfPath,
+                    'internal',
+                );
+                return;
+            }
+            if (missingAutomaticModeDecisions.value.length > 0) {
+                reportScanCleanupRunError(
+                    options.ownerId,
+                    options.detectionError.value || t('scanCleanup.detectAll.evidenceMissing'),
+                    requestSourcePdfPath,
+                    options.detectionErrorCode.value ?? 'internal',
                 );
                 return;
             }
@@ -275,6 +280,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     options.ownerId,
                     result.error ?? t('scanCleanup.failed'),
                     requestSourcePdfPath,
+                    result.errorCode,
                 );
             }
         } catch (caught) {

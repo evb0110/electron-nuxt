@@ -18,7 +18,9 @@ import {
 import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
+    IScanCleanupPagePlanEvidence,
     IScanCleanupPreviewResult,
+    TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
@@ -35,6 +37,7 @@ import {
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import type * as preferencesRepositoryModule from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
+    getScanCleanupRunErrorCode,
     getScanCleanupRunError,
     scanCleanupRun,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
@@ -149,6 +152,14 @@ function detectionState(
             reconciled: false,
             clusterAgreement: 0,
             documentPrior: null,
+            ...(status === 'completed'
+                ? {pagePlanEvidence: {
+                    pageNumber: index + 1,
+                    rotationDegrees: 0,
+                    layoutClassification: 'single-uncut-page' as const,
+                    outputs: {},
+                } satisfies IScanCleanupPagePlanEvidence}
+                : {}),
         }));
     return {
         jobId,
@@ -162,6 +173,18 @@ function detectionState(
         },
         results,
         updatedAtMs: Date.now(),
+    };
+}
+
+function failedDetectionState(
+    jobId: string,
+    errorCode: TScanCleanupErrorCode = 'internal',
+): TScanCleanupDetectionJobState {
+    return {
+        ...detectionState(jobId, 'queued'),
+        status: 'failed',
+        error: 'uniform detection failed',
+        errorCode,
     };
 }
 
@@ -1068,87 +1091,66 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('abandons a run stopped while it is still cancelling detection', async () => {
+    it('waits for a complete detection pass for a non-auto run', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
-        const mounted = mountSession(`stop-before-start-${Date.now()}`);
+        const mounted = mountSession(`wait-before-start-${Date.now()}`);
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
-        const canceling = {
-            ...detectionState('detect-1', 'queued'),
-            status: 'canceling' as const,
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: 'cleanup-after-wait',
+            outputPdfPath: '/managed/cleanup-after-wait.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: 'cleanup-after-wait',
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
             updatedAtMs: Date.now() + 1,
-        };
-        vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
+        });
 
         const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledOnce());
-        // The click already started work, so the run reads as running and the
-        // cancel affordance is the one the toolbar offers.
+        await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
+            .toBe('Pre-analyzing pages'));
         expect(mounted.session.run.isRunning.value).toBe(true);
+        expect(harness.value.cancelDetection).not.toHaveBeenCalled();
+        expect(harness.value.start).not.toHaveBeenCalled();
 
-        await mounted.session.run.cancel();
-        expect(mounted.session.run.cancelRequested.value).toBe(true);
-        harness.emitDetection({
-            ...detectionState('detect-1', 'canceled'),
-            results: [],
-            progress: canceling.progress,
-            updatedAtMs: canceling.updatedAtMs + 1,
-        });
+        harness.emitDetection(detectionState('detect-1', 'completed'));
         await run;
 
-        // Nothing was handed to the main process, and the workspace is left
-        // able to run again rather than stuck mid-attempt.
-        expect(harness.value.start).not.toHaveBeenCalled();
-        expect(mounted.session.run.isRunning.value).toBe(false);
-        expect(mounted.session.run.cancelRequested.value).toBe(false);
-        expect(mounted.session.run.canRun.value).toBe(true);
-        expect(getScanCleanupRunError(mounted.session.run.ownerId)).toBe('');
+        expect(harness.value.cancelDetection).not.toHaveBeenCalled();
+        expect(harness.value.start).toHaveBeenCalledOnce();
         mounted.unmount();
     });
 
-    it('cancels the job a stop asked for while the start request was in flight', async () => {
+    it('reports canceled detection as a typed run error', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
-        const mounted = mountSession(`stop-during-start-${Date.now()}`);
+        const mounted = mountSession(`canceled-before-run-${Date.now()}`);
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
         harness.emitDetection(detectionState('detect-1', 'canceled'));
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
 
-        const started = Promise.withResolvers<{
-            started: true;
-            jobId: string;
-            outputPdfPath: string;
-        }>();
-        vi.mocked(harness.value.start).mockReturnValue(started.promise);
-        const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(harness.value.start).toHaveBeenCalledOnce());
+        await mounted.session.run.run();
 
-        // The job has no id yet: the stop has to outlive the start request
-        // instead of being dropped, or a run the user stopped finishes and
-        // replaces the document they were reading with its output.
-        await mounted.session.run.cancel();
-        expect(mounted.session.run.cancelRequested.value).toBe(true);
-        expect(harness.value.cancel).not.toHaveBeenCalled();
-        started.resolve({
-            started: true,
-            jobId: 'stopped-cleanup',
-            outputPdfPath: '/managed/stopped-cleanup.pdf',
-        });
-        await run;
-
-        expect(harness.value.cancel).toHaveBeenCalledWith('stopped-cleanup', {
-            ownerId: mounted.session.run.ownerId,
-            documentRevision: expect.any(String),
-        });
-        expect(getScanCleanupRunError(mounted.session.run.ownerId)).toBe('');
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(getScanCleanupRunError(mounted.session.run.ownerId))
+            .toBe('scanCleanup.detectAll.evidenceMissing');
+        expect(getScanCleanupRunErrorCode(mounted.session.run.ownerId)).toBe('canceled');
         mounted.unmount();
     });
 
-    it('settles cancellation after the lifecycle clears the job id and aborts a revision-changed run', async () => {
+    it('rejects a revision-changed run after the detection lifecycle retires its job', async () => {
         const harness = capabilityHarness();
         const revision = ref('revision-1');
         capability.value = harness.value;
@@ -1159,46 +1161,35 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
-        const canceling = {
-            ...detectionState('detect-1', 'queued'),
-            status: 'canceling' as const,
-            updatedAtMs: Date.now() + 1,
-        };
-        vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
-
         const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
+            .toBe('Pre-analyzing pages'));
         revision.value = 'revision-2';
         await nextTick();
-        harness.emitDetection({
-            ...detectionState('detect-1', 'canceled'),
-            results: [],
-            progress: canceling.progress,
-            updatedAtMs: canceling.updatedAtMs + 1,
-        });
+        harness.emitDetection(detectionState('detect-1', 'completed'));
         await run;
 
+        // Changing the source revision retires the detection session itself;
+        // the cleanup run still only waits and then rejects its stale click.
+        expect(harness.value.cancelDetection).toHaveBeenCalledOnce();
+        expect(harness.value.cancelDetection).toHaveBeenCalledWith('detect-1', {
+            ownerId: mounted.session.run.ownerId,
+            documentRevision: 'revision-1',
+        });
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(getScanCleanupRunError(mounted.session.run.ownerId))
             .toBe('scanCleanup.documentChangedBeforeRun');
         mounted.unmount();
     });
 
-    it('starts cleanup from one atomic click-time request after detection cancellation', async () => {
+    it('starts cleanup from one atomic click-time request after detection completes', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`atomic-run-request-${Date.now()}`);
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
         mounted.session.settings.values.outputMode = 'mixed';
         mounted.session.settings.values.thickness = 2;
-        mounted.session.settings.values.marginsMm.leftMm = 7;
         mounted.session.selection.setSettingsScope('page');
-        const canceling = {
-            ...detectionState('detect-1', 'queued'),
-            status: 'canceling' as const,
-            updatedAtMs: Date.now() + 1,
-        };
-        vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
             jobId: 'atomic-cleanup',
@@ -1218,51 +1209,70 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
 
         const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
+            .toBe('Pre-analyzing pages'));
         mounted.session.settings.values.outputMode = 'color';
         mounted.session.settings.values.thickness = -3;
-        mounted.session.settings.values.marginsMm.leftMm = 12;
-        harness.emitDetection({
-            ...detectionState('detect-1', 'canceled'),
-            results: [],
-            progress: canceling.progress,
-            updatedAtMs: canceling.updatedAtMs + 1,
-        });
+        harness.emitDetection(detectionState('detect-1', 'completed'));
         await run;
 
+        expect(harness.value.cancelDetection).not.toHaveBeenCalled();
         expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({
             documentRevision: expect.any(String),
             sourcePdfPath: expect.stringContaining('atomic-run-request'),
             options: expect.objectContaining({
                 outputMode: 'mixed',
                 thickness: 2,
-                marginsMm: expect.objectContaining({leftMm: 7}),
+                marginsMm: expect.objectContaining({leftMm: 5}),
             }),
             sourcePageNumbers: [1],
         }));
         mounted.unmount();
     });
 
-    it('includes page evidence that settles while detection cancellation is in flight', async () => {
+    it('ignores preview enrichment when resolving run page evidence', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
-        const mounted = mountSession(`settled-run-evidence-${Date.now()}`);
+        const mounted = mountSession(`uniform-run-evidence-${Date.now()}`);
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
-        mounted.session.settings.values.outputMode = 'mixed';
-        await nextTick();
-        const canceling = {
-            ...detectionState('detect-1', 'queued'),
-            status: 'canceling' as const,
-            updatedAtMs: Date.now() + 1,
+        const detectionEvidence: IScanCleanupPagePlanEvidence = {
+            pageNumber: 1,
+            rotationDegrees: 0,
+            layoutClassification: 'single-uncut-page',
+            automaticSplit: {
+                xNormalized: 0.42,
+                rotationDegrees: 0,
+            },
+            outputs: {},
         };
-        vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
+        const completed = detectionState('detect-1', 'completed');
+        completed.results[0] = {
+            ...completed.results[0]!,
+            pagePlanEvidence: detectionEvidence,
+        };
+        harness.emitDetection(completed);
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+        const previewEvidence: IScanCleanupPagePlanEvidence = {
+            ...detectionEvidence,
+            automaticSplit: {
+                xNormalized: 0.78,
+                rotationDegrees: 0,
+            },
+        };
+        const previewLookup = vi.spyOn(mounted.session.preview, 'resolvePagePlanEvidence')
+            .mockReturnValue(new Map([[
+                1,
+                previewEvidence,
+            ]]));
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-with-settled-evidence',
-            outputPdfPath: '/managed/cleanup-with-settled-evidence.pdf',
+            jobId: 'cleanup-with-uniform-evidence',
+            outputPdfPath: '/managed/cleanup-with-uniform-evidence.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-with-settled-evidence',
+            jobId: 'cleanup-with-uniform-evidence',
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -1274,31 +1284,11 @@ describe('scan cleanup workspace session detection guidance', () => {
             updatedAtMs: Date.now() + 3,
         });
 
-        const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledOnce());
-        const canceled = detectionState('detect-1', 'canceled');
-        canceled.results[0] = {
-            ...canceled.results[0]!,
-            classification: 'two-page-spread',
-            recommendedOutputMode: 'mixed',
-            pagePlanEvidence: {
-                pageNumber: 1,
-                rotationDegrees: 0,
-                layoutClassification: 'two-page-spread',
-                outputs: {},
-            },
-        };
-        harness.emitDetection(canceled);
-        await run;
+        await mounted.session.run.run();
 
-        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({
-            layoutByPage: expect.objectContaining({'1': 'two-page-spread'}),
-            outputModeRecommendations: expect.objectContaining({'1': 'mixed'}),
-            pagePlanEvidenceByPage: expect.objectContaining({'1': expect.objectContaining({
-                layoutClassification: 'two-page-spread',
-                pageNumber: 1,
-            })}),
-        }));
+        expect(previewLookup).not.toHaveBeenCalled();
+        const expectedEvidenceByPage = expect.objectContaining({'1': detectionEvidence});
+        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({pagePlanEvidenceByPage: expectedEvidenceByPage}));
         mounted.unmount();
     });
 
@@ -1307,18 +1297,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const mounted = mountSession(`run-bridge-error-${Date.now()}`);
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
-        harness.emitDetection({
-            ...detectionState('detect-1', 'canceled'),
-            results: [],
-            progress: {
-                stage: 'detecting',
-                completedUnits: 0,
-                totalUnits: 3,
-                percent: 0,
-                completedPageNumbers: [],
-            },
-            updatedAtMs: Date.now() + 1,
-        });
+        harness.emitDetection(detectionState('detect-1', 'completed'));
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
@@ -1331,13 +1310,30 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('reports failed detection with its typed error code', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`failed-detection-run-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        harness.emitDetection(failedDetectionState('detect-1', 'native-failure'));
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+
+        await mounted.session.run.run();
+
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(getScanCleanupRunError(mounted.session.run.ownerId))
+            .toBe('uniform detection failed');
+        expect(getScanCleanupRunErrorCode(mounted.session.run.ownerId)).toBe('native-failure');
+        mounted.unmount();
+    });
+
     it('keeps detection idle when the global run stops without the surface re-activating', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`run-stop-${Date.now()}`);
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
-        // A starting run cancels detection and takes the global run guard.
+        // A terminal detection state is delivered before the global run guard.
         harness.emitDetection(detectionState('detect-1', 'canceled'));
         scanCleanupRun.inFlight = true;
         await nextTick();

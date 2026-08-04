@@ -385,6 +385,7 @@ export default {
             'canceling': 'Wird abgebrochen…',
             'cancelTimeout': 'Die Erkennung wurde nicht rechtzeitig beendet. Versuchen Sie es erneut.',
             'failed': 'Die Seitenerkennung ist fehlgeschlagen.',
+            'evidenceMissing': 'Für die Bereinigung ist eine abgeschlossene einheitliche Seitenanalyse erforderlich. Führen Sie die Erkennung erneut aus.',
         },
         'cancelingDetection': 'Hintergrundanalyse wird beendet…',
         'startingCleanup': 'Bereinigung wird gestartet…',

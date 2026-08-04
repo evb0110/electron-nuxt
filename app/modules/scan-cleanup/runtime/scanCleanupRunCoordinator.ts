@@ -2,6 +2,7 @@ import type {
     IScanCleanupStartRequest,
     TScanCleanupStartResult,
     TScanCleanupJobState,
+    TScanCleanupErrorCode,
 } from '@contracts/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
@@ -40,6 +41,7 @@ function rememberTerminalJob(jobId: string) {
 
 interface IScanCleanupRunError {
     error: string;
+    errorCode: TScanCleanupErrorCode;
     ownerId: string;
 }
 
@@ -74,9 +76,20 @@ export function getScanCleanupRunError(ownerId: string) {
         : '';
 }
 
-export function setScanCleanupRunError(ownerId: string, error: string) {
+export function getScanCleanupRunErrorCode(ownerId: string) {
+    return scanCleanupRun.lastError?.ownerId === ownerId
+        ? scanCleanupRun.lastError.errorCode
+        : null;
+}
+
+export function setScanCleanupRunError(
+    ownerId: string,
+    error: string,
+    errorCode: TScanCleanupErrorCode = 'internal',
+) {
     scanCleanupRun.lastError = error ? {
         error,
+        errorCode,
         ownerId,
     } : null;
 }
@@ -85,8 +98,9 @@ export function reportScanCleanupRunError(
     ownerId: string,
     error: string,
     sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
+    errorCode: TScanCleanupErrorCode = 'internal',
 ) {
-    setScanCleanupRunError(ownerId, error);
+    setScanCleanupRunError(ownerId, error, errorCode);
     if (!dependencies) {
         return;
     }
@@ -234,6 +248,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 scanCleanupRun.ownerId,
                 state.error,
                 scanCleanupRun.ownerDocumentRef,
+                state.errorCode,
             );
         } else {
             terminalDependencies.toast.add({

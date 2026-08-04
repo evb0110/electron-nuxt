@@ -790,10 +790,11 @@ export default {
             'canceling': 'Canceling…',
             'cancelTimeout': 'Detection did not stop in time. Try again.',
             'failed': 'Page detection failed.',
+            'evidenceMissing': 'Cleanup requires a completed uniform page analysis. Run detection again.',
         },
         'cancelingDetection': 'Stopping background analysis…',
         'startingCleanup': 'Starting cleanup…',
-        'documentChangedBeforeRun': 'The document changed while detection was stopping. Review it and start cleanup again.',
+        'documentChangedBeforeRun': 'The document changed while waiting for detection. Review it and start cleanup again.',
         'runDisabled': {
             'noSource': 'Open a source PDF before starting cleanup.',
             'noIncludedPages': 'Include at least one page before starting cleanup.',

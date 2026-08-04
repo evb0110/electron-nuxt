@@ -385,6 +385,7 @@ export default {
             'canceling': 'Annuleren…',
             'cancelTimeout': 'De detectie is niet op tijd gestopt. Probeer het opnieuw.',
             'failed': 'Paginadetectie mislukt.',
+            'evidenceMissing': 'Opschonen vereist een voltooide uniforme pagina-analyse. Voer de detectie opnieuw uit.',
         },
         'cancelingDetection': 'Achtergrondanalyse stoppen…',
         'startingCleanup': 'Opschoning starten…',

@@ -385,6 +385,7 @@ export default {
             'canceling': 'Cancelando…',
             'cancelTimeout': 'A detecção não parou a tempo. Tente novamente.',
             'failed': 'Falha na detecção de página.',
+            'evidenceMissing': 'A limpeza requer uma análise uniforme concluída das páginas. Execute a detecção novamente.',
         },
         'cancelingDetection': 'Interrompendo a análise em segundo plano…',
         'startingCleanup': 'Iniciando a limpeza…',

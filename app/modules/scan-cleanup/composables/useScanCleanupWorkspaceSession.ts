@@ -76,7 +76,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         totalPages,
     });
     function resolvePagePlanEvidence(pageNumbers: readonly number[]) {
-        const evidence = new Map(
+        return new Map(
             pageNumbers.flatMap(pageNumber => {
                 const detected = detection.pagePlanEvidenceByPage.get(pageNumber);
                 return detected === undefined
@@ -87,21 +87,15 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
                     ] as const];
             }),
         );
-        for (const [
-            pageNumber,
-            previewEvidence,
-        ] of previewResult?.resolvePagePlanEvidence(pageNumbers) ?? []) {
-            evidence.set(pageNumber, previewEvidence);
-        }
-        return evidence;
     }
     const run = useScanCleanupRunSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         beforeRun: () => previewResult?.cancel(false),
-        cancelDetectionBeforeRun: detection.cancelAndWaitForTerminal,
         detectionError: detection.error,
+        detectionErrorCode: detection.errorCode,
         detectionPending: detection.pending,
+        detectionStatus: detection.terminalStatus,
         documentRevision,
         onCompleted: settings.dismissFirstRunGuidance,
         ownerId,

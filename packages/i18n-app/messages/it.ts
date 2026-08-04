@@ -385,6 +385,7 @@ export default {
             'canceling': 'Annullamento…',
             'cancelTimeout': 'Il rilevamento non si è arrestato in tempo. Riprova.',
             'failed': 'Rilevamento della pagina non riuscito.',
+            'evidenceMissing': 'La pulizia richiede un’analisi uniforme completa delle pagine. Esegui di nuovo il rilevamento.',
         },
         'cancelingDetection': 'Arresto dell’analisi in background…',
         'startingCleanup': 'Avvio della pulizia…',
