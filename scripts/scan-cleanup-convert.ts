@@ -55,6 +55,7 @@ import type {
     IScanCleanupRunCommandOptions,
     TScanCleanupLog,
 } from '@scan-cleanup-core/types';
+import {isScanCleanupCliFallbackSentinel} from '@scan-cleanup-core/compactManifest';
 import {
     createCliRenderers,
     requireCliPublishedRaster,
@@ -374,6 +375,9 @@ function resolveTool(binaryName: string, crateName: string, envName?: string) {
     const envOverride = envName === undefined ? undefined : process.env[envName];
     const resolved = resolveCliNativeToolPath(binaryName, crateName, process.cwd(), envOverride);
     if (resolved === null) throw new Error(`Native tool is unavailable: ${crateName}/${binaryName}`);
+    if (isScanCleanupCliFallbackSentinel(resolved)) {
+        throw new Error(`Native tool path collides with the CLI fallback sentinel namespace: ${resolved}`);
+    }
     return resolved;
 }
 

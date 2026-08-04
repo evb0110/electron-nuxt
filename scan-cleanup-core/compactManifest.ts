@@ -92,6 +92,10 @@ export function serializeLegacyScanCleanupPageOpsInstructions(
     return JSON.stringify({pages: instructions.pages});
 }
 
+export function isScanCleanupCliFallbackSentinel(value: string | undefined) {
+    return value !== undefined && /^__scan_cleanup_cli_[a-z_]+__$/u.test(value);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

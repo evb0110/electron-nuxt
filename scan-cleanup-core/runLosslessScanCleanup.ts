@@ -24,6 +24,7 @@ import {
 import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {
     buildScanCleanupPageOpsInstructions,
+    isScanCleanupCliFallbackSentinel,
     serializeLegacyScanCleanupPageOpsInstructions,
     serializeScanCleanupPageOpsInstructions,
 } from '@scan-cleanup-core/compactManifest';
@@ -391,7 +392,7 @@ export async function runLosslessScanCleanup(
         paths,
         assemblerBackend: request.assemblyBackend
             ?? paths.assemblyBackend
-            ?? (paths.pdfPageOpsBinary.startsWith('__scan_cleanup_cli_')
+            ?? (isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
                 ? 'cli-fallback-qpdf-page-ops'
                 : 'native-pdf-page-ops'),
         transportMode: request.transportMode

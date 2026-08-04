@@ -218,6 +218,11 @@ export function buildScanCleanupProvenanceStamp({
         sourceSha256,
         effectiveOptions: {perSourcePage: normalizedEffectiveOptions},
         outputMappings: normalizedMappings,
+        pagePlanDigests: normalizedPagePlanDigests,
+        buildIds: {
+            ...buildIds,
+            nativeBinarySha256s: {...buildIds.nativeBinarySha256s},
+        },
     });
     const payload: IScanCleanupProvenanceStamp = {
         schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
@@ -410,6 +415,8 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
         sourceSha256: value.sourceSha256,
         effectiveOptions: value.effectiveOptions,
         outputMappings,
+        pagePlanDigests: value.pagePlanDigests,
+        buildIds: value.buildIds,
     });
     if (recomputedPlan !== value.resolvedPlanSha256) fail('resolved plan digest does not match the stamp payload');
 }

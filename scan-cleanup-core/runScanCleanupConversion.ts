@@ -45,6 +45,7 @@ import {resolveScanCleanupPageScope} from '@scan-cleanup-core/pageScope';
 import {createPdfCombineProgressHandler} from '@scan-cleanup-core/createPdfCombineProgressHandler';
 import {
     buildScanCleanupCompactManifest,
+    isScanCleanupCliFallbackSentinel,
     serializeLegacyScanCleanupCompactManifest,
     serializeScanCleanupCompactManifest,
 } from '@scan-cleanup-core/compactManifest';
@@ -1141,10 +1142,10 @@ export async function runScanCleanupConversion(
         const assemblerBackend = request.assemblyBackend
             ?? paths.assemblyBackend
             ?? (hasCompactSourcePages
-                ? paths.pdfPageOpsBinary?.startsWith('__scan_cleanup_cli_') === true
+                ? isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
                     ? 'cli-fallback-qpdf-page-ops'
                     : 'native-pdf-page-ops'
-                : paths.pdfImageCombineBinary.startsWith('__scan_cleanup_cli_')
+                : isScanCleanupCliFallbackSentinel(paths.pdfImageCombineBinary)
                     ? 'cli-fallback-wasm-or-img2pdf-qpdf'
                     : 'native-pdf-image-combine');
         const transportMode = request.transportMode

@@ -2497,25 +2497,33 @@ async function readProvenanceStampHex(pdfPath) {
     if (!reference) {
         return '__invalid_info_reference__';
     }
-    const infoResult = await run('qpdf', [
-        `--show-object=${reference[1]},${reference[2]}`,
-        pdfPath,
-    ]);
-    const hexStamp = /\/EVBScanCleanup\s+<([0-9A-Fa-f]+)>/u.exec(infoResult.stdout);
-    if (hexStamp) {
-        return hexStamp[1];
+    // The Info dictionary is read from qpdf's structured JSON rather than
+    // from rendered object text: a regex over rendered text could match a
+    // stamp-shaped payload embedded inside another string value such as
+    // /Producer. Native writers store the lowercase hex payload as a PDF
+    // literal string and test injections use a hexadecimal string; qpdf's
+    // JSON encodes both as "u:<text>" when the bytes are printable, or
+    // "b:<hex>" otherwise, so both wire spellings collapse here while the
+    // core decoder stays fail-closed.
+    const infoEntry = document.qpdf.find(entry => Object.hasOwn(entry, `obj:${infoReference}`));
+    const infoValue = infoEntry?.[`obj:${infoReference}`]?.value;
+    if (infoValue === undefined || typeof infoValue !== 'object') {
+        return '__invalid_info_reference__';
     }
-    // Native writers currently store the lowercase hex payload as a PDF
-    // literal string; qpdf renders that form with parentheses. Test-only
-    // qpdf injections commonly use a hexadecimal string instead, so accept
-    // both wire spellings while keeping the core decoder fail-closed.
-    const literalStamp = /\/EVBScanCleanup\s+\(([0-9a-fA-F]+)\)/u.exec(infoResult.stdout);
-    if (literalStamp) {
-        return literalStamp[1];
+    const stamp = infoValue['/EVBScanCleanup'];
+    if (stamp === undefined) {
+        return null;
     }
-    return /\/EVBScanCleanup\b/u.test(infoResult.stdout)
-        ? '__invalid_stamp_encoding__'
-        : null;
+    if (typeof stamp !== 'string') {
+        return '__invalid_stamp_encoding__';
+    }
+    if (stamp.startsWith('u:')) {
+        return stamp.slice(2);
+    }
+    if (stamp.startsWith('b:')) {
+        return Buffer.from(stamp.slice(2), 'hex').toString('latin1');
+    }
+    return '__invalid_stamp_encoding__';
 }
 
 function stampMappingMismatch(payload, pageMapping, from, to) {

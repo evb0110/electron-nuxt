@@ -57,13 +57,16 @@ export async function buildScanCleanupStampBuildIds({
 }
 
 async function hashBinaryOrBackendMarker(path: string, role: string, backend: TScanCleanupAssemblerBackend) {
-    if (path.startsWith('__scan_cleanup_cli_')) {
+    if (/^__scan_cleanup_cli_[a-z_]+__$/u.test(path)) {
         return hashText(`${role}:${backend}`);
     }
     try {
         return createHash('sha256').update(await readFile(path)).digest('hex');
-    } catch {
-        return hashText(`${role}:${path}:${backend}`);
+    } catch (error) {
+        throw new Error(
+            `Provenance stamp requires a readable ${role} binary at ${path}: `
+            + (error instanceof Error ? error.message : String(error)),
+        );
     }
 }
 
