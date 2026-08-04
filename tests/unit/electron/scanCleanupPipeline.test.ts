@@ -1143,15 +1143,15 @@ describe('scan cleanup pipeline', () => {
             stage: 'handoff',
             percent: 100,
         }));
-        // Locked Auto decisions reach the native render as concrete modes.
-        // Only the binary page is synthesized above source density.
+        // Locked Auto decisions reach the native render as concrete modes on
+        // the one grid matched output promises for the document.
         expect(runSidecar).toHaveBeenCalledOnce();
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         const renderedDpis = vi.mocked(pipelineDependencies.renderPagePpm).mock.calls
             .map(call => call[5]);
         expect(renderedDpis).toEqual([
             300,
-            150,
+            300,
         ]);
         expect(cleanupManifest).not.toBeNull();
         expect(cleanupManifest!.pages[0]!.options).toMatchObject({
@@ -1166,7 +1166,7 @@ describe('scan cleanup pipeline', () => {
             outputMode: 'grayscale',
             sourceDpi: 150,
             requestedRenderDpi: 150,
-            dpi: 150,
+            dpi: 300,
         });
         expect(cleanupManifest!.pages[0]!.outputs[0]).toMatchObject({
             outputPath: expect.stringMatching(/clean-1-0\.png$/u),
@@ -2020,10 +2020,10 @@ describe('scan cleanup pipeline', () => {
 
         // The default raster path measures the document and hands the plan
         // over: 240 x 336 points, on the grid of the finest page the run
-        // renders (page one at 300 DPI; page two arrives at 150).
+        // renders (page one at 300 DPI; page two is raised from 150).
         expect(manifestPageDpi).toEqual([
             300,
-            150,
+            300,
         ]);
         expect(manifestCanvas).toEqual({
             widthPoints: 240,
@@ -2616,7 +2616,7 @@ describe('scan cleanup pipeline', () => {
                 outputMode: 'bw',
             }),
             expect.objectContaining({
-                dpi: 640,
+                dpi: 720,
                 sourceDpi: 640,
                 requestedRenderDpi: 640,
                 outputMode: 'bw',
@@ -2740,7 +2740,7 @@ describe('scan cleanup pipeline', () => {
         expect(finalDpi).toBe(600);
     });
 
-    it('renders reliable low-DPI sources at their detected DPI without a floor', async () => {
+    it('raises reliable low-DPI sources onto the matched document grid', async () => {
         const fixture = await setup();
         let finalDpi = 0;
         let requestedRenderDpi = 0;
@@ -2785,10 +2785,10 @@ describe('scan cleanup pipeline', () => {
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(requestedRenderDpi).toBe(200);
-        expect(finalDpi).toBe(200);
+        expect(finalDpi).toBe(600);
     });
 
-    it('renders BW and mixed recommendations at source DPI alongside tonal pages', async () => {
+    it('renders BW and mixed recommendations on the finest matched document grid', async () => {
         const fixture = await setup();
         const renderedDpis: number[] = [];
         let combineManifest = '';
@@ -2887,9 +2887,9 @@ describe('scan cleanup pipeline', () => {
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(renderedDpis).toEqual([
             720,
-            640,
-            300,
-            150,
+            720,
+            720,
+            720,
         ]);
         expect(finalOptions).toEqual([
             expect.objectContaining({
@@ -2898,17 +2898,17 @@ describe('scan cleanup pipeline', () => {
                 outputMode: 'grayscale',
             }),
             expect.objectContaining({
-                dpi: 640,
+                dpi: 720,
                 requestedRenderDpi: 640,
                 outputMode: 'color',
             }),
             expect.objectContaining({
-                dpi: 300,
+                dpi: 720,
                 requestedRenderDpi: 300,
                 outputMode: 'bw',
             }),
             expect.objectContaining({
-                dpi: 150,
+                dpi: 720,
                 requestedRenderDpi: 150,
                 outputMode: 'mixed',
             }),

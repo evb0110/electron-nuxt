@@ -353,6 +353,7 @@ describe('scan cleanup document canvas', () => {
         // The final consumer reconstructs its canvas from the page DPI, so
         // prove the capped DPI reproduces a grid that is safe too.
         const cappedDpi = resolveScanCleanupDocumentCanvasRenderDpi(600, canvas);
+        expect(resolveScanCleanupDocumentCanvasRenderDpi(72, canvas)).toBe(cappedDpi);
         const reconstructedWidth = Math.round(canvas!.widthPoints / 72 * cappedDpi);
         const reconstructedHeight = Math.round(canvas!.heightPoints / 72 * cappedDpi);
         expect(reconstructedWidth * reconstructedHeight).toBeLessThanOrEqual(80_000_000);

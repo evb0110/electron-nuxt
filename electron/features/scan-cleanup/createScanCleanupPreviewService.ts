@@ -58,6 +58,7 @@ import {
     resolveMatchedCanvasResamplePages,
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvas,
+    resolveScanCleanupDocumentCanvasDpi,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@electron/features/scan-cleanup/policy/documentCanvas';
 import {
@@ -1731,8 +1732,27 @@ async function runPreview(
                 };
             }
         }
-        const basePreviewDpi = previewRasterPlan.renderDpiByPageNumber.get(request.pageNumber)
-            ?? previewRasterPlan.dpi;
+        const matchedPreviewDpis = [...previewRasterPlan.renderDpiByPageNumber.values()];
+        const matchedPreviewDpi = matchedPreviewDpis.length > 0
+            ? Math.min(...matchedPreviewDpis)
+            : previewRasterPlan.dpi;
+        const documentCanvas = pageSizes && request.options.matchPageSize
+            ? resolveScanCleanupDocumentCanvas(
+                pageSizes,
+                matchedPreviewDpi,
+                request.options,
+                request.layoutByPage,
+            )
+            : null;
+        // Matched pages must share the preview's document grid. Rendering a
+        // proven lower-resolution page at its own DPI makes native rebuild the
+        // common physical canvas on a smaller pixel grid, so changing pages
+        // visibly changes the frame and disagrees with the final document.
+        // Source DPI remains separate below and still governs analysis.
+        const basePreviewDpi = documentCanvas === null
+            ? previewRasterPlan.renderDpiByPageNumber.get(request.pageNumber)
+                ?? previewRasterPlan.dpi
+            : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(documentCanvas)));
         const baseRaw = await materializeRawRaster(
             document,
             request.pageNumber,
@@ -1773,14 +1793,6 @@ async function runPreview(
         // page depends on it. A document no tool here can measure therefore
         // previews with matching dropped and says so, rather than answering a
         // page the user asked to clean with an error about page sizes.
-        const documentCanvas = pageSizes && request.options.matchPageSize
-            ? resolveScanCleanupDocumentCanvas(
-                pageSizes,
-                basePreviewDpi,
-                request.options,
-                request.layoutByPage,
-            )
-            : null;
         let inputPath = baseRaw.path;
         let renderDpi = basePreviewDpi;
         let requestedRenderDpi = basePreviewDpi;

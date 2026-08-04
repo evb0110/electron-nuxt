@@ -237,7 +237,10 @@ export function resolveScanCleanupDocumentCanvasDpi(
 }
 
 /**
- * Caps a page render to the grid the shared document canvas can safely carry.
+ * Normalizes a page render to the grid the shared document canvas carries.
+ * Low-resolution pages must be raised to this DPI as well as high-resolution
+ * pages being capped; otherwise native reconstructs a different pixel grid
+ * for each page from the shared physical rectangle and that page's DPI.
  * The floor is intentional: the native canvas reconstruction rounds pixel
  * dimensions, so a fractional cap could round an axis above the planned grid.
  */
@@ -250,7 +253,7 @@ export function resolveScanCleanupDocumentCanvasRenderDpi(
     }
     return Math.max(
         1,
-        Math.min(renderDpi, Math.floor(resolveScanCleanupDocumentCanvasDpi(canvas))),
+        Math.floor(resolveScanCleanupDocumentCanvasDpi(canvas)),
     );
 }
 

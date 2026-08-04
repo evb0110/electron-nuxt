@@ -481,11 +481,17 @@ export async function runScanCleanupConversion(
         // Native reconstructs the final uniform canvas from each page's render
         // DPI and the document rectangle. The plan's pixel fields alone cannot
         // constrain that reconstruction, so every page that would recreate a
-        // larger grid is capped before its raster is rendered. Keep the
-        // requested DPI on the plan for native diagnostics and name each page
-        // whose quality was bounded by the shared canvas.
+        // different grid is normalized before its raster is rendered. This
+        // raises coarse scans onto the document grid as well as capping pages
+        // that would exceed it, so a partial run cannot silently fall back to
+        // the selected page's lower resolution.
         const rasterPlans = uncappedRasterPlans.map(plan => {
-            const dpi = resolveScanCleanupDocumentCanvasRenderDpi(plan.dpi, documentCanvas);
+            // A page already lowered by its own raster guardrail cannot safely
+            // be raised again merely to reach the document grid. Native will
+            // fit that bounded raster onto the shared physical canvas.
+            const dpi = plan.dpi < plan.requestedRenderDpi
+                ? plan.dpi
+                : resolveScanCleanupDocumentCanvasRenderDpi(plan.dpi, documentCanvas);
             if (dpi < plan.dpi) {
                 warn(
                     `Matched page size capped page ${String(plan.pageNumber)} at ${String(dpi)} DPI `
