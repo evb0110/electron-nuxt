@@ -89,6 +89,48 @@ mod tests {
     }
 
     #[test]
+    fn mixed_partition_keeps_completed_zone_outside_text_owned_mask() {
+        let mut picture = BinaryImage::new(8, 1);
+        picture.set(1, 0, true);
+        let mut zone = BinaryImage::new(8, 1);
+        zone.set(4, 0, true);
+        zone.set(6, 0, true);
+        let mut text_vicinity = BinaryImage::new(8, 1);
+        text_vicinity.set(1, 0, true);
+        text_vicinity.set(4, 0, true);
+        text_vicinity.set(6, 0, true);
+        let mut picture_mask = Some(picture);
+
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            None,
+            None,
+            None,
+            Some(&zone),
+            Some(&text_vicinity),
+        );
+
+        let picture_mask = picture_mask.expect("zone must create a Mixed ownership mask");
+        assert!(!picture_mask.get(1, 0), "ordinary text vicinity stays foreground-owned");
+        assert!(picture_mask.get(4, 0), "zone pixel remains tone-owned");
+        assert!(picture_mask.get(6, 0), "completed zone pixel remains tone-owned");
+        assert_eq!(picture_mask.count_black(), 2);
+    }
+
+    #[test]
+    fn mixed_partition_zone_alone_selects_layered_ownership() {
+        let mut zone = BinaryImage::new(4, 1);
+        zone.set(2, 0, true);
+        let mut picture_mask = None;
+
+        partition_mixed_picture_mask(&mut picture_mask, None, None, None, Some(&zone), None);
+
+        let picture_mask = picture_mask.expect("an exact zone is a Mixed ownership mask");
+        assert_eq!(picture_mask.count_black(), 1);
+        assert!(picture_mask.get(2, 0));
+    }
+
+    #[test]
     fn affine_fast_paths_and_adaptive_resampler_match_supersampled_golden() {
         let (source, _) = thin_stroke_fixture();
         assert_eq!(

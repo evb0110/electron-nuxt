@@ -1029,6 +1029,8 @@ struct PreparedPage<'a> {
     rotated_color: Option<RgbImage>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
+    halftone_zone_mask: Option<Arc<BinaryImage>>,
+    spatial_tone_mask: Option<Arc<BinaryImage>>,
     chroma_picture_mask: Option<Arc<BinaryImage>>,
     tone_picture_mask: Option<Arc<BinaryImage>>,
     tone_preservation_alpha: Option<Arc<GrayImage>>,
@@ -1061,6 +1063,8 @@ struct PreparedAnalysis {
     text_axis: Option<TextAxisHint>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
+    halftone_zone_mask: Option<Arc<BinaryImage>>,
+    spatial_tone_mask: Option<Arc<BinaryImage>>,
     chroma_picture_mask: Option<Arc<BinaryImage>>,
     tonal_protection_mask: Option<Arc<BinaryImage>>,
     semantic_preservation_alpha: Option<Arc<GrayImage>>,
@@ -1086,6 +1090,8 @@ struct AnalysisArtifact {
     calibration: PageCalibration,
     effective_dpi: f64,
     picture_mask: Option<Arc<BinaryImage>>,
+    halftone_zone_mask: Option<Arc<BinaryImage>>,
+    spatial_tone_mask: Option<Arc<BinaryImage>>,
     chroma_picture_mask: Option<Arc<BinaryImage>>,
     tonal_protection_mask: Option<Arc<BinaryImage>>,
     semantic_preservation_alpha: Option<Arc<GrayImage>>,
@@ -1786,6 +1792,8 @@ fn clean_page_with_color_and_calibration_config(
         rotated_color,
         content_picture_mask,
         picture_mask,
+        halftone_zone_mask,
+        spatial_tone_mask,
         chroma_picture_mask,
         tone_picture_mask,
         tone_preservation_alpha,
@@ -1823,6 +1831,8 @@ fn clean_page_with_color_and_calibration_config(
             rotated_color.as_ref(),
             content_picture_mask.as_deref(),
             picture_mask.as_deref(),
+            halftone_zone_mask.as_deref(),
+            spatial_tone_mask.as_deref(),
             chroma_picture_mask.as_deref(),
             tone_picture_mask.as_deref(),
             protect_tonal_text_vicinity,
@@ -1890,6 +1900,8 @@ fn prepare_page<'a>(
         calibration,
         content_picture_mask: analysis_content_picture_mask,
         picture_mask: analysis_picture_mask,
+        halftone_zone_mask: analysis_halftone_zone_mask,
+        spatial_tone_mask: analysis_spatial_tone_mask,
         chroma_picture_mask: analysis_chroma_picture_mask,
         tonal_protection_mask: analysis_tonal_protection_mask,
         semantic_preservation_alpha: analysis_semantic_preservation_alpha,
@@ -2087,6 +2099,8 @@ fn prepare_page<'a>(
         rotated_color,
         content_picture_mask: analysis_content_picture_mask,
         picture_mask: picture_mask.take(),
+        halftone_zone_mask: analysis_halftone_zone_mask,
+        spatial_tone_mask: analysis_spatial_tone_mask,
         chroma_picture_mask: analysis_chroma_picture_mask,
         tone_picture_mask: analysis_tonal_protection_mask,
         tone_preservation_alpha: analysis_tone_preservation_alpha,
@@ -2306,6 +2320,22 @@ fn prepare_analysis_page(
                     BinaryImage::new(rotated.width(), rotated.height()),
                 )
             });
+        // Flat, sharply bounded diagram fills are semantic tone even when
+        // the halftone classifier rejects their low-spread line-art texture.
+        // Keep this narrow graphic geometry as a representation channel; it
+        // is not the broad tonal-protection field used by normalization.
+        let flat_graphic_preservation_alpha =
+            flat_graphic_tone_preservation_alpha(&layout_normalized).map(Arc::new);
+        let flat_graphic_picture_mask =
+            flat_graphic_preservation_alpha
+                .as_deref()
+                .and_then(|alpha| {
+                    let mask =
+                        BinaryImage::from_fn_parallel(alpha.width(), alpha.height(), |x, y| {
+                            alpha.get(x, y) >= 128
+                        });
+                    (mask.count_black() > 0).then(|| Arc::new(mask))
+                });
         // Any tone strong and coherent enough to veto destructive B&W must
         // also own pixels in a Mixed result. Previously the mode selector
         // could choose Mixed while the renderer kept an empty picture mask,
@@ -2322,6 +2352,23 @@ fn prepare_analysis_page(
             .coherent()
             .then(|| destructive_tone_mask.as_ref().map(Arc::clone))
             .flatten();
+        // This is a representation-policy channel, not the broad tonal
+        // protection web used by normalization. It is the tile-resolution
+        // outside-text evidence that caused a spatial-tone decision, kept
+        // separate so Mixed can preserve a neutral illustration without
+        // granting every protected-tone pixel ownership of the stencil
+        // partition. The exact halftone zone remains the stronger channel for
+        // classifier-owned pixels.
+        let outside_spatial_tone_mask = (outside_tone.vetoes_destructive_mode()
+            && picture_mask
+                .as_ref()
+                .is_none_or(|mask| mask.count_black() == 0))
+        .then(|| (tonal_seed_mask.count_black() > 0).then(|| Arc::new(tonal_seed_mask.clone())))
+        .flatten();
+        let spatial_tone_mask = union_optional_masks(
+            flat_graphic_picture_mask.as_ref(),
+            outside_spatial_tone_mask.as_ref(),
+        );
         if options.crop_content && !content_evidence_complete {
             // The crop planner needs the same vetted map/illustration geometry
             // as the tone-preservation path. Picture detection can be empty on
@@ -2371,8 +2418,6 @@ fn prepare_analysis_page(
         // geometry depend on source DPI. Semantic ownership is therefore for
         // real tone only; text retention is verified separately against exact
         // synthetic ink coverage.
-        let flat_graphic_preservation_alpha =
-            flat_graphic_tone_preservation_alpha(&layout_normalized).map(Arc::new);
         let semantic_preservation_alpha = union_optional_gray_fields(
             tone_semantic_preservation_alpha.as_ref(),
             flat_graphic_preservation_alpha.as_ref(),
@@ -2580,8 +2625,14 @@ fn prepare_analysis_page(
             // the whole photographic enclosure stays on one source-preserved
             // low-DPI layer.
             if resolved_output_mode == OutputMode::Mixed {
-                output_picture_mask =
+                let field_and_chroma =
                     union_optional_masks(Some(field), chroma_picture_mask.as_ref());
+                // A coherent-field replacement must not discard the exact
+                // classifier zone that selected the layered owner. Keep the
+                // zone in the normalization/photo owner as well as carrying
+                // it separately into the final Mixed partition.
+                output_picture_mask =
+                    union_optional_masks(field_and_chroma.as_ref(), continuous_tone_mask.as_ref());
                 photographic_picture_mask = output_picture_mask.clone();
             } else {
                 photographic_picture_mask = Some(Arc::clone(field));
@@ -2664,6 +2715,8 @@ fn prepare_analysis_page(
             calibration,
             effective_dpi,
             picture_mask: output_picture_mask,
+            halftone_zone_mask: continuous_tone_mask.clone(),
+            spatial_tone_mask,
             chroma_picture_mask,
             tonal_protection_mask,
             semantic_preservation_alpha,
@@ -2789,6 +2842,8 @@ fn prepare_analysis_page(
         text_axis,
         content_picture_mask: analysis.content_picture_mask.clone(),
         picture_mask: analysis.picture_mask.clone(),
+        halftone_zone_mask: analysis.halftone_zone_mask.clone(),
+        spatial_tone_mask: analysis.spatial_tone_mask.clone(),
         chroma_picture_mask: analysis.chroma_picture_mask.clone(),
         tonal_protection_mask: analysis.tonal_protection_mask.clone(),
         semantic_preservation_alpha: analysis.semantic_preservation_alpha.clone(),
@@ -2809,6 +2864,14 @@ fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
     let gray = artifact.normalized.data().len() + artifact.layout_normalized.data().len();
     let picture_mask = artifact
         .picture_mask
+        .as_deref()
+        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
+    let halftone_zone_mask = artifact
+        .halftone_zone_mask
+        .as_deref()
+        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
+    let spatial_tone_mask = artifact
+        .spatial_tone_mask
         .as_deref()
         .map_or(0, |mask| std::mem::size_of_val(mask.words()));
     let chroma_picture_mask = artifact
@@ -2844,6 +2907,8 @@ fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
         .as_deref()
         .map_or(0, |mask| std::mem::size_of_val(mask.words()));
     gray.saturating_add(picture_mask)
+        .saturating_add(halftone_zone_mask)
+        .saturating_add(spatial_tone_mask)
         .saturating_add(chroma_picture_mask)
         .saturating_add(tonal_protection_mask)
         .saturating_add(semantic_preservation_alpha)
@@ -3101,6 +3166,56 @@ fn normalize_tone_to_paper_with_shoulder(sample: u8, paper: u8, shoulder: f64) -
         .clamp(0.0, 255.0) as u8
 }
 
+/// Applies the render-space ownership rules for a fresh Mixed partition.
+///
+/// The halftone classifier's completed zone is an exact stencil exclusion,
+/// even when a later text-vicinity pass sees dark pixels inside that zone.
+/// Text ownership may still carve a broader picture mask everywhere outside
+/// the exact zone; this keeps nearby body text in the high-resolution
+/// foreground without allowing it to turn a completed tonal region into
+/// bilevel output.
+fn partition_mixed_picture_mask(
+    picture_mask: &mut Option<BinaryImage>,
+    spatial_tone_mask: Option<&BinaryImage>,
+    chroma_picture_mask: Option<&BinaryImage>,
+    tone_picture_mask: Option<&BinaryImage>,
+    halftone_zone_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+) {
+    if let Some(spatial_tone) = spatial_tone_mask {
+        *picture_mask = Some(match picture_mask.take() {
+            Some(picture) => picture.or(spatial_tone),
+            None => spatial_tone.clone(),
+        });
+    }
+    if let Some(zone) = halftone_zone_mask {
+        *picture_mask = Some(match picture_mask.take() {
+            Some(picture) => picture.or(zone),
+            None => zone.clone(),
+        });
+    }
+
+    let (Some(picture_mask), Some(text_vicinity)) = (picture_mask.as_mut(), text_vicinity_mask)
+    else {
+        return;
+    };
+    // Mixed is a representation partition: semantic text belongs to the
+    // high-resolution foreground even when a coarse picture mask surrounds
+    // it. Coherent tone and the exact classifier zone are exceptions: both
+    // retain ownership in the continuous-tone layer.
+    let mut text_owned = chroma_picture_mask.map_or_else(
+        || text_vicinity.clone(),
+        |chroma| text_vicinity.subtract(chroma),
+    );
+    if let Some(tone) = tone_picture_mask {
+        text_owned = text_owned.subtract(tone);
+    }
+    if let Some(zone) = halftone_zone_mask {
+        text_owned = text_owned.subtract(zone);
+    }
+    *picture_mask = picture_mask.subtract(&text_owned);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn clean_region(
     source: &GrayImage,
@@ -3113,6 +3228,8 @@ fn clean_region(
     color_source: Option<&RgbImage>,
     analysis_picture_mask: Option<&BinaryImage>,
     source_picture_mask: Option<&BinaryImage>,
+    halftone_zone_mask: Option<&BinaryImage>,
+    spatial_tone_mask: Option<&BinaryImage>,
     chroma_picture_mask: Option<&BinaryImage>,
     tone_picture_mask: Option<&BinaryImage>,
     _protect_tonal_text_vicinity: bool,
@@ -3620,6 +3737,40 @@ fn clean_region(
                 .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
         })
     });
+    let rendered_halftone_zone_mask = halftone_zone_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
+    let rendered_spatial_tone_mask = spatial_tone_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
     let rendered_chroma_picture_mask = chroma_picture_mask.map(|mask| {
         let mask_scale_x = if normalized.width() <= 1 {
             0.0
@@ -3694,26 +3845,14 @@ fn clean_region(
         })
     });
     if options.output_mode == OutputMode::Mixed {
-        if let (Some(picture_mask), Some(text_vicinity)) = (
-            rendered_picture_mask.as_mut(),
+        partition_mixed_picture_mask(
+            &mut rendered_picture_mask,
+            rendered_spatial_tone_mask.as_ref(),
+            rendered_chroma_picture_mask.as_ref(),
+            rendered_tone_picture_mask.as_ref(),
+            rendered_halftone_zone_mask.as_ref(),
             rendered_text_vicinity_mask.as_ref(),
-        ) {
-            // Mixed is a representation partition: semantic text belongs to
-            // the high-resolution foreground even when a coarse picture mask
-            // surrounds it. Leaving text in the low-DPI JPEG plate erased
-            // small headers and map labels without changing the semantic mode.
-            // On a directly detected photograph, however, texture can look
-            // like text; coherent tone ownership wins there so false glyphs
-            // cannot cut a posterized block through the photo.
-            let mut text_owned = rendered_chroma_picture_mask.as_ref().map_or_else(
-                || text_vicinity.clone(),
-                |chroma| text_vicinity.subtract(chroma),
-            );
-            if let Some(tone) = rendered_tone_picture_mask.as_ref() {
-                text_owned = text_owned.subtract(tone);
-            }
-            *picture_mask = picture_mask.subtract(&text_owned);
-        }
+        );
     }
     timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     let output_processing_started = Instant::now();
