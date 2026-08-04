@@ -20,6 +20,7 @@ import {
 } from 'vitest';
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {resolveCliNativeToolPath} from '@scripts/scanCleanupCliAdapters';
 import {
     SCAN_CLEANUP_CORE_BUILD_ID,
     SCAN_CLEANUP_STAMP_SCHEMA_ID,
@@ -34,6 +35,27 @@ import {
 const execFileAsync = promisify(execFile);
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const auditScript = join(projectRoot, 'scripts/diagnostics/scan-cleanup-word-loss-audit.mjs');
+const qpdfBinary = resolveCliNativeToolPath('qpdf', 'qpdf', projectRoot) ?? 'qpdf';
+
+function buildMinimalPdf() {
+    const objects = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 32 32] /Resources << >> >>',
+        '<< /Producer (evb-viewer-test) >>',
+    ];
+    let body = '%PDF-1.4\n';
+    const offsets: number[] = [];
+    objects.forEach((content, index) => {
+        offsets.push(body.length);
+        body += `${String(index + 1)} 0 obj\n${content}\nendobj\n`;
+    });
+    const xrefOffset = body.length;
+    body += `xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`;
+    for (const offset of offsets) body += `${String(offset).padStart(10, '0')} 00000 n \n`;
+    body += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R /Info 4 0 R >>\nstartxref\n${String(xrefOffset)}\n%%EOF\n`;
+    return Buffer.from(body, 'latin1');
+}
 
 interface IQpdfJsonEntry {[key: string]: unknown;}
 
@@ -87,7 +109,7 @@ async function runAudit(source: string, cleaned: string, output: string) {
 
 async function injectStamp(source: string, output: string, stampHex: string, updatePath: string) {
     const qpdfJson = JSON.parse(
-        (await execFileAsync('qpdf', [
+        (await execFileAsync(qpdfBinary, [
             '--json',
             '--object-streams=disable',
             source,
@@ -105,7 +127,7 @@ async function injectStamp(source: string, output: string, stampHex: string, upd
     if (infoValue === undefined) throw new Error('test PDF has no qpdf Info object');
     infoValue['/EVBScanCleanup'] = `u:${stampHex}`;
     await writeFile(updatePath, JSON.stringify(qpdfJson));
-    await execFileAsync('qpdf', [
+    await execFileAsync(qpdfBinary, [
         `--update-from-json=${updatePath}`,
         source,
         output,
@@ -121,12 +143,7 @@ describe('scan-cleanup word-loss audit stamp verification', () => {
             const update = join(temporaryDirectory, 'update.json');
             const baselineReport = join(temporaryDirectory, 'baseline.json');
             const stampedReport = join(temporaryDirectory, 'stamped.json');
-            await execFileAsync('magick', [
-                '-size',
-                '32x32',
-                'xc:white',
-                source,
-            ]);
+            await writeFile(source, buildMinimalPdf());
 
             expect(await runAudit(source, source, baselineReport)).toBe(1);
             expect(JSON.parse(await readFile(baselineReport, 'utf8')).stampVerification).toMatchObject({status: 'unstamped'});

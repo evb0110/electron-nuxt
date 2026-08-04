@@ -24,6 +24,24 @@ const {
     sha256ScanCleanupFile,
     verifyScanCleanupProvenanceStampHex,
 } = await tsImport('../../scan-cleanup-core/index.ts', import.meta.url);
+const {resolveCliNativeToolPath} = await tsImport('../scanCleanupCliAdapters.ts', import.meta.url);
+const AUDIT_TOOL_CRATES = {
+    qpdf: 'qpdf',
+    pdftoppm: 'poppler',
+    pdfinfo: 'poppler',
+    pdfimages: 'poppler',
+};
+const auditToolPaths = new Map();
+function resolveAuditTool(command) {
+    const crate = AUDIT_TOOL_CRATES[command];
+    if (crate === undefined) return command;
+    let resolved = auditToolPaths.get(command);
+    if (resolved === undefined) {
+        resolved = resolveCliNativeToolPath(command, crate, projectRoot) ?? command;
+        auditToolPaths.set(command, resolved);
+    }
+    return resolved;
+}
 const artifactDirectory = join(
     projectRoot,
     '.devkit/tasks/scan-cleanup/stage22-audit2',
@@ -184,7 +202,7 @@ function parseFailOn(value) {
 
 async function run(command, args) {
     return new Promise((resolveRun, rejectRun) => {
-        const child = spawn(command, args, {
+        const child = spawn(resolveAuditTool(command), args, {
             cwd: projectRoot,
             env: process.env,
             stdio: [
