@@ -10,18 +10,16 @@ import {
 } from '@contracts/scanCleanupPageOverrides';
 import {
     DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
-    loadScanCleanupDocumentMargins,
-    loadScanCleanupDocumentOutputMode,
-    loadScanCleanupDocumentOverrides,
-    saveScanCleanupDocumentPreferences,
-    saveScanCleanupDocumentOutputMode,
     SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
     type IScanCleanupDocumentPreferencePatch,
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
     flushScanCleanupPreferencesStore,
     getScanCleanupPreferencesStore,
+    loadScanCleanupDocumentSettings,
+    saveScanCleanupDocumentPreferencesInStore,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import type {IScanCleanupDocumentSettingsSnapshot} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {
     resolveScanCleanupMarginPatch,
     scanCleanupMarginsUniform,
@@ -30,7 +28,9 @@ import {
 
 interface IUseScanCleanupDocumentSettingsOptions {
     documentLifecycleKey: ComputedRef<string | null>;
-    preferenceDocumentKey: ComputedRef<string | null>;
+    sourceSha256?: ComputedRef<string | null>;
+    legacyDocumentKey?: ComputedRef<string | null>;
+    preferenceDocumentKey?: ComputedRef<string | null>;
 }
 
 const alignmentIcons: Array<{
@@ -77,10 +77,22 @@ const alignmentIcons: Array<{
 
 export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentSettingsOptions) => {
     const {t} = useTypedI18n();
-    const preferences = getScanCleanupPreferencesStore();
-    interface IPendingDocumentPersistence extends IScanCleanupDocumentPreferencePatch {documentKey: string;}
+    const sourceSha256 = options.sourceSha256 ?? computed(() => null);
+    const legacyDocumentKey = options.legacyDocumentKey
+        ?? options.preferenceDocumentKey
+        ?? computed(() => null);
+    const preferences = getScanCleanupPreferencesStore({
+        sourceSha256: sourceSha256.value,
+        legacyDocumentKey: legacyDocumentKey.value,
+    });
+    interface IPendingDocumentPersistence extends IScanCleanupDocumentPreferencePatch {
+        sourceSha256: string | null;
+        legacyDocumentKey: string | null;
+    }
     let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingPersistence: IPendingDocumentPersistence | null = null;
+    let loadingDocument = false;
+    let documentLoadGeneration = 0;
 
     function flushDocumentPersistence() {
         if (persistenceTimer !== null) {
@@ -93,24 +105,32 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             return;
         }
         const {
-            documentKey,
+            sourceSha256,
+            legacyDocumentKey,
             ...patch
         } = pending;
-        saveScanCleanupDocumentPreferences(documentKey, patch);
+        saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, patch);
     }
 
     function scheduleDocumentPersistence(
-        documentKey: string | null | undefined,
+        sourceSha256: string | null | undefined,
+        legacyDocumentKey: string | null | undefined,
         patch: IScanCleanupDocumentPreferencePatch,
     ) {
-        if (!documentKey) {
+        if (!sourceSha256 && !legacyDocumentKey) {
             flushDocumentPersistence();
             return;
         }
-        if (pendingPersistence?.documentKey !== documentKey) {
+        if (
+            pendingPersistence?.sourceSha256 !== (sourceSha256 ?? null)
+            || pendingPersistence?.legacyDocumentKey !== (legacyDocumentKey ?? null)
+        ) {
             flushDocumentPersistence();
         }
-        pendingPersistence ??= {documentKey};
+        pendingPersistence ??= {
+            sourceSha256: sourceSha256 ?? null,
+            legacyDocumentKey: legacyDocumentKey ?? null,
+        };
         if (patch.overrides !== undefined) pendingPersistence.overrides = patch.overrides;
         if (patch.marginsMm !== undefined) pendingPersistence.marginsMm = patch.marginsMm;
         if (patch.outputMode !== undefined) pendingPersistence.outputMode = patch.outputMode;
@@ -251,38 +271,93 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
 
     function resetPageOverrides() {
         values.pageOverrides = {};
-        scheduleDocumentPersistence(options.preferenceDocumentKey.value, {
+        scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {
             overrides: values.pageOverrides,
             resetOverrides: true,
         });
     }
 
-    watch(options.documentLifecycleKey, () => {
-        flushPersistence();
-        values.pageOverrides = loadScanCleanupDocumentOverrides(options.preferenceDocumentKey.value);
-        const persistedOutputMode = loadScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value);
+    function applyDocumentSettings(
+        generation: number,
+        lifecycleKey: string | null,
+        sourceSha256: string | null,
+        legacyDocumentKey: string | null,
+        snapshot: IScanCleanupDocumentSettingsSnapshot,
+    ) {
+        if (generation !== documentLoadGeneration) {
+            return;
+        }
+        if (lifecycleKey !== options.documentLifecycleKey.value) {
+            loadingDocument = false;
+            return;
+        }
+        values.pageOverrides = snapshot.overrides;
+        const persistedOutputMode = snapshot.outputMode;
         values.outputMode = persistedOutputMode === 'mixed'
             ? DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE
             : persistedOutputMode;
         if (persistedOutputMode === 'mixed') {
-            saveScanCleanupDocumentOutputMode(
-                options.preferenceDocumentKey.value,
-                DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
-            );
+            saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, {outputMode: DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE});
         }
-        Object.assign(values.marginsMm, loadScanCleanupDocumentMargins(options.preferenceDocumentKey.value)
+        Object.assign(values.marginsMm, snapshot.marginsMm
             ?? preferences.marginsMm);
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
+        loadingDocument = false;
+    }
+
+    function loadDocumentSettingsForCurrentSource() {
+        const generation = ++documentLoadGeneration;
+        const lifecycleKey = options.documentLifecycleKey.value;
+        flushPersistence();
+        const currentSourceSha256 = sourceSha256.value;
+        const currentLegacyDocumentKey = legacyDocumentKey.value;
+        loadingDocument = true;
+        const snapshot = loadScanCleanupDocumentSettings(currentSourceSha256, currentLegacyDocumentKey);
+        if (!(snapshot instanceof Promise)) {
+            applyDocumentSettings(
+                generation,
+                lifecycleKey,
+                currentSourceSha256,
+                currentLegacyDocumentKey,
+                snapshot,
+            );
+            return;
+        }
+        void snapshot
+            .then(resolvedSnapshot => applyDocumentSettings(
+                generation,
+                lifecycleKey,
+                currentSourceSha256,
+                currentLegacyDocumentKey,
+                resolvedSnapshot,
+            ))
+            .catch(() => {
+                if (generation === documentLoadGeneration) {
+                    loadingDocument = false;
+                }
+            });
+    }
+    watch(options.documentLifecycleKey, () => {
+        void loadDocumentSettingsForCurrentSource();
     }, {immediate: true});
     watch(() => values.pageOverrides, overrides => {
-        scheduleDocumentPersistence(options.preferenceDocumentKey.value, {overrides});
+        if (loadingDocument) {
+            return;
+        }
+        scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {overrides});
     }, {deep: true});
     watch(() => values.marginsMm, marginsMm => {
+        if (loadingDocument) {
+            return;
+        }
         Object.assign(preferences.marginsMm, marginsMm);
-        scheduleDocumentPersistence(options.preferenceDocumentKey.value, {marginsMm});
+        scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {marginsMm});
     }, {deep: true});
     watch(() => values.outputMode, outputMode => {
-        scheduleDocumentPersistence(options.preferenceDocumentKey.value, {outputMode});
+        if (loadingDocument) {
+            return;
+        }
+        scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {outputMode});
     });
 
     return {

@@ -21,6 +21,7 @@ import {
     scanCleanupPreferenceRecord,
     type IScanCleanupGlobalPreferences,
 } from '@app/modules/scan-cleanup/persistence/preferencesSchema';
+import type {IScanCleanupLegacyStorageExport} from '@contracts/scanCleanupSettings';
 
 const SETTINGS_KEY = 'evb.scanCleanup.settings.v1';
 const OVERRIDES_KEY = 'evb.scanCleanup.documentOverrides.v1';
@@ -44,6 +45,16 @@ const browserStorage: IScanCleanupPreferenceStorage = {
     get: safeGetLocalStorageItem,
     set: safeSetLocalStorageItem,
 };
+
+export function exportScanCleanupLegacyStorage(
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+): IScanCleanupLegacyStorageExport {
+    return {
+        settingsRaw: storage.get(SETTINGS_KEY),
+        documentOverridesRaw: storage.get(OVERRIDES_KEY),
+        exportedAtMs: Date.now(),
+    };
+}
 
 function loadDocumentEntries(storage: IScanCleanupPreferenceStorage) {
     return scanCleanupPreferenceRecord(parseScanCleanupPreferenceJson(storage.get(OVERRIDES_KEY))) ?? {};

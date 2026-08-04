@@ -22,13 +22,16 @@
             :progress-text="progressText"
             :run-label="runLabel"
             :run-disabled-reason="runDisabledReason"
+            :settings-badges="settingsBadges"
             :zone-editing="zoneEditing"
             :transition-text="transitionText"
             @cancel="cancel"
             @cancel-detection="cancelDetection"
             @detect-all="detectAllPages"
             @done="done"
-            @run="run"
+            @remove-setting="removeSettingBadge"
+            @reset-settings="resetSettingsToDefaults"
+            @run="runWithSettingsToast"
             @update:zone-editing="zoneEditing = $event"
         />
     </Teleport>
@@ -201,6 +204,13 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
+    resetScanCleanupOptionsToDefaults,
+    resolveScanCleanupNonDefaultSettings,
+    type TScanCleanupNonDefaultSettingKey,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupSettingsBadges';
+import {formatScanCleanupSettingsBadge} from '@app/modules/scan-cleanup/runtime/formatScanCleanupSettingsBadge';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scanCleanupSettings';
+import {
     areScanCleanupMarginsMmEqual,
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
     getScanCleanupPageOverride,
@@ -219,12 +229,16 @@ import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composab
 import {resolveScanCleanupMixedValue} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 
 const { t } = useTypedI18n();
+const toast = typeof useToast === 'function'
+    ? useToast()
+    : {add: () => undefined};
 const {
     sourcePath,
     currentPage = 1,
     totalPages = 1,
     documentKey = null,
     documentRevision = null,
+    sourceSha256 = null,
     pageSource = null,
     pageSourcePending = false,
     sessionState = null,
@@ -236,6 +250,7 @@ const {
     totalPages?: number;
     documentKey?: string | null;
     documentRevision?: string | null;
+    sourceSha256?: string | null;
     pageSource?: IDocumentPageSource | null;
     pageSourcePending?: boolean;
     sessionState?: IScanCleanupTabSessionState | null;
@@ -256,6 +271,7 @@ const workspaceSession = useScanCleanupWorkspaceSession({
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
     documentRevision: () => documentRevision,
+    sourceSha256: () => sourceSha256,
     ownerId: () => sessionState?.ownerId,
     currentPage: () => currentPage,
     totalPages: () => totalPages,
@@ -383,6 +399,10 @@ const progressText = computed(() => waitingForDetection.value
     ? detectionProgressText.value
     : runProgressText.value);
 const transitionText = computed(() => waitingForDetection.value ? '' : runTransitionText.value);
+const settingsBadges = computed(() => resolveScanCleanupNonDefaultSettings(settings).map(badge => ({
+    id: badge.key,
+    label: formatScanCleanupSettingsBadge(t, badge.key, badge.value),
+})));
 const allScopeRotation = ref<TScanCleanupPageRotation>(0);
 const allScopeExcluded = ref(false);
 const zoneEditing = ref(false);
@@ -394,6 +414,49 @@ const showBlankPageHint = computed(() => blankPageCount.value > 0
 function enableSkipBlankPages() {
     settings.skipBlankPages = true;
     blankPageHintDismissed.value = true;
+}
+
+function resetSettingsToDefaults() {
+    if (isRunning.value) {
+        return;
+    }
+    resetScanCleanupOptionsToDefaults(settings);
+    resetPageOverrides();
+}
+
+function removeSettingBadge(id: string) {
+    if (isRunning.value) {
+        return;
+    }
+    const key = id as TScanCleanupNonDefaultSettingKey;
+    if (key === 'pageOverrides') {
+        resetPageOverrides();
+        return;
+    }
+    if (key === 'marginsMm') {
+        Object.assign(settings.marginsMm, DEFAULT_SCAN_CLEANUP_PREFERENCES.marginsMm);
+        return;
+    }
+    if (key === 'autoDewarp') {
+        settings.autoDewarp = DEFAULT_SCAN_CLEANUP_PREFERENCES.autoDewarp;
+        settings.autoDewarpDepth = DEFAULT_SCAN_CLEANUP_PREFERENCES.autoDewarpDepth;
+        return;
+    }
+    if (key === 'outputMode') {
+        settings.outputMode = 'auto';
+        return;
+    }
+    Object.assign(settings, {[key]: DEFAULT_SCAN_CLEANUP_PREFERENCES[key]});
+}
+
+function runWithSettingsToast() {
+    if (settingsBadges.value.length > 0) {
+        toast.add({
+            title: t('scanCleanup.settingsBadges.toastTitle'),
+            description: t('scanCleanup.settingsBadges.toastDescription', {settings: settingsBadges.value.map(badge => badge.label).join(', ')}),
+        });
+    }
+    void run();
 }
 
 watch(() => [

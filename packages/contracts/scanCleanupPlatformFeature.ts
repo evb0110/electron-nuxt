@@ -31,6 +31,15 @@ import {
     type TFeatureEventMap,
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
+import {
+    createDefaultScanCleanupSettingsFile,
+    decodeScanCleanupSettingsFile,
+    decodeScanCleanupSettingsReadRequest,
+    decodeScanCleanupSettingsUpdateRequest,
+    type IScanCleanupSettingsFile,
+    type IScanCleanupSettingsReadRequest,
+    type IScanCleanupSettingsUpdateRequest,
+} from '@contracts/scanCleanupSettings';
 
 const owner: IScanCleanupOwnerContext = {
     ownerId: 'scan-cleanup-fixture',
@@ -99,6 +108,18 @@ const nonNegativeInteger = s.number({
 });
 const decodeArgs = <T>(decode: (value: readonly unknown[]) => T) =>
     (value: unknown) => decode(Array.isArray(value) ? value : []);
+const settingsReadArgs = s.fromParser(
+    decodeArgs(value => [decodeScanCleanupSettingsReadRequest(value[0])] as [IScanCleanupSettingsReadRequest]),
+    () => [{}],
+);
+const settingsUpdateArgs = s.fromParser(
+    decodeArgs<IScanCleanupSettingsUpdateRequest[]>(value => [decodeScanCleanupSettingsUpdateRequest(value[0])]),
+    () => [{settings: createDefaultScanCleanupSettingsFile().settings}],
+);
+const settingsFile = s.fromParser(
+    decodeScanCleanupSettingsFile,
+    (): IScanCleanupSettingsFile => createDefaultScanCleanupSettingsFile(),
+);
 const previewArgs = s.fromParser(decodeArgs(decodePreviewArgs), () => [previewRequest]);
 const cancelPreviewArgs = s.fromParser(decodeArgs(decodePreviewCancelArgs), () => [cancelPreviewRequest]);
 const detectionArgs = s.fromParser(decodeArgs(decodeDetectionArgs), () => [detectionRequest]);
@@ -260,6 +281,22 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
             browser: {method: 'pruneGeneratedOutputs'},
             lazy: 'forwarded',
         },
+        getSettings: method({
+            name: 'getSettings',
+            channel: 'scan-cleanup:settings:get',
+            args: settingsReadArgs,
+            result: settingsFile,
+            main: 'getSettings',
+            optionalWhenImplemented: true,
+        }),
+        updateSettings: method({
+            name: 'updateSettings',
+            channel: 'scan-cleanup:settings:update',
+            args: settingsUpdateArgs,
+            result: settingsFile,
+            main: 'updateSettings',
+            optionalWhenImplemented: true,
+        }),
     },
     events: {
         onPreviewRaw: {

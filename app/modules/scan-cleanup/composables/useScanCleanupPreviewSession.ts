@@ -163,6 +163,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
     previewPage: Ref<number>;
+    resolvedOptions?: ComputedRef<IScanCleanupOptions>;
     recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
     softAlphaForegroundRecommendationByPage: ReadonlyMap<number, boolean>;
     selectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) => void;
@@ -329,7 +330,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const totalPages = computed(() => rawResult.value?.totalPages
         ?? result.value?.totalPages
         ?? Math.max(1, options.totalPages.value));
-    const plainSettings = computed(() => toPlainScanCleanupOptions(options.settings));
+    const resolvedOptions = options.resolvedOptions
+        ?? computed(() => toPlainScanCleanupOptions(options.settings));
     const resultCurrent = computed(() => result.value !== null && resultKey.value === cacheKey());
     const classificationDiffersByPage = computed<ReadonlyMap<number, boolean>>(() => {
         const differences = new Map<number, boolean>();
@@ -413,7 +415,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     function cacheKey(
         pageNumber = options.previewPage.value,
-        previewOptions = plainSettings.value,
+        previewOptions = resolvedOptions.value,
         previewSourcePath = options.sourcePath.value,
     ) {
         const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
@@ -488,7 +490,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     function resolvePagePlanEvidence(pageNumbers: readonly number[]) {
         const evidence = new Map<number, IScanCleanupPagePlanEvidence>();
-        const previewOptions = plainSettings.value;
+        const previewOptions = resolvedOptions.value;
         for (const pageNumber of pageNumbers) {
             const cached = cache.get(cacheKey(pageNumber, previewOptions));
             if (!cached) continue;
@@ -600,7 +602,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestSequence = ++sequence;
         clearTimer();
         const requestPage = options.previewPage.value;
-        const requestOptions = plainSettings.value;
+        const requestOptions = resolvedOptions.value;
         const requestSourcePath = options.sourcePath.value;
         const documentPrior = options.documentPriorByPage.get(requestPage);
         const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
@@ -819,7 +821,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         }
         prefetcher.supersede();
         const requestPage = options.previewPage.value;
-        const requestOptions = plainSettings.value;
+        const requestOptions = resolvedOptions.value;
         const requestSourcePath = options.sourcePath.value;
         const outputMode = resolveDetailOutputMode(requestPage);
         if (outputMode === undefined) {

@@ -119,6 +119,41 @@
 
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
             <div class="scan-cleanup-toolbar-primary-slot">
+                <div
+                    v-if="settingsBadges.length > 0 && !isRunning"
+                    class="scan-cleanup-settings-badges"
+                    role="status"
+                    :aria-label="t('scanCleanup.settingsBadges.title')"
+                >
+                    <span
+                        v-for="badge in settingsBadges"
+                        :key="badge.id"
+                        class="scan-cleanup-settings-badge"
+                    >
+                        <span class="scan-cleanup-settings-badge-label">{{ badge.label }}</span>
+                        <UButton
+                            class="scan-cleanup-settings-badge-remove"
+                            type="button"
+                            color="neutral"
+                            variant="ghost"
+                            size="xs"
+                            square
+                            icon="i-ph-x"
+                            :aria-label="t('scanCleanup.settingsBadges.remove', {setting: badge.label})"
+                            @click="emit('remove-setting', badge.id)"
+                        />
+                    </span>
+                    <UButton
+                        class="scan-cleanup-settings-reset"
+                        type="button"
+                        color="neutral"
+                        variant="ghost"
+                        size="xs"
+                        icon="i-ph-arrow-u-up-left"
+                        :label="t('scanCleanup.settingsBadges.reset')"
+                        @click="emit('reset-settings')"
+                    />
+                </div>
                 <UButton
                     v-if="isRunning"
                     class="scan-cleanup-toolbar-primary-action"
@@ -172,6 +207,7 @@ const {
     progressText,
     runLabel,
     runDisabledReason,
+    settingsBadges = [],
     zoneEditing,
     transitionText,
 } = defineProps<{
@@ -192,6 +228,10 @@ const {
     progressText: string;
     runLabel: string;
     runDisabledReason: string;
+    settingsBadges?: ReadonlyArray<{
+        id: string;
+        label: string
+    }>;
     zoneEditing?: boolean;
     transitionText: string;
 }>();
@@ -200,6 +240,8 @@ const emit = defineEmits<{
     'cancel-detection': [];
     'detect-all': [];
     done: [];
+    'remove-setting': [id: string];
+    'reset-settings': [];
     run: [];
     'update:zoneEditing': [value: boolean];
 }>();
@@ -328,11 +370,49 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 .scan-cleanup-toolbar-primary-slot {
     width: var(--app-scan-toolbar-primary-width);
     min-width: var(--app-scan-toolbar-primary-width);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--app-space-sm);
 }
 
 .scan-cleanup-toolbar-primary-action {
     width: 100%;
     justify-content: center;
+}
+
+.scan-cleanup-settings-badges {
+    display: flex;
+    max-width: 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--app-space-xs);
+}
+
+.scan-cleanup-settings-badge {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--app-radius-full);
+    background: var(--ui-bg-muted);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+}
+
+.scan-cleanup-settings-badge-label {
+    overflow: hidden;
+    padding-inline-start: var(--app-space-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-cleanup-settings-badge-remove {
+    flex: none;
+}
+
+.scan-cleanup-settings-reset {
+    flex: none;
 }
 
 .scan-cleanup-toolbar-count {

@@ -17,6 +17,7 @@ import {
     SCAN_CLEANUP_PLATFORM_FEATURE,
     type IScanCleanupInvokeMap,
 } from '@contracts/scanCleanupPlatformFeature';
+import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
 import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
 
 const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
@@ -171,6 +172,8 @@ const responses: {[TChannel in TScanCleanupChannel]: unknown} = {
     [SCAN_CLEANUP_CHANNELS.subscribeJob]: null,
     [SCAN_CLEANUP_CHANNELS.reconnectJob]: null,
     [SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs]: 2,
+    [SCAN_CLEANUP_CHANNELS.getSettings]: createDefaultScanCleanupSettingsFile(),
+    [SCAN_CLEANUP_CHANNELS.updateSettings]: createDefaultScanCleanupSettingsFile(),
 };
 
 describe('scan-cleanup IPC structured-clone contract', () => {
@@ -251,6 +254,8 @@ describe('scan-cleanup IPC structured-clone contract', () => {
             client.subscribeJob('cleanup-1', reactiveOwner),
             client.reconnectJob('cleanup-1', reactiveOwner),
             client.pruneGeneratedOutputs(reactiveOpenPaths),
+            client.getSettings!({}),
+            client.updateSettings!({}),
         ]);
 
         expect(encodedByChannel.size).toBe(Object.keys(SCAN_CLEANUP_CHANNELS).length);

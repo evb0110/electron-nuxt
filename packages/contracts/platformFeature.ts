@@ -231,19 +231,43 @@ export const runtimeSchema = {
     },
 };
 
+type TForwardedPlatformMethod<
+    TName extends string,
+    TChannel extends string,
+    TArgs extends IRuntimeSchema<unknown[]>,
+    TResult extends IRuntimeSchema<unknown>,
+    TMain extends string,
+    TOptional extends boolean | undefined,
+> = {
+    readonly kind: 'async';
+    readonly channel: TChannel;
+    readonly ipc: {
+        readonly args: TArgs;
+        readonly result: TResult;
+    };
+    readonly main: {
+        readonly method: TMain;
+        readonly context: 'sender';
+    };
+    readonly browser: {readonly method: TName};
+    readonly lazy: 'forwarded';
+} & (TOptional extends true ? {readonly optionalWhenImplemented: true} : Record<never, never>);
+
 export function defineForwardedPlatformMethod<
     const TName extends string,
     const TChannel extends string,
     const TArgs extends IRuntimeSchema<unknown[]>,
     const TResult extends IRuntimeSchema<unknown>,
     const TMain extends string,
+    const TOptional extends boolean | undefined = undefined,
 >(definition: {
     name: TName;
     channel: TChannel;
     args: TArgs;
     result: TResult;
     main: TMain;
-}) {
+    optionalWhenImplemented?: TOptional;
+}): TForwardedPlatformMethod<TName, TChannel, TArgs, TResult, TMain, TOptional> {
     return {
         kind: 'async',
         channel: definition.channel,
@@ -256,8 +280,9 @@ export function defineForwardedPlatformMethod<
             context: 'sender',
         },
         browser: {method: definition.name},
+        ...(definition.optionalWhenImplemented === true ? {optionalWhenImplemented: true as const} : {}),
         lazy: 'forwarded',
-    } as const;
+    } as TForwardedPlatformMethod<TName, TChannel, TArgs, TResult, TMain, TOptional>;
 }
 
 export function defineForwardedPlatformEvent<

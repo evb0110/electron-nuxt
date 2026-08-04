@@ -1,19 +1,136 @@
-import type {IScanCleanupGlobalPreferences} from '@app/modules/scan-cleanup/persistence/preferencesSchema';
+import type {
+    IScanCleanupMarginsMm,
+    TScanCleanupOutputModeSetting,
+    TScanCleanupPageOverrides,
+} from '@contracts/electronApiScanCleanup';
+import {
+    cloneScanCleanupPreferenceValue,
+    createDefaultScanCleanupSettingsFile,
+    isScanCleanupSourceSha256,
+    type IScanCleanupDocumentPreferencePatch,
+    type IScanCleanupSettingsFile,
+    type IScanCleanupSettingsReadRequest,
+    type IScanCleanupSettingsUpdateRequest,
+} from '@contracts/scanCleanupSettings';
 import type {EffectScope} from 'vue';
 import {
+    exportScanCleanupLegacyStorage,
+    loadScanCleanupDocumentMargins,
+    loadScanCleanupDocumentOutputMode,
+    loadScanCleanupDocumentOverrides,
     loadScanCleanupPreferences,
+    saveScanCleanupDocumentPreferences,
     saveScanCleanupPreferences,
     SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import type {IScanCleanupGlobalPreferences} from '@app/modules/scan-cleanup/persistence/preferencesSchema';
+import {isDesktopPlatformActive} from '@app/utils/platform';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+
+interface IScanCleanupPreferencesStoreOptions {
+    sourceSha256?: string | null;
+    legacyDocumentKey?: string | null;
+}
+
+export interface IScanCleanupDocumentSettingsSnapshot {
+    overrides: TScanCleanupPageOverrides;
+    marginsMm: IScanCleanupMarginsMm | null;
+    outputMode: TScanCleanupOutputModeSetting;
+}
 
 let preferences: IScanCleanupGlobalPreferences | null = null;
 let persistenceScope: EffectScope | null = null;
 let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingPreferences: IScanCleanupGlobalPreferences | null = null;
 let lifecycleListenersRegistered = false;
+let desktopStore = false;
+let preferencesHydrated = false;
+let preferencesHydrationPromise: Promise<void> | null = null;
+let remoteSettingsFile: IScanCleanupSettingsFile | null = null;
+let remoteWriteQueue = Promise.resolve();
+let migrationContext: IScanCleanupPreferencesStoreOptions = {};
+let applyingRemotePreferences = false;
+
+function currentScanCleanupCapability() {
+    const capability = getScanCleanupCapability();
+    if (!capability) {
+        throw new Error('Scan Cleanup platform capability is unavailable');
+    }
+    return capability;
+}
+
+async function readRemoteSettings(request: IScanCleanupSettingsReadRequest) {
+    const getSettings = currentScanCleanupCapability().getSettings;
+    if (!getSettings) {
+        throw new Error('File-backed scan-cleanup settings are unavailable');
+    }
+    return getSettings(request);
+}
+
+function updateMigrationContext(options: IScanCleanupPreferencesStoreOptions | undefined) {
+    if (!options) {
+        return;
+    }
+    migrationContext = {
+        ...(options.sourceSha256 === undefined ? {} : {sourceSha256: options.sourceSha256}),
+        ...(options.legacyDocumentKey === undefined ? {} : {legacyDocumentKey: options.legacyDocumentKey}),
+    };
+}
+
+function createSettingsReadRequest(
+    sourceSha256: string | null | undefined,
+    legacyDocumentKey: string | null | undefined,
+): IScanCleanupSettingsReadRequest {
+    return {
+        legacyStorage: exportScanCleanupLegacyStorage(),
+        ...(sourceSha256 === undefined ? {} : {sourceSha256}),
+        ...(legacyDocumentKey === undefined ? {} : {legacyDocumentKey}),
+    };
+}
+
+function queueRemoteUpdate(
+    request: IScanCleanupSettingsUpdateRequest,
+) {
+    remoteWriteQueue = remoteWriteQueue.then(async () => {
+        const updateSettings = currentScanCleanupCapability().updateSettings;
+        if (!updateSettings) {
+            throw new Error('File-backed scan-cleanup settings are unavailable');
+        }
+        const result = await updateSettings(request);
+        remoteSettingsFile = result;
+    }).catch(error => {
+        BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error);
+    });
+}
+
+async function hydratePreferences() {
+    if (!desktopStore || !preferences) {
+        preferencesHydrated = true;
+        return;
+    }
+    try {
+        const result = await readRemoteSettings(createSettingsReadRequest(
+            migrationContext.sourceSha256,
+            migrationContext.legacyDocumentKey,
+        ));
+        remoteSettingsFile = result;
+        applyingRemotePreferences = true;
+        Object.assign(preferences, result.settings);
+        applyingRemotePreferences = false;
+    } catch (error) {
+        applyingRemotePreferences = false;
+        BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error);
+    } finally {
+        preferencesHydrated = true;
+    }
+}
 
 function scheduleScanCleanupPreferencesPersistence(value: IScanCleanupGlobalPreferences) {
-    pendingPreferences = value;
+    if (!preferencesHydrated || applyingRemotePreferences) {
+        return;
+    }
+    pendingPreferences = cloneScanCleanupPreferenceValue(value);
     if (persistenceTimer !== null) clearTimeout(persistenceTimer);
     persistenceTimer = setTimeout(flushScanCleanupPreferencesStore, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
 }
@@ -25,7 +142,14 @@ export function flushScanCleanupPreferencesStore() {
     }
     const pending = pendingPreferences;
     pendingPreferences = null;
-    if (pending) saveScanCleanupPreferences(pending);
+    if (!pending || !preferencesHydrated) {
+        return;
+    }
+    if (desktopStore) {
+        queueRemoteUpdate({settings: pending});
+    } else {
+        saveScanCleanupPreferences(pending);
+    }
 }
 
 function handleWindowLifecycle() {
@@ -51,12 +175,19 @@ function unregisterLifecycleListeners() {
 }
 
 /** Renderer-wide global preferences shared by every mounted scan-cleanup surface. */
-export function getScanCleanupPreferencesStore() {
+export function getScanCleanupPreferencesStore(options?: IScanCleanupPreferencesStoreOptions) {
+    updateMigrationContext(options);
     if (preferences) {
         return preferences;
     }
-    const sharedPreferences = reactive(loadScanCleanupPreferences());
+    desktopStore = isDesktopPlatformActive();
+    const initialPreferences = desktopStore
+        ? cloneScanCleanupPreferenceValue(createDefaultScanCleanupSettingsFile().settings)
+        : loadScanCleanupPreferences();
+    const sharedPreferences = reactive(initialPreferences);
     preferences = sharedPreferences;
+    preferencesHydrated = !desktopStore;
+    preferencesHydrationPromise = desktopStore ? hydratePreferences() : Promise.resolve();
     persistenceScope = effectScope(true);
     persistenceScope.run(() => {
         watch(sharedPreferences, value => {
@@ -65,6 +196,75 @@ export function getScanCleanupPreferencesStore() {
     });
     registerLifecycleListeners();
     return preferences;
+}
+
+export function whenScanCleanupPreferencesReady(): Promise<void> {
+    return preferencesHydrationPromise ?? Promise.resolve();
+}
+
+export function isScanCleanupPreferencesStoreDesktop() {
+    return desktopStore;
+}
+
+export function loadScanCleanupDocumentSettings(
+    sourceSha256: string | null | undefined,
+    legacyDocumentKey: string | null | undefined,
+): IScanCleanupDocumentSettingsSnapshot | Promise<IScanCleanupDocumentSettingsSnapshot> {
+    if (!desktopStore) {
+        const browserDocumentKey = legacyDocumentKey ?? sourceSha256;
+        return {
+            overrides: loadScanCleanupDocumentOverrides(browserDocumentKey),
+            marginsMm: loadScanCleanupDocumentMargins(browserDocumentKey),
+            outputMode: loadScanCleanupDocumentOutputMode(browserDocumentKey),
+        };
+    }
+    return whenScanCleanupPreferencesReady().then(async () => {
+        if (!isScanCleanupSourceSha256(sourceSha256)) {
+            return {
+                overrides: {},
+                marginsMm: null,
+                outputMode: 'auto' as const,
+            };
+        }
+        const normalizedSourceSha256 = sourceSha256.toLowerCase();
+        if (!remoteSettingsFile?.documentOverrides[normalizedSourceSha256]) {
+            try {
+                remoteSettingsFile = await readRemoteSettings(createSettingsReadRequest(
+                    normalizedSourceSha256,
+                    legacyDocumentKey,
+                ));
+            } catch (error) {
+                BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error);
+            }
+        }
+        const entry = remoteSettingsFile?.documentOverrides[normalizedSourceSha256];
+        return {
+            overrides: cloneScanCleanupPreferenceValue(entry?.overrides ?? {}),
+            marginsMm: entry?.marginsMm === undefined
+                ? null
+                : cloneScanCleanupPreferenceValue(entry.marginsMm),
+            outputMode: entry?.outputMode ?? 'auto',
+        };
+    });
+}
+
+export function saveScanCleanupDocumentPreferencesInStore(
+    sourceSha256: string | null | undefined,
+    legacyDocumentKey: string | null | undefined,
+    patch: IScanCleanupDocumentPreferencePatch,
+) {
+    if (!desktopStore) {
+        saveScanCleanupDocumentPreferences(legacyDocumentKey ?? sourceSha256, patch);
+        return;
+    }
+    if (!isScanCleanupSourceSha256(sourceSha256)) {
+        return;
+    }
+    queueRemoteUpdate({document: {
+        sourceSha256: sourceSha256.toLowerCase(),
+        ...(legacyDocumentKey === undefined ? {} : {legacyDocumentKey}),
+        patch: cloneScanCleanupPreferenceValue(patch),
+    }});
 }
 
 export function dismissScanCleanupFirstRunGuidanceInStore() {
@@ -78,4 +278,13 @@ export function resetScanCleanupPreferencesStore() {
     persistenceScope = null;
     unregisterLifecycleListeners();
     preferences = null;
+    preferencesHydrated = false;
+    preferencesHydrationPromise = null;
+    remoteSettingsFile = null;
+    remoteWriteQueue = Promise.resolve();
+    migrationContext = {};
+    desktopStore = false;
+    applyingRemotePreferences = false;
 }
+
+export type {IScanCleanupGlobalPreferences};

@@ -47,6 +47,7 @@ interface IUseScanCleanupRunSessionOptions {
     onCompleted: () => void;
     ownerId: string;
     previewTotalPages: () => number;
+    resolvedOptions?: ComputedRef<IScanCleanupOptions>;
     resolvePagePlanEvidence: (pageNumbers: readonly number[]) => ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
     sourcePageNumbers: ComputedRef<number[] | null>;
     sourcePageMetadataByPage: ComputedRef<ReadonlyMap<number, IScanCleanupSourcePageMetadata>>;
@@ -160,7 +161,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         const requestedPageNumbers = [...runPageNumbers.value];
         const requestSourcePdfPath = options.sourcePath.value;
         const requestDocumentRevision = options.documentRevision.value;
-        const requestOptions = toPlainScanCleanupOptions(options.settings);
+        const requestOptions = options.resolvedOptions?.value
+            ?? toPlainScanCleanupOptions(options.settings);
         const requestedSourcePageNumbers = options.sourcePageNumbers.value === null
             ? null
             : [...options.sourcePageNumbers.value];

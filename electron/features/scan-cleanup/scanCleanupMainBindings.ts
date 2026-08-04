@@ -1,11 +1,16 @@
+import {app} from 'electron';
+import {join} from 'node:path';
 import type {IpcMainInvokeEvent} from 'electron';
 import type {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
+import {SCAN_CLEANUP_SETTINGS_FILE_NAME} from '@contracts/scanCleanupSettings';
 import {createScanCleanupPreviewService} from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
+import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 
 const previewService = createScanCleanupPreviewService();
 const service = createScanCleanupService();
+const settingsStore = createScanCleanupSettingsStore({filePath: join(app.getPath('userData'), SCAN_CLEANUP_SETTINGS_FILE_NAME)});
 
 export const scanCleanupMainBindings = {
     preview: (context, request) => previewService.preview(context.sender, request),
@@ -23,4 +28,6 @@ export const scanCleanupMainBindings = {
     subscribeJob: (context, jobId, owner) => service.subscribe(context.sender, jobId, owner),
     reconnectJob: (context, jobId, owner) => service.subscribe(context.sender, jobId, owner),
     pruneGeneratedOutputs: openPdfPaths => service.pruneGeneratedOutputs(openPdfPaths),
+    getSettings: (_context, request) => settingsStore.get(request),
+    updateSettings: (_context, request) => settingsStore.update(request),
 } satisfies TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;

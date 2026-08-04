@@ -1,15 +1,18 @@
 import type {TDocumentRef} from '@contracts/documentRef';
+import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {useScanCleanupDetectionSession} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {useScanCleanupRunSession} from '@app/modules/scan-cleanup/composables/useScanCleanupRunSession';
+import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 
 interface IUseScanCleanupWorkspaceSessionOptions {
     active: () => boolean;
     sourcePath: () => TDocumentRef | null;
     documentKey: () => string | null;
+    sourceSha256?: () => string | null;
     documentRevision?: () => string | null;
     ownerId?: () => string | undefined;
     currentPage: () => number;
@@ -25,19 +28,25 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         ?? `scan-cleanup-owner-${Date.now()}-${Math.random()}`;
     const sourcePath = computed(options.sourcePath);
     const totalPages = computed(options.totalPages);
-    const preferenceDocumentKey = computed(() => options.documentKey() ?? sourcePath.value);
+    const legacyDocumentKey = computed(() => options.documentKey() ?? sourcePath.value);
+    const sourceSha256 = computed(() => {
+        const supplied = options.sourceSha256?.() ?? options.documentKey();
+        return isScanCleanupSourceSha256(supplied) ? supplied.toLowerCase() : null;
+    });
     const documentRevision = computed(() => options.documentRevision?.()
-        ?? preferenceDocumentKey.value
+        ?? legacyDocumentKey.value
         ?? sourcePath.value
         ?? 'unavailable');
-    const lifecycleDocumentKey = computed(() => preferenceDocumentKey.value === null
+    const lifecycleDocumentKey = computed(() => legacyDocumentKey.value === null
         ? null
-        : `${preferenceDocumentKey.value}\u0000${documentRevision.value}`);
+        : `${sourceSha256.value ?? legacyDocumentKey.value}\u0000${documentRevision.value}`);
 
     const settings = useScanCleanupDocumentSettings({
         documentLifecycleKey: lifecycleDocumentKey,
-        preferenceDocumentKey,
+        sourceSha256,
+        legacyDocumentKey,
     });
+    const resolvedOptions = computed(() => toPlainScanCleanupOptions(settings.values));
     let previewResult = null as ReturnType<typeof useScanCleanupPreviewSession> | null;
     const selection = useScanCleanupSelection({
         initialPage: initialPreviewPage,
@@ -68,6 +77,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         ownerId,
         previewPage: selection.leader,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
+        resolvedOptions,
         softAlphaForegroundRecommendationByPage:
             detection.softAlphaForegroundRecommendationByPage,
         selectPage: selection.selectPage,
@@ -112,6 +122,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         }),
         sourcePageMetadataByPage: detection.sourcePageMetadataByPage,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
+        resolvedOptions,
         softAlphaForegroundRecommendationByPage:
             detection.softAlphaForegroundRecommendationByPage,
         settings: settings.values,

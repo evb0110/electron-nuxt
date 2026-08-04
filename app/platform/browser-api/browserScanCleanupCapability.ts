@@ -1,5 +1,9 @@
 import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
+import {
+    cloneScanCleanupPreferenceValue,
+    createDefaultScanCleanupSettingsFile,
+} from '@contracts/scanCleanupSettings';
 
 const BROWSER_SCAN_CLEANUP_UNAVAILABLE = 'Scan Cleanup is unavailable in the browser; use the desktop app.';
 
@@ -49,6 +53,16 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     },
     pruneGeneratedOutputs() {
         return Promise.resolve(0);
+    },
+    getSettings() {
+        return Promise.resolve(createDefaultScanCleanupSettingsFile());
+    },
+    updateSettings(request) {
+        const settingsFile = createDefaultScanCleanupSettingsFile();
+        if (request.settings !== undefined) {
+            settingsFile.settings = cloneScanCleanupPreferenceValue(request.settings);
+        }
+        return Promise.resolve(settingsFile);
     },
     onPreviewRaw: noopUnsubscribe,
     onJobState: noopUnsubscribe,
