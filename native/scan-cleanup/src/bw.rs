@@ -6,7 +6,7 @@ use crate::{
 use rayon::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
-    morphology::dilate,
+    morphology::{dilate, dilate_gray, erode_gray},
     threshold::{
         otsu_threshold, otsu_threshold_excluding, threshold_global, threshold_global_biased,
         threshold_local, threshold_local_biased, threshold_local_biased_excluding,
@@ -37,6 +37,16 @@ const STROKE_EDGE_THRESHOLD: u16 = 24;
 const TILE_PAPER_DELTA: u8 = 48;
 const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
 const MIN_QUALIFYING_PAPER_TILES: usize = 4;
+
+// These are shared with the final bleed filter. A rescue may recover a raw
+// candidate only when it has the same crisp-or-deep evidence that the final
+// filter trusts for retaining a printed component. The filter still gets the
+// last word, because a rescued component can merge with a shallow strike.
+pub(crate) const BLEED_CRISPNESS_FLOOR: u16 = 32;
+pub(crate) const BLEED_SHALLOW_DEPTH: u8 = 80;
+const RESCUE_CANDIDATE_DEPTH: u8 = 24;
+const RESCUE_ROW_SIGNAL_DEPTH: u8 = 24;
+const RESCUE_ROW_SIGNAL_CRISPNESS: u16 = 18;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,7 +83,8 @@ pub fn clean_black_and_white_with_calibration_config(
         source.clone()
     };
     let calibration = PageCalibration::estimate(&normalized, options.dpi, calibration_config);
-    let (binary, mode) = binarize_normalized_calibrated(&normalized, options, calibration);
+    let (binary, mode) =
+        binarize_normalized_calibrated(&normalized, source, options, calibration, None, None);
     BwResult {
         normalized,
         binary,
@@ -89,29 +100,44 @@ pub fn binarize_normalized(
 ) -> (BinaryImage, BinarizationMode) {
     let calibration =
         PageCalibration::estimate(normalized, options.dpi, CalibrationConfig::default());
-    binarize_normalized_calibrated(normalized, options, calibration)
+    binarize_normalized_calibrated(normalized, normalized, options, calibration, None, None)
 }
 
 fn binarize_normalized_calibrated(
     normalized: &GrayImage,
+    raw_source: &GrayImage,
     options: &CleanupOptions,
     calibration: PageCalibration,
+    picture_mask: Option<&BinaryImage>,
+    text_vicinity: Option<&BinaryImage>,
 ) -> (BinaryImage, BinarizationMode) {
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
     let diagnostics = resolve_binarization_diagnostics(&threshold_input, options);
     let mode = diagnostics.route;
     (
-        binarize_with_mode(&threshold_input, normalized, options, mode, calibration),
+        binarize_with_mode(
+            &threshold_input,
+            normalized,
+            raw_source,
+            options,
+            mode,
+            calibration,
+            picture_mask,
+            text_vicinity,
+        ),
         mode,
     )
 }
 
 pub(crate) fn binarize_normalized_with_diagnostics(
     normalized: &GrayImage,
+    raw_source: &GrayImage,
     routing_sample: &GrayImage,
     global_threshold_source: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
+    picture_mask: Option<&BinaryImage>,
+    text_vicinity: Option<&BinaryImage>,
 ) -> (
     BinaryImage,
     BinarizationDiagnostics,
@@ -136,6 +162,15 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     let postprocess_started = Instant::now();
     let (binary, despeckle_fallback) =
         postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
+    let binary = rescue_component_scoped_faint_strokes(
+        &binary,
+        raw_source,
+        picture_mask,
+        text_vicinity,
+        options.binarization,
+        diagnostics.route,
+        options.dpi,
+    );
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (binary, diagnostics, despeckle_fallback, timings)
 }
@@ -144,10 +179,12 @@ pub(crate) fn binarize_normalized_with_diagnostics(
 /// statistics and held white through despeckling and morphological smoothing.
 pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     normalized: &GrayImage,
+    raw_source: &GrayImage,
     global_threshold_source: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
     picture_mask: &BinaryImage,
+    text_vicinity: Option<&BinaryImage>,
 ) -> (
     BinaryImage,
     BinarizationDiagnostics,
@@ -198,13 +235,18 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     let postprocess_started = Instant::now();
     let (binary, despeckle_fallback) =
         postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
-    timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
-    (
-        binary.subtract(&protected_picture_mask),
-        diagnostics,
-        despeckle_fallback,
-        timings,
+    let binary = rescue_component_scoped_faint_strokes(
+        &binary,
+        raw_source,
+        Some(picture_mask),
+        text_vicinity,
+        options.binarization,
+        diagnostics.route,
+        options.dpi,
     )
+    .subtract(&protected_picture_mask);
+    timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
+    (binary, diagnostics, despeckle_fallback, timings)
 }
 
 pub(crate) fn picture_protection_radius(dpi: f64) -> usize {
@@ -214,9 +256,12 @@ pub(crate) fn picture_protection_radius(dpi: f64) -> usize {
 fn binarize_with_mode(
     threshold_input: &GrayImage,
     normalized: &GrayImage,
+    raw_source: &GrayImage,
     options: &CleanupOptions,
     mode: BinarizationMode,
     calibration: PageCalibration,
+    picture_mask: Option<&BinaryImage>,
+    text_vicinity: Option<&BinaryImage>,
 ) -> BinaryImage {
     let binary = threshold_with_mode(
         threshold_input,
@@ -226,7 +271,16 @@ fn binarize_with_mode(
         mode,
         calibration,
     );
-    postprocess_binary(&binary, Some(normalized), options, calibration)
+    let binary = postprocess_binary(&binary, Some(normalized), options, calibration);
+    rescue_component_scoped_faint_strokes(
+        &binary,
+        raw_source,
+        picture_mask,
+        text_vicinity,
+        options.binarization,
+        mode,
+        options.dpi,
+    )
 }
 
 fn threshold_with_mode(
@@ -635,7 +689,7 @@ fn tile_paper_deviation(image: &GrayImage) -> f64 {
     paper_spread(&tile_paper_values(image, None))
 }
 
-fn paper_reference(image: &GrayImage) -> u8 {
+pub(crate) fn paper_reference(image: &GrayImage) -> u8 {
     let mut histogram = [0usize; 256];
     for &value in image.data() {
         histogram[value as usize] += 1;
@@ -649,6 +703,204 @@ fn paper_reference(image: &GrayImage) -> u8 {
             cumulative > target
         })
         .unwrap_or(255) as u8
+}
+
+/// Recover faint print that a selected local threshold dropped, but only as
+/// compact raw-plane components aligned with an independent text-row signal.
+/// This deliberately does not run for Auto: the guarded Auto route is a
+/// byte-sensitive regression path, while explicit Wolf/Sauvola need the
+/// engine-level text-preservation invariant.
+pub(crate) fn rescue_component_scoped_faint_strokes(
+    damaged: &BinaryImage,
+    raw: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    text_vicinity: Option<&BinaryImage>,
+    requested_mode: BinarizationMode,
+    selected_mode: BinarizationMode,
+    dpi: f64,
+) -> BinaryImage {
+    if !matches!(
+        requested_mode,
+        BinarizationMode::Sauvola | BinarizationMode::Wolf
+    ) || !matches!(
+        selected_mode,
+        BinarizationMode::Sauvola | BinarizationMode::Wolf
+    ) || damaged.width() == 0
+        || damaged.height() == 0
+    {
+        return damaged.clone();
+    }
+    assert_eq!(
+        (damaged.width(), damaged.height()),
+        (raw.width(), raw.height())
+    );
+    debug_assert!(picture_mask.is_none_or(|mask| {
+        mask.width() == damaged.width() && mask.height() == damaged.height()
+    }));
+    debug_assert!(text_vicinity.is_none_or(|mask| {
+        mask.width() == damaged.width() && mask.height() == damaged.height()
+    }));
+
+    let paper = paper_reference(raw);
+    let picture_owner = picture_mask.map(|mask| {
+        dilate(
+            mask,
+            picture_protection_radius(dpi),
+            picture_protection_radius(dpi),
+        )
+    });
+    let candidates = BinaryImage::from_fn_parallel(raw.width(), raw.height(), |x, y| {
+        raw.get(x, y) <= paper.saturating_sub(RESCUE_CANDIDATE_DEPTH)
+            && !picture_owner.as_ref().is_some_and(|owner| owner.get(x, y))
+    });
+    if candidates.count_black() == 0 {
+        return damaged.clone();
+    }
+
+    let components = ComponentMap::from_binary(&candidates);
+    let gradient_radius = (dpi * 0.12 / 25.4).round().clamp(1.0, 4.0) as usize;
+    let (raw_max, raw_min) = rayon::join(
+        || erode_gray(raw, gradient_radius, gradient_radius),
+        || dilate_gray(raw, gradient_radius, gradient_radius),
+    );
+    // The crispness window is intentionally small, but depth must see past a
+    // complete glyph interior to the nearby paper. A wider local paper field
+    // does that for text while leaving a broad shadow's interior shallow.
+    let paper_radius = (dpi * 0.80 / 25.4).round().clamp(3.0, 12.0) as usize;
+    let local_paper = erode_gray(raw, paper_radius, paper_radius);
+    let row_tolerance = (dpi * 0.65 / 25.4).round().clamp(1.0, 8.0) as usize;
+    let row_signal = text_vicinity.map(|mask| {
+        let horizontal = (dpi * 3.0 / 25.4).round().max(2.0) as usize;
+        dilate(mask, horizontal, row_tolerance)
+    });
+    let raw_row_profile = row_signal
+        .is_none()
+        .then(|| raw_text_row_profile(raw, picture_owner.as_ref(), &raw_max, &raw_min, paper, dpi));
+    let minimum_independent_row_support = (dpi * 0.30 / 25.4).round().max(4.0) as usize;
+    let mut rescued = BinaryImage::new(damaged.width(), damaged.height());
+
+    for component in components.components() {
+        if !is_text_like_rescue_component(component, dpi) {
+            continue;
+        }
+        let mut missing = 0usize;
+        let mut qualifying_missing = 0usize;
+        let mut component_rows = vec![0usize; component.bottom - component.top + 1];
+        let mut row_aligned = false;
+        let mut touches_picture_owner = false;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if components.label_at(x, y) != component.label {
+                    continue;
+                }
+                component_rows[y - component.top] += 1;
+                if picture_owner.as_ref().is_some_and(|owner| owner.get(x, y)) {
+                    touches_picture_owner = true;
+                }
+                if row_signal.as_ref().is_some_and(|signal| signal.get(x, y)) {
+                    row_aligned = true;
+                }
+                if damaged.get(x, y) {
+                    continue;
+                }
+                missing += 1;
+                let gradient = raw_max.get(x, y).saturating_sub(raw_min.get(x, y));
+                if is_crisp_or_deep_sample(raw.get(x, y), local_paper.get(x, y), gradient) {
+                    qualifying_missing += 1;
+                }
+            }
+        }
+        if let Some(profile) = raw_row_profile.as_ref() {
+            row_aligned = (component.top..=component.bottom).any(|y| {
+                profile[y] >= minimum_independent_row_support + component_rows[y - component.top]
+            });
+        }
+        if touches_picture_owner
+            || !row_aligned
+            || missing == 0
+            || qualifying_missing < 2
+            || qualifying_missing.saturating_mul(4) < missing
+        {
+            continue;
+        }
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if components.label_at(x, y) != component.label
+                    || damaged.get(x, y)
+                    || picture_owner.as_ref().is_some_and(|owner| owner.get(x, y))
+                {
+                    continue;
+                }
+                let gradient = raw_max.get(x, y).saturating_sub(raw_min.get(x, y));
+                if is_crisp_or_deep_sample(raw.get(x, y), local_paper.get(x, y), gradient) {
+                    rescued.set(x, y, true);
+                }
+            }
+        }
+    }
+    damaged.or(&rescued)
+}
+
+fn raw_text_row_profile(
+    raw: &GrayImage,
+    picture_owner: Option<&BinaryImage>,
+    raw_max: &GrayImage,
+    raw_min: &GrayImage,
+    paper: u8,
+    dpi: f64,
+) -> Vec<usize> {
+    let mut profile = vec![0usize; raw.height()];
+    for (y, row_count) in profile.iter_mut().enumerate() {
+        for x in 0..raw.width() {
+            if picture_owner.is_some_and(|owner| owner.get(x, y)) {
+                continue;
+            }
+            let gradient = raw_max.get(x, y).saturating_sub(raw_min.get(x, y));
+            if raw.get(x, y) <= paper.saturating_sub(RESCUE_ROW_SIGNAL_DEPTH)
+                || u16::from(gradient) >= RESCUE_ROW_SIGNAL_CRISPNESS
+            {
+                *row_count += 1;
+            }
+        }
+    }
+    let band_radius = (dpi * 0.45 / 25.4).round().clamp(1.0, 6.0) as usize;
+    let mut banded = vec![0usize; raw.height()];
+    for (y, target) in banded.iter_mut().enumerate() {
+        *target = (y.saturating_sub(band_radius)
+            ..=y.saturating_add(band_radius)
+                .min(raw.height().saturating_sub(1)))
+            .map(|sample_y| profile[sample_y])
+            .max()
+            .unwrap_or(0);
+    }
+    banded
+}
+
+fn is_text_like_rescue_component(component: &scan_primitives::Component, dpi: f64) -> bool {
+    let px_per_mm = dpi.max(1.0) / 25.4;
+    let width = component.right - component.left + 1;
+    let height = component.bottom - component.top + 1;
+    let major = width.max(height);
+    let minor = width.min(height);
+    let aspect = major as f64 / minor.max(1) as f64;
+    let average_stroke = component.area as f64 / major.max(1) as f64;
+    let maximum_extent = (px_per_mm * 8.0).round().max(4.0) as usize;
+    let maximum_area = (px_per_mm * 4.5).round().max(16.0).powf(2.0) as usize;
+    let minimum_stroke = (px_per_mm * 0.08).max(0.75);
+    let maximum_stroke = (px_per_mm * 2.5).max(2.0);
+
+    component.area >= 2
+        && major <= maximum_extent
+        && minor >= 1
+        && aspect <= 10.0
+        && component.area <= maximum_area
+        && average_stroke >= minimum_stroke
+        && average_stroke <= maximum_stroke
+}
+
+pub(crate) fn is_crisp_or_deep_sample(sample: u8, local_paper: u8, gradient: u8) -> bool {
+    sample < local_paper.saturating_sub(BLEED_SHALLOW_DEPTH)
+        || u16::from(gradient) >= BLEED_CRISPNESS_FLOOR
 }
 
 fn tile_paper_values(image: &GrayImage, paper_floor: Option<u8>) -> Vec<f64> {
@@ -1437,6 +1689,94 @@ mod tests {
 
         let consensus = multiscale_consensus(&normalized, &small, &medium, &large);
         assert!(!consensus.get(5, 5));
+    }
+
+    fn faint_text_fixture() -> (GrayImage, BinaryImage) {
+        let mut raw = GrayImage::new(240, 100, 232);
+        let mut text_vicinity = BinaryImage::new(240, 100);
+        for y in 34..49 {
+            text_vicinity.set(20, y, true);
+            for x in 20..220 {
+                if x % 19 < 2 {
+                    raw.set(x, y, 198);
+                }
+            }
+        }
+        (raw, text_vicinity)
+    }
+
+    #[test]
+    fn explicit_wolf_and_sauvola_rescue_faint_text_rows_dropped_by_thresholding() {
+        let (raw, text_vicinity) = faint_text_fixture();
+        let normalized = GrayImage::new(raw.width(), raw.height(), 232);
+        for mode in [BinarizationMode::Wolf, BinarizationMode::Sauvola] {
+            let options = CleanupOptions {
+                dpi: 300.0,
+                binarization: mode,
+                normalize_illumination: false,
+                despeckle: false,
+                ..CleanupOptions::default()
+            };
+            let calibration =
+                PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
+            let damaged = postprocess_binary(
+                &threshold_with_mode(&normalized, &normalized, None, &options, mode, calibration),
+                Some(&normalized),
+                &options,
+                calibration,
+            );
+            assert!(!damaged.get(38, 40));
+            let (routed, diagnostics, _, _) = binarize_normalized_with_diagnostics(
+                &normalized,
+                &raw,
+                &raw,
+                None,
+                &options,
+                calibration,
+                None,
+                Some(&text_vicinity),
+            );
+            assert_eq!(diagnostics.route, mode);
+            assert!(
+                routed.get(38, 40),
+                "{mode:?} binarizer did not recover the row-aligned faint stroke"
+            );
+            let rescued = rescue_component_scoped_faint_strokes(
+                &damaged,
+                &raw,
+                None,
+                Some(&text_vicinity),
+                mode,
+                mode,
+                options.dpi,
+            );
+            assert!(
+                rescued.get(38, 40),
+                "{mode:?} did not recover the row-aligned faint stroke"
+            );
+            assert!(rescued.count_black() > damaged.count_black());
+        }
+    }
+
+    #[test]
+    fn faint_rescue_rejects_an_isolated_raw_component_without_a_text_row() {
+        let mut raw = GrayImage::new(160, 100, 232);
+        for y in 45..70 {
+            for x in 84..108 {
+                raw.set(x, y, 198);
+            }
+        }
+        let damaged = BinaryImage::new(160, 100);
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            None,
+            BinarizationMode::Wolf,
+            BinarizationMode::Wolf,
+            300.0,
+        );
+        assert_eq!(rescued.count_black(), 0);
     }
 
     #[test]

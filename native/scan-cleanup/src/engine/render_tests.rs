@@ -1,6 +1,6 @@
 mod tests {
     use super::*;
-    use crate::bw::binarize_normalized;
+    use crate::bw::{binarize_normalized, rescue_component_scoped_faint_strokes};
     use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
     use std::io::Cursor;
     use zune_jpeg::{
@@ -274,6 +274,52 @@ mod tests {
             glyph_pixels
         );
         assert_eq!(filtered.count_black(), glyph_pixels);
+    }
+
+    #[test]
+    fn explicit_rescue_keeps_faint_text_but_final_bleed_filter_kills_showthrough() {
+        let mut raw = GrayImage::new(180, 100, 220);
+        let mut damaged = BinaryImage::new(180, 100);
+        let mut text_vicinity = BinaryImage::new(180, 100);
+        for left in [24, 70, 116] {
+            for y in 22..44 {
+                for x in left..left + 12 {
+                    raw.set(x, y, 35);
+                    text_vicinity.set(x, y, true);
+                }
+            }
+        }
+        for y in 43usize..64 {
+            let distance = y.abs_diff(53).min(10);
+            let value = 180 + (distance * 4) as u8;
+            for x in 12..168 {
+                raw.set(x, y, value);
+                if (50..56).contains(&y) {
+                    damaged.set(x, y, true);
+                }
+            }
+        }
+
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            crate::BinarizationMode::Wolf,
+            crate::BinarizationMode::Wolf,
+            360.0,
+        );
+        let filtered = filter_soft_shallow_bleed_components(&rescued, &raw, None, 360.0);
+
+        assert!((24..36).all(|x| filtered.get(x, 30)));
+        assert_eq!(
+            (12..168)
+                .flat_map(|x| (50..56).map(move |y| (x, y)))
+                .filter(|&(x, y)| filtered.get(x, y))
+                .count(),
+            0,
+            "the final bleed authority must remove show-through even after rescue"
+        );
     }
 
     #[test]
@@ -2978,10 +3024,12 @@ mod tests {
             PageCalibration::estimate(&gray, options.dpi, CalibrationConfig::default());
         let (stencil, _, _, _) = binarize_normalized_with_diagnostics_excluding(
             &gray,
+            &gray,
             None,
             &options,
             calibration,
             &picture_mask,
+            None,
         );
         let (_, _, layers) = compose_mixed(
             &gray,

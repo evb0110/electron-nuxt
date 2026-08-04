@@ -23,8 +23,9 @@ use crate::{
     },
     bw::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
-        binary_to_gray, picture_protection_radius, postprocess_binary_with_diagnostics,
-        resolve_binarization_diagnostics, BinarizationDiagnostics,
+        binary_to_gray, paper_reference, picture_protection_radius,
+        postprocess_binary_with_diagnostics, resolve_binarization_diagnostics,
+        BinarizationDiagnostics, BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH,
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
@@ -3014,10 +3015,10 @@ fn filter_soft_shallow_bleed_components(
         return binary.clone();
     }
 
-    const CRISPNESS_FLOOR: f64 = 32.0;
-    const SHALLOW_DEPTH: u8 = 80;
     const LARGE_CRISPNESS_FLOOR: f64 = 24.0;
     const LARGE_SHALLOW_DEPTH: u8 = 72;
+    let crispness_floor = f64::from(BLEED_CRISPNESS_FLOOR);
+    let shallow_depth = BLEED_SHALLOW_DEPTH;
 
     let gradient_radius = (dpi * 0.12 / 25.4).round().clamp(1.0, 4.0) as usize;
     let boundary_radius = (dpi * 0.07 / 25.4).round().clamp(1.0, 3.0) as usize;
@@ -3065,7 +3066,7 @@ fn filter_soft_shallow_bleed_components(
         let mean = raw_sums[label] as f64 / raw_counts[label] as f64;
         let crispness = gradient_sums[label] as f64 / gradient_counts[label] as f64;
         let kept = if component.area <= area_ceiling {
-            !(crispness < CRISPNESS_FLOOR && mean >= f64::from(paper.saturating_sub(SHALLOW_DEPTH)))
+            !(crispness < crispness_floor && mean >= f64::from(paper.saturating_sub(shallow_depth)))
         } else {
             !(crispness < LARGE_CRISPNESS_FLOOR
                 && mean >= f64::from(paper.saturating_sub(LARGE_SHALLOW_DEPTH)))
@@ -3087,12 +3088,12 @@ fn filter_soft_shallow_bleed_components(
     // deep (stroke interior) or crisp (antialiased edge). Erasing only the
     // pixels that fail both tests strips the strike and leaves the glyphs
     // it crossed intact.
-    let shallow_floor = paper.saturating_sub(SHALLOW_DEPTH);
+    let shallow_floor = paper.saturating_sub(shallow_depth);
     let stripped = BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
         retained.get(x, y)
             && (raw.get(x, y) < shallow_floor
                 || f64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)))
-                    >= CRISPNESS_FLOOR
+                    >= crispness_floor
                 || protected_picture
                     .as_ref()
                     .is_some_and(|mask| mask.get(x, y)))
@@ -3122,22 +3123,6 @@ fn filter_soft_shallow_bleed_components(
         }
     }
     stripped
-}
-
-fn paper_reference(gray: &GrayImage) -> u8 {
-    let mut histogram = [0usize; 256];
-    for &sample in gray.data() {
-        histogram[usize::from(sample)] += 1;
-    }
-    let target = gray.data().len().saturating_sub(1) * 3 / 4;
-    let mut cumulative = 0usize;
-    histogram
-        .iter()
-        .position(|count| {
-            cumulative += count;
-            cumulative > target
-        })
-        .unwrap_or(255) as u8
 }
 
 fn normalize_tone_to_paper(sample: u8, paper: u8) -> u8 {
@@ -3908,10 +3893,15 @@ fn clean_region(
                 let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
                     binarize_normalized_with_diagnostics(
                         &rendered_gray,
+                        rendered_routing_gray
+                            .as_ref()
+                            .expect("bilevel output prepares a routing raster"),
                         &routing_sample,
                         global_threshold_source,
                         options,
                         calibration,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
                     );
                 timings.threshold_preparation_ms += stage_timings.preparation_ms;
                 timings.thresholding_ms += stage_timings.thresholding_ms;
@@ -3975,10 +3965,15 @@ fn clean_region(
                     let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
+                            rendered_routing_gray
+                                .as_ref()
+                                .expect("mixed output prepares a routing raster"),
                             &routing_sample,
                             global_threshold_source,
                             options,
                             calibration,
+                            rendered_picture_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
                         );
                     timings.threshold_preparation_ms += stage_timings.preparation_ms;
                     timings.thresholding_ms += stage_timings.thresholding_ms;
@@ -4014,10 +4009,14 @@ fn clean_region(
                     let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics_excluding(
                             &rendered_gray,
+                            rendered_routing_gray
+                                .as_ref()
+                                .expect("mixed output prepares a routing raster"),
                             Some(global_threshold_source),
                             options,
                             calibration,
                             picture_mask,
+                            rendered_text_vicinity_mask.as_ref(),
                         );
                     timings.threshold_preparation_ms += stage_timings.preparation_ms;
                     timings.thresholding_ms += stage_timings.thresholding_ms;
@@ -4037,9 +4036,14 @@ fn clean_region(
                         .map_or(binary.clone(), |text_mask| {
                             binary.or(&text_mask.subtract(picture_mask))
                         });
-                    if let Some(raw) = rendered_routing_gray.as_ref() {
-                        binary =
-                            binary.or(&rescue_isolated_raw_ink(raw, picture_mask, options.dpi));
+                    if matches!(
+                        options.binarization,
+                        crate::BinarizationMode::Auto | crate::BinarizationMode::Otsu
+                    ) {
+                        if let Some(raw) = rendered_routing_gray.as_ref() {
+                            binary =
+                                binary.or(&rescue_isolated_raw_ink(raw, picture_mask, options.dpi));
+                        }
                     }
                     let (binary, removed_edge_bands) = suppress_scanner_edge_bands(
                         &binary,
