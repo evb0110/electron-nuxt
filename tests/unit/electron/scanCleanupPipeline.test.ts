@@ -4,6 +4,7 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -230,6 +231,7 @@ function dependencies(
         }),
         runSidecar,
         getAvailableScratchBytes: vi.fn(async () => null),
+        hashNativeBinary: vi.fn(async (path: string) => createHash('sha256').update(path, 'utf8').digest('hex')),
         runCommand: vi.fn(async (_command, args) => {
             const outputIndex = args.indexOf('--output');
             // Matching measures the document through page-sizes, so the tool

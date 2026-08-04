@@ -305,6 +305,7 @@ export interface IRunScanCleanupPipelineDependencies {
     extractMrcLayers?: TScanCleanupExtractMrcLayers;
     extractMrcLayersBatch?: TScanCleanupExtractMrcLayersBatch;
     requirePublishedRaster?: TScanCleanupRequirePublishedRaster;
+    hashNativeBinary?: (path: string) => Promise<string>;
 }
 
 export interface IScanCleanupCorePolicy {

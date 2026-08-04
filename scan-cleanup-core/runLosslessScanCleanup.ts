@@ -390,6 +390,9 @@ export async function runLosslessScanCleanup(
     ));
     const buildIds = await buildScanCleanupStampBuildIds({
         paths,
+        ...(dependencies.hashNativeBinary === undefined
+            ? {}
+            : {hashNativeBinary: dependencies.hashNativeBinary}),
         assemblerBackend: request.assemblyBackend
             ?? paths.assemblyBackend
             ?? (isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)

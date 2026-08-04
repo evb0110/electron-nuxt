@@ -17,10 +17,12 @@ export async function buildScanCleanupStampBuildIds({
     paths,
     assemblerBackend,
     transportMode,
+    hashNativeBinary,
 }: {
     paths: IScanCleanupWorkerPaths;
     assemblerBackend: TScanCleanupAssemblerBackend;
     transportMode: TScanCleanupTransportMode;
+    hashNativeBinary?: (path: string) => Promise<string>;
 }): Promise<IScanCleanupStampBuildIds> {
     const nativeBinarySha256s: Record<string, string> = {};
     const binaries: Array<[string, string | undefined]> = [
@@ -42,7 +44,7 @@ export async function buildScanCleanupStampBuildIds({
         path,
     ] of binaries) {
         if (path === undefined) continue;
-        nativeBinarySha256s[role] = await hashBinaryOrBackendMarker(path, role, assemblerBackend);
+        nativeBinarySha256s[role] = await hashBinaryOrBackendMarker(path, role, assemblerBackend, hashNativeBinary);
     }
     if (Object.keys(nativeBinarySha256s).length === 0) {
         nativeBinarySha256s.assembler = hashText(`assembler:${assemblerBackend}`);
@@ -56,11 +58,19 @@ export async function buildScanCleanupStampBuildIds({
     };
 }
 
-async function hashBinaryOrBackendMarker(path: string, role: string, backend: TScanCleanupAssemblerBackend) {
+async function hashBinaryOrBackendMarker(
+    path: string,
+    role: string,
+    backend: TScanCleanupAssemblerBackend,
+    hashNativeBinary?: (path: string) => Promise<string>,
+) {
     if (/^__scan_cleanup_cli_[a-z_]+__$/u.test(path)) {
         return hashText(`${role}:${backend}`);
     }
     try {
+        if (hashNativeBinary !== undefined) {
+            return await hashNativeBinary(path);
+        }
         return createHash('sha256').update(await readFile(path)).digest('hex');
     } catch (error) {
         throw new Error(

@@ -1157,6 +1157,9 @@ export async function runScanCleanupConversion(
             paths,
             assemblerBackend,
             transportMode,
+            ...(dependencies.hashNativeBinary === undefined
+                ? {}
+                : {hashNativeBinary: dependencies.hashNativeBinary}),
         });
         const stamp = buildScanCleanupProvenanceStamp({
             sourceSha256: await sha256ScanCleanupFile(prepared.pdfPath),
