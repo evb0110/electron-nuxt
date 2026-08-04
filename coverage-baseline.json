@@ -6,9 +6,9 @@
         "app/"
       ],
       "metrics": {
-        "statements": 70,
+        "statements": 69.99,
         "branches": 62.26,
-        "functions": 70.53,
+        "functions": 70.52,
         "lines": 70.3
       }
     },
@@ -54,10 +54,10 @@
         "app/modules/pdf-viewer/"
       ],
       "metrics": {
-        "statements": 70.03,
-        "branches": 62.31,
-        "functions": 71.99,
-        "lines": 70.19
+        "statements": 70.02,
+        "branches": 62.3,
+        "functions": 71.97,
+        "lines": 70.18
       }
     },
     "release-scripts": {
@@ -78,10 +78,10 @@
         "scripts/"
       ],
       "metrics": {
-        "statements": 33.2,
-        "branches": 34.64,
-        "functions": 40.4,
-        "lines": 33.4
+        "statements": 32.68,
+        "branches": 33.87,
+        "functions": 39.76,
+        "lines": 32.9
       }
     },
     "workspace-shell": {
@@ -98,10 +98,10 @@
     }
   },
   "metrics": {
-    "statements": 66.51,
-    "branches": 59.94,
-    "functions": 68.91,
-    "lines": 66.88
+    "statements": 66.36,
+    "branches": 59.76,
+    "functions": 68.77,
+    "lines": 66.74
   },
   "tolerancePercentagePoints": 0.5,
   "version": 1
