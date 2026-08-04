@@ -7,7 +7,22 @@ pub(crate) fn read_split_pages_file(path: &Path) -> Result<SplitPagesFile> {
     if instructions.pages.is_empty() {
         return Err("split-pages requires at least one source-page instruction".into());
     }
+    if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
+        validate_provenance_stamp_hex(stamp)?;
+    }
     Ok(instructions)
+}
+
+fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
+    if stamp.is_empty()
+        || !stamp.len().is_multiple_of(2)
+        || stamp
+            .bytes()
+            .any(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err("provenanceStampHex must be a non-empty lowercase hexadecimal string".into());
+    }
+    Ok(())
 }
 
 fn validate_crop_rect(rect: SplitCropRect) -> Result<PdfRect> {
@@ -500,6 +515,12 @@ pub(crate) fn split_pages(
         .set("Pages", pages_id);
     drop_invalid_oc_properties(&mut document, catalog_id)?;
     document.prune_objects();
+    if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
+        let info_id = document.add_object(dictionary! {
+            "EVBScanCleanup" => Object::string_literal(stamp.as_bytes().to_vec()),
+        });
+        document.trailer.set("Info", info_id);
+    }
     document.save(output_path)?;
     Ok(())
 }

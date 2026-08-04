@@ -165,6 +165,8 @@ pub(crate) enum Operation {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SplitPagesFile {
     pub(crate) pages: Vec<SplitPageInstruction>,
+    #[serde(default)]
+    pub(crate) provenance_stamp_hex: Option<String>,
 }
 
 #[derive(Deserialize)]

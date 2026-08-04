@@ -147,7 +147,7 @@ impl BilevelStream {
 
 #[cfg(test)]
 pub(crate) fn build_pdf(pages: &[ImagePage]) -> Result<Vec<u8>> {
-    let mut writer = PdfWriter::new(Vec::new())?;
+    let mut writer = PdfWriter::new(Vec::new(), None)?;
     for page in pages {
         writer.add_page(page)?;
     }
@@ -156,14 +156,14 @@ pub(crate) fn build_pdf(pages: &[ImagePage]) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 pub(crate) fn build_layered_pdf_page(page: &LayeredPdfPage) -> Result<Vec<u8>> {
-    let mut writer = PdfWriter::new(Vec::new())?;
+    let mut writer = PdfWriter::new(Vec::new(), None)?;
     writer.add_layered_page(page)?;
     writer.finish()
 }
 
 #[cfg(test)]
 pub(crate) fn build_soft_layered_pdf_page(page: &SoftLayeredPdfPage) -> Result<Vec<u8>> {
-    let mut writer = PdfWriter::new(Vec::new())?;
+    let mut writer = PdfWriter::new(Vec::new(), None)?;
     writer.add_soft_layered_page(page)?;
     writer.finish()
 }
@@ -172,23 +172,24 @@ pub(crate) fn build_soft_layered_pdf_page(page: &SoftLayeredPdfPage) -> Result<V
 pub(crate) fn build_affine_masked_layered_pdf_page(
     page: &AffineMaskedLayeredPdfPage,
 ) -> Result<Vec<u8>> {
-    let mut writer = PdfWriter::new(Vec::new())?;
+    let mut writer = PdfWriter::new(Vec::new(), None)?;
     writer.add_affine_masked_layered_page(page)?;
     writer.finish()
 }
 
 #[cfg(test)]
 pub(crate) fn build_mask_pdf_page(page: &MaskPdfPage) -> Result<Vec<u8>> {
-    let mut writer = PdfWriter::new(Vec::new())?;
+    let mut writer = PdfWriter::new(Vec::new(), None)?;
     writer.add_mask_page(page)?;
     writer.finish()
 }
 
 pub(crate) fn write_pdf_to_writer<W: IoWrite>(
     writer: W,
+    provenance_stamp_hex: Option<&str>,
     mut write_pages: impl FnMut(&mut PdfWriter<W>) -> Result<()>,
 ) -> Result<W> {
-    let mut writer = PdfWriter::new(writer)?;
+    let mut writer = PdfWriter::new(writer, provenance_stamp_hex)?;
     write_pages(&mut writer)?;
     writer.finish()
 }
@@ -199,16 +200,21 @@ pub(crate) struct PdfWriter<W: IoWrite> {
     page_objects: Vec<usize>,
     next_object: usize,
     bytes_written: usize,
+    provenance_stamp_hex: Option<String>,
 }
 
 impl<W: IoWrite> PdfWriter<W> {
-    fn new(inner: W) -> Result<Self> {
+    fn new(inner: W, provenance_stamp_hex: Option<&str>) -> Result<Self> {
+        if let Some(stamp) = provenance_stamp_hex {
+            validate_provenance_stamp_hex(stamp)?;
+        }
         let mut writer = Self {
             inner,
             offsets: Vec::new(),
             page_objects: Vec::new(),
             next_object: 3,
             bytes_written: 0,
+            provenance_stamp_hex: provenance_stamp_hex.map(str::to_owned),
         };
 
         writer.write_all(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")?;
@@ -492,6 +498,16 @@ impl<W: IoWrite> PdfWriter<W> {
         );
         self.push_object(2, pages_body.as_bytes())?;
 
+        let info_object = if let Some(stamp) = self.provenance_stamp_hex.take() {
+            let object_number = self.next_object;
+            self.next_object += 1;
+            let info_body = format!("<< /EVBScanCleanup ({stamp}) >>");
+            self.push_object(object_number, info_body.as_bytes())?;
+            Some(object_number)
+        } else {
+            None
+        };
+
         let object_count = self.next_object - 1;
         let xref_offset = self.bytes_written;
         writeln!(&mut self, "xref")?;
@@ -505,12 +521,21 @@ impl<W: IoWrite> PdfWriter<W> {
                 .ok_or_else(|| format!("Missing PDF object offset: {object_number}"))?;
             writeln!(&mut self, "{offset:010} 00000 n ")?;
         }
-        write!(
-            &mut self,
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
-            object_count + 1,
-            xref_offset
-        )?;
+        match info_object {
+            Some(info_object) => write!(
+                &mut self,
+                "trailer\n<< /Size {} /Root 1 0 R /Info {} 0 R >>\nstartxref\n{}\n%%EOF\n",
+                object_count + 1,
+                info_object,
+                xref_offset
+            )?,
+            None => write!(
+                &mut self,
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                object_count + 1,
+                xref_offset
+            )?,
+        }
         self.flush()?;
 
         Ok(self.inner)
@@ -746,6 +771,18 @@ impl<W: IoWrite> PdfWriter<W> {
         }
         self.offsets[object_number] = Some(self.bytes_written);
     }
+}
+
+fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
+    if stamp.is_empty()
+        || !stamp.len().is_multiple_of(2)
+        || stamp
+            .bytes()
+            .any(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err("provenanceStampHex must be a non-empty lowercase hexadecimal string".into());
+    }
+    Ok(())
 }
 
 impl<W: IoWrite> IoWrite for PdfWriter<W> {
@@ -1887,7 +1924,7 @@ mod tests {
     }
 
     fn build_test_mask_pdf(mask: &PbmP4Image, payload: &BilevelPayload) -> Vec<u8> {
-        let mut writer = PdfWriter::new(Vec::new()).unwrap();
+        let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
         writer.page_objects.push(3);
         writer.next_object = 6;
         writer

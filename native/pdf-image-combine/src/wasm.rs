@@ -158,6 +158,7 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
         max_bilevel_pixels: max_pixels,
         max_output_bytes: u64::MAX,
         max_tiff_frames: read_usize_le(request, offset, "max_tiff_frames")?,
+        provenance_stamp_hex: None,
         worker_threads: 1,
     };
     let item_count = read_usize_le(request, offset, "item_count")?;

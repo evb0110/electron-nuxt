@@ -15,6 +15,7 @@ use evb_pdf_image_combine::{
     JpegSizeGuardrail, PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfPageSize, Result,
     DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
 };
+use serde::Deserialize;
 
 struct Config {
     output_path: PathBuf,
@@ -83,25 +84,30 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         return Ok(());
     }
 
-    let page_specs = if let Some(manifest_path) = &config.compact_manifest_path {
-        read_compact_manifest(manifest_path)?
-    } else {
-        config
-            .input_paths
-            .iter()
-            .cloned()
-            .map(|source| PageSpec::Image {
-                page_size: None,
-                image: ImageSpec {
-                    source,
-                    compression: ImageCompression::Auto,
-                    processing: ImageProcessing::None,
-                    size_guardrail: None,
-                },
-                frames: FramePolicy::All,
-            })
-            .collect()
-    };
+    let (page_specs, provenance_stamp_hex) =
+        if let Some(manifest_path) = &config.compact_manifest_path {
+            let manifest = read_compact_manifest(manifest_path)?;
+            (manifest.page_specs, manifest.provenance_stamp_hex)
+        } else {
+            (
+                config
+                    .input_paths
+                    .iter()
+                    .cloned()
+                    .map(|source| PageSpec::Image {
+                        page_size: None,
+                        image: ImageSpec {
+                            source,
+                            compression: ImageCompression::Auto,
+                            processing: ImageProcessing::None,
+                            size_guardrail: None,
+                        },
+                        frames: FramePolicy::All,
+                    })
+                    .collect(),
+                None,
+            )
+        };
     let total = page_specs.len();
     let started_at = Instant::now();
     write_pdf_file(
@@ -119,6 +125,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 u64::MAX,
             ),
             max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000) as usize,
+            provenance_stamp_hex,
             worker_threads: read_limit(
                 "EVB_PDF_COMBINE_THREADS",
                 default_worker_threads() as u64,
@@ -271,8 +278,58 @@ fn read_input_paths_file(path: &Path) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
-fn read_compact_manifest(path: &Path) -> Result<Vec<PageSpec<PathBuf>>> {
+struct ParsedCompactManifest {
+    page_specs: Vec<PageSpec<PathBuf>>,
+    provenance_stamp_hex: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CompactManifestEnvelope {
+    #[serde(default)]
+    provenance_stamp_hex: Option<String>,
+    pages: Vec<CompactManifestPage>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CompactManifestPage {
+    Line(String),
+    Fields(Vec<String>),
+}
+
+impl CompactManifestPage {
+    fn into_line(self) -> String {
+        match self {
+            Self::Line(line) => line,
+            Self::Fields(fields) => fields.join("\t"),
+        }
+    }
+}
+
+fn read_compact_manifest(path: &Path) -> Result<ParsedCompactManifest> {
     let contents = fs::read_to_string(path)?;
+
+    if contents.trim_start().starts_with('{') {
+        let envelope: CompactManifestEnvelope = serde_json::from_str(&contents)?;
+        let mut page_specs = Vec::new();
+        for (index, line) in envelope
+            .pages
+            .into_iter()
+            .map(CompactManifestPage::into_line)
+            .enumerate()
+        {
+            if !line.trim().is_empty() {
+                let page = page_specs.len() + 1;
+                page_specs.push(parse_compact_manifest_line(&line, index + 1, page)?);
+            }
+        }
+        return Ok(ParsedCompactManifest {
+            page_specs,
+            provenance_stamp_hex: envelope.provenance_stamp_hex,
+        });
+    }
+
     let mut page_specs = Vec::new();
     for (index, line) in contents.lines().enumerate() {
         if !line.trim().is_empty() {
@@ -280,7 +337,10 @@ fn read_compact_manifest(path: &Path) -> Result<Vec<PageSpec<PathBuf>>> {
             page_specs.push(parse_compact_manifest_line(line, index + 1, page)?);
         }
     }
-    Ok(page_specs)
+    Ok(ParsedCompactManifest {
+        page_specs,
+        provenance_stamp_hex: None,
+    })
 }
 
 fn parse_compact_manifest_line(

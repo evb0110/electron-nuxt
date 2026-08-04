@@ -231,6 +231,9 @@ pub struct PdfBuildOptions {
     pub max_bilevel_pixels: u64,
     pub max_output_bytes: u64,
     pub max_tiff_frames: usize,
+    /// Lowercase hex encoding of the canonical JSON provenance payload to
+    /// publish in the PDF Info dictionary.
+    pub provenance_stamp_hex: Option<String>,
     /// Pages whose payloads may be encoded concurrently. The written bytes are
     /// identical for every value; only wall-clock and peak memory change.
     pub worker_threads: usize,
@@ -245,6 +248,7 @@ impl Default for PdfBuildOptions {
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_output_bytes: 512 * 1024 * 1024,
             max_tiff_frames: 250,
+            provenance_stamp_hex: None,
             worker_threads: 1,
         }
     }
@@ -284,23 +288,27 @@ where
     let output = OutputLimitWriter::new(output, options.max_output_bytes);
     let mut page_count = 0usize;
     let mut processed = 0usize;
-    let output = write_pdf_to_writer(output, |pdf| loop {
-        let batch = page_specs
-            .by_ref()
-            .take(batch_size)
-            .collect::<Vec<PdfPageSpec<'a>>>();
-        if batch.is_empty() {
-            return Ok(());
-        }
-        for prepared in encoders.prepare(batch, options) {
-            for page in prepared? {
-                page_count = next_page_count_with_limit(page_count, options.max_pages)?;
-                write_prepared_page(pdf, page)?;
+    let output = write_pdf_to_writer(
+        output,
+        options.provenance_stamp_hex.as_deref(),
+        |pdf| loop {
+            let batch = page_specs
+                .by_ref()
+                .take(batch_size)
+                .collect::<Vec<PdfPageSpec<'a>>>();
+            if batch.is_empty() {
+                return Ok(());
             }
-            processed += 1;
-            on_processed(processed);
-        }
-    })?;
+            for prepared in encoders.prepare(batch, options) {
+                for page in prepared? {
+                    page_count = next_page_count_with_limit(page_count, options.max_pages)?;
+                    write_prepared_page(pdf, page)?;
+                }
+                processed += 1;
+                on_processed(processed);
+            }
+        },
+    )?;
     Ok(output.into_inner())
 }
 
