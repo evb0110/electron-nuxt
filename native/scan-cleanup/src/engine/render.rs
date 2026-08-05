@@ -3018,11 +3018,17 @@ fn filter_soft_shallow_bleed_components(
     binary: &BinaryImage,
     raw: &GrayImage,
     picture_mask: Option<&BinaryImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
 ) -> BinaryImage {
     debug_assert_eq!(binary.width(), raw.width());
     debug_assert_eq!(binary.height(), raw.height());
     debug_assert!(picture_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    debug_assert!(text_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    debug_assert!(text_vicinity_mask
         .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
     if binary.count_black() == 0 {
         return binary.clone();
@@ -3044,6 +3050,10 @@ fn filter_soft_shallow_bleed_components(
     let (raw_sums, raw_counts) = components.gray_sums_by_component(raw);
     let mut gradient_sums = vec![0u64; components.components().len() + 1];
     let mut gradient_counts = vec![0usize; components.components().len() + 1];
+    let paper = paper_reference(raw);
+    let shallow_floor = paper.saturating_sub(shallow_depth);
+    let mut deep_pixels = vec![0usize; components.components().len() + 1];
+    let mut text_overlap = vec![0usize; components.components().len() + 1];
     let mut protected = vec![false; components.components().len() + 1];
     let protected_picture = picture_mask.map(|mask| {
         let radius = picture_protection_radius(dpi);
@@ -3061,6 +3071,12 @@ fn filter_soft_shallow_bleed_components(
             {
                 protected[label] = true;
             }
+            if raw.get(x, y) < shallow_floor {
+                deep_pixels[label] += 1;
+            }
+            if text_mask.is_some_and(|mask| mask.get(x, y)) {
+                text_overlap[label] += 1;
+            }
             if !boundary.get(x, y) {
                 gradient_sums[label] +=
                     u64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)));
@@ -3068,12 +3084,49 @@ fn filter_soft_shallow_bleed_components(
             }
         }
     }
-    let paper = paper_reference(raw);
     let area_ceiling = ((dpi.max(1.0) * 2.0 / 25.4).powi(2)).round().max(16.0) as usize;
+    let underline_major_extent = (dpi.max(1.0) * 15.0 / 25.4).round().max(24.0) as usize;
+    let underline_max_thickness = (dpi.max(1.0) * 2.0 / 25.4).round().max(2.0) as usize;
+    let underline_max_gap = (dpi.max(1.0) * 14.0 / 25.4).round().max(8.0) as usize;
     let trace_bleed = std::env::var_os("EVB_SCAN_CLEANUP_TRACE_BLEED").is_some();
+    let underline_components = components.components().iter().fold(
+        vec![false; components.components().len() + 1],
+        |mut flags, component| {
+            let label = component.label as usize;
+            let width = component.right - component.left + 1;
+            let height = component.bottom - component.top + 1;
+            let text_row_above = {
+                let left = component.left;
+                let right = component.right.min(binary.width().saturating_sub(1));
+                let top = component.top.saturating_sub(underline_max_gap);
+                (top..component.top).any(|y| {
+                    (left..=right).any(|x| {
+                        text_mask.is_some_and(|mask| mask.get(x, y))
+                            || text_vicinity_mask.is_some_and(|mask| mask.get(x, y))
+                    })
+                })
+            };
+            let horizontal_rule = width >= underline_major_extent
+                && width >= height.saturating_mul(4)
+                && height <= underline_max_thickness;
+            let has_depth_or_crispness = deep_pixels[label].saturating_mul(4) >= component.area
+                || (gradient_counts[label] > 0
+                    && gradient_sums[label] as f64 / gradient_counts[label] as f64
+                        >= LARGE_CRISPNESS_FLOOR);
+            flags[label] = horizontal_rule
+                && text_overlap[label] == 0
+                && text_row_above
+                && has_depth_or_crispness;
+            flags
+        },
+    );
     let retained = components.retain(|component| {
         let label = component.label as usize;
-        if protected[label] || gradient_counts[label] == 0 || raw_counts[label] == 0 {
+        if protected[label]
+            || underline_components[label]
+            || gradient_counts[label] == 0
+            || raw_counts[label] == 0
+        {
             return true;
         }
         let mean = raw_sums[label] as f64 / raw_counts[label] as f64;
@@ -3101,10 +3154,11 @@ fn filter_soft_shallow_bleed_components(
     // deep (stroke interior) or crisp (antialiased edge). Erasing only the
     // pixels that fail both tests strips the strike and leaves the glyphs
     // it crossed intact.
-    let shallow_floor = paper.saturating_sub(shallow_depth);
     let stripped = BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
+        let label = components.label_at(x, y) as usize;
         retained.get(x, y)
-            && (raw.get(x, y) < shallow_floor
+            && (underline_components[label]
+                || raw.get(x, y) < shallow_floor
                 || f64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)))
                     >= crispness_floor
                 || protected_picture
@@ -3136,6 +3190,141 @@ fn filter_soft_shallow_bleed_components(
         }
     }
     stripped
+}
+
+/// Reclaims a genuine horizontal rule after binarization post-processing.
+/// Despeckling can remove a scanned rule before the component-level bleed
+/// filter sees it, so this pass uses the normalized gray plane as the depth
+/// authority and reconstructs only a narrow rule band. A strike-through is
+/// either joined to the text row or overlaps the exact glyph mask; a
+/// show-through band never reaches the dark-depth floor.
+fn restore_genuine_horizontal_rules(
+    binary: &BinaryImage,
+    raw: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+    dpi: f64,
+) -> BinaryImage {
+    debug_assert_eq!(binary.width(), raw.width());
+    debug_assert_eq!(binary.height(), raw.height());
+    debug_assert!(picture_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    debug_assert!(text_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    debug_assert!(text_vicinity_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    if raw.width() == 0 || raw.height() == 0 {
+        return binary.clone();
+    }
+
+    const RULE_DEPTH: u8 = 72;
+    let paper = paper_reference(raw);
+    let depth_floor = paper.saturating_sub(RULE_DEPTH);
+    let minimum_span = (dpi.max(1.0) * 15.0 / 25.4).round().max(24.0) as usize;
+    let minimum_support = (minimum_span / 8).max(8);
+    // A fallback row cue is intentionally much wider than the normal rule
+    // extent. This catches the long running heads in the affected scan while
+    // preventing ordinary text rows and detail tiles from being reconstructed
+    // merely because they have a dark row nearby.
+    let fallback_minimum_span = (dpi.max(1.0) * 80.0 / 25.4)
+        .round()
+        .max(minimum_span as f64) as usize;
+    let maximum_thickness = (dpi.max(1.0) * 2.0 / 25.4).round().max(2.0) as usize;
+    let maximum_text_gap = (dpi.max(1.0) * 14.0 / 25.4).round().max(8.0) as usize;
+    let minimum_clear_gap = (dpi.max(1.0) * 0.25 / 25.4).round().max(2.0) as usize;
+    let mut row_support = vec![0usize; raw.height()];
+    let mut row_left = vec![raw.width(); raw.height()];
+    let mut row_right = vec![0usize; raw.height()];
+    let mut row_text_overlap = vec![0usize; raw.height()];
+    for y in 0..raw.height() {
+        for x in 0..raw.width() {
+            if raw.get(x, y) >= depth_floor || picture_mask.is_some_and(|mask| mask.get(x, y)) {
+                continue;
+            }
+            row_support[y] += 1;
+            row_left[y] = row_left[y].min(x);
+            row_right[y] = row_right[y].max(x);
+            if text_mask.is_some_and(|mask| mask.get(x, y)) {
+                row_text_overlap[y] += 1;
+            }
+        }
+    }
+
+    let mut rules = BinaryImage::new(binary.width(), binary.height());
+    let mut band_top = 0;
+    while band_top < raw.height() {
+        while band_top < raw.height() && row_support[band_top] < minimum_support {
+            band_top += 1;
+        }
+        if band_top == raw.height() {
+            break;
+        }
+        let candidate_top = band_top;
+        while band_top + 1 < raw.height() && row_support[band_top + 1] >= minimum_support {
+            band_top += 1;
+        }
+        let candidate_bottom = band_top;
+        let thickness = candidate_bottom - candidate_top + 1;
+        if thickness <= maximum_thickness {
+            let left = (candidate_top..=candidate_bottom)
+                .map(|y| row_left[y])
+                .min()
+                .unwrap_or(raw.width());
+            let right = (candidate_top..=candidate_bottom)
+                .map(|y| row_right[y])
+                .max()
+                .unwrap_or(0);
+            let span = right.saturating_sub(left).saturating_add(1);
+            let support = (candidate_top..=candidate_bottom)
+                .map(|y| row_support[y])
+                .sum::<usize>();
+            let overlapping_text = (candidate_top..=candidate_bottom)
+                .map(|y| row_text_overlap[y])
+                .sum::<usize>();
+            let semantic_text_above = if left <= right && right < raw.width() {
+                let top = candidate_top.saturating_sub(maximum_text_gap);
+                (top..candidate_top).any(|y| {
+                    (left..=right).any(|x| {
+                        text_mask.is_some_and(|mask| mask.get(x, y))
+                            || text_vicinity_mask.is_some_and(|mask| mask.get(x, y))
+                    })
+                })
+            } else {
+                false
+            };
+            let row_text_above = if span >= fallback_minimum_span && left <= right {
+                let top = candidate_top.saturating_sub(maximum_text_gap);
+                (top..candidate_top).rev().find(|&y| {
+                    row_support[y] >= minimum_support
+                        && row_left[y] <= right
+                        && row_right[y] >= left
+                })
+            } else {
+                None
+            };
+            let clear_space_below_text = row_text_above.is_some_and(|text_y| {
+                candidate_top.saturating_sub(text_y).saturating_sub(1) >= minimum_clear_gap
+            });
+            let genuine_rule = span >= minimum_span
+                && support >= span
+                && overlapping_text == 0
+                && (semantic_text_above || clear_space_below_text);
+            if genuine_rule {
+                for y in candidate_top..=candidate_bottom {
+                    for x in left..=right.min(raw.width().saturating_sub(1)) {
+                        if !picture_mask.is_some_and(|mask| mask.get(x, y))
+                            && !text_mask.is_some_and(|mask| mask.get(x, y))
+                        {
+                            rules.set(x, y, true);
+                        }
+                    }
+                }
+            }
+        }
+        band_top += 1;
+    }
+    binary.or(&rules)
 }
 
 fn normalize_tone_to_paper(sample: u8, paper: u8) -> u8 {
@@ -3950,6 +4139,16 @@ fn clean_region(
                         .as_ref()
                         .expect("bilevel output prepares a routing raster"),
                     rendered_picture_mask.as_ref(),
+                    rendered_text_mask.as_ref(),
+                    rendered_text_vicinity_mask.as_ref(),
+                    options.dpi,
+                );
+                let binary = restore_genuine_horizontal_rules(
+                    &binary,
+                    &rendered_gray,
+                    rendered_picture_mask.as_ref(),
+                    rendered_text_mask.as_ref(),
+                    rendered_text_vicinity_mask.as_ref(),
                     options.dpi,
                 );
                 (
@@ -4000,6 +4199,16 @@ fn clean_region(
                             .as_ref()
                             .expect("mixed output prepares a routing raster"),
                         None,
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = restore_genuine_horizontal_rules(
+                        &binary,
+                        &rendered_gray,
+                        None,
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
                     (
@@ -4071,6 +4280,16 @@ fn clean_region(
                             .as_ref()
                             .expect("mixed output prepares a routing raster"),
                         Some(picture_mask),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = restore_genuine_horizontal_rules(
+                        &binary,
+                        &rendered_gray,
+                        Some(picture_mask),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
                     let (mixed_gray, mixed_color, layers) = compose_mixed(
@@ -4804,9 +5023,6 @@ fn suppress_scanner_edge_bands(
     let minimum_boundary_span = (dpi * 3.0 / 25.4).round().max(3.0) as usize;
     let minimum_boundary_area = ((dpi / 25.4).powi(2) * 12.0).round().max(16.0) as usize;
     let remove_component = |component: &scan_primitives::Component| {
-        if owned_pixels[component.label as usize].saturating_mul(4) >= component.area {
-            return false;
-        }
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         let left_boundary = component.left <= boundary_contact
@@ -4833,11 +5049,41 @@ fn suppress_scanner_edge_bands(
             && source.height().saturating_sub(component.top) <= boundary_depth
             && width >= minimum_boundary_span
             && height >= minimum_thickness;
+        // Keep the ordinary 3 mm contact rule narrow enough for marginal
+        // content, but allow a tall, deep scanner rail to use the existing
+        // 10 mm edge-distance contract. The span/area/depth/thickness gates
+        // and ownership guard keep this bounded to catastrophic rails.
+        let tall_deep_left_boundary = component.left <= edge_distance
+            && component.right <= boundary_depth
+            && height >= edge_distance
+            && component.area >= minimum_boundary_area
+            && height >= minimum_boundary_span
+            && width >= minimum_thickness;
+        let tall_deep_right_boundary = source
+            .width()
+            .saturating_sub(1)
+            .saturating_sub(component.right)
+            <= edge_distance
+            && source.width().saturating_sub(component.left) <= boundary_depth
+            && height >= edge_distance
+            && component.area >= minimum_boundary_area
+            && height >= minimum_boundary_span
+            && width >= minimum_thickness;
+        let owned = owned_pixels[component.label as usize].saturating_mul(4) >= component.area;
+        if owned {
+            return false;
+        }
         let mostly_boundary_shadow = component.area >= minimum_boundary_area
             && boundary_pixels[component.label as usize].saturating_mul(4)
                 >= component.area.saturating_mul(3)
             && luminance_sum[component.label as usize] >= component.area.saturating_mul(72);
-        left_boundary || right_boundary || top_boundary || bottom_boundary || mostly_boundary_shadow
+        left_boundary
+            || right_boundary
+            || tall_deep_left_boundary
+            || tall_deep_right_boundary
+            || top_boundary
+            || bottom_boundary
+            || mostly_boundary_shadow
     };
     let component_artifacts = components.retain(remove_component);
     removed = removed.or(&component_artifacts);

@@ -255,7 +255,8 @@ mod tests {
             }
         }
 
-        let filtered = filter_soft_shallow_bleed_components(&binary, &raw, None, 360.0);
+        let filtered =
+            filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 360.0);
 
         assert_eq!(
             (12..168)
@@ -309,7 +310,8 @@ mod tests {
             crate::BinarizationMode::Wolf,
             360.0,
         );
-        let filtered = filter_soft_shallow_bleed_components(&rescued, &raw, None, 360.0);
+        let filtered =
+            filter_soft_shallow_bleed_components(&rescued, &raw, None, None, None, 360.0);
 
         assert!((24..36).all(|x| filtered.get(x, 30)));
         assert_eq!(
@@ -320,6 +322,198 @@ mod tests {
             0,
             "the final bleed authority must remove show-through even after rescue"
         );
+    }
+
+    #[test]
+    fn soft_underline_below_text_row_is_preserved() {
+        let mut raw = GrayImage::new(420, 160, 220);
+        let mut binary = BinaryImage::new(420, 160);
+        let mut text_mask = BinaryImage::new(420, 160);
+        let mut text_vicinity = BinaryImage::new(420, 160);
+        for left in [54, 112, 170, 228, 286] {
+            for y in 36..58 {
+                for x in left..left + 26 {
+                    raw.set(x, y, 35);
+                    binary.set(x, y, true);
+                    text_mask.set(x, y, true);
+                }
+            }
+        }
+        for y in 32..62 {
+            for x in 48..372 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 72..74 {
+            for x in 48..372 {
+                raw.set(x, y, 120);
+                binary.set(x, y, true);
+            }
+        }
+        for y in 74..80 {
+            for x in 48..372 {
+                raw.set(x, y, 180);
+                binary.set(x, y, true);
+            }
+        }
+
+        let filtered = filter_soft_shallow_bleed_components(
+            &binary,
+            &raw,
+            None,
+            Some(&text_mask),
+            Some(&text_vicinity),
+            360.0,
+        );
+
+        assert!((48..372).all(|x| (72..80).all(|y| filtered.get(x, y))));
+        assert!([54, 112, 170, 228, 286]
+            .into_iter()
+            .all(|left| (left..left + 26).all(|x| (36..58).all(|y| filtered.get(x, y)))));
+    }
+
+    #[test]
+    fn soft_underline_recovery_restores_a_rule_erased_by_postprocessing() {
+        let mut raw = GrayImage::new(420, 160, 220);
+        let mut binary = BinaryImage::new(420, 160);
+        let mut text_mask = BinaryImage::new(420, 160);
+        let mut text_vicinity = BinaryImage::new(420, 160);
+        for left in [54, 112, 170, 228, 286] {
+            for y in 36..58 {
+                for x in left..left + 26 {
+                    raw.set(x, y, 35);
+                    binary.set(x, y, true);
+                    text_mask.set(x, y, true);
+                }
+            }
+        }
+        for y in 32..62 {
+            for x in 48..372 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 72..80 {
+            for x in 48..372 {
+                raw.set(x, y, 100);
+            }
+        }
+
+        let restored = restore_genuine_horizontal_rules(
+            &binary,
+            &raw,
+            None,
+            Some(&text_mask),
+            Some(&text_vicinity),
+            360.0,
+        );
+
+        assert!((48..372).all(|x| (72..80).all(|y| restored.get(x, y))));
+        assert!([54, 112, 170, 228, 286]
+            .into_iter()
+            .all(|left| (left..left + 26).all(|x| (36..58).all(|y| restored.get(x, y)))));
+    }
+
+    #[test]
+    fn soft_strike_through_crossing_text_is_still_stripped() {
+        let mut raw = GrayImage::new(420, 160, 220);
+        let mut binary = BinaryImage::new(420, 160);
+        let mut text_mask = BinaryImage::new(420, 160);
+        for y in 50usize..64 {
+            let distance = y.abs_diff(57).min(7);
+            let value = 180 + (distance * 4) as u8;
+            for x in 48..372 {
+                raw.set(x, y, value);
+            }
+        }
+        for left in [64, 132] {
+            for y in 42..70 {
+                for x in left..left + 34 {
+                    raw.set(x, y, 35);
+                    binary.set(x, y, true);
+                    text_mask.set(x, y, true);
+                }
+            }
+        }
+        for y in 54..60 {
+            for x in 48..372 {
+                binary.set(x, y, true);
+            }
+        }
+
+        let filtered = filter_soft_shallow_bleed_components(
+            &binary,
+            &raw,
+            None,
+            Some(&text_mask),
+            None,
+            360.0,
+        );
+        let filtered = restore_genuine_horizontal_rules(
+            &filtered,
+            &raw,
+            None,
+            Some(&text_mask),
+            None,
+            360.0,
+        );
+
+        assert!((200..260).all(|x| (54..60).all(|y| !filtered.get(x, y))));
+        assert!((64..98).all(|x| (42..70).all(|y| filtered.get(x, y))));
+        assert!((132..166).all(|x| (42..70).all(|y| filtered.get(x, y))));
+    }
+
+    #[test]
+    fn soft_showthrough_below_text_row_is_still_removed() {
+        let mut raw = GrayImage::new(420, 160, 220);
+        let mut binary = BinaryImage::new(420, 160);
+        let mut text_mask = BinaryImage::new(420, 160);
+        let mut text_vicinity = BinaryImage::new(420, 160);
+        for left in [64, 132, 200] {
+            for y in 36..58 {
+                for x in left..left + 30 {
+                    raw.set(x, y, 35);
+                    binary.set(x, y, true);
+                    text_mask.set(x, y, true);
+                }
+            }
+        }
+        for y in 32..62 {
+            for x in 48..372 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 64usize..88 {
+            let distance = y.abs_diff(76).min(12);
+            let value = 180 + (distance * 3) as u8;
+            for x in 48..372 {
+                raw.set(x, y, value);
+            }
+        }
+        for y in 72..80 {
+            for x in 48..372 {
+                binary.set(x, y, true);
+            }
+        }
+
+        let filtered = filter_soft_shallow_bleed_components(
+            &binary,
+            &raw,
+            None,
+            Some(&text_mask),
+            Some(&text_vicinity),
+            360.0,
+        );
+        let filtered = restore_genuine_horizontal_rules(
+            &filtered,
+            &raw,
+            None,
+            Some(&text_mask),
+            Some(&text_vicinity),
+            360.0,
+        );
+
+        assert!((48..372).all(|x| (72..80).all(|y| !filtered.get(x, y))));
+        assert!((64..94).all(|x| (36..58).all(|y| filtered.get(x, y))));
     }
 
     #[test]
@@ -2825,6 +3019,54 @@ mod tests {
             cleaned.get(180, 12),
             "text-owned boundary content was removed"
         );
+    }
+
+    #[test]
+    fn scanner_boundary_tall_rail_uses_ten_mm_contact_but_owned_ornament_survives() {
+        let mut stencil = BinaryImage::new(400, 600);
+        let gray = GrayImage::new(400, 600, 30);
+        let mut picture_mask = BinaryImage::new(400, 600);
+
+        // A connected, broken rail begins 5 mm from the left edge at 100 DPI.
+        // Its sparse rows avoid the dense-column fast path, exercising the
+        // connected-component fallback widened by the 10 mm branch.
+        for y in 100..340 {
+            if y % 3 == 0 {
+                for x in 20..33 {
+                    stencil.set(x, y, true);
+                }
+            } else {
+                stencil.set(20, y, true);
+            }
+        }
+
+        // This 20 mm-tall marginal ornament starts at the same 5 mm inset,
+        // but semantic picture ownership must protect it from the rail rule.
+        for y in 400..480 {
+            for x in 20..36 {
+                stencil.set(x, y, true);
+                picture_mask.set(x, y, true);
+            }
+        }
+
+        let (cleaned, removed) =
+            suppress_scanner_edge_bands(&stencil, &gray, &picture_mask, None, 100.0);
+
+        let rail_remaining = (100..340)
+            .flat_map(|y| (20..33).map(move |x| (x, y)))
+            .filter(|&(x, y)| cleaned.get(x, y))
+            .count();
+        assert_eq!(rail_remaining, 0, "rail pixels remaining: {rail_remaining}");
+        assert!((100..340)
+            .flat_map(|y| (20..33).map(move |x| (x, y)))
+            .filter(|&(x, y)| stencil.get(x, y))
+            .all(|(x, y)| removed.get(x, y)));
+        assert!((100..340)
+            .flat_map(|y| (20..33).map(move |x| (x, y)))
+            .filter(|&(x, y)| stencil.get(x, y))
+            .all(|(x, y)| !cleaned.get(x, y)));
+        assert!((400..480).all(|y| (20..36).all(|x| cleaned.get(x, y))));
+        assert!((400..480).all(|y| (20..36).all(|x| !removed.get(x, y))));
     }
 
     #[test]
