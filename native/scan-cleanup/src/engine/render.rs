@@ -4990,6 +4990,7 @@ fn suppress_scanner_edge_bands(
     // makes ownership, not darkness, the content decision.
     let components = ComponentMap::from_binary(&cleaned);
     let mut owned_pixels = vec![0usize; components.components().len() + 1];
+    let mut picture_owned_pixels = vec![0usize; components.components().len() + 1];
     let mut boundary_pixels = vec![0usize; components.components().len() + 1];
     let mut luminance_sum = vec![0usize; components.components().len() + 1];
     let boundary_depth = (dpi * 32.0 / 25.4).round().max(8.0) as usize;
@@ -5009,6 +5010,9 @@ fn suppress_scanner_edge_bands(
                 || source.height().saturating_sub(y) <= boundary_depth
             {
                 boundary_pixels[label] += 1;
+            }
+            if picture_mask.get(x, y) {
+                picture_owned_pixels[label] += 1;
             }
             if picture_mask.get(x, y) || text_vicinity_mask.is_some_and(|mask| mask.get(x, y)) {
                 owned_pixels[label] += 1;
@@ -5069,14 +5073,24 @@ fn suppress_scanner_edge_bands(
             && component.area >= minimum_boundary_area
             && height >= minimum_boundary_span
             && width >= minimum_thickness;
-        let owned = owned_pixels[component.label as usize].saturating_mul(4) >= component.area;
-        if owned {
-            return false;
-        }
         let mostly_boundary_shadow = component.area >= minimum_boundary_area
             && boundary_pixels[component.label as usize].saturating_mul(4)
                 >= component.area.saturating_mul(3)
             && luminance_sum[component.label as usize] >= component.area.saturating_mul(72);
+        let owned = owned_pixels[component.label as usize].saturating_mul(4) >= component.area;
+        let picture_owned =
+            picture_owned_pixels[component.label as usize].saturating_mul(4) >= component.area;
+        // Full-resolution text recall can claim a scanner rail as semantic ink
+        // even when the picture mask correctly excludes it. Let only the
+        // strongest tall/deep shadow geometry override that text-only claim;
+        // picture ownership remains absolute, and dark marginalia does not
+        // satisfy the pale-shadow gate.
+        let text_owned_tall_deep_shadow = !picture_owned
+            && mostly_boundary_shadow
+            && (tall_deep_left_boundary || tall_deep_right_boundary);
+        if owned && !text_owned_tall_deep_shadow {
+            return false;
+        }
         left_boundary
             || right_boundary
             || tall_deep_left_boundary

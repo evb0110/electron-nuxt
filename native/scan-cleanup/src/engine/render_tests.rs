@@ -3070,6 +3070,51 @@ mod tests {
     }
 
     #[test]
+    fn scanner_boundary_pale_rail_overrides_false_text_ownership_but_keeps_dark_marginalia() {
+        let mut stencil = BinaryImage::new(400, 700);
+        let mut gray = GrayImage::new(400, 700, 255);
+        let picture_mask = BinaryImage::new(400, 700);
+        let mut text_vicinity = BinaryImage::new(400, 700);
+
+        // The full-resolution p349 flow incorrectly claims most of this pale
+        // broken scanner rail as text. Its tall/deep boundary-shadow geometry
+        // is stronger evidence than that text-only ownership claim.
+        for y in 100..340 {
+            let right = if y % 3 == 0 { 33 } else { 21 };
+            for x in 20..right {
+                stencil.set(x, y, true);
+                gray.set(x, y, 150);
+                text_vicinity.set(x, y, true);
+            }
+        }
+
+        // Genuine marginal writing can have the same inset and span. Its dark
+        // tone keeps it outside the boundary-shadow override.
+        for y in 400..560 {
+            for x in 20..36 {
+                stencil.set(x, y, true);
+                gray.set(x, y, 30);
+                text_vicinity.set(x, y, true);
+            }
+        }
+
+        let (cleaned, removed) = suppress_scanner_edge_bands(
+            &stencil,
+            &gray,
+            &picture_mask,
+            Some(&text_vicinity),
+            100.0,
+        );
+
+        assert!((100..340)
+            .flat_map(|y| (20..33).map(move |x| (x, y)))
+            .filter(|&(x, y)| stencil.get(x, y))
+            .all(|(x, y)| removed.get(x, y) && !cleaned.get(x, y)));
+        assert!((400..560).all(|y| (20..36).all(|x| cleaned.get(x, y))));
+        assert!((400..560).all(|y| (20..36).all(|x| !removed.get(x, y))));
+    }
+
+    #[test]
     fn scanner_boundary_suppression_preserves_printable_line_art_inside_the_margin() {
         let mut stencil = BinaryImage::new(400, 600);
         let gray = GrayImage::new(400, 600, 150);
