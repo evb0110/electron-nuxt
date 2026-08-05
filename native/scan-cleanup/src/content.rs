@@ -2049,6 +2049,64 @@ mod tests {
     }
 
     #[test]
+    fn isolated_running_head_and_underline_far_above_body_are_content() {
+        let mut image = GrayImage::new(700, 1_000, 236);
+        draw_glyph_line(&mut image, 62, 92, 18, 6, 11, 4);
+        for x in 60..641 {
+            image.set(x, 124, 22);
+            image.set(x, 125, 22);
+        }
+        for row in 0..22 {
+            let top = 420 + row * 21;
+            draw_glyph_line(&mut image, 62, top, 15, 6, 11, 4);
+            draw_glyph_line(&mut image, 360, top, 15, 6, 11, 4);
+        }
+
+        let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
+        let bounds = result
+            .content
+            .expect("header, underline, and body are content");
+
+        assert!(
+            bounds.y <= 92.0,
+            "isolated running head was trimmed: {bounds:?}"
+        );
+        assert!(
+            bounds.right() >= 640.0,
+            "running-head underline was trimmed: {bounds:?}"
+        );
+    }
+
+    #[test]
+    fn scanner_noise_band_above_running_head_stays_excluded() {
+        let mut image = GrayImage::new(700, 1_000, 236);
+        for y in 0..10 {
+            for x in 0..700 {
+                image.set(x, y, 18 + ((x + y) % 9) as u8);
+            }
+        }
+        draw_glyph_line(&mut image, 62, 92, 18, 6, 11, 4);
+        for x in 60..641 {
+            image.set(x, 124, 22);
+            image.set(x, 125, 22);
+        }
+        for row in 0..22 {
+            let top = 420 + row * 21;
+            draw_glyph_line(&mut image, 62, top, 15, 6, 11, 4);
+            draw_glyph_line(&mut image, 360, top, 15, 6, 11, 4);
+        }
+
+        let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
+        let bounds = result.content.expect("running head and body are content");
+
+        assert!(bounds.y > 10.0, "scanner-edge band survived: {bounds:?}");
+        assert!(
+            bounds.y <= 92.0,
+            "running head was trimmed with the band: {bounds:?}"
+        );
+    }
+
+    #[test]
     fn edge_attached_band_remains_trimmable_beyond_the_border_zone() {
         let (bounds, accepted_trims) = direct_trim_fixture(0, 30);
         let bounds = bounds.expect("edge-attached artifact and body are content");

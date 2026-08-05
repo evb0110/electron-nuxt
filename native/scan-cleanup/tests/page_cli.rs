@@ -801,6 +801,83 @@ fn matched_canvas_repads_the_published_pbm_without_a_composite() {
 }
 
 #[test]
+fn matched_canvas_places_an_automatic_crop_at_its_paper_origin() {
+    let scratch = Scratch::new("matched-crop-origin");
+    let input = scratch.path("matched-crop-origin-input.png");
+    let output = scratch.path("matched-crop-origin-output.png");
+    let metadata = scratch.path("matched-crop-origin-output.json");
+    let page_metadata = scratch.path("matched-crop-origin-page.json");
+    let manifest = scratch.path("matched-crop-origin-manifest.json");
+    let mut image = GrayImage::new(100, 100, 255);
+    for y in 20..70 {
+        for x in 30..70 {
+            if y % 9 < 3 {
+                image.set(x, y, 20);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 72.0,
+            "heightPoints": 72.0,
+            "widthPx": 100,
+            "heightPx": 100
+        },
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": {
+                "dpi": 100.0,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                "cropContent": true,
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0},
+                "outputMode": "grayscale",
+                "matchPageSize": true,
+                "pageAlignment": "top-left",
+                "automaticContentBoxes": {
+                    "full": {
+                        "xNormalized": 0.2,
+                        "yNormalized": 0.1,
+                        "widthNormalized": 0.6,
+                        "heightNormalized": 0.7,
+                        "rotationDegrees": 0
+                    }
+                }
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata}]
+        }]
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let metadata: Value = serde_json::from_slice(&fs::read(metadata).unwrap()).unwrap();
+    assert_eq!(metadata["cropRect"]["xPx"], 20.0);
+    assert_eq!(metadata["cropRect"]["yPx"], 10.0);
+    assert_eq!(metadata["matchedCanvasContentWidthPx"], 60);
+    assert_eq!(metadata["matchedCanvasContentHeightPx"], 70);
+    assert_eq!(metadata["placementOffsetXPx"], 20);
+    assert_eq!(metadata["placementOffsetYPx"], 10);
+    assert_pdf_image_placement_matches_canvas(&metadata);
+}
+
+#[test]
 fn failed_bilevel_publication_falls_back_to_the_composite() {
     let scratch = Scratch::new("failed-bilevel");
     let input = scratch.path("failed-bilevel-input.png");

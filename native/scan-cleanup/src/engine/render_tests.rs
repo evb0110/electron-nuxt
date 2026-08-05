@@ -4668,4 +4668,33 @@ mod tests {
         assert!(!field.get(200, 90), "page rules are not photo");
         assert!(!field.get(200, 470), "text lines are not photo");
     }
+
+    #[test]
+    fn heading_rescue_adds_only_wholly_missing_selected_components() {
+        let mut binary = BinaryImage::new(64, 32);
+        let mut trusted = BinaryImage::new(64, 32);
+        for y in 10..15 {
+            for x in 20..25 {
+                trusted.set(x, y, true);
+            }
+            for x in 32..37 {
+                trusted.set(x, y, true);
+                binary.set(x, y, true);
+            }
+        }
+        for x in 0..64 {
+            trusted.set(x, 1, true);
+        }
+
+        let rescued = rescue_missing_heading_components(
+            &binary,
+            &trusted,
+            &[Rect::new(12.0, 8.0, 36.0, 12.0)],
+        );
+
+        assert!(rescued.get(22, 12), "missing running-head glyph was not restored");
+        assert!(rescued.get(34, 12), "existing running-head glyph was changed");
+        assert!(!rescued.get(10, 1), "scanner-edge band escaped the heading region");
+        assert_eq!(rescued.count_black(), 50);
+    }
 }

@@ -3014,6 +3014,75 @@ fn rescue_isolated_raw_ink(raw: &GrayImage, picture_mask: &BinaryImage, dpi: f64
     })
 }
 
+/// Reclaims source-selected components that disappeared completely from a
+/// running-head block. The producer selection is only evidence here: it is
+/// clipped to a detector-owned heading region and contributes whole missing
+/// components, while already-rendered glyphs keep their fresh raster shape.
+/// This avoids both source-layer passthrough and intensity threshold tuning.
+fn rescue_missing_heading_components(
+    binary: &BinaryImage,
+    trusted_foreground: &BinaryImage,
+    heading_regions: &[Rect],
+) -> BinaryImage {
+    debug_assert_eq!(binary.width(), trusted_foreground.width());
+    debug_assert_eq!(binary.height(), trusted_foreground.height());
+    if heading_regions.is_empty() {
+        return binary.clone();
+    }
+    let candidates = BinaryImage::from_fn_parallel(binary.width(), binary.height(), |x, y| {
+        trusted_foreground.get(x, y)
+            && heading_regions.iter().any(|region| {
+                (x as f64) >= region.x
+                    && (x as f64) < region.right()
+                    && (y as f64) >= region.y
+                    && (y as f64) < region.bottom()
+            })
+    });
+    let components = ComponentMap::from_binary(&candidates);
+    let mut overlaps = vec![false; components.components().len() + 1];
+    for y in 0..binary.height() {
+        for x in 0..binary.width() {
+            if binary.get(x, y) {
+                overlaps[components.label_at(x, y) as usize] = true;
+            }
+        }
+    }
+    binary.or(&components.retain(|component| !overlaps[component.label as usize]))
+}
+
+fn heading_regions_in_render(
+    diagnostics: Option<&ContentDiagnostics>,
+    analysis_scale_x: f64,
+    analysis_scale_y: f64,
+    render_rect: Rect,
+) -> Vec<Rect> {
+    diagnostics
+        .into_iter()
+        .flat_map(|diagnostics| diagnostics.protected_blocks.iter())
+        .filter(|block| block.heading_evidence)
+        .filter_map(|block| {
+            let left = block.bounds.x_px as f64 / analysis_scale_x - render_rect.x;
+            let top = block.bounds.y_px as f64 / analysis_scale_y - render_rect.y;
+            let right = (block.bounds.x_px + block.bounds.width_px) as f64 / analysis_scale_x
+                - render_rect.x;
+            let bottom = (block.bounds.y_px + block.bounds.height_px) as f64 / analysis_scale_y
+                - render_rect.y;
+            let clipped_left = left.max(0.0);
+            let clipped_top = top.max(0.0);
+            let clipped_right = right.min(render_rect.width);
+            let clipped_bottom = bottom.min(render_rect.height);
+            (clipped_right > clipped_left && clipped_bottom > clipped_top).then(|| {
+                Rect::new(
+                    clipped_left,
+                    clipped_top,
+                    clipped_right - clipped_left,
+                    clipped_bottom - clipped_top,
+                )
+            })
+        })
+        .collect()
+}
+
 fn filter_soft_shallow_bleed_components(
     binary: &BinaryImage,
     raw: &GrayImage,
@@ -3424,7 +3493,7 @@ fn clean_region(
     tone_preservation_alpha: Option<&GrayImage>,
     text_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
-    _trusted_foreground_mask: Option<&BinaryImage>,
+    trusted_foreground_mask: Option<&BinaryImage>,
     _trusted_tone_mask: Option<&BinaryImage>,
     _trusted_background_gray: Option<&GrayImage>,
     _trusted_background_color: Option<&RgbImage>,
@@ -3736,6 +3805,29 @@ fn clean_region(
         }
         detected
     };
+    // Batch rendering normally reuses the analysis pass's automatic content
+    // rectangle. That rectangle deliberately replaces content detection for
+    // crop geometry, but a rectangle alone cannot carry the detector's
+    // protected running-head ownership into fresh-raster binarization. Recover
+    // those semantics locally without changing the resolved crop or published
+    // diagnostics.
+    let heading_diagnostics = if trusted_foreground_mask.is_some()
+        && matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed)
+        && detected.diagnostics.is_none()
+        && !force_clean_blank
+    {
+        detect_content_and_margins_calibrated(
+            content_analysis,
+            content_picture_mask,
+            calibration.effective_dpi,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .diagnostics
+    } else {
+        detected.diagnostics.clone()
+    };
     timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
     let content = content_result_for_dimensions(
         working_width,
@@ -4031,6 +4123,29 @@ fn clean_region(
                 .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
         })
     });
+    let rendered_trusted_foreground_mask = trusted_foreground_mask.map(|mask| {
+        let mask_scale_x = if normalized.width() <= 1 {
+            0.0
+        } else {
+            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
+        };
+        let mask_scale_y = if normalized.height() <= 1 {
+            0.0
+        } else {
+            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
+        };
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            render_plan
+                .output_to_source(point)
+                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+        })
+    });
+    let heading_regions = heading_regions_in_render(
+        heading_diagnostics.as_ref(),
+        local_scale_x,
+        local_scale_y,
+        render_rect,
+    );
     if options.output_mode == OutputMode::Mixed {
         partition_mixed_picture_mask(
             &mut rendered_picture_mask,
@@ -4151,6 +4266,11 @@ fn clean_region(
                     rendered_text_vicinity_mask.as_ref(),
                     options.dpi,
                 );
+                let binary = if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
+                    rescue_missing_heading_components(&binary, trusted, &heading_regions)
+                } else {
+                    binary
+                };
                 (
                     CleanupRaster::Bilevel(binary),
                     None,
@@ -4211,6 +4331,11 @@ fn clean_region(
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
+                    let binary = if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
+                        rescue_missing_heading_components(&binary, trusted, &heading_regions)
+                    } else {
+                        binary
+                    };
                     (
                         CleanupRaster::Bilevel(binary),
                         None,
@@ -4292,6 +4417,11 @@ fn clean_region(
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
+                    let binary = if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
+                        rescue_missing_heading_components(&binary, trusted, &heading_regions)
+                    } else {
+                        binary
+                    };
                     let (mixed_gray, mixed_color, layers) = compose_mixed(
                         &rendered_gray,
                         None,

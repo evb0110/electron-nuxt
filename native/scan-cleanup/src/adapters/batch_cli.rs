@@ -168,6 +168,11 @@ struct WrittenOutput {
     /// scanned as half of a spread, on a sheet that is half empty.
     paper_width: f64,
     paper_height: f64,
+    /// Origin of the intrinsic crop within that paper. Matched-canvas
+    /// placement must compose this with the paper's alignment; aligning the
+    /// cropped raster itself moves every retained mark toward the page edge.
+    crop_x: f64,
+    crop_y: f64,
     matched_in_memory: bool,
 }
 
@@ -1429,6 +1434,8 @@ fn run_page(
                 let placement = plan_canvas_placement_for(
                     output.image.width(),
                     output.image.height(),
+                    output.metadata.crop_rect.x,
+                    output.metadata.crop_rect.y,
                     output.metadata.source_region.width,
                     output.metadata.source_region.height,
                     &options,
@@ -1669,6 +1676,8 @@ fn run_page(
                 height: output.image.height(),
                 paper_width: output.metadata.source_region.width,
                 paper_height: output.metadata.source_region.height,
+                crop_x: output.metadata.crop_rect.x,
+                crop_y: output.metadata.crop_rect.y,
                 matched_in_memory: matched_placement.is_some(),
             });
         }
@@ -1920,6 +1929,8 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
     plan_canvas_placement_for(
         output.width,
         output.height,
+        output.crop_x,
+        output.crop_y,
         output.paper_width,
         output.paper_height,
         &output.options,
@@ -1931,6 +1942,8 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
 fn plan_canvas_placement_for(
     width: usize,
     height: usize,
+    crop_x: f64,
+    crop_y: f64,
     paper_width: f64,
     paper_height: f64,
     options: &CleanupOptions,
@@ -1950,22 +1963,35 @@ fn plan_canvas_placement_for(
         || paper_height_points / canvas.height_points * canvas.height_px as f64
             > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
     let pixel_scale = paper_scale * canvas.dpi() / options.dpi;
-    let mut scaled_width = width as f64 * pixel_scale;
-    let mut scaled_height = height as f64 * pixel_scale;
+    let mut render_scale = pixel_scale;
+    let mut scaled_width = width as f64 * render_scale;
+    let mut scaled_height = height as f64 * render_scale;
     let overflow = scaled_width > canvas.width_px as f64 + CANVAS_GRID_TOLERANCE_PX
         || scaled_height > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
     if overflow {
         let fit = (canvas.width_px as f64 / scaled_width.max(1.0))
             .min(canvas.height_px as f64 / scaled_height.max(1.0));
+        render_scale *= fit;
         scaled_width *= fit;
         scaled_height *= fit;
     }
     let content_width = (scaled_width.round() as usize).clamp(1, canvas.width_px);
     let content_height = (scaled_height.round() as usize).clamp(1, canvas.height_px);
-    let (left, top) = options.placement_for(half).offset(
-        canvas.width_px - content_width,
-        canvas.height_px - content_height,
+    let aligned_paper_width = (paper_width * render_scale).round() as usize;
+    let aligned_paper_height = (paper_height * render_scale).round() as usize;
+    let (paper_left, paper_top) = options.placement_for(half).offset(
+        canvas.width_px.saturating_sub(aligned_paper_width),
+        canvas.height_px.saturating_sub(aligned_paper_height),
     );
+    // Cropping selects a rectangle from the aligned paper; it does not give
+    // that rectangle a new page origin. Compose the crop offset after paper
+    // alignment so crop-on and crop-off retain identical page coordinates.
+    let left = paper_left
+        .saturating_add((crop_x.max(0.0) * render_scale).round() as usize)
+        .min(canvas.width_px - content_width);
+    let top = paper_top
+        .saturating_add((crop_y.max(0.0) * render_scale).round() as usize)
+        .min(canvas.height_px - content_height);
     CanvasPlacement {
         content_width,
         content_height,
@@ -2695,13 +2721,13 @@ mod tests {
     use super::{
         adaptive_thread_count, box_downsample_gray, estimate_peak_page_bytes, manifest_cache,
         manifest_worker_threads, normalize_trusted_foreground_selection, page_worker_threads,
-        preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
-        robust_quantile_dimension, run_stream_page_jobs, PageResultMetadata, PageRunResult,
-        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        plan_canvas_placement_for, preserve_tier1_provenance_after_rerun,
+        reconcile_classification_batch, robust_quantile_dimension, run_stream_page_jobs,
+        PageResultMetadata, PageRunResult, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
-            AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
+            AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, RenderMode,
             SplitSeamPolyline, VERSION,
         },
         protocol::progress::PageStageTimings,
@@ -2730,6 +2756,48 @@ mod tests {
             robust_quantile_dimension([80, 80, 80, 80, 80, 80, 80, 80, 80, 140].into_iter()),
             80
         );
+    }
+
+    #[test]
+    fn matched_canvas_composes_crop_origin_after_paper_alignment() {
+        let options = CleanupOptions {
+            dpi: 360.0,
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 700.0 / 360.0 * 72.0,
+            height_points: 1_000.0 / 360.0 * 72.0,
+            width_px: 700,
+            height_px: 1_000,
+        };
+
+        let cropped = plan_canvas_placement_for(
+            580,
+            820,
+            60.0,
+            90.0,
+            700.0,
+            1_000.0,
+            &options,
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+        );
+        let uncropped = plan_canvas_placement_for(
+            700,
+            1_000,
+            0.0,
+            0.0,
+            700.0,
+            1_000.0,
+            &options,
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+        );
+
+        assert_eq!((cropped.left, cropped.top), (60, 90));
+        assert_eq!((uncropped.left, uncropped.top), (0, 0));
+        assert_eq!(cropped.content_width, 580);
+        assert_eq!(cropped.content_height, 820);
     }
 
     #[test]
