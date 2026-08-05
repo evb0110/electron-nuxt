@@ -220,6 +220,7 @@ fn parse_v1_v2_page_specs<'a>(
         }
         page_specs.push(PageSpec::Image {
             page_size,
+            placement: None,
             image: ImageSpec {
                 source: read_input_source(request, offset)?,
                 compression,
@@ -263,6 +264,7 @@ fn parse_v3_v4_page_specs<'a>(
         page_specs.push(match kind {
             PAGE_KIND_IMAGE => PageSpec::Image {
                 page_size: Some(page_size),
+                placement: None,
                 image: ImageSpec {
                     source: read_input_source(request, offset)?,
                     compression,

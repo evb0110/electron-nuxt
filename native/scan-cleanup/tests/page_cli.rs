@@ -56,6 +56,40 @@ fn unmatched_options() -> CleanupOptions {
     }
 }
 
+fn assert_pdf_image_placement_matches_canvas(metadata: &Value) {
+    let placement = &metadata["pdfImagePlacement"];
+    assert!(
+        placement.is_object(),
+        "missing PDF image placement: {metadata}"
+    );
+    let canvas_width = metadata["canvasWidthPx"].as_f64().unwrap();
+    let canvas_height = metadata["canvasHeightPx"].as_f64().unwrap();
+    let page_width = metadata["matchedCanvasTargetWidthPoints"].as_f64().unwrap();
+    let page_height = metadata["matchedCanvasTargetHeightPoints"]
+        .as_f64()
+        .unwrap();
+    let content_width = metadata["matchedCanvasContentWidthPx"].as_f64().unwrap();
+    let content_height = metadata["matchedCanvasContentHeightPx"].as_f64().unwrap();
+    let offset_x = metadata["placementOffsetXPx"].as_f64().unwrap();
+    let offset_y = metadata["placementOffsetYPx"].as_f64().unwrap();
+    let expected = [
+        offset_x / canvas_width * page_width,
+        page_height - (offset_y + content_height) / canvas_height * page_height,
+        content_width / canvas_width * page_width,
+        content_height / canvas_height * page_height,
+    ];
+    for (field, expected) in ["xPoints", "yPoints", "widthPoints", "heightPoints"]
+        .into_iter()
+        .zip(expected)
+    {
+        let actual = placement[field].as_f64().unwrap();
+        assert!(
+            (actual - expected).abs() <= 1e-9,
+            "{field}={actual} expected {expected}"
+        );
+    }
+}
+
 #[test]
 fn real_gray_flyleaf_is_white_and_consistent_in_preview_and_final_cli_renders() {
     let scratch = Scratch::new("gray-flyleaf");
@@ -1635,12 +1669,11 @@ fn batch_applies_per_output_placement_over_document_default() {
 
     let matched_small = decode_gray(&fs::read(&output_small).unwrap(), 20_000, 200).unwrap();
     let matched_large = decode_gray(&fs::read(&output_large).unwrap(), 20_000, 200).unwrap();
-    assert_eq!((matched_small.width(), matched_small.height()), (100, 90));
+    assert_eq!((matched_small.width(), matched_small.height()), (80, 60));
     assert_eq!((matched_large.width(), matched_large.height()), (100, 90));
-    assert!(matched_small.get(25, 37) < 200);
-    assert_eq!(matched_small.get(5, 7), 255);
-    // The smaller page was scaled to the document's width and placed at the
-    // bottom of the rectangle its own override asked for.
+    assert!(matched_small.get(5, 7) < 200);
+    // The smaller page stays at source resolution; its metadata scales it to
+    // the document width and places it at the bottom per its override.
 
     let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata_small).unwrap()).unwrap();
     assert_eq!(
@@ -1648,14 +1681,15 @@ fn batch_applies_per_output_placement_over_document_default() {
         serde_json::json!([0, 15, 0, 0])
     );
     assert_eq!(metadata_json["uniformCanvas"], true);
-    assert_eq!(metadata_json["outputWidthPx"], 100);
-    assert_eq!(metadata_json["outputHeightPx"], 75);
+    assert_eq!(metadata_json["outputWidthPx"], 80);
+    assert_eq!(metadata_json["outputHeightPx"], 60);
     assert_eq!(metadata_json["matchedCanvasContentWidthPx"], 100);
     assert_eq!(metadata_json["matchedCanvasContentHeightPx"], 75);
     assert_eq!(metadata_json["canvasWidthPx"], 100);
     assert_eq!(metadata_json["canvasHeightPx"], 90);
     assert_eq!(metadata_json["placementOffsetXPx"], 0);
     assert_eq!(metadata_json["placementOffsetYPx"], 15);
+    assert_pdf_image_placement_matches_canvas(&metadata_json);
     assert_eq!(metadata_json["forwardTransform"]["matrix"][0][2], 0.0);
     assert_eq!(metadata_json["forwardTransform"]["matrix"][1][2], 0.0);
 
@@ -1713,7 +1747,7 @@ fn batch_applies_per_output_placement_over_document_default() {
 }
 
 #[test]
-fn matched_canvas_normalizes_every_page_onto_one_rectangle_and_one_grid() {
+fn matched_canvas_keeps_source_grids_and_reports_one_physical_rectangle() {
     let scratch = Scratch::new("matched-quantile");
     let manifest = scratch.path("matched-quantile-manifest.json");
     let mut pages = Vec::new();
@@ -1780,11 +1814,8 @@ fn matched_canvas_normalizes_every_page_onto_one_rectangle_and_one_grid() {
         let image = decode_gray(&fs::read(&output_paths[index]).unwrap(), 20_000, 200).unwrap();
         let metadata: Value =
             serde_json::from_slice(&fs::read(&metadata_paths[index]).unwrap()).unwrap();
-        assert_eq!(
-            (image.width(), image.height()),
-            (140, 100),
-            "page {index} did not land on the document's pixel grid"
-        );
+        let expected_dimensions = if index == 9 { (140, 100) } else { (80, 60) };
+        assert_eq!((image.width(), image.height()), expected_dimensions);
         assert_eq!(metadata["matchedCanvasTargetWidthPx"], 140);
         assert_eq!(metadata["matchedCanvasTargetHeightPx"], 100);
         assert_eq!(metadata["matchedCanvasTargetWidthPoints"], 33.6);
@@ -1796,10 +1827,11 @@ fn matched_canvas_normalizes_every_page_onto_one_rectangle_and_one_grid() {
         assert_eq!(metadata["canvasHeightPx"], 100);
         let content_width = metadata["matchedCanvasContentWidthPx"].as_f64().unwrap();
         let content_height = metadata["matchedCanvasContentHeightPx"].as_f64().unwrap();
-        assert_eq!(metadata["outputWidthPx"].as_f64().unwrap(), content_width);
-        assert_eq!(metadata["outputHeightPx"].as_f64().unwrap(), content_height);
+        assert_eq!(metadata["outputWidthPx"], expected_dimensions.0);
+        assert_eq!(metadata["outputHeightPx"], expected_dimensions.1);
         if index == 9 {
             assert_eq!((content_width, content_height), (140.0, 100.0));
+            assert!(metadata["pdfImagePlacement"].is_null());
             continue;
         }
         // The smaller page is scaled up to the canvas, not padded into a
@@ -1810,6 +1842,7 @@ fn matched_canvas_normalizes_every_page_onto_one_rectangle_and_one_grid() {
             (content_width / content_height - 80.0 / 60.0).abs() < 0.02,
             "page {index} lost its aspect ratio ({content_width}x{content_height})"
         );
+        assert_pdf_image_placement_matches_canvas(&metadata);
     }
 }
 
@@ -1916,6 +1949,70 @@ fn matched_canvas_keeps_lower_resolution_continuous_tone_at_its_native_grid() {
 }
 
 #[test]
+fn matched_canvas_keeps_color_at_source_resolution_and_emits_pdf_placement() {
+    let scratch = Scratch::new("matched-color-placement");
+    let manifest = scratch.path("manifest.json");
+    let input = scratch.path("input.png");
+    let output = scratch.path("output.png");
+    let metadata_path = scratch.path("output.json");
+    let mut image = RgbImage::new(80, 60, [248; 3]);
+    for y in 10..50 {
+        for x in 15..65 {
+            image.set(x, y, [30, 90, 180]);
+        }
+    }
+    fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "documentCanvas": {
+                "widthPoints": 28.8,
+                "heightPoints": 24.0,
+                "widthPx": 120,
+                "heightPx": 100
+            },
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("page.json"),
+                "options": {
+                    "dpi": 300,
+                    "layout": "force-single",
+                    "normalizeIllumination": false,
+                    "cropContent": false,
+                    "outputMode": "color",
+                    "matchPageSize": true,
+                    "pageAlignment": "center"
+                },
+                "outputs": [{"outputPath": output, "metadataPath": metadata_path}]
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let raster = decode_gray(&fs::read(&output).unwrap(), 20_000, 200).unwrap();
+    assert_eq!((raster.width(), raster.height()), (80, 60));
+    let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
+    assert_eq!(metadata["outputWidthPx"], 80);
+    assert_eq!(metadata["outputHeightPx"], 60);
+    assert_pdf_image_placement_matches_canvas(&metadata);
+}
+
+#[test]
 fn matched_canvas_fits_an_oversized_page_instead_of_growing_the_document() {
     let scratch = Scratch::new("matched-oversized");
     let manifest = scratch.path("matched-oversized-manifest.json");
@@ -1987,11 +2084,8 @@ fn matched_canvas_fits_an_oversized_page_instead_of_growing_the_document() {
     for (index, metadata_path) in metadata_paths.iter().enumerate() {
         let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 50_000, 300).unwrap();
         let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
-        assert_eq!(
-            (image.width(), image.height()),
-            (100, 140),
-            "page {index} resized the document"
-        );
+        let expected_dimensions = if index == 0 { (100, 140) } else { (210, 100) };
+        assert_eq!((image.width(), image.height()), expected_dimensions);
         assert_eq!(metadata["canvasWidthPx"], 100);
         assert_eq!(metadata["canvasHeightPx"], 140);
         let content_width = metadata["matchedCanvasContentWidthPx"].as_f64().unwrap();
@@ -2006,6 +2100,9 @@ fn matched_canvas_fits_an_oversized_page_instead_of_growing_the_document() {
                 "the oversized page lost its aspect ratio ({content_width}x{content_height})"
             );
             assert!(metadata["placementOffsetYPx"].as_f64().unwrap() > 0.0);
+            assert_pdf_image_placement_matches_canvas(&metadata);
+        } else {
+            assert!(metadata["pdfImagePlacement"].is_null());
         }
     }
 }
@@ -2082,15 +2179,15 @@ fn matched_canvas_keeps_rotation_and_margins_inside_the_document_rectangle() {
     for (index, metadata_path) in metadata_paths.iter().enumerate() {
         let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 200_000, 400).unwrap();
         let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
-        assert_eq!(
-            (image.width(), image.height()),
-            (240, 320),
-            "page {index} was resized by its rotation or its margins"
-        );
+        let expected_dimensions = if index == 0 { (240, 320) } else { (320, 240) };
+        assert_eq!((image.width(), image.height()), expected_dimensions);
         assert_eq!(metadata["canvasWidthPx"], 240);
         assert_eq!(metadata["canvasHeightPx"], 320);
         assert!(metadata["matchedCanvasContentWidthPx"].as_f64().unwrap() <= 240.0);
         assert!(metadata["matchedCanvasContentHeightPx"].as_f64().unwrap() <= 320.0);
+        if index == 1 {
+            assert_pdf_image_placement_matches_canvas(&metadata);
+        }
     }
 }
 
@@ -2179,16 +2276,15 @@ fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
             "preview and final disagree about {field}"
         );
     }
-    // The final run owns the pixels the assembler embeds, so it publishes the
-    // canvas; the preview publishes the raster it rendered and the box the
-    // renderer has to present it in.
-    assert_eq!(final_dimensions, (140, 100));
+    // Both modes retain the raster they rendered. The final adds the PDF
+    // placement contract while the preview already has the canvas fields its
+    // renderer consumes.
+    assert_eq!(final_dimensions, (80, 60));
     assert_eq!(preview_dimensions, (80, 60));
-    assert_eq!(
-        final_metadata["outputWidthPx"],
-        final_metadata["matchedCanvasContentWidthPx"]
-    );
+    assert_eq!(final_metadata["outputWidthPx"], 80);
     assert_eq!(preview_metadata["outputWidthPx"], 80);
+    assert_pdf_image_placement_matches_canvas(&final_metadata);
+    assert!(preview_metadata["pdfImagePlacement"].is_null());
 }
 
 /// `maxPixels` is a limit the matched canvas may reach and never pass. The
@@ -2264,10 +2360,11 @@ fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() 
         String::from_utf8_lossy(&accepted.stderr)
     );
     let rendered = decode_gray(&fs::read(&accepted_output).unwrap(), 14_000, 400).unwrap();
-    assert_eq!((rendered.width(), rendered.height()), (140, 100));
+    assert_eq!((rendered.width(), rendered.height()), (80, 60));
     let metadata: Value = serde_json::from_slice(&fs::read(&accepted_metadata).unwrap()).unwrap();
     assert_eq!(metadata["canvasWidthPx"], 140);
     assert_eq!(metadata["canvasHeightPx"], 100);
+    assert_pdf_image_placement_matches_canvas(&metadata);
 
     let (refused, refused_output, refused_metadata) = run("over", 13_999);
     assert!(
@@ -2758,7 +2855,8 @@ fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
         "a page within a pixel of the grid is not reported as fitted below it"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
-    assert_eq!((image.width(), image.height()), (100, 100));
+    assert_eq!((image.width(), image.height()), (101, 100));
+    assert_pdf_image_placement_matches_canvas(&metadata_json);
 }
 
 #[test]
@@ -2831,8 +2929,9 @@ fn matched_canvas_clamps_requested_margins_to_the_physical_page() {
         "warnings={warnings:?}"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
-    assert_eq!((image.width(), image.height()), (100, 100));
-    // Nothing was clipped: the ink is still there, just smaller.
+    assert_eq!((image.width(), image.height()), (100, 68));
+    assert_pdf_image_placement_matches_canvas(&metadata_json);
+    // Nothing was clipped: the ink is still there.
     assert!((0..image.width()).any(|x| (0..image.height()).any(|y| image.get(x, y) < 128)));
 }
 
@@ -2912,7 +3011,8 @@ fn matched_canvas_reports_a_sheet_larger_than_the_rectangle_it_was_measured_for(
         "warnings={warnings:?}"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
-    assert_eq!((image.width(), image.height()), (50, 100));
+    assert_eq!((image.width(), image.height()), (100, 100));
+    assert_pdf_image_placement_matches_canvas(&metadata_json);
 }
 
 /// The same overflow, previewed. A preview keeps the raster it rendered — the

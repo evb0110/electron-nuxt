@@ -138,6 +138,33 @@ async function requirePublishedRasterFile(path: string | undefined, pageNumber: 
     return path;
 }
 
+function validatePdfImagePlacement(
+    placement: NonNullable<INativeScanCleanupOutputMetadataV3['pdfImagePlacement']>,
+    pageWidthPoints: number,
+    pageHeightPoints: number,
+    pageNumber: number,
+) {
+    const values = [
+        placement.xPoints,
+        placement.yPoints,
+        placement.widthPoints,
+        placement.heightPoints,
+    ];
+    const tolerancePoints = 0.0001;
+    if (
+        !values.every(Number.isFinite)
+        || placement.xPoints < 0
+        || placement.yPoints < 0
+        || placement.widthPoints <= 0
+        || placement.heightPoints <= 0
+        || placement.xPoints + placement.widthPoints > pageWidthPoints + tolerancePoints
+        || placement.yPoints + placement.heightPoints > pageHeightPoints + tolerancePoints
+    ) {
+        throw new Error(`Page ${String(pageNumber)} PDF image placement is outside its MediaBox`);
+    }
+    return values;
+}
+
 export async function runScanCleanupConversion(
     request: IRunScanCleanupPipelineRequest,
     paths: IScanCleanupWorkerPaths,
@@ -1040,6 +1067,24 @@ export async function runScanCleanupConversion(
                 pageWidthPoints.toFixed(6),
                 pageHeightPoints.toFixed(6),
             ];
+            const imagePlacement = output.metadata.pdfImagePlacement;
+            if (
+                imagePlacement !== undefined
+                && (output.bilevelPath !== undefined || output.backgroundPath !== undefined)
+            ) {
+                throw new Error(
+                    `Page ${String(output.sourcePageNumber)} attached continuous-tone placement `
+                    + 'to a bilevel or layered page',
+                );
+            }
+            const placementFields = imagePlacement === undefined
+                ? []
+                : validatePdfImagePlacement(
+                    imagePlacement,
+                    pageWidthPoints,
+                    pageHeightPoints,
+                    output.sourcePageNumber,
+                ).map(value => value.toFixed(6));
             if (output.bilevelPath !== undefined) {
                 return [
                     'image-bilevel',
@@ -1108,12 +1153,14 @@ export async function runScanCleanupConversion(
                     'image',
                     ...pageSize,
                     output.path,
+                    ...placementFields,
                 ]
                 : [
                     'image-jpeg',
                     ...pageSize,
                     jpegQuality,
                     output.path,
+                    ...placementFields,
                 ]).join('\t');
         });
         const hasCompactSourcePages = outputPages.some(output => output.preservedSource !== undefined);

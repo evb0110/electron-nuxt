@@ -12,8 +12,8 @@ use evb_native_support::{
 use evb_pdf_image_combine::{
     combine_tiff_paths, default_worker_threads, encode_netpbm_path_as_png, probe_netpbm_path,
     write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource,
-    JpegSizeGuardrail, PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfPageSize, Result,
-    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
+    JpegSizeGuardrail, PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize,
+    Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
 };
 use serde::Deserialize;
 
@@ -96,6 +96,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                     .cloned()
                     .map(|source| PageSpec::Image {
                         page_size: None,
+                        placement: None,
                         image: ImageSpec {
                             source,
                             compression: ImageCompression::Auto,
@@ -357,8 +358,9 @@ fn parse_compact_manifest_line(
         width_points: parse_positive_f64(parts.get(1).copied(), "width points", line_number)?,
         height_points: parse_positive_f64(parts.get(2).copied(), "height points", line_number)?,
     };
-    let image = |source, compression, processing, size_guardrail| PageSpec::Image {
+    let image = |source, compression, processing, size_guardrail, placement| PageSpec::Image {
         page_size: Some(page_size),
+        placement,
         image: ImageSpec {
             source,
             compression,
@@ -375,14 +377,25 @@ fn parse_compact_manifest_line(
             ImageCompression::Auto,
             ImageProcessing::None,
             None,
+            None,
         )),
-        "image-jpeg" if parts.len() == 5 => Ok(image(
+        "image" if parts.len() == 8 => Ok(image(
+            source(3)?,
+            ImageCompression::Auto,
+            ImageProcessing::None,
+            None,
+            Some(parse_image_placement(&parts, 4, &page_size, line_number)?),
+        )),
+        "image-jpeg" if parts.len() == 5 || parts.len() == 9 => Ok(image(
             source(4)?,
             ImageCompression::JpegWithFlateFallback {
                 quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
             },
             ImageProcessing::None,
             None,
+            (parts.len() == 9)
+                .then(|| parse_image_placement(&parts, 5, &page_size, line_number))
+                .transpose()?,
         )),
         "photo-jpeg" if parts.len() == 6 || parts.len() == 7 => Ok(image(
             source(parts.len() - 1)?,
@@ -402,6 +415,7 @@ fn parse_compact_manifest_line(
                 page: page_number,
                 log_json_progress: true,
             }),
+            None,
         )),
         "layered" if parts.len() == 5 => Ok(PageSpec::Layered {
             page_size,
@@ -509,6 +523,41 @@ fn parse_compact_manifest_line(
     }
 }
 
+fn parse_image_placement(
+    parts: &[&str],
+    offset: usize,
+    page_size: &PdfPageSize,
+    line_number: usize,
+) -> Result<PdfImagePlacement> {
+    let placement = PdfImagePlacement {
+        x_points: parse_non_negative_f64(parts.get(offset).copied(), "placement x", line_number)?,
+        y_points: parse_non_negative_f64(
+            parts.get(offset + 1).copied(),
+            "placement y",
+            line_number,
+        )?,
+        width_points: parse_positive_f64(
+            parts.get(offset + 2).copied(),
+            "placement width",
+            line_number,
+        )?,
+        height_points: parse_positive_f64(
+            parts.get(offset + 3).copied(),
+            "placement height",
+            line_number,
+        )?,
+    };
+    if placement.x_points + placement.width_points > page_size.width_points + 0.0001
+        || placement.y_points + placement.height_points > page_size.height_points + 0.0001
+    {
+        return Err(format!(
+            "Image placement exceeds the page on compact manifest line {line_number}"
+        )
+        .into());
+    }
+    Ok(placement)
+}
+
 fn image_spec(source: PathBuf, compression: ImageCompression) -> ImageSpec<PathBuf> {
     ImageSpec {
         source,
@@ -523,6 +572,16 @@ fn parse_positive_f64(value: Option<&str>, label: &str, line_number: usize) -> R
         .ok_or_else(|| format!("Missing {label} on compact manifest line {line_number}"))?
         .parse::<f64>()?;
     if !parsed.is_finite() || parsed <= 0.0 {
+        return Err(format!("Invalid {label} on compact manifest line {line_number}").into());
+    }
+    Ok(parsed)
+}
+
+fn parse_non_negative_f64(value: Option<&str>, label: &str, line_number: usize) -> Result<f64> {
+    let parsed = value
+        .ok_or_else(|| format!("Missing {label} on compact manifest line {line_number}"))?
+        .parse::<f64>()?;
+    if !parsed.is_finite() || parsed < 0.0 {
         return Err(format!("Invalid {label} on compact manifest line {line_number}").into());
     }
     Ok(parsed)
@@ -607,8 +666,10 @@ mod tests {
     fn parses_all_compact_page_shapes_into_page_specs() {
         let cases = [
             "image\t72\t144\t/tmp/page.ppm",
+            "image\t72\t144\t/tmp/page.ppm\t3\t5\t60\t130",
             "image-bilevel\t72\t144\t/tmp/page.pbm",
             "image-jpeg\t72\t144\t82\t/tmp/page.ppm",
+            "image-jpeg\t72\t144\t82\t/tmp/page.ppm\t3\t5\t60\t130",
             "photo-jpeg\t72\t144\t85\t300\t/tmp/photo.ppm",
             "layered\t72\t144\t/tmp/background.ppm\t/tmp/mask.pbm",
             "layered-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/mask.pbm",
@@ -631,11 +692,49 @@ mod tests {
             "image-jpeg\t72\t144\t0\t/tmp/page.ppm",
             "unknown\t72\t144\t/tmp/page.ppm",
             "photo-jpeg\t72\t144\t75\t0\t/tmp/page.ppm",
+            "image\t72\t144\t/tmp/page.ppm\t20\t5\t60\t130",
+            "image-jpeg\t72\t144\t82\t/tmp/page.ppm\t3\t5\t0\t130",
+            "image-bilevel\t72\t144\t/tmp/page.pbm\t3\t5\t60\t130",
         ]
         .into_iter()
         .enumerate()
         {
             assert!(parse_compact_manifest_line(line, index + 1, index + 1).is_err());
+        }
+    }
+
+    #[test]
+    fn parses_optional_image_placement_without_changing_legacy_lines() {
+        let legacy =
+            parse_compact_manifest_line("image-jpeg\t72\t144\t82\t/tmp/page.ppm", 1, 1).unwrap();
+        assert!(matches!(
+            legacy,
+            PageSpec::Image {
+                placement: None,
+                ..
+            }
+        ));
+
+        let placed = parse_compact_manifest_line(
+            "image-jpeg\t72\t144\t82\t/tmp/page.ppm\t3\t5\t60\t130",
+            1,
+            1,
+        )
+        .unwrap();
+        match placed {
+            PageSpec::Image {
+                placement: Some(placement),
+                ..
+            } => assert_eq!(
+                placement,
+                PdfImagePlacement {
+                    x_points: 3.0,
+                    y_points: 5.0,
+                    width_points: 60.0,
+                    height_points: 130.0,
+                }
+            ),
+            _ => panic!("placed image line did not retain its rectangle"),
         }
     }
 }

@@ -1914,6 +1914,100 @@ describe('scan cleanup pipeline', () => {
         expect(manifestPageCounts).toEqual([pageCount]);
     });
 
+    it('threads native continuous-tone PDF placement into an optional compact-line suffix', async () => {
+        const fixture = await setup();
+        let combineManifest = '';
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                outputs: ICleanupOutput[];
+            }>};
+            const page = manifest.pages[0]!;
+            await writeFile(page.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
+            const output = page.outputs[0]!;
+            await writeFile(output.outputPath, 'PNG-CLEAN');
+            await writeFile(output.metadataPath, JSON.stringify({
+                outputWidthPx: 80,
+                outputHeightPx: 60,
+                canvasWidthPx: 120,
+                canvasHeightPx: 100,
+                matchedCanvasTargetWidthPoints: 28.8,
+                matchedCanvasTargetHeightPoints: 24,
+                matchedCanvasContentWidthPx: 120,
+                matchedCanvasContentHeightPx: 90,
+                placementOffsetXPx: 0,
+                placementOffsetYPx: 5,
+                pdfImagePlacement: {
+                    xPoints: 0,
+                    yPoints: 1.2,
+                    widthPoints: 28.8,
+                    heightPoints: 21.6,
+                },
+                renderDpi: 300,
+                layoutClassification: 'single-uncut-page',
+                skewApplied: false,
+                outputMode: 'grayscale',
+                bilevelWritten: false,
+                layeredWritten: false,
+                contentBox: null,
+                warnings: [],
+            }));
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            1,
+            300,
+        ]]));
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (await answerPageSizesCommand(args)) {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
+            combineManifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                outputMode: 'grayscale',
+            },
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+
+        const fields = combineManifest.trim().split('\t');
+        expect(fields.slice(0, 4)).toEqual([
+            'image-jpeg',
+            '28.800000',
+            '24.000000',
+            String(SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY),
+        ]);
+        expect(fields[4]).toMatch(/clean-1-0\.png$/u);
+        expect(fields.slice(5)).toEqual([
+            '0.000000',
+            '1.200000',
+            '28.800000',
+            '21.600000',
+        ]);
+    });
+
     it('hands the raster sidecar the document rectangle and the one grid it renders on', async () => {
         const fixture = await setup();
         let manifestCanvas: unknown;

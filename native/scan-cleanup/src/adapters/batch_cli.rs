@@ -9,7 +9,7 @@ use crate::mrc::{derive_picture_zones, derive_tone_mask_excluding_foreground};
 use crate::{
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
     io::{pbm, raster},
-    pipeline::{AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy},
+    pipeline::{AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy, PdfImagePlacement},
     png::{self, RgbImage},
     protocol::{
         manifest_v3::{
@@ -1438,12 +1438,12 @@ fn run_page(
                 apply_canvas_metadata(&mut output.metadata, placement, &canvas);
                 match_picture_mask_in_memory(output, placement, &canvas);
                 match_tone_preservation_alpha_in_memory(output, placement, &canvas);
-                // Keep the metadata contract identical to the former
-                // post-publication matcher: these are the intrinsic content
-                // dimensions before the white canvas is added.
-                output.metadata.output_width = placement.content_width;
-                output.metadata.output_height = placement.content_height;
                 if layer_destinations_available {
+                    // Layered and bilevel publication still materializes the
+                    // document canvas, so its intrinsic output is the placed
+                    // content rectangle on that grid.
+                    output.metadata.output_width = placement.content_width;
+                    output.metadata.output_height = placement.content_height;
                     match_layers_in_memory(output, &options, placement, &canvas);
                 } else {
                     match_primary_raster_in_memory(output, placement, &canvas);
@@ -2031,18 +2031,14 @@ fn match_primary_raster_in_memory(
     placement: CanvasPlacement,
     canvas: &DocumentCanvas,
 ) {
-    let resize_gray = |source: &GrayImage| {
-        place_on_white_canvas(
-            &source.resample_to_dimensions(placement.content_width, placement.content_height),
-            canvas.width_px,
-            canvas.height_px,
-            placement.left,
-            placement.top,
-        )
-    };
     output.image = match &output.image {
-        CleanupRaster::Gray(image) => CleanupRaster::Gray(resize_gray(image)),
+        CleanupRaster::Gray(image) => {
+            output.metadata.pdf_image_placement = pdf_image_placement(placement, canvas);
+            CleanupRaster::Gray(image.clone())
+        }
         CleanupRaster::Bilevel(image) => {
+            output.metadata.output_width = placement.content_width;
+            output.metadata.output_height = placement.content_height;
             let gray = CleanupRaster::Bilevel(image.clone()).into_gray();
             let canvas_image = place_on_white_canvas(
                 &resample_bilevel(&gray, placement.content_width, placement.content_height),
@@ -2059,14 +2055,31 @@ fn match_primary_raster_in_memory(
         }
     };
     if let Some(color) = output.color_image.as_ref() {
-        output.color_image = Some(place_rgb_on_white_canvas(
-            &color.resample_to_dimensions(placement.content_width, placement.content_height),
-            canvas.width_px,
-            canvas.height_px,
-            placement.left,
-            placement.top,
-        ));
+        output.metadata.pdf_image_placement = pdf_image_placement(placement, canvas);
+        output.color_image = Some(color.clone());
     }
+}
+
+fn pdf_image_placement(
+    placement: CanvasPlacement,
+    canvas: &DocumentCanvas,
+) -> Option<PdfImagePlacement> {
+    if placement.content_width == canvas.width_px
+        && placement.content_height == canvas.height_px
+        && placement.left == 0
+        && placement.top == 0
+    {
+        return None;
+    }
+    let point_scale_x = canvas.width_points / canvas.width_px as f64;
+    let point_scale_y = canvas.height_points / canvas.height_px as f64;
+    Some(PdfImagePlacement {
+        x_points: placement.left as f64 * point_scale_x,
+        y_points: canvas.height_points
+            - (placement.top + placement.content_height) as f64 * point_scale_y,
+        width_points: placement.content_width as f64 * point_scale_x,
+        height_points: placement.content_height as f64 * point_scale_y,
+    })
 }
 
 fn match_picture_mask_in_memory(

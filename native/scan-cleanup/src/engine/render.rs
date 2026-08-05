@@ -81,6 +81,15 @@ pub struct DewarpMappingGrid {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PdfImagePlacement {
+    pub x_points: f64,
+    pub y_points: f64,
+    pub width_points: f64,
+    pub height_points: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CleanupMetadata {
     pub source_page_index: usize,
     pub half: PageHalf,
@@ -128,6 +137,10 @@ pub struct CleanupMetadata {
     pub matched_canvas_content_width: Option<usize>,
     #[serde(default, rename = "matchedCanvasContentHeightPx")]
     pub matched_canvas_content_height: Option<usize>,
+    /// Physical PDF rectangle for a source-grid continuous-tone raster. When
+    /// absent, assemblers retain the legacy behavior of covering the MediaBox.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf_image_placement: Option<PdfImagePlacement>,
     pub output_mode: OutputMode,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bilevel_written: bool,
@@ -4216,6 +4229,7 @@ fn clean_region(
             matched_canvas_target_height_points: None,
             matched_canvas_content_width: None,
             matched_canvas_content_height: None,
+            pdf_image_placement: None,
             output_mode: options.output_mode,
             bilevel_written: false,
             layered_written: false,

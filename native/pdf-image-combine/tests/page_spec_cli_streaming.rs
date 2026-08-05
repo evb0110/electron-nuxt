@@ -86,6 +86,7 @@ fn cli_preserves_existing_output_for_oversized_input() {
 fn image_bytes<'a>(file_name: &'a str, data: &'a [u8]) -> PageSpec<InputSource<'a>> {
     PageSpec::Image {
         page_size: None,
+        placement: None,
         image: ImageSpec {
             source: InputSource::Bytes { file_name, data },
             compression: ImageCompression::Auto,

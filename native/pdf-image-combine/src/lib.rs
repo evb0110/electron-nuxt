@@ -47,7 +47,7 @@ use crate::{
 pub use crate::{
     image::JpegSizeGuardrail,
     netpbm::{probe_netpbm_path, NetpbmProbe},
-    pdf::PdfPageSize,
+    pdf::{PdfImagePlacement, PdfPageSize},
 };
 
 pub const DEFAULT_DPI: u32 = 72;
@@ -111,6 +111,7 @@ pub enum PdfBilevelDecode {
 pub enum PageSpec<S> {
     Image {
         page_size: Option<PdfPageSize>,
+        placement: Option<PdfImagePlacement>,
         image: ImageSpec<S>,
         frames: FramePolicy,
     },
@@ -149,10 +150,12 @@ impl<S> PageSpec<S> {
         Ok(match self {
             Self::Image {
                 page_size,
+                placement,
                 image,
                 frames,
             } => PageSpec::Image {
                 page_size,
+                placement,
                 image: image.map_source(mapper)?,
                 frames,
             },
@@ -316,6 +319,7 @@ enum PreparedPage {
     Image {
         page: ImagePage,
         page_size: Option<PdfPageSize>,
+        placement: Option<PdfImagePlacement>,
     },
     Layered(Box<LayeredPdfPage>),
     SoftLayered(Box<SoftLayeredPdfPage>),
@@ -328,11 +332,18 @@ fn write_prepared_page<W: Write>(pdf: &mut PdfWriter<W>, page: PreparedPage) -> 
         PreparedPage::Image {
             page,
             page_size: Some(page_size),
-        } => pdf.add_page_with_size(&page, &page_size),
+            placement,
+        } => pdf.add_page_with_size(&page, &page_size, placement.as_ref()),
         PreparedPage::Image {
             page,
             page_size: None,
+            placement: None,
         } => pdf.add_page(&page),
+        PreparedPage::Image {
+            page_size: None,
+            placement: Some(_),
+            ..
+        } => Err("Image placement requires an explicit page size".into()),
         PreparedPage::Layered(page) => pdf.add_layered_page(&page),
         PreparedPage::SoftLayered(page) => pdf.add_soft_layered_page(&page),
         PreparedPage::AffineMaskedLayered(page) => pdf.add_affine_masked_layered_page(&page),
@@ -347,9 +358,10 @@ fn prepare_page_spec(
     match spec {
         PageSpec::Image {
             page_size,
+            placement,
             image,
             frames,
-        } => prepare_image_spec(page_size, image, frames, options),
+        } => prepare_image_spec(page_size, placement, image, frames, options),
         PageSpec::Layered {
             page_size,
             background,
@@ -421,6 +433,7 @@ fn prepare_page_spec(
 
 fn prepare_image_spec(
     page_size: Option<PdfPageSize>,
+    placement: Option<PdfImagePlacement>,
     image: ImageSpec<InputSource<'_>>,
     frames: FramePolicy,
     options: &PdfBuildOptions,
@@ -432,17 +445,23 @@ fn prepare_image_spec(
                 && image.processing == ImageProcessing::None =>
         {
             visit_automatic_pages(image.source, options, |page| {
-                prepared.push(PreparedPage::Image { page, page_size });
+                prepared.push(PreparedPage::Image {
+                    page,
+                    page_size,
+                    placement,
+                });
                 Ok(())
             })?;
         }
         FramePolicy::All => prepared.push(PreparedPage::Image {
             page: read_processed_image(image, options, page_size)?,
             page_size,
+            placement,
         }),
         FramePolicy::ExactlyOne => prepared.push(PreparedPage::Image {
             page: read_exact_image(image, options, page_size)?,
             page_size,
+            placement,
         }),
     }
     Ok(prepared)
@@ -960,6 +979,7 @@ mod tests {
                 Vec::new(),
                 [PageSpec::Image {
                     page_size: Some(PAGE),
+                    placement: None,
                     image: ImageSpec {
                         source: InputSource::Bytes { file_name, data },
                         compression: ImageCompression::Jpeg { quality: 83 },
@@ -1354,6 +1374,7 @@ mod tests {
     ) -> PdfPageSpec<'a> {
         PageSpec::Image {
             page_size,
+            placement: None,
             image: ImageSpec {
                 source: InputSource::Bytes { file_name, data },
                 compression: ImageCompression::Auto,
@@ -1371,6 +1392,7 @@ mod tests {
     ) -> PdfPageSpec<'a> {
         PageSpec::Image {
             page_size: Some(PAGE),
+            placement: None,
             image: ImageSpec {
                 source: InputSource::Bytes { file_name, data },
                 compression: ImageCompression::JpegWithFlateFallback { quality },

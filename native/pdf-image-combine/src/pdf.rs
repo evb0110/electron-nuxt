@@ -34,6 +34,14 @@ pub struct PdfPageSize {
     pub height_points: f64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PdfImagePlacement {
+    pub x_points: f64,
+    pub y_points: f64,
+    pub width_points: f64,
+    pub height_points: f64,
+}
+
 pub enum LayeredImagePayload {
     RawFlate {
         data: Vec<u8>,
@@ -223,20 +231,30 @@ impl<W: IoWrite> PdfWriter<W> {
     }
 
     pub(crate) fn add_page(&mut self, page: &ImagePage) -> Result<()> {
-        self.add_image_page(page, None)
+        self.add_image_page(page, None, None)
     }
 
     pub(crate) fn add_page_with_size(
         &mut self,
         page: &ImagePage,
         page_size: &PdfPageSize,
+        placement: Option<&PdfImagePlacement>,
     ) -> Result<()> {
-        self.add_image_page(page, Some(page_size))
+        self.add_image_page(page, Some(page_size), placement)
     }
 
-    fn add_image_page(&mut self, page: &ImagePage, page_size: Option<&PdfPageSize>) -> Result<()> {
+    fn add_image_page(
+        &mut self,
+        page: &ImagePage,
+        page_size: Option<&PdfPageSize>,
+        placement: Option<&PdfImagePlacement>,
+    ) -> Result<()> {
         if let Some(size) = page_size {
             validate_page_size(size)?;
+        }
+        if let Some(placement) = placement {
+            let page_size = page_size.ok_or("Image placement requires an explicit page size")?;
+            validate_image_placement(placement, page_size)?;
         }
         let page_object = self.next_object;
         let image_object = page_object + 1;
@@ -273,10 +291,21 @@ impl<W: IoWrite> PdfWriter<W> {
             self.push_stream_object(object_number, dict.as_bytes(), profile)?;
         }
 
-        let content_stream = format!(
-            "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
-            page_width, page_height, image_name
-        );
+        let content_stream = if let Some(placement) = placement {
+            format!(
+                "q {:.4} 0 0 {:.4} {:.4} {:.4} cm /{} Do Q\n",
+                placement.width_points,
+                placement.height_points,
+                placement.x_points,
+                placement.y_points,
+                image_name
+            )
+        } else {
+            format!(
+                "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
+                page_width, page_height, image_name
+            )
+        };
         let content_dict = format!("<< /Length {} >>", content_stream.len());
         self.push_stream_object(
             content_object,
@@ -812,6 +841,26 @@ fn validate_page_size(size: &PdfPageSize) -> Result<()> {
     Ok(())
 }
 
+fn validate_image_placement(placement: &PdfImagePlacement, page_size: &PdfPageSize) -> Result<()> {
+    let values = [
+        placement.x_points,
+        placement.y_points,
+        placement.width_points,
+        placement.height_points,
+    ];
+    if !values.into_iter().all(f64::is_finite)
+        || placement.x_points < 0.0
+        || placement.y_points < 0.0
+        || placement.width_points <= 0.0
+        || placement.height_points <= 0.0
+        || placement.x_points + placement.width_points > page_size.width_points + 0.0001
+        || placement.y_points + placement.height_points > page_size.height_points + 0.0001
+    {
+        return Err("Invalid image placement rectangle".into());
+    }
+    Ok(())
+}
+
 fn validate_image_mask(mask: &PbmP4Image) -> Result<()> {
     if mask.width == 0 || mask.height == 0 {
         return Err("Layered PDF image mask dimensions must be positive".into());
@@ -1046,6 +1095,47 @@ mod tests {
     fn computes_points_from_dpi() {
         assert_eq!(points(300, 300), 72.0);
         assert_eq!(points(144, 72), 144.0);
+    }
+
+    #[test]
+    fn image_placement_changes_only_the_xobject_matrix_inside_the_media_box() {
+        let page = ImagePage {
+            width: 2,
+            height: 2,
+            dpi: 72,
+            color_space: "DeviceGray",
+            icc_profile: None,
+            payload: ImagePayload::RawFlate {
+                data: vec![0],
+                decode_params: String::new(),
+            },
+        };
+        let page_size = PdfPageSize {
+            width_points: 100.0,
+            height_points: 200.0,
+        };
+        let mut legacy = PdfWriter::new(Vec::new(), None).unwrap();
+        legacy.add_page_with_size(&page, &page_size, None).unwrap();
+        let legacy = String::from_utf8_lossy(&legacy.finish().unwrap()).into_owned();
+        assert!(legacy.contains("/MediaBox [0 0 100.0000 200.0000]"));
+        assert!(legacy.contains("q 100.0000 0 0 200.0000 0 0 cm /Im1 Do Q"));
+
+        let mut placed = PdfWriter::new(Vec::new(), None).unwrap();
+        placed
+            .add_page_with_size(
+                &page,
+                &page_size,
+                Some(&PdfImagePlacement {
+                    x_points: 5.0,
+                    y_points: 7.0,
+                    width_points: 80.0,
+                    height_points: 170.0,
+                }),
+            )
+            .unwrap();
+        let placed = String::from_utf8_lossy(&placed.finish().unwrap()).into_owned();
+        assert!(placed.contains("/MediaBox [0 0 100.0000 200.0000]"));
+        assert!(placed.contains("q 80.0000 0 0 170.0000 5.0000 7.0000 cm /Im1 Do Q"));
     }
 
     #[test]

@@ -104,6 +104,13 @@ export interface INativeScanCleanupOutputV3 {
     tonePreservationAlphaOutputPath?: string;
 }
 
+export interface INativeScanCleanupPdfImagePlacementV3 {
+    xPoints: number;
+    yPoints: number;
+    widthPoints: number;
+    heightPoints: number;
+}
+
 /** Metadata written beside each protocol-v3 rendered output. */
 export interface INativeScanCleanupOutputMetadataV3 {
     sourcePageIndex?: number;
@@ -144,6 +151,8 @@ export interface INativeScanCleanupOutputMetadataV3 {
     matchedCanvasTargetHeightPoints?: number | null;
     matchedCanvasContentWidthPx?: number | null;
     matchedCanvasContentHeightPx?: number | null;
+    /** Optional source-grid continuous-tone rectangle in PDF user-space points. */
+    pdfImagePlacement?: INativeScanCleanupPdfImagePlacementV3;
     placementOffsetXPx: number;
     placementOffsetYPx: number;
     forwardTransform: IScanCleanupPreviewAffine | null;
