@@ -57,6 +57,144 @@ function buildMinimalPdf() {
     return Buffer.from(body, 'latin1');
 }
 
+interface ISyntheticRaster {
+    bitsPerComponent: number;
+    height: number;
+    pixels: Uint8Array;
+    width: number;
+}
+
+type TSyntheticCleanedVariant = 'equal' | 'invented' | 'thick';
+
+function buildRasterPdf({
+    bitsPerComponent,
+    height,
+    pixels,
+    width,
+}: ISyntheticRaster) {
+    const content = Buffer.from(`q\n${width} 0 0 ${height} 0 0 cm\n/Im0 Do\nQ\n`, 'ascii');
+    const imageDictionary = [
+        `<< /Type /XObject /Subtype /Image /Width ${String(width)} /Height ${String(height)}`,
+        `/ColorSpace /DeviceGray /BitsPerComponent ${String(bitsPerComponent)} /Length ${String(pixels.length)} >>`,
+    ].join(' ');
+    const imageStream = Buffer.concat([
+        Buffer.from(`${imageDictionary}\nstream\n`, 'ascii'),
+        Buffer.from(pixels),
+        Buffer.from('\nendstream', 'ascii'),
+    ]);
+    const contentStream = Buffer.concat([
+        Buffer.from(`<< /Length ${String(content.length)} >>\nstream\n`, 'ascii'),
+        content,
+        Buffer.from('endstream', 'ascii'),
+    ]);
+    const objects = [
+        Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'ascii'),
+        Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>', 'ascii'),
+        Buffer.from([
+            `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${String(width)} ${String(height)}]`,
+            '/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>',
+        ].join(' '), 'ascii'),
+        contentStream,
+        imageStream,
+        Buffer.from('<< /Producer (evb-stage26-synthetic) >>', 'ascii'),
+    ];
+    const chunks = [Buffer.from('%PDF-1.4\n', 'ascii')];
+    const offsets: number[] = [];
+    for (const [
+        index,
+        object,
+    ] of objects.entries()) {
+        offsets.push(chunks.reduce((total, chunk) => total + chunk.length, 0));
+        chunks.push(
+            Buffer.from(`${String(index + 1)} 0 obj\n`, 'ascii'),
+            object,
+            Buffer.from('\nendobj\n', 'ascii'),
+        );
+    }
+    const xrefOffset = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    chunks.push(Buffer.from(`xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`, 'ascii'));
+    for (const offset of offsets) {
+        chunks.push(Buffer.from(`${String(offset).padStart(10, '0')} 00000 n \n`, 'ascii'));
+    }
+    chunks.push(Buffer.from([
+        `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R /Info 6 0 R >>`,
+        `startxref\n${String(xrefOffset)}\n%%EOF\n`,
+    ].join('\n'), 'ascii'));
+    return Buffer.concat(chunks);
+}
+
+function buildSyntheticSourceRaster(): ISyntheticRaster {
+    const width = 160;
+    const height = 160;
+    const pixels = new Uint8Array(width * height).fill(255);
+    for (let y = 32; y < 56; y += 1) {
+        for (let x = 24; x < 48; x += 1) {
+            pixels[y * width + x] = 40;
+        }
+    }
+    return {
+        bitsPerComponent: 8,
+        height,
+        pixels,
+        width,
+    };
+}
+
+function buildSyntheticCleanedRaster(source: ISyntheticRaster, variant: TSyntheticCleanedVariant) {
+    const pixels = new Uint8Array(source.width * source.height);
+    const setPixel = (x: number, y: number) => {
+        if (x >= 0 && x < source.width && y >= 0 && y < source.height) {
+            pixels[y * source.width + x] = 1;
+        }
+    };
+    const [
+        left,
+        top,
+        right,
+        bottom,
+    ] = variant === 'thick'
+        ? [
+            22,
+            30,
+            50,
+            58,
+        ]
+        : [
+            24,
+            32,
+            48,
+            56,
+        ];
+    for (let y = top; y < bottom; y += 1) {
+        for (let x = left; x < right; x += 1) {
+            setPixel(x, y);
+        }
+    }
+    if (variant === 'invented') {
+        for (let y = 86; y < 106; y += 1) {
+            for (let x = 72; x < 136; x += 1) {
+                setPixel(x, y);
+            }
+        }
+    }
+    const rowBytes = Math.ceil(source.width / 8);
+    const packed = new Uint8Array(rowBytes * source.height).fill(255);
+    for (let y = 0; y < source.height; y += 1) {
+        for (let x = 0; x < source.width; x += 1) {
+            if (pixels[y * source.width + x]) {
+                const byteIndex = y * rowBytes + (x >> 3);
+                packed[byteIndex] = (packed[byteIndex] ?? 0) & ~(1 << (7 - (x & 7)));
+            }
+        }
+    }
+    return {
+        bitsPerComponent: 1,
+        height: source.height,
+        pixels: packed,
+        width: source.width,
+    };
+}
+
 interface IQpdfJsonEntry {[key: string]: unknown;}
 
 interface IQpdfJson {qpdf: IQpdfJsonEntry[];}
@@ -84,20 +222,36 @@ const options: IScanCleanupOptions = {
     pageOverrides: {},
 };
 
-async function runAudit(source: string, cleaned: string, output: string) {
+interface IRunAuditOptions {
+    failOn?: 'any' | 'invented-ink' | 'none' | 'silhouette' | 'text-loss';
+    verifyStamp?: boolean;
+}
+
+async function runAudit(
+    source: string,
+    cleaned: string,
+    output: string,
+    {
+        failOn = 'none',
+        verifyStamp = true,
+    }: IRunAuditOptions = {},
+) {
     try {
-        await execFileAsync(process.execPath, [
+        const args = [
             auditScript,
             '--source',
             source,
             '--cleaned',
             cleaned,
-            '--verify-stamp',
             '--out',
             output,
+            '--fail-on',
+            failOn,
             '--workers',
             '1',
-        ], {
+            ...(verifyStamp ? ['--verify-stamp'] : []),
+        ];
+        await execFileAsync(process.execPath, args, {
             cwd: projectRoot,
             maxBuffer: 2 * 1024 * 1024,
         });
@@ -201,5 +355,91 @@ describe('scan-cleanup word-loss audit stamp verification', () => {
                 recursive: true,
             });
         }
+    }, 30_000);
+});
+
+describe('scan-cleanup invented-ink audit', () => {
+    async function runSyntheticCase(variant: TSyntheticCleanedVariant) {
+        const temporaryDirectory = await mkdtemp(join(tmpdir(), `scan-cleanup-invented-${variant}-`));
+        const source = join(temporaryDirectory, 'source.pdf');
+        const cleaned = join(temporaryDirectory, 'cleaned.pdf');
+        const reportPath = join(temporaryDirectory, 'report.json');
+        const sourceRaster = buildSyntheticSourceRaster();
+        await writeFile(source, buildRasterPdf(sourceRaster));
+        await writeFile(cleaned, buildRasterPdf(buildSyntheticCleanedRaster(sourceRaster, variant)));
+        const exitCode = await runAudit(source, cleaned, reportPath, {
+            failOn: 'any',
+            verifyStamp: false,
+        });
+        const report = JSON.parse(await readFile(reportPath, 'utf8')) as {pages: Array<{
+            components?: Array<{
+                bbox?: {
+                    height?: number;
+                    width?: number;
+                };
+                classification?: string;
+                unsupportedFraction?: number;
+            }>;
+            flagged?: boolean;
+            inventedCount?: number;
+            inventedFlagged?: boolean;
+            inventedInkFraction?: number;
+        }>;};
+        await rm(temporaryDirectory, {
+            force: true,
+            recursive: true,
+        });
+        const page = report.pages[0];
+        if (!page) {
+            throw new Error('Synthetic audit did not return a page row');
+        }
+        return {
+            exitCode,
+            page,
+        };
+    }
+
+    it('flags a solid cleaned-page bar with no source-raw support', async () => {
+        const result = await runSyntheticCase('invented');
+
+        expect(result.exitCode).toBe(1);
+        expect(result.page).toMatchObject({
+            flagged: true,
+            inventedCount: 1,
+            inventedFlagged: true,
+        });
+        expect(result.page.inventedInkFraction).toBeGreaterThan(0);
+        expect(result.page.components).toEqual(expect.arrayContaining([expect.objectContaining({
+            bbox: expect.objectContaining({
+                height: 20,
+                width: 64,
+            }),
+            classification: 'invented',
+            unsupportedFraction: 1,
+        })]));
+    }, 30_000);
+
+    it('keeps a cleaned page that only thickens existing strokes clean', async () => {
+        const result = await runSyntheticCase('thick');
+
+        expect(result.exitCode).toBe(0);
+        expect(result.page).toMatchObject({
+            flagged: false,
+            inventedCount: 0,
+            inventedFlagged: false,
+            inventedInkFraction: 0,
+        });
+    }, 30_000);
+
+    it('keeps a cleaned page equal to source clean', async () => {
+        const result = await runSyntheticCase('equal');
+
+        expect(result.exitCode).toBe(0);
+        expect(result.page).toMatchObject({
+            flagged: false,
+            inventedCount: 0,
+            inventedFlagged: false,
+            inventedInkFraction: 0,
+        });
     }, 30_000);
 });
