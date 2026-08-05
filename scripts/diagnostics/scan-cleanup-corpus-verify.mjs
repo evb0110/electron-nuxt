@@ -35,6 +35,130 @@ import {
 } from './scan-cleanup-corpus-plan.mjs';
 export {resolveFixturePages} from './scan-cleanup-corpus-plan.mjs';
 
+const CORPUS_BINARIZATION_METHODS = new Set([
+    'auto',
+    'otsu',
+    'sauvola',
+    'wolf',
+]);
+
+/**
+ * Resolve the deliberately small set of corpus-level policy overrides. The
+ * rest of the corpus policy remains the standing matrix below; keeping this
+ * translation here means every manifest still passes through the core
+ * effective-options resolver.
+ */
+export function resolveFixtureOptions(fixture) {
+    const optionSources = [
+        fixture.options,
+        fixture.overrides,
+    ].filter(value => value !== undefined);
+    if (optionSources.length > 1) {
+        throw new Error(`Fixture "${String(fixture.id)}" must use only one of options or overrides`);
+    }
+    const raw = optionSources[0];
+    if (raw === undefined) {
+        return {
+            ...corpusOptions,
+            marginsMm: {...corpusOptions.marginsMm},
+            pageOverrides: {},
+        };
+    }
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error(`Invalid scan-cleanup options for fixture "${String(fixture.id)}"`);
+    }
+    const unknownKeys = Object.keys(raw).filter(key => ![
+        'binarization',
+        'cropContent',
+    ].includes(key));
+    if (unknownKeys.length > 0) {
+        throw new Error([
+            `Unsupported scan-cleanup fixture override(s) for "${String(fixture.id)}": ${unknownKeys.join(', ')}`,
+            'Only binarization and cropContent may vary in the standing corpus matrix.',
+        ].join(' '));
+    }
+    if (raw.binarization !== undefined && !CORPUS_BINARIZATION_METHODS.has(raw.binarization)) {
+        throw new Error(`Invalid binarization override for fixture "${String(fixture.id)}"`);
+    }
+    if (raw.cropContent !== undefined && typeof raw.cropContent !== 'boolean') {
+        throw new Error(`Invalid cropContent override for fixture "${String(fixture.id)}"`);
+    }
+    return {
+        ...corpusOptions,
+        ...(raw.binarization === undefined ? {} : {binarization: raw.binarization}),
+        ...(raw.cropContent === undefined ? {} : {crop: raw.cropContent}),
+        marginsMm: {...corpusOptions.marginsMm},
+        pageOverrides: {},
+    };
+}
+
+function expandCorpusEnvironmentValue(value, label) {
+    if (typeof value !== 'string') {
+        return value;
+    }
+    const match = /^\$\{([A-Z_][A-Z0-9_]*)\}$/u.exec(value);
+    if (!match) {
+        return value;
+    }
+    const environmentValue = process.env[match[1]];
+    if (!environmentValue) {
+        throw new Error(`Missing required environment variable ${match[1]} for ${label}`);
+    }
+    return environmentValue;
+}
+
+function parseCorpusPageSelector(value, label) {
+    const pages = String(value).split(',').flatMap(part => {
+        const trimmed = part.trim();
+        if (trimmed === '') {
+            return [];
+        }
+        const rangeMatch = /^(\d+)-(\d+)$/u.exec(trimmed);
+        if (!rangeMatch) {
+            const page = Number(trimmed);
+            if (!Number.isSafeInteger(page) || page < 1) {
+                throw new Error(`Invalid page selector ${String(value)} for ${label}`);
+            }
+            return [page];
+        }
+        const from = Number(rangeMatch[1]);
+        const to = Number(rangeMatch[2]);
+        if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 1 || to < from) {
+            throw new Error(`Invalid page selector ${String(value)} for ${label}`);
+        }
+        return Array.from({length: to - from + 1}, (_, index) => from + index);
+    });
+    if (pages.length === 0 || new Set(pages).size !== pages.length) {
+        throw new Error(`Invalid page selector ${String(value)} for ${label}`);
+    }
+    return pages;
+}
+
+function materializeFixtureConfig(fixture) {
+    if (fixture === null || typeof fixture !== 'object' || Array.isArray(fixture)) {
+        throw new Error(`Invalid corpus fixture config: ${JSON.stringify(fixture)}`);
+    }
+    const pdfPath = expandCorpusEnvironmentValue(fixture.pdfPath, `fixture ${String(fixture.id)} PDF path`);
+    let pages = fixture.pages;
+    if (typeof fixture.pages === 'string') {
+        pages = parseCorpusPageSelector(
+            expandCorpusEnvironmentValue(fixture.pages, `fixture ${String(fixture.id)} pages`),
+            `fixture ${String(fixture.id)}`,
+        );
+    } else if (typeof fixture.pagesEnv === 'string') {
+        const pagesValue = process.env[fixture.pagesEnv];
+        if (!pagesValue) {
+            throw new Error(`Missing required environment variable ${fixture.pagesEnv} for fixture ${String(fixture.id)} pages`);
+        }
+        pages = parseCorpusPageSelector(pagesValue, `fixture ${String(fixture.id)}`);
+    }
+    return {
+        ...fixture,
+        pdfPath,
+        ...(pages === undefined ? {} : {pages}),
+    };
+}
+
 const {
     buildNativeScanCleanupManifest,
     buildScanCleanupCompactManifest,
@@ -220,6 +344,7 @@ function parseArgs(argv) {
     const parsed = {
         config: defaultConfigPath,
         expected: defaultExpectedPath,
+        allowMissingExpectations: false,
         keepArtifacts: false,
         workDir: null,
     };
@@ -230,6 +355,8 @@ function parseArgs(argv) {
         }
         if (argument === '--keep-artifacts') {
             parsed.keepArtifacts = true;
+        } else if (argument === '--allow-missing-expectations') {
+            parsed.allowMissingExpectations = true;
         } else if (argument === '--config' || argument === '--expected' || argument === '--work-dir') {
             const value = argv[index + 1];
             if (!value) throw new Error(`Missing value for ${argument}`);
@@ -242,6 +369,8 @@ Options:
   --config <path>       Machine-local fixture config (default: .devkit/scan-cleanup-corpus.json)
   --expected <path>     Checked-in expected results JSON
   --work-dir <path>     Write artifacts to an explicit directory
+  --allow-missing-expectations
+                         Run structural/parity checks for exploratory standing matrices
   --keep-artifacts      Retain an automatically created work directory after a passing run`);
             process.exit(0);
         } else {
@@ -998,6 +1127,7 @@ function timingStats(records) {
 }
 
 async function verifyFixture(fixture, expectedFixture, workRoot) {
+    const fixtureOptions = resolveFixtureOptions(fixture);
     const report = assertionReporter(fixture.id);
     const fixtureDir = join(workRoot, fixture.id);
     await mkdir(fixtureDir, {recursive: true});
@@ -1067,7 +1197,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         renderMode: 'final',
         canvasScope: 'page',
         qualityPath: 'raster',
-        options: corpusOptions,
+        options: fixtureOptions,
         pages: rasterRuns.map(page => ({
             inputPath: page.detectionRaster,
             pageNumber: page.pageNumber,
@@ -1168,7 +1298,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         renderMode: 'final',
         canvasScope: 'page',
         qualityPath: 'raster',
-        options: corpusOptions,
+        options: fixtureOptions,
         pages: renderedRuns.map(page => ({
             inputPath: page.renderRaster,
             pageNumber: page.pageNumber,
@@ -1245,7 +1375,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         renderMode: 'preview',
         canvasScope: 'page',
         qualityPath: 'raster',
-        options: corpusOptions,
+        options: fixtureOptions,
         pages: previewPages,
     });
     await writeFile(previewManifestPath, JSON.stringify(previewManifest, null, 2));
@@ -1321,7 +1451,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         renderMode: 'final',
         canvasScope: 'document',
         qualityPath: 'raster',
-        options: corpusOptions,
+        options: fixtureOptions,
         documentCanvas: {
             ...documentCanvas,
             heightPx: Math.max(1, Math.round(documentCanvas.heightPoints / 72 * canvasDpi)),
@@ -2210,7 +2340,8 @@ async function main() {
     if (!Array.isArray(config.fixtures) || config.fixtures.length === 0) {
         throw new Error('Corpus config must contain a non-empty fixtures array');
     }
-    const fixtureRuns = config.fixtures.map(fixture => {
+    const fixtureRuns = config.fixtures.map(rawFixture => {
+        const fixture = materializeFixtureConfig(rawFixture);
         if (
             typeof fixture.id !== 'string'
             || typeof fixture.pdfPath !== 'string'
@@ -2218,7 +2349,7 @@ async function main() {
         ) throw new Error(`Invalid corpus fixture config: ${JSON.stringify(fixture)}`);
         const pages = resolveFixturePages(fixture);
         const expectations = resolveFixtureExpectations(fixture, expected.fixtures?.[fixture.id]);
-        if (Object.keys(expectations).length === 0) {
+        if (Object.keys(expectations).length === 0 && !args.allowMissingExpectations) {
             throw new Error([
                 `Missing required expectations for fixture "${fixture.id}".`,
                 'The corpus verifier cannot report a quality pass from parity and structural checks alone.',

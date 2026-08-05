@@ -1,6 +1,7 @@
 import {
     mkdir,
     mkdtemp,
+    readFile,
     rm,
     utimes,
     writeFile,
@@ -62,6 +63,9 @@ interface ICorpusVerifyModule {
         fixture: Record<string, unknown>,
         canonicalExpected?: Record<string, unknown>,
     ) => Record<string, unknown>;
+    resolveFixtureOptions: (
+        fixture: Record<string, unknown>,
+    ) => Record<string, unknown>;
     resolveFixturePages: (fixture: Record<string, unknown>) => number[];
     scannerBoundaryComponents: (
         components: Array<{
@@ -78,6 +82,16 @@ interface ICorpusVerifyModule {
     ) => unknown[];
 }
 
+interface IModeMatrixFixture {
+    id: string;
+    options: {
+        binarization: string;
+        cropContent: boolean;
+    };
+}
+
+interface IModeMatrixConfig {fixtures: IModeMatrixFixture[];}
+
 const {
     assertStagedCargoArtifactFresh,
     collectCargoSourceInputs,
@@ -90,11 +104,16 @@ const {
     parsePdfImages,
     parseQpdfPageContentCounts,
     resolveFixtureExpectations,
+    resolveFixtureOptions,
     resolveFixturePages,
     scannerBoundaryComponents,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/diagnostics/scan-cleanup-corpus-verify.mjs')).href
 ) as ICorpusVerifyModule;
+const modeMatrix = JSON.parse(await readFile(
+    path.join(process.cwd(), 'scripts/diagnostics/rome-mode-matrix-corpus-config.json'),
+    'utf8',
+)) as IModeMatrixConfig;
 
 const tempRoots: string[] = [];
 
@@ -186,6 +205,52 @@ describe('scan-cleanup corpus native freshness', () => {
 });
 
 describe('scan-cleanup corpus local expectations', () => {
+    it('keeps the standing Rome mode matrix at 16 fixture cases', () => {
+        const expectedIds = [
+            'headers2',
+            'acceptance2',
+        ].flatMap(corpus => [
+            'auto',
+            'otsu',
+            'sauvola',
+            'wolf',
+        ].flatMap(method => [
+            `${corpus}-${method}-crop`,
+            `${corpus}-${method}-no-crop`,
+        ]));
+        expect(modeMatrix.fixtures).toHaveLength(16);
+        expect(modeMatrix.fixtures.map(fixture => fixture.id)).toEqual(expectedIds);
+        expect(modeMatrix.fixtures.every(fixture => (
+            [
+                'auto',
+                'otsu',
+                'sauvola',
+                'wolf',
+            ].includes(fixture.options.binarization)
+            && typeof fixture.options.cropContent === 'boolean'
+        ))).toBe(true);
+    });
+
+    it('routes the two standing fixture overrides through the shared native resolver options', () => {
+        expect(resolveFixtureOptions({
+            id: 'rome-sauvola-no-crop',
+            options: {
+                binarization: 'sauvola',
+                cropContent: false,
+            },
+        })).toMatchObject({
+            binarization: 'sauvola',
+            crop: false,
+        });
+    });
+
+    it('rejects fixture knobs outside the standing mode matrix', () => {
+        expect(() => resolveFixtureOptions({
+            id: 'invalid-fixture',
+            options: {outputMode: 'bw'},
+        })).toThrow('Only binarization and cropContent');
+    });
+
     it('expands an inclusive page range without a 392-entry local config', () => {
         expect(resolveFixturePages({
             id: 'rome-full',

@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "fixtures": [
+    {
+      "id": "headers2-auto-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_HEADERS2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_HEADERS2_PAGES}",
+      "options": {"binarization": "auto", "cropContent": true}
+    },
+    {
+      "id": "headers2-auto-no-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_HEADERS2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_HEADERS2_PAGES}",
+      "options": {"binarization": "auto", "cropContent": false}
+    },
+    {
+      "id": "headers2-otsu-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_HEADERS2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_HEADERS2_PAGES}",
+      "options": {"binarization": "otsu", "cropContent": true}
+    },
+    {
+      "id": "headers2-otsu-no-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_HEADERS2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_HEADERS2_PAGES}",
+      "options": {"binarization": "otsu", "cropContent": false}
+    },
+    {
+      "id": "headers2-sauvola-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_HEADERS2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_HEADERS2_PAGES}",
+      "options": {"binarization": "sauvola", "cropContent": true}
+    },
+    {
+      "id": "headers2-sauvola-no-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_HEADERS2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_HEADERS2_PAGES}",
+      "options": {"binarization": "sauvola", "cropContent": false}
+    },
+    {
+      "id": "headers2-wolf-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_HEADERS2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_HEADERS2_PAGES}",
+      "options": {"binarization": "wolf", "cropContent": true}
+    },
+    {
+      "id": "headers2-wolf-no-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_HEADERS2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_HEADERS2_PAGES}",
+      "options": {"binarization": "wolf", "cropContent": false}
+    },
+    {
+      "id": "acceptance2-auto-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
+      "options": {"binarization": "auto", "cropContent": true}
+    },
+    {
+      "id": "acceptance2-auto-no-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
+      "options": {"binarization": "auto", "cropContent": false}
+    },
+    {
+      "id": "acceptance2-otsu-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
+      "options": {"binarization": "otsu", "cropContent": true}
+    },
+    {
+      "id": "acceptance2-otsu-no-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
+      "options": {"binarization": "otsu", "cropContent": false}
+    },
+    {
+      "id": "acceptance2-sauvola-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
+      "options": {"binarization": "sauvola", "cropContent": true}
+    },
+    {
+      "id": "acceptance2-sauvola-no-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
+      "options": {"binarization": "sauvola", "cropContent": false}
+    },
+    {
+      "id": "acceptance2-wolf-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
+      "options": {"binarization": "wolf", "cropContent": true}
+    },
+    {
+      "id": "acceptance2-wolf-no-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
+      "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
+      "options": {"binarization": "wolf", "cropContent": false}
+    }
+  ]
+}

@@ -75,6 +75,38 @@ optional: mark them with `"optional": true` and they are reported as skipped whe
 their absolute path is absent. The checked-in expectations cover the Luther p6–9
 session fixture and Rome pages 1, 2, and 49.
 
+## Standing scan-cleanup regression net
+
+The standing loop is one non-Electron command. Create the ignored
+`.devkit/scan-cleanup-regress.json` manifest with `corpora.acceptance2`,
+`corpora.regress`, `corpora.canvas-trio`, and `corpora.headers2` config paths,
+`cli.acceptance2` and `cli.linguae-layouts` source entries, and a `rome.source`
+entry. Then run:
+
+```bash
+pnpm scan-cleanup:regress
+```
+
+It runs those four corpus configs, the 16-case
+`rome-mode-matrix-corpus-config.json`, parity CLI conversions with stamped
+word-loss audits, and Rome pages 46/49/52/56 rendered at 150 dpi. The private
+manifest may provide an `environment` object for `${EVB_SCAN_CLEANUP_*}` tokens
+used by the matrix config. `pnpm scan-cleanup:regress -- --full` adds the
+release-only `corpora.fullbook` gate; fullbook is intentionally not a nightly
+fixture. Evidence and the compact stdout table are written below the selected
+work directory.
+
+### Retired ad-hoc checks
+
+The unreferenced `scan-cleanup-forced-mode-audit.py` replay was deleted. Its
+forced BW/grayscale diagnostic role is replaced by the standing regress
+corpora, the 16-case binarization/crop matrix, and the stamped CLI word-loss
+audits. `scan-cleanup-artifact-audit.py` remains because the corpus harness,
+release verifier, and unit tests reference it; `scan-cleanup-synthetic-audit.py`
+remains because the packaged release verifier references it. No other
+scan-cleanup diagnostic under this directory was clearly superseded, so no
+other deletion was made.
+
 Grayscale and color scan-cleanup outputs use plain `image-jpeg` records because
 their raster is already at final DPI; unlike `photo-jpeg`, this does not apply
 another PPI cap. Mixed pages use `layered-jpeg`: a quality-85 tonal background
