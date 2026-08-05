@@ -118,13 +118,12 @@
         </div>
 
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
-            <div class="scan-cleanup-toolbar-primary-slot">
-                <div
-                    v-if="settingsBadges.length > 0 && !isRunning"
-                    class="scan-cleanup-settings-badges"
-                    role="status"
-                    :aria-label="t('scanCleanup.settingsBadges.title')"
-                >
+            <div
+                v-if="settingsBadges.length > 0 && !isRunning"
+                class="scan-cleanup-settings-badges"
+                role="status"
+                :aria-label="t('scanCleanup.settingsBadges.title')"
+            >
                     <span
                         v-for="badge in settingsBadges"
                         :key="badge.id"
@@ -143,17 +142,18 @@
                             @click="emit('remove-setting', badge.id)"
                         />
                     </span>
-                    <UButton
-                        class="scan-cleanup-settings-reset"
-                        type="button"
-                        color="neutral"
-                        variant="ghost"
-                        size="xs"
-                        icon="i-ph-arrow-u-up-left"
-                        :label="t('scanCleanup.settingsBadges.reset')"
-                        @click="emit('reset-settings')"
-                    />
-                </div>
+                <UButton
+                    class="scan-cleanup-settings-reset"
+                    type="button"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    icon="i-ph-arrow-u-up-left"
+                    :label="t('scanCleanup.settingsBadges.reset')"
+                    @click="emit('reset-settings')"
+                />
+            </div>
+            <div class="scan-cleanup-toolbar-primary-slot">
                 <UButton
                     v-if="isRunning"
                     class="scan-cleanup-toolbar-primary-action"
@@ -260,7 +260,7 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     grid-template-columns:
         auto
         minmax(0, 1fr)
-        var(--app-scan-toolbar-right-zone-width);
+        minmax(var(--app-scan-toolbar-right-zone-width), auto);
     gap: var(--app-space-7xl);
     overflow: hidden;
     padding: var(--app-space-3xl) var(--app-space-7xl);
@@ -285,9 +285,9 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 .scan-cleanup-toolbar-zone-right {
-    width: var(--app-scan-toolbar-right-zone-width);
+    min-width: var(--app-scan-toolbar-right-zone-width);
     justify-content: flex-end;
-    gap: var(--app-space-7xl);
+    gap: var(--app-space-3xl);
 }
 
 .scan-cleanup-toolbar-done {
@@ -382,16 +382,19 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-settings-badges {
     display: flex;
-    max-width: 100%;
-    flex-wrap: wrap;
+    min-width: 0;
+    max-width: calc(var(--app-scan-toolbar-right-zone-width) * 3);
+    flex-wrap: nowrap;
     align-items: center;
     justify-content: flex-end;
+    overflow: hidden;
     gap: var(--app-space-xs);
 }
 
 .scan-cleanup-settings-badge {
     display: inline-flex;
-    max-width: 100%;
+    min-width: 0;
+    flex: 0 1 auto;
     align-items: center;
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-full);
