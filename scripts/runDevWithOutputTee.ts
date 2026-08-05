@@ -127,6 +127,27 @@ async function main() {
             ],
             stdio: 'pipe',
         },
+        // The PDF assemblers are part of the scan-cleanup engine contract:
+        // new TS emitting extended manifests against a stale staged binary
+        // fails every conversion, so dev keeps all three crates fresh.
+        {
+            source: 'pnpm-dev-build-pdf-image-combine',
+            command: PNPM_COMMAND,
+            args: [
+                'run',
+                'build:pdf-image-combine',
+            ],
+            stdio: 'pipe',
+        },
+        {
+            source: 'pnpm-dev-build-pdf-page-ops',
+            command: PNPM_COMMAND,
+            args: [
+                'run',
+                'build:pdf-page-ops',
+            ],
+            stdio: 'pipe',
+        },
         {
             source: 'pnpm-dev-build-electron',
             command: PNPM_COMMAND,

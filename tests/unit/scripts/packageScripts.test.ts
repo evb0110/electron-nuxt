@@ -266,22 +266,34 @@ describe('package scripts', () => {
         }
     });
 
-    it('refreshes the scan-cleanup executable before every local Electron launch', async () => {
+    it('refreshes every scan-cleanup native tool before every local Electron launch', async () => {
         const scripts = await readPackageScripts();
-        expect(scriptCommands(scripts, 'start').slice(0, 2)).toEqual([
+        expect(scriptCommands(scripts, 'start').slice(0, 4)).toEqual([
             'pnpm run build:scan-cleanup',
+            'pnpm run build:pdf-image-combine',
+            'pnpm run build:pdf-page-ops',
             'pnpm run build:electron',
         ]);
-        expect(scriptCommands(scripts, 'dev:headless')).toContain('pnpm run build:scan-cleanup');
+        for (const command of [
+            'pnpm run build:scan-cleanup',
+            'pnpm run build:pdf-image-combine',
+            'pnpm run build:pdf-page-ops',
+        ]) {
+            expect(scriptCommands(scripts, 'dev:headless')).toContain(command);
+        }
 
         const launcher = await readFile(
             path.join(process.cwd(), 'scripts/runDevWithOutputTee.ts'),
             'utf8',
         );
         const nativeBuildIndex = launcher.indexOf('source: \'pnpm-dev-build-scan-cleanup\'');
+        const combineBuildIndex = launcher.indexOf('source: \'pnpm-dev-build-pdf-image-combine\'');
+        const pageOpsBuildIndex = launcher.indexOf('source: \'pnpm-dev-build-pdf-page-ops\'');
         const electronBuildIndex = launcher.indexOf('source: \'pnpm-dev-build-electron\'');
         expect(nativeBuildIndex).toBeGreaterThanOrEqual(0);
-        expect(electronBuildIndex).toBeGreaterThan(nativeBuildIndex);
+        expect(combineBuildIndex).toBeGreaterThan(nativeBuildIndex);
+        expect(pageOpsBuildIndex).toBeGreaterThan(combineBuildIndex);
+        expect(electronBuildIndex).toBeGreaterThan(pageOpsBuildIndex);
     });
 
     it('routes lint and validation through one instrumented owner without implicit graph output', async () => {
