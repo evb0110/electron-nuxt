@@ -407,7 +407,9 @@ mod tests {
             360.0,
         );
 
-        assert!((48..372).all(|x| (72..80).all(|y| restored.get(x, y))));
+        // The restore pass is a pass-through until the raw-support-only
+        // reimplementation lands: it must never add ink the binary lacks.
+        assert!((48..372).all(|x| (72..80).all(|y| !restored.get(x, y))));
         assert!([54, 112, 170, 228, 286]
             .into_iter()
             .all(|left| (left..left + 26).all(|x| (36..58).all(|y| restored.get(x, y)))));

@@ -3275,125 +3275,15 @@ fn restore_genuine_horizontal_rules(
     text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
 ) -> BinaryImage {
-    debug_assert_eq!(binary.width(), raw.width());
-    debug_assert_eq!(binary.height(), raw.height());
-    debug_assert!(picture_mask
-        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
-    debug_assert!(text_mask
-        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
-    debug_assert!(text_vicinity_mask
-        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
-    if raw.width() == 0 || raw.height() == 0 {
-        return binary.clone();
-    }
-
-    const RULE_DEPTH: u8 = 72;
-    let paper = paper_reference(raw);
-    let depth_floor = paper.saturating_sub(RULE_DEPTH);
-    let minimum_span = (dpi.max(1.0) * 15.0 / 25.4).round().max(24.0) as usize;
-    let minimum_support = (minimum_span / 8).max(8);
-    // A fallback row cue is intentionally much wider than the normal rule
-    // extent. This catches the long running heads in the affected scan while
-    // preventing ordinary text rows and detail tiles from being reconstructed
-    // merely because they have a dark row nearby.
-    let fallback_minimum_span = (dpi.max(1.0) * 80.0 / 25.4)
-        .round()
-        .max(minimum_span as f64) as usize;
-    let maximum_thickness = (dpi.max(1.0) * 2.0 / 25.4).round().max(2.0) as usize;
-    let maximum_text_gap = (dpi.max(1.0) * 14.0 / 25.4).round().max(8.0) as usize;
-    let minimum_clear_gap = (dpi.max(1.0) * 0.25 / 25.4).round().max(2.0) as usize;
-    let mut row_support = vec![0usize; raw.height()];
-    let mut row_left = vec![raw.width(); raw.height()];
-    let mut row_right = vec![0usize; raw.height()];
-    let mut row_text_overlap = vec![0usize; raw.height()];
-    for y in 0..raw.height() {
-        for x in 0..raw.width() {
-            if raw.get(x, y) >= depth_floor || picture_mask.is_some_and(|mask| mask.get(x, y)) {
-                continue;
-            }
-            row_support[y] += 1;
-            row_left[y] = row_left[y].min(x);
-            row_right[y] = row_right[y].max(x);
-            if text_mask.is_some_and(|mask| mask.get(x, y)) {
-                row_text_overlap[y] += 1;
-            }
-        }
-    }
-
-    let mut rules = BinaryImage::new(binary.width(), binary.height());
-    let mut band_top = 0;
-    while band_top < raw.height() {
-        while band_top < raw.height() && row_support[band_top] < minimum_support {
-            band_top += 1;
-        }
-        if band_top == raw.height() {
-            break;
-        }
-        let candidate_top = band_top;
-        while band_top + 1 < raw.height() && row_support[band_top + 1] >= minimum_support {
-            band_top += 1;
-        }
-        let candidate_bottom = band_top;
-        let thickness = candidate_bottom - candidate_top + 1;
-        if thickness <= maximum_thickness {
-            let left = (candidate_top..=candidate_bottom)
-                .map(|y| row_left[y])
-                .min()
-                .unwrap_or(raw.width());
-            let right = (candidate_top..=candidate_bottom)
-                .map(|y| row_right[y])
-                .max()
-                .unwrap_or(0);
-            let span = right.saturating_sub(left).saturating_add(1);
-            let support = (candidate_top..=candidate_bottom)
-                .map(|y| row_support[y])
-                .sum::<usize>();
-            let overlapping_text = (candidate_top..=candidate_bottom)
-                .map(|y| row_text_overlap[y])
-                .sum::<usize>();
-            let semantic_text_above = if left <= right && right < raw.width() {
-                let top = candidate_top.saturating_sub(maximum_text_gap);
-                (top..candidate_top).any(|y| {
-                    (left..=right).any(|x| {
-                        text_mask.is_some_and(|mask| mask.get(x, y))
-                            || text_vicinity_mask.is_some_and(|mask| mask.get(x, y))
-                    })
-                })
-            } else {
-                false
-            };
-            let row_text_above = if span >= fallback_minimum_span && left <= right {
-                let top = candidate_top.saturating_sub(maximum_text_gap);
-                (top..candidate_top).rev().find(|&y| {
-                    row_support[y] >= minimum_support
-                        && row_left[y] <= right
-                        && row_right[y] >= left
-                })
-            } else {
-                None
-            };
-            let clear_space_below_text = row_text_above.is_some_and(|text_y| {
-                candidate_top.saturating_sub(text_y).saturating_sub(1) >= minimum_clear_gap
-            });
-            let genuine_rule = span >= minimum_span
-                && support >= span
-                && overlapping_text == 0
-                && (semantic_text_above || clear_space_below_text);
-            if genuine_rule {
-                for y in candidate_top..=candidate_bottom {
-                    for x in left..=right.min(raw.width().saturating_sub(1)) {
-                        if !picture_mask.is_some_and(|mask| mask.get(x, y))
-                            && !text_mask.is_some_and(|mask| mask.get(x, y))
-                        {
-                            rules.set(x, y, true);
-                        }
-                    }
-                }
-            }
-        }
-        band_top += 1;
-    }
-    binary.or(&rules)
+    // Disabled: the previous implementation filled the bounding box of any
+    // qualifying dark row band, INVENTING solid bars where the source has a
+    // thin rule or an unmasked text row (fullbook p8 grew a fabricated
+    // thick header bar plus a duplicate mid-page). Restoration may only
+    // re-mark pixels that are provably inked in the source raw plane at the
+    // same position; until that reimplementation lands behind the
+    // invented-ink audit gate, this pass preserves its input unchanged.
+    let _ = (raw, picture_mask, text_mask, text_vicinity_mask, dpi);
+    binary.clone()
 }
 
 fn normalize_tone_to_paper(sample: u8, paper: u8) -> u8 {
