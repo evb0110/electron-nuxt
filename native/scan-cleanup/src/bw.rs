@@ -38,6 +38,17 @@ const TILE_PAPER_DELTA: u8 = 48;
 const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
 const MIN_QUALIFYING_PAPER_TILES: usize = 4;
 
+// A rule is preserved only when the source itself contains a long, thin run
+// of dark pixels. The geometry is intentionally shared with the render-side
+// fallback, while the raw plane remains the authority for every candidate.
+pub(crate) const RULE_RAW_DEPTH: u8 = 72;
+const RULE_MINIMUM_SPAN_MM: f64 = 15.0;
+// Running-head rules in the reference scans run up to ~3.5 mm; above
+// 2 mm the aspect requirement tightens to 8:1 so short thick blocks
+// (caption fragments, stamps) cannot ride the exemption.
+const RULE_MAXIMUM_THICKNESS_MM: f64 = 4.0;
+const RULE_THIN_THICKNESS_MM: f64 = 2.0;
+
 // These are shared with the final bleed filter. A rescue may recover a raw
 // candidate only when it has the same crisp-or-deep evidence that the final
 // filter trusts for retaining a printed component. The filter still gets the
@@ -160,8 +171,13 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     );
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback) =
-        postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
+    let (binary, despeckle_fallback) = postprocess_binary_with_diagnostics_and_raw(
+        &binary,
+        Some(normalized),
+        Some(raw_source),
+        options,
+        calibration,
+    );
     let binary = rescue_component_scoped_faint_strokes(
         &binary,
         raw_source,
@@ -233,8 +249,13 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     );
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback) =
-        postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
+    let (binary, despeckle_fallback) = postprocess_binary_with_diagnostics_and_raw(
+        &binary,
+        Some(normalized),
+        Some(raw_source),
+        options,
+        calibration,
+    );
     let binary = rescue_component_scoped_faint_strokes(
         &binary,
         raw_source,
@@ -271,7 +292,13 @@ fn binarize_with_mode(
         mode,
         calibration,
     );
-    let binary = postprocess_binary(&binary, Some(normalized), options, calibration);
+    let binary = postprocess_binary_with_raw(
+        &binary,
+        Some(normalized),
+        Some(raw_source),
+        options,
+        calibration,
+    );
     rescue_component_scoped_faint_strokes(
         &binary,
         raw_source,
@@ -543,33 +570,50 @@ fn sobel_gradient_magnitude(image: &GrayImage, x: usize, y: usize) -> u16 {
         as u16
 }
 
-pub(crate) fn postprocess_binary(
+fn postprocess_binary_with_raw(
     binary: &BinaryImage,
     normalized: Option<&GrayImage>,
+    raw: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
 ) -> BinaryImage {
-    postprocess_binary_with_diagnostics(binary, normalized, options, calibration).0
+    postprocess_binary_with_diagnostics_and_raw(binary, normalized, raw, options, calibration).0
 }
 
-pub(crate) fn postprocess_binary_with_diagnostics(
+pub(crate) fn postprocess_binary_with_diagnostics_and_raw(
     binary: &BinaryImage,
     normalized: Option<&GrayImage>,
+    raw: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
 ) -> (BinaryImage, bool) {
     let level = options.effective_despeckle_level();
+    let rule_components = raw
+        .filter(|image| image.width() == binary.width() && image.height() == binary.height())
+        .map(|image| rule_scale_component_flags(binary, image, options.dpi));
     let (despeckled, despeckle_fallback) = if level != DespeckleLevel::Off {
-        let outcome =
-            despeckle_connected_impl(binary, normalized, options.dpi, calibration, level, true);
+        let outcome = despeckle_connected_impl_with_protection(
+            binary,
+            normalized,
+            rule_components.as_deref(),
+            options.dpi,
+            calibration,
+            level,
+            true,
+        );
         (outcome.image, outcome.fallback)
     } else {
         (binary.clone(), false)
     };
-    (
-        smooth_edges_for_page(&despeckled, options.dpi),
-        despeckle_fallback,
-    )
+    let smoothed = smooth_edges_for_page(&despeckled, options.dpi);
+    let preserved_rules = rule_components.map(|flags| {
+        ComponentMap::from_binary(binary).retain(|component| flags[component.label as usize])
+    });
+    let output = match preserved_rules {
+        Some(rules) => smoothed.or(&rules),
+        None => smoothed,
+    };
+    (output, despeckle_fallback)
 }
 
 pub(crate) fn resolve_binarization_diagnostics(
@@ -1265,9 +1309,70 @@ struct DespeckleOutcome {
     fallback: bool,
 }
 
+fn rule_scale_component_flags(source: &BinaryImage, raw: &GrayImage, dpi: f64) -> Vec<bool> {
+    debug_assert_eq!(
+        (source.width(), source.height()),
+        (raw.width(), raw.height())
+    );
+    let components = ComponentMap::from_binary(source);
+    let mut raw_dark_pixels = vec![0usize; components.components().len() + 1];
+    let paper = paper_reference(raw);
+    let dark_floor = paper.saturating_sub(RULE_RAW_DEPTH);
+    for y in 0..source.height() {
+        for x in 0..source.width() {
+            if source.get(x, y) && raw.get(x, y) <= dark_floor {
+                raw_dark_pixels[components.label_at(x, y) as usize] += 1;
+            }
+        }
+    }
+    let minimum_span = (dpi.max(1.0) * RULE_MINIMUM_SPAN_MM / 25.4)
+        .round()
+        .max(24.0) as usize;
+    let maximum_thickness = (dpi.max(1.0) * RULE_MAXIMUM_THICKNESS_MM / 25.4)
+        .round()
+        .max(2.0) as usize;
+    let mut flags = vec![false; components.components().len() + 1];
+    for component in components.components() {
+        let label = component.label as usize;
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let thin_thickness = (dpi.max(1.0) * RULE_THIN_THICKNESS_MM / 25.4)
+            .round()
+            .max(2.0) as usize;
+        let aspect_floor = if height <= thin_thickness { 4 } else { 8 };
+        let geometry = width >= minimum_span
+            && width >= height.saturating_mul(aspect_floor)
+            && height <= maximum_thickness;
+        let raw_support = raw_dark_pixels[label] >= minimum_span
+            && raw_dark_pixels[label].saturating_mul(2) >= component.area;
+        flags[label] = geometry && raw_support;
+    }
+    flags
+}
+
 fn despeckle_connected_impl(
     source: &BinaryImage,
     normalized: Option<&GrayImage>,
+    dpi: f64,
+    calibration: PageCalibration,
+    level: DespeckleLevel,
+    use_attachment_graph: bool,
+) -> DespeckleOutcome {
+    despeckle_connected_impl_with_protection(
+        source,
+        normalized,
+        None,
+        dpi,
+        calibration,
+        level,
+        use_attachment_graph,
+    )
+}
+
+fn despeckle_connected_impl_with_protection(
+    source: &BinaryImage,
+    normalized: Option<&GrayImage>,
+    protected_rule_components: Option<&[bool]>,
     dpi: f64,
     calibration: PageCalibration,
     level: DespeckleLevel,
@@ -1302,6 +1407,15 @@ fn despeckle_connected_impl(
         level,
         use_attachment_graph,
     );
+    if let Some(protected) = protected_rule_components {
+        debug_assert_eq!(protected.len(), components.components().len() + 1);
+        for component in components.components() {
+            let label = component.label as usize;
+            if protected[label] {
+                keep[label] = true;
+            }
+        }
+    }
     if let Some(gray) =
         normalized.filter(|gray| gray.width() == source.width() && gray.height() == source.height())
     {
@@ -1719,8 +1833,9 @@ mod tests {
             };
             let calibration =
                 PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
-            let damaged = postprocess_binary(
+            let damaged = postprocess_binary_with_raw(
                 &threshold_with_mode(&normalized, &normalized, None, &options, mode, calibration),
+                Some(&normalized),
                 Some(&normalized),
                 &options,
                 calibration,
@@ -1756,6 +1871,43 @@ mod tests {
             );
             assert!(rescued.count_black() > damaged.count_black());
         }
+    }
+
+    #[test]
+    fn postprocess_exempts_a_raw_supported_horizontal_rule_component() {
+        let mut raw = GrayImage::new(420, 120, 220);
+        let mut binary = BinaryImage::new(420, 120);
+        for y in 58..60 {
+            for x in 48..372 {
+                raw.set(x, y, 120);
+                binary.set(x, y, true);
+            }
+        }
+        // A nearby isolated mark remains eligible for normal despeckling; the
+        // rule exemption must not turn the whole page into a pass-through.
+        raw.set(12, 12, 210);
+        binary.set(12, 12, true);
+        let options = CleanupOptions {
+            dpi: 300.0,
+            despeckle: true,
+            despeckle_level: DespeckleLevel::Normal,
+            ..CleanupOptions::default()
+        };
+        let calibration =
+            PageCalibration::estimate(&raw, options.dpi, CalibrationConfig::default());
+        let (cleaned, _) = postprocess_binary_with_diagnostics_and_raw(
+            &binary,
+            Some(&raw),
+            Some(&raw),
+            &options,
+            calibration,
+        );
+
+        assert!((48..372).all(|x| (58..60).all(|y| cleaned.get(x, y))));
+        assert!(
+            !cleaned.get(12, 12),
+            "ordinary speckle must remain removable"
+        );
     }
 
     #[test]
@@ -2287,8 +2439,9 @@ mod tests {
             ..CleanupOptions::default()
         };
 
-        let (cleaned, fallback) = postprocess_binary_with_diagnostics(
+        let (cleaned, fallback) = postprocess_binary_with_diagnostics_and_raw(
             &binary,
+            Some(&normalized),
             Some(&normalized),
             &options,
             analysis_calibration,

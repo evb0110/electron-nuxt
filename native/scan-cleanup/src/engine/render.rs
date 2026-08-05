@@ -24,8 +24,8 @@ use crate::{
     bw::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
         binary_to_gray, paper_reference, picture_protection_radius,
-        postprocess_binary_with_diagnostics, resolve_binarization_diagnostics,
-        BinarizationDiagnostics, BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH,
+        postprocess_binary_with_diagnostics_and_raw, resolve_binarization_diagnostics,
+        BinarizationDiagnostics, BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
@@ -3261,12 +3261,10 @@ fn filter_soft_shallow_bleed_components(
     stripped
 }
 
-/// Reclaims a genuine horizontal rule after binarization post-processing.
-/// Despeckling can remove a scanned rule before the component-level bleed
-/// filter sees it, so this pass uses the normalized gray plane as the depth
-/// authority and reconstructs only a narrow rule band. A strike-through is
-/// either joined to the text row or overlaps the exact glyph mask; a
-/// show-through band never reaches the dark-depth floor.
+/// Reclaims only exact raw-dark pixels from a coherent horizontal rule that
+/// survived source analysis but was absent from the binary input. This is a
+/// narrow fallback for threshold loss; the primary preservation path exempts
+/// rule-scale binary components from post-processing in `bw`.
 fn restore_genuine_horizontal_rules(
     binary: &BinaryImage,
     raw: &GrayImage,
@@ -3275,15 +3273,101 @@ fn restore_genuine_horizontal_rules(
     text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
 ) -> BinaryImage {
-    // Disabled: the previous implementation filled the bounding box of any
-    // qualifying dark row band, INVENTING solid bars where the source has a
-    // thin rule or an unmasked text row (fullbook p8 grew a fabricated
-    // thick header bar plus a duplicate mid-page). Restoration may only
-    // re-mark pixels that are provably inked in the source raw plane at the
-    // same position; until that reimplementation lands behind the
-    // invented-ink audit gate, this pass preserves its input unchanged.
-    let _ = (raw, picture_mask, text_mask, text_vicinity_mask, dpi);
-    binary.clone()
+    // The previous implementation filled the bounding box of any qualifying
+    // dark row band, INVENTING solid bars where the source has a thin rule or
+    // an unmasked text row (fullbook p8 grew a fabricated thick header bar
+    // plus a duplicate mid-page). This fallback never fills a bounding box:
+    // it can only re-mark exact raw-dark component pixels.
+    debug_assert_eq!(binary.width(), raw.width());
+    debug_assert_eq!(binary.height(), raw.height());
+    debug_assert!(picture_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    debug_assert!(text_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    debug_assert!(text_vicinity_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    if raw.width() == 0 || raw.height() == 0 {
+        return binary.clone();
+    }
+
+    let paper = paper_reference(raw);
+    let raw_dark_floor = paper.saturating_sub(RULE_RAW_DEPTH);
+    let picture_owner = picture_mask.map(|mask| {
+        let radius = picture_protection_radius(dpi);
+        dilate(mask, radius, radius)
+    });
+    let raw_candidates = BinaryImage::from_fn_parallel(raw.width(), raw.height(), |x, y| {
+        raw.get(x, y) <= raw_dark_floor
+            && !picture_owner.as_ref().is_some_and(|mask| mask.get(x, y))
+    });
+    // A scanned rule thresholds into dashes, so candidacy is measured on a
+    // horizontally bridged map; the pixels that are re-marked still come
+    // exclusively from the unbridged raw candidates, keeping the
+    // no-invention subset property exact.
+    let bridge_radius = (dpi.max(1.0) * 1.5 / 25.4).round().max(2.0) as usize;
+    let bridged = dilate(&raw_candidates, bridge_radius, 0);
+    let components = ComponentMap::from_binary(&bridged);
+    if components.components().is_empty() {
+        return binary.clone();
+    }
+
+    let minimum_span = (dpi.max(1.0) * 15.0 / 25.4).round().max(24.0) as usize;
+    let maximum_thickness = (dpi.max(1.0) * 4.0 / 25.4).round().max(2.0) as usize;
+    let thin_thickness = (dpi.max(1.0) * 2.0 / 25.4).round().max(2.0) as usize;
+    let maximum_text_gap = (dpi.max(1.0) * 14.0 / 25.4).round().max(8.0) as usize;
+    let minimum_row_support = (minimum_span / 8).max(8);
+    let mut rule_components = vec![false; components.components().len() + 1];
+    for component in components.components() {
+        let label = component.label as usize;
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let horizontal_rule = width >= minimum_span
+            && width >= height.saturating_mul(4)
+            && height <= maximum_thickness
+            && (height <= thin_thickness || width >= height.saturating_mul(8))
+            && component.area >= width;
+        if !horizontal_rule {
+            continue;
+        }
+
+        let overlaps_text = text_mask.is_some_and(|mask| {
+            (component.top..=component.bottom).any(|y| {
+                (component.left..=component.right)
+                    .any(|x| raw_candidates.get(x, y) && mask.get(x, y))
+            })
+        });
+        if overlaps_text {
+            continue;
+        }
+
+        let text_row_above =
+            (component.top.saturating_sub(maximum_text_gap)..component.top).any(|y| {
+                (component.left..=component.right).any(|x| {
+                    text_mask.is_some_and(|mask| mask.get(x, y))
+                        || text_vicinity_mask.is_some_and(|mask| mask.get(x, y))
+                })
+            });
+        let raw_row_above = if text_mask.is_none() && text_vicinity_mask.is_none() {
+            (component.top.saturating_sub(maximum_text_gap)..component.top).any(|y| {
+                (component.left..=component.right)
+                    .filter(|&x| raw_candidates.get(x, y))
+                    .count()
+                    >= minimum_row_support
+            })
+        } else {
+            false
+        };
+        rule_components[label] = text_row_above || raw_row_above;
+    }
+
+    // Band acceptance came from the bridged map; the marked pixels are the
+    // intersection with the unbridged raw candidates, so every new black
+    // pixel is dark in `raw` at that exact coordinate.
+    let accepted_bands = components.retain(|component| rule_components[component.label as usize]);
+    let restored = BinaryImage::from_fn_parallel(raw.width(), raw.height(), |x, y| {
+        accepted_bands.get(x, y) && raw_candidates.get(x, y)
+    });
+    binary.or(&restored)
 }
 
 fn normalize_tone_to_paper(sample: u8, paper: u8) -> u8 {
@@ -4129,16 +4213,21 @@ fn clean_region(
                         && binary.height() == rendered_gray.height()
                 });
                 let (binary, despeckle_fallback) = if let Some(binary) = reusable {
-                    postprocess_binary_with_diagnostics(
+                    postprocess_binary_with_diagnostics_and_raw(
                         binary,
                         Some(&rendered_gray),
+                        Some(
+                            rendered_routing_gray
+                                .as_ref()
+                                .expect("bilevel output prepares a routing raster"),
+                        ),
                         options,
                         calibration,
                     )
                 } else {
                     (fresh_binary, fresh_despeckle_fallback)
                 };
-                let binary = filter_soft_shallow_bleed_components(
+                let binary = restore_genuine_horizontal_rules(
                     &binary,
                     rendered_routing_gray
                         .as_ref()
@@ -4148,9 +4237,11 @@ fn clean_region(
                     rendered_text_vicinity_mask.as_ref(),
                     options.dpi,
                 );
-                let binary = restore_genuine_horizontal_rules(
+                let binary = filter_soft_shallow_bleed_components(
                     &binary,
-                    &rendered_gray,
+                    rendered_routing_gray
+                        .as_ref()
+                        .expect("bilevel output prepares a routing raster"),
                     rendered_picture_mask.as_ref(),
                     rendered_text_mask.as_ref(),
                     rendered_text_vicinity_mask.as_ref(),
@@ -4203,7 +4294,7 @@ fn clean_region(
                     timings.binarization_ms +=
                         binarization_started.elapsed().as_secs_f64() * 1_000.0;
                     let mode = diagnostics.route;
-                    let binary = filter_soft_shallow_bleed_components(
+                    let binary = restore_genuine_horizontal_rules(
                         &binary,
                         rendered_routing_gray
                             .as_ref()
@@ -4213,9 +4304,11 @@ fn clean_region(
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
-                    let binary = restore_genuine_horizontal_rules(
+                    let binary = filter_soft_shallow_bleed_components(
                         &binary,
-                        &rendered_gray,
+                        rendered_routing_gray
+                            .as_ref()
+                            .expect("mixed output prepares a routing raster"),
                         None,
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
@@ -4289,7 +4382,7 @@ fn clean_region(
                         rendered_text_mask.as_ref(),
                         options.dpi,
                     );
-                    let binary = filter_soft_shallow_bleed_components(
+                    let binary = restore_genuine_horizontal_rules(
                         &binary,
                         rendered_routing_gray
                             .as_ref()
@@ -4299,9 +4392,11 @@ fn clean_region(
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
-                    let binary = restore_genuine_horizontal_rules(
+                    let binary = filter_soft_shallow_bleed_components(
                         &binary,
-                        &rendered_gray,
+                        rendered_routing_gray
+                            .as_ref()
+                            .expect("mixed output prepares a routing raster"),
                         Some(picture_mask),
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),

@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn soft_underline_recovery_restores_a_rule_erased_by_postprocessing() {
+    fn raw_rule_recovery_is_an_exact_source_support_subset() {
         let mut raw = GrayImage::new(420, 160, 220);
         let mut binary = BinaryImage::new(420, 160);
         let mut text_mask = BinaryImage::new(420, 160);
@@ -392,10 +392,13 @@ mod tests {
                 text_vicinity.set(x, y, true);
             }
         }
-        for y in 72..80 {
+        for y in 72..74 {
             for x in 48..372 {
-                raw.set(x, y, 100);
+                raw.set(x, y, if y == 72 { 100 } else { 120 });
             }
+        }
+        for x in 8..12 {
+            binary.set(x, 8, true);
         }
 
         let restored = restore_genuine_horizontal_rules(
@@ -407,12 +410,96 @@ mod tests {
             360.0,
         );
 
-        // The restore pass is a pass-through until the raw-support-only
-        // reimplementation lands: it must never add ink the binary lacks.
-        assert!((48..372).all(|x| (72..80).all(|y| !restored.get(x, y))));
+        let raw_dark_floor = paper_reference(&raw).saturating_sub(RULE_RAW_DEPTH);
+        for y in 0..restored.height() {
+            for x in 0..restored.width() {
+                if restored.get(x, y) {
+                    assert!(
+                        binary.get(x, y) || raw.get(x, y) <= raw_dark_floor,
+                        "restored pixel ({x}, {y}) lacks input or raw support"
+                    );
+                }
+            }
+        }
+        assert!((48..372).all(|x| (72..74).all(|y| restored.get(x, y))));
+        assert!(!(48..372).any(|x| restored.get(x, 74)));
         assert!([54, 112, 170, 228, 286]
             .into_iter()
             .all(|left| (left..left + 26).all(|x| (36..58).all(|y| restored.get(x, y)))));
+
+        let clean_paper = GrayImage::new(420, 160, 220);
+        let clean_output = restore_genuine_horizontal_rules(
+            &BinaryImage::new(420, 160),
+            &clean_paper,
+            None,
+            None,
+            None,
+            360.0,
+        );
+        assert_eq!(clean_output.count_black(), 0);
+    }
+
+    #[test]
+    fn thin_rule_below_text_survives_binarize_postprocess_and_bleed_chain() {
+        let mut raw = GrayImage::new(420, 160, 220);
+        let mut text_mask = BinaryImage::new(420, 160);
+        let mut text_vicinity = BinaryImage::new(420, 160);
+        for left in [54, 112, 170, 228, 286] {
+            for y in 36..58 {
+                for x in left..left + 26 {
+                    raw.set(x, y, 35);
+                    text_mask.set(x, y, true);
+                }
+            }
+        }
+        for y in 32..62 {
+            for x in 48..372 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 72..74 {
+            for x in 48..372 {
+                raw.set(x, y, 120);
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 360.0,
+            binarization: crate::BinarizationMode::Wolf,
+            normalize_illumination: false,
+            despeckle: true,
+            despeckle_level: crate::DespeckleLevel::Normal,
+            ..CleanupOptions::default()
+        };
+        let calibration =
+            PageCalibration::estimate(&raw, options.dpi, CalibrationConfig::default());
+        let (binary, _, _, _) = binarize_normalized_with_diagnostics(
+            &raw,
+            &raw,
+            &raw,
+            None,
+            &options,
+            calibration,
+            None,
+            Some(&text_vicinity),
+        );
+        let binary = restore_genuine_horizontal_rules(
+            &binary,
+            &raw,
+            None,
+            Some(&text_mask),
+            Some(&text_vicinity),
+            options.dpi,
+        );
+        let binary = filter_soft_shallow_bleed_components(
+            &binary,
+            &raw,
+            None,
+            Some(&text_mask),
+            Some(&text_vicinity),
+            options.dpi,
+        );
+
+        assert!((48..372).all(|x| (72..74).all(|y| binary.get(x, y))));
     }
 
     #[test]
@@ -442,7 +529,7 @@ mod tests {
             }
         }
 
-        let filtered = filter_soft_shallow_bleed_components(
+        let filtered = restore_genuine_horizontal_rules(
             &binary,
             &raw,
             None,
@@ -450,7 +537,7 @@ mod tests {
             None,
             360.0,
         );
-        let filtered = restore_genuine_horizontal_rules(
+        let filtered = filter_soft_shallow_bleed_components(
             &filtered,
             &raw,
             None,
@@ -497,7 +584,7 @@ mod tests {
             }
         }
 
-        let filtered = filter_soft_shallow_bleed_components(
+        let filtered = restore_genuine_horizontal_rules(
             &binary,
             &raw,
             None,
@@ -505,7 +592,7 @@ mod tests {
             Some(&text_vicinity),
             360.0,
         );
-        let filtered = restore_genuine_horizontal_rules(
+        let filtered = filter_soft_shallow_bleed_components(
             &filtered,
             &raw,
             None,
