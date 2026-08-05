@@ -1,0 +1,80 @@
+diff --git a/build/pdf.mjs b/build/pdf.mjs
+index 3b08593dd20d37f9679d0ba0f7999ad96d393682..923075997032b09643501891849d2448a95b620d 100644
+--- a/build/pdf.mjs
++++ b/build/pdf.mjs
+@@ -10934,7 +10934,7 @@ class CanvasGraphics {
+       }
+     }
+   }
+-  _scaleImage(img, inverseTransform) {
++  _scaleImage(img, inverseTransform, prescaleThreshold = 2) {
+     const width = img.width ?? img.displayWidth;
+     const height = img.height ?? img.displayHeight;
+     const widthScale = Math.max(Math.hypot(inverseTransform[0], inverseTransform[1]), 1);
+@@ -10944,14 +10944,14 @@ class CanvasGraphics {
+       hs = heightScale,
+       pw = width,
+       ph = height;
+-    while (ws > 2 && pw > 1 || hs > 2 && ph > 1) {
++    while (ws > prescaleThreshold && pw > 1 || hs > prescaleThreshold && ph > 1) {
+       let nw = pw,
+         nh = ph;
+-      if (ws > 2 && pw > 1) {
++      if (ws > prescaleThreshold && pw > 1) {
+         nw = Math.ceil(pw / 2);
+         ws /= pw / nw;
+       }
+-      if (hs > 2 && ph > 1) {
++      if (hs > prescaleThreshold && ph > 1) {
+         nh = Math.ceil(ph / 2);
+         hs /= ph / nh;
+       }
+@@ -11054,7 +11054,7 @@ class CanvasGraphics {
+     fillCtx.transform(...maskToCanvas);
+     let scaledEntry = null;
+     if (!scaled) {
+-      const scaleResult = this._scaleImage(maskCanvas.canvas, getCurrentTransformInverse(fillCtx));
++      const scaleResult = this._scaleImage(maskCanvas.canvas, getCurrentTransformInverse(fillCtx), 4 / 3);
+       scaled = scaleResult.img;
+       scaledEntry = scaleResult.tmpCanvas;
+       if (scaled !== maskCanvas.canvas) {
+diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
+index 5559b93393787671a0e2bfacc190fd94b7084fb6..b417d16e7ff6b0b9a80eefe6d6a1d880065d0e30 100644
+--- a/legacy/build/pdf.mjs
++++ b/legacy/build/pdf.mjs
+@@ -17569,7 +17569,7 @@ class CanvasGraphics {
+       }
+     }
+   }
+-  _scaleImage(img, inverseTransform) {
++  _scaleImage(img, inverseTransform, prescaleThreshold = 2) {
+     const width = img.width ?? img.displayWidth;
+     const height = img.height ?? img.displayHeight;
+     const widthScale = Math.max(Math.hypot(inverseTransform[0], inverseTransform[1]), 1);
+@@ -17579,14 +17579,14 @@ class CanvasGraphics {
+       hs = heightScale,
+       pw = width,
+       ph = height;
+-    while (ws > 2 && pw > 1 || hs > 2 && ph > 1) {
++    while (ws > prescaleThreshold && pw > 1 || hs > prescaleThreshold && ph > 1) {
+       let nw = pw,
+         nh = ph;
+-      if (ws > 2 && pw > 1) {
++      if (ws > prescaleThreshold && pw > 1) {
+         nw = Math.ceil(pw / 2);
+         ws /= pw / nw;
+       }
+-      if (hs > 2 && ph > 1) {
++      if (hs > prescaleThreshold && ph > 1) {
+         nh = Math.ceil(ph / 2);
+         hs /= ph / nh;
+       }
+@@ -17689,7 +17689,7 @@ class CanvasGraphics {
+     fillCtx.transform(...maskToCanvas);
+     let scaledEntry = null;
+     if (!scaled) {
+-      const scaleResult = this._scaleImage(maskCanvas.canvas, getCurrentTransformInverse(fillCtx));
++      const scaleResult = this._scaleImage(maskCanvas.canvas, getCurrentTransformInverse(fillCtx), 4 / 3);
+       scaled = scaleResult.img;
+       scaledEntry = scaleResult.tmpCanvas;
+       if (scaled !== maskCanvas.canvas) {
