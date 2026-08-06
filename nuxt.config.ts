@@ -436,17 +436,22 @@ export default defineNuxtConfig({
 
                     handler(level, log);
                 },
-                output: {manualChunks: {
-                    'vendor-pdfjs': [
-                        'pdfjs-dist',
-                        'pdfjs-dist/web/pdf_viewer.mjs',
-                    ],
-                    'vendor-pdf-lib': ['pdf-lib'],
-                    'vendor-vueuse': [
-                        '@vueuse/core',
-                        '@vueuse/math',
-                    ],
-                }},
+                output: {
+                    codeSplitting: {groups: [
+                        {
+                            name: 'vendor-pdfjs',
+                            test: /node_modules[\\/]pdfjs-dist[\\/]/,
+                        },
+                        {
+                            name: 'vendor-pdf-lib',
+                            test: /node_modules[\\/]pdf-lib[\\/]/,
+                        },
+                        {
+                            name: 'vendor-vueuse',
+                            test: /node_modules[\\/]@vueuse[\\/](?:core|math)[\\/]/,
+                        },
+                    ]},
+                },
             },
         },
         optimizeDeps: {
