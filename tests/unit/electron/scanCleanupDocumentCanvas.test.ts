@@ -123,6 +123,56 @@ describe('scan cleanup document canvas', () => {
         expect(() => parsePdfPageSizesPayload({})).toThrow(/no pages/u);
     });
 
+    it.each([
+        [
+            1.5,
+            2,
+        ],
+        [
+            1,
+            1,
+        ],
+        [
+            1,
+            3,
+        ],
+        [
+            2,
+            3,
+        ],
+    ])('rejects non-canonical page numbering %j', (firstPageNumber, secondPageNumber) => {
+        expect(() => parsePdfPageSizesPayload({pages: [
+            {
+                pageNumber: firstPageNumber,
+                widthPoints: 612,
+                heightPoints: 792,
+            },
+            {
+                pageNumber: secondPageNumber,
+                widthPoints: 612,
+                heightPoints: 792,
+            },
+        ]})).toThrow(/page numbering/u);
+    });
+
+    it('accepts shuffled complete page numbering and returns canonical order', () => {
+        expect(parsePdfPageSizesPayload({pages: [
+            {
+                pageNumber: 2,
+                widthPoints: 400,
+                heightPoints: 500,
+            },
+            {
+                pageNumber: 1,
+                widthPoints: 612,
+                heightPoints: 792,
+            },
+        ]}).map(pageSize => pageSize.pageNumber)).toEqual([
+            1,
+            2,
+        ]);
+    });
+
     it('reads the same geometry out of pdfinfo when page-ops is unavailable', () => {
         // The page view Poppler renders with -cropbox, at the precision pdfinfo
         // prints it, plus the rotation the page is presented under.

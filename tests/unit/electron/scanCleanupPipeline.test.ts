@@ -314,6 +314,10 @@ async function writeCleanupOutput(
         outputHeightPx: Math.round(renderDpi / 72 * 336),
         canvasWidthPx: Math.round(renderDpi / 72 * 240),
         canvasHeightPx: Math.round(renderDpi / 72 * 336),
+        placementOffsetXPx: 0,
+        placementOffsetYPx: 0,
+        forwardTransform: null,
+        rotationDegrees: 0,
         renderDpi,
         ...(matchedPageSize ? {
             matchedCanvasTargetWidthPoints: 240,
@@ -326,10 +330,10 @@ async function writeCleanupOutput(
         ...(outputMode === undefined ? {} : {outputMode}),
         ...(layeredWritten ? {layeredBackgroundDpi: Math.min(300, renderDpi)} : {}),
         contentBox: {
-            x: 1,
-            y: 1,
-            width: 10,
-            height: 10,
+            xPx: 1,
+            yPx: 1,
+            widthPx: 10,
+            heightPx: 10,
         },
         warnings: [],
     }));
@@ -1917,10 +1921,10 @@ describe('scan cleanup pipeline', () => {
                     bilevelWritten: false,
                     layeredWritten: false,
                     contentBox: {
-                        x: 1,
-                        y: 1,
-                        width: 10,
-                        height: 10,
+                        xPx: 1,
+                        yPx: 1,
+                        widthPx: 10,
+                        heightPx: 10,
                     },
                     warnings: [],
                 }));

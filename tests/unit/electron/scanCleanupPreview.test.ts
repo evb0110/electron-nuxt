@@ -513,6 +513,12 @@ async function writeDetectionMetadata(manifestPath: string) {
                     widthPx,
                     heightPx,
                 },
+                appliedMargins: {
+                    leftPx: 0,
+                    topPx: 0,
+                    rightPx: 0,
+                    bottomPx: 0,
+                },
                 inputWidthPx: widthPx,
                 inputHeightPx: heightPx,
             }],
@@ -4200,12 +4206,41 @@ describe('scan cleanup preview', () => {
             if (manifest.pages.length === 2) {
                 for (const page of manifest.pages) {
                     const pageNumber = page.sourcePageIndex + 1;
-                    await writeFile(page.pageMetadataPath, JSON.stringify({outputs: [{cropRect: {
-                        xPx: 0,
-                        yPx: 0,
-                        widthPx: pageNumber === 1 ? 60 : 100,
-                        heightPx: pageNumber === 1 ? 120 : 140,
-                    }}]}));
+                    const widthPx = pageNumber === 1 ? 60 : 100;
+                    const heightPx = pageNumber === 1 ? 120 : 140;
+                    await writeFile(page.pageMetadataPath, JSON.stringify({
+                        layoutClassification: 'single-uncut-page',
+                        cutterXPx: null,
+                        rotationDegrees: 0,
+                        canvasScope: 'page',
+                        excluded: false,
+                        blankOutputsSkipped: 0,
+                        outputCount: 1,
+                        outputs: [{
+                            half: 'full',
+                            sourceRegion: {
+                                xPx: 0,
+                                yPx: 0,
+                                widthPx,
+                                heightPx,
+                            },
+                            contentBox: null,
+                            cropRect: {
+                                xPx: 0,
+                                yPx: 0,
+                                widthPx,
+                                heightPx,
+                            },
+                            appliedMargins: {
+                                leftPx: 0,
+                                topPx: 0,
+                                rightPx: 0,
+                                bottomPx: 0,
+                            },
+                            inputWidthPx: widthPx,
+                            inputHeightPx: heightPx,
+                        }],
+                    }));
                     onProgress({
                         stage: 'detecting',
                         completedUnits: pageNumber,

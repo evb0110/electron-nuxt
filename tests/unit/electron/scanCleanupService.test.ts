@@ -6,6 +6,7 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {EventEmitter} from 'node:events';
 import {
     afterEach,
     beforeEach,
@@ -18,6 +19,8 @@ import type {WebContents} from 'electron';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type * as TPageOpsModule from '@electron/features/page-ops/public';
 import type * as TJobBrokerModule from '@electron/resources/jobBroker';
+import type * as TOpenPathCapabilitiesModule from '@electron/file-access/openPathCapabilities';
+import {OPEN_PATH_CAPABILITY_TTL_MS} from '@electron/file-access/openPathCapabilities';
 import {decodeScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
     JobBroker,
@@ -27,6 +30,7 @@ import {
 import {
     classifyScanCleanupError,
     createScanCleanupService,
+    grantScanCleanupOutputAccess,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
 import {ScanCleanupPageScopeError} from '@scan-cleanup-core/pageScope';
 
@@ -56,6 +60,7 @@ const mocks = vi.hoisted(() => {
     };
     return {
         acquire,
+        allowOpenPath: vi.fn(() => '/managed/cleaned.pdf'),
         createOutput: vi.fn(async () => '/managed/cleaned.pdf'),
         handoff: vi.fn(),
         host,
@@ -110,6 +115,10 @@ vi.mock('@electron/output/documentOutputService', () => ({documentOutputService:
     finish: vi.fn(),
 }}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyBackingEntry: () => ({backing: 'materialized'})}));
+vi.mock('@electron/file-access/openPathCapabilities', async importOriginal => ({
+    ...await importOriginal<typeof TOpenPathCapabilitiesModule>(),
+    allowOpenPath: mocks.allowOpenPath,
+}));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: async (sourcePdfPath: string) => ({physicalWorkingCopyPath: sourcePdfPath})}));
 
 const owner = {
@@ -154,6 +163,17 @@ function sender(): WebContents {
     } as never;
 }
 
+class LifecycleWebContents extends EventEmitter {
+    readonly id: number;
+    readonly isDestroyed = () => false;
+    readonly send = vi.fn();
+
+    constructor(id: number) {
+        super();
+        this.id = id;
+    }
+}
+
 describe('scan cleanup service', () => {
     it('classifies a page-scope validation failure as an invalid request', () => {
         expect(classifyScanCleanupError(
@@ -171,6 +191,7 @@ describe('scan cleanup service', () => {
 
     beforeEach(() => {
         mocks.acquire.mockClear();
+        mocks.allowOpenPath.mockClear();
         mocks.createOutput.mockClear();
         mocks.createOutput.mockImplementation(async () => '/managed/cleaned.pdf');
         mocks.handoff.mockReset();
@@ -181,6 +202,50 @@ describe('scan cleanup service', () => {
             totalRamBytes: 32 * 1024 ** 3,
             tier: 'high',
         });
+    });
+
+    it('deduplicates output grants per WebContents and regrants after lifecycle replacement', () => {
+        const first: WebContents = new LifecycleWebContents(90_001) as never;
+        const other: WebContents = new LifecycleWebContents(90_002) as never;
+
+        grantScanCleanupOutputAccess('/managed/run/../cleaned.pdf', [first]);
+        grantScanCleanupOutputAccess('/managed/cleaned.pdf', [first]);
+        grantScanCleanupOutputAccess('/managed/cleaned.pdf', [other]);
+        expect(mocks.allowOpenPath).toHaveBeenCalledTimes(2);
+
+        first.emit('render-process-gone');
+        grantScanCleanupOutputAccess('/managed/cleaned.pdf', [first]);
+        expect(mocks.allowOpenPath).toHaveBeenCalledTimes(3);
+
+        first.emit('did-start-navigation', {}, 'app://reconnected', false, true);
+        grantScanCleanupOutputAccess('/managed/cleaned.pdf', [first]);
+        expect(mocks.allowOpenPath).toHaveBeenCalledTimes(4);
+
+        const replacement: WebContents = new LifecycleWebContents(90_001) as never;
+        grantScanCleanupOutputAccess('/managed/cleaned.pdf', [replacement]);
+        grantScanCleanupOutputAccess('/managed/cleaned.pdf', [replacement]);
+        expect(mocks.allowOpenPath).toHaveBeenCalledTimes(5);
+    });
+
+    it('refreshes a deduplicated output grant after the authoritative capability TTL', () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+            const webContents: WebContents = new LifecycleWebContents(90_003) as never;
+
+            grantScanCleanupOutputAccess('/managed/cleaned.pdf', [webContents]);
+            grantScanCleanupOutputAccess('/managed/cleaned.pdf', [webContents]);
+            vi.advanceTimersByTime(OPEN_PATH_CAPABILITY_TTL_MS - 1);
+            grantScanCleanupOutputAccess('/managed/cleaned.pdf', [webContents]);
+            expect(mocks.allowOpenPath).toHaveBeenCalledOnce();
+
+            vi.advanceTimersByTime(2);
+            grantScanCleanupOutputAccess('/managed/cleaned.pdf', [webContents]);
+            expect(mocks.allowOpenPath).toHaveBeenCalledTimes(2);
+            webContents.emit('destroyed');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it.each([

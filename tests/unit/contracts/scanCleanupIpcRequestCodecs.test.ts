@@ -3,7 +3,18 @@ import {
     expect,
     it,
 } from 'vitest';
-import {decodeStartArgs} from '@contracts/scan-cleanup/ipcRequestCodecs';
+import {
+    decodeOpenPdfPaths,
+    decodeScanCleanupPageOverrides,
+    decodeStartArgs,
+    SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX,
+    SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX,
+    SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX,
+    SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
+    SCAN_CLEANUP_IPC_PATH_LENGTH_MAX,
+    SCAN_CLEANUP_IPC_POLYGON_POINT_MAX,
+} from '@contracts/scan-cleanup/ipcRequestCodecs';
+import {decodeScanCleanupSettingsUpdateRequest} from '@contracts/scanCleanupSettings';
 
 const request = {
     sourcePdfPath: '/tmp/source.pdf',
@@ -63,6 +74,31 @@ const request = {
         }},
     }},
 };
+
+const basePageOverride = {
+    rotationDegrees: 0,
+    layoutOverride: 'auto',
+    excluded: false,
+    manualSplit: null,
+} as const;
+
+const triangle = {
+    points: [
+        {
+            xNormalized: 0.1,
+            yNormalized: 0.1,
+        },
+        {
+            xNormalized: 0.9,
+            yNormalized: 0.1,
+        },
+        {
+            xNormalized: 0.5,
+            yNormalized: 0.9,
+        },
+    ],
+    rotationDegrees: 0,
+} as const;
 
 describe('scan-cleanup IPC request codecs', () => {
     it('decodes typed automatic page-plan evidence', () => {
@@ -126,5 +162,104 @@ describe('scan-cleanup IPC request codecs', () => {
                 }},
             }},
         }])).toThrow('text tone');
+    });
+
+    it('bounds renderer-controlled strings before accepting a request', () => {
+        expect(() => decodeStartArgs([{
+            ...request,
+            sourcePdfPath: 'p'.repeat(SCAN_CLEANUP_IPC_PATH_LENGTH_MAX + 1),
+        }])).toThrow('request');
+        expect(() => decodeStartArgs([{
+            ...request,
+            ownerId: 'o'.repeat(SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX + 1),
+        }])).toThrow('owner context');
+        expect(() => decodeOpenPdfPaths([['p'.repeat(SCAN_CLEANUP_IPC_PATH_LENGTH_MAX + 1)]])).toThrow('open PDF paths');
+    });
+
+    it('bounds every page-scoped request map', () => {
+        const oversizedOverrides = Object.fromEntries(Array.from(
+            {length: SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX + 1},
+            (_, index) => [
+                String(index + 1),
+                basePageOverride,
+            ],
+        ));
+        expect(() => decodeScanCleanupPageOverrides(oversizedOverrides)).toThrow(
+            'too many scan-cleanup page overrides',
+        );
+        expect(() => decodeStartArgs([{
+            ...request,
+            outputModeRecommendations: Object.fromEntries(Object.keys(oversizedOverrides).map(
+                pageNumber => [
+                    pageNumber,
+                    'bw',
+                ],
+            )),
+        }])).toThrow('too many scan-cleanup output-mode recommendations');
+    });
+
+    it('bounds manual-zone counts and polygon point counts', () => {
+        expect(() => decodeScanCleanupPageOverrides({'1': {
+            ...basePageOverride,
+            manualZones: {
+                picture: [],
+                fill: Array.from({length: SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX + 1}, () => triangle),
+            },
+        }})).toThrow('too many scan-cleanup manual zones');
+
+        const oversizedPolygon = {
+            points: Array.from(
+                {length: SCAN_CLEANUP_IPC_POLYGON_POINT_MAX + 1},
+                (_, index) => ({
+                    xNormalized: index / SCAN_CLEANUP_IPC_POLYGON_POINT_MAX,
+                    yNormalized: index % 2,
+                }),
+            ),
+            rotationDegrees: 0,
+        };
+        expect(() => decodeScanCleanupPageOverrides({'1': {
+            ...basePageOverride,
+            manualZones: {
+                picture: [],
+                fill: [oversizedPolygon],
+            },
+        }})).toThrow('fill zone 0');
+
+        const regularPolygon = {
+            points: Array.from(
+                {length: SCAN_CLEANUP_IPC_POLYGON_POINT_MAX},
+                (_, index) => {
+                    const angle = index / SCAN_CLEANUP_IPC_POLYGON_POINT_MAX * Math.PI * 2;
+                    return {
+                        xNormalized: 0.5 + Math.cos(angle) * 0.4,
+                        yNormalized: 0.5 + Math.sin(angle) * 0.4,
+                    };
+                },
+            ),
+            rotationDegrees: 0,
+        };
+        const polygonCount = Math.floor(
+            SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX / SCAN_CLEANUP_IPC_POLYGON_POINT_MAX,
+        ) + 1;
+        expect(() => decodeScanCleanupPageOverrides({'1': {
+            ...basePageOverride,
+            manualZones: {
+                picture: [],
+                fill: Array.from({length: polygonCount}, () => regularPolygon),
+            },
+        }})).toThrow('too many scan-cleanup manual-zone points');
+    });
+
+    it('applies the same override limits to settings-update IPC', () => {
+        expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
+            sourceSha256: 'a'.repeat(64),
+            patch: {overrides: {'1': {
+                ...basePageOverride,
+                manualZones: {
+                    picture: [],
+                    fill: Array.from({length: SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX + 1}, () => triangle),
+                },
+            }}},
+        }})).toThrow('too many scan-cleanup manual zones');
     });
 });

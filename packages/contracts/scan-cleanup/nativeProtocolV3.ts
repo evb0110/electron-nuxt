@@ -111,6 +111,12 @@ export interface INativeScanCleanupPdfImagePlacementV3 {
     heightPoints: number;
 }
 
+export interface INativeScanCleanupDewarpModelV3 {
+    topCurve: IScanCleanupPixelPoint[];
+    bottomCurve: IScanCleanupPixelPoint[];
+    depth: number;
+}
+
 /** Metadata written beside each protocol-v3 rendered output. */
 export interface INativeScanCleanupOutputMetadataV3 {
     sourcePageIndex?: number;
@@ -143,7 +149,7 @@ export interface INativeScanCleanupOutputMetadataV3 {
     outputMode?: TScanCleanupOutputMode;
     despeckleFallback?: boolean;
     dewarpConfidence?: number | null;
-    dewarpModel?: unknown | null;
+    dewarpModel?: INativeScanCleanupDewarpModelV3 | null;
     contentBox?: IScanCleanupPixelRect | null;
     warnings?: string[];
     renderDpi?: number;

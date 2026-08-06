@@ -12,11 +12,16 @@ import {
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
 } from '@contracts/scan-cleanup/domain';
 import {isRecord} from '@contracts/runtimeGuards';
+import {
+    decodeScanCleanupPageOverrides,
+    SCAN_CLEANUP_IPC_PATH_LENGTH_MAX,
+} from '@contracts/scan-cleanup/ipcRequestCodecs';
 
 export const SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION = 1 as const;
 export const SCAN_CLEANUP_SETTINGS_FILE_NAME = 'scan-cleanup-settings.json';
 export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES = 50;
+const SCAN_CLEANUP_LEGACY_STORAGE_STRING_MAX = 4 * 1024 * 1024;
 
 export interface IScanCleanupGlobalPreferences extends Omit<
     IScanCleanupOptions,
@@ -98,8 +103,16 @@ export interface IScanCleanupSettingsUpdateRequest {
     };
 }
 
-function decodeNullableString(value: unknown, label: string): string | null | undefined {
-    if (value === undefined || value === null || typeof value === 'string') {
+function decodeNullableString(
+    value: unknown,
+    label: string,
+    maxLength = SCAN_CLEANUP_IPC_PATH_LENGTH_MAX,
+): string | null | undefined {
+    if (
+        value === undefined
+        || value === null
+        || typeof value === 'string' && value.length <= maxLength
+    ) {
         return value;
     }
     throw new Error(`Invalid scan-cleanup settings ${label}`);
@@ -109,6 +122,10 @@ function decodeLegacyStorageExport(value: unknown): IScanCleanupLegacyStorageExp
     const stored = scanCleanupPreferenceRecord(value);
     if (!stored || (stored.settingsRaw !== null && typeof stored.settingsRaw !== 'string')
         || (stored.documentOverridesRaw !== null && typeof stored.documentOverridesRaw !== 'string')
+        || (typeof stored.settingsRaw === 'string'
+            && stored.settingsRaw.length > SCAN_CLEANUP_LEGACY_STORAGE_STRING_MAX)
+        || (typeof stored.documentOverridesRaw === 'string'
+            && stored.documentOverridesRaw.length > SCAN_CLEANUP_LEGACY_STORAGE_STRING_MAX)
         || (stored.exportedAtMs !== undefined
             && (typeof stored.exportedAtMs !== 'number' || !Number.isFinite(stored.exportedAtMs)))) {
         throw new Error('Invalid scan-cleanup legacy storage export');
@@ -155,10 +172,7 @@ function decodeDocumentPatch(value: unknown): IScanCleanupDocumentPreferencePatc
         : decodeScanCleanupMarginsMm(stored.marginsMm);
     const overrides = stored.overrides === undefined
         ? undefined
-        : scanCleanupPreferenceRecord(stored.overrides) as TScanCleanupPageOverrides | null;
-    if (stored.overrides !== undefined && overrides === null) {
-        throw new Error('Invalid scan-cleanup document overrides');
-    }
+        : decodeScanCleanupPageOverrides(stored.overrides);
     return {
         ...(overrides === undefined || overrides === null ? {} : {overrides}),
         ...(marginsMm === undefined ? {} : {marginsMm}),

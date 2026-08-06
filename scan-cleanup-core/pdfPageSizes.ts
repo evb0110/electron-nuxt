@@ -35,14 +35,26 @@ function decodeFinite(value: unknown) {
 }
 
 export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
-    if (!isRecord(payload) || !Array.isArray(payload.pages)) {
+    if (!isRecord(payload) || !Array.isArray(payload.pages) || payload.pages.length === 0) {
         throw new Error('evb-pdf-page-ops page-sizes returned no pages');
     }
-    return payload.pages.map((page, index) => {
+    const pageCount = payload.pages.length;
+    const seenPageNumbers = new Set<number>();
+    const pages = payload.pages.map((page, index) => {
         if (!isRecord(page)) throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(index + 1)}`);
         const widthPoints = decodeFinite(page.widthPoints);
         const heightPoints = decodeFinite(page.heightPoints);
-        const pageNumber = decodeFinite(page.pageNumber) ?? index + 1;
+        const pageNumber = page.pageNumber;
+        if (
+            typeof pageNumber !== 'number'
+            || !Number.isSafeInteger(pageNumber)
+            || pageNumber < 1
+            || pageNumber > pageCount
+            || seenPageNumbers.has(pageNumber)
+        ) {
+            throw new Error('evb-pdf-page-ops returned invalid page numbering');
+        }
+        seenPageNumbers.add(pageNumber);
         if (widthPoints === null || heightPoints === null || widthPoints <= 0 || heightPoints <= 0) {
             throw new Error(`evb-pdf-page-ops returned invalid geometry for page ${String(pageNumber)}`);
         }
@@ -75,6 +87,10 @@ export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
             } : {}),
         };
     });
+    if (seenPageNumbers.size !== pageCount) {
+        throw new Error('evb-pdf-page-ops returned incomplete page numbering');
+    }
+    return pages.sort((left, right) => left.pageNumber - right.pageNumber);
 }
 
 /**

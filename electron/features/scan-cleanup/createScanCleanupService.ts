@@ -3,6 +3,8 @@ import {rm} from 'fs/promises';
 import {
     dirname,
     isAbsolute,
+    normalize,
+    resolve,
 } from 'path';
 import { fileURLToPath } from 'url';
 import type { WebContents } from 'electron';
@@ -39,7 +41,11 @@ import {
     createScanCleanupGeneratedOutputPath,
     pruneScanCleanupGeneratedOutputs,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
-import {allowOpenPath} from '@electron/file-access/openPathCapabilities';
+import {
+    allowOpenPath,
+    MAX_ALLOWED_OPEN_PATHS,
+    OPEN_PATH_CAPABILITY_TTL_MS,
+} from '@electron/file-access/openPathCapabilities';
 import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
@@ -81,7 +87,88 @@ export function grantScanCleanupOutputAccess(
     subscribers: Iterable<WebContents>,
 ) {
     for (const subscriber of subscribers) {
-        allowOpenPath(outputPdfPath, subscriber);
+        registerScanCleanupOutputAccess(outputPdfPath, subscriber);
+    }
+}
+
+interface IScanCleanupOutputAccessRegistration {
+    handleDestroyed: () => void;
+    handleNavigation: (_event: unknown, _url: string, isInPlace: boolean, isMainFrame: boolean) => void;
+    handleRenderProcessGone: () => void;
+    paths: Map<string, number>;
+    sender: WebContents;
+}
+
+const outputAccessRegistrations = new Map<number, IScanCleanupOutputAccessRegistration>();
+
+function normalizedOutputAccessPath(outputPath: string) {
+    const normalized = normalize(resolve(outputPath));
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function removeOutputAccessRegistration(senderId: number, expected?: IScanCleanupOutputAccessRegistration) {
+    const registration = outputAccessRegistrations.get(senderId);
+    if (!registration || (expected && registration !== expected)) {
+        return;
+    }
+    registration.sender.removeListener('destroyed', registration.handleDestroyed);
+    registration.sender.removeListener('render-process-gone', registration.handleRenderProcessGone);
+    registration.sender.removeListener('did-start-navigation', registration.handleNavigation);
+    outputAccessRegistrations.delete(senderId);
+}
+
+function createOutputAccessRegistration(sender: WebContents) {
+    const registration: IScanCleanupOutputAccessRegistration = {
+        handleDestroyed: () => removeOutputAccessRegistration(sender.id, registration),
+        handleRenderProcessGone: () => removeOutputAccessRegistration(sender.id, registration),
+        handleNavigation: (_event, _url, isInPlace, isMainFrame) => {
+            if (isMainFrame && !isInPlace) {
+                removeOutputAccessRegistration(sender.id, registration);
+            }
+        },
+        paths: new Map(),
+        sender,
+    };
+    outputAccessRegistrations.set(sender.id, registration);
+    sender.once('destroyed', registration.handleDestroyed);
+    sender.once('render-process-gone', registration.handleRenderProcessGone);
+    sender.on('did-start-navigation', registration.handleNavigation);
+    return registration;
+}
+
+function registerScanCleanupOutputAccess(outputPath: string, sender: WebContents) {
+    if (sender.isDestroyed()) {
+        removeOutputAccessRegistration(sender.id);
+        return;
+    }
+    let registration = outputAccessRegistrations.get(sender.id);
+    if (registration?.sender !== sender) {
+        removeOutputAccessRegistration(sender.id, registration);
+        registration = undefined;
+    }
+    registration ??= createOutputAccessRegistration(sender);
+    const now = Date.now();
+    for (const [
+        path,
+        expiresAtMs,
+    ] of registration.paths) {
+        if (expiresAtMs <= now) {
+            registration.paths.delete(path);
+        }
+    }
+    const normalizedPath = normalizedOutputAccessPath(outputPath);
+    if (registration.paths.has(normalizedPath)) {
+        return;
+    }
+    if (allowOpenPath(outputPath, sender)) {
+        registration.paths.set(normalizedPath, now + OPEN_PATH_CAPABILITY_TTL_MS);
+        while (registration.paths.size > MAX_ALLOWED_OPEN_PATHS) {
+            const oldestPath = registration.paths.keys().next().value;
+            if (oldestPath === undefined) {
+                break;
+            }
+            registration.paths.delete(oldestPath);
+        }
     }
 }
 

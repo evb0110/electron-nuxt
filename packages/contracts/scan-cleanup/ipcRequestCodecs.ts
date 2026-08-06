@@ -29,6 +29,42 @@ import type {
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
 
+// IPC payloads are fully materialized before these codecs run. Keep every
+// renderer-controlled collection and string below an explicit ceiling so a
+// syntactically valid request cannot multiply into unbounded main-process work.
+export const SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX = 10_000;
+export const SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX = 256;
+export const SCAN_CLEANUP_IPC_POLYGON_POINT_MAX = 2_048;
+export const SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX = 8_192;
+export const SCAN_CLEANUP_IPC_PATH_LENGTH_MAX = 32_768;
+export const SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX = 1_024;
+const SCAN_CLEANUP_IPC_OPEN_PATH_MAX = SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX * 2;
+
+function isBoundedNonEmptyString(value: unknown, maxLength: number): value is string {
+    return typeof value === 'string'
+        && value.trim().length > 0
+        && value.length <= maxLength;
+}
+
+function isPageNumberKey(value: string) {
+    const pageNumber = Number(value);
+    return /^[1-9]\d*$/u.test(value)
+        && Number.isSafeInteger(pageNumber)
+        && pageNumber >= 1;
+}
+
+function boundedRecordEntries(
+    value: unknown,
+    maxEntries: number,
+    invalidMessage: string,
+    tooManyMessage: string,
+) {
+    if (!isRecord(value)) throw new Error(invalidMessage);
+    const entries = Object.entries(value);
+    if (entries.length > maxEntries) throw new Error(tooManyMessage);
+    return entries;
+}
+
 function decodeTextToneEvidence(value: unknown, label: string): IScanCleanupTextToneDiagnostics {
     if (
         !isRecord(value)
@@ -210,8 +246,7 @@ export function decodePreviewCancelArgs(args: readonly unknown[]) {
     const value = args[0];
     if (
         !isRecord(value)
-        || typeof value.sourcePdfPath !== 'string'
-        || value.sourcePdfPath.trim().length === 0
+        || !isBoundedNonEmptyString(value.sourcePdfPath, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX)
         || (value.invalidateRawCache !== undefined && typeof value.invalidateRawCache !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview cancellation');
     const retainPages = decodeRetainedPages(value.retainPages);
@@ -232,7 +267,9 @@ export function decodeOwnedJobId(args: readonly unknown[]) {
         jobId,
         ownerValue,
     ] = args;
-    if (typeof jobId !== 'string' || jobId.trim().length === 0) throw new Error('invalid scan-cleanup job id');
+    if (!isBoundedNonEmptyString(jobId, SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX)) {
+        throw new Error('invalid scan-cleanup job id');
+    }
     if (!isRecord(ownerValue)) throw new Error('invalid scan-cleanup owner context');
     return [
         jobId,
@@ -242,10 +279,8 @@ export function decodeOwnedJobId(args: readonly unknown[]) {
 
 function decodeOwnerContext(value: Record<string, unknown>) {
     if (
-        typeof value.ownerId !== 'string'
-        || value.ownerId.trim().length === 0
-        || typeof value.documentRevision !== 'string'
-        || value.documentRevision.trim().length === 0
+        !isBoundedNonEmptyString(value.ownerId, SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX)
+        || !isBoundedNonEmptyString(value.documentRevision, SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX)
     ) throw new Error('invalid scan-cleanup owner context');
     return {
         ownerId: value.ownerId,
@@ -298,7 +333,11 @@ export function decodeOpenPdfPaths(args: readonly unknown[]) {
         min: 1,
         max: 1,
     });
-    if (!Array.isArray(args[0]) || args[0].some(path => typeof path !== 'string')) {
+    if (
+        !Array.isArray(args[0])
+        || args[0].length > SCAN_CLEANUP_IPC_OPEN_PATH_MAX
+        || args[0].some(path => !isBoundedNonEmptyString(path, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX))
+    ) {
         throw new Error('invalid scan-cleanup open PDF paths');
     }
     return [args[0].map(path => String(path))] as [string[]];
@@ -382,9 +421,22 @@ function decodeManualZones(
     if (!isRecord(value) || !Array.isArray(value.picture) || !Array.isArray(value.fill)) {
         throw new Error('invalid scan-cleanup manual zones');
     }
+    if (value.picture.length + value.fill.length > SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX) {
+        throw new Error('too many scan-cleanup manual zones');
+    }
+    let decodedPointCount = 0;
     const decodePolygon = (polygon: unknown, label: string) => {
-        if (!isRecord(polygon) || !Array.isArray(polygon.points) || polygon.points.length < 3) {
+        if (
+            !isRecord(polygon)
+            || !Array.isArray(polygon.points)
+            || polygon.points.length < 3
+            || polygon.points.length > SCAN_CLEANUP_IPC_POLYGON_POINT_MAX
+        ) {
             throw new Error(`invalid scan-cleanup ${label}`);
+        }
+        decodedPointCount += polygon.points.length;
+        if (decodedPointCount > SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX) {
+            throw new Error('too many scan-cleanup manual-zone points');
         }
         return {
             points: polygon.points.map((point, index) => {
@@ -525,16 +577,19 @@ function decodeOutputMap<T>(
     ]));
 }
 
-function decodePageOverrides(value: unknown) {
-    if (!isRecord(value)) throw new Error('invalid scan-cleanup page overrides');
-    const entries = Object.entries(value);
-    if (entries.length > 100_000) throw new Error('too many scan-cleanup page overrides');
+export function decodeScanCleanupPageOverrides(value: unknown) {
+    const entries = boundedRecordEntries(
+        value,
+        SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
+        'invalid scan-cleanup page overrides',
+        'too many scan-cleanup page overrides',
+    );
     return Object.fromEntries(entries.map(([
         key,
         override,
     ]) => {
         const pageNumber = Number(key);
-        if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+        if (!isPageNumberKey(key)) {
             throw new Error('invalid scan-cleanup page override number');
         }
         return [
@@ -618,17 +673,22 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         ...(autoDewarpDepth === undefined ? {} : {autoDewarpDepth}),
         readingOrder: options.readingOrder as IScanCleanupStartRequest['options']['readingOrder'],
         skipBlankPages: options.skipBlankPages,
-        pageOverrides: decodePageOverrides(options.pageOverrides),
+        pageOverrides: decodeScanCleanupPageOverrides(options.pageOverrides),
     };
 }
 
 function decodeLayoutByPage(value: unknown) {
+    const entries = boundedRecordEntries(
+        value,
+        SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
+        'invalid scan-cleanup layout classifications',
+        'too many scan-cleanup layout classifications',
+    );
     if (
-        !isRecord(value)
-        || Object.entries(value).some(([
+        entries.some(([
             pageNumber,
             layout,
-        ]) => !/^[1-9]\d*$/u.test(pageNumber) || !isLayoutClassification(layout))
+        ]) => !isPageNumberKey(pageNumber) || !isLayoutClassification(layout))
     ) {
         throw new Error('invalid scan-cleanup layout classifications');
     }
@@ -699,18 +759,22 @@ export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePage
 }
 
 function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
-    if (!isRecord(value) || typeof value.sourcePdfPath !== 'string' || value.sourcePdfPath.trim().length === 0) {
+    if (!isRecord(value) || !isBoundedNonEmptyString(value.sourcePdfPath, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX)) {
         throw new Error('invalid scan-cleanup request');
     }
     const outputModeRecommendations = value.outputModeRecommendations === undefined
         ? undefined
         : (() => {
             if (
-                !isRecord(value.outputModeRecommendations)
-                || Object.entries(value.outputModeRecommendations).some(([
+                boundedRecordEntries(
+                    value.outputModeRecommendations,
+                    SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
+                    'invalid scan-cleanup output-mode recommendations',
+                    'too many scan-cleanup output-mode recommendations',
+                ).some(([
                     pageNumber,
                     mode,
-                ]) => !/^[1-9]\d*$/u.test(pageNumber) || !isScanCleanupOutputMode(mode))
+                ]) => !isPageNumberKey(pageNumber) || !isScanCleanupOutputMode(mode))
             ) {
                 throw new Error('invalid scan-cleanup output-mode recommendations');
             }
@@ -722,11 +786,15 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
         ? undefined
         : (() => {
             if (
-                !isRecord(value.softAlphaForegroundRecommendations)
-                || Object.entries(value.softAlphaForegroundRecommendations).some(([
+                boundedRecordEntries(
+                    value.softAlphaForegroundRecommendations,
+                    SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
+                    'invalid scan-cleanup soft-alpha foreground recommendations',
+                    'too many scan-cleanup soft-alpha foreground recommendations',
+                ).some(([
                     pageNumber,
                     recommendation,
-                ]) => !/^[1-9]\d*$/u.test(pageNumber) || typeof recommendation !== 'boolean')
+                ]) => !isPageNumberKey(pageNumber) || typeof recommendation !== 'boolean')
             ) {
                 throw new Error('invalid scan-cleanup soft-alpha foreground recommendations');
             }
@@ -740,6 +808,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
             if (
                 !Array.isArray(value.sourcePageNumbers)
                 || value.sourcePageNumbers.length === 0
+                || value.sourcePageNumbers.length > SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX
                 || value.sourcePageNumbers.some(pageNumber => !Number.isSafeInteger(pageNumber) || Number(pageNumber) < 1)
                 || new Set(value.sourcePageNumbers).size !== value.sourcePageNumbers.length
             ) {
@@ -750,14 +819,17 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
     const sourcePageMetadataByPage = value.sourcePageMetadataByPage === undefined
         ? undefined
         : (() => {
-            if (!isRecord(value.sourcePageMetadataByPage)) {
-                throw new Error('invalid scan-cleanup source page metadata map');
-            }
-            return Object.fromEntries(Object.entries(value.sourcePageMetadataByPage).map(([
+            const entries = boundedRecordEntries(
+                value.sourcePageMetadataByPage,
+                SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
+                'invalid scan-cleanup source page metadata map',
+                'too many scan-cleanup source page metadata entries',
+            );
+            return Object.fromEntries(entries.map(([
                 key,
                 metadata,
             ]) => {
-                if (!/^[1-9]\d*$/u.test(key)) {
+                if (!isPageNumberKey(key)) {
                     throw new Error('invalid scan-cleanup source page metadata map');
                 }
                 const decoded = decodeSourcePageMetadata(metadata);
@@ -773,15 +845,18 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
     const pagePlanEvidenceByPage = value.pagePlanEvidenceByPage === undefined
         ? undefined
         : (() => {
-            if (!isRecord(value.pagePlanEvidenceByPage)) {
-                throw new Error('invalid scan-cleanup page-plan evidence map');
-            }
-            return Object.fromEntries(Object.entries(value.pagePlanEvidenceByPage).map(([
+            const entries = boundedRecordEntries(
+                value.pagePlanEvidenceByPage,
+                SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
+                'invalid scan-cleanup page-plan evidence map',
+                'too many scan-cleanup page-plan evidence entries',
+            );
+            return Object.fromEntries(entries.map(([
                 key,
                 evidence,
             ]) => {
                 if (
-                    !/^[1-9]\d*$/u.test(key)
+                    !isPageNumberKey(key)
                     || !isRecord(evidence)
                     || evidence.pageNumber !== Number(key)
                     || ![
@@ -881,10 +956,8 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
 function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
     if (
         !isRecord(value)
-        || typeof value.requestId !== 'string'
-        || value.requestId.trim().length === 0
-        || typeof value.sourcePdfPath !== 'string'
-        || value.sourcePdfPath.trim().length === 0
+        || !isBoundedNonEmptyString(value.requestId, SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX)
+        || !isBoundedNonEmptyString(value.sourcePdfPath, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX)
         || !Number.isSafeInteger(value.pageNumber)
         || Number(value.pageNumber) < 1
         || (value.visible !== undefined && typeof value.visible !== 'boolean')
@@ -961,8 +1034,7 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
 function decodeDetectionRequest(value: unknown): IScanCleanupDetectionRequest {
     if (
         !isRecord(value)
-        || typeof value.sourcePdfPath !== 'string'
-        || value.sourcePdfPath.trim().length === 0
+        || !isBoundedNonEmptyString(value.sourcePdfPath, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX)
     ) throw new Error('invalid scan-cleanup detection request');
     return {
         sourcePdfPath: value.sourcePdfPath,

@@ -23,6 +23,10 @@ import type {
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+import {
+    decodeNativeScanCleanupOutputMetadataJson,
+    decodeNativeScanCleanupPageMetadataJson,
+} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
@@ -1018,7 +1022,9 @@ export async function runScanCleanupConversion(
             page,
         ] of pages.entries()) {
             const {outputs} = page;
-            const pageMetadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as INativeScanCleanupPageMetadataV3;
+            const pageMetadata = decodeNativeScanCleanupPageMetadataJson(
+                await readFile(page.pageMetadataPath, 'utf8'),
+            );
             const sourcePageNumber = pageNumbers[pageIndex]!;
             pageMetadataBySource.set(sourcePageNumber, pageMetadata);
             emitProgress('collecting', pageIndex + 1, pages.length);
@@ -1066,7 +1072,7 @@ export async function runScanCleanupConversion(
                         getErrorMessage(error),
                     );
                 }
-                const metadata = JSON.parse(metadataJson) as INativeScanCleanupOutputMetadataV3;
+                const metadata = decodeNativeScanCleanupOutputMetadataJson(metadataJson);
                 const pageNumber = sourcePageNumber;
                 let bilevelPath: string | undefined;
                 let backgroundPath: string | undefined;

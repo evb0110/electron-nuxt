@@ -8,6 +8,7 @@ import type {
     INativeScanCleanupAnalysisOutputV3,
     INativeScanCleanupPageMetadataV3,
 } from '@contracts/electronApiScanCleanup';
+import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
@@ -198,7 +199,9 @@ export async function runLosslessScanCleanup(
         index,
         page,
     ] of pages.entries()) {
-        const metadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as INativeScanCleanupPageMetadataV3;
+        const metadata = decodeNativeScanCleanupPageMetadataJson(
+            await readFile(page.pageMetadataPath, 'utf8'),
+        );
         emitProgress('collecting', index + 1, pages.length);
         const sourcePageNumber = pageNumbers[index]!;
         pageMetadataBySource.set(sourcePageNumber, metadata);

@@ -18,6 +18,7 @@ import type {
     INativeScanCleanupPageMetadataV3,
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
+import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
@@ -922,9 +923,9 @@ export async function runScanCleanupDetection<TDocument>(
         for (const page of manifestPages) {
             const result = results.get(page.pageNumber);
             if (!result) continue;
-            const metadata = JSON.parse(
+            const metadata = decodeNativeScanCleanupPageMetadataJson(
                 await readFile(page.pageMetadataPath, 'utf8'),
-            ) as INativeScanCleanupPageMetadataV3;
+            );
             result.pagePlanEvidence = createDetectionPagePlanEvidence(
                 result,
                 metadata,

@@ -31,6 +31,11 @@ import type {
     TScanCleanupErrorCode,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
+import {
+    decodeNativeScanCleanupPreviewOutputMetadataJson,
+    decodeNativeScanCleanupPreviewPageMetadataJson,
+    type TNativeScanCleanupPreviewOutputArtifactMetadataV3,
+} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {INativeScanCleanupReusableGeometryV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     getScanCleanupPageOverride,
@@ -220,22 +225,7 @@ interface IRawPreview extends IRetainedRawRaster {
     totalPages: number;
 }
 
-interface ILosslessPreviewAnalysisOutput {
-    half: IScanCleanupPreviewMetadata['half'];
-    sourceRegion: IScanCleanupPreviewMetadata['sourceRegion'];
-    contentBox: IScanCleanupPreviewMetadata['contentBox'];
-    contentDiagnostics?: IScanCleanupPreviewMetadata['contentDiagnostics'];
-    textToneDiagnostics?: IScanCleanupPreviewMetadata['textToneDiagnostics'];
-    cropRect: IScanCleanupPreviewMetadata['sourceRegion'];
-    appliedMargins: IScanCleanupPreviewMetadata['appliedMargins'];
-    inputWidthPx: number;
-    inputHeightPx: number;
-}
-
-type ILosslessPreviewPageMetadata = IScanCleanupPreviewResult['pageMetadata'] & {outputs?: ILosslessPreviewAnalysisOutput[]};
-
-type INativePreviewOutputMetadata = IScanCleanupPreviewMetadata
-    & INativeScanCleanupReusableGeometryV3 & {dewarpModel?: unknown;};
+type INativePreviewOutputMetadata = TNativeScanCleanupPreviewOutputArtifactMetadataV3;
 
 interface IBasePreviewAnalysis {
     sourcePdfPath: string;
@@ -1721,9 +1711,9 @@ async function runDetailPreview(
     );
     const cleaned = [] as IScanCleanupPreviewResult['outputs'];
     for (const output of outputFiles) {
-        const nativeMetadata = JSON.parse(
+        const nativeMetadata = decodeNativeScanCleanupPreviewOutputMetadataJson(
             await readFile(output.metadataPath, 'utf8'),
-        ) as INativePreviewOutputMetadata;
+        );
         cleaned.push({
             imageData: await readPreviewBytes(output.outputPath),
             metadata: {
@@ -2094,7 +2084,9 @@ async function runPreview(
         });
         await writeFile(manifestPath, JSON.stringify(manifest));
         await dependencies.runSidecar(binary, manifestPath, signal, (level, message) => logger[level](message), () => undefined);
-        const pageMetadata = JSON.parse(await readFile(pageMetadataPath, 'utf8')) as ILosslessPreviewPageMetadata;
+        const pageMetadata = decodeNativeScanCleanupPreviewPageMetadataJson(
+            await readFile(pageMetadataPath, 'utf8'),
+        );
         if (lossless) {
             const analyzedOutputs = pageMetadata.outputs ?? [];
             // The plan already carries the grid it was measured on, so a
@@ -2236,9 +2228,9 @@ async function runPreview(
         let canonicalRasterBytes = 0;
         for (const output of outputs) {
             try {
-                const nativeMetadata = JSON.parse(
+                const nativeMetadata = decodeNativeScanCleanupPreviewOutputMetadataJson(
                     await readFile(output.metadataPath, 'utf8'),
-                ) as INativePreviewOutputMetadata;
+                );
                 nativeOutputs[nativeMetadata.half] = nativeMetadata;
                 const imageData = await readPreviewBytes(output.outputPath);
                 canonicalRasters[nativeMetadata.half] = imageData;

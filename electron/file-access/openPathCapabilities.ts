@@ -12,14 +12,14 @@ interface IOpenPathGrant { expiresAtMs: number; }
 const allowedOpenPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>();
 const allowedRevealPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>();
 const ownerCleanupRegistered = new Set<number>();
-const MAX_ALLOWED_OPEN_PATHS = (() => {
+export const MAX_ALLOWED_OPEN_PATHS = (() => {
     const parsed = Number.parseInt(process.env.EVB_ALLOWED_OPEN_PATHS_MAX ?? '2048', 10);
     if (!Number.isFinite(parsed) || parsed < 64) {
         return 2048;
     }
     return Math.min(parsed, 100_000);
 })();
-const OPEN_PATH_CAPABILITY_TTL_MS = (() => {
+export const OPEN_PATH_CAPABILITY_TTL_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS ?? `${24 * 60 * 60 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 60_000) {
         return 24 * 60 * 60 * 1000;
