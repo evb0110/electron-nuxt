@@ -16,6 +16,7 @@ import type {
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type {
     IPdfViewerTransaction,
     IPdfViewerTransactionFitPlan,
@@ -76,6 +77,7 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     summarizeVisiblePageSnapshotForLog: (container: HTMLElement | null) => unknown;
     syncCurrentPageFromViewport: (options?: ICurrentPageSyncOptions) => Promise<void>;
     buildResizeAnchorContext: (options?: IBuildResizeAnchorContextOptions) => IResizeAnchorContext;
+    applyResizeAnchorPreview?: ((anchor?: IPdfSemanticAnchor | null) => boolean) | undefined;
     captureResizeVisualSnapshots?: ((anchor: IResizeAnchorContext) => void) | undefined;
     scheduleEndResizeTransition: (
         token: number,

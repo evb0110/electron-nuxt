@@ -29,6 +29,14 @@ function createResizeAnchor(page: number): IResizeAnchorContext {
             end: page,
         },
         viewerMetrics: null,
+        semanticAnchor: {
+            page,
+            pageXFraction: 0.5,
+            pageYFraction: 0.25,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.25,
+            affinity: 'center',
+        },
     };
 }
 
@@ -105,6 +113,7 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
         buildResizeAnchorContext: vi.fn((options?: IBuildResizeAnchorContextOptions) => {
             return createResizeAnchor(options?.preferredAnchorPage ?? currentPage.value);
         }),
+        applyResizeAnchorPreview: vi.fn(() => true),
         scheduleEndResizeTransition: vi.fn(),
         enqueueZoomSync: vi.fn(),
         scheduleResizeAwareRerender: vi.fn(),
@@ -787,6 +796,8 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await nextTick();
             await Promise.resolve();
             await nextTick();
+            await Promise.resolve();
+            await nextTick();
 
             expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
                 expect.any(Function),
@@ -1048,5 +1059,95 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(transactionController.advanceTransaction).toHaveBeenCalledWith(31, 'settled');
         expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
         expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(expect.objectContaining({transactionId: 31}));
+    });
+
+    it('reapplies the resize anchor after rendering before sampling the viewport', async () => {
+        const resizeAnchor = createResizeAnchor(8);
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const applyResizeAnchorPreview = vi.fn(() => true);
+        const syncCurrentPageFromViewport = vi.fn(async () => {});
+        const scheduleEndResizeTransition = vi.fn();
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
+            reRenderAllVisiblePages,
+            applyResizeAnchorPreview,
+            syncCurrentPageFromViewport,
+            scheduleEndResizeTransition,
+        }));
+
+        await reRenderVisiblePagesAndSyncCurrentPage({
+            source: 'resize-settle',
+            stabilize: true,
+            resizeAnchor,
+        });
+
+        expect(reRenderAllVisiblePages.mock.invocationCallOrder[0]!).toBeLessThan(
+            applyResizeAnchorPreview.mock.invocationCallOrder[0]!,
+        );
+        expect(applyResizeAnchorPreview).toHaveBeenCalledWith(resizeAnchor.semanticAnchor);
+        expect(applyResizeAnchorPreview.mock.invocationCallOrder[0]!).toBeLessThan(
+            syncCurrentPageFromViewport.mock.invocationCallOrder[0]!,
+        );
+        expect(scheduleEndResizeTransition).toHaveBeenCalledWith(
+            resizeAnchor.transitionToken,
+            'resize-rerender-complete',
+            resizeAnchor.page,
+        );
+    });
+
+    it('retires the resize transition when its transaction goes stale after viewport sync', async () => {
+        const resizeAnchor = createResizeAnchor(8);
+        let transactionCurrent = true;
+        const transactionController = {
+            beginTransaction: vi.fn(() => cast({id: 31})),
+            advanceTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => transactionCurrent),
+        };
+        const scheduleEndResizeTransition = vi.fn();
+        const syncCurrentPageFromViewport = vi.fn(async () => {
+            transactionCurrent = false;
+        });
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
+            transactionController,
+            syncCurrentPageFromViewport,
+            scheduleEndResizeTransition,
+        }));
+
+        await reRenderVisiblePagesAndSyncCurrentPage({
+            source: 'resize-settle',
+            stabilize: true,
+            resizeAnchor,
+            transactionId: 31,
+        });
+
+        expect(scheduleEndResizeTransition).toHaveBeenCalledWith(
+            resizeAnchor.transitionToken,
+            'stale-rerender-transaction-after-sync',
+            resizeAnchor.page,
+        );
+        expect(transactionController.advanceTransaction).not.toHaveBeenCalledWith(31, 'settled');
+    });
+
+    it('retires the resize transition when replacement rendering fails', async () => {
+        const resizeAnchor = createResizeAnchor(8);
+        const renderError = new Error('replacement render failed');
+        const scheduleEndResizeTransition = vi.fn();
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
+            reRenderAllVisiblePages: vi.fn(async () => {
+                throw renderError;
+            }),
+            scheduleEndResizeTransition,
+        }));
+
+        await expect(reRenderVisiblePagesAndSyncCurrentPage({
+            source: 'resize-settle',
+            stabilize: true,
+            resizeAnchor,
+        })).rejects.toBe(renderError);
+
+        expect(scheduleEndResizeTransition).toHaveBeenCalledWith(
+            resizeAnchor.transitionToken,
+            'failed-rerender',
+            resizeAnchor.page,
+        );
     });
 });

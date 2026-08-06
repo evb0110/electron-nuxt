@@ -931,6 +931,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         summarizeVisiblePageSnapshotForLog: viewport.summarizeVisiblePageSnapshotForLog,
         syncCurrentPageFromViewport: viewport.syncCurrentPageFromViewport,
         buildResizeAnchorContext,
+        applyResizeAnchorPreview: anchor => viewport.singlePageScroll.applyResizeAnchorPreview(anchor),
         captureResizeVisualSnapshots,
         scheduleEndResizeTransition,
         enqueueZoomSync: syncOptions => zoomRerenderQueue.enqueueZoomSync(syncOptions),

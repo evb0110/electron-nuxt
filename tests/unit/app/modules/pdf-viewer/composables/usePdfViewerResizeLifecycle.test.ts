@@ -174,6 +174,33 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         });
     });
 
+    it('does not let a stale transition completion cancel the current hide timer', async () => {
+        vi.useFakeTimers();
+        const {
+            lifecycle,
+            setResizeTransitionVisible,
+        } = createResizeLifecycle(ref(true));
+
+        const staleToken = lifecycle.beginResizeTransition('resize-observer', 4);
+        lifecycle.scheduleEndResizeTransition(staleToken, 'first-complete', 4);
+        const currentToken = lifecycle.beginResizeTransition('resize-settle', 8);
+        lifecycle.scheduleEndResizeTransition(currentToken, 'current-complete', 8);
+
+        lifecycle.scheduleEndResizeTransition(staleToken, 'late-stale-complete', 4);
+        await vi.runAllTimersAsync();
+
+        expect(setResizeTransitionVisible).toHaveBeenLastCalledWith({
+            active: false,
+            source: 'current-complete',
+            token: currentToken,
+            anchorPage: 8,
+        });
+        expect(setResizeTransitionVisible).not.toHaveBeenCalledWith(expect.objectContaining({
+            active: false,
+            source: 'late-stale-complete',
+        }));
+    });
+
     it('refreshes render demand when viewport geometry changes without a fit-scale delta', async () => {
         vi.useFakeTimers();
         const {

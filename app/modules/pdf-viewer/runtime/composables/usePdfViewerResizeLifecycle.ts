@@ -209,16 +209,25 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         source: string,
         anchorPage: number | null,
     ) {
+        // A late completion belongs to an older geometry epoch. It must not
+        // clear or replace the current token's hide timer; doing so strands the
+        // new transition in its active state permanently.
+        if (token !== resizeTransitionToken) {
+            return;
+        }
         if (pendingResizeTransitionHideTimer !== null) {
             clearTimeout(pendingResizeTransitionHideTimer);
         }
-        pendingResizeTransitionHideTimer = setTimeout(() => {
+        const hideTimer = setTimeout(() => {
+            if (pendingResizeTransitionHideTimer === hideTimer) {
+                pendingResizeTransitionHideTimer = null;
+            }
             if (token !== resizeTransitionToken) {
                 return;
             }
             emitResizeTransitionSignal(false, source, token, anchorPage);
-            pendingResizeTransitionHideTimer = null;
         }, PDF_RESIZE_TRANSITION_HIDE_MS);
+        pendingResizeTransitionHideTimer = hideTimer;
     }
 
     function normalizePreferredAnchorPage(page: number | null | undefined) {

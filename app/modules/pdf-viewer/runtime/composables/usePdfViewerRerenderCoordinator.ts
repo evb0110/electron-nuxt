@@ -41,6 +41,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         summarizeVisiblePageSnapshotForLog,
         syncCurrentPageFromViewport,
         buildResizeAnchorContext,
+        applyResizeAnchorPreview,
         captureResizeVisualSnapshots,
         scheduleEndResizeTransition,
         enqueueZoomSync,
@@ -268,6 +269,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             PDF_RERENDER_SOURCE.ReRender,
         );
         const runId = ++reRenderSyncRunId;
+        const resizeAnchor = syncOptions.resizeAnchor ?? null;
+        let transitionOutcome = 'resize-rerender-complete';
         warnZoomRerenderSync(source, `[rerender-sync] begin zoom run=${runId}`, () => ({
             runId,
             source,
@@ -279,85 +282,97 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             `[re-render-sync] begin run=${runId} source=${source}`,
             buildRerenderSyncNavLogPayload(runId, source),
         );
-        if (!isSyncTransactionCurrent(syncOptions)) {
-            if (syncOptions.resizeAnchor) {
-                scheduleEndResizeTransition(
-                    syncOptions.resizeAnchor.transitionToken,
-                    'stale-rerender-transaction',
-                    syncOptions.resizeAnchor.page,
-                );
+        try {
+            if (!isSyncTransactionCurrent(syncOptions)) {
+                transitionOutcome = 'stale-rerender-transaction';
+                return;
             }
-            return;
-        }
-        const renderBufferOverride = resolveRerenderBufferOverride(source);
-        if (!advanceSyncTransaction(syncOptions, 'render-requested')) {
-            return;
-        }
-        if (syncOptions.resizeAnchor && isZoomRestorePdfRerenderSource(source)) {
-            // Custom zoom replaces the committed backing canvas after the page
-            // geometry has already changed. Keep a raster snapshot outside the
-            // render layer until the target-scale canvas commits so the viewer
-            // never exposes an old canvas or a bare page shell between frames.
-            captureResizeVisualSnapshots?.(syncOptions.resizeAnchor);
-        }
-        await reRenderAllVisiblePages(getVisibleRange, {
-            rerenderSource: source,
-            ...(renderBufferOverride !== undefined ? { renderBufferOverride } : {}),
-        });
-        syncHorizontalScrollAfterLayoutUpdate();
-        if (runId !== reRenderSyncRunId) {
-            warnZoomRerenderSync(source, `[rerender-sync] stale zoom run=${runId}`, () => ({
-                runId,
-                activeRunId: reRenderSyncRunId,
-                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-            }));
-            BrowserLogger.diagnostic('pdf-nav', 'Skipped stale re-render current-page sync run', {
-                staleRunId: runId,
-                activeRunId: reRenderSyncRunId,
-                source,
+            const renderBufferOverride = resolveRerenderBufferOverride(source);
+            if (!advanceSyncTransaction(syncOptions, 'render-requested')) {
+                transitionOutcome = 'rejected-rerender-transaction';
+                return;
+            }
+            if (resizeAnchor && isZoomRestorePdfRerenderSource(source)) {
+                // Custom zoom replaces the committed backing canvas after the page
+                // geometry has already changed. Keep a raster snapshot outside the
+                // render layer until the target-scale canvas commits so the viewer
+                // never exposes an old canvas or a bare page shell between frames.
+                captureResizeVisualSnapshots?.(resizeAnchor);
+            }
+            await reRenderAllVisiblePages(getVisibleRange, {
+                rerenderSource: source,
+                ...(renderBufferOverride !== undefined ? { renderBufferOverride } : {}),
             });
-            if (syncOptions.resizeAnchor) {
-                scheduleEndResizeTransition(
-                    syncOptions.resizeAnchor.transitionToken,
-                    'stale-rerender',
-                    syncOptions.resizeAnchor.page,
-                );
+            syncHorizontalScrollAfterLayoutUpdate();
+            if (runId !== reRenderSyncRunId) {
+                transitionOutcome = 'stale-rerender';
+                warnZoomRerenderSync(source, `[rerender-sync] stale zoom run=${runId}`, () => ({
+                    runId,
+                    activeRunId: reRenderSyncRunId,
+                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+                }));
+                BrowserLogger.diagnostic('pdf-nav', 'Skipped stale re-render current-page sync run', {
+                    staleRunId: runId,
+                    activeRunId: reRenderSyncRunId,
+                    source,
+                });
+                return;
             }
-            return;
-        }
-        if (!isSyncTransactionCurrent(syncOptions)) {
-            if (syncOptions.resizeAnchor) {
-                scheduleEndResizeTransition(
-                    syncOptions.resizeAnchor.transitionToken,
-                    'stale-rerender-transaction',
-                    syncOptions.resizeAnchor.page,
-                );
+            if (!isSyncTransactionCurrent(syncOptions)) {
+                transitionOutcome = 'stale-rerender-transaction';
+                return;
             }
-            return;
-        }
 
-        warnZoomRerenderSync(source, `[rerender-sync] end zoom run=${runId}`, () => ({
-            runId,
-            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-            visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
-        }));
-        BrowserLogger.diagnostic('pdf-nav', `[re-render-sync] end run=${runId} source=${source}`, {
-            ...buildRerenderSyncNavLogPayload(runId, source),
-            visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
-        });
-        await syncCurrentPageFromViewport(syncOptions);
-        if (!isSyncTransactionCurrent(syncOptions)) {
-            return;
+            if (resizeAnchor) {
+                // Vue can mount the destination row only after the replacement
+                // canvas settles. Reapply the semantic anchor against that final
+                // DOM before sampling the viewport; otherwise a pane relocation
+                // can leave page 1 physically visible while page N remains the
+                // committed owner offscreen.
+                await nextTick();
+                const restored = applyResizeAnchorPreview?.(resizeAnchor.semanticAnchor) ?? false;
+                if (!restored) {
+                    await Promise.resolve(scrollToPage(resizeAnchor.page, {
+                        preferExactDom: true,
+                        suppressRenderAfterSnap: true,
+                    }));
+                }
+                syncHorizontalScrollAfterLayoutUpdate();
+            }
+
+            warnZoomRerenderSync(source, `[rerender-sync] end zoom run=${runId}`, () => ({
+                runId,
+                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+                visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
+            }));
+            BrowserLogger.diagnostic('pdf-nav', `[re-render-sync] end run=${runId} source=${source}`, {
+                ...buildRerenderSyncNavLogPayload(runId, source),
+                visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
+            });
+            await syncCurrentPageFromViewport(syncOptions);
+            if (!isSyncTransactionCurrent(syncOptions)) {
+                transitionOutcome = 'stale-rerender-transaction-after-sync';
+                return;
+            }
+            syncHorizontalScrollAfterLayoutUpdate();
+            if (!advanceSyncTransaction(syncOptions, 'settled')) {
+                transitionOutcome = 'rejected-rerender-settle';
+            }
+        } catch (error) {
+            transitionOutcome = 'failed-rerender';
+            throw error;
+        } finally {
+            // Every token that exposes resize-transition UI gets a terminal
+            // signal. Token fencing makes this safe for stale runs and prevents
+            // a superseded transaction from suppressing scroll forever.
+            if (resizeAnchor) {
+                scheduleEndResizeTransition(
+                    resizeAnchor.transitionToken,
+                    transitionOutcome,
+                    resizeAnchor.page,
+                );
+            }
         }
-        syncHorizontalScrollAfterLayoutUpdate();
-        if (syncOptions.resizeAnchor) {
-            scheduleEndResizeTransition(
-                syncOptions.resizeAnchor.transitionToken,
-                'resize-rerender-complete',
-                syncOptions.resizeAnchor.page,
-            );
-        }
-        advanceSyncTransaction(syncOptions, 'settled');
     }
 
     async function handleFitScaleModeChange(
