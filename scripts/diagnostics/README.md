@@ -91,10 +91,35 @@ It runs those four corpus configs, the 17-case
 `rome-mode-matrix-corpus-config.json`, parity CLI conversions with stamped
 word-loss audits, and Rome pages 46/49/52/56 rendered at 150 dpi. The private
 manifest may provide an `environment` object for `${EVB_SCAN_CLEANUP_*}` tokens
-used by the matrix config. `pnpm scan-cleanup:regress -- --full` adds the
-release-only `corpora.fullbook` gate; fullbook is intentionally not a nightly
-fixture. Evidence and the compact stdout table are written below the selected
-work directory.
+used by the matrix config. A visually inspected, fixture-specific invented-ink
+restoration can be capped without weakening text-loss or silhouette checks:
+
+```json
+{
+  "cli": {
+    "fixture-name": {
+      "source": "/private/fixture.pdf",
+      "wordLossBaseline": {
+        "inventedInk": {
+          "2": {
+            "maxComponents": 1,
+            "maxFraction": 0.017,
+            "reason": "Source-supported header rule restored across scan gaps."
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+The wrapper rejects unknown fields, flags on any unlisted page, over-cap
+results, missing audit rows, and every text-loss or silhouette flag. Fixtures
+without a baseline continue to run the audit with `--fail-on any`.
+`pnpm scan-cleanup:regress -- --full` adds the release-only
+`corpora.fullbook` gate; fullbook is intentionally not a nightly fixture.
+Evidence and the compact stdout table are written below the selected work
+directory.
 
 ### Retired ad-hoc checks
 

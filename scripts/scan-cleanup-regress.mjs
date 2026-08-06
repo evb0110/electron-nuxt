@@ -268,6 +268,193 @@ function cliPages(entry, name, env) {
     return value === undefined ? undefined : parsePageSelector(value, `${name} pages`);
 }
 
+function assertObject(value, label) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${label} must be an object`);
+    }
+}
+
+function assertOnlyKeys(value, allowedKeys, label) {
+    assertObject(value, label);
+    const unexpected = Object.keys(value).filter(key => !allowedKeys.has(key));
+    if (unexpected.length > 0) {
+        throw new Error(`${label} contains unknown field(s): ${unexpected.join(', ')}`);
+    }
+}
+
+export function parseWordLossBaseline(value, name, pages) {
+    if (value === undefined) {
+        return null;
+    }
+    assertOnlyKeys(value, new Set(['inventedInk']), `${name} word-loss baseline`);
+    const inventedInk = value.inventedInk;
+    assertObject(inventedInk, `${name} word-loss invented-ink baseline`);
+    const entries = Object.entries(inventedInk);
+    if (entries.length === 0) {
+        throw new Error(`${name} word-loss invented-ink baseline must name at least one page`);
+    }
+    const baseline = {};
+    for (const [
+        pageKey,
+        cap,
+    ] of entries) {
+        if (!/^[1-9]\d*$/u.test(pageKey) || String(Number(pageKey)) !== pageKey) {
+            throw new Error(`${name} word-loss baseline page "${pageKey}" is not canonical`);
+        }
+        const page = Number(pageKey);
+        if (!Number.isSafeInteger(page) || (pages !== undefined && !pages.includes(page))) {
+            throw new Error(`${name} word-loss baseline page ${pageKey} is outside the selected pages`);
+        }
+        assertOnlyKeys(
+            cap,
+            new Set([
+                'maxComponents',
+                'maxFraction',
+                'reason',
+            ]),
+            `${name} word-loss baseline page ${pageKey}`,
+        );
+        if (!Number.isSafeInteger(cap.maxComponents) || cap.maxComponents < 0) {
+            throw new Error(`${name} word-loss baseline page ${pageKey} has invalid maxComponents`);
+        }
+        if (!Number.isFinite(cap.maxFraction) || cap.maxFraction < 0 || cap.maxFraction > 1) {
+            throw new Error(`${name} word-loss baseline page ${pageKey} has invalid maxFraction`);
+        }
+        if (typeof cap.reason !== 'string' || cap.reason.trim() === '') {
+            throw new Error(`${name} word-loss baseline page ${pageKey} must document its reason`);
+        }
+        baseline[page] = {
+            maxComponents: cap.maxComponents,
+            maxFraction: cap.maxFraction,
+            reason: cap.reason.trim(),
+        };
+    }
+    return baseline;
+}
+
+export function wordLossFailOn(baseline) {
+    return baseline === null ? 'any' : 'none';
+}
+
+function sortedPageList(value, label) {
+    if (
+        !Array.isArray(value)
+        || value.some(page => !Number.isSafeInteger(page) || page < 1)
+        || new Set(value).size !== value.length
+    ) {
+        throw new Error(`${label} must be a unique positive-integer page list`);
+    }
+    return [...value].sort((left, right) => left - right);
+}
+
+function assertSamePages(actual, expected, label) {
+    const normalized = sortedPageList(actual, label);
+    if (JSON.stringify(normalized) !== JSON.stringify(expected)) {
+        throw new Error(`${label} disagrees with the page rows`);
+    }
+}
+
+export function validateWordLossReport(report, name, pages, baseline) {
+    if (report.stampVerification?.status !== 'valid') {
+        throw new Error(`${name} word-loss report does not contain a valid provenance stamp`);
+    }
+    const pageRows = Array.isArray(report.pages) ? report.pages : [];
+    const selected = pages === undefined
+        ? pageRows
+        : pageRows.filter(page => pages.includes(page.page));
+    if (selected.length === 0) {
+        throw new Error(`${name} word-loss report did not contain an audited page row`);
+    }
+    if (baseline === null) {
+        const badRows = selected.filter(page => (
+            page.flagged === true
+            || page.silhouetteFlagged === true
+        ));
+        const summaryFlagged = Number(report.summary?.flaggedCount ?? 0);
+        const summarySilhouette = Number(
+            report.summary?.silhouetteCount
+                ?? report.summary?.silhouettePages?.length
+                ?? 0,
+        );
+        if (
+            badRows.length > 0
+            || summaryFlagged > 0
+            || summarySilhouette > 0
+        ) {
+            throw new Error(`${name} word-loss report flagged or lost content on ${String(badRows.length || summaryFlagged || summarySilhouette)} page(s)`);
+        }
+        return;
+    }
+
+    const rowPages = pageRows.map(row => row.page);
+    if (
+        rowPages.some(page => !Number.isSafeInteger(page) || page < 1)
+        || new Set(rowPages).size !== rowPages.length
+    ) {
+        throw new Error(`${name} word-loss report has invalid or duplicate page rows`);
+    }
+    const flaggedPages = [];
+    const inventedPages = [];
+    const silhouettePages = [];
+    const errorPages = [];
+    for (const row of pageRows) {
+        const lossFlagged = row.lossFlagged === true;
+        const inventedFlagged = row.inventedFlagged === true;
+        const silhouetteFlagged = row.silhouetteFlagged === true;
+        const flagged = lossFlagged || inventedFlagged || silhouetteFlagged;
+        if ((row.flagged === true) !== flagged) {
+            throw new Error(`${name} word-loss report page ${String(row.page)} has inconsistent flag fields`);
+        }
+        if (row.status === 'error') errorPages.push(row.page);
+        if (flagged) flaggedPages.push(row.page);
+        if (inventedFlagged) inventedPages.push(row.page);
+        if (silhouetteFlagged) silhouettePages.push(row.page);
+        if (lossFlagged || silhouetteFlagged) {
+            throw new Error(`${name} word-loss baseline cannot suppress text-loss or silhouette flags on page ${String(row.page)}`);
+        }
+        const cap = baseline[row.page];
+        if (inventedFlagged && cap === undefined) {
+            throw new Error(`${name} word-loss report has an unbaselined invented-ink flag on page ${String(row.page)}`);
+        }
+        if (cap !== undefined) {
+            if (row.status !== 'analyzed') {
+                throw new Error(`${name} word-loss baseline page ${String(row.page)} was not analyzed`);
+            }
+            if (!Number.isSafeInteger(row.inventedCount) || row.inventedCount < 0) {
+                throw new Error(`${name} word-loss report page ${String(row.page)} has invalid inventedCount`);
+            }
+            if (!Number.isFinite(row.inventedInkFraction) || row.inventedInkFraction < 0) {
+                throw new Error(`${name} word-loss report page ${String(row.page)} has invalid inventedInkFraction`);
+            }
+            if (
+                row.inventedCount > cap.maxComponents
+                || row.inventedInkFraction > cap.maxFraction
+            ) {
+                throw new Error(`${name} word-loss report page ${String(row.page)} exceeds its invented-ink baseline`);
+            }
+        }
+    }
+    if (errorPages.length > 0) {
+        throw new Error(`${name} word-loss report contains error page(s): ${errorPages.join(', ')}`);
+    }
+    for (const page of Object.keys(baseline).map(Number)) {
+        if (!pageRows.some(row => row.page === page)) {
+            throw new Error(`${name} word-loss baseline page ${String(page)} is missing from the report`);
+        }
+    }
+    flaggedPages.sort((left, right) => left - right);
+    inventedPages.sort((left, right) => left - right);
+    silhouettePages.sort((left, right) => left - right);
+    errorPages.sort((left, right) => left - right);
+    assertSamePages(report.summary?.flaggedPages, flaggedPages, `${name} summary flaggedPages`);
+    assertSamePages(report.summary?.inventedPages, inventedPages, `${name} summary inventedPages`);
+    assertSamePages(report.summary?.silhouettePages, silhouettePages, `${name} summary silhouettePages`);
+    assertSamePages(report.summary?.errorPages, errorPages, `${name} summary errorPages`);
+    if (report.summary?.flaggedCount !== flaggedPages.length) {
+        throw new Error(`${name} summary flaggedCount disagrees with the page rows`);
+    }
+}
+
 function conversionArgs(source, output, pages) {
     return [
         '--import',
@@ -310,7 +497,9 @@ async function runWordLossAudit({
     outputRoot,
     source,
     pages,
+    wordLossBaseline,
 }) {
+    const baseline = parseWordLossBaseline(wordLossBaseline, name, pages);
     const reportPath = join(outputRoot, `${name}.word-loss.json`);
     const args = [
         wordLossAuditPath,
@@ -323,7 +512,7 @@ async function runWordLossAudit({
         '--out',
         reportPath,
         '--fail-on',
-        'any',
+        wordLossFailOn(baseline),
         '--verify-stamp',
         '--workers',
         '1',
@@ -335,44 +524,18 @@ async function runWordLossAudit({
         ]),
     ];
     await runChecked(process.execPath, args, {env});
-    await assertWordLossReport(reportPath, name, pages);
+    await assertWordLossReport(reportPath, name, pages, baseline);
     return reportPath;
 }
 
-async function assertWordLossReport(reportPath, name, pages) {
+async function assertWordLossReport(reportPath, name, pages, baseline) {
     const report = await readJson(reportPath, `${name} word-loss report`);
-    if (report.stampVerification?.status !== 'valid') {
-        throw new Error(`${name} word-loss report does not contain a valid provenance stamp`);
-    }
-    const pageRows = Array.isArray(report.pages) ? report.pages : [];
-    const selected = pages === undefined
-        ? pageRows
-        : pageRows.filter(page => pages.includes(page.page));
-    if (selected.length === 0) {
-        throw new Error(`${name} word-loss report did not contain an audited page row`);
-    }
     // The audit is the classification authority: it weighs raw lost
     // components against reliability, dust, and severity before flagging.
     // Re-asserting raw lostCount here rejected pages the audit itself
     // classifies clean, and the wrapper's own pinned baselines carry such
     // sub-threshold counts.
-    const badRows = selected.filter(page => (
-        page.flagged === true
-        || page.silhouetteFlagged === true
-    ));
-    const summaryFlagged = Number(report.summary?.flaggedCount ?? 0);
-    const summarySilhouette = Number(
-        report.summary?.silhouetteCount
-            ?? report.summary?.silhouettePages?.length
-            ?? 0,
-    );
-    if (
-        badRows.length > 0
-        || summaryFlagged > 0
-        || summarySilhouette > 0
-    ) {
-        throw new Error(`${name} word-loss report flagged or lost content on ${String(badRows.length || summaryFlagged || summarySilhouette)} page(s)`);
-    }
+    validateWordLossReport(report, name, pages, baseline);
 }
 
 async function renderHeaderPages({
@@ -526,6 +689,7 @@ async function main() {
                 name,
                 outputRoot: join(args.workDir, 'cli'),
                 pages,
+                wordLossBaseline: entry.wordLossBaseline,
             }));
         }
     }
