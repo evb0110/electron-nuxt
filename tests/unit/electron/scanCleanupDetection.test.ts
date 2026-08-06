@@ -20,6 +20,33 @@ import {
 import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
 
 const dirs: string[] = [];
+const MIB = 1024 * 1024;
+
+function createRequest(): IScanCleanupDetectionRequest {
+    return {
+        ownerId: 'owner',
+        sourcePdfPath: '/tmp/input.pdf',
+        documentRevision: 'revision',
+        options: {
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'auto',
+            readingOrder: 'ltr',
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            skipBlankPages: false,
+            pageOverrides: {},
+        },
+    };
+}
 
 afterEach(async () => {
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
@@ -160,38 +187,76 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             retain: vi.fn(),
             release: vi.fn(async () => undefined),
         };
-        const request: IScanCleanupDetectionRequest = {
-            ownerId: 'owner',
-            sourcePdfPath: '/tmp/input.pdf',
-            documentRevision: 'revision',
-            options: {
-                preserveOriginalQuality: false,
-                layoutMode: 'auto',
-                outputMode: 'auto',
-                readingOrder: 'ltr',
-                thickness: 0,
-                crop: true,
-                matchPageSize: true,
-                pageAlignment: 'top-center',
-                marginsMm: {
-                    leftMm: 0,
-                    topMm: 0,
-                    rightMm: 0,
-                    bottomMm: 0,
-                },
-                skipBlankPages: false,
-                pageOverrides: {},
-            },
-        };
-
         await expect(runScanCleanupDetection(
-            request,
+            createRequest(),
             new AbortController().signal,
             retention,
             {
                 getTempDir: () => tempDir,
                 // The fallback branch is selected by omitting createRasterPipes.
                 getAvailableScratchBytes: vi.fn(async () => 1),
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage,
+                renderPagePpm: vi.fn(),
+                runSidecar: vi.fn(),
+            },
+            {rasterConcurrency: 2},
+            () => undefined,
+        )).rejects.toThrow('raster cache/scratch budget');
+
+        expect(renderPage).not.toHaveBeenCalled();
+        expect(retention.retain).not.toHaveBeenCalled();
+        expect(retention.release).toHaveBeenCalledOnce();
+    });
+
+    it('counts retained rasters together with new pages against the whole-manifest budget', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-test-'));
+        dirs.push(tempDir);
+        const renderPage = vi.fn();
+        const retainedRaster = {
+            dpi: 150,
+            height: 1_000,
+            pageNumber: 1,
+            path: join(tempDir, 'retained-page-1.png'),
+            sizeBytes: 6 * MIB,
+            width: 1_000,
+        };
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'document'})),
+            pageCount: vi.fn(async () => 2),
+            pageSizes: vi.fn(async () => Array.from({length: 2}, (_, index) => ({
+                pageNumber: index + 1,
+                xPoints: 0,
+                yPoints: 0,
+                // 1,000 × 1,000 pixels at the 150-DPI detection ceiling.
+                widthPoints: 480,
+                heightPoints: 480,
+                rotation: 0,
+            }))),
+            rasterPages: vi.fn(async () => ({
+                detected: false,
+                pages: new Set<number>(),
+            })),
+            retainedPaths: vi.fn(async () => new Map([[
+                1,
+                retainedRaster,
+            ]])),
+            rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
+            retain: vi.fn(),
+            release: vi.fn(async () => undefined),
+        };
+
+        await expect(runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            retention,
+            {
+                getTempDir: () => tempDir,
+                // 520 MiB available leaves an 8-MiB budget after the reserve.
+                // The missing page fits alone (~3 MiB), but not together with
+                // the already-retained 6-MiB page.
+                getAvailableScratchBytes: vi.fn(async () => 520 * MIB),
                 getPdftoppmBinary: () => 'pdftoppm',
                 resolveBinary: () => 'evb-scan-cleanup',
                 renderPage,

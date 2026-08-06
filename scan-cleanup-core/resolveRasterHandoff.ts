@@ -10,7 +10,13 @@ import type {TScanCleanupLog} from '@scan-cleanup-core/types';
 const RAW_RASTER_BUDGET_FLOOR_BYTES = 512 * 1024 * 1024;
 const RAW_RASTER_FREE_SPACE_SHARE = 0.25;
 const RAW_RASTER_FREE_SPACE_RESERVE_BYTES = 512 * 1024 * 1024;
-const PPM_HEADER_ESTIMATE_BYTES = 64;
+// The non-stream fallback writes PNG even though raw RGB is the useful common
+// footprint estimate. PNG scanline filters, deflate framing, chunks and file
+// allocation can make an incompressible image slightly larger than its RGB
+// payload. One percent comfortably covers that bounded overhead for large
+// rasters; the floor covers headers and allocation slack for small files.
+const RAW_RASTER_FILE_OVERHEAD_SHARE = 0.01;
+const RAW_RASTER_FILE_OVERHEAD_FLOOR_BYTES = 64 * 1024;
 const COMBINE_OUTPUT_BYTES_PER_PAGE = 8 * 1024 * 1024;
 const COMBINE_OUTPUT_BYTES_FLOOR = 512 * 1024 * 1024;
 
@@ -27,7 +33,7 @@ export async function readAvailableScratchBytes(directory: string) {
     try {
         const filesystem = await statfs(directory);
         const available = Number(filesystem.bavail) * Number(filesystem.bsize);
-        return Number.isFinite(available) && available > 0 ? available : null;
+        return Number.isFinite(available) && available >= 0 ? available : null;
     } catch {
         return null;
     }
@@ -55,7 +61,15 @@ function estimateRawRasterBytes(
         }
         const width = Math.max(1, Math.ceil(raster.width * plan.renderDpi / raster.dpi));
         const height = Math.max(1, Math.ceil(raster.height * plan.renderDpi / raster.dpi));
-        const pageBytes = width * height * 3 + PPM_HEADER_ESTIMATE_BYTES;
+        const pixelBytes = width * height * 3;
+        if (!Number.isSafeInteger(pixelBytes)) {
+            return null;
+        }
+        const fileOverheadBytes = Math.max(
+            RAW_RASTER_FILE_OVERHEAD_FLOOR_BYTES,
+            Math.ceil(pixelBytes * RAW_RASTER_FILE_OVERHEAD_SHARE),
+        );
+        const pageBytes = pixelBytes + fileOverheadBytes;
         if (!Number.isSafeInteger(pageBytes)) {
             return null;
         }

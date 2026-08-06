@@ -14,8 +14,7 @@ import {
 import type { IWorkerPaths } from '@electron/ocr/worker/types';
 
 const mocks = vi.hoisted(() => ({
-    readPpmDimensions: vi.fn(),
-    readFile: vi.fn(),
+    readPpmRaster: vi.fn(),
     rm: vi.fn(),
     runOcrCommand: vi.fn(),
     stat: vi.fn(),
@@ -23,10 +22,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
-vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPpmDimensions: mocks.readPpmDimensions}));
+vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPpmRaster: mocks.readPpmRaster}));
 
 vi.mock('fs/promises', () => ({
-    readFile: mocks.readFile,
     rm: mocks.rm,
     stat: mocks.stat,
     writeFile: mocks.writeFile,
@@ -93,11 +91,15 @@ describe('preparePdfForPoppler', () => {
 describe('renderPdfPageToPng', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.readFile.mockResolvedValue(Buffer.from('P6\n1 1\n255\n\x12\x34\x56', 'binary'));
-        mocks.readPpmDimensions.mockResolvedValue({
+        mocks.readPpmRaster.mockResolvedValue({
             width: 1,
             height: 1,
             isColor: true,
+            pixels: Buffer.from([
+                0x12,
+                0x34,
+                0x56,
+            ]),
         });
         mocks.rm.mockResolvedValue(undefined);
         mocks.writeFile.mockResolvedValue(undefined);
@@ -132,16 +134,19 @@ describe('renderPdfPageToPng', () => {
             expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
         );
         expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/page-3.png', expect.any(Uint8Array));
-        expect(mocks.readPpmDimensions.mock.invocationCallOrder[0])
-            .toBeLessThan(mocks.readFile.mock.invocationCallOrder[0]!);
+        expect(mocks.readPpmRaster).toHaveBeenCalledWith(
+            '/tmp/page-3.png.source.ppm',
+            {
+                maxDimensionPx: 40_000,
+                maxPixels: 45_000_000,
+            },
+        );
     });
 
     it('rejects an oversized PPM header before reading its payload into memory', async () => {
-        mocks.readPpmDimensions.mockResolvedValueOnce({
-            width: 10_000,
-            height: 10_000,
-            isColor: true,
-        });
+        mocks.readPpmRaster.mockRejectedValueOnce(
+            new RangeError('PPM raster 10000x10000 exceeds limits'),
+        );
 
         await expect(renderPdfPageToPng(
             workerPaths,
@@ -159,9 +164,16 @@ describe('renderPdfPageToPng', () => {
                 maxPixels: 45_000_000,
                 maxDimensionPx: 40_000,
             },
-        )).rejects.toThrow('Poppler produced raster 10000x10000 beyond limits');
-        expect(mocks.readFile).not.toHaveBeenCalled();
+        )).rejects.toThrow('PPM raster 10000x10000 exceeds limits');
+        expect(mocks.readPpmRaster).toHaveBeenCalledWith(
+            '/tmp/page-1.png.source.ppm',
+            {
+                maxDimensionPx: 40_000,
+                maxPixels: 45_000_000,
+            },
+        );
         expect(mocks.writeFile).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-1.png.source.ppm', {force: true});
     });
 
     it('rejects over-budget trusted geometry before spawning pdftoppm', async () => {

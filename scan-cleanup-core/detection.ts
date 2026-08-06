@@ -49,6 +49,20 @@ export const DETECTION_DPI = 150;
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
 const PREVIEW_MAX_IMAGE_PIXELS = 45_000_000;
 
+function sumByteFootprint(values: Iterable<number>) {
+    let total = 0;
+    for (const value of values) {
+        if (!Number.isSafeInteger(value) || value < 0) {
+            return null;
+        }
+        total += value;
+        if (!Number.isSafeInteger(total)) {
+            return null;
+        }
+    }
+    return total;
+}
+
 function resolveRasterRenderLimits(
     pageSize: IPdfPageSize | undefined,
     dpi: number,
@@ -609,12 +623,13 @@ export async function runScanCleanupDetection<TDocument>(
             }
         }
         const rasterScope = pageNumbers.filter(pageNumber => !retained.has(pageNumber));
-        if (!streamRasters && rasterScope.length > 0) {
+        if (!streamRasters && pageNumbers.length > 0) {
             // The non-FIFO path retains every missing page before the sidecar
             // starts. Do not let a large Windows document bypass the cache's
             // whole-manifest scratch limit merely because each producer is
-            // concurrency-bounded. RGB is a conservative upper estimate for
-            // the PNG raster Poppler will stage.
+            // concurrency-bounded. Existing retained PNGs count at their exact
+            // file size; resolveRasterHandoff adds a conservative PNG overhead
+            // allowance to the raw RGB estimate for each cache miss.
             const handoff = await resolveRasterHandoff(
                 rasterScope.map(pageNumber => {
                     const pageSize = pageSizeByNumber.get(pageNumber)!;
@@ -632,10 +647,19 @@ export async function runScanCleanupDetection<TDocument>(
                 scratch,
                 dependencies.getAvailableScratchBytes ?? readAvailableScratchBytes,
             );
+            const retainedBytes = sumByteFootprint(
+                [...retained.values()].map(raster => raster.sizeBytes),
+            );
+            const manifestBytes = handoff.estimatedBytes === null || retainedBytes === null
+                ? null
+                : sumByteFootprint([
+                    retainedBytes,
+                    handoff.estimatedBytes,
+                ]);
             if (
-                handoff.estimatedBytes === null
+                manifestBytes === null
                 || handoff.budgetBytes === null
-                || handoff.estimatedBytes > handoff.budgetBytes
+                || manifestBytes > handoff.budgetBytes
             ) {
                 throw new Error(
                     'Scan cleanup detection cannot stage this document without exceeding the raster cache/scratch budget',
