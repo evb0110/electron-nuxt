@@ -1236,8 +1236,8 @@ fn run_page(
     let effective_background_dpi = options.source_background_dpi() / background_factor as f64;
     // A full-resolution background marks producer pages whose selection mask
     // is not a complete ink carrier. Keep the compatibility hint available to
-    // late output-mode resolution, but the renderer always rebuilds output
-    // from its cleaned raster and never adopts this selection or background.
+    // late output-mode resolution. The renderer rebuilds the background while
+    // retaining selected ink and raw-supported additions in the foreground.
     let mut options = options;
     options.trusted_selection_incomplete = background_factor > 1;
     let trusted_tone_mask = trusted_mrc_background

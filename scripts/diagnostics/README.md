@@ -87,7 +87,7 @@ entry. Then run:
 pnpm scan-cleanup:regress
 ```
 
-It runs those four corpus configs, the 16-case
+It runs those four corpus configs, the 17-case
 `rome-mode-matrix-corpus-config.json`, parity CLI conversions with stamped
 word-loss audits, and Rome pages 46/49/52/56 rendered at 150 dpi. The private
 manifest may provide an `environment` object for `${EVB_SCAN_CLEANUP_*}` tokens
@@ -100,7 +100,7 @@ work directory.
 
 The unreferenced `scan-cleanup-forced-mode-audit.py` replay was deleted. Its
 forced BW/grayscale diagnostic role is replaced by the standing regress
-corpora, the 16-case binarization/crop matrix, and the stamped CLI word-loss
+corpora, the 17-case binarization/crop matrix, and the stamped CLI word-loss
 audits. `scan-cleanup-artifact-audit.py` remains because the corpus harness,
 release verifier, and unit tests reference it; `scan-cleanup-synthetic-audit.py`
 remains because the packaged release verifier references it. No other

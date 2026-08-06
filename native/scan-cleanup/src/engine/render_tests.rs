@@ -3439,7 +3439,7 @@ mod tests {
     }
 
     #[test]
-    fn producer_layers_do_not_replace_fresh_mixed_composition() {
+    fn trusted_source_foreground_bounds_fresh_mixed_composition() {
         let mut gray = GrayImage::new(160, 100, 232);
         for y in 20..80 {
             for x in 70..135 {
@@ -3452,6 +3452,7 @@ mod tests {
             }
         }
         let mut trusted_foreground = BinaryImage::new(160, 100);
+        gray.set(5, 5, 18);
         trusted_foreground.set(5, 5, true);
         let mut trusted_tone = BinaryImage::new(160, 100);
         for y in 0..100 {
@@ -3499,14 +3500,67 @@ mod tests {
             .as_ref()
             .expect("fresh Mixed output retains separable layers");
 
-        assert!(!output.metadata.trusted_selection_applied);
+        assert!(output.metadata.trusted_selection_applied);
         assert!(!output.metadata.trusted_mrc_background_preserved);
         assert!(!layers.source_mrc);
         assert_eq!(layers.background.get(5, 5), 255);
+        assert!(layers.foreground_mask.count_black() > 1);
+        assert!(layers.foreground_mask.get(5, 5));
         assert!(
             layers.foreground_mask.get(30, 43),
-            "fresh cleaned-raster ink must own the foreground"
+            "dark flattened source ink was not preserved"
         );
+    }
+
+    #[test]
+    fn trusted_source_foreground_blocks_pale_scanner_band_binarization() {
+        let mut gray = GrayImage::new(160, 100, 245);
+        for y in 0..100 {
+            for x in 0..24 {
+                gray.set(x, y, 150);
+            }
+        }
+        let mut trusted_foreground = BinaryImage::new(160, 100);
+        for y in 40..60 {
+            for x in 80..84 {
+                gray.set(x, y, 18);
+                trusted_foreground.set(x, y, true);
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 300.0,
+            output_mode: OutputMode::Bw,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let mut timings = PageStageTimings::default();
+        let output = clean_page_with_color_and_calibration_config(
+            &gray,
+            None,
+            Some(&trusted_foreground),
+            None,
+            None,
+            None,
+            &options,
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy::COMPLETE,
+            &mut timings,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let CleanupRaster::Bilevel(binary) = &output.image else {
+            panic!("trusted BW source must stay bilevel");
+        };
+
+        assert!(output.metadata.trusted_selection_applied);
+        assert!((0..100).all(|y| (0..24).all(|x| !binary.get(x, y))));
+        assert!((40..60).all(|y| (80..84).all(|x| binary.get(x, y))));
     }
 
     #[test]
@@ -4759,7 +4813,7 @@ mod tests {
     }
 
     #[test]
-    fn heading_rescue_adds_only_wholly_missing_selected_components() {
+    fn trusted_foreground_is_the_complete_output_ink_authority() {
         let mut binary = BinaryImage::new(64, 32);
         let mut trusted = BinaryImage::new(64, 32);
         for y in 10..15 {
@@ -4774,16 +4828,38 @@ mod tests {
         for x in 0..64 {
             trusted.set(x, 1, true);
         }
+        binary.set(50, 25, true);
 
-        let rescued = rescue_missing_heading_components(
-            &binary,
-            &trusted,
-            &[Rect::new(12.0, 8.0, 36.0, 12.0)],
-        );
+        let raw = GrayImage::new(64, 32, 255);
+        let enforced = enforce_source_ink_support(binary, &raw, Some(&trusted), 300.0);
 
-        assert!(rescued.get(22, 12), "missing running-head glyph was not restored");
-        assert!(rescued.get(34, 12), "existing running-head glyph was changed");
-        assert!(!rescued.get(10, 1), "scanner-edge band escaped the heading region");
-        assert_eq!(rescued.count_black(), 50);
+        assert!(enforced.get(22, 12), "missing source glyph was not restored");
+        assert!(enforced.get(34, 12), "existing source glyph was changed");
+        assert!(enforced.get(10, 1), "source-supported edge ink was removed");
+        assert!(!enforced.get(50, 25), "unsupported output ink survived");
+        assert_eq!(enforced.count_black(), trusted.count_black());
+    }
+
+    #[test]
+    fn raw_source_support_rejects_a_uniform_tonal_band() {
+        let mut raw = GrayImage::new(180, 100, 245);
+        let mut binary = BinaryImage::new(180, 100);
+        for y in 0..100 {
+            for x in 0..80 {
+                raw.set(x, y, 150);
+                binary.set(x, y, true);
+            }
+        }
+        for y in 40..60 {
+            for x in 130..134 {
+                raw.set(x, y, 18);
+                binary.set(x, y, true);
+            }
+        }
+
+        let enforced = enforce_source_ink_support(binary, &raw, None, 300.0);
+
+        assert!((0..100).all(|y| (0..80).all(|x| !enforced.get(x, y))));
+        assert!((40..60).all(|y| (130..134).all(|x| enforced.get(x, y))));
     }
 }

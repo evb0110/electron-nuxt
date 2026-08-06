@@ -124,6 +124,9 @@
         "550": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
         "733": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1}
       }
+    },
+    "linguae-scripts-auto-crop": {
+      "maxOutputToSourceRatio": 1.5
     }
   }
 }

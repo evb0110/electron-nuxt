@@ -205,7 +205,7 @@ describe('scan-cleanup corpus native freshness', () => {
 });
 
 describe('scan-cleanup corpus local expectations', () => {
-    it('keeps the standing Rome mode matrix at 16 fixture cases', () => {
+    it('keeps the standing mode matrix at 16 Rome cases plus the linguae edge-band case', () => {
         const expectedIds = [
             'headers2',
             'acceptance2',
@@ -218,8 +218,11 @@ describe('scan-cleanup corpus local expectations', () => {
             `${corpus}-${method}-crop`,
             `${corpus}-${method}-no-crop`,
         ]));
-        expect(modeMatrix.fixtures).toHaveLength(16);
-        expect(modeMatrix.fixtures.map(fixture => fixture.id)).toEqual(expectedIds);
+        expect(modeMatrix.fixtures).toHaveLength(17);
+        expect(modeMatrix.fixtures.map(fixture => fixture.id)).toEqual([
+            ...expectedIds,
+            'linguae-scripts-auto-crop',
+        ]);
         expect(modeMatrix.fixtures.every(fixture => (
             [
                 'auto',

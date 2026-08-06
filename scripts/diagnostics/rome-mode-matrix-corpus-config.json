@@ -96,6 +96,13 @@
       "pdfPath": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PDF}",
       "pages": "${EVB_SCAN_CLEANUP_ACCEPTANCE2_PAGES}",
       "options": {"binarization": "wolf", "cropContent": false}
+    },
+    {
+      "id": "linguae-scripts-auto-crop",
+      "pdfPath": "${EVB_SCAN_CLEANUP_LINGUAE_SCRIPTS_PDF}",
+      "optional": true,
+      "pages": [5],
+      "options": {"binarization": "auto", "cropContent": true}
     }
   ]
 }

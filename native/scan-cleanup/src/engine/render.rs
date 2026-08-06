@@ -3014,73 +3014,66 @@ fn rescue_isolated_raw_ink(raw: &GrayImage, picture_mask: &BinaryImage, dpi: f64
     })
 }
 
-/// Reclaims source-selected components that disappeared completely from a
-/// running-head block. The producer selection is only evidence here: it is
-/// clipped to a detector-owned heading region and contributes whole missing
-/// components, while already-rendered glyphs keep their fresh raster shape.
-/// This avoids both source-layer passthrough and intensity threshold tuning.
-fn rescue_missing_heading_components(
-    binary: &BinaryImage,
-    trusted_foreground: &BinaryImage,
-    heading_regions: &[Rect],
+fn enforce_source_ink_support(
+    binary: BinaryImage,
+    raw: &GrayImage,
+    trusted_foreground: Option<&BinaryImage>,
+    dpi: f64,
 ) -> BinaryImage {
-    debug_assert_eq!(binary.width(), trusted_foreground.width());
-    debug_assert_eq!(binary.height(), trusted_foreground.height());
-    if heading_regions.is_empty() {
-        return binary.clone();
+    debug_assert_eq!(binary.width(), raw.width());
+    debug_assert_eq!(binary.height(), raw.height());
+    if let Some(trusted_foreground) = trusted_foreground {
+        debug_assert_eq!(binary.width(), trusted_foreground.width());
+        debug_assert_eq!(binary.height(), trusted_foreground.height());
     }
-    let candidates = BinaryImage::from_fn_parallel(binary.width(), binary.height(), |x, y| {
-        trusted_foreground.get(x, y)
-            && heading_regions.iter().any(|region| {
-                (x as f64) >= region.x
-                    && (x as f64) < region.right()
-                    && (y as f64) >= region.y
-                    && (y as f64) < region.bottom()
-            })
-    });
-    let components = ComponentMap::from_binary(&candidates);
-    let mut overlaps = vec![false; components.components().len() + 1];
-    for y in 0..binary.height() {
-        for x in 0..binary.width() {
-            if binary.get(x, y) {
-                overlaps[components.label_at(x, y) as usize] = true;
+    let components = ComponentMap::from_binary(&binary);
+    let mut source_support = BinaryImage::new(binary.width(), binary.height());
+    let padding = (dpi.max(1.0) * 0.7 / 25.4).round().max(2.0) as usize;
+    for component in components.components() {
+        let left = component.left.saturating_sub(padding);
+        let top = component.top.saturating_sub(padding);
+        let right = component
+            .right
+            .saturating_add(padding)
+            .min(raw.width().saturating_sub(1));
+        let bottom = component
+            .bottom
+            .saturating_add(padding)
+            .min(raw.height().saturating_sub(1));
+        let mut histogram = [0usize; 256];
+        let mut sample_count = 0usize;
+        for y in top..=bottom {
+            for x in left..=right {
+                histogram[usize::from(raw.get(x, y))] += 1;
+                sample_count += 1;
+            }
+        }
+        let target = sample_count.saturating_sub(1) * 3 / 4;
+        let mut cumulative = 0usize;
+        let mut paper = 255u8;
+        for (value, count) in histogram.into_iter().enumerate() {
+            cumulative += count;
+            if cumulative > target {
+                paper = value as u8;
+                break;
+            }
+        }
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                let sample = raw.get(x, y);
+                if sample < paper || paper == 0 && sample == 0 {
+                    source_support.set(x, y, true);
+                }
             }
         }
     }
-    binary.or(&components.retain(|component| !overlaps[component.label as usize]))
-}
-
-fn heading_regions_in_render(
-    diagnostics: Option<&ContentDiagnostics>,
-    analysis_scale_x: f64,
-    analysis_scale_y: f64,
-    render_rect: Rect,
-) -> Vec<Rect> {
-    diagnostics
-        .into_iter()
-        .flat_map(|diagnostics| diagnostics.protected_blocks.iter())
-        .filter(|block| block.heading_evidence)
-        .filter_map(|block| {
-            let left = block.bounds.x_px as f64 / analysis_scale_x - render_rect.x;
-            let top = block.bounds.y_px as f64 / analysis_scale_y - render_rect.y;
-            let right = (block.bounds.x_px + block.bounds.width_px) as f64 / analysis_scale_x
-                - render_rect.x;
-            let bottom = (block.bounds.y_px + block.bounds.height_px) as f64 / analysis_scale_y
-                - render_rect.y;
-            let clipped_left = left.max(0.0);
-            let clipped_top = top.max(0.0);
-            let clipped_right = right.min(render_rect.width);
-            let clipped_bottom = bottom.min(render_rect.height);
-            (clipped_right > clipped_left && clipped_bottom > clipped_top).then(|| {
-                Rect::new(
-                    clipped_left,
-                    clipped_top,
-                    clipped_right - clipped_left,
-                    clipped_bottom - clipped_top,
-                )
-            })
-        })
-        .collect()
+    let support_radius = (dpi.max(1.0) * 0.12 / 25.4).round().clamp(1.0, 3.0) as usize;
+    let supported = binary.and(&dilate(&source_support, support_radius, support_radius));
+    if let Some(trusted) = trusted_foreground {
+        trusted.or(&supported)
+    } else {
+        supported
+    }
 }
 
 fn filter_soft_shallow_bleed_components(
@@ -3779,29 +3772,6 @@ fn clean_region(
         }
         detected
     };
-    // Batch rendering normally reuses the analysis pass's automatic content
-    // rectangle. That rectangle deliberately replaces content detection for
-    // crop geometry, but a rectangle alone cannot carry the detector's
-    // protected running-head ownership into fresh-raster binarization. Recover
-    // those semantics locally without changing the resolved crop or published
-    // diagnostics.
-    let heading_diagnostics = if trusted_foreground_mask.is_some()
-        && matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed)
-        && detected.diagnostics.is_none()
-        && !force_clean_blank
-    {
-        detect_content_and_margins_calibrated(
-            content_analysis,
-            content_picture_mask,
-            calibration.effective_dpi,
-            None,
-            Some([0.0; 4]),
-            calibration,
-        )
-        .diagnostics
-    } else {
-        detected.diagnostics.clone()
-    };
     timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
     let content = content_result_for_dimensions(
         working_width,
@@ -3917,26 +3887,20 @@ fn clean_region(
                 None,
             )
         };
-    let rendered_routing_gray = matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed)
-        .then(|| {
-            if render_plan.has_dewarp() {
-                rasterize_inverse_area_with(
-                    routing_source,
-                    rendered_width,
-                    rendered_height,
-                    |point| render_plan.output_to_source(point),
-                )
-            } else {
-                render_affine_gray(
-                    routing_source,
-                    rendered_width,
-                    rendered_height,
-                    render_plan
-                        .affine_inverse()
-                        .expect("cleanup affine render plan is available"),
-                )
-            }
-        });
+    let rendered_source_gray = if render_plan.has_dewarp() {
+        rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
+            render_plan.output_to_source(point)
+        })
+    } else {
+        render_affine_gray(
+            routing_source,
+            rendered_width,
+            rendered_height,
+            render_plan
+                .affine_inverse()
+                .expect("cleanup affine render plan is available"),
+        )
+    };
     timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     // Coarse tonal evidence is valid for deriving the global tone curve, but
     // only pixel-resolution picture geometry may form a boundary in the
@@ -4114,12 +4078,6 @@ fn clean_region(
                 .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
         })
     });
-    let heading_regions = heading_regions_in_render(
-        heading_diagnostics.as_ref(),
-        local_scale_x,
-        local_scale_y,
-        render_rect,
-    );
     if options.output_mode == OutputMode::Mixed {
         partition_mixed_picture_mask(
             &mut rendered_picture_mask,
@@ -4144,7 +4102,7 @@ fn clean_region(
     // else is smoothly normalized toward white, so cleanup is always safe and
     // every page keeps the white-paper contract. The flags and metadata fields
     // remain protocol-compatible markers; fresh output never sets them.
-    let trusted_selection_applied = false;
+    let trusted_selection_applied = rendered_trusted_foreground_mask.is_some();
     let trusted_mrc_background_preserved = false;
     let (
         mut image,
@@ -4175,18 +4133,13 @@ fn clean_region(
             OutputMode::Bw => {
                 let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
                 let route = resolve_binarization_diagnostics(&routing_sample, options).route;
-                let global_threshold_source = (route == crate::BinarizationMode::Otsu).then(|| {
-                    rendered_routing_gray
-                        .as_ref()
-                        .expect("bilevel output prepares a routing raster")
-                });
+                let global_threshold_source =
+                    (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
                 let binarization_started = Instant::now();
                 let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
                     binarize_normalized_with_diagnostics(
                         &rendered_gray,
-                        rendered_routing_gray
-                            .as_ref()
-                            .expect("bilevel output prepares a routing raster"),
+                        &rendered_source_gray,
                         &routing_sample,
                         global_threshold_source,
                         options,
@@ -4216,11 +4169,7 @@ fn clean_region(
                     postprocess_binary_with_diagnostics_and_raw(
                         binary,
                         Some(&rendered_gray),
-                        Some(
-                            rendered_routing_gray
-                                .as_ref()
-                                .expect("bilevel output prepares a routing raster"),
-                        ),
+                        Some(&rendered_source_gray),
                         options,
                         calibration,
                     )
@@ -4229,9 +4178,7 @@ fn clean_region(
                 };
                 let binary = restore_genuine_horizontal_rules(
                     &binary,
-                    rendered_routing_gray
-                        .as_ref()
-                        .expect("bilevel output prepares a routing raster"),
+                    &rendered_source_gray,
                     rendered_picture_mask.as_ref(),
                     rendered_text_mask.as_ref(),
                     rendered_text_vicinity_mask.as_ref(),
@@ -4239,19 +4186,18 @@ fn clean_region(
                 );
                 let binary = filter_soft_shallow_bleed_components(
                     &binary,
-                    rendered_routing_gray
-                        .as_ref()
-                        .expect("bilevel output prepares a routing raster"),
+                    &rendered_source_gray,
                     rendered_picture_mask.as_ref(),
                     rendered_text_mask.as_ref(),
                     rendered_text_vicinity_mask.as_ref(),
                     options.dpi,
                 );
-                let binary = if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
-                    rescue_missing_heading_components(&binary, trusted, &heading_regions)
-                } else {
-                    binary
-                };
+                let binary = enforce_source_ink_support(
+                    binary,
+                    &rendered_source_gray,
+                    rendered_trusted_foreground_mask.as_ref(),
+                    options.dpi,
+                );
                 (
                     CleanupRaster::Bilevel(binary),
                     None,
@@ -4269,18 +4215,12 @@ fn clean_region(
                     let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
                     let route = resolve_binarization_diagnostics(&routing_sample, options).route;
                     let global_threshold_source =
-                        (route == crate::BinarizationMode::Otsu).then(|| {
-                            rendered_routing_gray
-                                .as_ref()
-                                .expect("mixed output prepares a routing raster")
-                        });
+                        (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
                     let binarization_started = Instant::now();
                     let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
-                            rendered_routing_gray
-                                .as_ref()
-                                .expect("mixed output prepares a routing raster"),
+                            &rendered_source_gray,
                             &routing_sample,
                             global_threshold_source,
                             options,
@@ -4296,9 +4236,7 @@ fn clean_region(
                     let mode = diagnostics.route;
                     let binary = restore_genuine_horizontal_rules(
                         &binary,
-                        rendered_routing_gray
-                            .as_ref()
-                            .expect("mixed output prepares a routing raster"),
+                        &rendered_source_gray,
                         None,
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
@@ -4306,19 +4244,18 @@ fn clean_region(
                     );
                     let binary = filter_soft_shallow_bleed_components(
                         &binary,
-                        rendered_routing_gray
-                            .as_ref()
-                            .expect("mixed output prepares a routing raster"),
+                        &rendered_source_gray,
                         None,
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
-                    let binary = if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
-                        rescue_missing_heading_components(&binary, trusted, &heading_regions)
-                    } else {
-                        binary
-                    };
+                    let binary = enforce_source_ink_support(
+                        binary,
+                        &rendered_source_gray,
+                        rendered_trusted_foreground_mask.as_ref(),
+                        options.dpi,
+                    );
                     (
                         CleanupRaster::Bilevel(binary),
                         None,
@@ -4332,16 +4269,12 @@ fn clean_region(
                     // resolved inside the binarizer. Keep a geometry-matched raw
                     // tone field available so a global route preserves the scan's
                     // original glyph boundary. Adaptive routes ignore this field.
-                    let global_threshold_source = rendered_routing_gray
-                        .as_ref()
-                        .expect("mixed output prepares a routing raster");
+                    let global_threshold_source = &rendered_source_gray;
                     let binarization_started = Instant::now();
                     let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics_excluding(
                             &rendered_gray,
-                            rendered_routing_gray
-                                .as_ref()
-                                .expect("mixed output prepares a routing raster"),
+                            &rendered_source_gray,
                             Some(global_threshold_source),
                             options,
                             calibration,
@@ -4370,10 +4303,11 @@ fn clean_region(
                         options.binarization,
                         crate::BinarizationMode::Auto | crate::BinarizationMode::Otsu
                     ) {
-                        if let Some(raw) = rendered_routing_gray.as_ref() {
-                            binary =
-                                binary.or(&rescue_isolated_raw_ink(raw, picture_mask, options.dpi));
-                        }
+                        binary = binary.or(&rescue_isolated_raw_ink(
+                            &rendered_source_gray,
+                            picture_mask,
+                            options.dpi,
+                        ));
                     }
                     let (binary, removed_edge_bands) = suppress_scanner_edge_bands(
                         &binary,
@@ -4384,9 +4318,7 @@ fn clean_region(
                     );
                     let binary = restore_genuine_horizontal_rules(
                         &binary,
-                        rendered_routing_gray
-                            .as_ref()
-                            .expect("mixed output prepares a routing raster"),
+                        &rendered_source_gray,
                         Some(picture_mask),
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
@@ -4394,22 +4326,21 @@ fn clean_region(
                     );
                     let binary = filter_soft_shallow_bleed_components(
                         &binary,
-                        rendered_routing_gray
-                            .as_ref()
-                            .expect("mixed output prepares a routing raster"),
+                        &rendered_source_gray,
                         Some(picture_mask),
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
-                    let binary = if let Some(trusted) = rendered_trusted_foreground_mask.as_ref() {
-                        rescue_missing_heading_components(&binary, trusted, &heading_regions)
-                    } else {
-                        binary
-                    };
+                    let binary = enforce_source_ink_support(
+                        binary,
+                        &rendered_source_gray,
+                        rendered_trusted_foreground_mask.as_ref(),
+                        options.dpi,
+                    );
                     let (mixed_gray, mixed_color, layers) = compose_mixed(
                         &rendered_gray,
-                        None,
+                        Some(&rendered_source_gray),
                         rendered_color.as_ref(),
                         &binary,
                         picture_mask,

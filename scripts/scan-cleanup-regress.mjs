@@ -495,7 +495,7 @@ async function main() {
         expected: manifest.modeMatrix?.expected ?? defaultExpectedPath,
     }));
     if (modeMatrixEntry !== null) {
-        await runStep(results, 'corpus verification: Rome mode matrix (16 cases)', () => runCorpus({
+        await runStep(results, 'corpus verification: mode matrix (17 cases)', () => runCorpus({
             allowMissingExpectations: true,
             entry: modeMatrixEntry,
             env,

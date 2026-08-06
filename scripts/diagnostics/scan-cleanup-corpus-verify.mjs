@@ -92,7 +92,7 @@ export function resolveFixtureOptions(fixture) {
     };
 }
 
-function expandCorpusEnvironmentValue(value, label) {
+function expandCorpusEnvironmentValue(value, label, optional = false) {
     if (typeof value !== 'string') {
         return value;
     }
@@ -102,6 +102,9 @@ function expandCorpusEnvironmentValue(value, label) {
     }
     const environmentValue = process.env[match[1]];
     if (!environmentValue) {
+        if (optional) {
+            return join(projectRoot, '.devkit', 'missing-optional-corpus-fixtures', match[1]);
+        }
         throw new Error(`Missing required environment variable ${match[1]} for ${label}`);
     }
     return environmentValue;
@@ -138,7 +141,11 @@ function materializeFixtureConfig(fixture) {
     if (fixture === null || typeof fixture !== 'object' || Array.isArray(fixture)) {
         throw new Error(`Invalid corpus fixture config: ${JSON.stringify(fixture)}`);
     }
-    const pdfPath = expandCorpusEnvironmentValue(fixture.pdfPath, `fixture ${String(fixture.id)} PDF path`);
+    const pdfPath = expandCorpusEnvironmentValue(
+        fixture.pdfPath,
+        `fixture ${String(fixture.id)} PDF path`,
+        fixture.optional === true,
+    );
     let pages = fixture.pages;
     if (typeof fixture.pages === 'string') {
         pages = parseCorpusPageSelector(
