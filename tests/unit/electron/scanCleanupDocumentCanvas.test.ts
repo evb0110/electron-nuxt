@@ -121,6 +121,40 @@ describe('scan cleanup document canvas', () => {
             heightPoints: 80,
         }]})).toThrow(/invalid geometry/u);
         expect(() => parsePdfPageSizesPayload({})).toThrow(/no pages/u);
+        expect(() => parsePdfPageSizesPayload({pages: []})).toThrow(/no pages/u);
+    });
+
+    it('requires one exact page-size record for every page', () => {
+        const geometry = (pageNumber: unknown) => ({
+            pageNumber,
+            widthPoints: 612,
+            heightPoints: 792,
+        });
+
+        for (const pageNumber of [
+            undefined,
+            0,
+            -1,
+            1.5,
+            3,
+            Number.MAX_SAFE_INTEGER + 1,
+        ]) {
+            expect(() => parsePdfPageSizesPayload({pages: [
+                geometry(pageNumber),
+                geometry(2),
+            ]})).toThrow(/invalid page number/u);
+        }
+        expect(() => parsePdfPageSizesPayload({pages: [
+            geometry(1),
+            geometry(1),
+        ]})).toThrow(/duplicate geometry/u);
+        expect(parsePdfPageSizesPayload({pages: [
+            geometry(2),
+            geometry(1),
+        ]}).map(value => value.pageNumber)).toEqual([
+            1,
+            2,
+        ]);
     });
 
     it.each([

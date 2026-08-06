@@ -39,22 +39,23 @@ export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
         throw new Error('evb-pdf-page-ops page-sizes returned no pages');
     }
     const pageCount = payload.pages.length;
-    const seenPageNumbers = new Set<number>();
-    const pages = payload.pages.map((page, index) => {
+    const decoded = new Map<number, IPdfPageSize>();
+    payload.pages.forEach((page, index) => {
         if (!isRecord(page)) throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(index + 1)}`);
         const widthPoints = decodeFinite(page.widthPoints);
         const heightPoints = decodeFinite(page.heightPoints);
-        const pageNumber = page.pageNumber;
+        const pageNumber = decodeFinite(page.pageNumber);
         if (
-            typeof pageNumber !== 'number'
+            pageNumber === null
             || !Number.isSafeInteger(pageNumber)
             || pageNumber < 1
             || pageNumber > pageCount
-            || seenPageNumbers.has(pageNumber)
         ) {
-            throw new Error('evb-pdf-page-ops returned invalid page numbering');
+            throw new Error(`evb-pdf-page-ops returned invalid page number at record ${String(index + 1)}`);
         }
-        seenPageNumbers.add(pageNumber);
+        if (decoded.has(pageNumber)) {
+            throw new Error(`evb-pdf-page-ops returned duplicate geometry for page ${String(pageNumber)}`);
+        }
         if (widthPoints === null || heightPoints === null || widthPoints <= 0 || heightPoints <= 0) {
             throw new Error(`evb-pdf-page-ops returned invalid geometry for page ${String(pageNumber)}`);
         }
@@ -72,7 +73,7 @@ export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
             && dominantImageHeightPx > 0
             && dominantImageWidthPoints > 0
             && dominantImageHeightPoints > 0;
-        return {
+        decoded.set(pageNumber, {
             pageNumber,
             xPoints: decodeFinite(page.xPoints) ?? 0,
             yPoints: decodeFinite(page.yPoints) ?? 0,
@@ -85,12 +86,16 @@ export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
                 dominantImageWidthPoints,
                 dominantImageHeightPoints,
             } : {}),
-        };
+        });
     });
-    if (seenPageNumbers.size !== pageCount) {
-        throw new Error('evb-pdf-page-ops returned incomplete page numbering');
-    }
-    return pages.sort((left, right) => left.pageNumber - right.pageNumber);
+    return Array.from({length: pageCount}, (_, index) => {
+        const pageNumber = index + 1;
+        const page = decoded.get(pageNumber);
+        if (!page) {
+            throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(pageNumber)}`);
+        }
+        return page;
+    });
 }
 
 /**

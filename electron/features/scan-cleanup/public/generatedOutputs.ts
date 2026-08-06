@@ -25,7 +25,8 @@ import {
 } from '@electron/utils/appTempDir';
 
 export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_FILENAME_BYTES = 255;
+export const SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES = 255;
+const OUTPUT_NAME_HASH_HEX_LENGTH = 12;
 
 export function getScanCleanupOutputRoot(appTempDir = getAppTempDir()) {
     return join(appTempDir, 'scan-cleanup', 'output');
@@ -54,24 +55,36 @@ export function isScanCleanupGeneratedOutputPath(
         && extname(segments[1] ?? '').toLowerCase() === '.pdf';
 }
 
+function utf8Prefix(value: string, maxBytes: number) {
+    let bytes = 0;
+    let prefix = '';
+    for (const character of value) {
+        const characterBytes = Buffer.byteLength(character, 'utf8');
+        if (bytes + characterBytes > maxBytes) {
+            break;
+        }
+        prefix += character;
+        bytes += characterBytes;
+    }
+    return prefix;
+}
+
 function humanOutputName(sourcePdfPath: string, partial: boolean) {
     const sourceName = basename(sourcePdfPath, extname(sourcePdfPath)).trim() || 'document';
     const suffix = ` — cleaned${partial ? ' selection' : ''}.pdf`;
-    if (Buffer.byteLength(`${sourceName}${suffix}`, 'utf8') <= MAX_FILENAME_BYTES) {
-        return `${sourceName}${suffix}`;
+    const fullName = `${sourceName}${suffix}`;
+    if (Buffer.byteLength(fullName, 'utf8') <= SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES) {
+        return fullName;
     }
-    const collisionHash = createHash('sha256').update(sourcePdfPath).digest('hex').slice(0, 12);
-    const reserved = `-${collisionHash}${suffix}`;
-    const budget = MAX_FILENAME_BYTES - Buffer.byteLength(reserved, 'utf8');
-    let truncated = '';
-    let used = 0;
-    for (const character of sourceName) {
-        const bytes = Buffer.byteLength(character, 'utf8');
-        if (used + bytes > budget) break;
-        truncated += character;
-        used += bytes;
-    }
-    return `${truncated || 'document'}${reserved}`;
+    const sourceHash = createHash('sha256')
+        .update(sourceName, 'utf8')
+        .digest('hex')
+        .slice(0, OUTPUT_NAME_HASH_HEX_LENGTH);
+    const disambiguator = `…-${sourceHash}`;
+    const prefixBytes = SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES
+        - Buffer.byteLength(`${disambiguator}${suffix}`, 'utf8');
+    const truncatedSourceName = utf8Prefix(sourceName, prefixBytes).trimEnd();
+    return `${truncatedSourceName}${disambiguator}${suffix}`;
 }
 
 export async function createScanCleanupGeneratedOutputPath(

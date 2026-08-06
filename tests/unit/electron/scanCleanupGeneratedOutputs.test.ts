@@ -8,7 +8,10 @@ import {
     writeFile,
 } from 'fs/promises';
 import {tmpdir} from 'os';
-import {join} from 'path';
+import {
+    basename,
+    join,
+} from 'path';
 import {
     afterEach,
     describe,
@@ -20,6 +23,7 @@ import {
     getScanCleanupOutputRoot,
     isScanCleanupGeneratedOutputPath,
     pruneScanCleanupGeneratedOutputs,
+    SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES,
     SCAN_CLEANUP_OUTPUT_MAX_AGE_MS,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
 
@@ -47,22 +51,41 @@ describe('scan cleanup generated output pruning', () => {
         expect(partialPath).toMatch(/My scan — cleaned selection\.pdf$/u);
     });
 
-    it('byte-truncates multibyte names and retains a stable collision hash', async () => {
-        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-path-test-'));
+    it('byte-caps long Unicode names with a deterministic collision hash and writable suffix', async () => {
+        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-long-name-test-'));
         tempDirs.push(appTempDir);
-        const firstSource = `/books/${'😀'.repeat(100)}-first.pdf`;
-        const secondSource = `/books/${'😀'.repeat(100)}-second.pdf`;
-        const first = await createScanCleanupGeneratedOutputPath(firstSource, true, appTempDir);
-        const second = await createScanCleanupGeneratedOutputPath(secondSource, true, appTempDir);
-        const firstName = first.split(/[\\/]/u).at(-1)!;
-        const secondName = second.split(/[\\/]/u).at(-1)!;
+        const commonPrefix = '漢'.repeat(200);
+        const sourceA = `/books/${commonPrefix}甲.pdf`;
+        const sourceB = `/books/${commonPrefix}乙.pdf`;
+        const [
+            pathA,
+            pathB,
+            repeatedPathA,
+        ] = await Promise.all([
+            createScanCleanupGeneratedOutputPath(sourceA, false, appTempDir),
+            createScanCleanupGeneratedOutputPath(sourceB, false, appTempDir),
+            createScanCleanupGeneratedOutputPath(sourceA, false, appTempDir),
+        ]);
+        const leafA = basename(pathA);
+        const leafB = basename(pathB);
 
-        expect(Buffer.byteLength(firstName, 'utf8')).toBeLessThanOrEqual(255);
-        expect(firstName).toMatch(/-[\da-f]{12} — cleaned selection\.pdf$/u);
-        expect(secondName).toMatch(/-[\da-f]{12} — cleaned selection\.pdf$/u);
-        expect(firstName).not.toBe(secondName);
-        expect((await createScanCleanupGeneratedOutputPath(firstSource, true, appTempDir))
-            .split(/[\\/]/u).at(-1)).toBe(firstName);
+        expect(Buffer.byteLength(leafA, 'utf8')).toBeLessThanOrEqual(SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES);
+        expect(Buffer.byteLength(leafB, 'utf8')).toBeLessThanOrEqual(SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES);
+        expect(leafA).toMatch(/…-[a-f\d]{12} — cleaned\.pdf$/u);
+        expect(leafB).toMatch(/…-[a-f\d]{12} — cleaned\.pdf$/u);
+        expect(leafA).not.toBe(leafB);
+        expect(basename(repeatedPathA)).toBe(leafA);
+
+        await Promise.all([
+            writeFile(pathA, 'generated A'),
+            writeFile(pathB, 'generated B'),
+            writeFile(repeatedPathA, 'generated A again'),
+        ]);
+        await expect(Promise.all([
+            stat(pathA),
+            stat(pathB),
+            stat(repeatedPathA),
+        ])).resolves.toHaveLength(3);
     });
 
     it('classifies only descendants of the managed output root', async () => {
