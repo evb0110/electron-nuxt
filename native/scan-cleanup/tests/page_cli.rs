@@ -2401,6 +2401,7 @@ fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() 
         let manifest = scratch.path(&format!("budget-{label}-manifest.json"));
         let output = scratch.path(&format!("budget-{label}-output.png"));
         let metadata_path = scratch.path(&format!("budget-{label}-metadata.json"));
+        let page_metadata_path = scratch.path(&format!("budget-{label}-page.json"));
         fs::write(
             &manifest,
             serde_json::to_vec_pretty(&serde_json::json!({
@@ -2417,7 +2418,7 @@ fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() 
                 "pages": [{
                     "inputPath": input,
                     "sourcePageIndex": 0,
-                    "pageMetadataPath": scratch.path(&format!("budget-{label}-page.json")),
+                    "pageMetadataPath": page_metadata_path,
                     "options": {
                         "dpi": 300,
                         "layout": "force-single",
@@ -2438,10 +2439,11 @@ fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() 
             .args(["--manifest", manifest.to_str().unwrap()])
             .output()
             .unwrap();
-        (result, output, metadata_path)
+        (result, output, metadata_path, page_metadata_path)
     };
 
-    let (accepted, accepted_output, accepted_metadata) = run("exact", 14_000);
+    let (accepted, accepted_output, accepted_metadata, accepted_page_metadata) =
+        run("exact", 14_000);
     assert!(
         accepted.status.success(),
         "a canvas of exactly maxPixels has to render; stderr={}",
@@ -2453,8 +2455,9 @@ fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() 
     assert_eq!(metadata["canvasWidthPx"], 140);
     assert_eq!(metadata["canvasHeightPx"], 100);
     assert_pdf_image_placement_matches_canvas(&metadata);
+    assert!(accepted_page_metadata.exists());
 
-    let (refused, refused_output, refused_metadata) = run("over", 13_999);
+    let (refused, refused_output, refused_metadata, refused_page_metadata) = run("over", 13_999);
     assert!(
         !refused.status.success(),
         "a canvas one pixel past maxPixels has to be refused"
@@ -2467,6 +2470,7 @@ fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() 
     // A refused canvas leaves nothing half-written behind.
     assert!(!refused_output.exists());
     assert!(!refused_metadata.exists());
+    assert!(!refused_page_metadata.exists());
 }
 
 #[test]

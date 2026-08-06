@@ -2169,6 +2169,7 @@ fn prepare_analysis_page(
             prepare_quality_raster,
             render_policy.recommend_output_mode,
             render_policy.analyze_layout,
+            render_policy.create_mixed_layers,
             calibration_config,
         )
     });
@@ -2779,6 +2780,7 @@ fn prepare_analysis_page(
             prepare_quality_raster,
             render_policy.recommend_output_mode,
             render_policy.analyze_layout,
+            render_policy.create_mixed_layers,
             calibration_config,
             document_prior,
         )

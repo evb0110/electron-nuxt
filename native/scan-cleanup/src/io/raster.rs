@@ -1,6 +1,6 @@
 //! Format-sniffing readers for cleanup raster inputs: PNG for browser-visible
 //! surfaces and raw PPM P6 for pipeline-internal Poppler handoffs.
-use super::{decode_limits, write_atomic_with};
+use super::{decode_limits, read_file_bounded, write_atomic_with, MAX_COMPRESSED_BYTES};
 use evb_raster_io::{
     decode_png, decode_png_gray, decode_ppm, decode_ppm_gray, read_png_dimensions,
     read_ppm_dimensions,
@@ -31,11 +31,21 @@ pub fn read_foreground_selection(
     max_pixels: u64,
     max_dimension: u32,
 ) -> Result<GrayImage, String> {
+    read_foreground_selection_with_limit(path, max_pixels, max_dimension, MAX_COMPRESSED_BYTES)
+}
+
+fn read_foreground_selection_with_limit(
+    path: &Path,
+    max_pixels: u64,
+    max_dimension: u32,
+    max_compressed_bytes: usize,
+) -> Result<GrayImage, String> {
     if path
         .extension()
         .is_some_and(|extension| extension == "jb2e")
     {
-        let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+        let bytes =
+            read_file_bounded(path, max_compressed_bytes).map_err(|error| error.to_string())?;
         let decoded = decode_pdf_generic_source(&bytes, DecodeLimits::new(max_pixels))
             .map_err(|error| error.to_string())?;
         if decoded.width > max_dimension || decoded.height > max_dimension {
@@ -224,6 +234,17 @@ mod tests {
         assert_eq!(selection.get(0, 0), 0);
         assert_eq!(selection.get(1, 0), 255);
         assert_eq!(selection.get(2, 0), 0);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_jbig2_selection_before_an_oversize_file_is_buffered() {
+        let path = temp_path("oversize-selection.jb2e");
+        fs::write(&path, b"0123456789").unwrap();
+
+        let error = read_foreground_selection_with_limit(&path, 64, 64, 9).unwrap_err();
+
+        assert!(error.contains("9-byte limit"), "unexpected error: {error}");
         fs::remove_file(path).unwrap();
     }
 

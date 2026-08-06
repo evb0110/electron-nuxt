@@ -83,7 +83,7 @@ impl StageCacheKey {
     /// cleanup, so they are included for every output mode. The quality raster,
     /// layout analysis, and recommendation flags decide which artifact fields
     /// are computed at all, so all three belong in the key. Margins, placement,
-    /// crop, binarization, thickness, and despeckling are later-stage concerns
+    /// binarization, thickness, and despeckling are later-stage concerns
     /// and intentionally do not invalidate this artifact.
     pub(crate) fn analysis(
         source: &SourceFingerprint,
@@ -91,6 +91,7 @@ impl StageCacheKey {
         prepare_quality_raster: bool,
         recommend_output_mode: bool,
         analyze_layout: bool,
+        create_mixed_layers: bool,
         calibration: CalibrationConfig,
     ) -> Self {
         Self {
@@ -98,15 +99,20 @@ impl StageCacheKey {
             stage: CacheStage::Analysis,
             options: serialized(&(
                 options.dpi.to_bits(),
+                options.source_dpi().to_bits(),
                 options.rotation,
                 options.normalize_illumination,
                 options.output_mode,
                 &options.manual_content_boxes,
+                &options.automatic_content_boxes,
+                options.crop_content,
+                options.prefer_soft_alpha_foreground,
                 &options.manual_zones.picture,
                 &options.manual_zones.fill,
                 prepare_quality_raster,
                 recommend_output_mode,
                 analyze_layout,
+                create_mixed_layers,
                 calibration_key(calibration),
             )),
         }
@@ -121,6 +127,7 @@ impl StageCacheKey {
         prepare_quality_raster: bool,
         recommend_output_mode: bool,
         analyze_layout: bool,
+        create_mixed_layers: bool,
         calibration: CalibrationConfig,
         document_prior: Option<crate::split::DocumentPrior>,
     ) -> Self {
@@ -134,6 +141,7 @@ impl StageCacheKey {
                     prepare_quality_raster,
                     recommend_output_mode,
                     analyze_layout,
+                    create_mixed_layers,
                     calibration,
                 )
                 .options,
@@ -360,6 +368,7 @@ mod tests {
             true,
             true,
             true,
+            true,
             CalibrationConfig::default(),
         );
         options.margins_mm = Some(MarginsMm {
@@ -374,6 +383,7 @@ mod tests {
                 true,
                 true,
                 true,
+                true,
                 CalibrationConfig::default()
             )
         );
@@ -384,6 +394,7 @@ mod tests {
                 &options,
                 true,
                 false,
+                true,
                 true,
                 CalibrationConfig::default()
             )
@@ -398,6 +409,7 @@ mod tests {
                 true,
                 true,
                 false,
+                true,
                 CalibrationConfig::default()
             )
         );
@@ -407,6 +419,7 @@ mod tests {
             StageCacheKey::analysis(
                 &source,
                 &options,
+                true,
                 true,
                 true,
                 true,
@@ -422,6 +435,7 @@ mod tests {
         let baseline = StageCacheKey::analysis(
             &source,
             &baseline_options,
+            true,
             true,
             true,
             true,
@@ -444,6 +458,85 @@ mod tests {
                 true,
                 true,
                 true,
+                true,
+                CalibrationConfig::default(),
+            ),
+        );
+
+        let mut source_dpi_options = baseline_options.clone();
+        source_dpi_options.source_dpi = Some(150.0);
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &source_dpi_options,
+                true,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            ),
+        );
+
+        let mut crop_options = baseline_options.clone();
+        crop_options.crop_content = false;
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &crop_options,
+                true,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            ),
+        );
+
+        let mut automatic_content_options = baseline_options.clone();
+        automatic_content_options.automatic_content_boxes.full = Some(crate::NormalizedRect {
+            x: 0.2,
+            y: 0.2,
+            width: 0.6,
+            height: 0.6,
+            rotation: crate::OrthogonalRotation::None,
+        });
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &automatic_content_options,
+                true,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            ),
+        );
+
+        let mut alpha_options = baseline_options.clone();
+        alpha_options.prefer_soft_alpha_foreground = Some(true);
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &alpha_options,
+                true,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            ),
+        );
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &baseline_options,
+                true,
+                true,
+                true,
+                false,
                 CalibrationConfig::default(),
             ),
         );
@@ -468,6 +561,7 @@ mod tests {
             StageCacheKey::analysis(
                 &source,
                 &picture_options,
+                true,
                 true,
                 true,
                 true,

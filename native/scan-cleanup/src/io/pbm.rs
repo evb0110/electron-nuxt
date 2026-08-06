@@ -1,6 +1,6 @@
-use super::write_atomic;
+use super::{read_file_bounded, write_atomic, MAX_COMPRESSED_BYTES};
 use scan_primitives::{BinaryImage, GrayImage};
-use std::{fs, path::Path};
+use std::path::Path;
 
 pub fn write_p4_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
     let bytes = evb_raster_io::encode_p4(image).map_err(|error| error.to_string())?;
@@ -14,7 +14,7 @@ pub fn write_p4_bilevel_atomic(path: &Path, image: &BinaryImage) -> Result<(), S
 
 pub fn read_p4(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
     decode_p4(
-        &fs::read(path).map_err(|error| error.to_string())?,
+        &read_file_bounded(path, MAX_COMPRESSED_BYTES).map_err(|error| error.to_string())?,
         max_pixels,
         max_dimension,
     )

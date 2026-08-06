@@ -268,6 +268,17 @@ impl ManifestV3 {
         if self.host_memory_bytes == Some(0) {
             return Err(invalid("Host memory must be a positive byte count"));
         }
+        if self.operation == Operation::Render
+            && self.document_canvas.is_none()
+            && self
+                .pages
+                .iter()
+                .any(|page| page.options.match_page_size && !page.options.ocr_mode)
+        {
+            return Err(invalid(
+                "A matched page-size render requires a documentCanvas plan",
+            ));
+        }
         if self.operation != Operation::Analyze
             && self.analysis_purpose != AnalysisPurpose::PagePlan
         {
@@ -658,6 +669,23 @@ mod tests {
     }
 
     #[test]
+    fn matched_render_requires_a_document_canvas_at_manifest_decode() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/raster-final-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.document_canvas = None;
+
+        assert!(manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("documentCanvas"));
+    }
+
+    #[test]
     fn detail_render_plan_is_preview_only_and_bounded() {
         let bytes = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -727,6 +755,7 @@ mod tests {
                 "inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
                 "outputs":[{"outputPath":"out.png","metadataPath":"out.json"}],
                 "options":{
+                    "matchPageSize":false,
                     "manualSkewDegrees":-2.5,
                     "experimental":{"autoDewarp":true,"autoDewarpDepth":1.75}
                 }

@@ -3,6 +3,12 @@
   "operation": "render",
   "renderMode": "final",
   "canvasScope": "document",
+  "documentCanvas": {
+    "widthPoints": 612,
+    "heightPoints": 792,
+    "widthPx": 2550,
+    "heightPx": 3300
+  },
   "pages": [
     {
       "inputPath": "/fixtures/input/page-1.png",

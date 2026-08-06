@@ -8,7 +8,7 @@ use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
 use crate::mrc::{derive_picture_zones, derive_tone_mask_excluding_foreground};
 use crate::{
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
-    io::{pbm, raster},
+    io::{copy_bounded_cancelable, pbm, raster, BoundedIoError, MAX_STREAM_INPUT_BYTES},
     pipeline::{AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy, PdfImagePlacement},
     png::{self, RgbImage},
     protocol::{
@@ -30,9 +30,13 @@ use std::{
     collections::HashSet,
     error::Error,
     ffi::OsString,
-    fs, io,
+    fs,
     path::{Path, PathBuf},
-    sync::{mpsc::sync_channel, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::sync_channel,
+        Arc, Mutex,
+    },
     thread,
     time::Instant,
 };
@@ -229,6 +233,33 @@ struct PageRunResult {
     metadata: PageResultMetadata,
     page_metadata_path: PathBuf,
     timings: PageStageTimings,
+}
+
+fn cleanup_written_output(output: &WrittenOutput) {
+    let _ = fs::remove_file(&output.output_path);
+    let _ = fs::remove_file(&output.metadata_path);
+    for path in [
+        output.bilevel_output_path.as_ref(),
+        output.background_output_path.as_ref(),
+        output.foreground_mask_output_path.as_ref(),
+        output.foreground_alpha_output_path.as_ref(),
+        output.picture_mask_output_path.as_ref(),
+        output.tone_preservation_alpha_output_path.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let _ = fs::remove_file(path);
+    }
+}
+
+fn cleanup_page_results(page_results: &[PageRunResult]) {
+    for page_result in page_results {
+        for output in &page_result.outputs {
+            cleanup_written_output(output);
+        }
+        let _ = fs::remove_file(&page_result.page_metadata_path);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -443,43 +474,29 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     if analyzing {
         reconcile_classification_batch(manifest, &mut page_results, &cache)?;
     }
-    let mut written_outputs = Vec::new();
-    for (index, page_result) in page_results.into_iter().enumerate() {
+    for (index, page_result) in page_results.iter().enumerate() {
         if let Err(error) =
             write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)
         {
-            for output in &page_result.outputs {
-                let _ = fs::remove_file(&output.output_path);
-                let _ = fs::remove_file(&output.metadata_path);
-                if let Some(bilevel_path) = &output.bilevel_output_path {
-                    let _ = fs::remove_file(bilevel_path);
-                }
-                if let Some(background_path) = &output.background_output_path {
-                    let _ = fs::remove_file(background_path);
-                }
-                if let Some(mask_path) = &output.foreground_mask_output_path {
-                    let _ = fs::remove_file(mask_path);
-                }
-                if let Some(mask_path) = &output.picture_mask_output_path {
-                    let _ = fs::remove_file(mask_path);
-                }
-                if let Some(mask_path) = &output.tone_preservation_alpha_output_path {
-                    let _ = fs::remove_file(mask_path);
-                }
-            }
-            let _ = fs::remove_file(&page_result.page_metadata_path);
+            cleanup_page_results(&page_results);
             return Err(error);
         }
         if analyzing {
-            write_progress(page_complete_progress(&page_result, index, total_pages))?;
+            write_progress(page_complete_progress(page_result, index, total_pages))?;
         }
-        written_outputs.extend(page_result.outputs);
     }
-    match_page_sizes(
+    let written_outputs = page_results
+        .iter()
+        .flat_map(|page_result| page_result.outputs.iter())
+        .collect::<Vec<_>>();
+    if let Err(error) = match_page_sizes(
         &written_outputs,
         manifest.render_mode == RenderMode::Preview,
         manifest.document_canvas,
-    )?;
+    ) {
+        cleanup_page_results(&page_results);
+        return Err(error);
+    }
     write_progress(Progress {
         stage: ProgressStage::Completed,
         completed_pages: manifest.pages.len(),
@@ -588,6 +605,8 @@ fn stream_materialized_path(page: &Page, index: usize) -> PathBuf {
 fn materialize_stream_page(
     index: usize,
     page: &Page,
+    max_bytes: usize,
+    is_canceled: impl Fn() -> bool,
 ) -> Result<MaterializedStreamPage, NativeError> {
     let mut materialized = page.clone();
     if fs::metadata(&page.input_path).is_ok_and(|metadata| metadata.file_type().is_file()) {
@@ -598,16 +617,23 @@ fn materialize_stream_page(
         });
     }
     let temporary_input = stream_materialized_path(page, index);
-    let copy_result = (|| -> Result<(), io::Error> {
+    let copy_result = (|| -> Result<(), BoundedIoError> {
+        if is_canceled() {
+            return Err(BoundedIoError::Canceled);
+        }
         let mut source = fs::File::open(&page.input_path)?;
         let mut destination = fs::File::create(&temporary_input)?;
-        io::copy(&mut source, &mut destination)?;
+        copy_bounded_cancelable(&mut source, &mut destination, max_bytes, &is_canceled)?;
         Ok(())
     })();
     if let Err(error) = copy_result {
         let _ = fs::remove_file(&temporary_input);
+        let code = match &error {
+            BoundedIoError::TooLarge { .. } => NativeErrorCode::TooLarge,
+            BoundedIoError::Canceled | BoundedIoError::Io(_) => NativeErrorCode::Io,
+        };
         return Err(NativeError::new(
-            NativeErrorCode::Io,
+            code,
             format!(
                 "Unable to materialize streamed scan-cleanup page {}: {error}",
                 index + 1
@@ -627,19 +653,31 @@ where
     T: Send,
     F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
 {
-    // A FIFO is a one-shot transport, not a replayable page file. Drain the
-    // next one on a dedicated reader while the current page is analysed. The
-    // rendezvous channel bounds temporary storage to at most two page rasters,
-    // removes the producer/consumer handshake from the compute path, and lets
-    // Poppler overlap with native analysis without admitting future FIFO
-    // readers into Rayon.
+    // A FIFO is a one-shot transport, not a replayable page file. A dedicated
+    // reader materializes one bounded page at a time, and an acknowledgement
+    // turnstile keeps it from opening a future FIFO until processing succeeds.
+    // This bounds scratch to one raster and makes a task failure cancelable
+    // without leaving the scoped reader blocked on a producer that stopped.
     thread::scope(|scope| {
         let (sender, receiver) = sync_channel(0);
+        let (acknowledge, acknowledged) = sync_channel(0);
+        let canceled = Arc::new(AtomicBool::new(false));
+        let reader_canceled = Arc::clone(&canceled);
         scope.spawn(move || {
             for (index, page) in manifest.pages.iter().enumerate() {
-                let materialized = materialize_stream_page(index, page);
+                let materialized =
+                    materialize_stream_page(index, page, MAX_STREAM_INPUT_BYTES, || {
+                        reader_canceled.load(Ordering::Acquire)
+                    });
                 let failed = materialized.is_err();
                 if sender.send(materialized).is_err() || failed {
+                    break;
+                }
+                // Taking a rendezvous message does not mean page processing
+                // succeeded. Wait for its explicit acknowledgement before
+                // opening the next FIFO, otherwise a task failure can strand
+                // this scoped thread forever in an unwritten future stream.
+                if acknowledged.recv() != Ok(true) {
                     break;
                 }
             }
@@ -651,15 +689,27 @@ where
             match materialized {
                 Ok(materialized) if first_error.is_none() => {
                     match task((materialized.index, &materialized.page)) {
-                        Ok(result) => results.push(result),
-                        Err(error) => first_error = Some(error),
+                        Ok(result) => {
+                            results.push(result);
+                            if acknowledge.send(true).is_err() {
+                                first_error = Some(NativeError::new(
+                                    NativeErrorCode::Io,
+                                    "Streamed scan-cleanup reader stopped before acknowledgement",
+                                ));
+                            }
+                        }
+                        Err(error) => {
+                            canceled.store(true, Ordering::Release);
+                            first_error = Some(error);
+                            let _ = acknowledge.send(false);
+                        }
                     }
                 }
                 Ok(_) => {
-                    // Keep draining the one-shot inputs after a page failure so
-                    // the producer can finish and the scoped reader can exit.
+                    let _ = acknowledge.send(false);
                 }
                 Err(error) => {
+                    canceled.store(true, Ordering::Release);
                     first_error.get_or_insert(error);
                     break;
                 }
@@ -2399,7 +2449,7 @@ fn match_layers_in_memory(
 }
 
 fn match_page_sizes(
-    outputs: &[WrittenOutput],
+    outputs: &[&WrittenOutput],
     preview_mode: bool,
     document_canvas: Option<DocumentCanvas>,
 ) -> Result<(), Box<dyn Error>> {
@@ -2834,11 +2884,11 @@ fn map_image_error(message: String) -> NativeError {
 mod tests {
     use super::{
         adaptive_thread_count, box_downsample_gray, estimate_peak_page_bytes, manifest_cache,
-        manifest_worker_threads, map_image_error, normalize_trusted_foreground_selection,
-        page_worker_threads, plan_canvas_placement_for, preflight_manifest_paths,
-        preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
-        robust_quantile_dimension, run_stream_page_jobs, PageResultMetadata, PageRunResult,
-        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        manifest_worker_threads, map_image_error, materialize_stream_page,
+        normalize_trusted_foreground_selection, page_worker_threads, plan_canvas_placement_for,
+        preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
+        reconcile_classification_batch, robust_quantile_dimension, run_stream_page_jobs,
+        PageResultMetadata, PageRunResult, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -3090,6 +3140,7 @@ mod tests {
         fs::write(&shared_destination, b"old output").unwrap();
         fs::hard_link(&shared_destination, &destination_alias).unwrap();
         manifest.operation = Operation::Render;
+        manifest.pages[0].options.match_page_size = false;
         manifest.pages[0].page_metadata_path = shared_destination;
         manifest.pages[0].outputs.push(PageOutput {
             output_path: dir.join("output.png"),
@@ -3271,6 +3322,111 @@ mod tests {
                 .contains(".raster")),
             "bounded materializations must be removed after processing"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn oversized_stream_removes_its_partial_materialization() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-stream-oversize-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("page.fifo");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let page = Page {
+            input_path: fifo.clone(),
+            trusted_foreground_mask_path: None,
+            trusted_mrc_background_path: None,
+            source_page_index: 0,
+            page_metadata_path: dir.join("page.json"),
+            options: CleanupOptions::default(),
+            document_prior: None,
+            detail_render_plan: None,
+            outputs: Vec::new(),
+        };
+        let producer = std::thread::spawn(move || {
+            let _ = fs::write(fifo, b"this stream is larger than eight bytes");
+        });
+
+        let error = match materialize_stream_page(0, &page, 8, || false) {
+            Ok(_) => panic!("oversize stream unexpectedly materialized"),
+            Err(error) => error,
+        };
+
+        producer.join().unwrap();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
+        assert!(fs::read_dir(&dir).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".raster")));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn first_stream_task_failure_never_opens_an_unwritten_next_fifo() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-stream-turnstile-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo_paths = [dir.join("page-0.fifo"), dir.join("page-1.fifo")];
+        for fifo in &fifo_paths {
+            assert!(std::process::Command::new("mkfifo")
+                .arg(fifo)
+                .status()
+                .unwrap()
+                .success());
+        }
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: None,
+            pages: fifo_paths
+                .iter()
+                .enumerate()
+                .map(|(index, input_path)| Page {
+                    input_path: input_path.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        let first_fifo = fifo_paths[0].clone();
+        let producer = std::thread::spawn(move || fs::write(first_fifo, b"first page"));
+
+        let error = run_stream_page_jobs(&manifest, |(index, _)| {
+            Err::<(), _>(NativeError::new(
+                NativeErrorCode::NativeFailure,
+                format!("page {} failed", index + 1),
+            ))
+        })
+        .unwrap_err();
+
+        producer.join().unwrap().unwrap();
+        assert!(error.to_string().contains("page 1 failed"));
+        assert!(fs::read_dir(&dir).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".raster")));
         let _ = fs::remove_dir_all(dir);
     }
 
