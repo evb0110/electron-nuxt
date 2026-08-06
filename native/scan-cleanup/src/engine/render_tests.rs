@@ -774,6 +774,39 @@ mod tests {
         source
     }
 
+    fn faint_top_furniture_fixture() -> (GrayImage, BinaryImage) {
+        let mut source = GrayImage::new(620, 760, 245);
+        let mut trusted_foreground = BinaryImage::new(620, 760);
+        // A real scanner bar is edge-attached and must remain outside the
+        // content crop even when the running ornament below it is protected.
+        for y in 0..9 {
+            for x in 0..620 {
+                source.set(x, y, 18);
+            }
+        }
+        // A faint, repeated running ornament like the Rome fixture's Greek
+        // key is visible to layout analysis but is vulnerable to quality
+        // normalization unless its text vicinity is carried forward.
+        for glyph in 0..25 {
+            let left = 55 + glyph * 20;
+            for y in 44..62 {
+                for x in left..left + 12 {
+                    if x < left + 3 || x + 3 >= left + 12 || y < 47 || y >= 59 {
+                        source.set(x, y, 142);
+                        trusted_foreground.set(x, y, true);
+                    }
+                }
+            }
+        }
+        draw_display_glyphs(&mut source, 190, 150, 10, 11, 24, 6);
+        for row in 0..23 {
+            let top = 210 + row * 22;
+            draw_display_glyphs(&mut source, 62, top, 9, 10, 14, 5);
+            draw_display_glyphs(&mut source, 330, top, 9, 10, 14, 5);
+        }
+        (source, trusted_foreground)
+    }
+
     fn dark_pixels_in_source_rect(output: &CleanupResult, source_rect: Rect) -> usize {
         let crop = output.metadata.crop_rect;
         let left = (source_rect.x - crop.x).floor().max(0.0) as usize;
@@ -846,6 +879,67 @@ mod tests {
                 "mode={output_mode:?} heading pixels were cropped"
             );
         }
+    }
+
+    #[test]
+    fn normalized_bw_crop_keeps_faint_top_furniture_but_rejects_scanner_band() {
+        let (source, trusted_foreground) = faint_top_furniture_fixture();
+        let options = CleanupOptions {
+            dpi: 150.0,
+            output_mode: OutputMode::Bw,
+            normalize_illumination: true,
+            crop_content: true,
+            layout: crate::LayoutMode::Single,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            ..CleanupOptions::default()
+        };
+        let mut timings = PageStageTimings::default();
+        let output = clean_page_with_color_and_calibration_config(
+            &source,
+            None,
+            Some(&trusted_foreground),
+            None,
+            None,
+            None,
+            &options,
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy {
+                recommend_output_mode: false,
+                ..PageRenderPolicy::COMPLETE
+            },
+            &mut timings,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        let content = output.metadata.content_box.unwrap();
+        assert!(
+            content.y > 9.0 && content.y <= 44.0,
+            "content must reject the scanner band and include the ornament: {content:?}"
+        );
+        assert!(
+            output.metadata.crop_rect.y > 9.0 && output.metadata.crop_rect.y <= 44.0,
+            "crop must reject the scanner band and include the ornament: {:?}",
+            output.metadata.crop_rect
+        );
+        assert!(output.metadata.trusted_selection_applied);
+        assert!(
+            dark_pixels_in_source_rect(&output, Rect::new(55.0, 44.0, 492.0, 18.0)) > 2_000,
+            "trusted running ornament was cropped or erased"
+        );
+        let diagnostics = output.metadata.content_diagnostics.as_ref().unwrap();
+        assert!(
+            diagnostics.protected_blocks.iter().any(|block| {
+                block.bounds.y_px <= 44
+                    && (block.heading_evidence || block.text_evidence)
+            }),
+            "top furniture lacks content evidence: {diagnostics:?}"
+        );
     }
 
     fn single_page_fixture() -> GrayImage {

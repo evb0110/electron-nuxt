@@ -2311,12 +2311,18 @@ fn prepare_analysis_page(
             .and_then(|threshold| detect_text_axis(&layout_normalized, threshold));
         timings.text_axis_ms += text_axis_started.elapsed().as_secs_f64() * 1_000.0;
         let mode_recommendation_started = Instant::now();
-        // Automatic mode reuses the normal line detector. Destructive
+        // Automatic mode reuses the normal line detector. A normalized crop
+        // needs the same text-vicinity evidence even after Auto has resolved
+        // to an explicit mode: quality normalization otherwise erases faint
+        // running furniture before the crop detector sees it. Destructive
         // blank-page cleanup itself depends only on raw luminance, chroma and
         // coherent edge structure: normalized texture is exactly the unstable
         // evidence that caused preview/final disagreements here.
         let content_evidence = picture_mask.as_deref().and_then(|picture_mask| {
             if render_policy.recommend_output_mode
+                || (prepare_quality_raster
+                    && options.crop_content
+                    && options.normalize_illumination)
                 || matches!(
                     options.output_mode,
                     OutputMode::Grayscale | OutputMode::Mixed
