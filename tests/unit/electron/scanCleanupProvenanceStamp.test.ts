@@ -197,4 +197,111 @@ describe('scan-cleanup provenance stamp contract', () => {
         })).toThrow('out-of-order output ordinals');
         expect(() => resolveScanCleanupPageScope([0], 3)).toThrow(ScanCleanupPageScopeError);
     });
+
+    it('rejects non-simple manual-zone polygons in provenance options', () => {
+        const record = effectiveOptions(1);
+        record.options.manualZones.fill = [{
+            points: [
+                {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                },
+                {
+                    xNormalized: 1,
+                    yNormalized: 1,
+                },
+                {
+                    xNormalized: 0,
+                    yNormalized: 1,
+                },
+                {
+                    xNormalized: 0.8,
+                    yNormalized: 0,
+                },
+            ],
+            rotationDegrees: 0,
+        }];
+
+        expect(() => buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: [record],
+            outputMappings: [{
+                sourcePage: 1,
+                half: 'full',
+                outputOrdinal: 1,
+                rotationDegrees: 0,
+                excluded: false,
+                blank: false,
+            }],
+            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
+            buildIds: {
+                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+                coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
+                nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
+                assemblerBackend: 'source-preserved',
+                transportMode: 'source-preserved',
+            },
+        })).toThrow('intersecting');
+    });
+
+    it('rejects non-finite and internally inconsistent nested provenance diagnostics', () => {
+        const nonFiniteRecord = effectiveOptions(1);
+        nonFiniteRecord.options.automaticSkewDegrees = {full: Number.POSITIVE_INFINITY};
+        expect(() => buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: [nonFiniteRecord],
+            outputMappings: [{
+                sourcePage: 1,
+                half: 'full',
+                outputOrdinal: 1,
+                rotationDegrees: 0,
+                excluded: false,
+                blank: false,
+            }],
+            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, nonFiniteRecord.options, {})],
+            buildIds: {
+                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+                coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
+                nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
+                assemblerBackend: 'source-preserved',
+                transportMode: 'source-preserved',
+            },
+        })).toThrow('Cannot canonicalize non-finite number');
+
+        const inconsistentRecord = effectiveOptions(1);
+        inconsistentRecord.options.resolvedTextToneDiagnostics = {full: {
+            applied: false,
+            rule: 'applied',
+            textLineCount: 1,
+            textInkPixels: 10,
+            pictureFraction: 0,
+            outsideMidtoneFraction: 0,
+            outsideMidtoneLargestComponentFraction: 0,
+            outsideMidtoneLargestComponentWidthFraction: 0,
+            outsideMidtoneLargestComponentHeightFraction: 0,
+            inkAnchor: 120,
+            blackPoint: null,
+            slope: null,
+        }};
+        expect(() => buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: [inconsistentRecord],
+            outputMappings: [{
+                sourcePage: 1,
+                half: 'full',
+                outputOrdinal: 1,
+                rotationDegrees: 0,
+                excluded: false,
+                blank: false,
+            }],
+            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, inconsistentRecord.options, {})],
+            buildIds: {
+                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+                coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
+                nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
+                assemblerBackend: 'source-preserved',
+                transportMode: 'source-preserved',
+            },
+        })).toThrow('resolvedTextToneDiagnostics is invalid');
+    });
 });
