@@ -7,6 +7,7 @@ import type {
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
 import {
@@ -139,6 +140,21 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
         const range = visibleRange.value;
         return page >= range.start && page <= range.end;
+    }
+
+    function createFitPageTopAnchor(page: number): IPdfSemanticAnchor {
+        return {
+            page,
+            pageXFraction: 0.5,
+            pageYFraction: 0,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0,
+            affinity: 'start',
+        };
+    }
+
+    function applyFitPagePreview(page: number) {
+        return applyResizeAnchorPreview?.(createFitPageTopAnchor(page)) ?? false;
     }
 
     function resolvePageRowRange(pageNumber: number): IPageRange {
@@ -390,20 +406,23 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         // current page without any user navigation.
         resetZoomRerenderQueueState(`${source}-change`);
         const pageToPreserve = navigationAnchorPage?.value ?? currentPage.value;
-        const pageToSnapTo =
-            mode === 'height'
-                ? pageToPreserve
-                : null;
-        const updated = pageToSnapTo === null
+        const updated = mode === 'width'
             ? computeFitWidthScale(viewerContainer.value)
-            : computeFitWidthScale(viewerContainer.value, { page: pageToSnapTo });
+            : computeFitWidthScale(viewerContainer.value, { page: pageToPreserve });
         if ((updated || options.forceRerender === true) && document) {
-            if (pageToSnapTo !== null) {
-                setupPagePlaceholders();
-                if (!isRunActive()) {
-                    return;
-                }
+            setupPagePlaceholders();
+            await nextTick();
+            if (!isRunActive()) {
+                return;
             }
+            // Fit changes replace every row's physical top immediately. Rebase
+            // the committed semantic page as soon as Vue publishes the new
+            // geometry instead of waiting for raster replacement. A delayed
+            // navigation-style snap can be superseded by the fit viewport
+            // intent and leave the old-scale scrollTop stranded in blank
+            // virtual space.
+            applyFitPagePreview(pageToPreserve);
+            syncHorizontalScrollAfterLayoutUpdate();
             void cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
                 rerenderSource: normalizePdfRerenderSource(source),
@@ -412,41 +431,20 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             if (!isRunActive()) {
                 return;
             }
-            if (pageToSnapTo === null) {
-                // Fit-width changes every row's physical top. The old
-                // scrollTop is not meaningful under the new geometry and can
-                // make the viewport observer overwrite a committed page-2
-                // navigation with page 1. Re-project the semantic page owner
-                // before any post-render viewport sampling runs.
-                await nextTick();
-                if (
-                    !isRunActive()
-                    || !canApplyDelayedViewportScroll(source, runId, interactionEpoch)
-                ) {
-                    return;
-                }
+            await nextTick();
+            if (
+                !isRunActive()
+                || !canApplyDelayedViewportScroll(source, runId, interactionEpoch)
+            ) {
+                return;
+            }
+            if (!applyFitPagePreview(pageToPreserve)) {
                 await Promise.resolve(scrollToPage(pageToPreserve, {
                     preferExactDom: true,
                     suppressRenderAfterSnap: true,
                 }));
-                syncHorizontalScrollAfterLayoutUpdate();
-                return;
             }
             syncHorizontalScrollAfterLayoutUpdate();
-            if (pageToSnapTo !== null) {
-                await nextTick();
-                if (
-                    !isRunActive()
-                    || !canApplyDelayedViewportScroll(source, runId, interactionEpoch)
-                ) {
-                    return;
-                }
-                scrollToPage(pageToSnapTo, {
-                    preferExactDom: true,
-                    suppressRenderAfterSnap: true,
-                });
-                syncHorizontalScrollAfterLayoutUpdate();
-            }
         }
     }
 

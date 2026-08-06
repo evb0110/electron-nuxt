@@ -543,12 +543,16 @@ describe('usePdfViewerRerenderCoordinator', () => {
         },
     );
 
-    it('reprojects fit-mode height changes after the replacement render settles', async () => {
+    it('reprojects fit-mode height changes before rendering and confirms the anchor after settlement', async () => {
         const fitMode = ref<'width' | 'height'>('width');
         const computeFitWidthScale = vi.fn(() => true);
         const setupPagePlaceholders = vi.fn();
         const scrollToPage = vi.fn(() => true);
-        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const applyResizeAnchorPreview = vi.fn(() => true);
+        const replacementRender = createDeferred();
+        const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(
+            async () => replacementRender.promise,
+        );
 
         usePdfViewerRerenderCoordinator(createDeps({
             currentPage: ref(4),
@@ -567,6 +571,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             computeFitWidthScale,
             setupPagePlaceholders,
             scrollToPage,
+            applyResizeAnchorPreview,
             getMostVisiblePage: vi.fn(() => 4),
         }));
 
@@ -575,14 +580,26 @@ describe('usePdfViewerRerenderCoordinator', () => {
         await Promise.resolve();
         await nextTick();
 
+        expect(applyResizeAnchorPreview).toHaveBeenCalledOnce();
+        expect(applyResizeAnchorPreview.mock.invocationCallOrder[0]!).toBeLessThan(
+            reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
+        );
+        expect(scrollToPage).not.toHaveBeenCalled();
+
+        replacementRender.resolve();
+        await Promise.resolve();
+        await nextTick();
+        await Promise.resolve();
+
         expect(computeFitWidthScale).toHaveBeenCalled();
         expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 4 });
         expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
             reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
         );
         expect(reRenderAllVisiblePages.mock.invocationCallOrder[0]!).toBeLessThan(
-            scrollToPage.mock.invocationCallOrder[0]!,
+            applyResizeAnchorPreview.mock.invocationCallOrder.at(-1)!,
         );
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(2);
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
             expect.objectContaining({
@@ -590,10 +607,15 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 renderBufferOverride: 0,
             }),
         );
-        expect(scrollToPage).toHaveBeenCalledWith(4, {
-            preferExactDom: true,
-            suppressRenderAfterSnap: true,
+        expect(applyResizeAnchorPreview).toHaveBeenCalledWith({
+            page: 4,
+            pageXFraction: 0.5,
+            pageYFraction: 0,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0,
+            affinity: 'start',
         });
+        expect(scrollToPage).not.toHaveBeenCalled();
     });
 
     it('rerenders when zoom mode switches from custom 100% to fit-height without zoom or fit-mode changes', async () => {
@@ -601,6 +623,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const computeFitWidthScale = vi.fn(() => false);
         const setupPagePlaceholders = vi.fn();
         const scrollToPage = vi.fn(() => true);
+        const applyResizeAnchorPreview = vi.fn(() => true);
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const cancelInFlightPageRenders = vi.fn();
 
@@ -621,6 +644,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             computeFitWidthScale,
             setupPagePlaceholders,
             scrollToPage,
+            applyResizeAnchorPreview,
             getMostVisiblePage: vi.fn(() => 4),
         }));
 
@@ -628,13 +652,14 @@ describe('usePdfViewerRerenderCoordinator', () => {
         await nextTick();
         await Promise.resolve();
         await nextTick();
+        await Promise.resolve();
 
         expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 4 });
         expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
             reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
         );
-        expect(reRenderAllVisiblePages.mock.invocationCallOrder[0]!).toBeLessThan(
-            scrollToPage.mock.invocationCallOrder[0]!,
+        expect(applyResizeAnchorPreview.mock.invocationCallOrder[0]!).toBeLessThan(
+            reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
         );
         expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
@@ -644,6 +669,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 renderBufferOverride: 0,
             }),
         );
+        expect(scrollToPage).not.toHaveBeenCalled();
     });
 
     it('coalesces rapid paged fit-height current-page rerenders so only the latest page can render', async () => {
