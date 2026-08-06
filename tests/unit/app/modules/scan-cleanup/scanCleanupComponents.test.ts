@@ -186,7 +186,10 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             processedPages: session.processedPages,
             progress: session.jobProgress,
             progressCountText: session.progressCountText ?? ref(''),
+            progressCountWidestText: session.progressCountWidestText ?? ref('392 / 392'),
+            progressEtaText: session.progressEtaText ?? ref(''),
             progressPercentText: session.progressPercentText ?? ref(''),
+            progressPercentWidestText: session.progressPercentWidestText ?? ref('100%'),
             progressPhaseText: session.progressPhaseText ?? session.progressText,
             progressText: session.progressText,
             runLabel: session.runLabel ?? ref('Clean up'),
@@ -1752,7 +1755,10 @@ describe('Scan cleanup components', () => {
             outputEstimate: '120 source pages → about 145 output pages',
             percent: 42,
             progressCountText: '51 / 120',
+            progressCountWidestText: '120 / 120',
+            progressEtaText: 'Estimated time left: 3:42',
             progressPercentText: '42%',
+            progressPercentWidestText: '100%',
             progressPhaseText: 'Cleaning pages',
             progressText: 'Cleaning pages — 51 / 120',
             runLabel: 'Clean up',
@@ -1780,10 +1786,18 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).toContain('Cleaning pages');
         expect(meter?.textContent).toContain('51 / 120');
         expect(meter?.textContent).toContain('42%');
+        expect(meter?.textContent).toContain('Estimated time left: 3:42');
         expect(meter?.getAttribute('aria-valuenow')).toBe('42');
+        expect(meter?.querySelector('.scan-cleanup-run-meter-count .scan-cleanup-stable-width-sizer')?.textContent)
+            .toBe('120 / 120');
+        expect(meter?.querySelector('.scan-cleanup-run-meter-percent .scan-cleanup-stable-width-sizer')?.textContent)
+            .toBe('100%');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')).toBeNull();
         expect(harness.host.querySelectorAll('.scan-cleanup-toolbar-primary-action')).toHaveLength(1);
         expect(scanCleanupToolbarSource).toContain('minmax(0, 1fr)');
+        expect(scanCleanupToolbarSource).toContain('minmax(0, var(--app-scan-toolbar-meter-width))');
+        expect(scanCleanupToolbarSource).toContain('grid-template-columns: minmax(0, 1fr) auto auto');
+        expect(scanCleanupToolbarSource).toContain('width: 100%;');
         expect(scanCleanupToolbarSource).not.toContain('minmax(var(--app-scan-toolbar-right-zone-width), auto)');
         rectSpy.mockRestore();
     });

@@ -1653,7 +1653,7 @@ describe('scan cleanup pipeline', () => {
         const releaseRaster = Promise.withResolvers<undefined>();
         const sidecarStarted = Promise.withResolvers<undefined>();
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
-            async (_binary, manifestPath) => {
+            async (_binary, manifestPath, _signal, _log, onProgress) => {
                 sidecarStarted.resolve(undefined);
                 const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
                     pageMetadataPath: string;
@@ -1676,6 +1676,18 @@ describe('scan cleanup pipeline', () => {
                     false,
                     page.options.dpi,
                 );
+                onProgress({
+                    stage: 'rendering',
+                    completedUnits: 1,
+                    totalUnits: 1,
+                    percent: 100,
+                    completedPageNumbers: [1],
+                }, {
+                    stage: 'page-complete',
+                    completedPages: 1,
+                    totalPages: 1,
+                    pageNumber: 1,
+                });
             },
         );
         const pipelineDependencies = dependencies(runSidecar);
@@ -1689,6 +1701,7 @@ describe('scan cleanup pipeline', () => {
             rasterStarted.resolve(undefined);
             await releaseRaster.promise;
         });
+        const progress = vi.fn();
         const running = runScanCleanupPipeline({
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
@@ -1697,7 +1710,7 @@ describe('scan cleanup pipeline', () => {
                 matchPageSize: false,
                 outputMode: 'color',
             },
-        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, progress, highTierPolicy, undefined, pipelineDependencies);
 
         await rasterStarted.promise;
         await expect(Promise.race([
@@ -1709,6 +1722,12 @@ describe('scan cleanup pipeline', () => {
 
         expect(pipelineDependencies.createRasterPipes).toHaveBeenCalledOnce();
         expect(runSidecar).toHaveBeenCalledOnce();
+        const progressReports = progress.mock.calls.map(([report]) => report as TScanCleanupProgress);
+        expect(progressReports.some(report => report.stage === 'rasterizing')).toBe(false);
+        expect(progressReports).toContainEqual(expect.objectContaining({
+            stage: 'rendering',
+            completedUnits: 1,
+        }));
     });
 
     it('processes and assembles only scoped source pages with scoped progress totals', async () => {

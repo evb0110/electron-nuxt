@@ -18,7 +18,10 @@
             :output-estimate="outputEstimate"
             :percent="meterPercent"
             :progress-count-text="progressCountText"
+            :progress-count-widest-text="progressCountWidestText"
+            :progress-eta-text="progressEtaText"
             :progress-percent-text="progressPercentText"
+            :progress-percent-widest-text="progressPercentWidestText"
             :progress-phase-text="progressPhaseText"
             :progress-text="progressText"
             :run-label="runLabel"
@@ -382,7 +385,10 @@ const {
     processedPages,
     progress: jobProgress,
     progressCountText: runProgressCountText,
+    progressCountWidestText: runProgressCountWidestText,
+    progressEtaText: runProgressEtaText,
     progressPercentText: runProgressPercentText,
+    progressPercentWidestText: runProgressPercentWidestText,
     progressPhaseText: runProgressPhaseText,
     progressText: runProgressText,
     runLabel,
@@ -420,9 +426,16 @@ const progressPhaseText = computed(() => waitingForDetection.value
 const progressCountText = computed(() => waitingForDetection.value
     ? detectionProgressCountText.value
     : runProgressCountText.value);
+const progressCountWidestText = computed(() => waitingForDetection.value
+    ? detectionProgressWidestText.value
+    : runProgressCountWidestText.value);
+const progressEtaText = computed(() => waitingForDetection.value ? '' : runProgressEtaText.value);
 const progressPercentText = computed(() => waitingForDetection.value
     ? t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, detectionProgressPercent.value)))})
     : runProgressPercentText.value);
+const progressPercentWidestText = computed(() => waitingForDetection.value
+    ? t('scanCleanup.runPercent', {percent: 100})
+    : runProgressPercentWidestText.value);
 const progressText = computed(() => waitingForDetection.value
     ? detectionProgressText.value
     : runProgressText.value);

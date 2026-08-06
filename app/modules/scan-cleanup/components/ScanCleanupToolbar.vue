@@ -35,15 +35,25 @@
                         class="scan-cleanup-run-meter-phase"
                         role="status"
                         aria-live="polite"
-                    >{{ transitionText || progressPhaseText }}</span>
-                    <span
-                        v-if="!transitionText && progressCountText"
+                    >
+                        <span class="scan-cleanup-run-meter-phase-label">
+                            {{ transitionText || progressPhaseText }}
+                        </span>
+                        <span
+                            v-if="!transitionText && progressEtaText"
+                            class="scan-cleanup-run-meter-eta"
+                        >{{ progressEtaText }}</span>
+                    </span>
+                    <ScanCleanupStableWidthText
                         class="scan-cleanup-run-meter-count"
-                    >{{ progressCountText }}</span>
-                    <span
-                        v-if="!transitionText"
+                        :text="transitionText ? '' : progressCountText"
+                        :widest="transitionText ? '' : progressCountWidestText"
+                    />
+                    <ScanCleanupStableWidthText
                         class="scan-cleanup-run-meter-percent"
-                    >{{ progressPercentText }}</span>
+                        :text="transitionText ? '' : progressPercentText"
+                        :widest="transitionText ? '' : resolvedProgressPercentWidestText"
+                    />
                 </p>
                 <span class="scan-cleanup-run-meter-track">
                     <span
@@ -218,7 +228,10 @@ const {
     outputEstimate,
     percent,
     progressCountText,
+    progressCountWidestText = '',
+    progressEtaText = '',
     progressPercentText,
+    progressPercentWidestText = '',
     progressPhaseText,
     progressText,
     runError = '',
@@ -240,7 +253,10 @@ const {
     outputEstimate: string;
     percent: number;
     progressCountText: string;
+    progressCountWidestText?: string;
+    progressEtaText?: string;
     progressPercentText: string;
+    progressPercentWidestText?: string;
     progressPhaseText: string;
     progressText: string;
     runError?: string;
@@ -266,6 +282,9 @@ const emit = defineEmits<{
 }>();
 const {t} = useTypedI18n();
 const normalizedPercent = computed(() => Math.min(100, Math.max(0, Math.round(percent))));
+const resolvedProgressPercentWidestText = computed(() =>
+    progressPercentWidestText || progressPercentText,
+);
 // Cancelling detection is not destructive: pages already detected keep their
 // results, so the control names that outcome instead of a bare “Cancel”.
 const detectionCancelLabel = computed(() => t(detectionCancelRequested
@@ -278,7 +297,7 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     display: grid;
     grid-template-columns:
         minmax(0, 1fr)
-        auto
+        minmax(0, var(--app-scan-toolbar-meter-width))
         minmax(0, 1fr);
     gap: var(--app-space-7xl);
     overflow: hidden;
@@ -324,13 +343,14 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-run-meter {
     display: flex;
-    width: min(100%, var(--app-scan-toolbar-meter-width));
+    width: 100%;
     flex-direction: column;
     gap: var(--app-space-sm);
 }
 
 .scan-cleanup-run-meter-head {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: baseline;
     gap: var(--app-space-3xl);
     font-size: var(--app-text-size-body-sm);
@@ -338,11 +358,30 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 .scan-cleanup-run-meter-phase {
+    display: flex;
     min-width: 0;
+    gap: var(--app-space-sm);
     overflow: hidden;
     color: var(--ui-text-highlighted);
     font-weight: var(--app-font-weight-heading);
     text-overflow: ellipsis;
+}
+
+.scan-cleanup-run-meter-phase-label,
+.scan-cleanup-run-meter-eta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.scan-cleanup-run-meter-phase-label {
+    flex: none;
+}
+
+.scan-cleanup-run-meter-eta {
+    min-width: 0;
+    color: var(--ui-text-muted);
+    flex: 1;
+    font-weight: var(--app-font-weight-medium);
 }
 
 .scan-cleanup-run-meter-count {
@@ -351,7 +390,6 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 .scan-cleanup-run-meter-percent {
-    margin-inline-start: auto;
     color: var(--ui-text-muted);
     font-variant-numeric: tabular-nums;
 }

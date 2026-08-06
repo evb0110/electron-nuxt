@@ -32,6 +32,7 @@ import {
 import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+import {formatEtaDuration} from '@app/utils/progressFormatting';
 
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
@@ -149,8 +150,21 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const progressParts = computed(() => formatScanCleanupProgress(progress.value, t));
     const progressPhaseText = computed(() => progressParts.value.phase);
     const progressCountText = computed(() => progressParts.value.count);
-    const progressText = computed(() => progressParts.value.text);
+    const progressCountWidestText = computed(() => t('scanCleanup.runCount', {
+        completed: progress.value.totalUnits,
+        total: progress.value.totalUnits,
+    }));
+    const progressEtaText = computed(() => {
+        const eta = formatEtaDuration(progress.value.etaSeconds === undefined
+            ? null
+            : progress.value.etaSeconds * 1000);
+        return eta === null ? '' : t('emptyState.preparingBatchEta', {eta});
+    });
+    const progressText = computed(() => progressEtaText.value === ''
+        ? progressParts.value.text
+        : `${progressParts.value.text}. ${progressEtaText.value}`);
     const progressPercentText = computed(() => t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, progress.value.percent)))}));
+    const progressPercentWidestText = computed(() => t('scanCleanup.runPercent', {percent: 100}));
     const runLabel = computed(() => options.sourcePageNumbers.value === null
         ? t('scanCleanup.cleanUp')
         : options.sourcePageNumbers.value.length === 1
@@ -355,7 +369,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         processedPages,
         progress,
         progressCountText,
+        progressCountWidestText,
+        progressEtaText,
         progressPercentText,
+        progressPercentWidestText,
         progressPhaseText,
         progressText,
         runLabel,

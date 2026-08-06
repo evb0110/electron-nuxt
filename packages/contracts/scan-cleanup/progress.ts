@@ -33,6 +33,11 @@ const progress = s.refine(s.object({
         max: 100,
         message: 'invalid scan-cleanup progress',
     }),
+    etaSeconds: s.optional(s.number({
+        integer: true,
+        min: 0,
+        message: 'invalid scan-cleanup progress ETA',
+    })),
     completedPageNumbers: s.optional(s.array(s.number({
         integer: true,
         min: 1,

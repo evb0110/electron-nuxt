@@ -295,9 +295,13 @@ export async function runScanCleanupConversion(
     // Set once the run knows which assembler it is actually using: a matched
     // lossless run whose pages cannot keep their own pixels renders instead.
     let losslessRun = request.options.preserveOriginalQuality === true;
+    const supportsRasterStreaming = policy.rasterStreaming
+        && process.platform !== 'win32'
+        && dependencies.createRasterPipes !== undefined;
+    let rasterStreamingRun = supportsRasterStreaming;
     let preserveScratchForDiagnostics = false;
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
-    const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun);
+    const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun, {isRasterStreaming: () => rasterStreamingRun});
     try {
         emitProgress('normalizing', 0, 1, []);
         // The viewer has already opened this exact revision successfully, and
@@ -712,9 +716,6 @@ export async function runScanCleanupConversion(
                 };
             }),
         }));
-        const supportsRasterStreaming = policy.rasterStreaming
-            && process.platform !== 'win32'
-            && dependencies.createRasterPipes !== undefined;
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,
             raster: plan.guardrail,
@@ -930,9 +931,10 @@ export async function runScanCleanupConversion(
         const canStreamRasters = supportsRasterStreaming
             && rasterHandoff.format === 'ppm'
             && dependencies.createRasterPipes !== undefined;
+        rasterStreamingRun = canStreamRasters;
         let rasterizedCount = 0;
         const rasterizedPageNumbers = new Set<number>();
-        emitProgress('rasterizing', 0, pageCount, []);
+        emitProgress(canStreamRasters ? 'rendering' : 'rasterizing', 0, pageCount, []);
         const rasterize = async (operationSignal: AbortSignal) => {
             await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async (plan, index) => {
                 operationSignal.throwIfAborted();
@@ -976,11 +978,16 @@ export async function runScanCleanupConversion(
                 }
                 rasterizedCount += 1;
                 rasterizedPageNumbers.add(plan.pageNumber);
-                emitProgress('rasterizing', rasterizedCount, pageCount, rasterizedPageNumbers);
+                if (!canStreamRasters) {
+                    emitProgress('rasterizing', rasterizedCount, pageCount, rasterizedPageNumbers);
+                }
             });
         };
         const renderedPageNumbers = new Set<number>();
-        let rasterizationFinished = false;
+        const sourcePageNumberByManifestIndex = new Map(pages.map((page, index) => [
+            index + 1,
+            page.sourcePageIndex + 1,
+        ]));
         const reportNativeProgress = (
             _progress: TScanCleanupProgress,
             nativeProgress: TNativeScanCleanupProgressV3,
@@ -989,11 +996,15 @@ export async function runScanCleanupConversion(
                 return;
             }
             if (nativeProgress.pageNumber !== undefined) {
-                renderedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
+                const sourcePageNumber = sourcePageNumberByManifestIndex.get(nativeProgress.pageNumber);
+                if (sourcePageNumber === undefined) {
+                    throw new Error(
+                        `Native cleanup reported unknown manifest page index ${String(nativeProgress.pageNumber)}`,
+                    );
+                }
+                renderedPageNumbers.add(sourcePageNumber);
             }
-            if (rasterizationFinished) {
-                emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
-            }
+            emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
         };
         await runRasterProducerConsumer({
             signal,
@@ -1012,8 +1023,9 @@ export async function runScanCleanupConversion(
                 reportNativeProgress,
             ),
             onProducerComplete: () => {
-                rasterizationFinished = true;
-                emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
+                if (!canStreamRasters) {
+                    emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
+                }
             },
         });
         emitProgress('collecting', 0, pages.length, []);
