@@ -5,6 +5,7 @@ import type {
 } from '@contracts/shared';
 import type { TViewerResidencyState } from '@app/utils/document-viewer/memory/viewerResidencyPolicy';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 
 export type TTabTemperature = 'hot' | 'warm' | 'cold';
 export type TDocumentSurfaceMode = 'reader' | 'scan-cleanup';
@@ -14,6 +15,7 @@ export interface IScanCleanupTabSessionState {
     ownerId?: string;
     previewPage: number;
     previewViewMode: 'original' | 'cleaned';
+    pageMapping?: TScanCleanupPageOutputMapping;
 }
 
 export interface ITabViewSessionState {

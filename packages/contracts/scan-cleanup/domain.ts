@@ -41,6 +41,7 @@ export type TScanCleanupLayoutClassification =
  * the run alike is what makes the two agree on one rectangle.
  */
 export type TScanCleanupLayoutByPage = Partial<Record<string, TScanCleanupLayoutClassification>>;
+export type TScanCleanupPageOutputMapping = Readonly<Record<string, readonly number[]>>;
 
 export const SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES = -15;
 export const SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES = 15;

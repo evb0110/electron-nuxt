@@ -23,6 +23,7 @@ import type {
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
+    TScanCleanupPageOutputMapping,
 } from '@contracts/electronApiScanCleanup';
 import type * as scanCleanupPageOverridesModule from '@contracts/scanCleanupPageOverrides';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
@@ -233,6 +234,7 @@ function mountSession(documentKey: string, overrides: {
     documentKey?: () => string | null;
     documentRevision?: () => string | null;
     initialPreviewPage?: () => number | undefined;
+    pageMapping?: () => TScanCleanupPageOutputMapping | null | undefined;
     sourcePath?: () => string | null;
     totalPages?: () => number;
 } = {}) {
@@ -252,6 +254,9 @@ function mountSession(documentKey: string, overrides: {
             ...(overrides.initialPreviewPage === undefined
                 ? {}
                 : {initialPreviewPage: overrides.initialPreviewPage}),
+            ...(overrides.pageMapping === undefined
+                ? {}
+                : {pageMapping: overrides.pageMapping}),
         });
         return () => h('div');
     }}));
@@ -524,6 +529,120 @@ describe('scan cleanup workspace session detection guidance', () => {
             3,
         ]);
         expect(mounted.session.selection.settingsScope.value).toBe('all');
+        mounted.unmount();
+    });
+
+    it('resets an out-of-range page-scoped selection when the document is replaced without mapping', async () => {
+        capability.value = capabilityHarness().value;
+        const revision = ref<string | null>('revision-1');
+        const sourcePath = ref<string | null>('/docs/old.pdf');
+        const totalPages = ref(6);
+        const mounted = mountSession(`replacement-without-mapping-${Date.now()}`, {
+            currentPage: () => 1,
+            documentRevision: () => revision.value,
+            pageMapping: () => undefined,
+            sourcePath: () => sourcePath.value,
+            totalPages: () => totalPages.value,
+        });
+
+        mounted.session.selection.selectPage(5, 'single', [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+        ]);
+        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.updateOutputModeOverride('color');
+
+        revision.value = 'revision-2';
+        sourcePath.value = '/docs/new.pdf';
+        totalPages.value = 2;
+        await nextTick();
+
+        expect(mounted.session.selection.leader.value).toBe(1);
+        expect([...mounted.session.selection.selectedPages.value]).toEqual([1]);
+        expect(mounted.session.selection.settingsScope.value).toBe('all');
+        expect([...mounted.session.selection.selectedPages.value].every(page => page <= 2)).toBe(true);
+        expect(mounted.session.selection.currentPageOverride.value.outputModeOverride).toBeUndefined();
+
+        mounted.unmount();
+    });
+
+    it('maps the selected page to the unique output page on replacement', async () => {
+        capability.value = capabilityHarness().value;
+        const revision = ref<string | null>('revision-1');
+        const sourcePath = ref<string | null>('/docs/old.pdf');
+        const totalPages = ref(6);
+        const pageMapping: TScanCleanupPageOutputMapping = {'5': [2]};
+        const mounted = mountSession(`replacement-with-mapping-${Date.now()}`, {
+            currentPage: () => 1,
+            documentRevision: () => revision.value,
+            pageMapping: () => pageMapping,
+            sourcePath: () => sourcePath.value,
+            totalPages: () => totalPages.value,
+        });
+
+        mounted.session.selection.selectPage(5, 'single', [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+        ]);
+        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.updateOutputModeOverride('color');
+
+        revision.value = 'revision-2';
+        sourcePath.value = '/docs/new.pdf';
+        totalPages.value = 2;
+        await nextTick();
+
+        expect(mounted.session.selection.leader.value).toBe(2);
+        expect([...mounted.session.selection.selectedPages.value]).toEqual([2]);
+        expect(mounted.session.selection.settingsScope.value).toBe('page');
+        expect(mounted.session.selection.currentPageOverride.value.outputModeOverride).toBeUndefined();
+        expect([...mounted.session.selection.selectedPages.value].every(page => page <= 2)).toBe(true);
+
+        mounted.unmount();
+    });
+
+    it('resets page-scoped selection when replacement mapping is ambiguous', async () => {
+        capability.value = capabilityHarness().value;
+        const revision = ref<string | null>('revision-1');
+        const sourcePath = ref<string | null>('/docs/old.pdf');
+        const totalPages = ref(3);
+        const pageMapping: TScanCleanupPageOutputMapping = {'2': [
+            1,
+            2,
+        ]};
+        const mounted = mountSession(`replacement-with-ambiguous-mapping-${Date.now()}`, {
+            currentPage: () => 1,
+            documentRevision: () => revision.value,
+            pageMapping: () => pageMapping,
+            sourcePath: () => sourcePath.value,
+            totalPages: () => totalPages.value,
+        });
+
+        mounted.session.selection.selectPage(2, 'single', [
+            1,
+            2,
+            3,
+        ]);
+        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.updateOutputModeOverride('color');
+
+        revision.value = 'revision-2';
+        sourcePath.value = '/docs/new.pdf';
+        await nextTick();
+
+        expect(mounted.session.selection.leader.value).toBe(1);
+        expect([...mounted.session.selection.selectedPages.value]).toEqual([1]);
+        expect(mounted.session.selection.settingsScope.value).toBe('all');
+        expect(mounted.session.selection.currentPageOverride.value.outputModeOverride).toBeUndefined();
+
         mounted.unmount();
     });
 

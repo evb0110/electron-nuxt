@@ -271,6 +271,7 @@ const workspaceSession = useScanCleanupWorkspaceSession({
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
     documentRevision: () => documentRevision,
+    pageMapping: () => sessionState?.pageMapping,
     sourceSha256: () => sourceSha256,
     ownerId: () => sessionState?.ownerId,
     currentPage: () => currentPage,
@@ -379,6 +380,22 @@ const {
     transitionText: runTransitionText,
     waitingForDetection,
 } = workspaceSession.run;
+let pageMappingConsumed = false;
+watch(() => sessionState?.pageMapping, (mapping, previousMapping) => {
+    if (mapping !== previousMapping) {
+        pageMappingConsumed = false;
+    }
+});
+const documentIdentity = computed(() => `${sourcePath ?? ''}\u0000${documentRevision ?? ''}`);
+function emitSessionState() {
+    const pageMapping = pageMappingConsumed ? undefined : sessionState?.pageMapping;
+    emit('update:session-state', {
+        ownerId,
+        previewPage: previewPage.value,
+        previewViewMode: previewViewMode.value,
+        ...(pageMapping === undefined ? {} : {pageMapping}),
+    });
+}
 // While an engaged run waits for pre-analysis, the run job itself is still
 // queued at 0%, but detection is producing page verdicts. Drive the meter
 // from those verdicts so the bar and counter move from the first seconds of
@@ -833,17 +850,14 @@ function resetScopeOverrides() {
     resetOverrides(scopePageNumbers.value);
 }
 
+watch(documentIdentity, () => {
+    pageMappingConsumed = true;
+    emitSessionState();
+});
 watch([
     previewPage,
     previewViewMode,
-], ([
-    page,
-    viewMode,
-]) => emit('update:session-state', {
-    ownerId,
-    previewPage: page,
-    previewViewMode: viewMode,
-}), {immediate: true});
+], emitSessionState, {immediate: true});
 watch(isRunning, running => {
     if (running) {
         zoneEditing.value = false;

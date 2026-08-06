@@ -8,6 +8,7 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
+    TScanCleanupPageOutputMapping,
     TScanCleanupPageAlignment,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
@@ -41,6 +42,12 @@ interface IUseScanCleanupSelectionOptions {
     previewResult: () => IScanCleanupPreviewResult | null;
     previewTotalPages: () => number;
     settings: IScanCleanupOptions;
+}
+
+interface IScanCleanupDocumentReplacement {
+    defaultPage: number;
+    pageCount: number;
+    pageMapping?: TScanCleanupPageOutputMapping | null;
 }
 
 export type TScanCleanupSettingsScope = 'all' | 'page' | 'selected';
@@ -439,12 +446,79 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         }
     }
 
-    function resetToLeader(pageCount: number) {
-        const page = Math.min(Math.max(1, leader.value), pageCount);
-        anchor.value = page;
-        leader.value = page;
-        selectedPages.value = new Set([page]);
+    function resetSelection(pageCount: number, page: number) {
+        const normalizedPageCount = Math.max(1, Math.trunc(pageCount));
+        const nextPage = Math.min(Math.max(1, Math.trunc(page)), normalizedPageCount);
+        anchor.value = nextPage;
+        leader.value = nextPage;
+        selectedPages.value = new Set([nextPage]);
         settingsScope.value = 'all';
+        highlightedScope.value = null;
+    }
+
+    function resetToLeader(pageCount: number) {
+        resetSelection(pageCount, leader.value);
+    }
+
+    function reconcilePageCount(pageCount: number, defaultPage: number) {
+        const normalizedPageCount = Math.max(1, Math.trunc(pageCount));
+        const selectionIsValid = leader.value >= 1
+            && leader.value <= normalizedPageCount
+            && anchor.value >= 1
+            && anchor.value <= normalizedPageCount
+            && selectedPages.value.size > 0
+            && [...selectedPages.value].every(page => page >= 1 && page <= normalizedPageCount);
+        if (!selectionIsValid) {
+            resetSelection(normalizedPageCount, defaultPage);
+        }
+    }
+
+    function reconcileDocumentReplacement(replacement: IScanCleanupDocumentReplacement) {
+        const normalizedPageCount = Math.max(1, Math.trunc(replacement.pageCount));
+        const pageMapping = replacement.pageMapping;
+        if (!pageMapping) {
+            resetSelection(normalizedPageCount, replacement.defaultPage);
+            return;
+        }
+
+        const sourcePages = new Set([
+            leader.value,
+            anchor.value,
+            ...selectedPages.value,
+        ]);
+        const mappedPages = new Map<number, number>();
+        for (const sourcePage of sourcePages) {
+            const outputPages = pageMapping[String(sourcePage)];
+            if (outputPages?.length !== 1) {
+                resetSelection(normalizedPageCount, replacement.defaultPage);
+                return;
+            }
+            const outputPage = outputPages[0];
+            if (outputPage === undefined
+                || outputPage < 1
+                || outputPage > normalizedPageCount) {
+                resetSelection(normalizedPageCount, replacement.defaultPage);
+                return;
+            }
+            mappedPages.set(sourcePage, outputPage);
+        }
+
+        const mappedSelectedPages = [...selectedPages.value].map(page => mappedPages.get(page));
+        if (mappedSelectedPages.some(page => page === undefined)
+            || new Set(mappedSelectedPages).size !== mappedSelectedPages.length) {
+            resetSelection(normalizedPageCount, replacement.defaultPage);
+            return;
+        }
+
+        const mappedLeader = mappedPages.get(leader.value);
+        const mappedAnchor = mappedPages.get(anchor.value);
+        if (mappedLeader === undefined || mappedAnchor === undefined) {
+            resetSelection(normalizedPageCount, replacement.defaultPage);
+            return;
+        }
+        leader.value = mappedLeader;
+        anchor.value = mappedAnchor;
+        selectedPages.value = new Set(mappedSelectedPages as number[]);
         highlightedScope.value = null;
     }
 
@@ -481,6 +555,8 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         resetMargins,
         resetManualSplit,
         resetManualSkew,
+        reconcileDocumentReplacement,
+        reconcilePageCount,
         resetOverrides,
         resetToLeader,
         rotation,

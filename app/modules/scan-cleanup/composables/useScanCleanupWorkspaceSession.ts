@@ -1,4 +1,5 @@
 import type {TDocumentRef} from '@contracts/documentRef';
+import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
@@ -19,6 +20,7 @@ interface IUseScanCleanupWorkspaceSessionOptions {
     totalPages: () => number;
     initialPreviewPage?: () => number | undefined;
     initialPreviewViewMode?: () => 'original' | 'cleaned' | undefined;
+    pageMapping?: () => TScanCleanupPageOutputMapping | null | undefined;
 }
 
 export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspaceSessionOptions) => {
@@ -84,6 +86,29 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         settings: settings.values,
         sourcePath,
         totalPages,
+    });
+    const documentIdentity = computed(() => `${sourcePath.value ?? ''}\u0000${documentRevision.value}`);
+    watch([
+        documentIdentity,
+        totalPages,
+    ], (
+        [
+            identity,
+            pageCount,
+        ],
+        [previousIdentity],
+    ) => {
+        const normalizedPageCount = Math.max(1, Math.trunc(pageCount));
+        if (identity !== previousIdentity) {
+            const pageMapping = options.pageMapping?.();
+            selection.reconcileDocumentReplacement({
+                defaultPage: options.currentPage(),
+                pageCount: normalizedPageCount,
+                ...(pageMapping === undefined ? {} : {pageMapping}),
+            });
+            return;
+        }
+        selection.reconcilePageCount(normalizedPageCount, options.currentPage());
     });
     function resolvePagePlanEvidence(pageNumbers: readonly number[]) {
         return new Map(
