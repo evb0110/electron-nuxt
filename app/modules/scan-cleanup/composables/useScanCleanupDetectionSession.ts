@@ -123,6 +123,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let jobId: string | null = null;
     let jobDocumentKey: string | null = null;
     let jobDocumentRevision: string | null = null;
+    // Bumped whenever the document lifecycle replaces the session. A pending
+    // detect-all continuation from before the bump must never cache results,
+    // subscribe, or mutate session maps for the replacement document.
+    let requestGeneration = 0;
     let stopSubscription: (() => void) | null = null;
     let disposed = false;
     let scheduledAutoDetection: ReturnType<typeof setTimeout> | null = null;
@@ -409,8 +413,14 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             signatures.set(pageNumber, signature(pageNumber));
         }
         const requestSourcePath = options.sourcePath.value;
+        const requestDocumentRevision = options.documentRevision.value;
+        const generation = ++requestGeneration;
+        const isStale = () => disposed
+            || generation !== requestGeneration
+            || requestSourcePath !== options.sourcePath.value
+            || requestDocumentRevision !== options.documentRevision.value;
         jobDocumentKey = options.lifecycleDocumentKey.value;
-        jobDocumentRevision = options.documentRevision.value;
+        jobDocumentRevision = requestDocumentRevision;
         jobId = null;
         jobState.value = null;
         starting.value = true;
@@ -431,11 +441,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         } finally {
             if (!disposed) starting.value = false;
         }
-        if (disposed || requestSourcePath !== options.sourcePath.value) {
+        if (isStale()) {
             if (result.started) {
                 void capability.cancelDetection(result.jobId, {
                     ownerId: options.ownerId,
-                    documentRevision: jobDocumentRevision ?? options.documentRevision.value,
+                    documentRevision: requestDocumentRevision,
                 }).catch(() => undefined);
             }
             return;
@@ -469,16 +479,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         };
         const owner = {
             ownerId: options.ownerId,
-            documentRevision: jobDocumentRevision ?? options.documentRevision.value,
+            documentRevision: requestDocumentRevision,
         };
         let state: TScanCleanupDetectionJobState | null;
         try {
             state = await capability.subscribeDetectionJob(result.jobId, owner);
         } catch (caught) {
-            const isCurrentJob = !disposed
-                && result.jobId === jobId
-                && requestSourcePath === options.sourcePath.value
-                && owner.documentRevision === options.documentRevision.value;
+            const isCurrentJob = !isStale() && result.jobId === jobId;
             if (!isCurrentJob) {
                 void Promise.resolve()
                     .then(() => capability.cancelDetection(result.jobId, owner))
@@ -486,10 +493,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 return;
             }
             const reconciled = await reconcileDetectionJobState(capability, result.jobId, owner);
-            const stillCurrentJob = !disposed
-                && result.jobId === jobId
-                && requestSourcePath === options.sourcePath.value
-                && owner.documentRevision === options.documentRevision.value;
+            const stillCurrentJob = !isStale() && result.jobId === jobId;
             if (!stillCurrentJob) {
                 return;
             }
@@ -504,7 +508,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             await Promise.resolve()
                 .then(() => capability.cancelDetection(result.jobId, owner))
                 .catch(() => false);
-            if (!disposed && result.jobId === jobId) {
+            if (!isStale() && result.jobId === jobId) {
                 jobId = null;
                 jobState.value = null;
                 error.value = caught instanceof Error && caught.message
@@ -514,7 +518,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             return;
         }
-        if (disposed || result.jobId !== jobId) {
+        if (isStale() || result.jobId !== jobId) {
             return;
         }
         if (state) applyState(state);
@@ -720,6 +724,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         void maybeAutoDetect();
     });
     watch(options.lifecycleDocumentKey, (_key, previousKey) => {
+        requestGeneration += 1;
         if (jobId && isDetecting.value) {
             void getScanCleanupCapability()?.cancelDetection(jobId, {
                 ownerId: options.ownerId,

@@ -19,13 +19,29 @@ interface IUseScanCleanupSourceSha256Options {
 export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256Options) => {
     const sourceSha256 = ref<string | null>(null);
     let generation = 0;
+    let acquiredFor: {
+        path: TDocumentRef;
+        revision: string | null
+    } | null = null;
 
     async function refresh() {
         const currentGeneration = ++generation;
         const sourcePath = options.sourcePath.value;
         const documentRevision = options.documentRevision.value;
-        if (!options.enabled.value || !sourcePath || !isDesktopPlatformActive()) {
+        if (!sourcePath || !isDesktopPlatformActive()) {
+            acquiredFor = null;
             sourceSha256.value = null;
+            return;
+        }
+        if (acquiredFor && (acquiredFor.path !== sourcePath || acquiredFor.revision !== documentRevision)) {
+            acquiredFor = null;
+            sourceSha256.value = null;
+        }
+        // The hash is a property of the document identity, not of surface
+        // visibility: hiding the tab must not demote an acquired identity to
+        // the legacy key and reset settings and detection lifecycles. An
+        // acquired hash is kept until the path or revision changes.
+        if (!options.enabled.value || acquiredFor !== null) {
             return;
         }
 
@@ -56,6 +72,10 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
                 && options.documentRevision.value === documentRevision
             ) {
                 if (isScanCleanupSourceSha256(handle.sha256)) {
+                    acquiredFor = {
+                        path: sourcePath,
+                        revision: documentRevision,
+                    };
                     sourceSha256.value = handle.sha256.toLowerCase();
                 } else {
                     sourceSha256.value = null;

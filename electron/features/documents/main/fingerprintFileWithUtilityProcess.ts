@@ -83,12 +83,13 @@ export async function fingerprintFileWithUtilityProcess(path: string) {
     const lease = await mainJobBroker.acquire({
         ownerId: `document-fingerprint:${path}`,
         kind: 'document-save-utility',
-        priority: 'user',
+        priority: 'foreground',
+        admissionClass: 'interactive',
         resources: {
             cpuTokens: 1,
             estimatedResidentBytes: 256 * 1024 * 1024,
-            nativeProcesses: 0,
-            ioWeight: 4,
+            nativeProcesses: 1,
+            ioWeight: 1,
         },
         signal: AbortSignal.timeout(ADMISSION_TIMEOUT_MS),
     });

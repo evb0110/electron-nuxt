@@ -485,6 +485,7 @@ const {
     documentSession,
     initialViewState,
     readDocumentKey: () => documentKey.value,
+    readSourceSha256: () => scanCleanupSourceSha256.value,
 });
 const scanCleanupWorkspaceMounted = ref(false);
 function openScanCleanup() {

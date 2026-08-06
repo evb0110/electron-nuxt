@@ -171,6 +171,7 @@ describe('resolveSearchResourcePolicy', () => {
 describe('decodeScanCleanupRuntimePolicy', () => {
     const hostPolicy = {
         rasterConcurrency: 12,
+        rasterStreaming: true,
         logicalCpus: 12,
         totalRamBytes: 48 * GIB,
     };
@@ -213,6 +214,10 @@ describe('decodeScanCleanupRuntimePolicy', () => {
 
     it('rejects host facts that are missing or nonsensical', () => {
         expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 3})).toBeNull();
+        expect(decodeScanCleanupRuntimePolicy({
+            ...hostPolicy,
+            rasterStreaming: 'true',
+        })).toBeNull();
         expect(decodeScanCleanupRuntimePolicy({
             ...hostPolicy,
             logicalCpus: -1,

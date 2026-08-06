@@ -20,6 +20,7 @@ export interface ISearchWorkerData {
 
 export interface IScanCleanupRuntimePolicy {
     rasterConcurrency: number;
+    rasterStreaming: boolean;
     logicalCpus: number;
     totalRamBytes: number;
 }
@@ -135,6 +136,7 @@ export function decodeScanCleanupRuntimePolicy(
             value.rasterConcurrency,
             SCAN_CLEANUP_MAX_RASTER_CONCURRENCY,
         )
+        || typeof value.rasterStreaming !== 'boolean'
         || !isNonNegativeSafeInteger(value.logicalCpus)
         || !isNonNegativeSafeInteger(value.totalRamBytes)
     ) {
@@ -143,6 +145,7 @@ export function decodeScanCleanupRuntimePolicy(
 
     return {
         rasterConcurrency: value.rasterConcurrency,
+        rasterStreaming: value.rasterStreaming,
         logicalCpus: value.logicalCpus,
         totalRamBytes: value.totalRamBytes,
     };

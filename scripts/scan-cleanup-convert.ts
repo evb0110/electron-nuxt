@@ -915,6 +915,7 @@ async function main() {
     const policy: IScanCleanupRuntimePolicy = {
         logicalCpus: availableParallelism(),
         rasterConcurrency: Math.max(1, Math.min(8, availableParallelism())),
+        rasterStreaming: process.platform !== 'win32',
         totalRamBytes: totalmem(),
     };
     const logProgress = (prefix: string) => {

@@ -158,6 +158,7 @@ describe('scan cleanup service', () => {
             8,
             'low',
             1,
+            1,
         ],
         [
             '6-core / 12 GiB',
@@ -165,6 +166,7 @@ describe('scan cleanup service', () => {
             12,
             'medium',
             2,
+            1,
         ],
         [
             '11-core / 32 GiB',
@@ -172,6 +174,7 @@ describe('scan cleanup service', () => {
             32,
             'high',
             4,
+            3,
         ],
         [
             '32-core / 128 GiB',
@@ -179,25 +182,33 @@ describe('scan cleanup service', () => {
             128,
             'high',
             7,
+            6,
         ],
-    ] as const)('fans raster work out to the %s host and leases exactly what it fans out', async (
+    ] as const)('fans raster work out to the %s host without consuming all bulk native slots', async (
         _label,
         logicalCpus,
         totalRamGiB,
         tier,
-        rasterConcurrency,
+        sequentialRasterConcurrency,
+        streamingRasterConcurrency,
     ) => {
         Object.assign(mocks.host, {
             logicalCpus,
             totalRamBytes: totalRamGiB * 1024 ** 3,
             tier,
         });
+        const rasterStreaming = process.platform !== 'win32'
+            && resolveMainJobBrokerCapacity(mocks.hostProfile()).nativeProcesses >= 3;
+        const rasterConcurrency = rasterStreaming
+            ? streamingRasterConcurrency
+            : sequentialRasterConcurrency;
         const service = createScanCleanupService();
         await service.start(sender(), startRequest);
 
         await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
         expect(decodeScanCleanupRuntimePolicy(mocks.runWorker.mock.calls[0]![2])).toEqual({
             rasterConcurrency,
+            rasterStreaming,
             logicalCpus,
             totalRamBytes: totalRamGiB * 1024 ** 3,
         });
@@ -205,7 +216,7 @@ describe('scan cleanup service', () => {
         const leased = mocks.acquire.mock.calls[0]![0].resources;
         expect(leased).toMatchObject({
             cpuTokens: rasterConcurrency,
-            nativeProcesses: rasterConcurrency,
+            nativeProcesses: rasterConcurrency + Number(rasterStreaming),
         });
         expect(leased.estimatedResidentBytes / rasterConcurrency).toBeGreaterThanOrEqual(64 * 1024 * 1024);
         await expect(new JobBroker(resolveMainJobBrokerCapacity(mocks.hostProfile())).acquire({
@@ -214,6 +225,8 @@ describe('scan cleanup service', () => {
             priority: 'user',
             resources: leased,
         })).resolves.toBeDefined();
+        expect(resolveMainJobBrokerCapacity(mocks.hostProfile()).nativeProcesses
+            - leased.nativeProcesses).toBeGreaterThanOrEqual(1);
     });
 
     it('gives a default raster run the page-ops tool its matched canvas is measured with', async () => {

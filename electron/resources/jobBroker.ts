@@ -14,7 +14,25 @@ export const MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES: Readonly<IJobResourceVect
     ioWeight: 4,
 };
 
+export const MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES: Readonly<IJobResourceVector> = {
+    cpuTokens: 1,
+    estimatedResidentBytes: 256 * MIB,
+    nativeProcesses: 1,
+    ioWeight: 1,
+};
+
+// Bulk capacity remains the sustained-throughput budget. Two bounded burst
+// slots let one tab keep its visible work while another opens and renders a
+// document, without turning the reserve into unbounded per-tab overcommit.
+export const MAIN_JOB_BROKER_INTERACTIVE_RESERVE: Readonly<IJobResourceVector> = {
+    cpuTokens: 2 * MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES.cpuTokens,
+    estimatedResidentBytes: 2 * MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES.estimatedResidentBytes,
+    nativeProcesses: 2 * MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES.nativeProcesses,
+    ioWeight: 2 * MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES.ioWeight,
+};
+
 export type TJobBrokerPriority = 'visible' | 'foreground' | 'user' | 'background';
+export type TJobBrokerAdmissionClass = 'bulk' | 'interactive';
 
 export interface IJobResourceVector {
     cpuTokens: number;
@@ -27,6 +45,7 @@ export interface IJobBrokerRequest {
     ownerId: string;
     kind: string;
     priority: TJobBrokerPriority;
+    admissionClass?: TJobBrokerAdmissionClass;
     resources: IJobResourceVector;
     perOwnerLimit?: number;
     signal?: AbortSignal;
@@ -48,6 +67,22 @@ interface IQueuedJob {
     reject: (reason: Error) => void;
     removeAbortListener: () => void;
 }
+
+interface IJobBrokerOptions {
+    agingIntervalMs?: number;
+    now?: () => number;
+    maxQueuedJobs?: number;
+    maxQueuedJobsPerOwner?: number;
+    maxInteractiveJobResources?: IJobResourceVector;
+    interactiveReserve?: IJobResourceVector;
+}
+
+const ZERO_RESOURCES: Readonly<IJobResourceVector> = {
+    cpuTokens: 0,
+    estimatedResidentBytes: 0,
+    nativeProcesses: 0,
+    ioWeight: 0,
+};
 
 const PRIORITY_RANK: Record<TJobBrokerPriority, number> = {
     visible: 0,
@@ -90,19 +125,35 @@ export class JobBroker {
     private readonly active = new Map<string, IActiveJob>();
     private readonly queue: IQueuedJob[] = [];
     private counter = 0;
+    private readonly agingIntervalMs: number;
+    private readonly now: () => number;
+    private readonly maxQueuedJobs: number;
+    private readonly maxQueuedJobsPerOwner: number;
+    private readonly maxInteractiveJobResources: IJobResourceVector;
+    private readonly interactiveReserve: IJobResourceVector;
 
     constructor(
         private capacity: IJobResourceVector,
-        private readonly agingIntervalMs = DEFAULT_AGING_INTERVAL_MS,
-        private readonly now: () => number = Date.now,
-        private readonly maxQueuedJobs = DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS,
-        private readonly maxQueuedJobsPerOwner = DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS_PER_OWNER,
+        options: IJobBrokerOptions = {},
     ) {
+        this.agingIntervalMs = options.agingIntervalMs ?? DEFAULT_AGING_INTERVAL_MS;
+        this.now = options.now ?? Date.now;
+        this.maxQueuedJobs = options.maxQueuedJobs ?? DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS;
+        this.maxQueuedJobsPerOwner = options.maxQueuedJobsPerOwner
+            ?? DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS_PER_OWNER;
+        this.interactiveReserve = {...(options.interactiveReserve ?? ZERO_RESOURCES)};
+        this.maxInteractiveJobResources = {...(
+            options.maxInteractiveJobResources
+            ?? options.interactiveReserve
+            ?? ZERO_RESOURCES
+        )};
         validateResourceVector(capacity);
-        if (!Number.isSafeInteger(maxQueuedJobs) || maxQueuedJobs < 1) {
+        validateResourceVector(this.maxInteractiveJobResources);
+        validateResourceVector(this.interactiveReserve);
+        if (!Number.isSafeInteger(this.maxQueuedJobs) || this.maxQueuedJobs < 1) {
             throw new TypeError('Job broker queue limit must be a positive safe integer');
         }
-        if (!Number.isSafeInteger(maxQueuedJobsPerOwner) || maxQueuedJobsPerOwner < 1) {
+        if (!Number.isSafeInteger(this.maxQueuedJobsPerOwner) || this.maxQueuedJobsPerOwner < 1) {
             throw new TypeError('Job broker per-owner queue limit must be a positive safe integer');
         }
     }
@@ -117,7 +168,15 @@ export class JobBroker {
 
     acquire(request: IJobBrokerRequest): Promise<IJobBrokerLease> {
         validateResourceVector(request.resources);
-        if (!this.fitsCapacity(request.resources)) {
+        if (
+            request.admissionClass === 'interactive'
+            && !this.fitsWithin(request.resources, this.maxInteractiveJobResources)
+        ) {
+            return Promise.reject(new RangeError(
+                `Interactive job ${request.kind} exceeds broker interactive job limit`,
+            ));
+        }
+        if (!this.fitsWithin(request.resources, this.capacity)) {
             return Promise.reject(new RangeError(`Job ${request.kind} exceeds broker capacity`));
         }
         if (request.signal?.aborted) {
@@ -182,9 +241,12 @@ export class JobBroker {
     getSnapshot() {
         return {
             capacity: {...this.capacity},
+            maxInteractiveJobResources: {...this.maxInteractiveJobResources},
+            interactiveReserve: {...this.interactiveReserve},
             active: this.active.size,
             queued: this.queue.length,
             used: this.getUsedResources(),
+            usedBulk: this.getUsedBulkResources(),
         };
     }
 
@@ -259,15 +321,22 @@ export class JobBroker {
         ) {
             return false;
         }
-        const proposed = addResources(this.getUsedResources(), request.resources);
-        return this.fitsCapacity(proposed);
+        const proposedTotal = addResources(this.getUsedResources(), request.resources);
+        if (!this.fitsWithin(proposedTotal, addResources(this.capacity, this.interactiveReserve))) {
+            return false;
+        }
+        if (request.admissionClass === 'interactive') {
+            return true;
+        }
+        const proposedBulk = addResources(this.getUsedBulkResources(), request.resources);
+        return this.fitsWithin(proposedBulk, this.capacity);
     }
 
-    private fitsCapacity(resources: IJobResourceVector) {
-        return resources.cpuTokens <= this.capacity.cpuTokens
-            && resources.estimatedResidentBytes <= this.capacity.estimatedResidentBytes
-            && resources.nativeProcesses <= this.capacity.nativeProcesses
-            && resources.ioWeight <= this.capacity.ioWeight;
+    private fitsWithin(resources: IJobResourceVector, capacity: IJobResourceVector) {
+        return resources.cpuTokens <= capacity.cpuTokens
+            && resources.estimatedResidentBytes <= capacity.estimatedResidentBytes
+            && resources.nativeProcesses <= capacity.nativeProcesses
+            && resources.ioWeight <= capacity.ioWeight;
     }
 
     private getOwnerActiveCount(ownerId: string, kind: string) {
@@ -279,12 +348,16 @@ export class JobBroker {
     private getUsedResources() {
         return Array.from(this.active.values()).reduce(
             (total, active) => addResources(total, active.resources),
-            {
-                cpuTokens: 0,
-                estimatedResidentBytes: 0,
-                nativeProcesses: 0,
-                ioWeight: 0,
-            },
+            {...ZERO_RESOURCES},
+        );
+    }
+
+    private getUsedBulkResources() {
+        return Array.from(this.active.values()).reduce(
+            (total, active) => active.admissionClass === 'interactive'
+                ? total
+                : addResources(total, active.resources),
+            {...ZERO_RESOURCES},
         );
     }
 }
@@ -319,8 +392,8 @@ export function resolveMainJobBrokerCapacity(
         nativeProcesses: profile.tier === 'low'
             ? 2
             : Math.max(nativeProcesses, profile.tier === 'medium' ? 2 : 3),
-        // A weight of four is used by supported single-process save and
-        // fingerprint jobs. Keep that work admissible on low-core hosts while
+        // A weight of four is used by supported bulk save and combine jobs.
+        // Keep that work admissible on low-core hosts while
         // still allowing additional I/O concurrency on larger machines.
         ioWeight: profile.tier === 'low'
             ? 4
@@ -332,4 +405,7 @@ export function configureMainJobBroker(profile: IHostResourceProfileSnapshot) {
     mainJobBroker.reconfigureCapacity(resolveMainJobBrokerCapacity(profile));
 }
 
-export const mainJobBroker = new JobBroker(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES);
+export const mainJobBroker = new JobBroker(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES, {
+    maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+    interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+});

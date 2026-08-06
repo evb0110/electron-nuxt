@@ -38,6 +38,8 @@ import { mainJobBroker } from '@electron/resources/jobBroker';
 import { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
 import {isScanCleanupGeneratedOutputPath} from '@electron/features/scan-cleanup/public/generatedOutputs';
 
+const PDF_OPEN_ADMISSION_TIMEOUT_MS = 15_000;
+
 const logger = createLogger('documents-open-service');
 
 interface IOpenInputPathsOptions {
@@ -204,17 +206,24 @@ export async function openInputPaths(
         const isGenerated = isScanCleanupGeneratedOutputPath(originalPath);
         logger.debug(`openInputPaths creating working copy for PDF: ${originalPath}`);
         const inputBytes = await stat(originalPath).then(fileStat => fileStat.size, () => 0);
+        const admissionTimeoutSignal = AbortSignal.timeout(PDF_OPEN_ADMISSION_TIMEOUT_MS);
         const openLease = await mainJobBroker.acquire({
             ownerId: `pdf-open:${getOwnerWebContentsId(owner) ?? 'main'}`,
             kind: 'pdf-working-copy',
             priority: 'foreground',
+            admissionClass: 'interactive',
             perOwnerLimit: 1,
-            ...(options.signal ? {signal: options.signal} : {}),
+            signal: options.signal
+                ? AbortSignal.any([
+                    options.signal,
+                    admissionTimeoutSignal,
+                ])
+                : admissionTimeoutSignal,
             resources: {
                 cpuTokens: 0,
                 estimatedResidentBytes: Math.min(64 * 1024 * 1024, Math.max(4 * 1024 * 1024, inputBytes / 64)),
                 nativeProcesses: 0,
-                ioWeight: 4,
+                ioWeight: 1,
             },
         });
         let workingPath: string;

@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 
 const mocks = vi.hoisted(() => ({
     mkdtemp: vi.fn(),
@@ -96,6 +97,30 @@ describe('native PDF preview lifecycle', () => {
     afterEach(async () => {
         const { resetMainOperationLifecycleForTests } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
         resetMainOperationLifecycleForTests();
+    });
+
+    it('admits the first native page through the interactive lane', async () => {
+        const sender = new FakeSender();
+        const acquire = vi.spyOn(mainJobBroker, 'acquire');
+        const {handlePdfNativePagePreview} = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1);
+
+        expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
+            ownerId: String(sender.id),
+            kind: 'native-pdf-preview',
+            priority: 'visible',
+            admissionClass: 'interactive',
+            resources: expect.objectContaining({
+                cpuTokens: 1,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            }),
+        }));
+        acquire.mockRestore();
     });
 
     it('aborts the pdftoppm command when the requesting renderer is destroyed', async () => {

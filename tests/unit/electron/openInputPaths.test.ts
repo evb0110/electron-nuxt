@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 
 const mocks = vi.hoisted(() => ({
     addRecentInputs: vi.fn(async (_paths: string[], _owner?: unknown) => undefined),
@@ -147,6 +148,27 @@ describe('openInputPaths', () => {
         });
 
         expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/source.pdf'], owner);
+    });
+
+    it('admits a single PDF open through the bounded interactive lane', async () => {
+        const owner = {id: 42};
+        const acquire = vi.spyOn(mainJobBroker, 'acquire');
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await openInputPaths(['/tmp/source.pdf'], {}, owner as never);
+
+        expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
+            ownerId: 'pdf-open:42',
+            kind: 'pdf-working-copy',
+            priority: 'foreground',
+            admissionClass: 'interactive',
+            resources: expect.objectContaining({
+                cpuTokens: 0,
+                nativeProcesses: 0,
+                ioWeight: 1,
+            }),
+        }));
+        acquire.mockRestore();
     });
 
     it('marks managed cleanup PDFs as generated without adding their temporary path to recents', async () => {

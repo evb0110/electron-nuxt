@@ -16,6 +16,7 @@ interface IDocumentWorkspaceScanCleanupSurfaceOptions {
     initialViewState: ITabViewSessionState | null;
     closeAllDropdowns: () => void;
     readDocumentKey: () => string | null | undefined;
+    readSourceSha256?: () => string | null;
 }
 
 export const useDocumentWorkspaceScanCleanupSurface = (
@@ -57,7 +58,7 @@ export const useDocumentWorkspaceScanCleanupSurface = (
 
     function discardScanCleanupState() {
         surface.discardScanCleanupSessionState();
-        discardScanCleanupDocumentState(options.readDocumentKey());
+        discardScanCleanupDocumentState(options.readDocumentKey(), options.readSourceSha256?.() ?? null);
     }
 
     // Scan Cleanup edits a document; it cannot outlive one. The final tab keeps

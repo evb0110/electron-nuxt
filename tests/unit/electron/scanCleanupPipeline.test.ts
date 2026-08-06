@@ -148,6 +148,7 @@ const options: IScanCleanupOptions = {
 };
 const highTierPolicy: IScanCleanupRuntimePolicy = {
     rasterConcurrency: 3,
+    rasterStreaming: true,
     logicalCpus: 11,
     totalRamBytes: 32 * 1024 ** 3,
 };

@@ -18,7 +18,10 @@ import type {
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { documentOutputService } from '@electron/output/documentOutputService';
-import { mainJobBroker } from '@electron/resources/jobBroker';
+import {
+    type IJobResourceVector,
+    mainJobBroker,
+} from '@electron/resources/jobBroker';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
@@ -208,23 +211,41 @@ export interface IScanCleanupService {
 export const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = 128 * 1024 * 1024;
 const SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE = 1;
 
-export function resolveScanCleanupRasterConcurrency() {
-    const {capacity} = mainJobBroker.getSnapshot();
-    return Math.max(
+export interface IScanCleanupRasterAdmissionPolicy {
+    rasterConcurrency: number;
+    rasterStreaming: boolean;
+}
+
+export function resolveScanCleanupRasterAdmissionPolicy(
+    capacity: IJobResourceVector = mainJobBroker.getSnapshot().capacity,
+    supportsRasterStreaming = process.platform !== 'win32',
+): IScanCleanupRasterAdmissionPolicy {
+    // Streaming overlaps the classifier with the raster producers. Reserve one
+    // native slot for that sidecar and one for unrelated bulk work. Hosts with
+    // only two native slots use the sequential handoff instead.
+    const rasterStreaming = supportsRasterStreaming && capacity.nativeProcesses >= 3;
+    const nativeProcessReserve = SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE
+        + Number(rasterStreaming);
+    const rasterConcurrency = Math.max(
         1,
         Math.min(
             Math.floor(capacity.cpuTokens),
-            capacity.nativeProcesses - SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE,
+            capacity.nativeProcesses - nativeProcessReserve,
             Math.floor(capacity.estimatedResidentBytes / SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES),
         ),
     );
+    return {
+        rasterConcurrency,
+        rasterStreaming,
+    };
 }
 
 function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
 ): IScanCleanupRuntimePolicy {
+    const rasterPolicy = resolveScanCleanupRasterAdmissionPolicy();
     return {
-        rasterConcurrency: resolveScanCleanupRasterConcurrency(),
+        ...rasterPolicy,
         logicalCpus: profile.logicalCpus,
         totalRamBytes: profile.totalRamBytes,
     };
@@ -279,8 +300,14 @@ export function createScanCleanupService(): IScanCleanupService {
                     updatedAtMs: Date.now(),
                 },
                 ownerLifecycle: {
-                    destroyed: 'detach',
-                    renderProcessGone: 'detach',
+                    // A destroyed or crashed renderer can never present this
+                    // job again: authorization is bound to the original
+                    // WebContents and a replacement renderer cannot adopt it,
+                    // so the work would run to completion for nobody. Only a
+                    // same-WebContents navigation can reconnect (getJobState/
+                    // reconnectJob), so only it detaches.
+                    destroyed: 'cancel',
+                    renderProcessGone: 'cancel',
                     mainFrameNavigation: 'detach',
                 },
                 run: async job => {
@@ -293,7 +320,8 @@ export function createScanCleanupService(): IScanCleanupService {
                             resources: {
                                 cpuTokens: runtimePolicy.rasterConcurrency,
                                 estimatedResidentBytes: runtimePolicy.rasterConcurrency * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
-                                nativeProcesses: runtimePolicy.rasterConcurrency,
+                                nativeProcesses: runtimePolicy.rasterConcurrency
+                                    + Number(runtimePolicy.rasterStreaming),
                                 ioWeight: 4,
                             },
                             perOwnerLimit: 1,

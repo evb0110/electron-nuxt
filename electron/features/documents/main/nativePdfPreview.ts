@@ -608,6 +608,7 @@ async function runPdfNativePagePreview(
                 ownerId: String(ownerId),
                 kind: 'native-pdf-preview',
                 priority: 'visible',
+                admissionClass: 'interactive',
                 perOwnerLimit: 2,
                 resources: {
                     cpuTokens: 1,

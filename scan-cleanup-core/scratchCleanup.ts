@@ -30,6 +30,7 @@ export interface IScanCleanupScratchFileSystem {
 
 export interface IScanCleanupScratchSweepOptions {
     fileSystem?: Partial<IScanCleanupScratchFileSystem>;
+    isProcessAlive?: (pid: number) => boolean;
     log?: (level: 'debug' | 'warn', message: string) => void;
     maxAgeMs?: number;
     now?: () => number;
@@ -41,6 +42,24 @@ const defaultFileSystem: IScanCleanupScratchFileSystem = {
     rm: async (path, options) => rm(path, options),
 };
 
+function defaultIsProcessAlive(pid: number) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'EPERM';
+    }
+}
+
+// Session-lifetime cache roots (the preview raster retention) carry their
+// owning pid as a trailing "-<pid>". A root whose owner is still running is
+// live regardless of its age: an app session older than the stale window must
+// not have its caches deleted out from under it by another instance's sweep.
+function ownerPidOf(name: string) {
+    const match = /-(\d+)$/.exec(name);
+    return match ? Number.parseInt(match[1]!, 10) : null;
+}
+
 export async function sweepStaleScanCleanupScratchDirs(
     parentPath: string,
     options: IScanCleanupScratchSweepOptions = {},
@@ -51,6 +70,7 @@ export async function sweepStaleScanCleanupScratchDirs(
     };
     const log = options.log ?? (() => undefined);
     const now = options.now ?? Date.now;
+    const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
     const maxAgeMs = options.maxAgeMs ?? SCAN_CLEANUP_SCRATCH_STALE_MAX_AGE_MS;
     let entries: readonly IScanCleanupScratchDirectoryEntry[];
     try {
@@ -63,6 +83,10 @@ export async function sweepStaleScanCleanupScratchDirs(
     let removedCount = 0;
     for (const entry of entries) {
         if (!entry.name.startsWith(SCAN_CLEANUP_SCRATCH_PREFIX) || !entry.isDirectory()) {
+            continue;
+        }
+        const ownerPid = ownerPidOf(entry.name);
+        if (ownerPid !== null && isProcessAlive(ownerPid)) {
             continue;
         }
         const scratchPath = join(parentPath, entry.name);

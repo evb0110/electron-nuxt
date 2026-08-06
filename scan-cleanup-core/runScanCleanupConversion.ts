@@ -106,10 +106,7 @@ import {
 } from '@scan-cleanup-core/resolveRasterHandoff';
 import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCleanupJsonEvidence';
 import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup';
-import {
-    createScanCleanupScratchDir,
-    sweepStaleScanCleanupScratchDirs,
-} from '@scan-cleanup-core/scratchCleanup';
+import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 import {
     assembleWithCompactSourcePages,
     describePageNumbers,
@@ -285,7 +282,6 @@ export async function runScanCleanupConversion(
     log: TScanCleanupLog = () => undefined,
     dependencies: IRunScanCleanupPipelineDependencies,
 ): Promise<TScanCleanupSummary> {
-    await sweepStaleScanCleanupScratchDirs(paths.tempDir, {log: (level, message) => log(level, message)});
     const scratch = await createScanCleanupScratchDir(paths.tempDir);
     const sessionId = randomUUID();
     const stagedPdfPath = join(scratch, 'cleaned.pdf');
@@ -702,7 +698,8 @@ export async function runScanCleanupConversion(
                 };
             }),
         }));
-        const supportsRasterStreaming = process.platform !== 'win32'
+        const supportsRasterStreaming = policy.rasterStreaming
+            && process.platform !== 'win32'
             && dependencies.createRasterPipes !== undefined;
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,

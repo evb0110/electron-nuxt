@@ -90,8 +90,9 @@ import {readPpmDimensions} from '@electron/features/scan-cleanup/worker/rasterLa
 import {
     SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
     classifyScanCleanupError,
+    type IScanCleanupRasterAdmissionPolicy,
+    resolveScanCleanupRasterAdmissionPolicy,
     resolveScanCleanupPath,
-    resolveScanCleanupRasterConcurrency,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {mainJobBroker} from '@electron/resources/jobBroker';
@@ -244,7 +245,7 @@ type TDetectionError = IMainJobErrorEnvelope<TScanCleanupErrorCode>;
 type TDetectionSnapshot = TMainJobSnapshot<TScanCleanupDetectionJobState, IDetectionResult, TDetectionError>;
 export interface IScanCleanupDetectionSubscriber extends IMainJobSender {id: number;}
 
-type TPreviewVisibility = 'visible' | 'prefetch';
+type TPreviewVisibility = 'visible' | 'detail' | 'prefetch';
 
 export interface IScanCleanupPreviewDependencies {
     getPageCount: typeof getPdfPageCount;
@@ -278,7 +279,11 @@ export interface IScanCleanupPreviewDependencies {
         signal: AbortSignal,
         log: TWorkerLog,
     ) => Promise<IPdfMrcLayers | null>;
-    acquireDetectionLease?: (jobId: string, signal: AbortSignal) => Promise<{release: () => boolean}>;
+    acquireDetectionLease?: (
+        jobId: string,
+        signal: AbortSignal,
+        rasterPolicy: IScanCleanupRasterAdmissionPolicy,
+    ) => Promise<{release: () => boolean}>;
     acquirePreviewLease?: (
         ownerId: string,
         visibility: TPreviewVisibility,
@@ -410,16 +415,20 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
         });
     },
-    acquireDetectionLease: (jobId, signal) => {
-        const rasterConcurrency = resolveScanCleanupRasterConcurrency();
+    acquireDetectionLease: (jobId, signal, rasterPolicy) => {
         return mainJobBroker.acquire({
             ownerId: jobId,
             kind: 'scan-cleanup-detect-all',
-            priority: 'foreground',
+            priority: 'user',
             resources: {
-                cpuTokens: rasterConcurrency,
-                estimatedResidentBytes: rasterConcurrency * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
-                nativeProcesses: rasterConcurrency,
+                cpuTokens: rasterPolicy.rasterConcurrency,
+                estimatedResidentBytes: rasterPolicy.rasterConcurrency
+                    * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
+                // POSIX detection streams rasterizers into one concurrently
+                // running classifier sidecar. Account for that sidecar; the
+                // broker's interactive burst stays available to document tabs.
+                nativeProcesses: rasterPolicy.rasterConcurrency
+                    + Number(rasterPolicy.rasterStreaming),
                 ioWeight: 2,
             },
             perOwnerLimit: 1,
@@ -427,22 +436,19 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         });
     },
     acquirePreviewLease: (ownerId, visibility, signal) => {
-        const {capacity} = mainJobBroker.getSnapshot();
         // A preview run rasterizes a page and then hands it to one sidecar; it
         // never runs both at once, so a single native process is its true peak.
-        // A prefetch additionally claims the slot the raster concurrency leaves
-        // free (SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE), so background work
-        // only starts when the machine has room beyond the one process a page
-        // switch must always be able to start immediately.
-        const nativeProcesses = visibility === 'visible' ? 1 : Math.min(2, capacity.nativeProcesses);
+        // Scan Cleanup owns bulk capacity only. Detection budgets a native slot
+        // for its preview work, while the broker's interactive reserve remains
+        // exclusively available to other document tabs opening and rendering.
         return mainJobBroker.acquire({
             ownerId,
             kind: 'scan-cleanup-preview',
-            priority: visibility === 'visible' ? 'visible' : 'background',
+            priority: visibility === 'prefetch' ? 'background' : 'visible',
             resources: {
                 cpuTokens: 1,
                 estimatedResidentBytes: SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
-                nativeProcesses,
+                nativeProcesses: 1,
                 ioWeight: 1,
             },
             signal,
@@ -2650,18 +2656,21 @@ export function createScanCleanupPreviewService(
             // replacement out of the index.
             const generation = (active.get(activeKey)?.generation ?? 0) + 1;
             const priorTail = Promise.all(superseded.map(entry => entry.tail.catch(() => undefined)));
-            // A detail tile is the viewport the user is looking at, and a page
-            // the raw lane has not named is the first page of a session that has
-            // no visible page yet. Everything else is an adjacent prefetch.
+            // A detail tile is the viewport the user is looking at. The renderer
+            // names normal visible pages explicitly; page one is the safe
+            // startup fallback for older callers that have not done so yet.
+            // Every other unnamed page is an adjacent prefetch.
             const visiblePage = visiblePages.get(documentPrefix);
             const admission: IPreviewAdmission = {
                 granted: false,
                 reissue: null,
                 visibility: request.detail !== undefined
-                    || visiblePage === undefined
+                    ? 'detail'
+                    : request.visible === true
+                    || (visiblePage === undefined && request.pageNumber === 1)
                     || visiblePage === request.pageNumber
-                    ? 'visible'
-                    : 'prefetch',
+                        ? 'visible'
+                        : 'prefetch',
             };
             const tail: Promise<TScanCleanupPreviewWireResult> = priorTail.then(async () => {
                 const materialized = await materializeScanCleanupPreviewRequest(
@@ -2765,7 +2774,13 @@ export function createScanCleanupPreviewService(
                     let lease: {release: () => boolean} | null = null;
                     try {
                         const acquire = dependencies.acquireDetectionLease ?? defaultDependencies.acquireDetectionLease!;
-                        lease = await acquire(jobId, job.signal);
+                        const {capacity} = mainJobBroker.getSnapshot();
+                        const rasterPolicy = resolveScanCleanupRasterAdmissionPolicy(
+                            capacity,
+                            process.platform !== 'win32'
+                                && dependencies.createRasterPipes !== undefined,
+                        );
+                        lease = await acquire(jobId, job.signal, rasterPolicy);
                         const materializedRequest = await materializeScanCleanupPreviewRequest(
                             request,
                             sender.id,
@@ -2778,7 +2793,7 @@ export function createScanCleanupPreviewService(
                             resolveBinary: dependencies.resolveBinary,
                             renderPage: dependencies.renderPage,
                             renderPagePpm: dependencies.renderPagePpm,
-                            ...(dependencies.createRasterPipes === undefined
+                            ...(!rasterPolicy.rasterStreaming || dependencies.createRasterPipes === undefined
                                 ? {}
                                 : {createRasterPipes: dependencies.createRasterPipes}),
                             runSidecar: dependencies.runSidecar,
@@ -2790,7 +2805,7 @@ export function createScanCleanupPreviewService(
                             job.signal,
                             detectionRetention,
                             detectionDependencies,
-                            {rasterConcurrency: resolveScanCleanupRasterConcurrency()},
+                            {rasterConcurrency: rasterPolicy.rasterConcurrency},
                             (nextResults, progress) => job.publish({
                                 jobId,
                                 status: 'running',

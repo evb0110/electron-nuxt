@@ -39,6 +39,7 @@ import {
     type IScanCleanupPreviewDependencies,
     type IScanCleanupPreviewService,
 } from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
+import {resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {
     decodeScanCleanupDetectionJobState,
     decodeScanCleanupPreviewResult,
@@ -3669,7 +3670,14 @@ describe('scan cleanup preview', () => {
                 },
             ],
         });
-        expect(deps.acquireDetectionLease).toHaveBeenCalledWith(started.jobId, expect.any(AbortSignal));
+        expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
+            started.jobId,
+            expect.any(AbortSignal),
+            expect.objectContaining({
+                rasterConcurrency: 4,
+                rasterStreaming: false,
+            }),
+        );
         // The visible page-1 raster is reused by 150-DPI detection; only pages
         // 2 and 3 need additional renders.
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
@@ -3723,12 +3731,87 @@ describe('scan cleanup preview', () => {
             detectionRequest,
         )?.status).toBe('failed'));
         expect(deps.renderPage).toHaveBeenCalledTimes(8);
-        expect(peakRasters).toBe(4);
+        const policy = resolveScanCleanupRasterAdmissionPolicy(
+            mainJobBroker.getSnapshot().capacity,
+            false,
+        );
+        expect(peakRasters).toBe(policy.rasterConcurrency);
         expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
             kind: 'scan-cleanup-detect-all',
-            resources: expect.objectContaining({nativeProcesses: peakRasters}),
+            priority: 'user',
+            resources: expect.objectContaining({nativeProcesses: policy.rasterConcurrency}),
         }));
         acquire.mockRestore();
+    });
+
+    it('includes the classifier sidecar in streaming detection admission', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const acquire = vi.spyOn(mainJobBroker, 'acquire');
+        deps.createRasterPipes = vi.fn(async () => {
+            throw new Error('stop after streaming admission');
+        });
+        deps.runSidecar = vi.fn(async () => {
+            throw new Error('stop after non-streaming admission');
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('failed'));
+        const policy = resolveScanCleanupRasterAdmissionPolicy(
+            mainJobBroker.getSnapshot().capacity,
+            process.platform !== 'win32',
+        );
+        expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
+            kind: 'scan-cleanup-detect-all',
+            priority: 'user',
+            resources: expect.objectContaining({nativeProcesses: policy.rasterConcurrency + Number(policy.rasterStreaming)}),
+        }));
+        acquire.mockRestore();
+    });
+
+    it('falls back from raster streaming until broker capacity can admit its sidecar', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const snapshot = mainJobBroker.getSnapshot();
+        const getSnapshot = vi.spyOn(mainJobBroker, 'getSnapshot').mockReturnValue({
+            ...snapshot,
+            capacity: {
+                ...snapshot.capacity,
+                nativeProcesses: 1,
+            },
+        });
+        deps.createRasterPipes = vi.fn(async () => {
+            throw new Error('raster pipes must stay disabled at bootstrap capacity');
+        });
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.runSidecar = vi.fn(async () => {
+            throw new Error('stop after non-streaming fallback');
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('failed'));
+        expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
+            started.jobId,
+            expect.any(AbortSignal),
+            {
+                rasterConcurrency: 1,
+                rasterStreaming: false,
+            },
+        );
+        expect(deps.createRasterPipes).not.toHaveBeenCalled();
+        getSnapshot.mockRestore();
     });
 
     it('presents one document canvas before, during and after detection', async () => {
@@ -5062,17 +5145,26 @@ describe('scan cleanup preview', () => {
         const priorities = acquire.mock.calls
             .filter(([request_]) => request_.kind === 'scan-cleanup-preview')
             .map(([request_]) => ({
+                admissionClass: request_.admissionClass,
+                ownerId: request_.ownerId,
+                perOwnerLimit: request_.perOwnerLimit,
                 priority: request_.priority,
                 nativeProcesses: request_.resources.nativeProcesses,
             }));
         expect(priorities).toEqual([
             {
+                admissionClass: undefined,
+                ownerId: expect.stringContaining('\u0000'),
+                perOwnerLimit: undefined,
                 priority: 'visible',
                 nativeProcesses: 1,
             },
             {
+                admissionClass: undefined,
+                ownerId: expect.stringContaining('\u0000'),
+                perOwnerLimit: undefined,
                 priority: 'background',
-                nativeProcesses: 2,
+                nativeProcesses: 1,
             },
         ]);
         acquire.mockRestore();

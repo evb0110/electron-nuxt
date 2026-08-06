@@ -6,6 +6,8 @@ import {
 import {
     JobBroker,
     type IJobBrokerRequest,
+    MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+    MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
     MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
     resolveMainJobBrokerCapacity,
 } from '@electron/resources/jobBroker';
@@ -164,6 +166,238 @@ describe('JobBroker', () => {
         expect(second.release()).toBe(true);
     });
 
+    it.each([
+        [
+            2,
+            'low',
+        ],
+        [
+            4,
+            'low',
+        ],
+        [
+            8,
+            'medium',
+        ],
+        [
+            11,
+            'high',
+        ],
+        [
+            16,
+            'high',
+        ],
+    ] as const)('preserves the interactive document lifecycle above full bulk capacity on %i-CPU %s hosts', async (
+        logicalCpus,
+        tier,
+    ) => {
+        const capacity = resolveMainJobBrokerCapacity(createResourceProfile(
+            logicalCpus,
+            16 * GIB,
+            tier,
+        ));
+        const broker = new JobBroker(capacity, {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+        });
+        const bulk = await broker.acquire(createRequest({
+            ownerId: 'bulk-tab',
+            kind: 'bulk-operation',
+            resources: capacity,
+        }));
+
+        const workingCopy = await broker.acquire(createRequest({
+            ownerId: 'document-tab',
+            kind: 'pdf-working-copy',
+            priority: 'foreground',
+            admissionClass: 'interactive',
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: 64 * 1024 * 1024,
+                nativeProcesses: 0,
+                ioWeight: 1,
+            },
+        }));
+        const fingerprint = await broker.acquire(createRequest({
+            ownerId: 'document-tab',
+            kind: 'document-save-utility',
+            priority: 'foreground',
+            admissionClass: 'interactive',
+            resources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+        }));
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 3,
+            queued: 0,
+            usedBulk: capacity,
+        });
+        fingerprint.release();
+        workingCopy.release();
+        bulk.release();
+    });
+
+    it('keeps the interactive burst bounded to two reserved slots', async () => {
+        const interactiveSlot = {
+            cpuTokens: 1,
+            estimatedResidentBytes: 100,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        };
+        const broker = new JobBroker(CAPACITY, {
+            maxInteractiveJobResources: interactiveSlot,
+            interactiveReserve: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 200,
+                nativeProcesses: 2,
+                ioWeight: 2,
+            },
+        });
+        const bulk = await broker.acquire(createRequest({
+            ownerId: 'bulk-tab',
+            resources: CAPACITY,
+        }));
+        const first = await broker.acquire(createRequest({
+            ownerId: 'interactive-1',
+            admissionClass: 'interactive',
+        }));
+        const second = await broker.acquire(createRequest({
+            ownerId: 'interactive-2',
+            admissionClass: 'interactive',
+        }));
+        let thirdGranted = false;
+        const thirdPromise = broker.acquire(createRequest({
+            ownerId: 'interactive-3',
+            admissionClass: 'interactive',
+        })).then((lease) => {
+            thirdGranted = true;
+            return lease;
+        });
+
+        await Promise.resolve();
+        expect(thirdGranted).toBe(false);
+        first.release();
+        const third = await thirdPromise;
+        expect(thirdGranted).toBe(true);
+        third.release();
+        second.release();
+        bulk.release();
+    });
+
+    it('rejects an interactive request larger than the reserved slot', async () => {
+        const broker = new JobBroker(CAPACITY, {
+            maxInteractiveJobResources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 100,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            interactiveReserve: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 200,
+                nativeProcesses: 2,
+                ioWeight: 2,
+            },
+        });
+
+        await expect(broker.acquire(createRequest({
+            admissionClass: 'interactive',
+            resources: {
+                ...CAPACITY,
+                cpuTokens: 2,
+            },
+        }))).rejects.toThrow('exceeds broker interactive job limit');
+        expect(broker.getSnapshot().queued).toBe(0);
+    });
+
+    it('admits a new PDF through its first page while scan cleanup stays visible', async () => {
+        const capacity = resolveMainJobBrokerCapacity(createResourceProfile(
+            11,
+            32 * GIB,
+            'high',
+        ));
+        const broker = new JobBroker(capacity, {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+        });
+        const rasterConcurrency = Math.min(
+            capacity.cpuTokens,
+            capacity.nativeProcesses - 2,
+            Math.floor(capacity.estimatedResidentBytes / (128 * 1024 * 1024)),
+        );
+        const detection = await broker.acquire(createRequest({
+            ownerId: 'scan-cleanup-tab',
+            kind: 'scan-cleanup-detect-all',
+            resources: {
+                cpuTokens: rasterConcurrency,
+                estimatedResidentBytes: rasterConcurrency * 128 * 1024 * 1024,
+                nativeProcesses: rasterConcurrency + 1,
+                ioWeight: 2,
+            },
+        }));
+        const cleanupPreview = await broker.acquire(createRequest({
+            ownerId: 'scan-cleanup-tab-1',
+            kind: 'scan-cleanup-preview',
+            priority: 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 128 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }));
+        let secondCleanupGranted = false;
+        const secondCleanupPromise = broker.acquire(createRequest({
+            ownerId: 'scan-cleanup-tab-2',
+            kind: 'scan-cleanup-preview',
+            priority: 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 128 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        })).then((lease) => {
+            secondCleanupGranted = true;
+            return lease;
+        });
+        const workingCopy = await broker.acquire(createRequest({
+            ownerId: 'pdf-tab',
+            kind: 'pdf-working-copy',
+            priority: 'foreground',
+            admissionClass: 'interactive',
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: 64 * 1024 * 1024,
+                nativeProcesses: 0,
+                ioWeight: 1,
+            },
+        }));
+        const firstPage = await broker.acquire(createRequest({
+            ownerId: 'pdf-tab',
+            kind: 'native-pdf-preview',
+            priority: 'visible',
+            admissionClass: 'interactive',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 128 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }));
+
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 4,
+            queued: 1,
+        });
+        expect(secondCleanupGranted).toBe(false);
+        cleanupPreview.release();
+        const secondCleanupPreview = await secondCleanupPromise;
+        expect(secondCleanupGranted).toBe(true);
+        secondCleanupPreview.release();
+        firstPage.release();
+        workingCopy.release();
+        detection.release();
+    });
+
     it('prioritizes visible work while preserving FIFO within a priority', async () => {
         const broker = new JobBroker({
             ...CAPACITY,
@@ -275,7 +509,10 @@ describe('JobBroker', () => {
         const broker = new JobBroker({
             ...CAPACITY,
             cpuTokens: 1,
-        }, 100, () => now);
+        }, {
+            agingIntervalMs: 100,
+            now: () => now,
+        });
         const blocker = await broker.acquire(createRequest());
         const order: string[] = [];
         const background = broker.acquire(createRequest({
@@ -320,7 +557,10 @@ describe('JobBroker', () => {
         const broker = new JobBroker({
             ...CAPACITY,
             cpuTokens: 1,
-        }, 5_000, Date.now, 2, 2);
+        }, {
+            maxQueuedJobs: 2,
+            maxQueuedJobsPerOwner: 2,
+        });
         const blocker = await broker.acquire(createRequest());
         const firstQueued = broker.acquire(createRequest({ownerId: 'owner-1'}));
         const secondQueued = broker.acquire(createRequest({ownerId: 'owner-2'}));
@@ -340,7 +580,10 @@ describe('JobBroker', () => {
         const broker = new JobBroker({
             ...CAPACITY,
             cpuTokens: 1,
-        }, 5_000, Date.now, 4, 1);
+        }, {
+            maxQueuedJobs: 4,
+            maxQueuedJobsPerOwner: 1,
+        });
         const blocker = await broker.acquire(createRequest());
         const queued = broker.acquire(createRequest({ownerId: 'owner-1'}));
 

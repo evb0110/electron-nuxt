@@ -108,4 +108,25 @@ describe('scan-cleanup durability', () => {
 
         expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('permission denied'));
     });
+
+    it('never removes a pid-suffixed root whose owner is still running', async () => {
+        const parentPath = await createTemporaryDirectory();
+        const now = Date.now();
+        const livePath = join(parentPath, `${SCAN_CLEANUP_SCRATCH_PREFIX}rasters-4242`);
+        const deadPath = join(parentPath, `${SCAN_CLEANUP_SCRATCH_PREFIX}rasters-4243`);
+        await mkdir(livePath);
+        await mkdir(deadPath);
+        const staleTime = new Date(now - 120_000);
+        await utimes(livePath, staleTime, staleTime);
+        await utimes(deadPath, staleTime, staleTime);
+
+        await expect(sweepStaleScanCleanupScratchDirs(parentPath, {
+            isProcessAlive: pid => pid === 4242,
+            maxAgeMs: 60_000,
+            now: () => now,
+        })).resolves.toBe(1);
+
+        await expect(access(livePath)).resolves.toBeUndefined();
+        await expect(access(deadPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
 });

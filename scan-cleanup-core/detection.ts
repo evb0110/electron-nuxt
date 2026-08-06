@@ -31,10 +31,7 @@ import {
     type TScanCleanupRunSidecar,
 } from '@scan-cleanup-core/types';
 import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
-import {
-    createScanCleanupScratchDir,
-    sweepStaleScanCleanupScratchDirs,
-} from '@scan-cleanup-core/scratchCleanup';
+import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 
 export const PREVIEW_DPI = 150;
 // Native mode selection and final rendering share a 150-DPI analysis ceiling.
@@ -497,7 +494,6 @@ export async function runScanCleanupDetection<TDocument>(
     publish: (results: IScanCleanupDetectionResult[], progress: TScanCleanupProgress) => void,
     log: TScanCleanupLog = () => undefined,
 ) {
-    await sweepStaleScanCleanupScratchDirs(dependencies.getTempDir(), {log: (level, message) => log(level, message)});
     // The document opens first: a scratch directory created before it has
     // nothing to release if opening throws, and only this function removes it.
     const document = await retention.openDocument(request);
