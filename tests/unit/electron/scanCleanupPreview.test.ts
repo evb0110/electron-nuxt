@@ -846,6 +846,11 @@ describe('scan cleanup preview', () => {
             expect.any(Number),
             undefined,
             expect.any(AbortSignal),
+            undefined,
+            expect.objectContaining({
+                maxDimensionPx: 40_000,
+                maxPixels: 45_000_000,
+            }),
         );
     });
 
@@ -917,6 +922,11 @@ describe('scan cleanup preview', () => {
             expect.any(Number),
             undefined,
             expect.any(AbortSignal),
+            undefined,
+            expect.objectContaining({
+                maxDimensionPx: 40_000,
+                maxPixels: 45_000_000,
+            }),
         );
     });
 
@@ -3196,6 +3206,137 @@ describe('scan cleanup preview', () => {
         expect([...rasterOutputPaths.values()]).not.toEqual(fifoPaths);
     });
 
+    it.runIf(process.platform !== 'win32')('bounds 101 fast staged detection rasters by producer concurrency and unlinks each after FIFO delivery', async () => {
+        const dir = await setup();
+        const pageCount = 101;
+        const deps = dependencies(dir);
+        const beginConsumption = Promise.withResolvers<undefined>();
+        const stagedPaths = new Map<number, string>();
+        const liveStagedPaths = new Set<string>();
+        let rasterConcurrency = 0;
+        let peakLiveStagedBytes = 0;
+        const ppm = ppmWithDimensions(1, 1);
+        deps.getPageCount = vi.fn(async () => pageCount);
+        deps.getPageSizes = vi.fn(async () => Array.from({length: pageCount}, (_, index) => ({
+            pageNumber: index + 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        })));
+        deps.createRasterPipes = vi.fn(async (paths: readonly string[]) => {
+            await execFileAsync('mkfifo', [...paths]);
+        });
+        deps.acquireDetectionLease = vi.fn(async (_jobId, _signal, rasterPolicy) => {
+            rasterConcurrency = rasterPolicy.rasterConcurrency;
+            return {release: vi.fn(() => true)};
+        });
+        deps.renderPagePpm = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
+            await writeFile(outputPath, ppm);
+            stagedPaths.set(pageNumber, outputPath);
+            liveStagedPaths.add(outputPath);
+            let liveBytes = 0;
+            for (const path of liveStagedPaths) {
+                liveBytes += (await stat(path)).size;
+            }
+            peakLiveStagedBytes = Math.max(peakLiveStagedBytes, liveBytes);
+        });
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                inputPath: string;
+                sourcePageIndex: number;
+            }>};
+            await writeDetectionMetadata(manifestPath);
+            await beginConsumption.promise;
+            for (const [
+                index,
+                page,
+            ] of manifest.pages.entries()) {
+                await readFile(page.inputPath);
+                const pageNumber = page.sourcePageIndex + 1;
+                const stagedPath = stagedPaths.get(pageNumber)!;
+                for (;;) {
+                    try {
+                        await stat(stagedPath);
+                        await new Promise<void>(resolve => setImmediate(resolve));
+                    } catch (error) {
+                        expect(error).toMatchObject({code: 'ENOENT'});
+                        break;
+                    }
+                }
+                liveStagedPaths.delete(stagedPath);
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: index + 1,
+                    totalUnits: pageCount,
+                    percent: (index + 1) / pageCount * 100,
+                    completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: pageCount,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => {
+            expect(rasterConcurrency).toBeGreaterThan(0);
+            expect(stagedPaths.size).toBe(rasterConcurrency);
+        });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(stagedPaths.size).toBe(rasterConcurrency);
+        expect(peakLiveStagedBytes).toBeLessThanOrEqual(ppm.byteLength * rasterConcurrency);
+
+        beginConsumption.resolve(undefined);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'), {timeout: 10_000});
+        expect(stagedPaths.size).toBe(pageCount);
+        expect(liveStagedPaths.size).toBe(0);
+        await Promise.all([...stagedPaths.values()].map(async path => {
+            await expect(stat(path)).rejects.toMatchObject({code: 'ENOENT'});
+        }));
+    }, 15_000);
+
+    it.runIf(process.platform !== 'win32')('removes staged detection rasters when the FIFO consumer fails', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const stagedPaths: string[] = [];
+        deps.createRasterPipes = vi.fn(async (paths: readonly string[]) => {
+            await execFileAsync('mkfifo', [...paths]);
+        });
+        deps.renderPagePpm = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+            stagedPaths.push(outputPath);
+            await writeFile(outputPath, ppmWithDimensions(1, 1));
+        });
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.runSidecar = vi.fn(async () => {
+            await vi.waitFor(() => expect(stagedPaths.length).toBeGreaterThan(0));
+            throw new Error('native consumer failed');
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('failed'));
+        await Promise.all(stagedPaths.map(async path => {
+            await expect(stat(path)).rejects.toMatchObject({code: 'ENOENT'});
+        }));
+    });
+
     it.runIf(process.platform !== 'win32')('does not hang when detection aborts during FIFO delivery', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
@@ -3233,6 +3374,9 @@ describe('scan cleanup preview', () => {
             started.jobId,
             detectionRequest,
         )?.status).toBe('canceled'));
+        const stagedPath = vi.mocked(deps.renderPagePpm).mock.calls[0]?.[4];
+        expect(stagedPath).toBeDefined();
+        await expect(stat(stagedPath!)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('reconciles every detection classification against the whole document, not a window of it', async () => {

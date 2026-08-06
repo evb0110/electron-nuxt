@@ -13,8 +13,8 @@ use crate::{
     png::{self, RgbImage},
     protocol::{
         manifest_v3::{
-            AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, PageOutput,
-            RenderMode,
+            normalized_path, AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation,
+            Page, PageOutput, RenderMode,
         },
         progress::{PageStageTimings, Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
@@ -29,6 +29,7 @@ use serde::Serialize;
 use std::{
     collections::HashSet,
     error::Error,
+    ffi::OsString,
     fs, io,
     path::{Path, PathBuf},
     sync::{mpsc::sync_channel, Arc, Mutex},
@@ -311,6 +312,7 @@ fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
     let manifest: ManifestV3 = serde_json::from_slice(&bytes)
         .map_err(|error| invalid(format!("Invalid v3 batch manifest: {error}")))?;
     manifest.validate()?;
+    preflight_manifest_paths(&manifest)?;
     let total = manifest.pages.len();
     let result = run_manifest_inner(&manifest);
     match result {
@@ -999,6 +1001,7 @@ fn pages_have_disjoint_destinations(manifest: &ManifestV3) -> bool {
                     output.bilevel_output_path.as_ref(),
                     output.background_output_path.as_ref(),
                     output.foreground_mask_output_path.as_ref(),
+                    output.foreground_alpha_output_path.as_ref(),
                     output.picture_mask_output_path.as_ref(),
                     output.tone_preservation_alpha_output_path.as_ref(),
                 ]
@@ -1010,6 +1013,102 @@ fn pages_have_disjoint_destinations(manifest: &ManifestV3) -> bool {
             .into_iter()
             .all(|path| paths.insert(path.clone()))
     })
+}
+
+fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
+    let mut input_paths = HashSet::new();
+    let mut input_files = HashSet::new();
+    for path in manifest.input_paths() {
+        input_paths.insert(resolved_manifest_path(path));
+        if let Some(identity) = existing_file_identity(path) {
+            input_files.insert(identity);
+        }
+    }
+
+    let mut destination_paths = HashSet::new();
+    let mut destination_files = HashSet::new();
+    for path in manifest.destination_paths() {
+        let resolved = resolved_manifest_path(path);
+        if input_paths.contains(&resolved)
+            || existing_file_identity(path).is_some_and(|identity| input_files.contains(&identity))
+        {
+            return Err(invalid(format!(
+                "Output destination aliases an input file: {}",
+                path.display()
+            )));
+        }
+        if !destination_paths.insert(resolved)
+            || existing_file_identity(path)
+                .is_some_and(|identity| !destination_files.insert(identity))
+        {
+            return Err(invalid(format!(
+                "Output destinations must refer to different files: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Canonicalize the deepest existing ancestor so aliases through a symlinked
+/// output directory are detected even before the destination itself exists.
+fn resolved_manifest_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        normalized_path(path)
+    } else {
+        std::env::current_dir()
+            .map(|directory| normalized_path(&directory.join(path)))
+            .unwrap_or_else(|_| normalized_path(path))
+    };
+    let mut ancestor = absolute.as_path();
+    let mut missing = Vec::<OsString>::new();
+    loop {
+        if let Ok(mut resolved) = fs::canonicalize(ancestor) {
+            for component in missing.iter().rev() {
+                resolved.push(component);
+            }
+            return normalized_path(&resolved);
+        }
+        let Some(file_name) = ancestor.file_name() else {
+            return absolute;
+        };
+        missing.push(file_name.to_owned());
+        let Some(parent) = ancestor.parent() else {
+            return absolute;
+        };
+        ancestor = parent;
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ExistingFileIdentity {
+    device: u64,
+    inode: u64,
+}
+
+#[cfg(unix)]
+fn existing_file_identity(path: &Path) -> Option<ExistingFileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+
+    fs::metadata(path)
+        .ok()
+        .map(|metadata| ExistingFileIdentity {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+}
+
+#[cfg(not(unix))]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ExistingFileIdentity;
+
+#[cfg(not(unix))]
+fn existing_file_identity(_path: &Path) -> Option<ExistingFileIdentity> {
+    // Canonical path comparison still catches symlink aliases. Unix exposes
+    // stable device/inode identity directly; other targets retain the
+    // normalized/canonical checks without opening streamed inputs.
+    None
 }
 
 /// Used only when a manifest does not report the host's memory — direct CLI
@@ -1040,7 +1139,12 @@ fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> 
                 options.max_dimension,
             )
             .map_err(map_image_error)?;
-            Ok(estimate_peak_page_bytes(width, height, options.output_mode))
+            Ok(estimate_peak_page_bytes(
+                width,
+                height,
+                manifest.operation,
+                options.output_mode,
+            ))
         })
         .collect::<Result<Vec<_>, NativeError>>()?
         .into_iter()
@@ -1068,9 +1172,19 @@ fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> 
 /// has freed but not returned to the OS. A worker budget divided by an
 /// optimistic figure admits threads the host cannot hold, so the multiplier
 /// used for sizing is the measured one.
-fn estimate_peak_page_bytes(width: usize, height: usize, output_mode: OutputMode) -> u64 {
+fn estimate_peak_page_bytes(
+    width: usize,
+    height: usize,
+    operation: Operation,
+    output_mode: OutputMode,
+) -> u64 {
     let pixels = (width as u64).saturating_mul(height as u64);
-    let multiplier = if matches!(output_mode, OutputMode::Color | OutputMode::Mixed) {
+    let decodes_color = operation == Operation::Analyze
+        || matches!(
+            output_mode,
+            OutputMode::Color | OutputMode::Mixed | OutputMode::Auto
+        );
+    let multiplier = if decodes_color {
         COLOR_PEAK_BYTES_PER_PIXEL
     } else {
         GRAY_PEAK_BYTES_PER_PIXEL
@@ -1312,7 +1426,7 @@ fn run_page(
             &base_metadata,
             &mut timings,
         )
-        .map_err(invalid)?
+        .map_err(map_image_error)?
     } else {
         clean_page_with_color_and_document_prior_cached(
             input_gray,
@@ -1337,7 +1451,7 @@ fn run_page(
             options.output_mode == OutputMode::Auto,
             &mut timings,
         )
-        .map_err(invalid)?
+        .map_err(map_image_error)?
     };
     for output in &mut result.outputs {
         output.metadata.canvas_scope = canvas_scope;
@@ -1823,7 +1937,7 @@ fn run_classification(
         cache,
         &mut timings,
     )
-    .map_err(invalid)?;
+    .map_err(map_image_error)?;
     let page_metadata = PageResultMetadata {
         source_page_index: page.source_page_index,
         layout_classification: result.classification,
@@ -2720,23 +2834,36 @@ fn map_image_error(message: String) -> NativeError {
 mod tests {
     use super::{
         adaptive_thread_count, box_downsample_gray, estimate_peak_page_bytes, manifest_cache,
-        manifest_worker_threads, normalize_trusted_foreground_selection, page_worker_threads,
-        plan_canvas_placement_for, preserve_tier1_provenance_after_rerun,
-        reconcile_classification_batch, robust_quantile_dimension, run_stream_page_jobs,
-        PageResultMetadata, PageRunResult, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        manifest_worker_threads, map_image_error, normalize_trusted_foreground_selection,
+        page_worker_threads, plan_canvas_placement_for, preflight_manifest_paths,
+        preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
+        robust_quantile_dimension, run_stream_page_jobs, PageResultMetadata, PageRunResult,
+        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
-            AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, RenderMode,
-            SplitSeamPolyline, VERSION,
+            AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, PageOutput,
+            RenderMode, SplitSeamPolyline, VERSION,
         },
         protocol::progress::PageStageTimings,
         split::{ClusterDimensions, DocumentPrior, LayoutClassification},
         CleanupOptions, OrthogonalRotation, OutputMode,
     };
-    use evb_native_support::NativeError;
+    use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::{BinaryImage, GrayImage, Point};
     use std::{fs, path::PathBuf};
+
+    #[test]
+    fn derived_geometry_guardrail_errors_are_too_large() {
+        assert_eq!(
+            map_image_error("Derived raster 100x100 exceeds cleanup guardrails".into()).code,
+            NativeErrorCode::TooLarge,
+        );
+        assert_eq!(
+            map_image_error("Derived content geometry must be finite".into()).code,
+            NativeErrorCode::InvalidRequest,
+        );
+    }
 
     #[test]
     fn box_downsample_gray_uses_box_means() {
@@ -2842,12 +2969,145 @@ mod tests {
         // host cannot hold.
         const MEASURED_PEAK_BYTES: f64 = 1.60e9;
         let modelled = (256 * 1024 * 1024) as f64
-            + 5.0 * estimate_peak_page_bytes(2119, 3204, OutputMode::Bw) as f64;
+            + 5.0 * estimate_peak_page_bytes(2119, 3204, Operation::Render, OutputMode::Bw) as f64;
         let ratio = modelled / MEASURED_PEAK_BYTES;
         assert!(
             (0.75..=1.25).contains(&ratio),
             "modelled {modelled:.0} B is {ratio:.2}x the measured 1.60 GB peak",
         );
+    }
+
+    #[test]
+    fn peak_page_estimate_accounts_for_rgb_analysis_and_auto_render() {
+        let pixels = 2_000 * 1_500;
+        let gray_render = estimate_peak_page_bytes(2_000, 1_500, Operation::Render, OutputMode::Bw);
+        let analysis = estimate_peak_page_bytes(2_000, 1_500, Operation::Analyze, OutputMode::Bw);
+        let auto_render =
+            estimate_peak_page_bytes(2_000, 1_500, Operation::Render, OutputMode::Auto);
+
+        assert_eq!(gray_render, pixels * 40);
+        assert_eq!(analysis, pixels * 80);
+        assert_eq!(auto_render, pixels * 80);
+    }
+
+    #[test]
+    fn manifest_worker_sizing_applies_the_decode_policy() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-decode-policy-sizing-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("page.png");
+        fs::write(
+            &input,
+            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+        )
+        .unwrap();
+        let manifest = |operation, output_mode| ManifestV3 {
+            version: VERSION,
+            operation,
+            analysis_purpose: AnalysisPurpose::PagePlan,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            // 600 kB remains after the process/cache split: enough for two
+            // 40-Bpp pages, but only one 80-Bpp page.
+            host_memory_bytes: Some(2_000_000),
+            pages: (0..2)
+                .map(|source_page_index| Page {
+                    input_path: input.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index,
+                    page_metadata_path: dir.join(format!("page-{source_page_index}.json")),
+                    options: CleanupOptions {
+                        output_mode,
+                        ..CleanupOptions::default()
+                    },
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+
+        assert_eq!(
+            manifest_worker_threads(&manifest(Operation::Render, OutputMode::Bw)).unwrap(),
+            2
+        );
+        assert_eq!(
+            manifest_worker_threads(&manifest(Operation::Analyze, OutputMode::Bw)).unwrap(),
+            1
+        );
+        assert_eq!(
+            manifest_worker_threads(&manifest(Operation::Render, OutputMode::Auto)).unwrap(),
+            1
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_path_preflight_rejects_hardlink_aliases() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-manifest-aliases-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("input.png");
+        let input_alias = dir.join("input-alias.png");
+        fs::write(&input, b"input").unwrap();
+        fs::hard_link(&input, &input_alias).unwrap();
+        let mut manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::PagePlan,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: None,
+            pages: vec![Page {
+                input_path: input,
+                trusted_foreground_mask_path: None,
+                trusted_mrc_background_path: None,
+                source_page_index: 0,
+                page_metadata_path: input_alias,
+                options: CleanupOptions::default(),
+                document_prior: None,
+                detail_render_plan: None,
+                outputs: Vec::new(),
+            }],
+        };
+        manifest.validate().unwrap();
+        assert!(preflight_manifest_paths(&manifest)
+            .unwrap_err()
+            .to_string()
+            .contains("aliases an input file"));
+
+        let shared_destination = dir.join("shared-destination");
+        let destination_alias = dir.join("destination-alias");
+        fs::write(&shared_destination, b"old output").unwrap();
+        fs::hard_link(&shared_destination, &destination_alias).unwrap();
+        manifest.operation = Operation::Render;
+        manifest.pages[0].page_metadata_path = shared_destination;
+        manifest.pages[0].outputs.push(PageOutput {
+            output_path: dir.join("output.png"),
+            metadata_path: destination_alias,
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+        });
+        manifest.validate().unwrap();
+        assert!(preflight_manifest_paths(&manifest)
+            .unwrap_err()
+            .to_string()
+            .contains("different files"));
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -3100,9 +3360,12 @@ mod tests {
 
     #[test]
     fn color_peak_estimate_accounts_for_rgb_working_copies() {
-        assert_eq!(estimate_peak_page_bytes(100, 50, OutputMode::Bw), 200_000);
         assert_eq!(
-            estimate_peak_page_bytes(100, 50, OutputMode::Color),
+            estimate_peak_page_bytes(100, 50, Operation::Render, OutputMode::Bw),
+            200_000
+        );
+        assert_eq!(
+            estimate_peak_page_bytes(100, 50, Operation::Render, OutputMode::Color),
             400_000
         );
     }

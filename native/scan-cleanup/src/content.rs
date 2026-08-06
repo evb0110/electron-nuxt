@@ -1568,6 +1568,67 @@ pub(crate) fn content_with_margins_for_dimensions(
     }
 }
 
+/// Computes the content crop using checked floating-point arithmetic.
+///
+/// This is the native rendering path: callers must reject an overflow rather
+/// than allowing Rust's saturating float-to-integer cast to turn it into a
+/// tiny, apparently valid raster.
+pub(crate) fn checked_content_with_margins_for_dimensions(
+    width: usize,
+    height: usize,
+    dpi: f64,
+    content: Option<Rect>,
+    margins_mm: Option<[f64; 4]>,
+    margins_pixels: Option<[f64; 4]>,
+) -> Result<ContentResult, String> {
+    let margins = match margins_pixels {
+        Some(margins) => margins,
+        None => margins_mm
+            .unwrap_or([0.0; 4])
+            .map(|millimeters| millimeters * dpi / 25.4),
+    };
+    if !dpi.is_finite()
+        || !margins
+            .into_iter()
+            .all(|margin| margin.is_finite() && margin >= 0.0)
+    {
+        return Err("Derived margin geometry must be finite and nonnegative".into());
+    }
+    let base = content.unwrap_or(Rect::new(0.0, 0.0, width as f64, height as f64));
+    if ![base.x, base.y, base.width, base.height]
+        .into_iter()
+        .all(f64::is_finite)
+    {
+        return Err("Derived content geometry must be finite".into());
+    }
+    let left = base.x - margins[0];
+    let top = base.y - margins[1];
+    let right = base.x + base.width + margins[2];
+    let bottom = base.y + base.height + margins[3];
+    if ![left, top, right, bottom].into_iter().all(f64::is_finite) {
+        return Err("Derived content geometry must be finite".into());
+    }
+    let output_rect = Rect::new(
+        left.floor(),
+        top.floor(),
+        right.ceil() - left.floor(),
+        bottom.ceil() - top.floor(),
+    );
+    if !output_rect.width.is_finite()
+        || !output_rect.height.is_finite()
+        || output_rect.width <= 0.0
+        || output_rect.height <= 0.0
+    {
+        return Err("Derived content geometry must be positive and finite".into());
+    }
+    Ok(ContentResult {
+        content,
+        output_rect,
+        margins,
+        diagnostics: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     /// Developer diagnostic: run content detection on an external page image.
@@ -1629,6 +1690,20 @@ mod tests {
         assert!(result.output_rect.x < 0.0);
         assert!(result.output_rect.y < 0.0);
         assert!(result.output_rect.right() > image.width() as f64);
+    }
+
+    #[test]
+    fn checked_margin_geometry_rejects_mm_to_pixel_overflow() {
+        let error = checked_content_with_margins_for_dimensions(
+            10,
+            10,
+            300.0,
+            Some(Rect::new(0.0, 0.0, 10.0, 10.0)),
+            Some([1e308; 4]),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("finite"));
     }
 
     fn component_census(columns: usize, rows: usize) -> Vec<Component> {

@@ -2,7 +2,10 @@ use crate::{split::DocumentPrior, CleanupOptions};
 use evb_native_support::{NativeError, NativeErrorCode};
 use scan_primitives::Point;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{
+    collections::HashSet,
+    path::{Component, Path, PathBuf},
+};
 
 pub const VERSION: u32 = 3;
 
@@ -339,8 +342,107 @@ impl ManifestV3 {
                 ));
             }
         }
+        self.validate_destination_paths()?;
         Ok(())
     }
+
+    /// Every path the batch may read. Keeping this list beside the wire
+    /// protocol prevents new auxiliary inputs from being missed by the output
+    /// alias preflight.
+    pub(crate) fn input_paths(&self) -> Vec<&Path> {
+        self.pages
+            .iter()
+            .flat_map(|page| {
+                let mut paths = vec![page.input_path.as_path()];
+                paths.extend(page.trusted_foreground_mask_path.as_deref());
+                paths.extend(page.trusted_mrc_background_path.as_deref());
+                if let Some(detail) = &page.detail_render_plan {
+                    paths.push(detail.base_metadata_path.as_path());
+                    paths.push(detail.base_raster_path.as_path());
+                    paths.extend(detail.base_cleaned_raster_path.as_deref());
+                }
+                paths
+            })
+            .collect()
+    }
+
+    /// Every path the batch may publish, including per-page metadata and all
+    /// optional layered outputs.
+    pub(crate) fn destination_paths(&self) -> Vec<&Path> {
+        self.pages
+            .iter()
+            .flat_map(|page| {
+                let mut paths = vec![page.page_metadata_path.as_path()];
+                if self.operation == Operation::Render {
+                    for output in &page.outputs {
+                        paths.push(output.output_path.as_path());
+                        paths.push(output.metadata_path.as_path());
+                        paths.extend(output.bilevel_output_path.as_deref());
+                        paths.extend(output.background_output_path.as_deref());
+                        paths.extend(output.foreground_mask_output_path.as_deref());
+                        paths.extend(output.foreground_alpha_output_path.as_deref());
+                        paths.extend(output.picture_mask_output_path.as_deref());
+                        paths.extend(output.tone_preservation_alpha_output_path.as_deref());
+                    }
+                }
+                paths
+            })
+            .collect()
+    }
+
+    fn validate_destination_paths(&self) -> Result<(), NativeError> {
+        let inputs = self
+            .input_paths()
+            .into_iter()
+            .map(normalized_path)
+            .collect::<HashSet<_>>();
+        let mut destinations = HashSet::new();
+        for path in self.destination_paths() {
+            let normalized = normalized_path(path);
+            if inputs.contains(&normalized) {
+                return Err(invalid(format!(
+                    "Output destination aliases an input path: {}",
+                    path.display()
+                )));
+            }
+            if !destinations.insert(normalized) {
+                return Err(invalid(format!(
+                    "Output destinations must be unique: {}",
+                    path.display()
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn normalized_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    #[cfg(windows)]
+    {
+        // Windows paths are case-insensitive for the desktop filesystems we
+        // support. Canonical/inode checks in the adapter provide the stronger
+        // check for paths which already exist.
+        return PathBuf::from(normalized.to_string_lossy().to_lowercase());
+    }
+    #[cfg(not(windows))]
+    normalized
 }
 
 fn valid_detail_rect(rect: &DetailPixelRect) -> bool {
@@ -489,6 +591,34 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Host memory"));
+    }
+
+    #[test]
+    fn output_destinations_are_unique_and_disjoint_from_every_input() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+
+        let mut input_alias = manifest.clone();
+        input_alias.pages[0].outputs[0].output_path =
+            PathBuf::from("/fixtures/input/temporary/../page-1.png");
+        assert!(input_alias
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("aliases an input"));
+
+        let mut alpha_alias = manifest;
+        alpha_alias.pages[0].outputs[0].foreground_alpha_output_path =
+            Some(alpha_alias.pages[0].outputs[0].metadata_path.clone());
+        assert!(alpha_alias
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("must be unique"));
     }
 
     #[test]

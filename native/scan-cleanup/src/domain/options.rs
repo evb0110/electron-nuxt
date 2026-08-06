@@ -650,6 +650,41 @@ impl CleanupOptions {
         ))
     }
 
+    /// Converts derived raster geometry into allocation-safe dimensions.
+    ///
+    /// Input options are validated independently, but combinations such as a
+    /// finite millimetre margin and DPI can still overflow while producing
+    /// pixel geometry. Keep that distinction explicit: non-finite derived
+    /// geometry is an invalid request, while finite geometry beyond the
+    /// configured raster bounds is too large to render.
+    pub(crate) fn validate_derived_raster_dimensions(
+        &self,
+        width: f64,
+        height: f64,
+    ) -> Result<(usize, usize), String> {
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return Err("Derived raster geometry must be positive and finite".into());
+        }
+        let width = width.ceil();
+        let height = height.ceil();
+        if width > usize::MAX as f64 || height > usize::MAX as f64 {
+            return Err("Derived raster dimensions exceed cleanup guardrails".into());
+        }
+        let (width, height) = (width as usize, height as usize);
+        let pixels = (width as u64)
+            .checked_mul(height as u64)
+            .ok_or_else(|| "Derived raster pixel product exceeds cleanup guardrails".to_owned())?;
+        if width > self.max_dimension as usize
+            || height > self.max_dimension as usize
+            || pixels > self.max_pixels
+        {
+            return Err(format!(
+                "Derived raster {width}x{height} exceeds cleanup guardrails"
+            ));
+        }
+        Ok((width, height))
+    }
+
     pub fn placement_for(&self, half: PageHalf) -> PageAlignment {
         let override_value = match half {
             PageHalf::Full => self.placement_overrides.full,

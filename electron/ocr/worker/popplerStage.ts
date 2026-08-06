@@ -15,6 +15,8 @@ import {
     type TOcrRunCommandOptions,
 } from '@electron/ocr/worker/runOcrCommand';
 import { getErrorMessage } from '@electron/utils/error';
+import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
+import type {IScanCleanupRasterRenderLimits} from '@scan-cleanup-core/types';
 export { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -32,6 +34,29 @@ export interface IPopplerPixelCrop {
     height: number;
 }
 
+function validateRenderLimits(limits: IScanCleanupRasterRenderLimits | undefined) {
+    if (limits === undefined) {
+        return;
+    }
+    for (const [
+        label,
+        value,
+    ] of Object.entries(limits)) {
+        if (!Number.isSafeInteger(value) || value < 1) {
+            throw new TypeError(`Poppler raster ${label} must be a positive safe integer`);
+        }
+    }
+    if (
+        limits.expectedWidthPx > limits.maxDimensionPx
+        || limits.expectedHeightPx > limits.maxDimensionPx
+        || limits.expectedWidthPx * limits.expectedHeightPx > limits.maxPixels
+    ) {
+        throw new RangeError(
+            `Poppler raster ${String(limits.expectedWidthPx)}x${String(limits.expectedHeightPx)} exceeds limits`,
+        );
+    }
+}
+
 export async function renderPdfPageToPng(
     paths: Pick<IWorkerPaths, 'pdftoppmBinary'>,
     log: TWorkerLog,
@@ -42,6 +67,7 @@ export async function renderPdfPageToPng(
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
     crop?: IPopplerPixelCrop,
+    limits?: IScanCleanupRasterRenderLimits,
 ) {
     const ppmPath = `${outputPngPath}.source.ppm`;
     try {
@@ -49,7 +75,22 @@ export async function renderPdfPageToPng(
         // ordinary page. Its raw PPM renderer produces identical RGB samples
         // several times faster; the bundled PNG codec then compresses those
         // samples without changing them.
-        await renderPdfPage('ppm', paths, log, pageNumber, sourcePdfPath, ppmPath, dpi, popplerEnv, signal, crop);
+        await renderPdfPage('ppm', paths, log, pageNumber, sourcePdfPath, ppmPath, dpi, popplerEnv, signal, crop, limits);
+        // Inspect the on-disk header and declared payload before materializing
+        // the complete raw raster in the JS heap.
+        const inspected = await readPpmDimensions(ppmPath);
+        if (
+            limits !== undefined
+            && (
+                inspected.width > limits.maxDimensionPx
+                || inspected.height > limits.maxDimensionPx
+                || inspected.width * inspected.height > limits.maxPixels
+            )
+        ) {
+            throw new RangeError(
+                `Poppler produced raster ${String(inspected.width)}x${String(inspected.height)} beyond limits`,
+            );
+        }
         const ppm = await readFile(ppmPath);
         const state = {offset: 0};
         const skipWhitespaceAndComments = () => {
@@ -115,6 +156,9 @@ export async function renderPdfPageToPng(
         if (!Number.isSafeInteger(byteLength) || pixels.byteLength !== byteLength) {
             throw new Error('Poppler produced a truncated PPM raster');
         }
+        if (width !== inspected.width || height !== inspected.height) {
+            throw new Error('Poppler PPM header changed while it was being read');
+        }
         await writeFile(outputPngPath, encodePng({
             channels: 3,
             data: pixels,
@@ -140,8 +184,9 @@ export async function renderPdfPageToPpm(
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
     crop?: IPopplerPixelCrop,
+    limits?: IScanCleanupRasterRenderLimits,
 ) {
-    await renderPdfPage('ppm', paths, log, pageNumber, sourcePdfPath, outputPpmPath, dpi, popplerEnv, signal, crop);
+    await renderPdfPage('ppm', paths, log, pageNumber, sourcePdfPath, outputPpmPath, dpi, popplerEnv, signal, crop, limits);
 }
 
 async function renderPdfPage(
@@ -155,7 +200,9 @@ async function renderPdfPage(
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
     crop?: IPopplerPixelCrop,
+    limits?: IScanCleanupRasterRenderLimits,
 ) {
+    validateRenderLimits(limits);
     if (crop !== undefined) {
         for (const field of [
             'x',
@@ -188,6 +235,10 @@ async function renderPdfPage(
     const commandArgs = [
         ...(format === 'png' ? ['-png'] : []),
         '-cropbox',
+        ...(limits?.scaleToFitPx === undefined ? [] : [
+            '-scale-to',
+            String(limits.scaleToFitPx),
+        ]),
         '-r',
         String(dpi),
         '-f',

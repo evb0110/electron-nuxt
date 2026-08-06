@@ -37,6 +37,7 @@ import {
     type IScanCleanupRepresentationReport,
     type IPdfMrcLayers,
     type IPdfPageSize,
+    type IScanCleanupRasterRenderLimits,
     type ISourceDpiDetectionResult,
     type TScanCleanupLog,
 } from '@scan-cleanup-core/types';
@@ -81,6 +82,7 @@ import {
     resolveScanCleanupDocumentGuardrail,
     resolveScanCleanupPipelineMaxPixels,
     resolveScanCleanupPlannedDpi,
+    SCAN_CLEANUP_MAX_DIMENSION_PX,
     SCAN_CLEANUP_SIZE_PROBE_DPI,
 } from '@scan-cleanup-core/policy/effectiveOptions';
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
@@ -345,14 +347,7 @@ export async function runScanCleanupConversion(
         )
             ? suppliedPageSizes
             : null;
-        if (
-            pageSizes === null
-            && (
-                request.options.preserveOriginalQuality === true
-                || request.options.matchPageSize
-                || (request.options.outputMode === 'auto' && paths.pdfPageOpsBinary !== undefined)
-            )
-        ) {
+        if (pageSizes === null) {
             try {
                 if (!paths.pdfPageOpsBinary && !paths.pdfinfoBinary) {
                     throw new Error('no PDF tool is available to read page geometry');
@@ -370,9 +365,17 @@ export async function runScanCleanupConversion(
                     tempDir: scratch,
                 });
             } catch (error) {
-                if (signal.aborted || request.options.preserveOriginalQuality === true) throw error;
-                warn(`Matched page size was dropped: this document's page geometry could not be measured (${getErrorMessage(error)})`);
+                if (signal.aborted) throw error;
+                throw new Error(
+                    `Scan cleanup cannot safely rasterize without trusted page geometry (${getErrorMessage(error)})`,
+                    {cause: error},
+                );
             }
+        }
+        if (pageSizes.length !== documentPageCount) {
+            throw new Error(
+                `Scan cleanup received geometry for ${String(pageSizes.length)} of ${String(documentPageCount)} pages`,
+            );
         }
         const dpiProbePages = request.options.matchPageSize ? documentPageNumbers : pageNumbers;
         emitProgress('probing', 0, dpiProbePages.length, []);
@@ -461,7 +464,7 @@ export async function runScanCleanupConversion(
                 prepared.pdfPath,
                 warnings,
                 pageNumbers,
-                pageSizes!,
+                pageSizes,
                 dpiDetails,
                 scratch,
                 stagedPdfPath,
@@ -526,23 +529,25 @@ export async function runScanCleanupConversion(
             const mode = resolvedOutputModeByPage.get(pageNumber);
             return mode === undefined || mode === 'bw' || mode === 'mixed';
         };
-        // Pixel guardrails come from the pdfimages raster row for detected
-        // pages; only undetected pages that may produce a binary layer pay for
-        // a 72-DPI probe before their high-resolution thresholding grid is
-        // planned.
+        // Every final output mode is preflighted from trusted geometry before
+        // any Poppler producer starts. A detected source raster is the most
+        // exact guardrail; otherwise the PDF page view is the same CropBox
+        // rectangle pdftoppm will materialize.
         const guardrailByPage = new Map<number, {
             dpi: number;
             width: number;
             height: number
         }>();
         for (const pageNumber of pageNumbers) {
-            const detected = detectedRasterByPage.get(pageNumber);
-            if (detected === undefined) continue;
-            guardrailByPage.set(pageNumber, {
-                dpi: sourceDpiByPage.get(pageNumber)!,
-                width: detected.width,
-                height: detected.height,
-            });
+            const guardrail = resolveScanCleanupDocumentGuardrail(
+                undefined,
+                undefined,
+                pageSizes[pageNumber - 1],
+            );
+            if (guardrail === undefined) {
+                throw new Error(`Scan cleanup has no trusted raster geometry for page ${String(pageNumber)}`);
+            }
+            guardrailByPage.set(pageNumber, guardrail);
         }
         const probePages = pageNumbers.filter(pageNumber => !guardrailByPage.has(pageNumber) && requiresBilevelQuality(pageNumber));
         if (probePages.length > 0) {
@@ -926,6 +931,13 @@ export async function runScanCleanupConversion(
                 const renderer = rasterHandoff.format === 'ppm'
                     ? dependencies.renderPagePpm
                     : dependencies.renderPage;
+                const guardrail = plan.guardrail!;
+                const limits: IScanCleanupRasterRenderLimits = {
+                    expectedWidthPx: Math.max(1, Math.ceil(guardrail.width * plan.dpi / guardrail.dpi)),
+                    expectedHeightPx: Math.max(1, Math.ceil(guardrail.height * plan.dpi / guardrail.dpi)),
+                    maxPixels: resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode),
+                    maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+                };
                 await renderer(
                     paths,
                     log,
@@ -935,7 +947,24 @@ export async function runScanCleanupConversion(
                     plan.dpi,
                     undefined,
                     operationSignal,
+                    undefined,
+                    limits,
                 );
+                if (!canStreamRasters) {
+                    const dimensions = rasterHandoff.format === 'ppm'
+                        ? await readPpmDimensions(page.inputPath)
+                        : await readPngDimensions(page.inputPath);
+                    if (
+                        dimensions.width > limits.maxDimensionPx
+                        || dimensions.height > limits.maxDimensionPx
+                        || dimensions.width * dimensions.height > limits.maxPixels
+                    ) {
+                        throw new Error(
+                            `Scan cleanup page ${String(plan.pageNumber)} raster dimensions `
+                            + `${String(dimensions.width)}x${String(dimensions.height)} exceed limits`,
+                        );
+                    }
+                }
                 rasterizedCount += 1;
                 rasterizedPageNumbers.add(plan.pageNumber);
                 emitProgress('rasterizing', rasterizedCount, pageCount, rasterizedPageNumbers);

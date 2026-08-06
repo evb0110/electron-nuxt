@@ -1526,14 +1526,18 @@ fn analyze_page_with_color_and_document_prior_impl(
             detected_content,
             options.margins_mm.map(crate::MarginsMm::values),
             options.margins_pixels,
-        );
+        )?;
+        options.validate_derived_raster_dimensions(
+            content.output_rect.width,
+            content.output_rect.height,
+        )?;
         let crop_enabled = options.crop_content && content.content.is_some();
         let local_crop = if crop_enabled {
             content.output_rect
         } else {
             Rect::new(0.0, 0.0, region.width, region.height)
         };
-        AnalysisOutputMetadata {
+        Ok(AnalysisOutputMetadata {
             half,
             source_region: region,
             content_box: content.content,
@@ -1553,9 +1557,9 @@ fn analyze_page_with_color_and_document_prior_impl(
             .into(),
             input_width: source.width(),
             input_height: source.height(),
-        }
+        })
     })
-    .collect();
+    .collect::<Result<Vec<_>, String>>()?;
     timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
     Ok(PageAnalysisResult {
         outputs,
@@ -3802,7 +3806,7 @@ fn clean_region(
         detected.detected_content,
         options.margins_mm.map(crate::MarginsMm::values),
         options.margins_pixels,
-    );
+    )?;
     let source_content_box = detected.source_content_box;
     let content_diagnostics = detected.diagnostics;
     let crop_enabled = options.crop_content && !options.ocr_mode && content.content.is_some();
@@ -3811,8 +3815,8 @@ fn clean_region(
     } else {
         Rect::new(0.0, 0.0, working_width as f64, working_height as f64)
     };
-    let output_width = output_rect.width.ceil().max(1.0) as usize;
-    let output_height = output_rect.height.ceil().max(1.0) as usize;
+    let (output_width, output_height) =
+        options.validate_derived_raster_dimensions(output_rect.width, output_rect.height)?;
     let render_region = options.resolved_render_crop(output_width, output_height);
     // Local threshold windows and connected-component cleanup need context
     // beyond the visible tile. Sample a bounded apron, process it, then trim

@@ -192,6 +192,14 @@ export type TScanCleanupDetectSourceDpi = (
     runCommand?: TScanCleanupRunCommand,
 ) => Promise<ISourceDpiDetectionResult>;
 
+export interface IScanCleanupRasterRenderLimits {
+    expectedWidthPx: number;
+    expectedHeightPx: number;
+    maxPixels: number;
+    maxDimensionPx: number;
+    scaleToFitPx?: number;
+}
+
 export type TScanCleanupRenderPage = (
     paths: Pick<IScanCleanupWorkerPaths, 'pdftoppmBinary'>,
     log: TScanCleanupLog,
@@ -207,6 +215,7 @@ export type TScanCleanupRenderPage = (
         width: number;
         height: number
     },
+    limits?: IScanCleanupRasterRenderLimits,
 ) => Promise<void>;
 
 export type TScanCleanupSidecarProgress = (

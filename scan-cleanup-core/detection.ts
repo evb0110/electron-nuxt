@@ -26,12 +26,14 @@ import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCl
 import {
     detectSourceDpiFromPageSizes,
     type IPdfPageSize,
+    type IScanCleanupRasterRenderLimits,
     type TScanCleanupLog,
     type TScanCleanupRenderPage,
     type TScanCleanupRunSidecar,
 } from '@scan-cleanup-core/types';
 import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
+import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@scan-cleanup-core/policy/effectiveOptions';
 
 export const PREVIEW_DPI = 150;
 // Native mode selection and final rendering share a 150-DPI analysis ceiling.
@@ -41,6 +43,38 @@ export const PREVIEW_DPI = 150;
 export const DETECTION_DPI = 150;
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
 const PREVIEW_MAX_IMAGE_PIXELS = 45_000_000;
+
+function resolveRasterRenderLimits(
+    pageSize: IPdfPageSize | undefined,
+    dpi: number,
+    maxPixels = PREVIEW_MAX_IMAGE_PIXELS,
+    crop?: {
+        width: number;
+        height: number;
+    },
+): IScanCleanupRasterRenderLimits {
+    if (pageSize === undefined) {
+        const scaleToFitPx = Math.max(1, Math.floor(Math.sqrt(maxPixels)));
+        return {
+            expectedWidthPx: scaleToFitPx,
+            expectedHeightPx: scaleToFitPx,
+            maxPixels,
+            maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+            scaleToFitPx,
+        };
+    }
+    const swapsAxes = Math.abs(Math.round(pageSize.rotation / 90)) % 2 === 1;
+    return {
+        expectedWidthPx: crop?.width ?? Math.max(1, Math.ceil(
+            (swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) * dpi / 72,
+        )),
+        expectedHeightPx: crop?.height ?? Math.max(1, Math.ceil(
+            (swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) * dpi / 72,
+        )),
+        maxPixels,
+        maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+    };
+}
 
 export function resolvePagePreviewDpi(
     pageSize: IPdfPageSize,
@@ -205,6 +239,7 @@ async function renderRasterToDisk(
         height: number;
     },
     format: 'png' | 'ppm' = 'png',
+    limits?: IScanCleanupRasterRenderLimits,
 ) {
     await (format === 'ppm' ? dependencies.renderPagePpm : dependencies.renderPage)(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
@@ -216,10 +251,21 @@ async function renderRasterToDisk(
         undefined,
         signal,
         crop,
+        limits,
     );
     if (format === 'ppm') {
         const dimensions = await readPpmDimensions(outputPath);
-        if (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels) {
+        if (
+            (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels)
+            || (
+                limits !== undefined
+                && (
+                    dimensions.width > limits.maxDimensionPx
+                    || dimensions.height > limits.maxDimensionPx
+                    || dimensions.width * dimensions.height > limits.maxPixels
+                )
+            )
+        ) {
             throw new Error(
                 `Scan cleanup detection raster dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
             );
@@ -506,11 +552,11 @@ export async function runScanCleanupDetection<TDocument>(
         scratchDir = scratch;
         const totalPages = await retention.pageCount(document, signal);
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
-        const pageSizes = await retention.pageSizes(document, signal).catch(error => {
-            if (signal.aborted) throw error;
-            log('debug', `Scan cleanup detection kept the 150-DPI fallback: ${getErrorMessage(error)}`);
-            return null;
-        });
+        const pageSizes = await retention.pageSizes(document, signal);
+        const pageSizeByNumber = new Map(pageSizes.map(page => [
+            page.pageNumber,
+            page,
+        ]));
         const sourceRasterStructure = await retention.rasterPages(document, signal);
         const previewRasterPlan = resolvePreviewRasterPlan(
             pageSizes,
@@ -562,18 +608,25 @@ export async function runScanCleanupDetection<TDocument>(
         publishRasterizing();
         const renderedPaths = new Map<number, string>();
         const rasterScratchPaths = new Map<number, string>();
-        const rasterCompletionPromises = new Map<number, Promise<undefined>>();
-        const rasterCompletionResolvers = new Map<number, () => unknown>();
+        const rasterCompletionPromises = new Map<number, Promise<number>>();
+        const rasterCompletionResolvers = new Map<number, (sizeBytes: number) => unknown>();
         const rasterCompletionRejectors = new Map<number, (reason?: unknown) => unknown>();
+        const rasterDeliveryPromises = new Map<number, Promise<undefined>>();
+        const rasterDeliveryResolvers = new Map<number, () => unknown>();
+        let liveRasterScratchBytes = 0;
+        let peakRasterScratchBytes = 0;
         if (streamRasters) {
             for (const pageNumber of rasterScope) {
                 renderedPaths.set(pageNumber, join(scratch, `detect-${pageNumber}.ppm`));
                 rasterScratchPaths.set(pageNumber, join(scratch, `detect-${pageNumber}.raster.ppm`));
-                const completion = Promise.withResolvers<undefined>();
+                const completion = Promise.withResolvers<number>();
                 rasterCompletionPromises.set(pageNumber, completion.promise);
-                rasterCompletionResolvers.set(pageNumber, () => completion.resolve(undefined));
+                rasterCompletionResolvers.set(pageNumber, sizeBytes => completion.resolve(sizeBytes));
                 rasterCompletionRejectors.set(pageNumber, reason => completion.reject(reason));
                 void completion.promise.catch(() => undefined);
+                const delivery = Promise.withResolvers<undefined>();
+                rasterDeliveryPromises.set(pageNumber, delivery.promise);
+                rasterDeliveryResolvers.set(pageNumber, () => delivery.resolve(undefined));
             }
             await dependencies.createRasterPipes!(
                 [...renderedPaths.values()],
@@ -595,8 +648,21 @@ export async function runScanCleanupDetection<TDocument>(
                             detectionDpiForPage(pageNumber),
                             undefined,
                             operationSignal,
+                            undefined,
+                            resolveRasterRenderLimits(
+                                pageSizeByNumber.get(pageNumber),
+                                detectionDpiForPage(pageNumber),
+                            ),
                         );
-                        rasterCompletionResolvers.get(pageNumber)!();
+                        const sizeBytes = (await stat(rasterScratchPaths.get(pageNumber)!)).size;
+                        liveRasterScratchBytes += sizeBytes;
+                        peakRasterScratchBytes = Math.max(peakRasterScratchBytes, liveRasterScratchBytes);
+                        rasterCompletionResolvers.get(pageNumber)!(sizeBytes);
+                        // A producer owns its concurrency slot until the staged
+                        // PPM has crossed the FIFO and been unlinked. Slow
+                        // native consumption therefore cannot accumulate more
+                        // complete scratch rasters than rasterConcurrency.
+                        await waitForAbort(rasterDeliveryPromises.get(pageNumber)!, operationSignal);
                     } catch (error) {
                         rasterCompletionRejectors.get(pageNumber)!(error);
                         throw error;
@@ -614,6 +680,10 @@ export async function runScanCleanupDetection<TDocument>(
                     dependencies,
                     log,
                     pageDpi,
+                    undefined,
+                    undefined,
+                    'png',
+                    resolveRasterRenderLimits(pageSizeByNumber.get(pageNumber), pageDpi),
                 );
                 const raster = await retention.retain({
                     document,
@@ -634,14 +704,27 @@ export async function runScanCleanupDetection<TDocument>(
         };
         const pumpRasters = async (operationSignal: AbortSignal) => {
             for (const pageNumber of rasterScope) {
-                await waitForAbort(rasterCompletionPromises.get(pageNumber)!, operationSignal);
-                operationSignal.throwIfAborted();
-                await copyRasterToPipe(
-                    rasterScratchPaths.get(pageNumber)!,
-                    renderedPaths.get(pageNumber)!,
+                const sizeBytes = await waitForAbort(
+                    rasterCompletionPromises.get(pageNumber)!,
                     operationSignal,
                 );
+                operationSignal.throwIfAborted();
+                try {
+                    await copyRasterToPipe(
+                        rasterScratchPaths.get(pageNumber)!,
+                        renderedPaths.get(pageNumber)!,
+                        operationSignal,
+                    );
+                } finally {
+                    await rm(rasterScratchPaths.get(pageNumber)!, {force: true});
+                    liveRasterScratchBytes = Math.max(0, liveRasterScratchBytes - sizeBytes);
+                    rasterDeliveryResolvers.get(pageNumber)!();
+                }
             }
+            log(
+                'debug',
+                `Scan cleanup detection peak staged raster bytes: ${String(peakRasterScratchBytes)}`,
+            );
         };
         if (!streamRasters) await rasterize(signal);
         const manifestPages = pageNumbers.map(pageNumber => {

@@ -5,12 +5,37 @@ import {
 } from 'node:fs/promises';
 import {encode as encodePng} from 'fast-png';
 import type {
+    IScanCleanupRasterRenderLimits,
     TScanCleanupLog,
     TScanCleanupRenderPage,
     TScanCleanupRunCommand,
 } from '@scan-cleanup-core/types';
+import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
+
+function validateRenderLimits(limits: IScanCleanupRasterRenderLimits | undefined) {
+    if (limits === undefined) {
+        return;
+    }
+    for (const [
+        label,
+        value,
+    ] of Object.entries(limits)) {
+        if (!Number.isSafeInteger(value) || value < 1) {
+            throw new TypeError(`Poppler raster ${label} must be a positive safe integer`);
+        }
+    }
+    if (
+        limits.expectedWidthPx > limits.maxDimensionPx
+        || limits.expectedHeightPx > limits.maxDimensionPx
+        || limits.expectedWidthPx * limits.expectedHeightPx > limits.maxPixels
+    ) {
+        throw new RangeError(
+            `Poppler raster ${String(limits.expectedWidthPx)}x${String(limits.expectedHeightPx)} exceeds limits`,
+        );
+    }
+}
 
 function validateCrop(crop: Parameters<TScanCleanupRenderPage>[8]) {
     if (crop === undefined) {
@@ -44,11 +69,17 @@ async function renderPage(
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
     crop?: Parameters<TScanCleanupRenderPage>[8],
+    limits?: Parameters<TScanCleanupRenderPage>[9],
 ) {
     validateCrop(crop);
+    validateRenderLimits(limits);
     const commandArgs = [
         ...(format === 'png' ? ['-png'] : []),
         '-cropbox',
+        ...(limits?.scaleToFitPx === undefined ? [] : [
+            '-scale-to',
+            String(limits.scaleToFitPx),
+        ]),
         '-r',
         String(dpi),
         '-f',
@@ -82,7 +113,26 @@ async function renderPage(
     });
 }
 
-async function convertPpmToPng(ppmPath: string, outputPngPath: string) {
+async function convertPpmToPng(
+    ppmPath: string,
+    outputPngPath: string,
+    limits: IScanCleanupRasterRenderLimits | undefined,
+) {
+    // Validate the fixed-size header and declared payload on disk before a
+    // potentially hostile raster is read into the JS heap.
+    const inspected = await readPpmDimensions(ppmPath);
+    if (
+        limits !== undefined
+        && (
+            inspected.width > limits.maxDimensionPx
+            || inspected.height > limits.maxDimensionPx
+            || inspected.width * inspected.height > limits.maxPixels
+        )
+    ) {
+        throw new RangeError(
+            `Poppler produced raster ${String(inspected.width)}x${String(inspected.height)} beyond limits`,
+        );
+    }
     const ppm = await readFile(ppmPath);
     const state = {offset: 0};
     const skipWhitespaceAndComments = () => {
@@ -148,6 +198,9 @@ async function convertPpmToPng(ppmPath: string, outputPngPath: string) {
     if (!Number.isSafeInteger(byteLength) || pixels.byteLength !== byteLength) {
         throw new Error('Poppler produced a truncated PPM raster');
     }
+    if (width !== inspected.width || height !== inspected.height) {
+        throw new Error('Poppler PPM header changed while it was being read');
+    }
     await writeFile(outputPngPath, encodePng({
         channels: 3,
         data: pixels,
@@ -168,6 +221,7 @@ export function createScanCleanupRenderers(runCommand: TScanCleanupRunCommand) {
         popplerEnv,
         signal,
         crop,
+        limits,
     ) => {
         const ppmPath = `${outputPngPath}.source.ppm`;
         try {
@@ -183,8 +237,9 @@ export function createScanCleanupRenderers(runCommand: TScanCleanupRunCommand) {
                 popplerEnv,
                 signal,
                 crop,
+                limits,
             );
-            await convertPpmToPng(ppmPath, outputPngPath);
+            await convertPpmToPng(ppmPath, outputPngPath, limits);
         } finally {
             await rm(ppmPath, {force: true});
         }
@@ -199,6 +254,7 @@ export function createScanCleanupRenderers(runCommand: TScanCleanupRunCommand) {
         popplerEnv,
         signal,
         crop,
+        limits,
     ) => renderPage(
         runCommand,
         'ppm',
@@ -211,6 +267,7 @@ export function createScanCleanupRenderers(runCommand: TScanCleanupRunCommand) {
         popplerEnv,
         signal,
         crop,
+        limits,
     );
     return {
         renderPage: renderPageToPng,

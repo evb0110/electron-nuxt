@@ -101,9 +101,11 @@ import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
 import {
+    SCAN_CLEANUP_MAX_DIMENSION_PX,
     resolveScanCleanupPipelineMaxPixels,
     resolveScanCleanupRequestedRenderDpi,
 } from '@electron/features/scan-cleanup/policy/effectiveOptions';
+import type {IScanCleanupRasterRenderLimits} from '@scan-cleanup-core/types';
 import {
     createMainJobRegistry,
     type IMainJobErrorEnvelope,
@@ -132,6 +134,38 @@ const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
 const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
 const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
 const logger = createLogger('scan-cleanup-preview');
+
+function resolveRasterRenderLimits(
+    pageSize: IPdfPageSize | undefined,
+    dpi: number,
+    maxPixels: number,
+    crop?: {
+        width: number;
+        height: number;
+    },
+): IScanCleanupRasterRenderLimits {
+    if (pageSize === undefined) {
+        const scaleToFitPx = Math.max(1, Math.floor(Math.sqrt(maxPixels)));
+        return {
+            expectedWidthPx: scaleToFitPx,
+            expectedHeightPx: scaleToFitPx,
+            maxPixels,
+            maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+            scaleToFitPx,
+        };
+    }
+    const swapsAxes = Math.abs(Math.round(pageSize.rotation / 90)) % 2 === 1;
+    return {
+        expectedWidthPx: crop?.width ?? Math.max(1, Math.ceil(
+            (swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) * dpi / 72,
+        )),
+        expectedHeightPx: crop?.height ?? Math.max(1, Math.ceil(
+            (swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) * dpi / 72,
+        )),
+        maxPixels,
+        maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+    };
+}
 
 
 interface IRetainedDocument {
@@ -971,6 +1005,7 @@ async function materializeRawRaster(
     dependencies: IScanCleanupPreviewDependencies,
     knownTotalPages?: number,
     dpi = PREVIEW_DPI,
+    pageSize?: IPdfPageSize,
 ): Promise<IRawPreview> {
     const retained = await retention.read(document, pageNumber, dpi);
     if (retained) {
@@ -992,6 +1027,8 @@ async function materializeRawRaster(
         dpi,
         undefined,
         signal,
+        undefined,
+        resolveRasterRenderLimits(pageSize, dpi, 45_000_000),
     );
     const bytes = await readPreviewBytes(scratchPath);
     if (signal.aborted) {
@@ -1414,6 +1451,7 @@ async function renderRasterToDisk(
     // the base preview's displayed original and stay PNG until that payload
     // stops being an <img> source; the tile crop is read by native only.
     format: 'png' | 'ppm' = 'png',
+    limits?: IScanCleanupRasterRenderLimits,
 ) {
     await (format === 'ppm' ? dependencies.renderPagePpm : dependencies.renderPage)(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
@@ -1425,10 +1463,21 @@ async function renderRasterToDisk(
         undefined,
         signal,
         crop,
+        limits,
     );
     if (format === 'ppm') {
         const dimensions = await readPpmDimensions(outputPath);
-        if (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels) {
+        if (
+            (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels)
+            || (
+                limits !== undefined
+                && (
+                    dimensions.width > limits.maxDimensionPx
+                    || dimensions.height > limits.maxDimensionPx
+                    || dimensions.width * dimensions.height > limits.maxPixels
+                )
+            )
+        ) {
             throw new Error(
                 `Scan cleanup raster dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
             );
@@ -1588,6 +1637,12 @@ async function runDetailPreview(
             maxSourcePixels,
             sourceCrop,
             handoff.format,
+            {
+                expectedWidthPx: sourceCrop.width,
+                expectedHeightPx: sourceCrop.height,
+                maxPixels: maxSourcePixels,
+                maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+            },
         );
         // Poppler clips -W/-H at the physical page edge. The 150-DPI base
         // dimensions can round up by a few scaled pixels, so trust the actual
@@ -1789,6 +1844,7 @@ async function runPreview(
             dependencies,
             undefined,
             basePreviewDpi,
+            pageSizes?.find(page => page.pageNumber === request.pageNumber),
         );
         // A base preview pushes its raster the moment it exists — a whole
         // sidecar run ahead of the cleaned outputs — and then leaves those
@@ -1885,6 +1941,7 @@ async function runPreview(
                     dependencies,
                     baseRaw.totalPages,
                     renderDpi,
+                    pageSizes?.find(page => page.pageNumber === request.pageNumber),
                 ));
             }
         }

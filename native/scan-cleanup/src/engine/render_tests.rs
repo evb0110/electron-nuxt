@@ -89,6 +89,28 @@ mod tests {
     }
 
     #[test]
+    fn enormous_finite_margins_fail_before_raster_allocation() {
+        let source = GrayImage::new(10, 10, 255);
+        let error = clean_page(
+            &source,
+            &CleanupOptions {
+                crop_content: false,
+                margins_mm: Some(crate::MarginsMm {
+                    left_mm: 1e308,
+                    top_mm: 1e308,
+                    right_mm: 1e308,
+                    bottom_mm: 1e308,
+                }),
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .err()
+        .expect("finite millimetre margins that overflow to pixels must fail");
+        assert!(error.contains("finite"));
+    }
+
+    #[test]
     fn mixed_partition_keeps_completed_zone_outside_text_owned_mask() {
         let mut picture = BinaryImage::new(8, 1);
         picture.set(1, 0, true);
