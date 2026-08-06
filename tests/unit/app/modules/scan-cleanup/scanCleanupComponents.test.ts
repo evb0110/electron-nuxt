@@ -1783,7 +1783,39 @@ describe('Scan cleanup components', () => {
         expect(meter?.getAttribute('aria-valuenow')).toBe('42');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')).toBeNull();
         expect(harness.host.querySelectorAll('.scan-cleanup-toolbar-primary-action')).toHaveLength(1);
+        expect(scanCleanupToolbarSource).toContain('minmax(0, 1fr)');
+        expect(scanCleanupToolbarSource).not.toContain('minmax(var(--app-scan-toolbar-right-zone-width), auto)');
         rectSpy.mockRestore();
+    });
+
+    it('surfaces and dismisses a persisted cleanup failure from the toolbar', () => {
+        const dismiss = vi.fn();
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
+            canDetectAll: true,
+            canRun: true,
+            cancelRequested: false,
+            detectionCancelRequested: false,
+            detectionError: '',
+            detectionProgressText: '',
+            detectionProgressWidestText: '',
+            isDetecting: false,
+            isRunning: false,
+            outputEstimate: '',
+            percent: 0,
+            progressCountText: '',
+            progressPercentText: '',
+            progressPhaseText: '',
+            progressText: '',
+            runError: 'Native cleanup failed',
+            runLabel: 'Clean up',
+            runDisabledReason: '',
+            transitionText: '',
+            onDismissRunError: dismiss,
+        })));
+
+        expect(harness.host.querySelector('[role="alert"]')?.textContent).toContain('Native cleanup failed');
+        harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-dismiss-error')?.click();
+        expect(dismiss).toHaveBeenCalledOnce();
     });
 
     it('renders one scope-aware panel and routes all, page, and selected writes to their visible targets', async () => {

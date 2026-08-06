@@ -50,9 +50,11 @@ function rememberTerminalJob(jobId: string) {
 }
 
 interface IScanCleanupRunError {
+    documentRevision: string | null;
     error: string;
     errorCode: TScanCleanupErrorCode;
     ownerId: string;
+    sourceDocumentRef: string | null;
 }
 
 export const scanCleanupRun = reactive({
@@ -80,15 +82,37 @@ export const isScanCleanupRunning = computed(() => Boolean(
     ),
 ));
 
-export function getScanCleanupRunError(ownerId: string) {
-    return scanCleanupRun.lastError?.ownerId === ownerId
-        ? scanCleanupRun.lastError.error
+function scanCleanupRunErrorMatches(
+    ownerId: string,
+    sourceDocumentRef?: string | null,
+    documentRevision?: string | null,
+) {
+    const lastError = scanCleanupRun.lastError;
+    return lastError !== null && (lastError.ownerId === ownerId || Boolean(
+        sourceDocumentRef
+        && documentRevision
+        && lastError.sourceDocumentRef === sourceDocumentRef
+        && lastError.documentRevision === documentRevision,
+    ));
+}
+
+export function getScanCleanupRunError(
+    ownerId: string,
+    sourceDocumentRef?: string | null,
+    documentRevision?: string | null,
+) {
+    return scanCleanupRunErrorMatches(ownerId, sourceDocumentRef, documentRevision)
+        ? scanCleanupRun.lastError?.error ?? ''
         : '';
 }
 
-export function getScanCleanupRunErrorCode(ownerId: string) {
-    return scanCleanupRun.lastError?.ownerId === ownerId
-        ? scanCleanupRun.lastError.errorCode
+export function getScanCleanupRunErrorCode(
+    ownerId: string,
+    sourceDocumentRef?: string | null,
+    documentRevision?: string | null,
+) {
+    return scanCleanupRunErrorMatches(ownerId, sourceDocumentRef, documentRevision)
+        ? scanCleanupRun.lastError?.errorCode ?? null
         : null;
 }
 
@@ -96,11 +120,15 @@ export function setScanCleanupRunError(
     ownerId: string,
     error: string,
     errorCode: TScanCleanupErrorCode = 'internal',
+    sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
+    documentRevision: string | null = scanCleanupRun.ownerDocumentRevision,
 ) {
     scanCleanupRun.lastError = error ? {
+        documentRevision,
         error,
         errorCode,
         ownerId,
+        sourceDocumentRef,
     } : null;
 }
 
@@ -109,8 +137,9 @@ export function reportScanCleanupRunError(
     error: string,
     sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
     errorCode: TScanCleanupErrorCode = 'internal',
+    sourceDocumentRevision: string | null = scanCleanupRun.ownerDocumentRevision,
 ) {
-    setScanCleanupRunError(ownerId, error, errorCode);
+    setScanCleanupRunError(ownerId, error, errorCode, sourceDocumentRef, sourceDocumentRevision);
     if (!dependencies) {
         return;
     }

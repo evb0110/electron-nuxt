@@ -76,14 +76,17 @@ describe('scan cleanup source SHA-256 bridge', () => {
             return () => h('div');
         }}));
         app.mount(host);
+        const readSourceSha256 = () => (
+            sourceSha256 as ReturnType<typeof useScanCleanupSourceSha256> | null
+        )?.value;
 
-        await vi.waitFor(() => expect(sourceSha256?.value).toBe('a'.repeat(64)));
+        await vi.waitFor(() => expect(readSourceSha256()).toBe('a'.repeat(64)));
         enabled.value = false;
         await nextTick();
-        expect(sourceSha256?.value).toBe('a'.repeat(64));
+        expect(readSourceSha256()).toBe('a'.repeat(64));
         enabled.value = true;
         await nextTick();
-        expect(sourceSha256?.value).toBe('a'.repeat(64));
+        expect(readSourceSha256()).toBe('a'.repeat(64));
         expect(files.createManagedTempFileHandle).toHaveBeenCalledOnce();
         expect(files.releaseManagedTempFileHandle).toHaveBeenCalledOnce();
 

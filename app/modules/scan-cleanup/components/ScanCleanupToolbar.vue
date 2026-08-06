@@ -106,6 +106,22 @@
                             />
                         </AppTooltip>
                     </template>
+                    <template v-else-if="runError">
+                        <span class="scan-cleanup-toolbar-error" role="alert">
+                            {{ runError }}
+                        </span>
+                        <UButton
+                            class="scan-cleanup-toolbar-dismiss-error"
+                            type="button"
+                            color="neutral"
+                            variant="ghost"
+                            size="xs"
+                            square
+                            icon="i-ph-x"
+                            :aria-label="t('common.close')"
+                            @click="emit('dismiss-run-error')"
+                        />
+                    </template>
                     <span v-else-if="detectionError" class="scan-cleanup-toolbar-error" role="alert">
                         {{ detectionError }}
                     </span>
@@ -205,6 +221,7 @@ const {
     progressPercentText,
     progressPhaseText,
     progressText,
+    runError = '',
     runLabel,
     runDisabledReason,
     settingsBadges = [],
@@ -226,6 +243,7 @@ const {
     progressPercentText: string;
     progressPhaseText: string;
     progressText: string;
+    runError?: string;
     runLabel: string;
     runDisabledReason: string;
     settingsBadges?: ReadonlyArray<{
@@ -239,6 +257,7 @@ const emit = defineEmits<{
     cancel: [];
     'cancel-detection': [];
     'detect-all': [];
+    'dismiss-run-error': [];
     done: [];
     'remove-setting': [id: string];
     'reset-settings': [];
@@ -258,9 +277,9 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 .scan-cleanup-toolbar {
     display: grid;
     grid-template-columns:
-        auto
         minmax(0, 1fr)
-        minmax(var(--app-scan-toolbar-right-zone-width), auto);
+        auto
+        minmax(0, 1fr);
     gap: var(--app-space-7xl);
     overflow: hidden;
     padding: var(--app-space-3xl) var(--app-space-7xl);
@@ -276,6 +295,7 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-toolbar-zone-left {
     gap: var(--app-space-5xl);
+    overflow: hidden;
 }
 
 .scan-cleanup-toolbar-zone-center {
@@ -285,9 +305,9 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 .scan-cleanup-toolbar-zone-right {
-    min-width: var(--app-scan-toolbar-right-zone-width);
     justify-content: flex-end;
     gap: var(--app-space-3xl);
+    overflow: hidden;
 }
 
 .scan-cleanup-toolbar-done {
@@ -443,5 +463,9 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-toolbar-error {
     color: var(--ui-error);
+}
+
+.scan-cleanup-toolbar-dismiss-error {
+    flex: none;
 }
 </style>

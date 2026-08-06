@@ -18,6 +18,8 @@ import {
 import {
     beginScanCleanupAttempt,
     cancelScanCleanup,
+    getScanCleanupRunError,
+    getScanCleanupRunErrorCode,
     isScanCleanupRunning,
     reportScanCleanupRunError,
     resolveScanCleanupProcessedPages,
@@ -78,6 +80,16 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const cancelRequested = computed(() => (stopRequested.value && isRunning.value)
         || (scanCleanupRun.ownerId === options.ownerId
             && scanCleanupRun.jobState?.status === 'canceling'));
+    const error = computed(() => getScanCleanupRunError(
+        options.ownerId,
+        options.sourcePath.value,
+        options.documentRevision.value,
+    ));
+    const errorCode = computed(() => getScanCleanupRunErrorCode(
+        options.ownerId,
+        options.sourcePath.value,
+        options.documentRevision.value,
+    ));
     const runPageNumbers = computed(() => options.sourcePageNumbers.value
         ?? Array.from(
             {length: Math.max(1, options.totalPages.value)},
@@ -224,6 +236,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     options.ownerId,
                     t('scanCleanup.documentChangedBeforeRun'),
                     requestSourcePdfPath,
+                    'internal',
+                    requestDocumentRevision,
                 );
                 return;
             }
@@ -241,6 +255,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                         : t('scanCleanup.detectAll.evidenceMissing'),
                     requestSourcePdfPath,
                     errorCode,
+                    requestDocumentRevision,
                 );
                 return;
             }
@@ -251,6 +266,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     t('scanCleanup.detectAll.evidenceMissing'),
                     requestSourcePdfPath,
                     'internal',
+                    requestDocumentRevision,
                 );
                 return;
             }
@@ -260,6 +276,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     options.detectionError.value || t('scanCleanup.detectAll.evidenceMissing'),
                     requestSourcePdfPath,
                     options.detectionErrorCode.value ?? 'internal',
+                    requestDocumentRevision,
                 );
                 return;
             }
@@ -284,6 +301,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     result.error ?? t('scanCleanup.failed'),
                     requestSourcePdfPath,
                     result.errorCode,
+                    requestDocumentRevision,
                 );
             }
         } catch (caught) {
@@ -294,6 +312,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 caught instanceof ScanCleanupRunReconciliationError
                     ? caught.errorCode
                     : 'internal',
+                requestDocumentRevision,
             );
         } finally {
             interruptPendingTransition = null;
@@ -313,6 +332,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         await cancelScanCleanup();
     }
 
+    function dismissError() {
+        if (error.value) {
+            setScanCleanupRunError(options.ownerId, '');
+        }
+    }
+
     watch(options.active, active => setScanCleanupWorkspaceOwnerOpen(options.ownerId, active), {immediate: true});
     watch(isScanCleanupRunning, running => {
         if (!running && scanCleanupRun.jobState?.status === 'completed') options.onCompleted();
@@ -323,6 +348,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         cancel,
         cancelRequested,
         canRun,
+        dismissError,
+        error,
+        errorCode,
         isRunning,
         processedPages,
         progress,

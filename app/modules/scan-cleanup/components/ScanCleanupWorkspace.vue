@@ -10,6 +10,7 @@
             :cancel-requested="cancelRequested"
             :detection-cancel-requested="detectionCancelRequested"
             :detection-error="detectionError"
+            :run-error="runError"
             :detection-progress-text="detectionProgressText"
             :detection-progress-widest-text="detectionProgressWidestText"
             :is-detecting="detectionPending"
@@ -28,6 +29,7 @@
             @cancel="cancel"
             @cancel-detection="cancelDetection"
             @detect-all="detectAllPages"
+            @dismiss-run-error="dismissRunError"
             @done="done"
             @remove-setting="removeSettingBadge"
             @reset-settings="resetSettingsToDefaults"
@@ -371,6 +373,8 @@ const {
     cancel,
     cancelRequested,
     canRun,
+    dismissError: dismissRunError,
+    error: runError,
     isRunning,
     ownerId,
     processedPages,

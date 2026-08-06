@@ -41,6 +41,7 @@ import {
     getScanCleanupRunErrorCode,
     getScanCleanupRunError,
     scanCleanupRun,
+    setScanCleanupRunError,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
@@ -1419,6 +1420,39 @@ describe('scan cleanup workspace session detection guidance', () => {
         await new Promise(resolve => setTimeout(resolve, 5));
         expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
         mounted.unmount();
+    });
+
+    it('surfaces a failed run after the document workspace remounts with a new owner', async () => {
+        const harness = capabilityHarness();
+        const revision = ref('revision-1');
+        const documentKey = `persisted-run-error-${Date.now()}`;
+        const sourcePath = `/docs/${documentKey}.pdf`;
+        capability.value = harness.value;
+        const first = mountSession(documentKey, {documentRevision: () => revision.value});
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        setScanCleanupRunError(
+            first.session.run.ownerId,
+            'Native cleanup failed',
+            'internal',
+            sourcePath,
+            revision.value,
+        );
+        first.unmount();
+
+        const second = mountSession(documentKey, {documentRevision: () => revision.value});
+        expect(second.session.run.error.value).toBe('Native cleanup failed');
+        expect(second.session.run.errorCode.value).toBe('internal');
+        expect(second.session.run.ownerId).not.toBe(first.session.run.ownerId);
+
+        revision.value = 'revision-2';
+        await nextTick();
+        expect(second.session.run.error.value).toBe('');
+        revision.value = 'revision-1';
+        await nextTick();
+        expect(second.session.run.error.value).toBe('Native cleanup failed');
+        second.session.run.dismissError();
+        expect(second.session.run.error.value).toBe('');
+        second.unmount();
     });
 
     it('starts cleanup from one atomic click-time request after detection completes', async () => {
