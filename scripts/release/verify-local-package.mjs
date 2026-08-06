@@ -209,6 +209,7 @@ function verifyLocalPackageArtifacts(target) {
             target.platform,
             target.arch,
         ], {stdio: 'inherit'});
+        runPackagedScanCleanupVerifier(target);
     } else if (target.platform === 'mac') {
         process.stdout.write(
             'Skipping packaged startup verification for ad-hoc local mac build; '
