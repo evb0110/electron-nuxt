@@ -13,7 +13,6 @@ import {
     decodeScanCleanupMarginsMm,
     decodeScanCleanupSettingsFile,
     isScanCleanupSourceSha256,
-    parseScanCleanupPreferenceJson,
     scanCleanupPreferenceRecord,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
@@ -56,6 +55,13 @@ interface IScanCleanupSettingsStoreOptions {
 interface ILegacyCandidate {
     entry: IScanCleanupDocumentOverrideEntry;
     legacyDocumentKey: string;
+}
+
+interface ILegacyMigrationDiagnostics {
+    invalidDocumentEntries: number;
+    invalidEnvelopes: number;
+    invalidGlobals: number;
+    firstCause: string | null;
 }
 
 interface IScanCleanupSettingsStore {
@@ -116,6 +122,44 @@ function decodeLegacyDocumentEntry(
     };
 }
 
+function createLegacyMigrationDiagnostics(): ILegacyMigrationDiagnostics {
+    return {
+        invalidDocumentEntries: 0,
+        invalidEnvelopes: 0,
+        invalidGlobals: 0,
+        firstCause: null,
+    };
+}
+
+function recordLegacyMigrationFailure(
+    diagnostics: ILegacyMigrationDiagnostics,
+    kind: keyof Omit<ILegacyMigrationDiagnostics, 'firstCause'>,
+    error: unknown,
+) {
+    diagnostics[kind] += 1;
+    diagnostics.firstCause ??= error instanceof Error ? error.message : String(error);
+}
+
+function parseLegacyStorageValue(
+    raw: string | null,
+    diagnostics: ILegacyMigrationDiagnostics,
+    label: string,
+) {
+    if (!raw) {
+        return null;
+    }
+    try {
+        return JSON.parse(raw) as unknown;
+    } catch (error) {
+        recordLegacyMigrationFailure(
+            diagnostics,
+            'invalidEnvelopes',
+            new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`),
+        );
+        return null;
+    }
+}
+
 function readLegacyCandidates(
     legacyStorage: IScanCleanupLegacyStorageExport | undefined,
     now: number,
@@ -123,33 +167,82 @@ function readLegacyCandidates(
     settings: ReturnType<typeof decodeScanCleanupGlobalPreferences> | null;
     documentCandidates: Map<string, ILegacyCandidate>;
     documentCandidatesByLegacyKey: Map<string, IScanCleanupDocumentOverrideEntry>;
+    diagnostics: ILegacyMigrationDiagnostics;
 } {
     const documentCandidates = new Map<string, ILegacyCandidate>();
     const documentCandidatesByLegacyKey = new Map<string, IScanCleanupDocumentOverrideEntry>();
+    const diagnostics = createLegacyMigrationDiagnostics();
     if (!legacyStorage) {
         return {
             settings: null,
             documentCandidates,
             documentCandidatesByLegacyKey,
+            diagnostics,
         };
     }
-    assertScanCleanupLegacyStorageByteLimit(legacyStorage);
+    try {
+        assertScanCleanupLegacyStorageByteLimit(legacyStorage);
+    } catch (error) {
+        recordLegacyMigrationFailure(diagnostics, 'invalidEnvelopes', error);
+        return {
+            settings: null,
+            documentCandidates,
+            documentCandidatesByLegacyKey,
+            diagnostics,
+        };
+    }
     const budget = createScanCleanupInputBudget();
     const legacyFallbackTimestamp = finiteTimestamp(legacyStorage.exportedAtMs) ?? now;
-    const rawSettings = parseScanCleanupPreferenceJson(legacyStorage.settingsRaw);
+    const rawSettings = parseLegacyStorageValue(legacyStorage.settingsRaw, diagnostics, 'global settings');
     const settingsRecord = scanCleanupPreferenceRecord(rawSettings);
     const settingsValue = settingsRecord?.settings ?? rawSettings;
-    const settings = settingsValue === null
-        ? null
-        : decodeScanCleanupGlobalPreferences(settingsValue);
-    const rawOverrides = scanCleanupPreferenceRecord(parseScanCleanupPreferenceJson(legacyStorage.documentOverridesRaw));
+    let settings: ReturnType<typeof decodeScanCleanupGlobalPreferences> | null = null;
+    if (settingsValue !== null) {
+        if (scanCleanupPreferenceRecord(settingsValue) === null) {
+            recordLegacyMigrationFailure(
+                diagnostics,
+                'invalidGlobals',
+                new Error('global settings are not an object'),
+            );
+        } else {
+            try {
+                settings = decodeScanCleanupGlobalPreferences(settingsValue);
+            } catch (error) {
+                recordLegacyMigrationFailure(diagnostics, 'invalidGlobals', error);
+            }
+        }
+    }
+    const rawOverridesValue = parseLegacyStorageValue(
+        legacyStorage.documentOverridesRaw,
+        diagnostics,
+        'document settings',
+    );
+    const rawOverrides = scanCleanupPreferenceRecord(rawOverridesValue);
+    if (rawOverridesValue !== null && rawOverrides === null) {
+        recordLegacyMigrationFailure(
+            diagnostics,
+            'invalidEnvelopes',
+            new Error('document settings are not an object'),
+        );
+    }
     if (rawOverrides) {
         for (const [
             legacyDocumentKey,
             value,
         ] of Object.entries(rawOverrides)) {
-            const entry = decodeLegacyDocumentEntry(value, legacyFallbackTimestamp, budget);
+            let entry: IScanCleanupDocumentOverrideEntry | null;
+            try {
+                entry = decodeLegacyDocumentEntry(value, legacyFallbackTimestamp, budget);
+            } catch (error) {
+                recordLegacyMigrationFailure(diagnostics, 'invalidDocumentEntries', error);
+                continue;
+            }
             if (!entry) {
+                recordLegacyMigrationFailure(
+                    diagnostics,
+                    'invalidDocumentEntries',
+                    new Error(`document entry ${JSON.stringify(legacyDocumentKey)} is not an object`),
+                );
                 continue;
             }
             documentCandidatesByLegacyKey.set(legacyDocumentKey, entry);
@@ -169,6 +262,7 @@ function readLegacyCandidates(
         settings,
         documentCandidates,
         documentCandidatesByLegacyKey,
+        diagnostics,
     };
 }
 
@@ -217,6 +311,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
         });
     });
     let queue = Promise.resolve();
+    const reportedLegacyWarnings = new Set<string>();
 
     function enqueue<T>(operation: () => Promise<T>) {
         const next = queue.then(operation, operation);
@@ -279,7 +374,21 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             settings,
             documentCandidates,
             documentCandidatesByLegacyKey,
+            diagnostics,
         } = readLegacyCandidates(request.legacyStorage, timestamp);
+        const invalidCount = diagnostics.invalidGlobals
+            + diagnostics.invalidDocumentEntries
+            + diagnostics.invalidEnvelopes;
+        if (invalidCount > 0) {
+            const warning = 'Skipped malformed scan-cleanup legacy settings while preserving valid data: '
+                + `${String(diagnostics.invalidGlobals)} global, `
+                + `${String(diagnostics.invalidDocumentEntries)} document entr${diagnostics.invalidDocumentEntries === 1 ? 'y' : 'ies'}, `
+                + `${String(diagnostics.invalidEnvelopes)} envelope; first issue: ${diagnostics.firstCause ?? 'unknown'}`;
+            if (!reportedLegacyWarnings.has(warning)) {
+                reportedLegacyWarnings.add(warning);
+                logger.warn(warning);
+            }
+        }
         let changed = false;
         if (initialRead && settings) {
             state.settings = settings;
@@ -350,7 +459,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                 if (resetToEmptyOverrides) {
                     Reflect.deleteProperty(nextEntry, 'overrides');
                 } else if (patch.overrides !== undefined) {
-                    nextEntry.overrides = cloneScanCleanupPreferenceValue(patch.overrides);
+                    nextEntry.overrides = decodeScanCleanupPageOverrides(patch.overrides);
                 }
                 if (patch.marginsMm !== undefined) {
                     nextEntry.marginsMm = decodeScanCleanupMarginsMm(patch.marginsMm);

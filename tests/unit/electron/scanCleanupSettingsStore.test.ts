@@ -179,18 +179,92 @@ describe('file-backed scan-cleanup settings store', () => {
         });
     });
 
-    it('applies deep page-key validation while migrating legacy overrides', async () => {
+    it('skips one malformed legacy document while preserving valid siblings and globals', async () => {
+        const filePath = await createStoreFile();
+        const logger = {warn: vi.fn()};
+        const validHash = 'e'.repeat(64);
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            logger,
+        });
+
+        const migrated = await store.get({legacyStorage: {
+            settingsRaw: JSON.stringify({readingOrder: 'rtl'}),
+            documentOverridesRaw: JSON.stringify({
+                '/documents/broken.pdf': {overrides: {'01': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                }}},
+                [validHash]: {
+                    outputMode: 'grayscale',
+                    updatedAt: 20,
+                },
+            }),
+        }});
+
+        expect(migrated.settings.readingOrder).toBe('rtl');
+        expect(migrated.documentOverrides[validHash]).toMatchObject({
+            outputMode: 'grayscale',
+            lastUsedAtMs: 20,
+        });
+        expect(logger.warn).toHaveBeenCalledOnce();
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('1 document entry'));
+    });
+
+    it('skips malformed legacy globals without discarding valid documents', async () => {
+        const filePath = await createStoreFile();
+        const logger = {warn: vi.fn()};
+        const validHash = 'f'.repeat(64);
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            logger,
+        });
+
+        const migrated = await store.get({legacyStorage: {
+            settingsRaw: '[]',
+            documentOverridesRaw: JSON.stringify({[validHash]: {outputMode: 'color'}}),
+        }});
+
+        expect(migrated.settings).toEqual(createDefaultScanCleanupSettingsFile().settings);
+        expect(migrated.documentOverrides[validHash]?.outputMode).toBe('color');
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('1 global'));
+    });
+
+    it('skips an oversized legacy envelope without altering an existing store', async () => {
+        const filePath = await createStoreFile();
+        const initial = createDefaultScanCleanupSettingsFile();
+        initial.settings.readingOrder = 'rtl';
+        await writeFile(filePath, JSON.stringify(initial), 'utf8');
+        const logger = {warn: vi.fn()};
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            logger,
+        });
+
+        const loaded = await store.get({legacyStorage: {
+            settingsRaw: JSON.stringify({readingOrder: 'ltr'}),
+            documentOverridesRaw: 'x'.repeat(6 * 1024 * 1024),
+        }});
+
+        expect(loaded).toEqual(initial);
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('1 envelope'));
+        expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(initial);
+    });
+
+    it('keeps new page-override writes strict', async () => {
         const filePath = await createStoreFile();
         const store = createScanCleanupSettingsStore({filePath});
 
-        await expect(store.get({legacyStorage: {
-            settingsRaw: null,
-            documentOverridesRaw: JSON.stringify({'/documents/scan.pdf': {overrides: {'01': {
+        await expect(store.update({document: {
+            sourceSha256: 'a'.repeat(64),
+            patch: {overrides: {'01': {
                 rotationDegrees: 0,
                 layoutOverride: 'auto',
                 excluded: false,
                 manualSplit: null,
-            }}}}),
+            }}},
         }})).rejects.toThrow('page override number');
     });
 
