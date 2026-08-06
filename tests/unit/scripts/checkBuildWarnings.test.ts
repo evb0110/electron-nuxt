@@ -70,6 +70,30 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('allows bounded Rolldown plugin timing diagnostics', async () => {
+        const result = await runWarningCheck([
+            'WARN [PLUGIN_TIMINGS] Your build spent 96% of 13.2s inside plugin hooks (12.6s).',
+            'Measured inside the callback, so queue time is excluded:',
+            '  - @tailwindcss/vite:generate:build transform (13%, 1.7s, 102 calls)',
+            'See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
+    it('allows the known Nuxt Nitro unused H3 type imports', async () => {
+        const result = await runWarningCheck([
+            'WARN "H3Error" and "H3Event" are imported from external module "file:///home/runner/work/evb-viewer/evb-viewer/node_modules/.pnpm/h3@1.15.11/node_modules/h3/dist/index.mjs" but never used in "node_modules/.pnpm/@nuxt+nitro-server@4.5.1_hash/node_modules/@nuxt/nitro-server/dist/h3.mjs".',
+            '[nitro] ℹ Prerendering 7 routes',
+            '[nitro]   ├─ /workspace (20ms)',
+            '[nitro] ✔ Generated public nuxt-output/public',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
     it('rejects unlisted warnings', async () => {
         await expect(runWarningCheck([
             '[warn] unexpected production build warning',

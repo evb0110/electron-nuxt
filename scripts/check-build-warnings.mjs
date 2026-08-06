@@ -17,7 +17,7 @@ function isWarningHeader(line) {
 function isBuildLogBoundary(line) {
     const trimmed = line.trimStart();
 
-    return /^(?:\[(?:debug|info|log|ready|start|success|error|fail|trace)\](?:\s|$)|\(node:\d+\)\s+\[[A-Z0-9]+\]|\(Use `node --trace-)/u
+    return /^(?:\[(?:debug|info|log|ready|start|success|error|fail|trace|nitro)\](?:\s|$)|\(node:\d+\)\s+\[[A-Z0-9]+\]|\(Use `node --trace-)/u
         .test(trimmed);
 }
 
