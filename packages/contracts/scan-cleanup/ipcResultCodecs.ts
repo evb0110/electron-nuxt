@@ -469,7 +469,13 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             || metadata.renderRegion.yPx + metadata.renderRegion.heightPx > metadata.outputHeightPx
         )
     ) {
-        throw new Error('invalid scan-cleanup preview render region');
+        throw new Error(
+            `invalid scan-cleanup preview render region ${JSON.stringify({
+                outputHeightPx: metadata.outputHeightPx,
+                outputWidthPx: metadata.outputWidthPx,
+                renderRegion: metadata.renderRegion,
+            })}`,
+        );
     }
     return metadata;
 }

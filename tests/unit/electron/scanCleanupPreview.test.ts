@@ -1564,10 +1564,10 @@ describe('scan cleanup preview', () => {
             await writeFile(output.outputPath, pngWithDimensions(region.widthPx, region.heightPx));
             await writeFile(output.metadataPath, JSON.stringify({
                 ...metadata,
-                outputWidthPx: 2_000,
-                outputHeightPx: 3_000,
-                canvasWidthPx: 2_000,
-                canvasHeightPx: 3_000,
+                outputWidthPx: 4_000,
+                outputHeightPx: 6_000,
+                canvasWidthPx: 4_000,
+                canvasHeightPx: 6_000,
                 sourceDpi: 300,
                 renderDpi: 300,
                 requestedRenderDpi: 300,
@@ -4208,29 +4208,26 @@ describe('scan cleanup preview', () => {
                     const pageNumber = page.sourcePageIndex + 1;
                     const widthPx = pageNumber === 1 ? 60 : 100;
                     const heightPx = pageNumber === 1 ? 120 : 140;
+                    const sourceRegion = {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx,
+                        heightPx,
+                    };
                     await writeFile(page.pageMetadataPath, JSON.stringify({
+                        canvasScope: 'page',
                         layoutClassification: 'single-uncut-page',
+                        layoutConfidence: 0.9,
                         cutterXPx: null,
                         rotationDegrees: 0,
-                        canvasScope: 'page',
                         excluded: false,
                         blankOutputsSkipped: 0,
                         outputCount: 1,
                         outputs: [{
                             half: 'full',
-                            sourceRegion: {
-                                xPx: 0,
-                                yPx: 0,
-                                widthPx,
-                                heightPx,
-                            },
+                            sourceRegion,
                             contentBox: null,
-                            cropRect: {
-                                xPx: 0,
-                                yPx: 0,
-                                widthPx,
-                                heightPx,
-                            },
+                            cropRect: sourceRegion,
                             appliedMargins: {
                                 leftPx: 0,
                                 topPx: 0,

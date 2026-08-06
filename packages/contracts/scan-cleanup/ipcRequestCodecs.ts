@@ -217,7 +217,7 @@ function decodeRetainedPages(value: unknown) {
     if (!Array.isArray(value) || value.length > SCAN_CLEANUP_RETAIN_PAGES_MAX) {
         throw new Error('invalid scan-cleanup retained preview pages');
     }
-    return value.map(page => decodeScanCleanupPageNumber(page, 'retained preview page'));
+    return value.map(page => decodeScanCleanupPageNumber(page, 'retained preview pages'));
 }
 
 export function decodePreviewCancelArgs(args: readonly unknown[]) {
