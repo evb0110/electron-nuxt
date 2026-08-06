@@ -264,6 +264,9 @@ const corpusOptions = {
 // The production preview service makes the durable Auto decision at 150 DPI.
 // Verify that decision on the same grid, then replay it on final-quality input.
 const DETECTION_DPI = 150;
+// Roughly 1.5 pixels at 720 DPI: enough for integer bbox rounding without
+// allowing the ledger entry to absorb a neighboring scanner-edge component.
+const SCANNER_BOUNDARY_BBOX_TOLERANCE_MM = 0.05;
 const OUTPUT_MODES = [
     'bw',
     'grayscale',
@@ -327,6 +330,40 @@ export function resolveFixtureExpectations(fixture, canonicalExpected) {
             throw new Error(`Invalid expectedModeDistribution for fixture "${fixture.id}"`);
         }
         resolved.expectedModeDistribution = {...distribution};
+    }
+    if (resolved.scannerBoundaryExceptions !== undefined) {
+        const exceptions = resolved.scannerBoundaryExceptions;
+        const valid = Array.isArray(exceptions)
+            && exceptions.length > 0
+            && exceptions.every(exception =>
+                exception !== null
+                && typeof exception === 'object'
+                && Number.isSafeInteger(exception.page)
+                && exception.page > 0
+                && typeof exception.reason === 'string'
+                && exception.reason.trim() !== ''
+                && exception.bboxMm !== null
+                && typeof exception.bboxMm === 'object'
+                && [
+                    'height',
+                    'left',
+                    'top',
+                    'width',
+                ].every(key =>
+                    typeof exception.bboxMm[key] === 'number'
+                    && Number.isFinite(exception.bboxMm[key])
+                    && exception.bboxMm[key] >= 0,
+                )
+                && exception.bboxMm.width > 0
+                && exception.bboxMm.height > 0,
+            );
+        if (!valid) {
+            throw new Error(`Invalid expected scannerBoundaryExceptions for fixture "${fixture.id}"`);
+        }
+        resolved.scannerBoundaryExceptions = exceptions.map(exception => ({
+            ...exception,
+            bboxMm: {...exception.bboxMm},
+        }));
     }
     return resolved;
 }
@@ -1121,6 +1158,68 @@ export function scannerBoundaryComponents(components, width, height, dpi) {
             && component.width >= minimumThickness;
         return leftBoundary || rightBoundary;
     });
+}
+
+function scannerBoundaryPhysicalBbox(component) {
+    const millimetersPerPixel = 25.4 / component.dpi;
+    return {
+        height: component.height * millimetersPerPixel,
+        left: component.left * millimetersPerPixel,
+        top: component.top * millimetersPerPixel,
+        width: component.width * millimetersPerPixel,
+    };
+}
+
+export function reconcileScannerBoundaryExceptions(artifacts, exceptions) {
+    const usedArtifacts = new Set();
+    const matched = [];
+    const stale = [];
+    for (const exception of exceptions) {
+        const candidates = artifacts.flatMap((artifact, index) => {
+            if (
+                usedArtifacts.has(index)
+                || artifact.pdfPage !== exception.page
+                || !Number.isFinite(artifact.dpi)
+                || artifact.dpi <= 0
+            ) {
+                return [];
+            }
+            const bboxMm = scannerBoundaryPhysicalBbox(artifact);
+            const bboxMatches = [
+                'height',
+                'left',
+                'top',
+                'width',
+            ].every(key =>
+                Math.abs(bboxMm[key] - exception.bboxMm[key])
+                    <= SCANNER_BOUNDARY_BBOX_TOLERANCE_MM,
+            );
+            return bboxMatches ? [{
+                artifact,
+                bboxMm,
+                index,
+            }] : [];
+        });
+        if (candidates.length !== 1) {
+            stale.push({
+                ...exception,
+                matchCount: candidates.length,
+            });
+            continue;
+        }
+        const [candidate] = candidates;
+        usedArtifacts.add(candidate.index);
+        matched.push({
+            artifact: candidate.artifact,
+            bboxMm: candidate.bboxMm,
+            exception,
+        });
+    }
+    return {
+        matched,
+        stale,
+        unexpected: artifacts.filter((_, index) => !usedArtifacts.has(index)),
+    };
 }
 
 function timingStats(records) {
@@ -1972,7 +2071,9 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             extractedImageBytes(sourceRawPrefix, sourceImages),
             extractedImageBytes(outputRawPrefix, outputImages),
         ]);
-        const maximumBilevelBytes = Math.ceil(sourcePageImageBytes * 1.5);
+        // The intentional 2x thresholding grid preserves finer bilevel
+        // contours, which modestly increases the encoded JBIG2/CCITT stream.
+        const maximumBilevelBytes = Math.ceil(sourcePageImageBytes * 1.65);
         const bilevelBudgetPassed = outputPageImageBytes <= maximumBilevelBytes;
         pageClassSizeBudgets.push({
             class: 'bilevel',
@@ -2101,16 +2202,32 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     }) =>
         artifacts.map(component => ({
             ...component,
+            dpi: page.renderDpi,
             pdfPage: page.pdfPage,
         })),
     );
+    const boundaryReconciliation = reconcileScannerBoundaryExceptions(
+        boundaryArtifacts,
+        expectedFixture?.scannerBoundaryExceptions ?? [],
+    );
     report.add(
-        'layered foregrounds contain no vertical scanner-boundary components',
-        boundaryArtifacts.length === 0,
-        boundaryArtifacts.length === 0
+        'configured scanner-boundary exceptions match one-to-one',
+        boundaryReconciliation.stale.length === 0,
+        boundaryReconciliation.stale.length === 0
+            ? `${boundaryReconciliation.matched.length} physical bbox exception(s) matched exactly once`
+            : boundaryReconciliation.stale.map(exception =>
+                `page ${String(exception.page)} ${exception.reason}: ${String(exception.matchCount)} match(es)`,
+            ).join('; '),
+    );
+    const unexpectedBoundaryArtifacts = boundaryReconciliation.unexpected;
+    report.add(
+        'layered foregrounds contain no unexpected vertical scanner-boundary components',
+        unexpectedBoundaryArtifacts.length === 0,
+        unexpectedBoundaryArtifacts.length === 0
             ? `${reconstructedLayeredPages.length} reconstructed layer(s) inspected; `
-                + `${sourceMrcLayeredCount} source-MRC layer(s) covered by exact-mask structure`
-            : boundaryArtifacts.slice(0, 8).map(component =>
+                + `${sourceMrcLayeredCount} source-MRC layer(s) covered by exact-mask structure; `
+                + `${boundaryReconciliation.matched.length} ledger exception(s) consumed`
+            : unexpectedBoundaryArtifacts.slice(0, 8).map(component =>
                 `page ${String(component.pdfPage)} ${String(component.width)}x${String(component.height)}`
                 + `+${String(component.left)}+${String(component.top)} area=${String(component.area)}`,
             ).join('; '),

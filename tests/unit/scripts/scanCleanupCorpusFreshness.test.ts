@@ -59,6 +59,31 @@ interface ICorpusVerifyModule {
         top: number;
         width: number;
     }>;
+    reconcileScannerBoundaryExceptions: (
+        artifacts: Array<{
+            area: number;
+            dpi: number;
+            height: number;
+            left: number;
+            pdfPage: number;
+            top: number;
+            width: number;
+        }>,
+        exceptions: Array<{
+            bboxMm: {
+                height: number;
+                left: number;
+                top: number;
+                width: number;
+            };
+            page: number;
+            reason: string;
+        }>,
+    ) => {
+        matched: unknown[];
+        stale: unknown[];
+        unexpected: unknown[];
+    };
     resolveFixtureExpectations: (
         fixture: Record<string, unknown>,
         canonicalExpected?: Record<string, unknown>,
@@ -103,6 +128,7 @@ const {
     parseConnectedComponents,
     parsePdfImages,
     parseQpdfPageContentCounts,
+    reconcileScannerBoundaryExceptions,
     resolveFixtureExpectations,
     resolveFixtureOptions,
     resolveFixturePages,
@@ -386,5 +412,73 @@ page 2: 4 0 R
             left: 72,
             width: 355,
         })]);
+    });
+
+    const torchStaffException = {
+        bboxMm: {
+            height: 83.15,
+            left: 15.66,
+            top: 23.95,
+            width: 6.17,
+        },
+        page: 2,
+        reason: 'legitimate vertical torch/staff drawing',
+    };
+    const torchStaffArtifact = {
+        area: 62_284,
+        dpi: 720,
+        height: 2_357,
+        left: 444,
+        pdfPage: 2,
+        top: 679,
+        width: 175,
+    };
+
+    it('consumes the tracked torch/staff physical bbox exactly once', () => {
+        expect(reconcileScannerBoundaryExceptions(
+            [torchStaffArtifact],
+            [torchStaffException],
+        )).toMatchObject({
+            matched: [{artifact: torchStaffArtifact}],
+            stale: [],
+            unexpected: [],
+        });
+    });
+
+    it('fails a drifted torch/staff bbox as both stale and unexpected', () => {
+        const drifted = {
+            ...torchStaffArtifact,
+            left: torchStaffArtifact.left + 2,
+        };
+        expect(reconcileScannerBoundaryExceptions(
+            [drifted],
+            [torchStaffException],
+        )).toMatchObject({
+            matched: [],
+            stale: [expect.objectContaining({matchCount: 0})],
+            unexpected: [drifted],
+        });
+    });
+
+    it('does not let the torch/staff exception hide another boundary artifact', () => {
+        const other = {
+            ...torchStaffArtifact,
+            area: 90_000,
+            height: 1_400,
+            left: 0,
+            top: 300,
+            width: 80,
+        };
+        expect(reconcileScannerBoundaryExceptions(
+            [
+                torchStaffArtifact,
+                other,
+            ],
+            [torchStaffException],
+        )).toMatchObject({
+            matched: [{artifact: torchStaffArtifact}],
+            stale: [],
+            unexpected: [other],
+        });
     });
 });

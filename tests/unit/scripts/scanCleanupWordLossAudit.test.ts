@@ -65,7 +65,7 @@ interface ISyntheticRaster {
     width: number;
 }
 
-type TSyntheticCleanedVariant = 'equal' | 'invented' | 'thick';
+type TSyntheticCleanedVariant = 'equal' | 'invented' | 'scaled-islands' | 'scaled-local-shift' | 'thick';
 
 function buildRasterPdf({
     bitsPerComponent,
@@ -148,9 +148,15 @@ function buildSyntheticSourceRaster(bitsPerComponent = 8): ISyntheticRaster {
     const width = 160;
     const height = 160;
     const pixels = new Uint8Array(width * height).fill(255);
-    for (let y = 32; y < 56; y += 1) {
-        for (let x = 24; x < 48; x += 1) {
-            pixels[y * width + x] = 40;
+    for (const left of [
+        24,
+        76,
+        128,
+    ]) {
+        for (let y = 32; y < 56; y += 1) {
+            for (let x = left; x < left + 10; x += 1) {
+                pixels[y * width + x] = 40;
+            }
         }
     }
     return {
@@ -176,33 +182,59 @@ function buildSyntheticCleanedRaster(
             pixels[y * width + x] = 1;
         }
     };
-    const [
-        left,
-        top,
-        right,
-        bottom,
-    ] = variant === 'thick'
-        ? [
-            22,
-            30,
-            50,
-            58,
-        ]
-        : [
-            24,
-            32,
-            48,
-            56,
-        ];
-    for (let y = top * scale; y < bottom * scale; y += 1) {
-        for (let x = left * scale; x < right * scale; x += 1) {
-            setPixel(x, y);
+    const sourceLefts = [
+        24,
+        76,
+        128,
+    ];
+    for (const [
+        index,
+        sourceLeft,
+    ] of sourceLefts.entries()) {
+        const thickness = variant === 'thick' ? 2 : 0;
+        const localShift = variant === 'scaled-local-shift' && index === 0 ? 14 : 0;
+        const left = sourceLeft * scale - thickness + localShift;
+        const top = 32 * scale - thickness;
+        const right = (sourceLeft + 10) * scale + thickness + localShift;
+        const bottom = 56 * scale + thickness;
+        for (let y = top; y < bottom; y += 1) {
+            for (let x = left; x < right; x += 1) {
+                setPixel(x, y);
+            }
         }
     }
     if (variant === 'invented') {
         for (let y = 86 * scale; y < 106 * scale; y += 1) {
             for (let x = 72 * scale; x < 136 * scale; x += 1) {
                 setPixel(x, y);
+            }
+        }
+    }
+    if (variant === 'scaled-islands') {
+        const islands = [
+            [
+                100,
+                180,
+                20,
+                30,
+            ],
+            [
+                200,
+                180,
+                30,
+                30,
+            ],
+        ] as const;
+        for (const [
+            left,
+            top,
+            islandWidth,
+            islandHeight,
+        ] of islands) {
+            for (let y = top; y < top + islandHeight; y += 1) {
+                for (let x = left; x < left + islandWidth; x += 1) {
+                    setPixel(x, y);
+                }
             }
         }
     }
@@ -407,9 +439,11 @@ describe('scan-cleanup invented-ink audit', () => {
                 attemptedScales?: string[];
                 scale?: string;
                 scaleX?: number;
+                scaleY?: number;
             };
             auditDilationRadius?: number;
             components?: Array<{
+                area?: number;
                 bbox?: {
                     height?: number;
                     width?: number;
@@ -424,7 +458,13 @@ describe('scan-cleanup invented-ink audit', () => {
             inventedInkFraction?: number;
             inventedSourceSupport?: {
                 alignmentRadiusPx?: number;
+                minimumComponentArea?: number;
                 minimumUnsupportedComponentArea?: number;
+            };
+            localRealignment?: {
+                improvedComponents?: number;
+                maxShiftDistance?: number;
+                radiusPx?: number;
             };
             lostCount?: number;
         }>;};
@@ -535,5 +575,66 @@ describe('scan-cleanup invented-ink audit', () => {
             }),
             classification: 'invented',
         })]));
+    }, 30_000);
+
+    it('uses output-grid areas so only the larger unsupported 2x island flags', async () => {
+        const result = await runSyntheticCase('scaled-islands', {
+            mapped: true,
+            scale: 2,
+        });
+
+        expect(result.exitCode).toBe(1);
+        expect(result.page).toMatchObject({
+            alignment: {
+                scaleX: 2,
+                scaleY: 2,
+            },
+            inventedCount: 1,
+            inventedFlagged: true,
+            inventedSourceSupport: {
+                alignmentRadiusPx: 16,
+                minimumComponentArea: 96,
+                minimumUnsupportedComponentArea: 800,
+            },
+        });
+        expect(result.page.components).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                area: 600,
+                bbox: expect.objectContaining({
+                    height: 30,
+                    width: 20,
+                }),
+                classification: 'ignored-dust',
+            }),
+            expect.objectContaining({
+                area: 900,
+                bbox: expect.objectContaining({
+                    height: 30,
+                    width: 30,
+                }),
+                classification: 'invented',
+            }),
+        ]));
+    }, 30_000);
+
+    it('scales local component tolerance and dilation on a fitted 2x grid', async () => {
+        const result = await runSyntheticCase('scaled-local-shift', {
+            mapped: true,
+            scale: 2,
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.page).toMatchObject({
+            alignment: {
+                scaleX: 2,
+                scaleY: 2,
+            },
+            auditDilationRadius: 2,
+            flagged: false,
+            inventedCount: 0,
+            localRealignment: {radiusPx: 16},
+        });
+        expect(result.page.localRealignment?.improvedComponents).toBeGreaterThan(0);
+        expect(result.page.localRealignment?.maxShiftDistance).toBeGreaterThan(8);
     }, 30_000);
 });

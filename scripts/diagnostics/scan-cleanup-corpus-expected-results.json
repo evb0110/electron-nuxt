@@ -7,6 +7,20 @@
     "rome-raw-body": {
       "requireOutputSmallerThanSource": true
     },
+    "rome-raw-regress": {
+      "scannerBoundaryExceptions": [
+        {
+          "page": 2,
+          "bboxMm": {
+            "left": 15.66,
+            "top": 23.95,
+            "width": 6.17,
+            "height": 83.15
+          },
+          "reason": "legitimate vertical torch/staff drawing"
+        }
+      ]
+    },
     "luther-p6-9": {
       "expectedOutputBytes": 727236,
       "pages": {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable max-lines -- The audit keeps its extraction, matching, and report policy in one inspectable CLI. */
 
 import {spawn} from 'node:child_process';
 import {inflateSync} from 'node:zlib';
@@ -1343,6 +1344,20 @@ function dilateBitmap(bitmap, radius) {
     return result;
 }
 
+function resolveOutputGridTolerances(alignment) {
+    const scaleX = Math.max(1, Math.abs(alignment.scaleX ?? alignment.scale));
+    const scaleY = Math.max(1, Math.abs(alignment.scaleY ?? alignment.scale));
+    return {
+        areaScale: scaleX * scaleY,
+        localRadiusX: Math.max(1, Math.ceil(
+            LOCAL_ALIGNMENT_RADIUS_FULL_PX * Math.min(MAPPED_STENCIL_MAX_DILATION_RADIUS, scaleX),
+        )),
+        localRadiusY: Math.max(1, Math.ceil(
+            LOCAL_ALIGNMENT_RADIUS_FULL_PX * Math.min(MAPPED_STENCIL_MAX_DILATION_RADIUS, scaleY),
+        )),
+    };
+}
+
 function resolveAuditDilationRadius(cleanedRow, mappingActive, alignment) {
     if (!mappingActive || cleanedRow.type !== 'stencil') {
         return 1;
@@ -1493,14 +1508,14 @@ function countMappedComponentCoverage(mapped, target, deltaX = 0, deltaY = 0) {
     return overlap;
 }
 
-function searchLocalComponentCoverage(mapped, target, initialCount) {
+function searchLocalComponentCoverage(mapped, target, initialCount, radiusX, radiusY) {
     let best = {
         dx: 0,
         dy: 0,
         score: initialCount,
     };
-    for (let dy = -LOCAL_ALIGNMENT_RADIUS_FULL_PX; dy <= LOCAL_ALIGNMENT_RADIUS_FULL_PX; dy += 1) {
-        for (let dx = -LOCAL_ALIGNMENT_RADIUS_FULL_PX; dx <= LOCAL_ALIGNMENT_RADIUS_FULL_PX; dx += 1) {
+    for (let dy = -radiusY; dy <= radiusY; dy += 1) {
+        for (let dx = -radiusX; dx <= radiusX; dx += 1) {
             const candidate = {
                 dx,
                 dy,
@@ -1534,14 +1549,14 @@ function countComponentSupport(component, sourceSupport, deltaX = 0, deltaY = 0)
     return supported;
 }
 
-function searchLocalComponentSupport(component, sourceSupport, initialCount, radius) {
+function searchLocalComponentSupport(component, sourceSupport, initialCount, radiusX, radiusY) {
     let best = {
         dx: 0,
         dy: 0,
         score: initialCount,
     };
-    for (let dy = -radius; dy <= radius; dy += 1) {
-        for (let dx = -radius; dx <= radius; dx += 1) {
+    for (let dy = -radiusY; dy <= radiusY; dy += 1) {
+        for (let dx = -radiusX; dx <= radiusX; dx += 1) {
             const candidate = {
                 dx,
                 dy,
@@ -1685,6 +1700,10 @@ function analyzeComponents(
     let localImprovedCount = 0;
     let maxLocalCoverageGain = 0;
     let maxLocalShiftDistance = 0;
+    const {
+        localRadiusX,
+        localRadiusY,
+    } = resolveOutputGridTolerances(alignment);
     const xMap = makeScaleMap(source.width, alignment.scaleX ?? alignment.scale);
     const yMap = makeScaleMap(source.height, alignment.scaleY ?? alignment.scale);
     for (const component of sourceComponents) {
@@ -1758,6 +1777,8 @@ function analyzeComponents(
                 mapped,
                 cleanedDilated,
                 globalCoveredPixels,
+                localRadiusX,
+                localRadiusY,
             );
             localDx = local.dx;
             localDy = local.dy;
@@ -1847,7 +1868,9 @@ function analyzeComponents(
             improvedComponents: localImprovedCount,
             maxCoverageGain: roundNumber(maxLocalCoverageGain),
             maxShiftDistance: maxLocalShiftDistance,
-            radiusPx: LOCAL_ALIGNMENT_RADIUS_FULL_PX,
+            radiusPx: Math.max(localRadiusX, localRadiusY),
+            radiusXPx: localRadiusX,
+            radiusYPx: localRadiusY,
             searchedComponents: localSearchCount,
         },
         textInkPixels,
@@ -2007,7 +2030,8 @@ function histogramPercentile(histogram, sampleCount, fraction) {
 function markSourceSupportForComponent({
     alignment,
     component,
-    localAlignmentRadius,
+    paddingX,
+    paddingY,
     sourceGray,
     supportPixels,
     targetHeight,
@@ -2015,12 +2039,11 @@ function markSourceSupportForComponent({
     xMap,
     yMap,
 }) {
-    const padding = localAlignmentRadius;
     const bbox = {
-        height: component.height + padding * 2,
-        width: component.width + padding * 2,
-        x: component.x - padding,
-        y: component.y - padding,
+        height: component.height + paddingY * 2,
+        width: component.width + paddingX * 2,
+        x: component.x - paddingX,
+        y: component.y - paddingY,
     };
     const histogram = sourceRegionHistogram(sourceGray, bbox, alignment);
     const paperFloor = Math.max(
@@ -2070,16 +2093,18 @@ function markSourceSupportForComponent({
 }
 
 function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
-    const scaleX = alignment.scaleX ?? alignment.scale;
-    const scaleY = alignment.scaleY ?? alignment.scale;
-    const areaScale = Math.max(1, scaleX * scaleY);
-    const cappedLinearScale = Math.min(MAPPED_STENCIL_MAX_DILATION_RADIUS, Math.max(1, scaleX, scaleY));
-    const targetMinArea = Math.ceil(minArea * areaScale);
-    const localAlignmentRadius = Math.ceil(LOCAL_ALIGNMENT_RADIUS_FULL_PX * cappedLinearScale);
-    const dustArea = Math.max(targetMinArea, Math.ceil(200 * areaScale));
+    const {
+        areaScale,
+        localRadiusX,
+        localRadiusY,
+    } = resolveOutputGridTolerances(alignment);
+    const minimumComponentArea = Math.ceil(minArea * areaScale);
+    const dustArea = Math.ceil(Math.max(minArea, 200) * areaScale);
     const inventedUnsupportedArea = dustArea * INVENTED_UNSUPPORTED_AREA_FACTOR;
     const components = collectBinaryComponents(cleaned, true)
-        .filter(component => component.area >= targetMinArea);
+        .filter(component => component.area >= minimumComponentArea);
+    const scaleX = alignment.scaleX ?? alignment.scale;
+    const scaleY = alignment.scaleY ?? alignment.scale;
     const supportPixels = new Uint8Array(cleaned.width * cleaned.height);
     const xMap = makeScaleMap(sourceGray.width, scaleX);
     const yMap = makeScaleMap(sourceGray.height, scaleY);
@@ -2091,7 +2116,8 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
         const support = markSourceSupportForComponent({
             alignment,
             component,
-            localAlignmentRadius,
+            paddingX: localRadiusX,
+            paddingY: localRadiusY,
             sourceGray,
             supportPixels,
             targetHeight: cleaned.height,
@@ -2106,7 +2132,7 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
     }
     const sourceSupport = dilateBitmap(
         makeBitmap(cleaned.width, cleaned.height, supportPixels),
-        localAlignmentRadius,
+        Math.max(localRadiusX, localRadiusY),
     );
     const cleanedComponentLabels = new Int32Array(cleaned.width * cleaned.height);
     const unsupportedBitmap = new Uint8Array(cleaned.width * cleaned.height);
@@ -2123,7 +2149,8 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
                 component,
                 sourceSupport,
                 globalSupportedPixels,
-                localAlignmentRadius,
+                localRadiusX,
+                localRadiusY,
             )
             : {
                 dx: 0,
@@ -2227,12 +2254,15 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
             : inventedInkPixels / cleaned.blackCount,
         inventedInkPixels,
         sourceSupport: {
-            alignmentRadiusPx: localAlignmentRadius,
+            alignmentRadiusPx: Math.max(localRadiusX, localRadiusY),
+            alignmentRadiusXPx: localRadiusX,
+            alignmentRadiusYPx: localRadiusY,
             maximumPaperFloor,
             maximumPaperReference,
             minimumPaperFloor: components.length === 0 ? null : minimumPaperFloor,
             minimumPaperReference: components.length === 0 ? null : minimumPaperReference,
             paperDelta: SOURCE_SUPPORT_PAPER_DELTA,
+            minimumComponentArea,
             minimumComponentFillRatio: INVENTED_MIN_COMPONENT_FILL_RATIO,
             minimumUnsupportedComponentArea: inventedUnsupportedArea,
         },
@@ -3333,7 +3363,7 @@ async function main() {
                     minAreaMillimeters: SILHOUETTE_MIN_SIZE_MM,
                     minFillRatio: 0.8,
                 },
-                version: 3,
+                version: 4,
             },
         };
         if (options.baseline) {
