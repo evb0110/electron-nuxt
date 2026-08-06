@@ -193,6 +193,10 @@ async function openScanCleanup(page: Page, sourcePath: string) {
             ?.readActiveWorkspaceStateValues?.(['originalPath']);
         return active?.originalPath === expectedPath;
     }, {timeout: 180_000}, sourcePath);
+    await waitForFunctionInPage(page, () => {
+        const toolbar = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+        return toolbar?.initialVisualReady === true && toolbar.totalPages > 0;
+    }, {timeout: 30_000});
     await clickVisibleToolbarButton(page, 'Scan cleanup');
     await page.waitForSelector('.scan-cleanup-surface', {
         timeout: 30_000,
@@ -372,7 +376,10 @@ const readRunState = (page: Page) => evaluateInPage(page, () => {
     const active = (window as IWorkspaceExposeProbeWindow)
         .__evbTestApi
         ?.readActiveWorkspaceStateValues?.(['originalPath']);
+    const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
     return {
+        actionDisabled: action?.disabled ?? true,
+        actionLabel: action?.textContent?.trim() ?? '',
         originalPath: typeof active?.originalPath === 'string' ? active.originalPath : '',
         error: text('[role="alert"]'),
         phase: text('.scan-cleanup-run-meter-phase'),
@@ -380,12 +387,46 @@ const readRunState = (page: Page) => evaluateInPage(page, () => {
         running: document.querySelector('.scan-cleanup-run-meter') !== null,
     };
 }) as Promise<{
+    actionDisabled: boolean;
+    actionLabel: string;
     originalPath: string;
     error: string;
     phase: string;
     percent: string;
     running: boolean;
 }>;
+
+async function startCleanupRun(page: Page, sourcePath: string, labelIncludes = 'Clean up') {
+    await waitForFunctionInPage(page, (
+        expectedPath: string,
+        expectedLabel: string,
+    ) => {
+        const active = (window as IWorkspaceExposeProbeWindow)
+            .__evbTestApi
+            ?.readActiveWorkspaceStateValues?.(['originalPath']);
+        const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
+        return active?.originalPath === expectedPath
+            && action?.disabled === false
+            && (action.textContent ?? '').includes(expectedLabel);
+    }, {timeout: 30_000}, sourcePath, labelIncludes);
+    await page.click('.scan-cleanup-toolbar-primary-action');
+    await waitForFunctionInPage(page, (expectedPath: string) => {
+        const active = (window as IWorkspaceExposeProbeWindow)
+            .__evbTestApi
+            ?.readActiveWorkspaceStateValues?.(['originalPath']);
+        const actionLabel = document.querySelector<HTMLButtonElement>(
+            '.scan-cleanup-toolbar-primary-action',
+        )?.textContent ?? '';
+        return document.querySelector('.scan-cleanup-run-meter') !== null
+            || actionLabel.includes('Cancel')
+            || document.querySelector('[role="alert"]') !== null
+            || (typeof active?.originalPath === 'string' && active.originalPath !== expectedPath);
+    }, {timeout: 10_000}, sourcePath);
+    const acknowledged = await readRunState(page);
+    if (acknowledged.error) {
+        throw new Error(`Scan cleanup failed to start: ${acknowledged.error}`);
+    }
+}
 
 interface IRendererHeartbeatWindow extends Window {__scanCleanupRendererHeartbeat?: {
     intervalId: number;
@@ -560,7 +601,7 @@ describe('scan cleanup matched page canvas', () => {
             '.scan-cleanup-toolbar-primary-action',
         )?.textContent ?? '').includes('page'), {timeout: 30_000});
 
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await startCleanupRun(page, representativePdfPath, 'page');
         const run = await waitForCleanedOutput(page, representativePdfPath, RUN_TIMEOUT_MS);
         await waitForPdfLoaded(page, 60_000);
         await waitForViewerInteractive(page, 60_000);
@@ -702,7 +743,7 @@ describe('scan cleanup matched page canvas', () => {
             heightPoints: (previewFrames[0]?.height ?? 0) / (previewFrames[0]?.renderDpi ?? 1) * 72,
         };
 
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await startCleanupRun(page, sourcePath);
         const run = await waitForCleanedOutput(page, sourcePath, RUN_TIMEOUT_MS);
         const outputPath = run.outputPath;
         // The generated document is what the user is left looking at, so it has
@@ -776,7 +817,7 @@ describe('scan cleanup matched page canvas', () => {
             half,
         ] = sampled;
 
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await startCleanupRun(page, sourcePath);
         const run = await waitForCleanedOutput(page, sourcePath, RUN_TIMEOUT_MS);
         await waitForPdfLoaded(page, 180_000);
         await waitForViewerInteractive(page, 180_000);
@@ -872,7 +913,7 @@ describe('scan cleanup matched page canvas', () => {
         await waitForPreview(page, 1);
         const previewFrames = await readFrames(page);
 
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await startCleanupRun(page, sourcePath);
         const run = await waitForCleanedOutput(page, sourcePath, RUN_TIMEOUT_MS);
         await waitForPdfLoaded(page, 180_000);
         await waitForViewerInteractive(page, 180_000);
@@ -965,7 +1006,7 @@ describe('scan cleanup matched page canvas', () => {
             '.scan-cleanup-toolbar-primary-action',
         )?.textContent ?? '').includes('page'), {timeout: 30_000});
 
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await startCleanupRun(page, sourcePath, 'page');
         const run = await waitForCleanedOutput(page, sourcePath, RUN_TIMEOUT_MS);
         const output = await PDFDocument.load(readFileSync(run.outputPath));
         const outputPages = outputPageRasters(output);
@@ -1022,7 +1063,7 @@ describe('scan cleanup matched page canvas', () => {
         // cancel is clicked from inside the page the moment the affordance
         // appears: a round trip back to the test first is long enough for a
         // small document to finish, which would leave nothing to cancel.
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await startCleanupRun(page, sourcePath);
         await waitForFunctionInPage(page, () => {
             const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
             if (!(action?.textContent ?? '').includes('Cancel')) {
@@ -1031,9 +1072,16 @@ describe('scan cleanup matched page canvas', () => {
             action?.click();
             return true;
         }, {timeout: 300_000});
-        await waitForFunctionInPage(page, () => !(document.querySelector(
-            '.scan-cleanup-toolbar-primary-action',
-        )?.textContent ?? '').includes('Cancel'), {timeout: 300_000});
+        await waitForFunctionInPage(page, (expectedPath: string) => {
+            const active = (window as IWorkspaceExposeProbeWindow)
+                .__evbTestApi
+                ?.readActiveWorkspaceStateValues?.(['originalPath']);
+            const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
+            return active?.originalPath === expectedPath
+                && document.querySelector('.scan-cleanup-run-meter') === null
+                && action?.disabled === false
+                && (action.textContent ?? '').includes('Clean up');
+        }, {timeout: 300_000}, sourcePath);
         // The run was abandoned, not finished: the workspace is still the
         // source document rather than a generated one.
         expect((await readRunState(page)).originalPath).toBe(sourcePath);
@@ -1050,7 +1098,7 @@ describe('scan cleanup matched page canvas', () => {
 
         // Cancel is recoverable, not terminal: running again produces the
         // document the first attempt abandoned.
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await startCleanupRun(page, sourcePath);
         const retry = await waitForCleanedOutput(page, sourcePath, RUN_TIMEOUT_MS);
         await waitForPdfLoaded(page, 180_000);
         await waitForViewerInteractive(page, 180_000);
@@ -1117,7 +1165,7 @@ describe('scan cleanup matched page canvas', () => {
         await waitForPreview(page, 1);
 
         await startRendererHeartbeat(page);
-        await page.click('.scan-cleanup-toolbar-primary-action');
+        await startCleanupRun(page, sourcePath);
         const run = await waitForCleanedOutput(page, sourcePath, RUN_TIMEOUT_MS);
         const worstRendererStallMs = await stopRendererHeartbeat(page);
         await waitForPdfLoaded(page, 180_000);
