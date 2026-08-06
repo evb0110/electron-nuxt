@@ -221,7 +221,15 @@ interface IPreviewEntry {
     controller: AbortController;
     generation: number;
     pageNumber: number;
+    request: IScanCleanupPreviewRequest;
+    senderId: number;
     tail: Promise<TScanCleanupPreviewWireResult>;
+}
+
+interface IPreviewOwnerBinding {
+    handleDestroyed: () => void;
+    handleRenderProcessGone: () => void;
+    sender: IScanCleanupDetectionSubscriber;
 }
 
 interface IDetectionResult {results: TScanCleanupDetectionJobState['results'];}
@@ -2265,6 +2273,7 @@ export function createScanCleanupPreviewService(
     dependencies: IScanCleanupPreviewDependencies = defaultDependencies,
 ): IScanCleanupPreviewService {
     const active = new Map<string, IPreviewEntry>();
+    const previewOwnerBindings = new Map<number, IPreviewOwnerBinding>();
     const rawRasterRetention = createRawRasterRetention(dependencies);
     const baseAnalysisCache = new Map<string, IBasePreviewAnalysis>();
     // Streamed detection events carry new *and revised* page classifications.
@@ -2467,6 +2476,92 @@ export function createScanCleanupPreviewService(
             detail === undefined ? '' : JSON.stringify(detail)
         }`;
     };
+    const removePreviewOwnerBinding = (senderId: number) => {
+        const binding = previewOwnerBindings.get(senderId);
+        if (!binding) {
+            return;
+        }
+        binding.sender.removeListener('destroyed', binding.handleDestroyed);
+        binding.sender.removeListener('render-process-gone', binding.handleRenderProcessGone);
+        previewOwnerBindings.delete(senderId);
+    };
+    const unregisterPreviewOwnerIfIdle = (senderId: number) => {
+        for (const entry of active.values()) {
+            if (entry.senderId === senderId) {
+                return;
+            }
+        }
+        removePreviewOwnerBinding(senderId);
+    };
+    const cancelPreviewRequest = (
+        sender: IScanCleanupDetectionSubscriber,
+        request: IScanCleanupPreviewCancelRequest,
+        reason: string,
+    ) => {
+        const documentPrefix = previewDocumentPrefix(sender, request);
+        const retained = new Set(request.retainPages ?? []);
+        let canceled = false;
+        for (const [
+            key,
+            entry,
+        ] of active) {
+            if (key.startsWith(documentPrefix) && !retained.has(entry.pageNumber)) {
+                entry.controller.abort(new DOMException(reason, 'AbortError'));
+                canceled = true;
+            }
+        }
+        if (request.retainPages === undefined) visiblePages.delete(documentPrefix);
+        if (request.invalidateRawCache !== false) {
+            rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);
+            for (const [
+                key,
+                analysis,
+            ] of baseAnalysisCache) {
+                if (
+                    analysis.sourcePdfPath === request.sourcePdfPath
+                    && analysis.documentRevision === request.documentRevision
+                ) {
+                    baseAnalysisCache.delete(key);
+                    void removeBaseAnalysisArtifacts(analysis);
+                }
+            }
+        }
+        unregisterPreviewOwnerIfIdle(sender.id);
+        return canceled;
+    };
+    const cancelPreviewOwner = (sender: IScanCleanupDetectionSubscriber, reason: string) => {
+        const requests = new Map<string, IScanCleanupPreviewCancelRequest>();
+        for (const entry of active.values()) {
+            if (entry.senderId !== sender.id) continue;
+            const request = {
+                ownerId: entry.request.ownerId,
+                documentRevision: entry.request.documentRevision,
+                sourcePdfPath: entry.request.sourcePdfPath,
+            } satisfies IScanCleanupPreviewCancelRequest;
+            requests.set(previewDocumentPrefix(sender, request), request);
+        }
+        for (const request of requests.values()) cancelPreviewRequest(sender, request, reason);
+        removePreviewOwnerBinding(sender.id);
+    };
+    const registerPreviewOwner = (sender: IScanCleanupDetectionSubscriber) => {
+        if (previewOwnerBindings.has(sender.id)) {
+            return;
+        }
+        if (sender.isDestroyed()) {
+            cancelPreviewOwner(sender, 'Renderer destroyed');
+            return;
+        }
+        const handleDestroyed = () => cancelPreviewOwner(sender, 'Renderer destroyed');
+        const handleRenderProcessGone = () => cancelPreviewOwner(sender, 'Renderer process gone');
+        previewOwnerBindings.set(sender.id, {
+            handleDestroyed,
+            handleRenderProcessGone,
+            sender,
+        });
+        sender.once('destroyed', handleDestroyed);
+        sender.once('render-process-gone', handleRenderProcessGone);
+        if (sender.isDestroyed()) handleDestroyed();
+    };
     return {
         async dispose() {
             for (const entry of active.values()) {
@@ -2474,6 +2569,7 @@ export function createScanCleanupPreviewService(
             }
             await Promise.allSettled([...active.values()].map(entry => entry.tail));
             active.clear();
+            for (const senderId of previewOwnerBindings.keys()) removePreviewOwnerBinding(senderId);
             await detectionJobs.clearForTests();
             visiblePages.clear();
             deliveredDetectionResults.clear();
@@ -2481,6 +2577,10 @@ export function createScanCleanupPreviewService(
             await rawRasterRetention.dispose();
         },
         preview(sender, request) {
+            if (sender.isDestroyed()) {
+                cancelPreviewOwner(sender, 'Renderer destroyed');
+                return Promise.resolve({canceled: true} as const);
+            }
             const documentPrefix = abortStalePreviewRequests(sender, request);
             // The renderer names the page the user is looking at on the request
             // that will display it; everything else is an adjacent prefetch.
@@ -2582,8 +2682,11 @@ export function createScanCleanupPreviewService(
                 controller,
                 generation,
                 pageNumber: request.pageNumber,
+                request,
+                senderId: sender.id,
                 tail,
             });
+            registerPreviewOwner(sender);
             if (admission.visibility === 'prefetch') {
                 const drop = setTimeout(() => {
                     if (admission.granted || admission.visibility !== 'prefetch') {
@@ -2595,46 +2698,12 @@ export function createScanCleanupPreviewService(
             }
             void tail.finally(() => {
                 if (active.get(activeKey)?.generation === generation) active.delete(activeKey);
+                unregisterPreviewOwnerIfIdle(sender.id);
             }).catch(() => undefined);
             return tail;
         },
         cancel(sender, request) {
-            const documentPrefix = previewDocumentPrefix(sender, request);
-            // A navigation names the pages it is moving into; only work for
-            // pages outside that window is discarded. Without a window the
-            // caller means the whole document: a settings change, a new
-            // revision, or a session shutting down.
-            const retained = new Set(request.retainPages ?? []);
-            let canceled = false;
-            for (const [
-                key,
-                entry,
-            ] of active) {
-                if (key.startsWith(documentPrefix) && !retained.has(entry.pageNumber)) {
-                    entry.controller.abort(new DOMException('Canceled scan cleanup preview', 'AbortError'));
-                    canceled = true;
-                }
-            }
-            // A windowed cancellation is always issued for a navigation that
-            // still wants the visible page, so only a whole-document
-            // cancellation forgets which page that is.
-            if (request.retainPages === undefined) visiblePages.delete(documentPrefix);
-            if (request.invalidateRawCache !== false) {
-                rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);
-                for (const [
-                    key,
-                    analysis,
-                ] of baseAnalysisCache) {
-                    if (
-                        analysis.sourcePdfPath === request.sourcePdfPath
-                        && analysis.documentRevision === request.documentRevision
-                    ) {
-                        baseAnalysisCache.delete(key);
-                        void removeBaseAnalysisArtifacts(analysis);
-                    }
-                }
-            }
-            return canceled;
+            return cancelPreviewRequest(sender, request, 'Canceled scan cleanup preview');
         },
         detectAll(sender, request) {
             const jobId = `scan-cleanup-detect-${randomUUID()}`;

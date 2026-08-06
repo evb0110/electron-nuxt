@@ -183,7 +183,8 @@ function sender(id = 1) {
 
 class LifecycleSender extends EventEmitter {
     readonly id: number;
-    readonly isDestroyed = () => false;
+    destroyed = false;
+    readonly isDestroyed = () => this.destroyed;
     readonly send = vi.fn();
 
     constructor(id: number) {
@@ -5110,5 +5111,115 @@ describe('scan cleanup preview', () => {
             started.jobId,
             detectionRequest,
         )?.status).toBe('canceled'));
+    });
+
+    it.each([
+        'destroyed',
+        'render-process-gone',
+    ] as const)(
+        'cancels an in-flight preview when the owning renderer emits %s',
+        async eventName => {
+            const dir = await setup();
+            const deps = dependencies(dir);
+            const entered = Promise.withResolvers<undefined>();
+            const releaseLease = vi.fn(() => true);
+            deps.acquirePreviewLease = vi.fn(async () => ({release: releaseLease}));
+            deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
+                entered.resolve(undefined);
+                await new Promise<void>((_resolve, reject) => {
+                    if (signal.aborted) {
+                        reject(signal.reason);
+                        return;
+                    }
+                    signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+                });
+            });
+            const service = createScanCleanupPreviewService(deps);
+            const owner = lifecycleSender();
+            const pending = previewOf(service, owner, request);
+            await entered.promise;
+
+            expect(owner.listenerCount('destroyed')).toBe(1);
+            expect(owner.listenerCount('render-process-gone')).toBe(1);
+            owner.emit(eventName);
+
+            await expect(pending).rejects.toMatchObject({name: 'AbortError'});
+            expect(releaseLease).toHaveBeenCalledOnce();
+            expect(owner.listenerCount('destroyed')).toBe(0);
+            expect(owner.listenerCount('render-process-gone')).toBe(0);
+        },
+    );
+
+    it('keeps the owner listeners until its last preview job ends', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = new Map<number, PromiseWithResolvers<undefined>>([
+            [
+                1,
+                Promise.withResolvers<undefined>(),
+            ],
+            [
+                2,
+                Promise.withResolvers<undefined>(),
+            ],
+        ]);
+        const releases = new Map<number, PromiseWithResolvers<undefined>>([
+            [
+                1,
+                Promise.withResolvers<undefined>(),
+            ],
+            [
+                2,
+                Promise.withResolvers<undefined>(),
+            ],
+        ]);
+        const originalSidecar = deps.runSidecar;
+        deps.acquirePreviewLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
+            const pageNumber = (manifest.pages[0]?.sourcePageIndex ?? 0) + 1;
+            entered.get(pageNumber)?.resolve(undefined);
+            await waitForRelease(releases.get(pageNumber)!.promise, signal);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = lifecycleSender();
+        const first = previewOf(service, owner, {
+            ...request,
+            requestId: 'preview-page-1',
+            pageNumber: 1,
+        });
+        const second = previewOf(service, owner, {
+            ...request,
+            requestId: 'preview-page-2',
+            pageNumber: 2,
+        });
+        await Promise.all([
+            entered.get(1)!.promise,
+            entered.get(2)!.promise,
+        ]);
+
+        expect(owner.listenerCount('destroyed')).toBe(1);
+        expect(owner.listenerCount('render-process-gone')).toBe(1);
+        releases.get(1)!.resolve(undefined);
+        await first;
+        expect(owner.listenerCount('destroyed')).toBe(1);
+        expect(owner.listenerCount('render-process-gone')).toBe(1);
+        releases.get(2)!.resolve(undefined);
+        await second;
+        expect(owner.listenerCount('destroyed')).toBe(0);
+        expect(owner.listenerCount('render-process-gone')).toBe(0);
+    });
+
+    it('cancels a preview immediately when its webContents is already destroyed', async () => {
+        const deps = dependencies('/unused');
+        const service = createScanCleanupPreviewService(deps);
+        const owner = lifecycleSender();
+        owner.destroyed = true;
+
+        await expect(service.preview(owner, request)).resolves.toEqual({canceled: true});
+        expect(deps.materializeWorkingCopy).not.toHaveBeenCalled();
+        expect(owner.listenerCount('destroyed')).toBe(0);
+        expect(owner.listenerCount('render-process-gone')).toBe(0);
     });
 });
