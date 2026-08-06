@@ -1044,6 +1044,60 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
     });
 
+    it('retires a deferred detection start when only the document revision changes', async () => {
+        const harness = capabilityHarness();
+        const revision = ref('revision-1');
+        const staleStart = Promise.withResolvers<Awaited<ReturnType<IScanCleanupCapability['detectAll']>>>();
+        vi.mocked(harness.value.detectAll)
+            .mockImplementationOnce(() => staleStart.promise)
+            .mockResolvedValueOnce({
+                started: true,
+                jobId: 'detect-revision-2',
+            });
+        capability.value = harness.value;
+        const mounted = mountSession(
+            `deferred-revision-${Date.now()}`,
+            {documentRevision: () => revision.value},
+        );
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        revision.value = 'revision-2';
+        await nextTick();
+        staleStart.resolve({
+            started: true,
+            jobId: 'detect-revision-1',
+        });
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledWith(
+            'detect-revision-1',
+            {
+                ownerId: mounted.session.run.ownerId,
+                documentRevision: 'revision-1',
+            },
+        ));
+        expect(harness.value.detectAll).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({documentRevision: 'revision-2'}),
+        );
+        expect(harness.value.subscribeDetectionJob).toHaveBeenCalledOnce();
+        expect(harness.value.subscribeDetectionJob).toHaveBeenCalledWith(
+            'detect-revision-2',
+            {
+                ownerId: mounted.session.run.ownerId,
+                documentRevision: 'revision-2',
+            },
+        );
+        expect(harness.value.subscribeDetectionJob).not.toHaveBeenCalledWith(
+            'detect-revision-1',
+            expect.anything(),
+        );
+        expect(scanCleanupDetectionSessionCache.size).toBe(0);
+        expect(mounted.session.detection.authoritativeLayoutByPage.value.size).toBe(0);
+        expect(mounted.session.detection.isDetecting.value).toBe(true);
+        mounted.unmount();
+    });
+
     it('reconciles a rejected detection subscription and abandons an unobservable job', async () => {
         const harness = capabilityHarness();
         vi.mocked(harness.value.subscribeDetectionJob).mockRejectedValue(

@@ -275,6 +275,14 @@ describe('native scan-cleanup manifest builder', () => {
             renderMode: testCase.renderMode,
             canvasScope: testCase.canvasScope,
             qualityPath: testCase.qualityPath,
+            ...(testCase.name === 'raster-final-v3.json'
+                ? {documentCanvas: {
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    widthPx: 2_550,
+                    heightPx: 3_300,
+                }}
+                : {}),
             options: testCase.name === 'preview-raster-v3.json'
                 ? {
                     ...options,

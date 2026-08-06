@@ -59,4 +59,31 @@ describe('scan cleanup source SHA-256 bridge', () => {
         app.unmount();
         host.remove();
     });
+
+    it('retains an acquired hash while disabled and does not reacquire the same document', async () => {
+        const enabled = ref(true);
+        const sourcePath = ref('/working/book.pdf');
+        const documentRevision = ref('revision-1');
+        let sourceSha256: ReturnType<typeof useScanCleanupSourceSha256> | null = null;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            sourceSha256 = useScanCleanupSourceSha256({
+                enabled,
+                sourcePath,
+                documentRevision,
+            });
+            return () => h('div');
+        }}));
+        app.mount(host);
+
+        await vi.waitFor(() => expect(sourceSha256?.value).toBe('a'.repeat(64)));
+        enabled.value = false;
+        await vi.waitFor(() => expect(sourceSha256?.value).toBe('a'.repeat(64)));
+        enabled.value = true;
+        await vi.waitFor(() => expect(sourceSha256?.value).toBe('a'.repeat(64)));
+        expect(files.createManagedTempFileHandle).toHaveBeenCalledOnce();
+
+        app.unmount();
+        host.remove();
+    });
 });

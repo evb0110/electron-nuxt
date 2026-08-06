@@ -134,6 +134,47 @@ describe('file-backed scan-cleanup settings store', () => {
         });
     });
 
+    it('discards page overrides without clearing desktop margins or output mode', async () => {
+        const filePath = await createStoreFile();
+        const sourceSha256 = 'd'.repeat(64);
+        const marginsMm = {
+            leftMm: 12,
+            topMm: 7,
+            rightMm: 9,
+            bottomMm: 11,
+        };
+        const initial = createDefaultScanCleanupSettingsFile();
+        initial.documentOverrides[sourceSha256] = {
+            overrides: {'1': {
+                rotationDegrees: 90,
+                layoutOverride: 'spread',
+                excluded: false,
+                manualSplit: null,
+            }},
+            marginsMm,
+            outputMode: 'grayscale',
+            lastUsedAtMs: 50,
+        };
+        await writeFile(filePath, JSON.stringify(initial), 'utf8');
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            now: () => 100,
+        });
+
+        const updated = await store.update({document: {
+            sourceSha256,
+            patch: {resetOverrides: true},
+        }});
+
+        expect(updated.documentOverrides[sourceSha256]).toEqual({
+            marginsMm,
+            outputMode: 'grayscale',
+            lastUsedAtMs: 100,
+        });
+        expect(JSON.parse(await readFile(filePath, 'utf8')).documentOverrides[sourceSha256])
+            .toEqual(updated.documentOverrides[sourceSha256]);
+    });
+
     it('expires old document overrides on load and keeps recent entries', async () => {
         const filePath = await createStoreFile();
         const now = SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS * 2 + 1_000_000;

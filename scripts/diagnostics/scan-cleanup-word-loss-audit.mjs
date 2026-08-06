@@ -76,10 +76,8 @@ const SILHOUETTE_SOURCE_MAX_LIGHT_FRACTION = 0.02;
 const SILHOUETTE_SOURCE_MAX_DARK_FRACTION = 0.35;
 const SILHOUETTE_SOURCE_MIN_MIDTONE_FRACTION = 0.6;
 const SILHOUETTE_SOURCE_MAX_STANDARD_DEVIATION = 64;
-// A mapped gray source pixel can cover a several-pixel stencil cell after
-// matched-canvas fitting. Permit at most one source-grid pixel of stencil
-// tolerance; this is deliberately scoped to mapped bpc8->stencil comparisons.
-const MAPPED_GRAY_MAX_DILATION_RADIUS = 8;
+// Permit one source-grid pixel of stencil tolerance for mapped bilevel or grayscale sources.
+const MAPPED_STENCIL_MAX_DILATION_RADIUS = 8;
 const GRAY_INK_THRESHOLD = 192;
 const GRAY_MEAN_TOLERANCE = 112;
 const GRAY_MIN_SHAPE_IOU = 0.28;
@@ -1345,8 +1343,8 @@ function dilateBitmap(bitmap, radius) {
     return result;
 }
 
-function resolveAuditDilationRadius(sourceRow, cleanedRow, mappingActive, alignment) {
-    if (!mappingActive || sourceRow.bpc <= 1 || cleanedRow.type !== 'stencil') {
+function resolveAuditDilationRadius(cleanedRow, mappingActive, alignment) {
+    if (!mappingActive || cleanedRow.type !== 'stencil') {
         return 1;
     }
     const scale = Math.max(alignment.scaleX ?? alignment.scale, alignment.scaleY ?? alignment.scale);
@@ -1354,7 +1352,7 @@ function resolveAuditDilationRadius(sourceRow, cleanedRow, mappingActive, alignm
         return 1;
     }
     return Math.min(
-        MAPPED_GRAY_MAX_DILATION_RADIUS,
+        MAPPED_STENCIL_MAX_DILATION_RADIUS,
         Math.max(1, Math.ceil(scale)),
     );
 }
@@ -1536,14 +1534,14 @@ function countComponentSupport(component, sourceSupport, deltaX = 0, deltaY = 0)
     return supported;
 }
 
-function searchLocalComponentSupport(component, sourceSupport, initialCount) {
+function searchLocalComponentSupport(component, sourceSupport, initialCount, radius) {
     let best = {
         dx: 0,
         dy: 0,
         score: initialCount,
     };
-    for (let dy = -LOCAL_ALIGNMENT_RADIUS_FULL_PX; dy <= LOCAL_ALIGNMENT_RADIUS_FULL_PX; dy += 1) {
-        for (let dx = -LOCAL_ALIGNMENT_RADIUS_FULL_PX; dx <= LOCAL_ALIGNMENT_RADIUS_FULL_PX; dx += 1) {
+    for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
             const candidate = {
                 dx,
                 dy,
@@ -2009,6 +2007,7 @@ function histogramPercentile(histogram, sampleCount, fraction) {
 function markSourceSupportForComponent({
     alignment,
     component,
+    localAlignmentRadius,
     sourceGray,
     supportPixels,
     targetHeight,
@@ -2016,7 +2015,7 @@ function markSourceSupportForComponent({
     xMap,
     yMap,
 }) {
-    const padding = LOCAL_ALIGNMENT_RADIUS_FULL_PX;
+    const padding = localAlignmentRadius;
     const bbox = {
         height: component.height + padding * 2,
         width: component.width + padding * 2,
@@ -2071,13 +2070,19 @@ function markSourceSupportForComponent({
 }
 
 function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
-    const dustArea = Math.max(minArea, 200);
+    const scaleX = alignment.scaleX ?? alignment.scale;
+    const scaleY = alignment.scaleY ?? alignment.scale;
+    const areaScale = Math.max(1, scaleX * scaleY);
+    const cappedLinearScale = Math.min(MAPPED_STENCIL_MAX_DILATION_RADIUS, Math.max(1, scaleX, scaleY));
+    const targetMinArea = Math.ceil(minArea * areaScale);
+    const localAlignmentRadius = Math.ceil(LOCAL_ALIGNMENT_RADIUS_FULL_PX * cappedLinearScale);
+    const dustArea = Math.max(targetMinArea, Math.ceil(200 * areaScale));
     const inventedUnsupportedArea = dustArea * INVENTED_UNSUPPORTED_AREA_FACTOR;
     const components = collectBinaryComponents(cleaned, true)
-        .filter(component => component.area >= minArea);
+        .filter(component => component.area >= targetMinArea);
     const supportPixels = new Uint8Array(cleaned.width * cleaned.height);
-    const xMap = makeScaleMap(sourceGray.width, alignment.scaleX ?? alignment.scale);
-    const yMap = makeScaleMap(sourceGray.height, alignment.scaleY ?? alignment.scale);
+    const xMap = makeScaleMap(sourceGray.width, scaleX);
+    const yMap = makeScaleMap(sourceGray.height, scaleY);
     let minimumPaperFloor = 255;
     let maximumPaperFloor = 0;
     let minimumPaperReference = 255;
@@ -2086,6 +2091,7 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
         const support = markSourceSupportForComponent({
             alignment,
             component,
+            localAlignmentRadius,
             sourceGray,
             supportPixels,
             targetHeight: cleaned.height,
@@ -2100,7 +2106,7 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
     }
     const sourceSupport = dilateBitmap(
         makeBitmap(cleaned.width, cleaned.height, supportPixels),
-        LOCAL_ALIGNMENT_RADIUS_FULL_PX,
+        localAlignmentRadius,
     );
     const cleanedComponentLabels = new Int32Array(cleaned.width * cleaned.height);
     const unsupportedBitmap = new Uint8Array(cleaned.width * cleaned.height);
@@ -2117,6 +2123,7 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
                 component,
                 sourceSupport,
                 globalSupportedPixels,
+                localAlignmentRadius,
             )
             : {
                 dx: 0,
@@ -2220,7 +2227,7 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
             : inventedInkPixels / cleaned.blackCount,
         inventedInkPixels,
         sourceSupport: {
-            alignmentRadiusPx: LOCAL_ALIGNMENT_RADIUS_FULL_PX,
+            alignmentRadiusPx: localAlignmentRadius,
             maximumPaperFloor,
             maximumPaperReference,
             minimumPaperFloor: components.length === 0 ? null : minimumPaperFloor,
@@ -2466,7 +2473,6 @@ async function analyzePage({
         );
         const alignmentReliable = alignment.overlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP;
         const auditDilationRadius = resolveAuditDilationRadius(
-            sourceRow,
             cleanedRow,
             mappingActive,
             alignment,

@@ -462,6 +462,46 @@ describe('scan cleanup service', () => {
         expect(service.getState(webContents, started.jobId, owner)?.status).toBe('completed');
     });
 
+    it.each([
+        'destroyed',
+        'render-process-gone',
+    ])('cancels an active job when its renderer emits %s', async lifecycleEvent => {
+        const entered = Promise.withResolvers<AbortSignal>();
+        mocks.runWorker.mockImplementationOnce(async (_request, _paths, _policy, signal) => {
+            const workerSignal = signal as AbortSignal;
+            entered.resolve(workerSignal);
+            await new Promise((_resolve, reject) => workerSignal.addEventListener('abort', () => reject(workerSignal.reason), {once: true}));
+            throw new Error('unreachable');
+        });
+        const service = createScanCleanupService();
+        const webContents: WebContents = new LifecycleWebContents(42) as never;
+        const started = await service.start(webContents, startRequest);
+        if (!started.started) throw new Error('Expected scan cleanup to start');
+        const signal = await entered.promise;
+
+        webContents.emit(lifecycleEvent);
+        await vi.waitFor(() => expect(signal.aborted).toBe(true));
+        await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner)?.status).toBe('canceled'));
+    });
+
+    it('detaches without canceling on main-frame navigation', async () => {
+        const returned = Promise.withResolvers<ReturnType<typeof mocks.runWorker> extends Promise<infer T> ? T : never>();
+        const entered = Promise.withResolvers<AbortSignal>();
+        mocks.runWorker.mockImplementationOnce(async (_request, _paths, _policy, signal) => {
+            entered.resolve(signal as AbortSignal);
+            return returned.promise;
+        });
+        const service = createScanCleanupService();
+        const webContents: WebContents = new LifecycleWebContents(42) as never;
+        const started = await service.start(webContents, startRequest);
+        if (!started.started) throw new Error('Expected scan cleanup to start');
+        const signal = await entered.promise;
+
+        webContents.emit('did-start-navigation', {}, 'app://workspace', false, true);
+        expect(signal.aborted).toBe(false);
+        expect(webContents.listenerCount('did-start-navigation')).toBe(0);
+    });
+
     it('deletes a published output when cancellation wins before worker completion is handled', async () => {
         const outputDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-cancel-race-'));
         outputDirs.push(outputDir);
