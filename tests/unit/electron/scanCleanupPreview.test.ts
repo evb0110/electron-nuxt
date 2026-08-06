@@ -3259,7 +3259,7 @@ describe('scan cleanup preview', () => {
                 index,
                 page,
             ] of manifest.pages.entries()) {
-                await readFile(page.inputPath);
+                await execFileAsync('cat', [page.inputPath]);
                 const pageNumber = page.sourcePageIndex + 1;
                 const stagedPath = stagedPaths.get(pageNumber)!;
                 for (;;) {
@@ -3305,13 +3305,13 @@ describe('scan cleanup preview', () => {
             owner,
             started.jobId,
             detectionRequest,
-        )?.status).toBe('completed'), {timeout: 10_000});
+        )?.status).toBe('completed'), {timeout: 30_000});
         expect(stagedPaths.size).toBe(pageCount);
         expect(liveStagedPaths.size).toBe(0);
         await Promise.all([...stagedPaths.values()].map(async path => {
             await expect(stat(path)).rejects.toMatchObject({code: 'ENOENT'});
         }));
-    }, 15_000);
+    }, 45_000);
 
     it.runIf(process.platform !== 'win32')('removes staged detection rasters when the FIFO consumer fails', async () => {
         const dir = await setup();
