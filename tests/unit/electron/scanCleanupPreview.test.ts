@@ -3305,13 +3305,13 @@ describe('scan cleanup preview', () => {
             owner,
             started.jobId,
             detectionRequest,
-        )?.status).toBe('completed'), {timeout: 30_000});
+        )?.status).toBe('completed'), {timeout: 10_000});
         expect(stagedPaths.size).toBe(pageCount);
         expect(liveStagedPaths.size).toBe(0);
         await Promise.all([...stagedPaths.values()].map(async path => {
             await expect(stat(path)).rejects.toMatchObject({code: 'ENOENT'});
         }));
-    }, 45_000);
+    }, 15_000);
 
     it.runIf(process.platform !== 'win32')('removes staged detection rasters when the FIFO consumer fails', async () => {
         const dir = await setup();
