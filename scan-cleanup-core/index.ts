@@ -9,4 +9,6 @@ export * from './buildManifest';
 export * from './compactManifest';
 export * from './errors';
 export * from './provenanceStamp';
+export * from './cache';
+export * from './scratchCleanup';
 export * from './types';

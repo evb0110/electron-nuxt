@@ -7,10 +7,18 @@ import {SCAN_CLEANUP_SETTINGS_FILE_NAME} from '@contracts/scanCleanupSettings';
 import {createScanCleanupPreviewService} from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {createLogger} from '@electron/utils/createLogger';
+import {sweepStaleScanCleanupScratchDirs} from '@scan-cleanup-core/scratchCleanup';
 
 const previewService = createScanCleanupPreviewService();
 const service = createScanCleanupService();
 const settingsStore = createScanCleanupSettingsStore({filePath: join(app.getPath('userData'), SCAN_CLEANUP_SETTINGS_FILE_NAME)});
+const logger = createLogger('scan-cleanup-scratch');
+
+void Promise.resolve()
+    .then(() => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}))
+    .catch(error => logger.warn(`Could not sweep scan-cleanup scratch directories at startup: ${String(error)}`));
 
 export const scanCleanupMainBindings = {
     preview: (context, request) => previewService.preview(context.sender, request),

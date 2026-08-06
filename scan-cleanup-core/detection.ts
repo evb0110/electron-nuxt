@@ -1,6 +1,5 @@
 import {constants as fsConstants} from 'node:fs';
 import {
-    mkdtemp,
     open,
     readFile,
     rm,
@@ -31,6 +30,10 @@ import {
     type TScanCleanupRunSidecar,
 } from '@scan-cleanup-core/types';
 import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
+import {
+    createScanCleanupScratchDir,
+    sweepStaleScanCleanupScratchDirs,
+} from '@scan-cleanup-core/scratchCleanup';
 
 export const PREVIEW_DPI = 150;
 // Native mode selection and final rendering share a 150-DPI analysis ceiling.
@@ -493,12 +496,16 @@ export async function runScanCleanupDetection<TDocument>(
     publish: (results: IScanCleanupDetectionResult[], progress: TScanCleanupProgress) => void,
     log: TScanCleanupLog = () => undefined,
 ) {
+    await sweepStaleScanCleanupScratchDirs(dependencies.getTempDir(), {log: (level, message) => log(level, message)});
     // The document opens first: a scratch directory created before it has
     // nothing to release if opening throws, and only this function removes it.
     const document = await retention.openDocument(request);
     let scratchDir: string | null = null;
     try {
-        const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-detect-'));
+        const scratch = await createScanCleanupScratchDir(
+            dependencies.getTempDir(),
+            'scan-cleanup-detect-',
+        );
         scratchDir = scratch;
         const totalPages = await retention.pageCount(document, signal);
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);

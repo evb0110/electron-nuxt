@@ -1,7 +1,6 @@
 import {
     access,
     copyFile,
-    mkdtemp,
     readFile,
     rename,
     rm,
@@ -106,6 +105,10 @@ import {
 } from '@scan-cleanup-core/resolveRasterHandoff';
 import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCleanupJsonEvidence';
 import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup';
+import {
+    createScanCleanupScratchDir,
+    sweepStaleScanCleanupScratchDirs,
+} from '@scan-cleanup-core/scratchCleanup';
 import {
     assembleWithCompactSourcePages,
     describePageNumbers,
@@ -281,7 +284,8 @@ export async function runScanCleanupConversion(
     log: TScanCleanupLog = () => undefined,
     dependencies: IRunScanCleanupPipelineDependencies,
 ): Promise<TScanCleanupSummary> {
-    const scratch = await mkdtemp(join(paths.tempDir, 'scan-cleanup-'));
+    await sweepStaleScanCleanupScratchDirs(paths.tempDir, {log: (level, message) => log(level, message)});
+    const scratch = await createScanCleanupScratchDir(paths.tempDir);
     const sessionId = randomUUID();
     const stagedPdfPath = join(scratch, 'cleaned.pdf');
     const publishTempPath = join(dirname(request.outputPdfPath), `.${sessionId}.scan-cleanup.tmp`);
