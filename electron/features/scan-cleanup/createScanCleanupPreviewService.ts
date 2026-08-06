@@ -138,7 +138,10 @@ interface IRetainedDocument {
     // nobody is waiting for any more, without any one caller's cancellation
     // reaching work the others share.
     lifetime: AbortController;
-    mtimeMs: number;
+    // Byte size and nanosecond mtime of the source file at admission. An
+    // equal-millisecond replacement of the file must not serve rasters
+    // rendered from the bytes it replaced.
+    sourceStatIdentity: string;
     pageCount: Promise<number> | null;
     // The paper rectangle of every page, measured once from the source: see
     // resolveDocumentMeasurement. The canvas a matched page is normalized onto
@@ -196,7 +199,7 @@ type INativePreviewOutputMetadata = IScanCleanupPreviewMetadata
 interface IBasePreviewAnalysis {
     sourcePdfPath: string;
     documentRevision: string;
-    mtimeMs: number;
+    sourceStatIdentity: string;
     outputMode?: TScanCleanupOutputMode;
     pageMetadata: IScanCleanupPreviewResult['pageMetadata'];
     outputs: Partial<Record<IScanCleanupPreviewMetadata['half'], INativePreviewOutputMetadata>>;
@@ -278,7 +281,7 @@ export interface IScanCleanupPreviewDependencies {
         visibility: TPreviewVisibility,
         signal: AbortSignal,
     ) => Promise<{release: () => boolean}>;
-    getSourceMtimeMs?: (sourcePdfPath: string) => Promise<number>;
+    getSourceStatIdentity?: (sourcePdfPath: string) => Promise<string>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
 }
 
@@ -442,7 +445,10 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
         });
     },
-    getSourceMtimeMs: async sourcePdfPath => (await stat(sourcePdfPath)).mtimeMs,
+    getSourceStatIdentity: async (sourcePdfPath) => {
+        const sourceStat = await stat(sourcePdfPath, {bigint: true});
+        return `${sourceStat.size}:${sourceStat.mtimeNs}`;
+    },
     materializeWorkingCopy: (logicalRef, options) => {
         // Preview work is queued, so the owning tab can close or reopen the
         // document before the tail runs. A registration this owner held and
@@ -496,8 +502,9 @@ async function materializeScanCleanupPreviewRequest<
 
 // Detection and preview render the same page at the same DPI with the same
 // arguments, so a rendered raster is kept in a document-scoped directory keyed
-// by the source path, the document revision and the source mtime, and whoever
-// asks for that page next reads the file instead of spawning pdftoppm again.
+// by the source path, the document revision and the source byte-size and
+// nanosecond-mtime snapshot, and whoever asks for that page next reads the
+// file instead of spawning pdftoppm again.
 // The directory holds paths and dimensions only: the bytes are read on demand
 // and never held, and the retained footprint is bounded by the same scratch
 // budget the final-run pipeline spends through resolveRasterHandoff.
@@ -527,7 +534,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
     const rasterKey = (document: IRetainedDocument, pageNumber: number, dpi: number) => JSON.stringify([
         document.sourcePdfPath,
         document.documentRevision,
-        document.mtimeMs,
+        document.sourceStatIdentity,
         pageNumber,
         dpi,
     ]);
@@ -591,12 +598,12 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
     const resolveDocument = async (
         request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath' | 'documentRevision'>,
     ) => {
-        const mtimeMs = await dependencies.getSourceMtimeMs?.(request.sourcePdfPath) ?? 0;
+        const sourceStatIdentity = await dependencies.getSourceStatIdentity?.(request.sourcePdfPath) ?? '';
         const current = documents.get(request.sourcePdfPath);
         if (
             current
             && current.documentRevision === request.documentRevision
-            && current.mtimeMs === mtimeMs
+            && current.sourceStatIdentity === sourceStatIdentity
         ) {
             current.pinned += 1;
             return current;
@@ -610,7 +617,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
             }),
             documentRevision: request.documentRevision,
             lifetime: new AbortController(),
-            mtimeMs,
+            sourceStatIdentity,
             pageCount: null,
             pageSizes: null,
             sourceDpiByPage: new Map(),
@@ -1815,7 +1822,7 @@ async function runPreview(
             const analysis = baseAnalysisCache.get(baseAnalysisKey(baseRequest, documentCanvas));
             if (
                 !analysis
-                || analysis.mtimeMs !== baseRaw.document.mtimeMs
+                || analysis.sourceStatIdentity !== baseRaw.document.sourceStatIdentity
                 || (
                     request.detail.outputMode !== 'mixed'
                     && analysis.outputMode !== request.detail.outputMode
@@ -2237,7 +2244,7 @@ async function runPreview(
             baseAnalysisCache.set(analysisKey, {
                 sourcePdfPath: request.sourcePdfPath,
                 documentRevision: request.documentRevision,
-                mtimeMs: baseRaw.document.mtimeMs,
+                sourceStatIdentity: baseRaw.document.sourceStatIdentity,
                 ...(result.outputs[0]?.metadata.outputMode === undefined
                     ? {}
                     : {outputMode: result.outputs[0].metadata.outputMode}),
@@ -2499,6 +2506,10 @@ export function createScanCleanupPreviewService(
         reason: string,
     ) => {
         const documentPrefix = previewDocumentPrefix(sender, request);
+        // A navigation names the pages it is moving into; only work for
+        // pages outside that window is discarded. Without a window the
+        // caller means the whole document: a settings change, a new
+        // revision, a session shutting down, or a renderer that is gone.
         const retained = new Set(request.retainPages ?? []);
         let canceled = false;
         for (const [
@@ -2510,6 +2521,9 @@ export function createScanCleanupPreviewService(
                 canceled = true;
             }
         }
+        // A windowed cancellation is always issued for a navigation that
+        // still wants the visible page, so only a whole-document
+        // cancellation forgets which page that is.
         if (request.retainPages === undefined) visiblePages.delete(documentPrefix);
         if (request.invalidateRawCache !== false) {
             rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);

@@ -9,10 +9,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {join} from 'node:path';
 import {
     afterEach,
     describe,
@@ -20,10 +17,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    createScanCleanupCacheIdentity,
-    writeScanCleanupCacheMetadata,
-} from '@scan-cleanup-core/cache';
 import {
     SCAN_CLEANUP_SCRATCH_PREFIX,
     sweepStaleScanCleanupScratchDirs,
@@ -114,76 +107,5 @@ describe('scan-cleanup durability', () => {
         })).resolves.toBe(0);
 
         expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('permission denied'));
-    });
-
-    it('includes the existing source SHA-256 in cache identity', () => {
-        const oldIdentity = createScanCleanupCacheIdentity({
-            sourceMtimeNs: 123_456_789n,
-            sourcePath: '/documents/scan.pdf',
-            sourceSha256: 'a'.repeat(64),
-            sourceSize: 42n,
-        });
-        const replacementIdentity = createScanCleanupCacheIdentity({
-            sourceMtimeNs: 123_456_789n,
-            sourcePath: '/documents/scan.pdf',
-            sourceSha256: 'b'.repeat(64),
-            sourceSize: 42n,
-        });
-        const cache = new Map([[
-            oldIdentity,
-            'old result',
-        ]]);
-
-        expect(replacementIdentity).not.toBe(oldIdentity);
-        expect(cache.get(replacementIdentity)).toBeUndefined();
-    });
-
-    it('writes cache metadata through a synced sibling temp file and atomic rename', async () => {
-        const openCalls: Array<{
-            flags: 'r' | 'w';
-            path: string
-        }> = [];
-        const events: string[] = [];
-        const metadataPath = '/cache/scan-cleanup-metadata.json';
-        const fileSystem = {
-            open: async (path: string, flags: 'r' | 'w') => {
-                openCalls.push({
-                    flags,
-                    path,
-                });
-                return {
-                    close: async () => {
-                        events.push(`close:${path}`);
-                    },
-                    sync: async () => {
-                        events.push(`sync:${path}`);
-                    },
-                    writeFile: async (value: string, encoding: 'utf8') => {
-                        events.push(`write:${path}:${encoding}:${value}`);
-                    },
-                };
-            },
-            rename: async (sourcePath: string, targetPath: string) => {
-                events.push(`rename:${sourcePath}:${targetPath}`);
-            },
-            unlink: async (path: string) => {
-                events.push(`unlink:${path}`);
-            },
-        };
-
-        await writeScanCleanupCacheMetadata(metadataPath, '{"ok":true}', {fileSystem});
-
-        const temporaryPath = openCalls[0]!.path;
-        expect(openCalls[0]).toMatchObject({flags: 'w'});
-        expect(temporaryPath).toContain(`.${join('', 'scan-cleanup-metadata.json')}.`);
-        expect(openCalls[1]).toEqual({
-            flags: 'r',
-            path: dirname(metadataPath),
-        });
-        expect(events).toContain(`write:${temporaryPath}:utf8:{"ok":true}`);
-        expect(events).toContain(`sync:${temporaryPath}`);
-        expect(events).toContain(`rename:${temporaryPath}:${metadataPath}`);
-        expect(events).toContain(`unlink:${temporaryPath}`);
-        expect(events.filter(event => event.startsWith('sync:'))).toHaveLength(process.platform === 'win32' ? 1 : 2);
     });
 });

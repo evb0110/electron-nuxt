@@ -2661,6 +2661,25 @@ describe('scan cleanup preview', () => {
         expect(deps.renderPage).toHaveBeenCalledTimes(2);
     });
 
+    it('invalidates a stale raw raster when the source bytes change under an unchanged revision', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const statIdentities = [
+            '100:1000',
+            '100:1000',
+            '100:2000',
+        ];
+        deps.getSourceStatIdentity = vi.fn(async () => statIdentities.shift() ?? '100:2000');
+        const service = createScanCleanupPreviewService(deps);
+
+        await previewOf(service, sender(), request);
+        await previewOf(service, sender(), request);
+        expect(deps.renderPage).toHaveBeenCalledOnce();
+
+        await previewOf(service, sender(), request);
+        expect(deps.renderPage).toHaveBeenCalledTimes(2);
+    });
+
     it('does not cross-cancel previews from two windows on the same document', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
