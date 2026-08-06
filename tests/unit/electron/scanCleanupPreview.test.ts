@@ -257,10 +257,9 @@ async function waitForRelease(release: Promise<unknown>, signal: AbortSignal) {
     });
 }
 
-// The paper the source pages carry. The request's 5 mm margins are added
-// around a cropped content box, so the canvas a matched preview and a matched
-// run both place their output on is that paper plus the room those margins can
-// ever need.
+// The paper rectangle the source pages carry. A cropped output may extend past
+// it by the requested margins, but matching keeps this document rectangle and
+// fits the complete padded output inside it.
 const DOCUMENT_PAGE_SIZES = [
     1,
     2,
@@ -273,8 +272,7 @@ const DOCUMENT_PAGE_SIZES = [
     heightPoints: 792,
     rotation: 0,
 }));
-// The rectangle the document actually carries, on the grid a 150 DPI preview
-// renders it at. Margins are laid out inside it, so they no longer grow it.
+// The same rectangle on the grid a 150 DPI preview renders it at.
 const PREVIEW_DPI = 150;
 const DOCUMENT_CANVAS = {
     widthPoints: 612,

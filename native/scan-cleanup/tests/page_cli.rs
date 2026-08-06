@@ -2211,8 +2211,9 @@ fn matched_canvas_keeps_rotation_and_margins_inside_the_document_rectangle() {
                 "dpi": 300,
                 "layout": "force-single",
                 "normalizeIllumination": false,
-                // Cropping with the default 5 mm margins on every side: the
-                // margins are laid out inside the rectangle, never around it.
+                // Cropping with the default 5 mm margins on every side. Any
+                // part beyond the scan becomes white output paper, and the
+                // complete padded raster is fitted inside this rectangle.
                 "cropContent": true,
                 "margins": {"leftMm": 5, "topMm": 5, "rightMm": 5, "bottomMm": 5},
                 "outputMode": "grayscale",
@@ -2254,16 +2255,26 @@ fn matched_canvas_keeps_rotation_and_margins_inside_the_document_rectangle() {
     );
 
     for (index, metadata_path) in metadata_paths.iter().enumerate() {
-        let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 200_000, 400).unwrap();
+        let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 300_000, 500).unwrap();
         let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
-        let expected_dimensions = if index == 0 { (240, 320) } else { (320, 240) };
-        assert_eq!((image.width(), image.height()), expected_dimensions);
+        assert_eq!(
+            (image.width(), image.height()),
+            (
+                usize::try_from(metadata["outputWidthPx"].as_u64().unwrap()).unwrap(),
+                usize::try_from(metadata["outputHeightPx"].as_u64().unwrap()).unwrap(),
+            ),
+        );
         assert_eq!(metadata["canvasWidthPx"], 240);
         assert_eq!(metadata["canvasHeightPx"], 320);
         assert!(metadata["matchedCanvasContentWidthPx"].as_f64().unwrap() <= 240.0);
         assert!(metadata["matchedCanvasContentHeightPx"].as_f64().unwrap() <= 320.0);
-        if index == 1 {
+        if metadata["pdfImagePlacement"].is_object() {
             assert_pdf_image_placement_matches_canvas(&metadata);
+        } else {
+            assert_eq!(metadata["matchedCanvasContentWidthPx"], 240);
+            assert_eq!(metadata["matchedCanvasContentHeightPx"], 320);
+            assert_eq!(metadata["placementOffsetXPx"], 0);
+            assert_eq!(metadata["placementOffsetYPx"], 0);
         }
     }
 }
@@ -2937,21 +2948,18 @@ fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
 }
 
 #[test]
-fn matched_canvas_clamps_requested_margins_to_the_physical_page() {
-    // Margins cannot invent paper outside the source page. Clamping the crop
-    // keeps authored edge ink in page coordinates without falsely reporting
-    // that the matched document had to shrink this page.
+fn matched_canvas_preserves_requested_output_padding_beyond_the_source_page() {
+    // Margins create output paper even when the detected content is too close
+    // to the scan edge to supply that paper from source pixels. The complete
+    // padded raster is then fitted onto the document canvas.
     let scratch = Scratch::new("matched-overflow-warning");
     let manifest = scratch.path("matched-overflow-manifest.json");
     let input = scratch.path("matched-overflow-input.png");
     let output = scratch.path("matched-overflow-out.png");
     let metadata = scratch.path("matched-overflow-out.json");
-    let mut image = GrayImage::new(100, 100, 255);
-    for y in 40..60 {
-        for x in 10..90 {
-            image.set(x, y, 0);
-        }
-    }
+    // A full-bleed cover: there are no source pixels from which the requested
+    // margin could be retained, so the renderer has to synthesize white paper.
+    let image = GrayImage::new(100, 100, 40);
     fs::write(&input, encode_gray(&image).unwrap()).unwrap();
     fs::write(
         &manifest,
@@ -2979,7 +2987,16 @@ fn matched_canvas_clamps_requested_margins_to_the_physical_page() {
                     "cropContent": true,
                     "outputMode": "grayscale",
                     "matchPageSize": true,
-                    "margins": {"leftMm": 6, "topMm": 6, "rightMm": 6, "bottomMm": 6}
+                    "margins": {"leftMm": 6, "topMm": 6, "rightMm": 6, "bottomMm": 6},
+                    "manualContentBoxes": {
+                        "full": {
+                            "xNormalized": 0,
+                            "yNormalized": 0,
+                            "widthNormalized": 1,
+                            "heightNormalized": 1,
+                            "rotationDegrees": 0
+                        }
+                    }
                 },
                 "outputs": [{"outputPath": output, "metadataPath": metadata}]
             }]
@@ -2997,19 +3014,29 @@ fn matched_canvas_clamps_requested_margins_to_the_physical_page() {
         String::from_utf8_lossy(&result.stderr)
     );
     let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
-    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
+    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(true));
     let warnings = metadata_json["warnings"].as_array().unwrap();
     assert!(
         warnings
             .iter()
-            .all(|warning| !warning.as_str().unwrap_or("").contains("document canvas")),
+            .any(|warning| warning.as_str().unwrap_or("").contains("document canvas")),
         "warnings={warnings:?}"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
-    assert_eq!((image.width(), image.height()), (100, 68));
-    assert_pdf_image_placement_matches_canvas(&metadata_json);
-    // Nothing was clipped: the ink is still there.
-    assert!((0..image.width()).any(|x| (0..image.height()).any(|y| image.get(x, y) < 128)));
+    assert_eq!((image.width(), image.height()), (148, 148));
+    assert!(metadata_json["pdfImagePlacement"].is_null());
+    // The requested left/right padding is actual white raster content, and the
+    // authored ink survives between it.
+    assert!((0..10).all(|x| (0..image.height()).all(|y| image.get(x, y) == 255)));
+    assert!((138..148).all(|x| (0..image.height()).all(|y| image.get(x, y) == 255)));
+    assert!(
+        image.get(24, 24) < 128,
+        "the source's top-left edge ink was clipped"
+    );
+    assert!(
+        image.get(123, 123) < 128,
+        "the source's bottom-right edge ink was clipped"
+    );
 }
 
 #[test]
@@ -3098,18 +3125,13 @@ fn matched_canvas_reports_a_sheet_larger_than_the_rectangle_it_was_measured_for(
 /// metadata reads the placement from the content box, so this is the shape the
 /// bridge has to accept rather than reject as an impossible placement.
 #[test]
-fn matched_canvas_preview_clamps_margins_inside_the_physical_page() {
+fn matched_canvas_preview_renders_padding_beyond_the_physical_page() {
     let scratch = Scratch::new("matched-overflow-preview");
     let manifest = scratch.path("matched-overflow-preview-manifest.json");
     let input = scratch.path("matched-overflow-preview-input.png");
     let output = scratch.path("matched-overflow-preview-out.png");
     let metadata = scratch.path("matched-overflow-preview-out.json");
-    let mut image = GrayImage::new(200, 180, 255);
-    for y in 4..176 {
-        for x in 4..196 {
-            image.set(x, y, 40);
-        }
-    }
+    let image = GrayImage::new(200, 180, 40);
     fs::write(&input, encode_gray(&image).unwrap()).unwrap();
     fs::write(
         &manifest,
@@ -3138,7 +3160,16 @@ fn matched_canvas_preview_clamps_margins_inside_the_physical_page() {
                     "outputMode": "grayscale",
                     "matchPageSize": true,
                     "pageAlignment": "top-center",
-                    "margins": {"leftMm": 5, "topMm": 5, "rightMm": 5, "bottomMm": 5}
+                    "margins": {"leftMm": 5, "topMm": 5, "rightMm": 5, "bottomMm": 5},
+                    "manualContentBoxes": {
+                        "full": {
+                            "xNormalized": 0,
+                            "yNormalized": 0,
+                            "widthNormalized": 1,
+                            "heightNormalized": 1,
+                            "rotationDegrees": 0
+                        }
+                    }
                 },
                 "outputs": [{"outputPath": output, "metadataPath": metadata}]
             }]
@@ -3167,15 +3198,29 @@ fn matched_canvas_preview_clamps_margins_inside_the_physical_page() {
     let offset_x = metadata_json["placementOffsetXPx"].as_u64().unwrap();
     let offset_y = metadata_json["placementOffsetYPx"].as_u64().unwrap();
     assert_eq!((canvas_width, canvas_height), (200, 180));
-    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
-    // The clamped page and its placement both remain on the canvas.
+    assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(true));
+    // The padded page and its placement both remain on the canvas after the
+    // presentation scales its intrinsic preview raster.
     assert!(offset_x + content_width <= canvas_width);
     assert!(offset_y + content_height <= canvas_height);
-    assert!(metadata_json["outputWidthPx"].as_u64().unwrap() <= canvas_width);
-    // The preview publishes the physically bounded raster unchanged.
+    assert!(metadata_json["outputWidthPx"].as_u64().unwrap() > canvas_width);
+    // Preview publishes the complete padded intrinsic raster unchanged; the
+    // renderer applies matchedCanvasContentWidth/Height to display it.
     let published = decode_gray(&fs::read(&output).unwrap(), 200_000, 400).unwrap();
     assert_eq!(
         u64::try_from(published.width()).unwrap(),
         metadata_json["outputWidthPx"].as_u64().unwrap()
+    );
+    assert_eq!((published.width(), published.height()), (260, 240));
+    assert!((0..20).all(|x| (0..published.height()).all(|y| published.get(x, y) == 255)));
+    assert!((published.width() - 20..published.width())
+        .all(|x| (0..published.height()).all(|y| published.get(x, y) == 255)));
+    assert!(
+        published.get(30, 30) < 128,
+        "preview clipped the source's top-left edge ink"
+    );
+    assert!(
+        published.get(229, 209) < 128,
+        "preview clipped the source's bottom-right edge ink"
     );
 }

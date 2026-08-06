@@ -1548,17 +1548,17 @@ pub(crate) fn content_with_margins_for_dimensions(
     // changing every antialiased glyph before it was placed back on the
     // matched canvas. Round outward so the requested margin is never reduced
     // and integer-aligned scans retain their exact sample grid.
-    // A margin may extend past the physical page edge. Keep the crop rect in
-    // page coordinates: downstream PDF assembly clips negative-origin rasters
-    // before placing them on the matched canvas, which can remove authored ink
-    // at the top or left edge even though the requested margin was meant to
-    // preserve it.
-    let page_width = width as f64;
-    let page_height = height as f64;
-    let left = expanded.x.floor().clamp(0.0, page_width);
-    let top = expanded.y.floor().clamp(0.0, page_height);
-    let right = expanded.right().ceil().clamp(left, page_width);
-    let bottom = expanded.bottom().ceil().clamp(top, page_height);
+    // Margins are output paper, not merely more source pixels to retain. Let
+    // the crop extend beyond the scanned sheet so the inverse renderer fills
+    // the uncovered area with white. Clamping here silently erased a requested
+    // margin whenever detected content reached an edge (most visibly on book
+    // covers). Matched-canvas placement fits the complete padded raster and
+    // composes its crop origin after paper alignment, while lossless assembly
+    // represents the same outward rectangle directly in PDF user space.
+    let left = expanded.x.floor();
+    let top = expanded.y.floor();
+    let right = expanded.right().ceil();
+    let bottom = expanded.bottom().ceil();
     let output_rect = Rect::new(left, top, right - left, bottom - top);
     ContentResult {
         content,
@@ -1612,7 +1612,7 @@ mod tests {
     }
 
     #[test]
-    fn physical_margins_clamp_at_page_edges_without_negative_crop_origin() {
+    fn physical_margins_add_output_paper_beyond_page_edges() {
         let image = GrayImage::new(2_199, 3_279, 255);
         let result = content_with_margins(
             &image,
@@ -1622,11 +1622,13 @@ mod tests {
             None,
         );
 
-        assert_eq!(result.output_rect, Rect::new(0.0, 0.0, 2_199.0, 3_260.0));
-        assert!(result.output_rect.x >= 0.0);
-        assert!(result.output_rect.y >= 0.0);
-        assert!(result.output_rect.right() <= image.width() as f64);
-        assert!(result.output_rect.bottom() <= image.height() as f64);
+        assert_eq!(
+            result.output_rect,
+            Rect::new(-29.0, -45.0, 2_257.0, 3_305.0)
+        );
+        assert!(result.output_rect.x < 0.0);
+        assert!(result.output_rect.y < 0.0);
+        assert!(result.output_rect.right() > image.width() as f64);
     }
 
     fn component_census(columns: usize, rows: usize) -> Vec<Component> {
