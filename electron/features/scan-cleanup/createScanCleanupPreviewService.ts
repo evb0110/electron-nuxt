@@ -99,7 +99,10 @@ import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
-import {resolveScanCleanupPipelineMaxPixels} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+import {
+    resolveScanCleanupPipelineMaxPixels,
+    resolveScanCleanupRequestedRenderDpi,
+} from '@electron/features/scan-cleanup/policy/effectiveOptions';
 import {
     createMainJobRegistry,
     type IMainJobErrorEnvelope,
@@ -1139,7 +1142,10 @@ function resolveFallbackDetailDpi(
         / (Math.max(1, widthAtPreviewDpi, canvasWidth)
             * Math.max(1, heightAtPreviewDpi, canvasHeight)),
     );
-    const requestedRenderDpi = Math.max(sourceDpi, raw.dpi);
+    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi(
+        Math.max(sourceDpi, raw.dpi),
+        request.detail.outputMode === 'bw' || request.detail.outputMode === 'mixed',
+    );
     return {
         renderDpi: Math.max(1, Math.floor(Math.min(requestedRenderDpi, budgetDpi))),
         requestedRenderDpi,
@@ -1461,9 +1467,10 @@ async function runDetailPreview(
         && Number.isFinite(sourceDpiCandidate)
         && sourceDpiCandidate > 0;
     const sourceDpi = sourceDpiDetected ? Number(sourceDpiCandidate) : DEFAULT_SOURCE_DPI;
-    const requestedRenderDpi = request.detail.outputMode === 'bw'
-        ? sourceDpiDetected ? sourceDpi : Math.max(sourceDpi, 600)
-        : Math.max(sourceDpi, baseRaw.dpi);
+    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi(
+        Math.max(sourceDpi, baseRaw.dpi),
+        request.detail.outputMode === 'bw',
+    );
     const renderDpi = resolveDetailRenderDpi(
         request.detail.viewports,
         analysis.outputs,

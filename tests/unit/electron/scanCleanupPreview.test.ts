@@ -1204,7 +1204,7 @@ describe('scan cleanup preview', () => {
                 canvasHeightPx: outputHeightPx,
                 sourceDpi: 300,
                 renderDpi,
-                requestedRenderDpi: 300,
+                requestedRenderDpi: Number(manifestOptions?.requestedRenderDpi ?? renderDpi),
                 renderRegion: region,
             }));
         });
@@ -1229,7 +1229,7 @@ describe('scan cleanup preview', () => {
         expect(renderCalls).toHaveLength(2);
         expect(renderCalls[0]).toEqual({dpi: 150});
         expect(renderCalls[1]).toMatchObject({
-            dpi: 300,
+            dpi: 511,
             crop: {
                 x: expect.any(Number),
                 y: expect.any(Number),
@@ -1248,8 +1248,8 @@ describe('scan cleanup preview', () => {
         expect(detailPng.getUint32(16) * detailPng.getUint32(20)).toBeLessThanOrEqual(4_000_000);
         expect(manifestOptions).toMatchObject({
             sourceDpi: 300,
-            dpi: 300,
-            requestedRenderDpi: 300,
+            dpi: 511,
+            requestedRenderDpi: 600,
             outputMode: 'bw',
             matchPageSize: false,
         });
@@ -1260,17 +1260,21 @@ describe('scan cleanup preview', () => {
             widthPx: renderCalls[1]!.crop!.width,
             heightPx: renderCalls[1]!.crop!.height,
         });
-        expect(detailPlan!.renderRegion.widthPx / 2_000).toBeLessThanOrEqual(0.5);
-        expect(detailPlan!.renderRegion.heightPx / 3_000).toBeLessThanOrEqual(0.45);
+        const detailedWidth = Math.round(1_000 * 511 / 150);
+        const detailedHeight = Math.round(1_500 * 511 / 150);
+        expect(detailPlan!.renderRegion.widthPx / detailedWidth)
+            .toBeLessThanOrEqual(0.5 + 1 / detailedWidth);
+        expect(detailPlan!.renderRegion.heightPx / detailedHeight)
+            .toBeLessThanOrEqual(0.45 + 1 / detailedHeight);
         expect(
-            (detailPlan!.renderRegion.xPx + detailPlan!.renderRegion.widthPx / 2) / 2_000,
+            (detailPlan!.renderRegion.xPx + detailPlan!.renderRegion.widthPx / 2) / detailedWidth,
         ).toBeCloseTo(0.5, 2);
         expect(
-            (detailPlan!.renderRegion.yPx + detailPlan!.renderRegion.heightPx / 2) / 3_000,
+            (detailPlan!.renderRegion.yPx + detailPlan!.renderRegion.heightPx / 2) / detailedHeight,
         ).toBeCloseTo(0.425, 2);
         expect(result.outputs[0]?.metadata).toMatchObject({
-            renderDpi: 300,
-            requestedRenderDpi: 300,
+            renderDpi: 511,
+            requestedRenderDpi: 600,
             renderRegion: {
                 xPx: expect.any(Number),
                 yPx: expect.any(Number),
@@ -1296,7 +1300,7 @@ describe('scan cleanup preview', () => {
         expect(manifestOptions).toMatchObject({
             dpi: 242,
             sourceDpi: 300,
-            requestedRenderDpi: 300,
+            requestedRenderDpi: 600,
         });
         expect(detailPlan?.renderRegion).toEqual({
             xPx: 0,
@@ -1308,7 +1312,7 @@ describe('scan cleanup preview', () => {
             outputWidthPx: 1_613,
             outputHeightPx: 2_420,
             renderDpi: 242,
-            requestedRenderDpi: 300,
+            requestedRenderDpi: 600,
             renderRegion: {
                 xPx: 0,
                 yPx: 0,
@@ -1335,7 +1339,7 @@ describe('scan cleanup preview', () => {
         expect(manifestOptions).toMatchObject({
             dpi: 204,
             sourceDpi: 300,
-            requestedRenderDpi: 300,
+            requestedRenderDpi: 600,
             outputMode: 'mixed',
         });
         expect(mixedFallback.outputs).toHaveLength(1);

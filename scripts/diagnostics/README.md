@@ -111,6 +111,9 @@ Grayscale and color scan-cleanup outputs use plain `image-jpeg` records because
 their raster is already at final DPI; unlike `photo-jpeg`, this does not apply
 another PPI cap. Mixed pages use `layered-jpeg`: a quality-85 tonal background
 for grayscale or quality 87 for RGB under a full-render-DPI 1-bit text mask.
+Binary text masks render on a grid at twice source DPI with a 600-DPI minimum.
+That finer grid retains grayscale edge coverage when it becomes a 1-bit contour;
+the per-mode pixel and dimension limits still cap oversized pages.
 The background is capped at source DPI
 (`min(source DPI, render DPI)`), so supersampling sharpens the JBIG2 text layer
 without spending JPEG bytes on invented picture detail. Final-stencil pixels use

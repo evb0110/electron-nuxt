@@ -258,14 +258,33 @@ export function resolveScanCleanupDocumentGuardrail(
     };
 }
 
-// A page with no measurable raster that may still be cleaned to a binary layer
-// is synthesized rather than resampled, and 1-bit text needs finer sampling
-// than the paper itself asks for to keep its edges.
-const SCAN_CLEANUP_BILEVEL_FALLBACK_DPI = 600;
+// A grayscale scan still carries subpixel edge coverage even though its source
+// raster has a fixed pixel grid. Thresholding directly on that grid throws the
+// coverage away and leaves a visibly coarse 1-bit contour. Rasterizing the
+// source onto a finer grid before thresholding lets the binary mask place that
+// transition more accurately; it does not claim to recover source detail.
+//
+// Two source samples per axis preserve the coverage transition on ordinary
+// scans. The 600-DPI floor is also required for low-resolution scans, where the
+// old source-DPI path fragmented thin strokes. The existing per-mode pixel and
+// dimension guardrails remain the hard upper bound.
+export const SCAN_CLEANUP_BINARY_LAYER_RENDER_SCALE = 2;
+export const SCAN_CLEANUP_BINARY_LAYER_RENDER_DPI_FLOOR = 600;
+
+export function resolveScanCleanupRequestedRenderDpi(
+    sourceDpi: number,
+    carriesBinaryLayer: boolean,
+) {
+    return carriesBinaryLayer
+        ? Math.max(
+            sourceDpi * SCAN_CLEANUP_BINARY_LAYER_RENDER_SCALE,
+            SCAN_CLEANUP_BINARY_LAYER_RENDER_DPI_FLOOR,
+        )
+        : sourceDpi;
+}
 
 export interface IResolveScanCleanupPlannedDpiInput {
     sourceDpi: number;
-    hasDetectedRaster: boolean;
     carriesBinaryLayer: boolean;
     maxPixels: number;
     guardrail: {
@@ -276,20 +295,20 @@ export interface IResolveScanCleanupPlannedDpiInput {
 }
 
 /**
- * The resolution a page is planned at: what its content asks for, raised to the
- * synthesis floor when the page may carry a binary layer it has no raster for,
- * and held inside the pixel budget its guardrail allows.
+ * The resolution a page is planned at: continuous-tone output keeps the source
+ * grid, while a page carrying a binary text layer gets the finer thresholding
+ * grid above. Both remain inside the pixel budget its guardrail allows.
  */
 export function resolveScanCleanupPlannedDpi({
     sourceDpi,
-    hasDetectedRaster,
     carriesBinaryLayer,
     maxPixels,
     guardrail,
 }: IResolveScanCleanupPlannedDpiInput) {
-    const requestedRenderDpi = !hasDetectedRaster && carriesBinaryLayer
-        ? Math.max(sourceDpi, SCAN_CLEANUP_BILEVEL_FALLBACK_DPI)
-        : sourceDpi;
+    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi(
+        sourceDpi,
+        carriesBinaryLayer,
+    );
     return {
         sourceDpi,
         requestedRenderDpi,
@@ -306,8 +325,9 @@ export function resolveScanCleanupPlannedDpi({
  * document's setting — rather than the mode a run resolved for it: a canvas
  * that moved when detection recommended a mode, or when a selection resolved
  * fewer pages than a full run, would make the same page a different size
- * depending on when it was cleaned. `auto` therefore takes the synthesis floor,
- * because the engine may still resolve such a page to a binary layer.
+ * depending on when it was cleaned. `auto` therefore takes the binary-layer
+ * sampling policy, because the engine may still resolve such a page to a
+ * bilevel foreground.
  */
 export function resolveScanCleanupCanvasPageDpi(
     input: Omit<IResolveScanCleanupPlannedDpiInput, 'carriesBinaryLayer' | 'maxPixels'>

@@ -5,7 +5,10 @@ import {
 } from 'vitest';
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
-import {resolveEffectiveScanCleanupOptions} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+import {
+    resolveEffectiveScanCleanupOptions,
+    resolveScanCleanupRequestedRenderDpi,
+} from '@electron/features/scan-cleanup/policy/effectiveOptions';
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,
@@ -37,6 +40,14 @@ function resolve(pageOverride = createScanCleanupPageOverride()) {
 }
 
 describe('effective scan cleanup options', () => {
+    it('supersamples every binary text layer while tonal-only pages retain source DPI', () => {
+        expect(resolveScanCleanupRequestedRenderDpi(200, true)).toBe(600);
+        expect(resolveScanCleanupRequestedRenderDpi(300, true)).toBe(600);
+        expect(resolveScanCleanupRequestedRenderDpi(360, true)).toBe(720);
+        expect(resolveScanCleanupRequestedRenderDpi(720, true)).toBe(1_440);
+        expect(resolveScanCleanupRequestedRenderDpi(360, false)).toBe(360);
+    });
+
     it('reuses only non-destructive observed layout labels while preserving explicit page choices', () => {
         expect(resolveEffectiveScanCleanupOptions({
             options,

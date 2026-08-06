@@ -170,6 +170,7 @@ const {
     buildNativeScanCleanupManifest,
     buildScanCleanupCompactManifest,
     buildScanCleanupPageOpsInstructions,
+    resolveScanCleanupRequestedRenderDpi,
     serializeLegacyScanCleanupCompactManifest,
     serializeLegacyScanCleanupPageOpsInstructions,
 } = await tsImport('../../scan-cleanup-core/index.ts', import.meta.url);
@@ -1161,7 +1162,6 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 fixture.pdfPath,
             ]);
             const {
-                detected: sourceDpiDetected,
                 dpi: sourceDpi,
                 hasBilevelLayer: sourceHasBilevelLayer,
                 backgroundDpi: sourceBackgroundDpi,
@@ -1188,7 +1188,6 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 detectionRaster,
                 pageNumber,
                 sourceDpi,
-                sourceDpiDetected,
                 sourceHasBilevelLayer,
                 sourceBackgroundDpi,
                 sourceRaster,
@@ -1242,15 +1241,15 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 analysis,
                 pageNumber,
                 sourceDpi,
-                sourceDpiDetected,
                 sourceHasBilevelLayer,
                 sourceRaster,
             } = page;
             const supersampled = analysis.recommendedOutputMode === 'bw'
             || analysis.recommendedOutputMode === 'mixed';
-            const requestedRenderDpi = supersampled && !sourceDpiDetected
-                ? Math.max(sourceDpi, 600)
-                : sourceDpi;
+            const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi(
+                sourceDpi,
+                supersampled,
+            );
             const renderDpi = supersampled
                 ? resolveSafeRenderDpi(
                     requestedRenderDpi,

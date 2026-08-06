@@ -1185,23 +1185,23 @@ describe('scan cleanup pipeline', () => {
         const renderedDpis = vi.mocked(pipelineDependencies.renderPagePpm).mock.calls
             .map(call => call[5]);
         expect(renderedDpis).toEqual([
-            300,
-            300,
+            600,
+            600,
         ]);
         expect(cleanupManifest).not.toBeNull();
         expect(cleanupManifest!.pages[0]!.options).toMatchObject({
             matchPageSize: true,
             outputMode: 'bw',
             sourceDpi: 300,
-            requestedRenderDpi: 300,
-            dpi: 300,
+            requestedRenderDpi: 600,
+            dpi: 600,
             pageAlignment: 'top-center',
         });
         expect(cleanupManifest!.pages[1]!.options).toMatchObject({
             outputMode: 'grayscale',
             sourceDpi: 150,
             requestedRenderDpi: 150,
-            dpi: 300,
+            dpi: 600,
         });
         expect(cleanupManifest!.pages[0]!.outputs[0]).toMatchObject({
             outputPath: expect.stringMatching(/clean-1-0\.png$/u),
@@ -2855,7 +2855,7 @@ describe('scan cleanup pipeline', () => {
         )).rejects.toThrow(expected);
     });
 
-    it('renders BW pages at their detected source DPI with unchanged physical page size', async () => {
+    it('supersamples detected BW rasters with unchanged physical page size', async () => {
         const fixture = await setup();
         let finalOptions: Array<{
             dpi: number;
@@ -2934,15 +2934,15 @@ describe('scan cleanup pipeline', () => {
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(finalOptions).toEqual([
             expect.objectContaining({
-                dpi: 720,
+                dpi: 1_440,
                 sourceDpi: 720,
-                requestedRenderDpi: 720,
+                requestedRenderDpi: 1_440,
                 outputMode: 'bw',
             }),
             expect.objectContaining({
-                dpi: 720,
+                dpi: 1_440,
                 sourceDpi: 640,
-                requestedRenderDpi: 640,
+                requestedRenderDpi: 1_280,
                 outputMode: 'bw',
             }),
         ]);
@@ -3006,13 +3006,13 @@ describe('scan cleanup pipeline', () => {
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
-        expect(requestedRenderDpi).toBe(1_200);
+        expect(requestedRenderDpi).toBe(2_400);
         expect(finalDpi).toBe(948);
         expect(16_000 * 16_000 * (finalDpi / 1_200) ** 2).toBeLessThanOrEqual(160_000_000);
         expect(16_000 * 16_000 * (requestedRenderDpi / 1_200) ** 2).toBeGreaterThan(160_000_000);
     });
 
-    it('floors BW render DPI at 600 only when no source DPI was detected', async () => {
+    it('floors an undetected BW source at 600 DPI', async () => {
         const fixture = await setup();
         let finalDpi = 0;
         let requestedRenderDpi = 0;
@@ -3108,7 +3108,7 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
-        expect(requestedRenderDpi).toBe(200);
+        expect(requestedRenderDpi).toBe(600);
         expect(finalDpi).toBe(600);
     });
 
@@ -3235,12 +3235,12 @@ describe('scan cleanup pipeline', () => {
             }),
             expect.objectContaining({
                 dpi: 720,
-                requestedRenderDpi: 300,
+                requestedRenderDpi: 600,
                 outputMode: 'bw',
             }),
             expect.objectContaining({
                 dpi: 720,
-                requestedRenderDpi: 150,
+                requestedRenderDpi: 600,
                 outputMode: 'mixed',
             }),
         ]);
@@ -3678,8 +3678,8 @@ describe('scan cleanup pipeline', () => {
         expect(manifestCanvas).toEqual({
             widthPoints: 240,
             heightPoints: 336,
-            widthPx: Math.ceil(240 / 72 * 300),
-            heightPx: Math.ceil(336 / 72 * 300),
+            widthPx: Math.ceil(240 / 72 * 600),
+            heightPx: Math.ceil(336 / 72 * 600),
         });
     });
 
@@ -3975,10 +3975,10 @@ describe('scan cleanup pipeline', () => {
         ]));
 
         const canvasDpi = measured.canvas!.widthPx / measured.canvas!.widthPoints * 72;
-        expect(canvasDpi).toBeLessThan(1_200);
+        expect(canvasDpi).toBeLessThan(2_400);
         expect(measured.warnings.filter(warning => /normalized this document at/u.test(warning)))
             .toEqual([`Matched page size normalized this document at ${String(Math.round(canvasDpi))} DPI `
-                + 'instead of the 1200 DPI its finest page was rendered at, '
+                + 'instead of the 2400 DPI its finest page was rendered at, '
                 + 'to keep one shared page inside the output pixel budget']);
     });
 
@@ -4079,9 +4079,8 @@ describe('scan cleanup pipeline', () => {
 
     it('gives a partial run the pixel grid the whole document is rendered on', async () => {
         // One document, two Letter pages, scanned at different resolutions:
-        // page 1 at 300 DPI and page 2 at 150. The document's grid is the finer
-        // of the two, because no page may be resampled below the detail it
-        // arrived with.
+        // page 1 at 300 DPI and page 2 at 150. Binary thresholding uses a
+        // document-wide 600-DPI contour grid for both pages.
         const letter = [
             {
                 widthPoints: 612,
@@ -4105,14 +4104,14 @@ describe('scan cleanup pipeline', () => {
         const documentGrid = {
             widthPoints: 612,
             heightPoints: 792,
-            widthPx: Math.ceil(612 / 72 * 300),
-            heightPx: Math.ceil(792 / 72 * 300),
+            widthPx: Math.ceil(612 / 72 * 600),
+            heightPx: Math.ceil(792 / 72 * 600),
         };
 
         const full = (await measuredCanvas(letter, {}, {}, sourceDpiByPage)).canvas;
         // The low-resolution page, cleaned on its own. Its own render is
-        // 1275 x 1650, and a grid derived from the run's scope would write
-        // exactly that — a page half the resolution of the ones beside it.
+        // 1275 x 1650 before binary supersampling, and a grid derived from the
+        // run's scope still has to match the complete document's contour grid.
         const partialLowDpiPage = (await measuredCanvas(
             letter,
             {},

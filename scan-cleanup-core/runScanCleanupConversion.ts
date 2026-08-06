@@ -531,8 +531,9 @@ export async function runScanCleanupConversion(
             return mode === undefined || mode === 'bw' || mode === 'mixed';
         };
         // Pixel guardrails come from the pdfimages raster row for detected
-        // pages; only undetected pages that may produce a binary layer (and
-        // therefore take the synthesis DPI floor) pay for a 72-DPI probe.
+        // pages; only undetected pages that may produce a binary layer pay for
+        // a 72-DPI probe before their high-resolution thresholding grid is
+        // planned.
         const guardrailByPage = new Map<number, {
             dpi: number;
             width: number;
@@ -583,7 +584,6 @@ export async function runScanCleanupConversion(
                 resolvedOutputMode,
                 ...resolveScanCleanupPlannedDpi({
                     sourceDpi: sourceDpiByPage.get(pageNumber)!,
-                    hasDetectedRaster: detectedRasterByPage.has(pageNumber),
                     carriesBinaryLayer: requiresBilevelQuality(pageNumber),
                     maxPixels: resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
                     guardrail,
@@ -605,7 +605,6 @@ export async function runScanCleanupConversion(
                     ?? pageOverride.outputModeOverride
                     ?? request.options.outputMode,
                 sourceDpi: sourceDpiByPage.get(pageNumber)!,
-                hasDetectedRaster: detectedRasterByPage.has(pageNumber),
                 guardrail: resolveScanCleanupDocumentGuardrail(
                     detectedRasterByPage.get(pageNumber),
                     sourceDpiByPage.get(pageNumber),
