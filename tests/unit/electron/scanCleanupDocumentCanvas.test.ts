@@ -186,7 +186,7 @@ describe('scan cleanup document canvas', () => {
                 widthPoints: 612,
                 heightPoints: 792,
             },
-        ]})).toThrow(/page numbering/u);
+        ]})).toThrow(/invalid page numbering/u);
     });
 
     it('accepts shuffled complete page numbering and returns canonical order', () => {

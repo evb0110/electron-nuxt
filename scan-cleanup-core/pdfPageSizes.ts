@@ -23,6 +23,10 @@ const PDFINFO_PAGE_COUNT_RE = /^Pages:\s+(\d+)\s*$/mu;
 const PDFINFO_PAGE_SIZE_RE = /^Page\s+(\d+)\s+size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts/gmu;
 const PDFINFO_PAGE_ROTATION_RE = /^Page\s+(\d+)\s+rot:\s+(-?\d+)\s*$/gmu;
 
+function invalidPageNumbering(reason: string) {
+    return new Error(`evb-pdf-page-ops returned invalid page numbering: ${reason}`);
+}
+
 /**
  * The geometry a page carries: the page view (CropBox intersected with
  * MediaBox) in PDF user space, plus the display rotation that view is presented
@@ -51,10 +55,10 @@ export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
             || pageNumber < 1
             || pageNumber > pageCount
         ) {
-            throw new Error(`evb-pdf-page-ops returned invalid page number at record ${String(index + 1)}`);
+            throw invalidPageNumbering(`invalid page number at record ${String(index + 1)}`);
         }
         if (decoded.has(pageNumber)) {
-            throw new Error(`evb-pdf-page-ops returned duplicate geometry for page ${String(pageNumber)}`);
+            throw invalidPageNumbering(`duplicate geometry for page ${String(pageNumber)}`);
         }
         if (widthPoints === null || heightPoints === null || widthPoints <= 0 || heightPoints <= 0) {
             throw new Error(`evb-pdf-page-ops returned invalid geometry for page ${String(pageNumber)}`);
@@ -92,7 +96,7 @@ export function parsePdfPageSizesPayload(payload: unknown): IPdfPageSize[] {
         const pageNumber = index + 1;
         const page = decoded.get(pageNumber);
         if (!page) {
-            throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(pageNumber)}`);
+            throw invalidPageNumbering(`no geometry for page ${String(pageNumber)}`);
         }
         return page;
     });
