@@ -4,17 +4,27 @@ import {
     it,
 } from 'vitest';
 import {
-    decodeOpenPdfPaths,
+    decodeDetectionArgs,
+    decodeOwnedJobId,
+    decodePreviewArgs,
     decodeScanCleanupPageOverrides,
     decodeStartArgs,
-    SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX,
-    SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX,
-    SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX,
-    SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
-    SCAN_CLEANUP_IPC_PATH_LENGTH_MAX,
-    SCAN_CLEANUP_IPC_POLYGON_POINT_MAX,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
-import {decodeScanCleanupSettingsUpdateRequest} from '@contracts/scanCleanupSettings';
+import {
+    createScanCleanupInputBudget,
+    SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    SCAN_CLEANUP_INPUT_MAX_PAGES,
+    SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
+    SCAN_CLEANUP_INPUT_MAX_ZONES,
+    SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
+    SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES,
+} from '@contracts/scan-cleanup/inputLimits';
+import {
+    decodeScanCleanupSettingsReadRequest,
+    decodeScanCleanupSettingsUpdateRequest,
+} from '@contracts/scanCleanupSettings';
 
 const request = {
     sourcePdfPath: '/tmp/source.pdf',
@@ -75,13 +85,6 @@ const request = {
     }},
 };
 
-const basePageOverride = {
-    rotationDegrees: 0,
-    layoutOverride: 'auto',
-    excluded: false,
-    manualSplit: null,
-} as const;
-
 const triangle = {
     points: [
         {
@@ -98,7 +101,27 @@ const triangle = {
         },
     ],
     rotationDegrees: 0,
-} as const;
+};
+
+function pageOverride(manualZones: unknown = undefined) {
+    return {
+        rotationDegrees: 0,
+        layoutOverride: 'auto',
+        excluded: false,
+        manualSplit: null,
+        ...(manualZones === undefined ? {} : {manualZones}),
+    };
+}
+
+function requestWithOverrides(pageOverrides: Record<string, unknown>) {
+    return {
+        ...request,
+        options: {
+            ...request.options,
+            pageOverrides,
+        },
+    };
+}
 
 describe('scan-cleanup IPC request codecs', () => {
     it('decodes typed automatic page-plan evidence', () => {
@@ -164,157 +187,91 @@ describe('scan-cleanup IPC request codecs', () => {
         }])).toThrow('text tone');
     });
 
-    it('bounds renderer-controlled strings before accepting a request', () => {
-        expect(() => decodeStartArgs([{
-            ...request,
-            sourcePdfPath: 'p'.repeat(SCAN_CLEANUP_IPC_PATH_LENGTH_MAX + 1),
-        }])).toThrow('request');
-        expect(() => decodeStartArgs([{
-            ...request,
-            ownerId: 'o'.repeat(SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX + 1),
-        }])).toThrow('owner context');
-        expect(() => decodeOpenPdfPaths([['p'.repeat(SCAN_CLEANUP_IPC_PATH_LENGTH_MAX + 1)]])).toThrow('open PDF paths');
+    it('enforces canonical bounded page keys across page-indexed payloads', () => {
+        for (const key of [
+            '01',
+            String(SCAN_CLEANUP_INPUT_MAX_PAGES + 1),
+            String(Number.MAX_SAFE_INTEGER + 1),
+        ]) {
+            expect(() => decodeStartArgs([requestWithOverrides({[key]: pageOverride()})]))
+                .toThrow('page override number');
+            expect(() => decodeStartArgs([{
+                ...request,
+                layoutByPage: {[key]: 'single-uncut-page'},
+            }])).toThrow('layout classifications');
+        }
     });
 
-    it('bounds every page-scoped request map', () => {
-        const oversizedOverrides = Object.fromEntries(Array.from(
-            {length: SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX + 1},
-            (_, index) => [
-                String(index + 1),
-                basePageOverride,
-            ],
-        ));
-        expect(() => decodeScanCleanupPageOverrides(oversizedOverrides)).toThrow(
-            'too many scan-cleanup page overrides',
-        );
-        expect(() => decodeStartArgs([{
-            ...request,
-            outputModeRecommendations: Object.fromEntries(Object.keys(oversizedOverrides).map(
-                pageNumber => [
-                    pageNumber,
-                    'bw',
-                ],
-            )),
-        }])).toThrow('too many scan-cleanup output-mode recommendations');
-    });
-
-    it('bounds manual-zone counts and polygon point counts', () => {
-        expect(() => decodeScanCleanupPageOverrides({'1': {
-            ...basePageOverride,
-            manualZones: {
-                picture: [],
-                fill: Array.from({length: SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX + 1}, () => triangle),
-            },
-        }})).toThrow('too many scan-cleanup manual zones');
-
-        const oversizedPolygon = {
-            points: Array.from(
-                {length: SCAN_CLEANUP_IPC_POLYGON_POINT_MAX + 1},
-                (_, index) => ({
-                    xNormalized: index / SCAN_CLEANUP_IPC_POLYGON_POINT_MAX,
-                    yNormalized: index % 2,
-                }),
-            ),
-            rotationDegrees: 0,
+    it('reuses deep override validation for start, preview, detection, and settings updates', () => {
+        const invalidOptions = {
+            ...request.options,
+            pageOverrides: {'01': pageOverride()},
         };
-        expect(() => decodeScanCleanupPageOverrides({'1': {
-            ...basePageOverride,
-            manualZones: {
-                picture: [],
-                fill: [oversizedPolygon],
-            },
-        }})).toThrow('fill zone 0');
-
-        const regularPolygon = {
-            points: Array.from(
-                {length: SCAN_CLEANUP_IPC_POLYGON_POINT_MAX},
-                (_, index) => {
-                    const angle = index / SCAN_CLEANUP_IPC_POLYGON_POINT_MAX * Math.PI * 2;
-                    return {
-                        xNormalized: 0.5 + Math.cos(angle) * 0.4,
-                        yNormalized: 0.5 + Math.sin(angle) * 0.4,
-                    };
-                },
-            ),
-            rotationDegrees: 0,
+        const preview = {
+            ...request,
+            requestId: 'preview-1',
+            pageNumber: 1,
+            options: invalidOptions,
         };
-        const polygonCount = Math.floor(
-            SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX / SCAN_CLEANUP_IPC_POLYGON_POINT_MAX,
-        ) + 1;
-        expect(() => decodeScanCleanupPageOverrides({'1': {
-            ...basePageOverride,
-            manualZones: {
-                picture: [],
-                fill: Array.from({length: polygonCount}, () => regularPolygon),
-            },
-        }})).toThrow('too many scan-cleanup manual-zone points');
+        const detection = {
+            sourcePdfPath: request.sourcePdfPath,
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            options: invalidOptions,
+        };
+
+        expect(() => decodeStartArgs([{
+            ...request,
+            options: invalidOptions,
+        }]))
+            .toThrow('page override number');
+        expect(() => decodePreviewArgs([preview])).toThrow('page override number');
+        expect(() => decodeDetectionArgs([detection])).toThrow('page override number');
+        expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
+            sourceSha256: 'a'.repeat(64),
+            patch: {overrides: invalidOptions.pageOverrides},
+        }})).toThrow('page override number');
     });
 
-    it('rejects degenerate and self-intersecting manual polygons but accepts concave polygons', () => {
-        const decode = (points: Array<{
-            xNormalized: number;
-            yNormalized: number;
-        }>) =>
-            decodeScanCleanupPageOverrides({'1': {
-                ...basePageOverride,
-                manualZones: {
-                    picture: [],
-                    fill: [{
-                        points,
-                        rotationDegrees: 0,
-                    }],
-                },
-            }});
-        for (const points of [
-            [
-                {
-                    xNormalized: 0.1,
-                    yNormalized: 0.1,
-                },
-                {
-                    xNormalized: 0.8,
-                    yNormalized: 0.1,
-                },
-                {
-                    xNormalized: 0.8,
-                    yNormalized: 0.1,
-                },
-            ],
-            [
-                {
-                    xNormalized: 0.1,
-                    yNormalized: 0.1,
-                },
-                {
-                    xNormalized: 0.5,
-                    yNormalized: 0.5,
-                },
-                {
-                    xNormalized: 0.9,
-                    yNormalized: 0.9,
-                },
-            ],
-            [
-                {
-                    xNormalized: 0.1,
-                    yNormalized: 0.1,
-                },
-                {
-                    xNormalized: 0.9,
-                    yNormalized: 0.9,
-                },
-                {
-                    xNormalized: 0.1,
-                    yNormalized: 0.9,
-                },
-                {
-                    xNormalized: 0.9,
-                    yNormalized: 0.1,
-                },
-            ],
-        ]) expect(() => decode(points)).toThrow('polygon geometry');
+    it('bounds and NUL-rejects paths, revisions, owner IDs, request IDs, and job IDs', () => {
+        const preview = {
+            ...request,
+            requestId: 'preview-1',
+            pageNumber: 1,
+        };
+        const detection = {
+            sourcePdfPath: request.sourcePdfPath,
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            options: request.options,
+        };
+        expect(() => decodePreviewArgs([{
+            ...preview,
+            requestId: 'x'.repeat(SCAN_CLEANUP_INPUT_MAX_ID_BYTES + 1),
+        }])).toThrow('request id');
+        expect(() => decodePreviewArgs([{
+            ...preview,
+            ownerId: 'owner\0suffix',
+        }])).toThrow('owner id');
+        expect(() => decodeDetectionArgs([{
+            ...detection,
+            documentRevision: 'revision\0suffix',
+        }])).toThrow('document revision');
+        expect(() => decodeStartArgs([{
+            ...request,
+            sourcePdfPath: `/${'x'.repeat(SCAN_CLEANUP_INPUT_MAX_PATH_BYTES)}`,
+        }])).toThrow('source PDF path');
+        expect(() => decodeOwnedJobId([
+            'job\0suffix',
+            {
+                ownerId: 'owner',
+                documentRevision: 'revision',
+            },
+        ])).toThrow('job id');
+    });
 
-        expect(() => decode([
+    it('accepts convex, concave, and either-winding simple polygons', () => {
+        const concavePoints = [
             {
                 xNormalized: 0.1,
                 yNormalized: 0.1,
@@ -335,19 +292,156 @@ describe('scan-cleanup IPC request codecs', () => {
                 xNormalized: 0.1,
                 yNormalized: 0.9,
             },
-        ])).not.toThrow();
+        ];
+        for (const points of [
+            triangle.points,
+            [...triangle.points].reverse(),
+            concavePoints,
+        ]) {
+            expect(() => decodeStartArgs([requestWithOverrides({'1': pageOverride({
+                picture: [],
+                fill: [{
+                    points,
+                    rotationDegrees: 0,
+                }],
+            })})])).not.toThrow();
+        }
     });
 
-    it('applies the same override limits to settings-update IPC', () => {
+    it('rejects duplicate, degenerate, intersecting, and overlapping polygons', () => {
+        const invalidPolygons = [
+            [
+                triangle.points[0],
+                triangle.points[1],
+                triangle.points[0],
+            ],
+            [
+                {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                },
+                {
+                    xNormalized: 1,
+                    yNormalized: 0,
+                },
+                {
+                    xNormalized: 1,
+                    yNormalized: 1e-13,
+                },
+            ],
+            [
+                {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                },
+                {
+                    xNormalized: 1,
+                    yNormalized: 1,
+                },
+                {
+                    xNormalized: 0,
+                    yNormalized: 1,
+                },
+                {
+                    xNormalized: 0.8,
+                    yNormalized: 0,
+                },
+            ],
+            [
+                {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                },
+                {
+                    xNormalized: 1,
+                    yNormalized: 0,
+                },
+                {
+                    xNormalized: 1,
+                    yNormalized: 1,
+                },
+                {
+                    xNormalized: 0.25,
+                    yNormalized: 1,
+                },
+                {
+                    xNormalized: 0.25,
+                    yNormalized: 0,
+                },
+                {
+                    xNormalized: 0.75,
+                    yNormalized: 0,
+                },
+                {
+                    xNormalized: 0.75,
+                    yNormalized: 0.75,
+                },
+                {
+                    xNormalized: 0,
+                    yNormalized: 0.75,
+                },
+            ],
+        ];
+        for (const points of invalidPolygons) {
+            expect(() => decodeStartArgs([requestWithOverrides({'1': pageOverride({
+                picture: [],
+                fill: [{
+                    points,
+                    rotationDegrees: 0,
+                }],
+            })})])).toThrow(/duplicate|near-zero|intersecting|overlapping/u);
+        }
+    });
+
+    it('applies zone, vertex, and legacy-storage caps at settings IPC boundaries', () => {
         expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
             sourceSha256: 'a'.repeat(64),
-            patch: {overrides: {'1': {
-                ...basePageOverride,
-                manualZones: {
-                    picture: [],
-                    fill: Array.from({length: SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX + 1}, () => triangle),
-                },
-            }}},
+            patch: {overrides: {'1': pageOverride({
+                picture: [],
+                fill: Array.from({length: SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE + 1}, () => triangle),
+            })}},
         }})).toThrow('too many scan-cleanup manual zones');
+        const tooManyVertices = Array.from({length: SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON + 1}, (_unused, index) => {
+            const radians = index * Math.PI * 2 / (SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON + 1);
+            return {
+                xNormalized: 0.5 + 0.4 * Math.cos(radians),
+                yNormalized: 0.5 + 0.4 * Math.sin(radians),
+            };
+        });
+        expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
+            sourceSha256: 'a'.repeat(64),
+            patch: {overrides: {'1': pageOverride({
+                picture: [],
+                fill: [{
+                    points: tooManyVertices,
+                    rotationDegrees: 0,
+                }],
+            })}},
+        }})).toThrow('fill zone');
+        expect(() => decodeScanCleanupSettingsReadRequest({legacyStorage: {
+            settingsRaw: 'x'.repeat(SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES + 1),
+            documentOverridesRaw: null,
+        }})).toThrow('byte limit');
+    });
+
+    it('enforces aggregate page, zone, and vertex budgets across decoded overrides', () => {
+        const pageBudget = createScanCleanupInputBudget();
+        pageBudget.pages = SCAN_CLEANUP_INPUT_MAX_PAGES;
+        expect(() => decodeScanCleanupPageOverrides({'1': pageOverride()}, pageBudget))
+            .toThrow('too many scan-cleanup page overrides');
+
+        const zoneBudget = createScanCleanupInputBudget();
+        zoneBudget.zones = SCAN_CLEANUP_INPUT_MAX_ZONES;
+        expect(() => decodeScanCleanupPageOverrides({'1': pageOverride({
+            picture: [],
+            fill: [triangle],
+        })}, zoneBudget)).toThrow('too many scan-cleanup manual zones');
+
+        const vertexBudget = createScanCleanupInputBudget();
+        vertexBudget.vertices = SCAN_CLEANUP_INPUT_MAX_VERTICES - 2;
+        expect(() => decodeScanCleanupPageOverrides({'1': pageOverride({
+            picture: [],
+            fill: [triangle],
+        })}, vertexBudget)).toThrow('too many scan-cleanup manual-zone vertices');
     });
 });

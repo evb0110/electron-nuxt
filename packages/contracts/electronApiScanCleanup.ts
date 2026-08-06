@@ -9,6 +9,16 @@ export {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/out
 export {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/nativeProtocolV3';
 export {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 export {
+    SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    SCAN_CLEANUP_INPUT_MAX_PAGES,
+    SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
+    SCAN_CLEANUP_INPUT_MAX_ZONES,
+    SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
+    SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES,
+} from '@contracts/scan-cleanup/inputLimits';
+export {
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,

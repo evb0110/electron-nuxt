@@ -296,7 +296,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let scheduledKey: string | null = null;
     let cancellationRetryKey: string | null = null;
     let cancellationRetries = 0;
-    let requestNonce = 0;
     // The source identity can remain stable while its lifecycle generation is
     // retired (for example after its SHA becomes available). Keep that event in
     // the scheduling/cache identity so clearing state always causes fresh work.
@@ -482,9 +481,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             : undefined;
     }
 
-    function nextRequestId(key: string) {
-        requestNonce += 1;
-        return `${options.ownerId}:${requestNonce}:${key}`;
+    function nextRequestId() {
+        // The request ID only correlates streamed/raw responses. Keep it opaque
+        // and fixed-size instead of embedding the potentially large cache key.
+        return crypto.randomUUID();
     }
 
     function cachePreview(key: string, previewResult: IScanCleanupPreviewResult) {
@@ -571,7 +571,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             return {
                 key,
                 request: {
-                    requestId: nextRequestId(key),
+                    requestId: nextRequestId(),
                     sourcePdfPath: previewSourcePath,
                     ownerId: options.ownerId,
                     documentRevision: options.documentRevision.value,
@@ -613,7 +613,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const softAlphaForegroundRecommendation =
             resolveSoftAlphaForegroundRecommendation(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
-        const requestId = nextRequestId(key);
+        const requestId = nextRequestId();
         activeVisibleRequestId = requestId;
         const retainedRaw = retainedRawForPage(requestPage);
         if (retainedRaw) rawResult.value = retainedRaw;
@@ -853,7 +853,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             const documentPrior = options.documentPriorByPage.get(requestPage);
             const softAlphaForegroundRecommendation =
                 options.softAlphaForegroundRecommendationByPage.get(requestPage);
-            const requestId = nextRequestId(tileKey);
+            const requestId = nextRequestId();
             const next = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
                 requestId,
                 sourcePdfPath: requestSourcePath,

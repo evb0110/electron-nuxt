@@ -13,15 +13,19 @@ import {
 } from '@contracts/scan-cleanup/domain';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
-    decodeScanCleanupPageOverrides,
-    SCAN_CLEANUP_IPC_PATH_LENGTH_MAX,
-} from '@contracts/scan-cleanup/ipcRequestCodecs';
+    createScanCleanupInputBudget,
+    decodeBoundedScanCleanupString,
+    type IScanCleanupInputBudget,
+    SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES,
+    scanCleanupUtf8ByteLength,
+} from '@contracts/scan-cleanup/inputLimits';
+import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
 
 export const SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION = 1 as const;
 export const SCAN_CLEANUP_SETTINGS_FILE_NAME = 'scan-cleanup-settings.json';
 export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES = 50;
-const SCAN_CLEANUP_LEGACY_STORAGE_STRING_MAX = 4 * 1024 * 1024;
 
 export interface IScanCleanupGlobalPreferences extends Omit<
     IScanCleanupOptions,
@@ -103,38 +107,38 @@ export interface IScanCleanupSettingsUpdateRequest {
     };
 }
 
-function decodeNullableString(
-    value: unknown,
-    label: string,
-    maxLength = SCAN_CLEANUP_IPC_PATH_LENGTH_MAX,
-): string | null | undefined {
-    if (
-        value === undefined
-        || value === null
-        || typeof value === 'string' && value.length <= maxLength
-    ) {
+function decodeNullablePath(value: unknown, label: string): string | null | undefined {
+    if (value === undefined || value === null) {
         return value;
     }
-    throw new Error(`Invalid scan-cleanup settings ${label}`);
+    return decodeBoundedScanCleanupString(value, `settings ${label}`, SCAN_CLEANUP_INPUT_MAX_PATH_BYTES);
+}
+
+export function assertScanCleanupLegacyStorageByteLimit(
+    value: Pick<IScanCleanupLegacyStorageExport, 'settingsRaw' | 'documentOverridesRaw'>,
+) {
+    const rawBytes = scanCleanupUtf8ByteLength(value.settingsRaw ?? '')
+        + scanCleanupUtf8ByteLength(value.documentOverridesRaw ?? '');
+    if (rawBytes > SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES) {
+        throw new Error('Scan-cleanup legacy storage export exceeds its byte limit');
+    }
 }
 
 function decodeLegacyStorageExport(value: unknown): IScanCleanupLegacyStorageExport {
     const stored = scanCleanupPreferenceRecord(value);
     if (!stored || (stored.settingsRaw !== null && typeof stored.settingsRaw !== 'string')
         || (stored.documentOverridesRaw !== null && typeof stored.documentOverridesRaw !== 'string')
-        || (typeof stored.settingsRaw === 'string'
-            && stored.settingsRaw.length > SCAN_CLEANUP_LEGACY_STORAGE_STRING_MAX)
-        || (typeof stored.documentOverridesRaw === 'string'
-            && stored.documentOverridesRaw.length > SCAN_CLEANUP_LEGACY_STORAGE_STRING_MAX)
         || (stored.exportedAtMs !== undefined
             && (typeof stored.exportedAtMs !== 'number' || !Number.isFinite(stored.exportedAtMs)))) {
         throw new Error('Invalid scan-cleanup legacy storage export');
     }
-    return {
+    const decoded = {
         settingsRaw: stored.settingsRaw,
         documentOverridesRaw: stored.documentOverridesRaw,
         ...(stored.exportedAtMs === undefined ? {} : {exportedAtMs: stored.exportedAtMs}),
     };
+    assertScanCleanupLegacyStorageByteLimit(decoded);
+    return decoded;
 }
 
 export function decodeScanCleanupSettingsReadRequest(value: unknown): IScanCleanupSettingsReadRequest {
@@ -144,10 +148,17 @@ export function decodeScanCleanupSettingsReadRequest(value: unknown): IScanClean
     }
     const sourceSha256 = stored.sourceSha256 === undefined
         ? undefined
-        : decodeNullableString(stored.sourceSha256, 'source hash');
+        : stored.sourceSha256 === null
+            ? null
+            : (() => {
+                if (!isScanCleanupSourceSha256(stored.sourceSha256)) {
+                    throw new Error('Invalid scan-cleanup settings source hash');
+                }
+                return stored.sourceSha256.toLowerCase();
+            })();
     const legacyDocumentKey = stored.legacyDocumentKey === undefined
         ? undefined
-        : decodeNullableString(stored.legacyDocumentKey, 'legacy document key');
+        : decodeNullablePath(stored.legacyDocumentKey, 'legacy document key');
     return {
         ...(stored.legacyStorage === undefined ? {} : {legacyStorage: decodeLegacyStorageExport(stored.legacyStorage)}),
         ...(sourceSha256 === undefined ? {} : {sourceSha256}),
@@ -174,7 +185,7 @@ function decodeDocumentPatch(value: unknown): IScanCleanupDocumentPreferencePatc
         ? undefined
         : decodeScanCleanupPageOverrides(stored.overrides);
     return {
-        ...(overrides === undefined || overrides === null ? {} : {overrides}),
+        ...(overrides === undefined ? {} : {overrides}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
         ...(outputMode === undefined ? {} : {outputMode}),
         ...(stored.resetOverrides === undefined ? {} : {resetOverrides: stored.resetOverrides}),
@@ -202,7 +213,7 @@ export function decodeScanCleanupSettingsUpdateRequest(value: unknown): IScanCle
     }
     const legacyDocumentKey = documentValue.legacyDocumentKey === undefined
         ? undefined
-        : decodeNullableString(documentValue.legacyDocumentKey, 'legacy document key');
+        : decodeNullablePath(documentValue.legacyDocumentKey, 'legacy document key');
     return {
         ...(settings === undefined ? {} : {settings}),
         document: {
@@ -356,7 +367,10 @@ function decodeOutputMode(value: unknown): TScanCleanupOutputModeSetting | undef
         : undefined;
 }
 
-function decodeDocumentOverrideEntry(value: unknown): IScanCleanupDocumentOverrideEntry | null {
+function decodeDocumentOverrideEntry(
+    value: unknown,
+    budget: IScanCleanupInputBudget,
+): IScanCleanupDocumentOverrideEntry | null {
     const stored = scanCleanupPreferenceRecord(value);
     const lastUsedAtMs = stored?.lastUsedAtMs;
     if (typeof lastUsedAtMs !== 'number' || !Number.isFinite(lastUsedAtMs) || lastUsedAtMs < 0) {
@@ -370,8 +384,11 @@ function decodeDocumentOverrideEntry(value: unknown): IScanCleanupDocumentOverri
     if (stored?.overrides !== undefined && overrides === null) {
         return null;
     }
+    const decodedOverrides = overrides === null
+        ? undefined
+        : decodeScanCleanupPageOverrides(overrides, budget);
     return {
-        ...(overrides === null ? {} : {overrides}),
+        ...(decodedOverrides === undefined ? {} : {overrides: decodedOverrides}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
         ...(outputMode === undefined ? {} : {outputMode}),
         lastUsedAtMs,
@@ -391,7 +408,11 @@ export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSetti
     if (!storedOverrides) {
         throw new Error('Invalid scan-cleanup settings documentOverrides');
     }
+    if (Object.keys(storedOverrides).length > SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES) {
+        throw new Error('Too many scan-cleanup settings documentOverrides');
+    }
     const documentOverrides: Record<string, IScanCleanupDocumentOverrideEntry> = {};
+    const budget = createScanCleanupInputBudget();
     for (const [
         key,
         entry,
@@ -399,7 +420,7 @@ export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSetti
         if (!isScanCleanupSourceSha256(key)) {
             continue;
         }
-        const decoded = decodeDocumentOverrideEntry(entry);
+        const decoded = decodeDocumentOverrideEntry(entry, budget);
         if (decoded) {
             documentOverrides[key.toLowerCase()] = decoded;
         }

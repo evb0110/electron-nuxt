@@ -5,6 +5,7 @@ import {
 } from 'node:fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {
+    assertScanCleanupLegacyStorageByteLimit,
     assertFiniteScanCleanupPreferences,
     cloneScanCleanupPreferenceValue,
     createDefaultScanCleanupSettingsFile,
@@ -22,16 +23,21 @@ import {
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
 } from '@contracts/scanCleanupSettings';
-import type {
-    TScanCleanupOutputModeSetting,
-    TScanCleanupPageOverrides,
-} from '@contracts/scan-cleanup/domain';
+import {
+    createScanCleanupInputBudget,
+    type IScanCleanupInputBudget,
+} from '@contracts/scan-cleanup/inputLimits';
+import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
+import type {TScanCleanupOutputModeSetting} from '@contracts/scan-cleanup/domain';
 import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import {
+    createLogger,
+    type ILogger,
+} from '@electron/utils/createLogger';
 import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
-import {createLogger} from '@electron/utils/createLogger';
 
 interface IScanCleanupSettingsStoreFileSystem {
     readFile: (filePath: string, encoding: 'utf8') => Promise<string>;
@@ -41,13 +47,11 @@ interface IScanCleanupSettingsStoreFileSystem {
 
 interface IScanCleanupSettingsStoreOptions {
     filePath: string;
+    logger?: Pick<ILogger, 'warn'>;
     now?: () => number;
     fileSystem?: Partial<IScanCleanupSettingsStoreFileSystem>;
     replace?: (sourcePath: string, targetPath: string) => Promise<void>;
-    warn?: (message: string) => void;
 }
-
-const logger = createLogger('scan-cleanup-settings');
 
 interface ILegacyCandidate {
     entry: IScanCleanupDocumentOverrideEntry;
@@ -68,6 +72,7 @@ const DEFAULT_STORE_FILE_SYSTEM: IScanCleanupSettingsStoreFileSystem = {
         await unlink(filePath);
     },
 };
+const DEFAULT_LOGGER = createLogger('scan-cleanup-settings');
 
 function finiteTimestamp(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
@@ -79,17 +84,18 @@ function legacyTimestamp(entry: Record<string, unknown> | null, fallback: number
         ?? fallback;
 }
 
-function decodeLegacyDocumentEntry(value: unknown, fallbackTimestamp: number): IScanCleanupDocumentOverrideEntry | null {
+function decodeLegacyDocumentEntry(
+    value: unknown,
+    fallbackTimestamp: number,
+    budget: IScanCleanupInputBudget,
+): IScanCleanupDocumentOverrideEntry | null {
     const stored = scanCleanupPreferenceRecord(value);
     if (!stored) {
         return null;
     }
     const overrides = stored.overrides === undefined
         ? undefined
-        : scanCleanupPreferenceRecord(stored.overrides) as TScanCleanupPageOverrides | null;
-    if (stored.overrides !== undefined && overrides === null) {
-        return null;
-    }
+        : decodeScanCleanupPageOverrides(stored.overrides, budget);
     const outputMode = [
         'auto',
         'bw',
@@ -103,7 +109,7 @@ function decodeLegacyDocumentEntry(value: unknown, fallbackTimestamp: number): I
         ? undefined
         : decodeScanCleanupMarginsMm(stored.marginsMm);
     return {
-        ...(overrides === undefined || overrides === null ? {} : {overrides}),
+        ...(overrides === undefined ? {} : {overrides}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
         ...(outputMode === undefined ? {} : {outputMode}),
         lastUsedAtMs: legacyTimestamp(stored, fallbackTimestamp),
@@ -127,6 +133,8 @@ function readLegacyCandidates(
             documentCandidatesByLegacyKey,
         };
     }
+    assertScanCleanupLegacyStorageByteLimit(legacyStorage);
+    const budget = createScanCleanupInputBudget();
     const legacyFallbackTimestamp = finiteTimestamp(legacyStorage.exportedAtMs) ?? now;
     const rawSettings = parseScanCleanupPreferenceJson(legacyStorage.settingsRaw);
     const settingsRecord = scanCleanupPreferenceRecord(rawSettings);
@@ -140,7 +148,7 @@ function readLegacyCandidates(
             legacyDocumentKey,
             value,
         ] of Object.entries(rawOverrides)) {
-            const entry = decodeLegacyDocumentEntry(value, legacyFallbackTimestamp);
+            const entry = decodeLegacyDocumentEntry(value, legacyFallbackTimestamp, budget);
             if (!entry) {
                 continue;
             }
@@ -197,6 +205,7 @@ function cloneSettingsFile(state: IScanCleanupSettingsFile): IScanCleanupSetting
 
 export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStoreOptions): IScanCleanupSettingsStore {
     const now = options.now ?? Date.now;
+    const logger = options.logger ?? DEFAULT_LOGGER;
     const fileSystem: IScanCleanupSettingsStoreFileSystem = {
         ...DEFAULT_STORE_FILE_SYSTEM,
         ...options.fileSystem,
@@ -207,7 +216,6 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             markMutationCommitStarted: false,
         });
     });
-    const warn = options.warn ?? (message => logger.warn(message));
     let queue = Promise.resolve();
 
     function enqueue<T>(operation: () => Promise<T>) {
@@ -229,19 +237,26 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             }
             throw error;
         }
+        let parsed: unknown;
         try {
+            parsed = JSON.parse(raw) as unknown;
+        } catch (error) {
+            if (!(error instanceof SyntaxError)) {
+                throw error;
+            }
+            const quarantinePath = await quarantineCorruptFile(options.filePath);
+            const state = createDefaultScanCleanupSettingsFile();
+            await writeState(state);
+            logger.warn(`Quarantined corrupt scan-cleanup settings at ${quarantinePath ?? options.filePath}`);
             return {
-                state: decodeScanCleanupSettingsFile(JSON.parse(raw) as unknown),
+                state,
                 exists: true,
             };
-        } catch (error) {
-            const quarantinePath = await quarantineCorruptFile(options.filePath);
-            warn(`Quarantined corrupt scan-cleanup settings at ${quarantinePath ?? options.filePath}: ${String(error)}`);
-            return {
-                state: createDefaultScanCleanupSettingsFile(),
-                exists: false,
-            };
         }
+        return {
+            state: decodeScanCleanupSettingsFile(parsed),
+            exists: true,
+        };
     }
 
     async function writeState(state: IScanCleanupSettingsFile) {

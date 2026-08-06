@@ -725,6 +725,21 @@ describe('scan cleanup preview navigation', () => {
         cacheProbe.instances.length = 0;
     });
 
+    it('uses opaque fixed-size preview request IDs instead of embedding cache identity', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const mounted = mountPreviewSession(ref(100), reactive(new Map()));
+
+        await backend.advanceBy(1);
+
+        const requestId = backend.previewCalls.mock.calls[0]![0].requestId;
+        expect(requestId).toMatch(/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u);
+        expect(new TextEncoder().encode(requestId).byteLength).toBeLessThanOrEqual(128);
+        expect(requestId).not.toContain('owner-1');
+        expect(requestId).not.toContain('/docs/reference.pdf');
+        mounted.unmount();
+    });
+
     it('keeps navigation from destroying the preview work it just caused', async () => {
         const rows = [];
         for (const scenario of SCENARIOS) rows.push(await runScenario(scenario));

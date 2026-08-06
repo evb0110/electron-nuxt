@@ -1,7 +1,7 @@
 import {
     mkdtemp,
-    readdir,
     readFile,
+    readdir,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -12,6 +12,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     createDefaultScanCleanupSettingsFile,
@@ -53,38 +54,44 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(initial);
     });
 
-    it('quarantines malformed JSON and atomically restores clean defaults', async () => {
+    it('quarantines malformed JSON, preserves its bytes, and atomically writes defaults', async () => {
         const filePath = await createStoreFile();
-        await writeFile(filePath, '{bad json', 'utf8');
-        const warnings: string[] = [];
+        const corruptRaw = '{"schemaVersion":1,"settings":';
+        await writeFile(filePath, corruptRaw, 'utf8');
+        const logger = {warn: vi.fn()};
         const store = createScanCleanupSettingsStore({
             filePath,
-            warn: warning => warnings.push(warning),
+            logger,
         });
 
         await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
-        expect(await readdir(join(filePath, '..'))).toContainEqual(expect.stringMatching(/\.corrupt$/u));
-        expect(warnings).toHaveLength(1);
+        const directory = join(filePath, '..');
+        const quarantinedName = (await readdir(directory))
+            .find(name => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
+        expect(quarantinedName).toBeDefined();
+        await expect(readFile(join(directory, quarantinedName!), 'utf8')).resolves.toBe(corruptRaw);
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt scan-cleanup settings'));
     });
 
-    it('quarantines an invalid schema and restores clean defaults', async () => {
+    it('rejects an unsupported future schema without quarantining or overwriting it', async () => {
         const filePath = await createStoreFile();
-        await writeFile(filePath, JSON.stringify({
+        const futureRaw = `${JSON.stringify({
             schemaVersion: 99,
             settings: {},
             documentOverrides: {},
-        }), 'utf8');
-        const warnings: string[] = [];
+        }, null, 2)}\n`;
+        await writeFile(filePath, futureRaw, 'utf8');
+        const logger = {warn: vi.fn()};
         const store = createScanCleanupSettingsStore({
             filePath,
-            warn: warning => warnings.push(warning),
+            logger,
         });
 
-        await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
-        expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
-        expect(await readdir(join(filePath, '..'))).toContainEqual(expect.stringMatching(/\.corrupt$/u));
-        expect(warnings[0]).toContain('Unsupported scan-cleanup settings schema version: 99');
+        await expect(store.get()).rejects.toThrow('Unsupported scan-cleanup settings schema version: 99');
+        expect(await readFile(filePath, 'utf8')).toBe(futureRaw);
+        expect(await readdir(join(filePath, '..'))).toEqual(['scan-cleanup-settings.json']);
+        expect(logger.warn).not.toHaveBeenCalled();
     });
 
     it('merges the legacy export into a SHA-256 key with newest-wins semantics', async () => {
@@ -134,15 +141,9 @@ describe('file-backed scan-cleanup settings store', () => {
         });
     });
 
-    it('discards page overrides without clearing desktop margins or output mode', async () => {
+    it('resets only page overrides while preserving document margins and output mode', async () => {
         const filePath = await createStoreFile();
         const sourceSha256 = 'd'.repeat(64);
-        const marginsMm = {
-            leftMm: 12,
-            topMm: 7,
-            rightMm: 9,
-            bottomMm: 11,
-        };
         const initial = createDefaultScanCleanupSettingsFile();
         initial.documentOverrides[sourceSha256] = {
             overrides: {'1': {
@@ -151,14 +152,19 @@ describe('file-backed scan-cleanup settings store', () => {
                 excluded: false,
                 manualSplit: null,
             }},
-            marginsMm,
-            outputMode: 'grayscale',
-            lastUsedAtMs: 50,
+            marginsMm: {
+                leftMm: 4,
+                topMm: 5,
+                rightMm: 6,
+                bottomMm: 7,
+            },
+            outputMode: 'color',
+            lastUsedAtMs: 1,
         };
         await writeFile(filePath, JSON.stringify(initial), 'utf8');
         const store = createScanCleanupSettingsStore({
             filePath,
-            now: () => 100,
+            now: () => 2,
         });
 
         const updated = await store.update({document: {
@@ -167,12 +173,25 @@ describe('file-backed scan-cleanup settings store', () => {
         }});
 
         expect(updated.documentOverrides[sourceSha256]).toEqual({
-            marginsMm,
-            outputMode: 'grayscale',
-            lastUsedAtMs: 100,
+            marginsMm: initial.documentOverrides[sourceSha256]!.marginsMm,
+            outputMode: 'color',
+            lastUsedAtMs: 2,
         });
-        expect(JSON.parse(await readFile(filePath, 'utf8')).documentOverrides[sourceSha256])
-            .toEqual(updated.documentOverrides[sourceSha256]);
+    });
+
+    it('applies deep page-key validation while migrating legacy overrides', async () => {
+        const filePath = await createStoreFile();
+        const store = createScanCleanupSettingsStore({filePath});
+
+        await expect(store.get({legacyStorage: {
+            settingsRaw: null,
+            documentOverridesRaw: JSON.stringify({'/documents/scan.pdf': {overrides: {'01': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+            }}}}),
+        }})).rejects.toThrow('page override number');
     });
 
     it('expires old document overrides on load and keeps recent entries', async () => {

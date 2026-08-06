@@ -17,6 +17,21 @@ import type {
     IScanCleanupNormalizedRect,
 } from '@contracts/scan-cleanup/geometry';
 import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
+import {
+    consumeScanCleanupPages,
+    consumeScanCleanupVertices,
+    consumeScanCleanupZones,
+    createScanCleanupInputBudget,
+    decodeBoundedScanCleanupString,
+    decodeScanCleanupPageKey,
+    decodeScanCleanupPageNumber,
+    type IScanCleanupInputBudget,
+    SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    SCAN_CLEANUP_INPUT_MAX_PAGES,
+    SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
+    SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
+} from '@contracts/scan-cleanup/inputLimits';
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewCancelRequest,
@@ -28,119 +43,7 @@ import type {
     IScanCleanupTextToneDiagnostics,
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
-
-// IPC payloads are fully materialized before these codecs run. Keep every
-// renderer-controlled collection and string below an explicit ceiling so a
-// syntactically valid request cannot multiply into unbounded main-process work.
-export const SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX = 10_000;
-export const SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX = 256;
-export const SCAN_CLEANUP_IPC_POLYGON_POINT_MAX = 2_048;
-export const SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX = 8_192;
-export const SCAN_CLEANUP_IPC_PATH_LENGTH_MAX = 32_768;
-export const SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX = 1_024;
-const SCAN_CLEANUP_IPC_OPEN_PATH_MAX = SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX * 2;
-const POLYGON_EPSILON = 1e-9;
-const POLYGON_AREA_EPSILON = 1e-12;
-
-interface INormalizedPolygonPoint {
-    xNormalized: number;
-    yNormalized: number;
-}
-
-function polygonCross(
-    first: INormalizedPolygonPoint,
-    second: INormalizedPolygonPoint,
-    third: INormalizedPolygonPoint,
-) {
-    return (second.xNormalized - first.xNormalized) * (third.yNormalized - first.yNormalized)
-        - (second.yNormalized - first.yNormalized) * (third.xNormalized - first.xNormalized);
-}
-
-function pointOnSegment(point: INormalizedPolygonPoint, start: INormalizedPolygonPoint, end: INormalizedPolygonPoint) {
-    return Math.abs(polygonCross(start, end, point)) <= POLYGON_EPSILON
-        && point.xNormalized >= Math.min(start.xNormalized, end.xNormalized) - POLYGON_EPSILON
-        && point.xNormalized <= Math.max(start.xNormalized, end.xNormalized) + POLYGON_EPSILON
-        && point.yNormalized >= Math.min(start.yNormalized, end.yNormalized) - POLYGON_EPSILON
-        && point.yNormalized <= Math.max(start.yNormalized, end.yNormalized) + POLYGON_EPSILON;
-}
-
-function segmentsIntersect(
-    a: INormalizedPolygonPoint,
-    b: INormalizedPolygonPoint,
-    c: INormalizedPolygonPoint,
-    d: INormalizedPolygonPoint,
-) {
-    const abC = polygonCross(a, b, c);
-    const abD = polygonCross(a, b, d);
-    const cdA = polygonCross(c, d, a);
-    const cdB = polygonCross(c, d, b);
-    if (
-        ((abC > POLYGON_EPSILON && abD < -POLYGON_EPSILON)
-            || (abC < -POLYGON_EPSILON && abD > POLYGON_EPSILON))
-        && ((cdA > POLYGON_EPSILON && cdB < -POLYGON_EPSILON)
-            || (cdA < -POLYGON_EPSILON && cdB > POLYGON_EPSILON))
-    ) {
-        return true;
-    }
-    return pointOnSegment(c, a, b) || pointOnSegment(d, a, b)
-        || pointOnSegment(a, c, d) || pointOnSegment(b, c, d);
-}
-
-function validNormalizedPolygon(points: INormalizedPolygonPoint[]) {
-    let twiceArea = 0;
-    for (let index = 0; index < points.length; index += 1) {
-        const point = points[index]!;
-        const next = points[(index + 1) % points.length]!;
-        const dx = next.xNormalized - point.xNormalized;
-        const dy = next.yNormalized - point.yNormalized;
-        if (dx * dx + dy * dy <= POLYGON_EPSILON * POLYGON_EPSILON) {
-            return false;
-        }
-        twiceArea += point.xNormalized * next.yNormalized - next.xNormalized * point.yNormalized;
-    }
-    if (Math.abs(twiceArea) <= POLYGON_AREA_EPSILON) {
-        return false;
-    }
-    for (let first = 0; first < points.length; first += 1) {
-        for (let second = first + 1; second < points.length; second += 1) {
-            if (second === first + 1 || (first === 0 && second === points.length - 1)) continue;
-            if (segmentsIntersect(
-                points[first]!,
-                points[(first + 1) % points.length]!,
-                points[second]!,
-                points[(second + 1) % points.length]!,
-            )) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-function isBoundedNonEmptyString(value: unknown, maxLength: number): value is string {
-    return typeof value === 'string'
-        && value.trim().length > 0
-        && value.length <= maxLength;
-}
-
-function isPageNumberKey(value: string) {
-    const pageNumber = Number(value);
-    return /^[1-9]\d*$/u.test(value)
-        && Number.isSafeInteger(pageNumber)
-        && pageNumber >= 1;
-}
-
-function boundedRecordEntries(
-    value: unknown,
-    maxEntries: number,
-    invalidMessage: string,
-    tooManyMessage: string,
-) {
-    if (!isRecord(value)) throw new Error(invalidMessage);
-    const entries = Object.entries(value);
-    if (entries.length > maxEntries) throw new Error(tooManyMessage);
-    return entries;
-}
+import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/simplePolygon';
 
 function decodeTextToneEvidence(value: unknown, label: string): IScanCleanupTextToneDiagnostics {
     if (
@@ -208,9 +111,13 @@ export function decodeScanCleanupPagePlanEvidence(
     value: unknown,
     pageNumber: number,
 ): IScanCleanupPagePlanEvidence {
+    const decodedPageNumber = decodeScanCleanupPageNumber(
+        pageNumber,
+        'page-plan evidence page number',
+    );
     if (
         !isRecord(value)
-        || value.pageNumber !== pageNumber
+        || value.pageNumber !== decodedPageNumber
         || ![
             0,
             90,
@@ -279,7 +186,7 @@ export function decodeScanCleanupPagePlanEvidence(
         };
     }, 'automatic page-plan output');
     return {
-        pageNumber,
+        pageNumber: decodedPageNumber,
         rotationDegrees,
         layoutClassification: value.layoutClassification,
         ...(automaticSplit === undefined ? {} : {automaticSplit}),
@@ -307,12 +214,10 @@ function decodeRetainedPages(value: unknown) {
     if (value === undefined) {
         return undefined;
     }
-    if (
-        !Array.isArray(value)
-        || value.length > SCAN_CLEANUP_RETAIN_PAGES_MAX
-        || value.some(page => !Number.isSafeInteger(page) || Number(page) < 1)
-    ) throw new Error('invalid scan-cleanup retained preview pages');
-    return value.map(Number);
+    if (!Array.isArray(value) || value.length > SCAN_CLEANUP_RETAIN_PAGES_MAX) {
+        throw new Error('invalid scan-cleanup retained preview pages');
+    }
+    return value.map(page => decodeScanCleanupPageNumber(page, 'retained preview page'));
 }
 
 export function decodePreviewCancelArgs(args: readonly unknown[]) {
@@ -323,12 +228,16 @@ export function decodePreviewCancelArgs(args: readonly unknown[]) {
     const value = args[0];
     if (
         !isRecord(value)
-        || !isBoundedNonEmptyString(value.sourcePdfPath, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX)
         || (value.invalidateRawCache !== undefined && typeof value.invalidateRawCache !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview cancellation');
+    const sourcePdfPath = decodeBoundedScanCleanupString(
+        value.sourcePdfPath,
+        'preview cancellation path',
+        SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    );
     const retainPages = decodeRetainedPages(value.retainPages);
     return [{
-        sourcePdfPath: value.sourcePdfPath,
+        sourcePdfPath,
         ...decodeOwnerContext(value),
         ...(value.invalidateRawCache === undefined ? {} : {invalidateRawCache: value.invalidateRawCache}),
         ...(retainPages === undefined ? {} : {retainPages}),
@@ -344,24 +253,25 @@ export function decodeOwnedJobId(args: readonly unknown[]) {
         jobId,
         ownerValue,
     ] = args;
-    if (!isBoundedNonEmptyString(jobId, SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX)) {
-        throw new Error('invalid scan-cleanup job id');
-    }
     if (!isRecord(ownerValue)) throw new Error('invalid scan-cleanup owner context');
     return [
-        jobId,
+        decodeBoundedScanCleanupString(jobId, 'job id', SCAN_CLEANUP_INPUT_MAX_ID_BYTES),
         decodeOwnerContext(ownerValue),
     ] as [string, ReturnType<typeof decodeOwnerContext>];
 }
 
 function decodeOwnerContext(value: Record<string, unknown>) {
-    if (
-        !isBoundedNonEmptyString(value.ownerId, SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX)
-        || !isBoundedNonEmptyString(value.documentRevision, SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX)
-    ) throw new Error('invalid scan-cleanup owner context');
     return {
-        ownerId: value.ownerId,
-        documentRevision: value.documentRevision,
+        ownerId: decodeBoundedScanCleanupString(
+            value.ownerId,
+            'owner id',
+            SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+        ),
+        documentRevision: decodeBoundedScanCleanupString(
+            value.documentRevision,
+            'document revision',
+            SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+        ),
     };
 }
 
@@ -410,17 +320,20 @@ export function decodeOpenPdfPaths(args: readonly unknown[]) {
         min: 1,
         max: 1,
     });
-    if (
-        !Array.isArray(args[0])
-        || args[0].length > SCAN_CLEANUP_IPC_OPEN_PATH_MAX
-        || args[0].some(path => !isBoundedNonEmptyString(path, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX))
-    ) {
+    if (!Array.isArray(args[0]) || args[0].length > SCAN_CLEANUP_INPUT_MAX_PAGES) {
         throw new Error('invalid scan-cleanup open PDF paths');
     }
-    return [args[0].map(path => String(path))] as [string[]];
+    return [args[0].map(path => decodeBoundedScanCleanupString(
+        path,
+        'open PDF path',
+        SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    ))] as [string[]];
 }
 
-function decodePageOverride(value: unknown): IScanCleanupPageOverride {
+function decodePageOverride(
+    value: unknown,
+    budget: IScanCleanupInputBudget,
+): IScanCleanupPageOverride {
     if (
         !isRecord(value)
         || ![
@@ -451,7 +364,7 @@ function decodePageOverride(value: unknown): IScanCleanupPageOverride {
         (item, label) => decodeNormalizedRect(item, label, rotationDegrees),
         'manual content box',
     );
-    const manualZones = decodeManualZones(value.manualZones, rotationDegrees);
+    const manualZones = decodeManualZones(value.manualZones, rotationDegrees, budget);
     const placementOverrides = decodeOutputMap(value.placementOverrides, (item, label) => {
         if (!SCAN_CLEANUP_ALIGNMENTS.includes(String(item) as TScanCleanupAlignmentValue)) {
             throw new Error(`invalid scan-cleanup ${label}`);
@@ -491,6 +404,7 @@ function decodePageOverride(value: unknown): IScanCleanupPageOverride {
 function decodeManualZones(
     value: unknown,
     rotationDegrees: IScanCleanupPageOverride['rotationDegrees'],
+    budget: IScanCleanupInputBudget,
 ): IScanCleanupManualZones | undefined {
     if (value === undefined) {
         return undefined;
@@ -498,45 +412,33 @@ function decodeManualZones(
     if (!isRecord(value) || !Array.isArray(value.picture) || !Array.isArray(value.fill)) {
         throw new Error('invalid scan-cleanup manual zones');
     }
-    if (value.picture.length + value.fill.length > SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX) {
-        throw new Error('too many scan-cleanup manual zones');
+    const zoneCount = value.picture.length + value.fill.length;
+    if (zoneCount > SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE) {
+        throw new Error('too many scan-cleanup manual zones on one page');
     }
-    let encodedPointCount = 0;
-    const countEncodedPoints = (encodedPolygon: unknown) => {
-        if (isRecord(encodedPolygon) && Array.isArray(encodedPolygon.points)) {
-            encodedPointCount += encodedPolygon.points.length;
-            if (encodedPointCount > SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX) {
-                throw new Error('too many scan-cleanup manual-zone points');
-            }
-        }
-    };
-    for (const encodedZone of value.picture as unknown[]) {
-        countEncodedPoints(isRecord(encodedZone) ? encodedZone.polygon : undefined);
-    }
-    for (const encodedPolygon of value.fill as unknown[]) {
-        countEncodedPoints(encodedPolygon);
-    }
+    consumeScanCleanupZones(budget, zoneCount, 'manual zones');
     const decodePolygon = (polygon: unknown, label: string) => {
         if (
             !isRecord(polygon)
             || !Array.isArray(polygon.points)
             || polygon.points.length < 3
-            || polygon.points.length > SCAN_CLEANUP_IPC_POLYGON_POINT_MAX
+            || polygon.points.length > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON
         ) {
             throw new Error(`invalid scan-cleanup ${label}`);
         }
-        const points = polygon.points.map((point, index) => {
-            if (!isRecord(point)) throw new Error(`invalid scan-cleanup ${label} point ${index}`);
-            return {
-                xNormalized: decodeNormalizedValue(point.xNormalized, `${label} point ${index} x`),
-                yNormalized: decodeNormalizedValue(point.yNormalized, `${label} point ${index} y`),
-            };
-        });
-        if (!validNormalizedPolygon(points)) throw new Error(`invalid scan-cleanup ${label} polygon geometry`);
-        return {
-            points,
+        consumeScanCleanupVertices(budget, polygon.points.length, 'manual-zone vertices');
+        const decoded = {
+            points: polygon.points.map((point, index) => {
+                if (!isRecord(point)) throw new Error(`invalid scan-cleanup ${label} point ${index}`);
+                return {
+                    xNormalized: decodeNormalizedValue(point.xNormalized, `${label} point ${index} x`),
+                    yNormalized: decodeNormalizedValue(point.yNormalized, `${label} point ${index} y`),
+                };
+            }),
             rotationDegrees: decodeGeometryRotation(polygon.rotationDegrees, rotationDegrees, label),
         };
+        assertSimpleScanCleanupPolygon(decoded.points, label);
+        return decoded;
     };
     return {
         picture: value.picture.map((zone, index) => {
@@ -644,6 +546,24 @@ const SCAN_CLEANUP_ALIGNMENTS = [
 ] as const;
 type TScanCleanupAlignmentValue = typeof SCAN_CLEANUP_ALIGNMENTS[number];
 
+function decodePageMapEntries(value: unknown, label: string) {
+    if (!isRecord(value)) {
+        throw new Error(`invalid scan-cleanup ${label}`);
+    }
+    const entries = Object.entries(value);
+    if (entries.length > SCAN_CLEANUP_INPUT_MAX_PAGES) {
+        throw new Error(`too many scan-cleanup ${label}`);
+    }
+    return entries.map(([
+        key,
+        item,
+    ]) => ({
+        item,
+        key,
+        pageNumber: decodeScanCleanupPageKey(key, `${label} page number`),
+    }));
+}
+
 function decodeOutputMap<T>(
     value: unknown,
     decode: (item: unknown, label: string) => T,
@@ -666,24 +586,21 @@ function decodeOutputMap<T>(
     ]));
 }
 
-export function decodeScanCleanupPageOverrides(value: unknown) {
-    const entries = boundedRecordEntries(
-        value,
-        SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
-        'invalid scan-cleanup page overrides',
-        'too many scan-cleanup page overrides',
-    );
+export function decodeScanCleanupPageOverrides(
+    value: unknown,
+    budget = createScanCleanupInputBudget(),
+) {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup page overrides');
+    const entries = Object.entries(value);
+    consumeScanCleanupPages(budget, entries.length, 'page overrides');
     return Object.fromEntries(entries.map(([
         key,
         override,
     ]) => {
-        const pageNumber = Number(key);
-        if (!isPageNumberKey(key)) {
-            throw new Error('invalid scan-cleanup page override number');
-        }
+        const pageNumber = decodeScanCleanupPageKey(key, 'page override number');
         return [
             String(pageNumber),
-            decodePageOverride(override),
+            decodePageOverride(override, budget),
         ];
     }));
 }
@@ -767,26 +684,22 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
 }
 
 function decodeLayoutByPage(value: unknown) {
-    const entries = boundedRecordEntries(
-        value,
-        SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
-        'invalid scan-cleanup layout classifications',
-        'too many scan-cleanup layout classifications',
-    );
-    if (
-        entries.some(([
-            pageNumber,
-            layout,
-        ]) => !isPageNumberKey(pageNumber) || !isLayoutClassification(layout))
-    ) {
+    const entries = decodePageMapEntries(value, 'layout classifications');
+    if (entries.some(({item}) => !isLayoutClassification(item))) {
         throw new Error('invalid scan-cleanup layout classifications');
     }
-    return value as TScanCleanupLayoutByPage;
+    return Object.fromEntries(entries.map(({
+        item,
+        key,
+    }) => [
+        key,
+        item,
+    ])) as TScanCleanupLayoutByPage;
 }
 
 export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePageMetadata {
     if (!isRecord(value)) throw new Error('invalid scan-cleanup source page metadata');
-    const pageNumber = Number(value.pageNumber);
+    const pageNumber = decodeScanCleanupPageNumber(value.pageNumber, 'source page metadata page number');
     const positive = (field: keyof IScanCleanupSourcePageMetadata) => {
         const decoded = Number(value[field]);
         if (!Number.isFinite(decoded) || decoded <= 0) {
@@ -794,9 +707,6 @@ export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePage
         }
         return decoded;
     };
-    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
-        throw new Error('invalid scan-cleanup source page metadata');
-    }
     const xPoints = Number(value.xPoints);
     const yPoints = Number(value.yPoints);
     const rotation = Number(value.rotation);
@@ -848,48 +758,49 @@ export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePage
 }
 
 function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
-    if (!isRecord(value) || !isBoundedNonEmptyString(value.sourcePdfPath, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX)) {
+    if (!isRecord(value)) {
         throw new Error('invalid scan-cleanup request');
     }
+    const sourcePdfPath = decodeBoundedScanCleanupString(
+        value.sourcePdfPath,
+        'source PDF path',
+        SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    );
     const outputModeRecommendations = value.outputModeRecommendations === undefined
         ? undefined
         : (() => {
-            if (
-                boundedRecordEntries(
-                    value.outputModeRecommendations,
-                    SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
-                    'invalid scan-cleanup output-mode recommendations',
-                    'too many scan-cleanup output-mode recommendations',
-                ).some(([
-                    pageNumber,
-                    mode,
-                ]) => !isPageNumberKey(pageNumber) || !isScanCleanupOutputMode(mode))
-            ) {
+            const entries = decodePageMapEntries(
+                value.outputModeRecommendations,
+                'output-mode recommendations',
+            );
+            if (entries.some(({item}) => !isScanCleanupOutputMode(item))) {
                 throw new Error('invalid scan-cleanup output-mode recommendations');
             }
-            return value.outputModeRecommendations as NonNullable<
-                IScanCleanupStartRequest['outputModeRecommendations']
-            >;
+            return Object.fromEntries(entries.map(({
+                item,
+                key,
+            }) => [
+                key,
+                item,
+            ])) as NonNullable<IScanCleanupStartRequest['outputModeRecommendations']>;
         })();
     const softAlphaForegroundRecommendations = value.softAlphaForegroundRecommendations === undefined
         ? undefined
         : (() => {
-            if (
-                boundedRecordEntries(
-                    value.softAlphaForegroundRecommendations,
-                    SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
-                    'invalid scan-cleanup soft-alpha foreground recommendations',
-                    'too many scan-cleanup soft-alpha foreground recommendations',
-                ).some(([
-                    pageNumber,
-                    recommendation,
-                ]) => !isPageNumberKey(pageNumber) || typeof recommendation !== 'boolean')
-            ) {
+            const entries = decodePageMapEntries(
+                value.softAlphaForegroundRecommendations,
+                'soft-alpha foreground recommendations',
+            );
+            if (entries.some(({item}) => typeof item !== 'boolean')) {
                 throw new Error('invalid scan-cleanup soft-alpha foreground recommendations');
             }
-            return value.softAlphaForegroundRecommendations as NonNullable<
-                IScanCleanupStartRequest['softAlphaForegroundRecommendations']
-            >;
+            return Object.fromEntries(entries.map(({
+                item,
+                key,
+            }) => [
+                key,
+                item,
+            ])) as NonNullable<IScanCleanupStartRequest['softAlphaForegroundRecommendations']>;
         })();
     const sourcePageNumbers = value.sourcePageNumbers === undefined
         ? undefined
@@ -897,32 +808,30 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
             if (
                 !Array.isArray(value.sourcePageNumbers)
                 || value.sourcePageNumbers.length === 0
-                || value.sourcePageNumbers.length > SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX
-                || value.sourcePageNumbers.some(pageNumber => !Number.isSafeInteger(pageNumber) || Number(pageNumber) < 1)
+                || value.sourcePageNumbers.length > SCAN_CLEANUP_INPUT_MAX_PAGES
                 || new Set(value.sourcePageNumbers).size !== value.sourcePageNumbers.length
             ) {
                 throw new Error('invalid scan-cleanup source page numbers');
             }
-            return value.sourcePageNumbers.map(Number);
+            return value.sourcePageNumbers.map(pageNumber => decodeScanCleanupPageNumber(
+                pageNumber,
+                'source page number',
+            ));
         })();
     const sourcePageMetadataByPage = value.sourcePageMetadataByPage === undefined
         ? undefined
         : (() => {
-            const entries = boundedRecordEntries(
+            const entries = decodePageMapEntries(
                 value.sourcePageMetadataByPage,
-                SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
-                'invalid scan-cleanup source page metadata map',
-                'too many scan-cleanup source page metadata entries',
+                'source page metadata map',
             );
-            return Object.fromEntries(entries.map(([
+            return Object.fromEntries(entries.map(({
+                item: metadata,
                 key,
-                metadata,
-            ]) => {
-                if (!isPageNumberKey(key)) {
-                    throw new Error('invalid scan-cleanup source page metadata map');
-                }
+                pageNumber,
+            }) => {
                 const decoded = decodeSourcePageMetadata(metadata);
-                if (decoded.pageNumber !== Number(key)) {
+                if (decoded.pageNumber !== pageNumber) {
                     throw new Error('invalid scan-cleanup source page metadata map');
                 }
                 return [
@@ -934,20 +843,18 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
     const pagePlanEvidenceByPage = value.pagePlanEvidenceByPage === undefined
         ? undefined
         : (() => {
-            const entries = boundedRecordEntries(
+            const entries = decodePageMapEntries(
                 value.pagePlanEvidenceByPage,
-                SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX,
-                'invalid scan-cleanup page-plan evidence map',
-                'too many scan-cleanup page-plan evidence entries',
+                'page-plan evidence map',
             );
-            return Object.fromEntries(entries.map(([
+            return Object.fromEntries(entries.map(({
+                item: evidence,
                 key,
-                evidence,
-            ]) => {
+                pageNumber,
+            }) => {
                 if (
-                    !isPageNumberKey(key)
-                    || !isRecord(evidence)
-                    || evidence.pageNumber !== Number(key)
+                    !isRecord(evidence)
+                    || evidence.pageNumber !== pageNumber
                     || ![
                         0,
                         90,
@@ -1018,7 +925,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                 return [
                     key,
                     {
-                        pageNumber: Number(key),
+                        pageNumber,
                         rotationDegrees,
                         layoutClassification: evidence.layoutClassification,
                         ...(automaticSplit === undefined ? {} : {automaticSplit}),
@@ -1028,7 +935,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
             }));
         })();
     return {
-        sourcePdfPath: value.sourcePdfPath,
+        sourcePdfPath,
         ...decodeOwnerContext(value),
         options: decodeOptions(value.options),
         ...(sourcePageNumbers === undefined ? {} : {sourcePageNumbers}),
@@ -1045,12 +952,19 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
 function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
     if (
         !isRecord(value)
-        || !isBoundedNonEmptyString(value.requestId, SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX)
-        || !isBoundedNonEmptyString(value.sourcePdfPath, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX)
-        || !Number.isSafeInteger(value.pageNumber)
-        || Number(value.pageNumber) < 1
         || (value.visible !== undefined && typeof value.visible !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview request');
+    const requestId = decodeBoundedScanCleanupString(
+        value.requestId,
+        'preview request id',
+        SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    );
+    const sourcePdfPath = decodeBoundedScanCleanupString(
+        value.sourcePdfPath,
+        'preview source PDF path',
+        SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+    );
+    const pageNumber = decodeScanCleanupPageNumber(value.pageNumber, 'preview page number');
     const detail = value.detail === undefined
         ? undefined
         : (() => {
@@ -1092,10 +1006,10 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
             };
         })();
     return {
-        requestId: value.requestId,
-        sourcePdfPath: value.sourcePdfPath,
+        requestId,
+        sourcePdfPath,
         ...decodeOwnerContext(value),
-        pageNumber: Number(value.pageNumber),
+        pageNumber,
         options: decodeOptions(value.options),
         ...(value.documentPrior === undefined ? {} : {documentPrior: decodeDocumentPrior(value.documentPrior)}),
         ...(value.outputModeRecommendation === undefined
@@ -1121,12 +1035,13 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
 }
 
 function decodeDetectionRequest(value: unknown): IScanCleanupDetectionRequest {
-    if (
-        !isRecord(value)
-        || !isBoundedNonEmptyString(value.sourcePdfPath, SCAN_CLEANUP_IPC_PATH_LENGTH_MAX)
-    ) throw new Error('invalid scan-cleanup detection request');
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup detection request');
     return {
-        sourcePdfPath: value.sourcePdfPath,
+        sourcePdfPath: decodeBoundedScanCleanupString(
+            value.sourcePdfPath,
+            'detection source PDF path',
+            SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
+        ),
         ...decodeOwnerContext(value),
         options: decodeOptions(value.options),
     };
