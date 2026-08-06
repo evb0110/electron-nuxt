@@ -155,7 +155,9 @@ export async function runLosslessScanCleanup(
                 : {autoDewarpDepth: request.options.autoDewarpDepth}),
         },
         pages: pageInputs,
-        allowedPathRoot: scratch,
+        // Lossless analysis reads rasters and trusted layers staged by the
+        // caller under the shared temp root, not only this scratch.
+        allowedPathRoot: paths.tempDir,
     });
     const pages = manifest.pages;
     const manifestPath = join(scratch, 'lossless-analysis-manifest.json');

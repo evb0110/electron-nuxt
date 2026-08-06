@@ -681,7 +681,10 @@ export async function runScanCleanupDetection<TDocument>(
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
             pages: manifestPages,
-            allowedPathRoot: scratch,
+            // Detection classifies rasters the preview retention rendered
+            // into its own document directory, a sibling of this scratch:
+            // the temp root is the narrowest root that holds them both.
+            allowedPathRoot: dependencies.getTempDir(),
         })));
         const binary = dependencies.resolveBinary();
         if (!binary) throw new ScanCleanupNativeToolUnavailableError('evb-scan-cleanup');

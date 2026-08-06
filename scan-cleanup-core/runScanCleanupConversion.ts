@@ -909,7 +909,10 @@ export async function runScanCleanupConversion(
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
             pages: pageInputs,
-            allowedPathRoot: scratch,
+            // A run may consume handoff rasters the preview retention already
+            // rendered outside this scratch; every legitimate input lives
+            // under the same temp root.
+            allowedPathRoot: paths.tempDir,
         });
         const pages = manifest.pages;
         const manifestPath = join(scratch, 'cleanup-manifest.json');
