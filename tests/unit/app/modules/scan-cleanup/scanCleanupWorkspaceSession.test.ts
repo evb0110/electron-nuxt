@@ -236,6 +236,7 @@ function mountSession(documentKey: string, overrides: {
     initialPreviewPage?: () => number | undefined;
     pageMapping?: () => TScanCleanupPageOutputMapping | null | undefined;
     sourcePath?: () => string | null;
+    sourceSha256?: () => string | null;
     totalPages?: () => number;
 } = {}) {
     let session: ReturnType<typeof useScanCleanupWorkspaceSession> | null = null;
@@ -249,6 +250,9 @@ function mountSession(documentKey: string, overrides: {
             ...(overrides.documentRevision === undefined
                 ? {}
                 : {documentRevision: overrides.documentRevision}),
+            ...(overrides.sourceSha256 === undefined
+                ? {}
+                : {sourceSha256: overrides.sourceSha256}),
             currentPage: overrides.currentPage ?? (() => 1),
             totalPages: overrides.totalPages ?? (() => 3),
             ...(overrides.initialPreviewPage === undefined
@@ -1678,6 +1682,54 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
+        mounted.unmount();
+    });
+
+    it('cancels hidden-tab preview and detection, then resumes with the same owner and SHA identity', async () => {
+        const harness = capabilityHarness();
+        const active = ref(true);
+        const sourceSha256 = 'b'.repeat(64);
+        capability.value = harness.value;
+        vi.mocked(harness.value.getDetectionJobState).mockImplementation(async jobId => (
+            detectionState(jobId, 'canceled')
+        ));
+        const mounted = mountSession(`hidden-tab-${Date.now()}`, {
+            active: () => active.value,
+            documentRevision: () => 'stable-revision',
+            sourceSha256: () => sourceSha256,
+        });
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const ownerId = mounted.session.run.ownerId;
+        expect(scanCleanupRun.workspaceOwnerIds.has(ownerId)).toBe(true);
+
+        active.value = false;
+        await nextTick();
+
+        expect(scanCleanupRun.workspaceOwnerIds.has(ownerId)).toBe(false);
+        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledWith(
+            'detect-1',
+            {
+                ownerId,
+                documentRevision: 'stable-revision',
+            },
+        ));
+        expect(harness.value.cancelPreview).toHaveBeenCalledWith(expect.objectContaining({
+            documentRevision: 'stable-revision',
+            ownerId,
+            sourcePdfPath: expect.stringContaining('hidden-tab'),
+        }));
+
+        active.value = true;
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+
+        expect(mounted.session.run.ownerId).toBe(ownerId);
+        expect(scanCleanupRun.workspaceOwnerIds.has(ownerId)).toBe(true);
+        expect(harness.value.detectAll).toHaveBeenLastCalledWith(expect.objectContaining({
+            documentRevision: 'stable-revision',
+            ownerId,
+            sourcePdfPath: expect.stringContaining('hidden-tab'),
+        }));
         mounted.unmount();
     });
 

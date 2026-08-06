@@ -69,6 +69,23 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourcePath,
         totalPages,
     });
+    // Preview has its own immediate activity watcher. Detection is a main-side
+    // job, so explicitly cancel it and wait for its terminal snapshot when the
+    // tab becomes inactive. If the tab returns while cancellation is crossing
+    // the bridge, resume only after that old job has settled; no lifecycle key,
+    // owner id, or source hash changes as part of this pause.
+    watch(options.active, active => {
+        if (active) {
+            return;
+        }
+        void detection.cancelAndWaitForTerminal()
+            .catch(() => undefined)
+            .then(() => {
+                if (options.active()) {
+                    void detection.maybeAutoDetect();
+                }
+            });
+    });
     previewResult = useScanCleanupPreviewSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,

@@ -154,6 +154,9 @@ export const useScanCleanupViewportFrame = (options: IUseScanCleanupViewportFram
         } catch (error) {
             if (!(error instanceof DOMException && error.name === 'AbortError')) {
                 sourceMetrics.value = DEFAULT_PAGE_METRICS;
+                // A failed measurement still has a safe fallback frame. Mark
+                // it ready so the viewport does not remain hidden forever.
+                sourceMetricsReady.value = true;
             }
         }
     }, {immediate: true});

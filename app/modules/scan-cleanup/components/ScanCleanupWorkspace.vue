@@ -263,11 +263,16 @@ const emit = defineEmits<{
     'update:session-state': [state: IScanCleanupTabSessionState];
 }>();
 onMounted(() => emit('ready'));
+// Inactive tabs stay mounted so their settings, selection, owner id, and
+// acquired source hash survive a round trip. Heavy preview/detection work does
+// not: toolbar ownership is the shell's existing signal that this workspace is
+// the visible tab.
+const workspaceActive = computed(() => sourcePath !== null && toolbarActive);
 const workspaceSession = useScanCleanupWorkspaceSession({
     // Losing the source ends the session: detection and preview cancel instead
     // of queueing IPC against a working copy the main process has already
-    // retired.
-    active: () => sourcePath !== null,
+    // retired. Switching tabs pauses that work without changing identity.
+    active: () => workspaceActive.value,
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
     documentRevision: () => documentRevision,

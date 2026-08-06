@@ -297,6 +297,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let cancellationRetryKey: string | null = null;
     let cancellationRetries = 0;
     let requestNonce = 0;
+    // The source identity can remain stable while its lifecycle generation is
+    // retired (for example after its SHA becomes available). Keep that event in
+    // the scheduling/cache identity so clearing state always causes fresh work.
+    const lifecycleGeneration = ref(0);
     let activeVisibleRequestId: string | null = null;
     const inFlightPreviewPages: number[] = [];
     const inFlightPreviewRequestIds = new Set<string>();
@@ -435,7 +439,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             matchedCanvasOverridesSignature.value,
             resolveOutputModeRecommendation(pageNumber) ?? null,
             resolveSoftAlphaForegroundRecommendation(pageNumber) ?? null,
-        );
+        ) + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`;
     }
 
     // The layouts the main process measures the matched canvas from. They are
@@ -638,6 +642,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // Look the page up before cancelling anything: a navigation that the
         // cache can answer has no reason to disturb work in flight at all.
         const cached = cache.get(key);
+        // Original must never keep painting the raw bytes from the page that
+        // was just left while this page has no cached raster of its own.
+        if (!cached && viewMode.value === 'original') rawResult.value = null;
         if (!navigated) prefetcher.supersede();
         void capability.cancelPreview({
             sourcePdfPath: requestSourcePath,
@@ -919,6 +926,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         else cancel();
     }, {immediate: true});
     watch(options.lifecycleDocumentKey, () => {
+        lifecycleGeneration.value += 1;
         invalidateDetailRequest();
         cancellationRetryKey = null;
         cancellationRetries = 0;

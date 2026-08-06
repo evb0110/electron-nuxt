@@ -30,6 +30,38 @@ export function resolveScanCleanupEntryViewState(
     };
 }
 
+export async function recoverScanCleanupWorkspaceForDocument(
+    documentRef: string,
+    documentSessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>,
+    activateTab: (tabId: string) => void,
+) {
+    const owner = Object.entries(documentSessionsByTabId).find(([
+        ,
+        session,
+    ]) => {
+        const identity = session.snapshot.value.identity;
+        return identity.documentRef === documentRef
+            || identity.workingCopyPath === documentRef
+            || identity.originalPath === documentRef;
+    });
+    if (!owner) {
+        return false;
+    }
+    const [
+        tabId,
+        session,
+    ] = owner;
+    // A hidden cleanup tab is recoverable but not visibly open. Preserve its
+    // cleanup session when it already owns the surface; otherwise enter with a
+    // fresh selection, then make that tab visible for persisted error details.
+    session.applyViewState(resolveScanCleanupEntryViewState(
+        session.snapshot.value.viewState,
+    ));
+    activateTab(tabId);
+    await nextTick();
+    return true;
+}
+
 export const useScanCleanupRunCoordinator = (
     activeWorkspace: ComputedRef<IWorkspaceExpose | null>,
     handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
@@ -51,30 +83,11 @@ export const useScanCleanupRunCoordinator = (
                 : false;
         },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
-        openScanCleanupForDocument: async (documentRef) => {
-            const owner = Object.entries(documentSessionsByTabId.value).find(([
-                ,
-                session,
-            ]) => {
-                const identity = session.snapshot.value.identity;
-                return identity.documentRef === documentRef
-                    || identity.workingCopyPath === documentRef
-                    || identity.originalPath === documentRef;
-            });
-            if (!owner) {
-                return false;
-            }
-            const [
-                tabId,
-                session,
-            ] = owner;
-            session.applyViewState(resolveScanCleanupEntryViewState(
-                session.snapshot.value.viewState,
-            ));
-            activateTab(tabId);
-            await nextTick();
-            return true;
-        },
+        openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(
+            documentRef,
+            documentSessionsByTabId.value,
+            activateTab,
+        ),
         t,
         toast,
     });

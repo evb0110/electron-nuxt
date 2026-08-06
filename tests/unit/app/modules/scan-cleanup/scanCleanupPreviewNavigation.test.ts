@@ -314,6 +314,7 @@ function mountPreviewSession(
     previewPage: Ref<number>,
     documentPriorByPage: Map<number, IScanCleanupDocumentPrior>,
     initialViewMode?: 'original' | 'cleaned',
+    lifecycleKey?: Ref<string>,
 ) {
     let session: ReturnType<typeof useScanCleanupPreviewSession> | null = null;
     const host = document.createElement('div');
@@ -325,7 +326,7 @@ function mountPreviewSession(
             documentRevision: computed(() => 'revision-1'),
             documentPriorByPage,
             ...(initialViewMode === undefined ? {} : {initialViewMode}),
-            lifecycleDocumentKey: computed(() => 'reference.pdf'),
+            lifecycleDocumentKey: computed(() => lifecycleKey?.value ?? 'reference.pdf'),
             ownerId: 'owner-1',
             previewPage,
             recommendedOutputModeByPage: new Map(),
@@ -762,6 +763,29 @@ describe('scan cleanup preview navigation', () => {
         // Detection landing mid-read rewrites every key; the pages read after it
         // used to miss every time.
         expect(byName.get('detection-lands-midway')!.hitRate).toBeGreaterThan(0.3);
+    });
+
+    it('reschedules the visible page after its lifecycle generation changes', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const lifecycleKey = ref('reference.pdf:0');
+        const mounted = mountPreviewSession(previewPage, reactive(new Map()), undefined, lifecycleKey);
+
+        await backend.advanceBy(PREVIEW_MS + 500);
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+        const callsBefore = backend.previewCalls.mock.calls
+            .filter(([request]) => request.pageNumber === 100).length;
+
+        lifecycleKey.value = 'reference.pdf:1';
+        await nextTick();
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        expect(backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === 100)).toHaveLength(callsBefore + 1);
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+        mounted.unmount();
     });
 
     it('adopts the in-flight prefetch of the page the user navigates to instead of restarting it', async () => {

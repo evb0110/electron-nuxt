@@ -353,7 +353,12 @@ export function createScanCleanupService(): IScanCleanupService {
                 jobId,
                 owner: ownerActor(sender, request),
                 operation: {
-                    kind: 'abortable-work',
+                    // The worker may have atomically published its generated
+                    // PDF immediately before its result reaches main. Main is
+                    // the terminal-state authority: cancellation that arrived
+                    // first removes that publication, while a result handled
+                    // first enters a non-cancelable commit state.
+                    kind: 'critical-write',
                     workingCopyPath: request.sourcePdfPath,
                 },
                 initialProgress: {
@@ -456,6 +461,13 @@ export function createScanCleanupService(): IScanCleanupService {
                                 });
                             },
                         );
+                        // Resolve the cancel-vs-publish race in the same main
+                        // process that owns the job state. If cancel won while
+                        // the worker was publishing, the catch path removes the
+                        // generated-output directory. Otherwise later cancel
+                        // requests are rejected as soon as commit begins.
+                        job.signal.throwIfAborted();
+                        job.markCommitStarted();
                         documentOutputService.handoff(jobId, outputPdfPath);
                         documentOutputService.finish(jobId, 'completed');
                         const completedPageNumbers = request.sourcePageNumbers

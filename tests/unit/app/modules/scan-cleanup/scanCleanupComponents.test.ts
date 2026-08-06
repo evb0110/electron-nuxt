@@ -1114,6 +1114,36 @@ afterEach(() => {
 });
 
 describe('Scan cleanup components', () => {
+    it('drives workspace activity from tab visibility without changing source identity', async () => {
+        const toolbarActive = ref(true);
+        const sourceSha256 = 'a'.repeat(64);
+        workspaceSession.value = createWorkspaceEntrySession();
+        mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: '/docs/visible-scan.pdf',
+            documentRevision: 'revision-7',
+            sourceSha256,
+            toolbarActive: toolbarActive.value,
+        })));
+
+        expect(workspaceSessionOptions.value?.active?.()).toBe(true);
+        expect(workspaceSessionOptions.value?.sourcePath?.()).toBe('/docs/visible-scan.pdf');
+        expect(workspaceSessionOptions.value?.documentRevision?.()).toBe('revision-7');
+        expect(workspaceSessionOptions.value?.sourceSha256?.()).toBe(sourceSha256);
+
+        toolbarActive.value = false;
+        await nextTick();
+
+        expect(workspaceSessionOptions.value?.active?.()).toBe(false);
+        expect(workspaceSessionOptions.value?.sourcePath?.()).toBe('/docs/visible-scan.pdf');
+        expect(workspaceSessionOptions.value?.documentRevision?.()).toBe('revision-7');
+        expect(workspaceSessionOptions.value?.sourceSha256?.()).toBe(sourceSha256);
+
+        toolbarActive.value = true;
+        await nextTick();
+        expect(workspaceSessionOptions.value?.active?.()).toBe(true);
+        expect(workspaceSessionOptions.value?.sourceSha256?.()).toBe(sourceSha256);
+    });
+
     it('renders automatic, manual, and mixed auto-value states and emits reset only from the manual chip', async () => {
         const state = ref<'auto' | 'manual' | 'mixed'>('auto');
         const reset = vi.fn();
@@ -2311,6 +2341,27 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(true);
         expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
         expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('never shows a previous page raw raster in Original view', () => {
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            rawResult: rawPreviewResult(1),
+            loading: true,
+            error: '',
+            viewMode: 'original',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: true,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
+        harness.unmount();
     });
 
     it('replaces the raw raster with the cleaned result inside the same viewport stage', async () => {
@@ -3671,6 +3722,33 @@ describe('Scan cleanup components', () => {
         expect(skeleton?.style.visibility).toBe('hidden');
         expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
             .toBe('Building cleanup preview…');
+        harness.unmount();
+    });
+
+    it('reveals the fallback frame when source page metrics fail', async () => {
+        const source: IDocumentPageSource = {
+            ...previewPageSource(1000, 800),
+            getPageMetrics: vi.fn(async () => {
+                throw new Error('page metrics unavailable');
+            }),
+        };
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: null,
+            loading: true,
+            error: '',
+            source,
+            viewMode: 'cleaned',
+            matchPageSize: false,
+            alignment: 'top-left',
+            pageNumber: 2,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        await Promise.resolve();
+        await nextTick();
+        expect(harness.host.querySelector<HTMLElement>('.preview-skeleton-page')?.style.visibility).not.toBe('hidden');
         harness.unmount();
     });
 

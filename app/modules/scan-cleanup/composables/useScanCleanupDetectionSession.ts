@@ -21,6 +21,7 @@ import {formatScanCleanupPreAnalysisProgress} from '@app/modules/scan-cleanup/ru
 import {
     scanCleanupAutoDetectionCanceledDocuments as autoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache as detectionSessionCache,
+    retireSupersededScanCleanupDetectionState,
     type IScanCleanupDetectionSessionCacheEntry as IDetectionSessionCacheEntry,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
@@ -723,7 +724,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         stopSubscription = getScanCleanupCapability()?.onDetectionJobState(applyState) ?? null;
         void maybeAutoDetect();
     });
-    watch(options.lifecycleDocumentKey, (_key, previousKey) => {
+    watch(options.lifecycleDocumentKey, (key, previousKey) => {
+        retireSupersededScanCleanupDetectionState(key);
         requestGeneration += 1;
         if (jobId && isDetecting.value) {
             void getScanCleanupCapability()?.cancelDetection(jobId, {

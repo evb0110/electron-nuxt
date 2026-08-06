@@ -661,7 +661,7 @@ const rawCleaningVisible = computed(() => effectiveViewMode.value === 'cleaned'
 // Keep both comparison canvases on the same grid only after the requested
 // page has both rasters. That permits a crossfade without leaking a stale raw
 // page into cleaned errors or the next page's loading state.
-const rawLayerVisible = computed(() => Boolean(props.rawResult) && (
+const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pageNumber && (
     effectiveViewMode.value === 'original'
     || rawCleaningVisible.value
     || (
@@ -857,6 +857,10 @@ async function renderSourcePlaceholder() {
         sourcePlaceholderController = null;
         sourcePlaceholderNode = node;
         sourcePlaceholderReady.value = true;
+        // The host may already have mounted while renderPage was pending. In
+        // that case the ref callback will not run again, so attach explicitly
+        // after the lease node becomes current.
+        if (generation === sourcePlaceholderGeneration) attachSourcePlaceholder();
     } catch (error) {
         if (sourcePlaceholderController === controller) sourcePlaceholderController = null;
         if (!(error instanceof DOMException && error.name === 'AbortError')) {

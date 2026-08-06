@@ -1,4 +1,13 @@
 import {
+    access,
+    mkdtemp,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -44,6 +53,7 @@ const mocks = vi.hoisted(() => {
     return {
         acquire,
         createOutput: vi.fn(async () => '/managed/cleaned.pdf'),
+        handoff: vi.fn(),
         host,
         hostProfile: () => host as IHostResourceProfileSnapshot,
         pageOpsDisabled: false,
@@ -92,7 +102,7 @@ vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
 vi.mock('@electron/output/documentOutputService', () => ({documentOutputService: {
     start: vi.fn(),
     update: vi.fn(),
-    handoff: vi.fn(),
+    handoff: mocks.handoff,
     finish: vi.fn(),
 }}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyBackingEntry: () => ({backing: 'materialized'})}));
@@ -127,6 +137,7 @@ const startRequest = {
         pageOverrides: {},
     },
 };
+const outputDirs: string[] = [];
 
 function sender(): WebContents {
     return {
@@ -140,10 +151,18 @@ function sender(): WebContents {
 }
 
 describe('scan cleanup service', () => {
+    afterEach(async () => {
+        await Promise.all(outputDirs.splice(0).map(path => rm(path, {
+            recursive: true,
+            force: true,
+        })));
+    });
+
     beforeEach(() => {
         mocks.acquire.mockClear();
         mocks.createOutput.mockClear();
         mocks.createOutput.mockImplementation(async () => '/managed/cleaned.pdf');
+        mocks.handoff.mockReset();
         mocks.runWorker.mockClear();
         mocks.pageOpsDisabled = false;
         Object.assign(mocks.host, {
@@ -365,5 +384,92 @@ describe('scan cleanup service', () => {
             }));
         expect(service.cancel(webContents, started.jobId, owner)).toBe(true);
         expect(service.getState(webContents, started.jobId, owner)?.status).toBe('completed');
+    });
+
+    it('deletes a published output when cancellation wins before worker completion is handled', async () => {
+        const outputDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-cancel-race-'));
+        outputDirs.push(outputDir);
+        const outputPdfPath = join(outputDir, 'cleaned.pdf');
+        mocks.createOutput.mockResolvedValueOnce(outputPdfPath);
+        const entered = Promise.withResolvers<AbortSignal>();
+        const returned = Promise.withResolvers<{
+            inputPages: number;
+            outputPages: number;
+            spreadsSplit: number;
+            offcutsDiscarded: number;
+            deskewSkipped: number;
+            cropSkipped: number;
+            excludedPages: number;
+            blankPagesSkipped: number;
+            warnings: never[]
+        }>();
+        mocks.runWorker.mockImplementationOnce(async (_request, _paths, _policy, signal) => {
+            entered.resolve(signal as AbortSignal);
+            return returned.promise;
+        });
+        const service = createScanCleanupService();
+        const webContents = sender();
+        const started = await service.start(webContents, startRequest);
+        if (!started.started) throw new Error('Expected scan cleanup to start');
+        await entered.promise;
+
+        expect(service.cancel(webContents, started.jobId, owner)).toBe(true);
+        await writeFile(outputPdfPath, '%PDF-1.7\n%%EOF\n');
+        returned.resolve({
+            inputPages: 1,
+            outputPages: 1,
+            spreadsSplit: 0,
+            offcutsDiscarded: 0,
+            deskewSkipped: 0,
+            cropSkipped: 0,
+            excludedPages: 0,
+            blankPagesSkipped: 0,
+            warnings: [],
+        });
+
+        await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
+            .toMatchObject({status: 'canceled'}));
+        await expect(access(outputPdfPath)).rejects.toThrow();
+        expect(mocks.handoff).not.toHaveBeenCalled();
+    });
+
+    it('rejects cancellation after main enters the published-output commit state', async () => {
+        const returned = Promise.withResolvers<{
+            inputPages: number;
+            outputPages: number;
+            spreadsSplit: number;
+            offcutsDiscarded: number;
+            deskewSkipped: number;
+            cropSkipped: number;
+            excludedPages: number;
+            blankPagesSkipped: number;
+            warnings: never[]
+        }>();
+        mocks.runWorker.mockImplementationOnce(async () => returned.promise);
+        const service = createScanCleanupService();
+        const webContents = sender();
+        const started = await service.start(webContents, startRequest);
+        if (!started.started) throw new Error('Expected scan cleanup to start');
+        let cancelResult: boolean | null = null;
+        mocks.handoff.mockImplementationOnce(() => {
+            cancelResult = service.cancel(webContents, started.jobId, owner);
+        });
+
+        returned.resolve({
+            inputPages: 1,
+            outputPages: 1,
+            spreadsSplit: 0,
+            offcutsDiscarded: 0,
+            deskewSkipped: 0,
+            cropSkipped: 0,
+            excludedPages: 0,
+            blankPagesSkipped: 0,
+            warnings: [],
+        });
+
+        await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
+            .toMatchObject({status: 'completed'}));
+        expect(cancelResult).toBe(false);
+        expect(mocks.handoff).toHaveBeenCalledWith(started.jobId, started.outputPdfPath);
     });
 });
