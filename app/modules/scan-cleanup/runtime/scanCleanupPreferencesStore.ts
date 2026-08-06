@@ -78,6 +78,17 @@ function updateMigrationContext(options: IScanCleanupPreferencesStoreOptions | u
     };
 }
 
+function warnMissingDocumentSourceHash(action: 'load' | 'persist', legacyDocumentKey: string | null | undefined) {
+    BrowserLogger.warn(
+        'scan-cleanup',
+        `Cannot ${action} document preferences without the authoritative source SHA-256`,
+        () => ({
+            reason: 'missing-authoritative-source-sha256',
+            hasLegacyDocumentKey: Boolean(legacyDocumentKey),
+        }),
+    );
+}
+
 function createSettingsReadRequest(
     sourceSha256: string | null | undefined,
     legacyDocumentKey: string | null | undefined,
@@ -220,6 +231,7 @@ export function loadScanCleanupDocumentSettings(
     }
     return whenScanCleanupPreferencesReady().then(async () => {
         if (!isScanCleanupSourceSha256(sourceSha256)) {
+            warnMissingDocumentSourceHash('load', legacyDocumentKey);
             return {
                 overrides: {},
                 marginsMm: null,
@@ -258,6 +270,7 @@ export function saveScanCleanupDocumentPreferencesInStore(
         return;
     }
     if (!isScanCleanupSourceSha256(sourceSha256)) {
+        warnMissingDocumentSourceHash('persist', legacyDocumentKey);
         return;
     }
     queueRemoteUpdate({document: {

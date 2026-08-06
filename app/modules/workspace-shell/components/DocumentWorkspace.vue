@@ -220,6 +220,7 @@
                 :page-source-pending="documentPageSource === null && isLoading"
                 :document-key="documentKey"
                 :document-revision="documentRevisionToken"
+                :source-sha256="scanCleanupSourceSha256"
                 :current-page="currentPage"
                 :total-pages="totalPages"
                 :session-state="scanCleanupSessionState"
@@ -386,6 +387,7 @@ import ScanCleanupWorkspaceLoading from '@app/modules/workspace-shell/components
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
+import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
 import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
 import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
@@ -615,6 +617,11 @@ const {
     hasPdf,
     initFromStorage,
 } = fileLifecycle;
+const scanCleanupSourceSha256 = useScanCleanupSourceSha256({
+    enabled: computed(() => isActiveRef.value && surfaceMode.value === 'scan-cleanup'),
+    sourcePath: workingCopyPath,
+    documentRevision: documentRevisionToken,
+});
 const {
     pdfViewerRef,
     documentViewerRef,

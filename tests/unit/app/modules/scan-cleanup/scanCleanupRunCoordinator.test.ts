@@ -83,6 +83,96 @@ describe('scan cleanup run coordinator', () => {
         expect(capability.value.start).toHaveBeenCalledOnce();
     });
 
+    it('reconciles a rejected subscription from the authoritative job state', async () => {
+        const reconciledState: TScanCleanupJobState = {
+            jobId: 'reconciled-job',
+            status: 'running',
+            progress: progress(),
+            updatedAtMs: Date.now(),
+        };
+        capability.value = {
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(async () => ({
+                started: true as const,
+                jobId: 'reconciled-job',
+                outputPdfPath: '/managed/reconciled.pdf',
+            })),
+            cancel: vi.fn(),
+            getJobState: vi.fn(async () => reconciledState),
+            subscribeJob: vi.fn(async () => {
+                throw new Error('subscription transport failed');
+            }),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(),
+            onPreviewRaw: vi.fn(() => () => undefined),
+            onJobState: vi.fn(() => () => undefined),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+
+        await expect(coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/book.pdf',
+            options: expect.anything() as never,
+        })).resolves.toMatchObject({
+            started: true,
+            jobId: 'reconciled-job',
+        });
+
+        expect(capability.value.getJobState).toHaveBeenCalledWith('reconciled-job', ownerContext);
+        expect(capability.value.reconnectJob).toHaveBeenCalledWith('reconciled-job', ownerContext);
+        expect(coordinator.scanCleanupRun.jobState).toEqual(reconciledState);
+        expect(coordinator.isScanCleanupRunning.value).toBe(true);
+    });
+
+    it('resets the run guard and cancels when a subscription cannot be reconciled', async () => {
+        const cancel = vi.fn(async () => true);
+        capability.value = {
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(async () => null),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(async () => ({
+                started: true as const,
+                jobId: 'unobserved-job',
+                outputPdfPath: '/managed/unobserved.pdf',
+            })),
+            cancel,
+            getJobState: vi.fn(async () => null),
+            subscribeJob: vi.fn(async () => {
+                throw new Error('subscription transport failed');
+            }),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(),
+            onPreviewRaw: vi.fn(() => () => undefined),
+            onJobState: vi.fn(() => () => undefined),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+
+        await expect(coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/book.pdf',
+            options: expect.anything() as never,
+        })).rejects.toMatchObject({
+            name: 'ScanCleanupRunReconciliationError',
+            errorCode: 'internal',
+        });
+
+        expect(cancel).toHaveBeenCalledWith('unobserved-job', ownerContext);
+        expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+        expect(coordinator.scanCleanupRun.inFlight).toBe(false);
+        expect(coordinator.scanCleanupRun.jobState).toBeNull();
+        expect(coordinator.isScanCleanupRunning.value).toBe(false);
+    });
+
     it('retires the previous job state when a new attempt begins', async () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const canceled: TScanCleanupJobState = {

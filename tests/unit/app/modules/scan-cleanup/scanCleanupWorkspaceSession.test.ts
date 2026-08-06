@@ -921,6 +921,27 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
     });
 
+    it('reconciles a rejected detection subscription and abandons an unobservable job', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.subscribeDetectionJob).mockRejectedValue(
+            new Error('detection subscription transport failed'),
+        );
+        capability.value = harness.value;
+        const mounted = mountSession(`unobservable-detection-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+
+        expect(harness.value.getDetectionJobState).toHaveBeenCalledTimes(3);
+        expect(harness.value.cancelDetection).toHaveBeenCalledWith(
+            'detect-1',
+            expect.objectContaining({documentRevision: expect.any(String)}),
+        );
+        expect(mounted.session.detection.isDetecting.value).toBe(false);
+        expect(mounted.session.detection.error.value).toContain('could not be observed');
+        mounted.unmount();
+    });
+
     it('rejects an older subscribe response after a newer detection event without regressing progress or maps', async () => {
         const harness = capabilityHarness();
         const subscription = Promise.withResolvers<TScanCleanupDetectionJobState | null>();

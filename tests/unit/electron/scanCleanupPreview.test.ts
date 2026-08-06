@@ -7,6 +7,7 @@ import {
     truncate,
     writeFile,
 } from 'fs/promises';
+import {EventEmitter} from 'node:events';
 import {execFile} from 'child_process';
 import {tmpdir} from 'os';
 import {promisify} from 'util';
@@ -178,6 +179,34 @@ function sender(id = 1) {
         once: vi.fn(),
         removeListener: vi.fn(),
     } satisfies IScanCleanupDetectionSubscriber;
+}
+
+class LifecycleSender extends EventEmitter {
+    readonly id: number;
+    readonly isDestroyed = () => false;
+    readonly send = vi.fn();
+
+    constructor(id: number) {
+        super();
+        this.id = id;
+    }
+}
+
+function isScanCleanupDetectionSubscriber(sender: LifecycleSender): sender is LifecycleSender & IScanCleanupDetectionSubscriber {
+    return typeof sender.id === 'number'
+        && typeof sender.isDestroyed === 'function'
+        && typeof sender.send === 'function'
+        && typeof sender.on === 'function'
+        && typeof sender.once === 'function'
+        && typeof sender.removeListener === 'function';
+}
+
+function lifecycleSender(id = 100): LifecycleSender & IScanCleanupDetectionSubscriber {
+    const sender = new LifecycleSender(id);
+    if (!isScanCleanupDetectionSubscriber(sender)) {
+        throw new Error('test lifecycle sender is incomplete');
+    }
+    return sender;
 }
 
 // Cancellation is a result rather than a rejection on this service, so a test
@@ -5051,5 +5080,35 @@ describe('scan cleanup preview', () => {
         expect(releaseLease).toHaveBeenCalledOnce();
         await expect(stat(join(manifestPath, '..'))).rejects.toMatchObject({code: 'ENOENT'});
         expect(service.cancelDetection(sender(), started.jobId, request)).toBe(false);
+    });
+
+    it('cancels detect-all when the owning renderer is destroyed', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = Promise.withResolvers<undefined>();
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, signal) => {
+            entered.resolve(undefined);
+            await new Promise<void>((_resolve, reject) => {
+                const abort = () => reject(signal.reason);
+                if (signal.aborted) {
+                    abort();
+                    return;
+                }
+                signal.addEventListener('abort', abort, {once: true});
+            });
+            void manifestPath;
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = lifecycleSender();
+        const started = await service.detectAll(owner, detectionRequest);
+        await entered.promise;
+
+        owner.emit('destroyed');
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('canceled'));
     });
 });

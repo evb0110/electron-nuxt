@@ -14,6 +14,16 @@ const ACTIVE_JOB_KEY = 'evb.scanCleanup.activeJobId';
 const ACTIVE_JOB_DOCUMENT_KEY = 'evb.scanCleanup.activeDocumentRef';
 const ACTIVE_JOB_OWNER_KEY = 'evb.scanCleanup.activeOwnerId';
 const ACTIVE_JOB_REVISION_KEY = 'evb.scanCleanup.activeDocumentRevision';
+const RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
+
+export class ScanCleanupRunReconciliationError extends Error {
+    readonly errorCode: TScanCleanupErrorCode = 'internal';
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'ScanCleanupRunReconciliationError';
+    }
+}
 /**
  * The jobs whose terminal state this window has already acted on, so a state
  * replayed by a reconnect or delivered twice by the bridge does not open the
@@ -175,6 +185,58 @@ function clearRunGuard() {
     activeStartResult = null;
 }
 
+function yieldToRunReconciliation() {
+    return new Promise<void>(resolve => setTimeout(resolve, 0));
+}
+
+type TScanCleanupRunOwner = Pick<IScanCleanupStartRequest, 'ownerId' | 'documentRevision'>;
+
+async function reconcileScanCleanupRunState(
+    capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
+    jobId: string,
+    owner: TScanCleanupRunOwner,
+) {
+    for (let attempt = 0; attempt < RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS; attempt += 1) {
+        const state = await Promise.resolve()
+            .then(() => capability.getJobState(jobId, owner))
+            .catch(() => null);
+        const reconnected = await Promise.resolve()
+            .then(() => capability.reconnectJob(jobId, owner))
+            .catch(() => null);
+        if (reconnected) {
+            return reconnected;
+        }
+        if (state) {
+            return state;
+        }
+        if (attempt + 1 < RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS) {
+            await yieldToRunReconciliation();
+        }
+    }
+    return null;
+}
+
+async function abandonUnobservedScanCleanupRun(
+    capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
+    jobId: string,
+    owner: TScanCleanupRunOwner,
+) {
+    if (scanCleanupRun.activeJobId !== jobId) {
+        return false;
+    }
+    await Promise.resolve()
+        .then(() => capability.cancel(jobId, owner))
+        .catch(() => false);
+    if (scanCleanupRun.activeJobId !== jobId) {
+        return false;
+    }
+    scanCleanupRun.activeJobId = null;
+    scanCleanupRun.jobState = null;
+    clearRunGuard();
+    persistActiveJob(null);
+    return true;
+}
+
 function persistActiveJob(jobId: string | null, documentRef: string | null = scanCleanupRun.ownerDocumentRef) {
     if (!import.meta.client) {
         return;
@@ -333,10 +395,36 @@ async function startScanCleanupRequest(
     scanCleanupRun.ownerDocumentRevision = request.documentRevision;
     pendingStart = null;
     persistActiveJob(result.jobId, request.sourcePdfPath);
-    const restored = await capability.subscribeJob(result.jobId, {
+    const owner = {
         ownerId: request.ownerId,
         documentRevision: request.documentRevision,
-    });
+    };
+    let restored: TScanCleanupJobState | null;
+    try {
+        restored = await capability.subscribeJob(result.jobId, owner);
+    } catch (caught) {
+        if (scanCleanupRun.activeJobId !== result.jobId) {
+            return result;
+        }
+        const reconciled = await reconcileScanCleanupRunState(capability, result.jobId, owner);
+        if (scanCleanupRun.activeJobId !== result.jobId) {
+            return result;
+        }
+        if (reconciled) {
+            acceptScanCleanupJobState(reconciled);
+            return result;
+        }
+        const reset = await abandonUnobservedScanCleanupRun(capability, result.jobId, owner);
+        if (reset) {
+            const detail = caught instanceof Error && caught.message
+                ? ` (${caught.message})`
+                : '';
+            throw new ScanCleanupRunReconciliationError(
+                `Scan cleanup job could not be observed after subscription failed${detail}`,
+            );
+        }
+        return result;
+    }
     if (restored) acceptScanCleanupJobState(restored);
     return result;
 }
@@ -433,17 +521,27 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
             clearRunGuard();
             persistActiveJob(null);
         } else {
-            void capability.reconnectJob(storedJobId, {
+            const owner = {
                 ownerId: scanCleanupRun.ownerId,
                 documentRevision: scanCleanupRun.ownerDocumentRevision,
-            }).then(state => {
+            };
+            void (async () => {
+                const state = await reconcileScanCleanupRunState(capability, storedJobId, owner);
                 if (state) acceptScanCleanupJobState(state);
-                else {
-                    scanCleanupRun.activeJobId = null;
-                    clearRunGuard();
-                    persistActiveJob(null);
+                else if (scanCleanupRun.activeJobId === storedJobId) {
+                    const ownerId = scanCleanupRun.ownerId;
+                    const sourceDocumentRef = scanCleanupRun.ownerDocumentRef;
+                    const reset = await abandonUnobservedScanCleanupRun(capability, storedJobId, owner);
+                    if (reset && ownerId) {
+                        reportScanCleanupRunError(
+                            ownerId,
+                            'Scan cleanup job could not be recovered after the renderer session was restored',
+                            sourceDocumentRef,
+                            'internal',
+                        );
+                    }
                 }
-            });
+            })();
         }
     }
     return () => {

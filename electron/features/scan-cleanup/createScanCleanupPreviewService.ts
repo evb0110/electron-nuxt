@@ -2667,9 +2667,9 @@ export function createScanCleanupPreviewService(
                     updatedAtMs: Date.now(),
                 },
                 ownerLifecycle: {
-                    destroyed: 'detach',
-                    renderProcessGone: 'detach',
-                    mainFrameNavigation: 'detach',
+                    destroyed: 'cancel',
+                    renderProcessGone: 'cancel',
+                    mainFrameNavigation: 'cancel',
                 },
                 run: async job => {
                     let lease: {release: () => boolean} | null = null;

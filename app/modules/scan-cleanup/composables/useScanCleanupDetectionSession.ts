@@ -30,6 +30,7 @@ import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
 const DETECTION_CANCELLATION_TIMEOUT_MS = 10_000;
+const DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
 
 interface IUseScanCleanupDetectionSessionOptions {
     active: () => boolean;
@@ -75,6 +76,10 @@ function detectionIsTerminal(state: TScanCleanupDetectionJobState | null) {
         'failed',
         'canceled',
     ].includes(state.status);
+}
+
+function yieldToDetectionReconciliation() {
+    return new Promise<void>(resolve => setTimeout(resolve, 0));
 }
 
 export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetectionSessionOptions) => {
@@ -290,6 +295,28 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         return true;
     }
 
+    async function reconcileDetectionJobState(
+        capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
+        detectionJobId: string,
+        owner: {
+            ownerId: string;
+            documentRevision: string
+        },
+    ) {
+        for (let attempt = 0; attempt < DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS; attempt += 1) {
+            const state = await Promise.resolve()
+                .then(() => capability.getDetectionJobState(detectionJobId, owner))
+                .catch(() => null);
+            if (state) {
+                return state;
+            }
+            if (attempt + 1 < DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS) {
+                await yieldToDetectionReconciliation();
+            }
+        }
+        return null;
+    }
+
     function applyState(state: TScanCleanupDetectionJobState) {
         if (detectionIsTerminal(state)) {
             for (const settle of terminalWaiters.get(state.jobId) ?? []) settle();
@@ -440,10 +467,53 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             results: [],
             updatedAtMs: 0,
         };
-        const state = await capability.subscribeDetectionJob(result.jobId, {
+        const owner = {
             ownerId: options.ownerId,
             documentRevision: jobDocumentRevision ?? options.documentRevision.value,
-        });
+        };
+        let state: TScanCleanupDetectionJobState | null;
+        try {
+            state = await capability.subscribeDetectionJob(result.jobId, owner);
+        } catch (caught) {
+            const isCurrentJob = !disposed
+                && result.jobId === jobId
+                && requestSourcePath === options.sourcePath.value
+                && owner.documentRevision === options.documentRevision.value;
+            if (!isCurrentJob) {
+                void Promise.resolve()
+                    .then(() => capability.cancelDetection(result.jobId, owner))
+                    .catch(() => undefined);
+                return;
+            }
+            const reconciled = await reconcileDetectionJobState(capability, result.jobId, owner);
+            const stillCurrentJob = !disposed
+                && result.jobId === jobId
+                && requestSourcePath === options.sourcePath.value
+                && owner.documentRevision === options.documentRevision.value;
+            if (!stillCurrentJob) {
+                return;
+            }
+            if (reconciled) {
+                applyState(reconciled);
+                return;
+            }
+            // A job that cannot be observed is abandoned at the renderer
+            // boundary. The main-process cancel is best effort, but the UI
+            // must release its queued/running guard even when the bridge is
+            // already gone.
+            await Promise.resolve()
+                .then(() => capability.cancelDetection(result.jobId, owner))
+                .catch(() => false);
+            if (!disposed && result.jobId === jobId) {
+                jobId = null;
+                jobState.value = null;
+                error.value = caught instanceof Error && caught.message
+                    ? `Scan cleanup detection could not be observed after subscription failed (${caught.message})`
+                    : 'Scan cleanup detection could not be observed after subscription failed';
+                errorCode.value = 'internal';
+            }
+            return;
+        }
         if (disposed || result.jobId !== jobId) {
             return;
         }

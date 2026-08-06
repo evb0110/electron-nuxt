@@ -21,6 +21,7 @@ import {
     isScanCleanupRunning,
     reportScanCleanupRunError,
     resolveScanCleanupProcessedPages,
+    ScanCleanupRunReconciliationError,
     scanCleanupRun,
     setScanCleanupWorkspaceOwnerOpen,
     setScanCleanupRunError,
@@ -290,6 +291,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 options.ownerId,
                 caught instanceof Error && caught.message ? caught.message : t('scanCleanup.failed'),
                 requestSourcePdfPath,
+                caught instanceof ScanCleanupRunReconciliationError
+                    ? caught.errorCode
+                    : 'internal',
             );
         } finally {
             interruptPendingTransition = null;
