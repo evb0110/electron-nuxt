@@ -129,6 +129,51 @@ function validateUpdaterMetadata(target, env = process.env) {
     }
 }
 
+function packagedMacExecutablePath(target) {
+    const candidates = [
+        `${RELEASE_DIR}/mac-${target.arch}/EVB Viewer.app`,
+        `${RELEASE_DIR}/mac/EVB Viewer.app`,
+    ].map(candidate => resolve(process.cwd(), candidate));
+    const appDir = candidates.find(candidate => existsSync(candidate));
+    if (!appDir) {
+        throw new Error(`Packaged app not found under: ${candidates.join(', ')}`);
+    }
+    return path.join(appDir, 'Contents', 'MacOS', 'EVB Viewer');
+}
+
+function runPackagedScanCleanupVerifier(target) {
+    if (target.platform !== 'mac') {
+        return;
+    }
+    // The strongest packaged verifier drives the packaged app through a real
+    // scan-cleanup conversion. Its source PDF is machine-local, so the gate
+    // follows the nightly-regress convention: a .devkit fixture config makes
+    // it REQUIRED, and its absence is an explicit skip line, never silence.
+    const fixtureConfigPath = resolve(process.cwd(), '.devkit/scan-cleanup-release-fixture.json');
+    if (!existsSync(fixtureConfigPath)) {
+        process.stdout.write(
+            'SKIPPED packaged scan-cleanup verification: no fixture config at '
+            + '.devkit/scan-cleanup-release-fixture.json (create {"source": <pdf>, '
+            + '"expectedPages": <n>} to make this a required local release gate).\n',
+        );
+        return;
+    }
+    const fixture = JSON.parse(readFileSync(fixtureConfigPath, 'utf8'));
+    run('pnpm', [
+        'exec',
+        'tsx',
+        'scripts/release/verifyPackagedScanCleanup.ts',
+        '--executable',
+        packagedMacExecutablePath(target),
+        '--source',
+        fixture.source,
+        '--expected-pages',
+        String(fixture.expectedPages),
+        '--artifact-dir',
+        resolve(process.cwd(), '.devkit/release-verify/scan-cleanup'),
+    ], { stdio: 'inherit' });
+}
+
 function verifyLocalPackageArtifacts(target) {
     if (target.platform === 'mac' && target.arch !== process.arch) {
         const appDir = resolve(
