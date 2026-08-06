@@ -138,6 +138,11 @@ pub(crate) fn output_regions(
     let Some(cutter) = split.cutter_x else {
         return vec![(full, PageHalf::Full)];
     };
+    // A cutter needs a pixel on each side; below two columns the clamp bounds
+    // invert and there is nothing to split.
+    if width < 2 {
+        return vec![(full, PageHalf::Full)];
+    }
     let cutter = cutter.round().clamp(1.0, width.saturating_sub(1) as f64);
     let left = Rect::new(0.0, 0.0, cutter, height as f64);
     let right = Rect::new(cutter, 0.0, width as f64 - cutter, height as f64);

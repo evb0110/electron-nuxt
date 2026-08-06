@@ -795,14 +795,21 @@ fn inverse_rotate_point(
     source_height: usize,
     rotation: OrthogonalRotation,
 ) -> Point {
+    // Pixel-index convention: a W x H image occupies indices 0..W-1, 0..H-1,
+    // matching the forward transform above; "W - x" instead of "W-1 - x"
+    // shifts every rotated detail tile by one pixel and clips the far edge.
     match rotation {
         OrthogonalRotation::None => point,
-        OrthogonalRotation::Clockwise90 => Point::new(point.y, source_height as f64 - point.x),
+        OrthogonalRotation::Clockwise90 => {
+            Point::new(point.y, source_height as f64 - 1.0 - point.x)
+        }
         OrthogonalRotation::Clockwise180 => Point::new(
-            source_width as f64 - point.x,
-            source_height as f64 - point.y,
+            source_width as f64 - 1.0 - point.x,
+            source_height as f64 - 1.0 - point.y,
         ),
-        OrthogonalRotation::Clockwise270 => Point::new(source_width as f64 - point.y, point.x),
+        OrthogonalRotation::Clockwise270 => {
+            Point::new(source_width as f64 - 1.0 - point.y, point.x)
+        }
     }
 }
 
@@ -2181,8 +2188,8 @@ fn prepare_analysis_page(
         let AnalysisLevel {
             image,
             effective_dpi,
-            scale_x: source_scale_x,
-            scale_y: source_scale_y,
+            scale_x: _,
+            scale_y: _,
         } = build_analysis_level(source, options.dpi, analysis_dpi_ceiling);
         let rotated = rotate_orthogonal(&image, options.rotation);
         let analysis_rgb = color_source
@@ -2202,7 +2209,10 @@ fn prepare_analysis_page(
             && options.manual_zones.picture.is_empty()
             && options.manual_zones.fill.is_empty()
             && is_blank_scan_candidate(&rotated, analysis_rgb.as_ref());
-        debug_assert!((scale_x - source_scale_x.min(source_scale_y)).abs() < 0.01);
+        // scale_x and scale_y come from independently rounded analysis
+        // dimensions; on tiny rasters (1x2, 3x7) they legitimately differ
+        // from each other and from min(source scales), so no cross-axis
+        // equality holds.
         timings.analysis_level_ms += analysis_started.elapsed().as_secs_f64() * 1_000.0;
 
         let normalization_started = Instant::now();
@@ -3014,6 +3024,14 @@ fn rescue_isolated_raw_ink(raw: &GrayImage, picture_mask: &BinaryImage, dpi: f64
     })
 }
 
+// The verdict is per component, never per pixel: a binarized glyph edge
+// legitimately extends a little past the raw dark core, and intersecting
+// pixel-wise chews those contours into ragged type at high zoom. A component
+// whose own pixels find almost no darker-than-local-paper source evidence is
+// fabricated and dies whole; one with real support keeps its exact rendered
+// shape.
+const SOURCE_SUPPORT_MINIMUM_FRACTION_PERCENT: usize = 30;
+
 fn enforce_source_ink_support(
     binary: BinaryImage,
     raw: &GrayImage,
@@ -3027,9 +3045,8 @@ fn enforce_source_ink_support(
         debug_assert_eq!(binary.height(), trusted_foreground.height());
     }
     let components = ComponentMap::from_binary(&binary);
-    let mut source_support = BinaryImage::new(binary.width(), binary.height());
     let padding = (dpi.max(1.0) * 0.7 / 25.4).round().max(2.0) as usize;
-    for component in components.components() {
+    let accepted = components.retain(|component| {
         let left = component.left.saturating_sub(padding);
         let top = component.top.saturating_sub(padding);
         let right = component
@@ -3058,21 +3075,26 @@ fn enforce_source_ink_support(
                 break;
             }
         }
+        let mut supported = 0usize;
+        let mut total = 0usize;
         for y in component.top..=component.bottom {
             for x in component.left..=component.right {
+                if components.label_at(x, y) != component.label {
+                    continue;
+                }
+                total += 1;
                 let sample = raw.get(x, y);
                 if sample < paper || paper == 0 && sample == 0 {
-                    source_support.set(x, y, true);
+                    supported += 1;
                 }
             }
         }
-    }
-    let support_radius = (dpi.max(1.0) * 0.12 / 25.4).round().clamp(1.0, 3.0) as usize;
-    let supported = binary.and(&dilate(&source_support, support_radius, support_radius));
+        supported * 100 >= total * SOURCE_SUPPORT_MINIMUM_FRACTION_PERCENT
+    });
     if let Some(trusted) = trusted_foreground {
-        trusted.or(&supported)
+        trusted.or(&accepted)
     } else {
-        supported
+        accepted
     }
 }
 

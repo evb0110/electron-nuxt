@@ -316,6 +316,16 @@ fn detect_split_impl(
     threshold: Option<u8>,
     document_prior: Option<DocumentPrior>,
 ) -> SplitResult {
+    // A cutter needs at least one pixel on each side; a narrower raster has
+    // no legal cutter position, and the clamp below would panic on min > max.
+    if gray.width() < 2 {
+        return single(
+            gray.width(),
+            gray.height(),
+            1.0,
+            SplitDiagnostics::default(),
+        );
+    }
     if let Some(cutter) = manual_split_x {
         // A manually positioned cutter in Auto mode is an explicit spread
         // decision. Treating Auto as single here discarded the two halves on
