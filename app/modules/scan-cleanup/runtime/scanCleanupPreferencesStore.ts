@@ -51,6 +51,67 @@ let remoteSettingsFile: IScanCleanupSettingsFile | null = null;
 let remoteWriteQueue = Promise.resolve();
 let migrationContext: IScanCleanupPreferencesStoreOptions = {};
 let applyingRemotePreferences = false;
+const documentPersistenceEpochs = new Map<string, number>();
+
+export interface IScanCleanupDocumentPersistenceToken {
+    legacyDocumentKey: string | null;
+    legacyDocumentKeyEpoch: number;
+    sourceSha256: string | null;
+    sourceSha256Epoch: number;
+}
+
+function documentPersistenceEpochKey(kind: 'legacy' | 'sha256', value: string | null | undefined) {
+    if (!value) {
+        return null;
+    }
+    return `${kind}:${kind === 'sha256' ? value.toLowerCase() : value}`;
+}
+
+function readDocumentPersistenceEpoch(key: string | null) {
+    return key === null ? 0 : documentPersistenceEpochs.get(key) ?? 0;
+}
+
+export function captureScanCleanupDocumentPersistenceToken(
+    sourceSha256: string | null | undefined,
+    legacyDocumentKey: string | null | undefined,
+): IScanCleanupDocumentPersistenceToken {
+    const normalizedSourceSha256 = sourceSha256?.toLowerCase() ?? null;
+    const normalizedLegacyDocumentKey = legacyDocumentKey ?? null;
+    return {
+        sourceSha256: normalizedSourceSha256,
+        sourceSha256Epoch: readDocumentPersistenceEpoch(
+            documentPersistenceEpochKey('sha256', normalizedSourceSha256),
+        ),
+        legacyDocumentKey: normalizedLegacyDocumentKey,
+        legacyDocumentKeyEpoch: readDocumentPersistenceEpoch(
+            documentPersistenceEpochKey('legacy', normalizedLegacyDocumentKey),
+        ),
+    };
+}
+
+export function isScanCleanupDocumentPersistenceTokenCurrent(
+    token: IScanCleanupDocumentPersistenceToken,
+) {
+    return token.sourceSha256Epoch === readDocumentPersistenceEpoch(
+        documentPersistenceEpochKey('sha256', token.sourceSha256),
+    ) && token.legacyDocumentKeyEpoch === readDocumentPersistenceEpoch(
+        documentPersistenceEpochKey('legacy', token.legacyDocumentKey),
+    );
+}
+
+export function invalidateScanCleanupDocumentPersistence(
+    sourceSha256: string | null | undefined,
+    legacyDocumentKey: string | null | undefined,
+) {
+    for (const key of [
+        documentPersistenceEpochKey('sha256', sourceSha256),
+        documentPersistenceEpochKey('legacy', legacyDocumentKey),
+    ]) {
+        if (key !== null) {
+            documentPersistenceEpochs.set(key, readDocumentPersistenceEpoch(key) + 1);
+        }
+    }
+}
 
 function currentScanCleanupCapability() {
     const capability = getScanCleanupCapability();
@@ -298,6 +359,7 @@ export function resetScanCleanupPreferencesStore() {
     migrationContext = {};
     desktopStore = false;
     applyingRemotePreferences = false;
+    documentPersistenceEpochs.clear();
 }
 
 export type {IScanCleanupGlobalPreferences};

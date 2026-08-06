@@ -8,8 +8,17 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    computed,
+    createApp,
+    defineComponent,
+    h,
+    nextTick,
+} from 'vue';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createDefaultScanCleanupSettingsFile} from '@contracts/scanCleanupSettings';
+import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
+import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
 import {
     getScanCleanupPreferencesStore,
     resetScanCleanupPreferencesStore,
@@ -69,5 +78,47 @@ describe('scan cleanup renderer preference store', () => {
             expect.any(Function),
         );
         warning.mockRestore();
+    });
+
+    it('does not flush a debounced override patch after document discard', async () => {
+        const sourceSha256 = 'c'.repeat(64);
+        const documentKey = '/documents/discard-after-edit.pdf';
+        let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => `${documentKey}\0revision-1`),
+                legacyDocumentKey: computed(() => documentKey),
+                sourceSha256: computed(() => sourceSha256),
+            });
+            return () => h('div');
+        }}));
+        app.mount(host);
+        await whenScanCleanupPreferencesReady();
+        await nextTick();
+        vi.clearAllMocks();
+        capability.value.updateSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
+
+        settings!.values.pageOverrides = {'1': {
+            rotationDegrees: 90,
+            layoutOverride: 'spread',
+            excluded: false,
+            manualSplit: null,
+        }};
+        await nextTick();
+        discardScanCleanupDocumentState(documentKey, sourceSha256);
+        app.unmount();
+        host.remove();
+
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalled());
+        const documentUpdates = capability.value.updateSettings.mock.calls
+            .map(([request]) => request)
+            .filter(request => 'document' in request);
+        expect(documentUpdates).toEqual([{document: {
+            sourceSha256,
+            legacyDocumentKey: documentKey,
+            patch: {resetOverrides: true},
+        }}]);
     });
 });

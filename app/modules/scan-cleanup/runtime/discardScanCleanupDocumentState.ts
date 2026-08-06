@@ -1,6 +1,9 @@
 import {discardScanCleanupDetectionState} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 import {resetScanCleanupDocumentOverrides} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
-import {saveScanCleanupDocumentPreferencesInStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import {
+    invalidateScanCleanupDocumentPersistence,
+    saveScanCleanupDocumentPreferencesInStore,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 
 /**
  * Closing the scan-cleanup surface discards the split session for a document:
@@ -18,6 +21,10 @@ export function discardScanCleanupDocumentState(
     if (!documentKey && !sourceSha256) {
         return;
     }
+    // Invalidate any debounced component-owned patch before resetting the
+    // durable entry. Otherwise scope disposal can flush the old overrides
+    // after Done and silently recreate the state that was just discarded.
+    invalidateScanCleanupDocumentPersistence(sourceSha256, documentKey);
     if (documentKey) {
         discardScanCleanupDetectionState(documentKey);
         resetScanCleanupDocumentOverrides(documentKey);

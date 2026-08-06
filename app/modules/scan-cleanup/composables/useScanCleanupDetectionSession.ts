@@ -434,7 +434,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 options: toPlainScanCleanupOptions(options.settings),
             }));
         } catch (caught) {
-            if (!disposed) {
+            if (isStale()) {
+                scheduleAutoDetect();
+            } else {
                 error.value = caught instanceof Error ? caught.message : t('scanCleanup.detectAll.failed');
                 errorCode.value = 'internal';
             }
@@ -449,6 +451,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     documentRevision: requestDocumentRevision,
                 }).catch(() => undefined);
             }
+            // The lifecycle watcher may have tried to schedule the replacement
+            // while `starting` still belonged to this request. Make the retry
+            // explicit after the stale request releases that gate.
+            scheduleAutoDetect();
             return;
         }
         if (!result.started) {

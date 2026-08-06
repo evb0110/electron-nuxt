@@ -11,6 +11,7 @@ import {
     createApp,
     defineComponent,
     h,
+    nextTick,
     ref,
 } from 'vue';
 import {useScanCleanupSourceSha256} from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
@@ -60,7 +61,7 @@ describe('scan cleanup source SHA-256 bridge', () => {
         host.remove();
     });
 
-    it('retains an acquired hash while disabled and does not reacquire the same document', async () => {
+    it('retains the acquired hash while the source surface is disabled and re-enabled', async () => {
         const enabled = ref(true);
         const sourcePath = ref('/working/book.pdf');
         const documentRevision = ref('revision-1');
@@ -78,10 +79,13 @@ describe('scan cleanup source SHA-256 bridge', () => {
 
         await vi.waitFor(() => expect(sourceSha256?.value).toBe('a'.repeat(64)));
         enabled.value = false;
-        await vi.waitFor(() => expect(sourceSha256?.value).toBe('a'.repeat(64)));
+        await nextTick();
+        expect(sourceSha256?.value).toBe('a'.repeat(64));
         enabled.value = true;
-        await vi.waitFor(() => expect(sourceSha256?.value).toBe('a'.repeat(64)));
+        await nextTick();
+        expect(sourceSha256?.value).toBe('a'.repeat(64));
         expect(files.createManagedTempFileHandle).toHaveBeenCalledOnce();
+        expect(files.releaseManagedTempFileHandle).toHaveBeenCalledOnce();
 
         app.unmount();
         host.remove();

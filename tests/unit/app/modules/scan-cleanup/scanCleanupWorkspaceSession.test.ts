@@ -1380,6 +1380,47 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('retires a deferred detect-all request and starts the replacement revision', async () => {
+        const harness = capabilityHarness();
+        const revision = ref('revision-1');
+        const deferred = Promise.withResolvers<{
+            started: true;
+            jobId: string;
+        }>();
+        vi.mocked(harness.value.detectAll)
+            .mockImplementationOnce(() => deferred.promise)
+            .mockResolvedValueOnce({
+                started: true,
+                jobId: 'detect-revision-2',
+            });
+        capability.value = harness.value;
+        const documentKey = `revision-during-detect-all-${Date.now()}`;
+        const mounted = mountSession(documentKey, {documentRevision: () => revision.value});
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        revision.value = 'revision-2';
+        await nextTick();
+        deferred.resolve({
+            started: true,
+            jobId: 'detect-revision-1',
+        });
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        expect(harness.value.cancelDetection).toHaveBeenCalledWith('detect-revision-1', {
+            ownerId: mounted.session.run.ownerId,
+            documentRevision: 'revision-1',
+        });
+        expect(harness.value.subscribeDetectionJob).not.toHaveBeenCalledWith(
+            'detect-revision-1',
+            expect.anything(),
+        );
+        expect(scanCleanupDetectionSessionCache.size).toBe(0);
+        expect(harness.value.detectAll).toHaveBeenLastCalledWith(expect.objectContaining({documentRevision: 'revision-2'}));
+        await new Promise(resolve => setTimeout(resolve, 5));
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
+        mounted.unmount();
+    });
+
     it('starts cleanup from one atomic click-time request after detection completes', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

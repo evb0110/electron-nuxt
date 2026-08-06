@@ -276,6 +276,9 @@ export function classifyScanCleanupError(error: unknown, aborted: boolean): TSca
     if (errorCode === 'ENOENT') {
         return 'tools-unavailable';
     }
+    if (errorCode === 'SCAN_CLEANUP_INVALID_PAGE_SCOPE') {
+        return 'invalid-request';
+    }
     return 'internal';
 }
 

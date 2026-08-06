@@ -14,12 +14,17 @@ import {
     type IScanCleanupDocumentPreferencePatch,
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
+    captureScanCleanupDocumentPersistenceToken,
     flushScanCleanupPreferencesStore,
     getScanCleanupPreferencesStore,
+    isScanCleanupDocumentPersistenceTokenCurrent,
     loadScanCleanupDocumentSettings,
     saveScanCleanupDocumentPreferencesInStore,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
-import type {IScanCleanupDocumentSettingsSnapshot} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import type {
+    IScanCleanupDocumentPersistenceToken,
+    IScanCleanupDocumentSettingsSnapshot,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {
     resolveScanCleanupMarginPatch,
     scanCleanupMarginsUniform,
@@ -88,6 +93,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     interface IPendingDocumentPersistence extends IScanCleanupDocumentPreferencePatch {
         sourceSha256: string | null;
         legacyDocumentKey: string | null;
+        token: IScanCleanupDocumentPersistenceToken;
     }
     let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingPersistence: IPendingDocumentPersistence | null = null;
@@ -104,9 +110,13 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         if (!pending) {
             return;
         }
+        if (!isScanCleanupDocumentPersistenceTokenCurrent(pending.token)) {
+            return;
+        }
         const {
             sourceSha256,
             legacyDocumentKey,
+            token: _token,
             ...patch
         } = pending;
         saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, patch);
@@ -124,12 +134,15 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         if (
             pendingPersistence?.sourceSha256 !== (sourceSha256 ?? null)
             || pendingPersistence?.legacyDocumentKey !== (legacyDocumentKey ?? null)
+            || (pendingPersistence !== null
+                && !isScanCleanupDocumentPersistenceTokenCurrent(pendingPersistence.token))
         ) {
             flushDocumentPersistence();
         }
         pendingPersistence ??= {
             sourceSha256: sourceSha256 ?? null,
             legacyDocumentKey: legacyDocumentKey ?? null,
+            token: captureScanCleanupDocumentPersistenceToken(sourceSha256, legacyDocumentKey),
         };
         if (patch.overrides !== undefined) pendingPersistence.overrides = patch.overrides;
         if (patch.marginsMm !== undefined) pendingPersistence.marginsMm = patch.marginsMm;
