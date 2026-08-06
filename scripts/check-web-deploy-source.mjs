@@ -38,6 +38,7 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES = [
     '.playwright-mcp',
     '.svelte-kit',
     '.tmp',
+    'tmp',
     '.turbo',
     '.vercel',
     '.vite',

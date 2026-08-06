@@ -113,11 +113,13 @@ describe('web deploy source policy', () => {
         try {
             await mkdir(path.join(tempRoot, 'native', 'pdf-image-combine', 'target'), {recursive: true});
             await mkdir(path.join(tempRoot, 'resources'), {recursive: true});
+            await mkdir(path.join(tempRoot, 'tmp', 'pdfs'), {recursive: true});
             await writeFile(
                 path.join(tempRoot, 'native', 'pdf-image-combine', 'target', 'debug.bin'),
                 Buffer.alloc(1024 * 1024),
             );
             await writeFile(path.join(tempRoot, 'resources', 'large.fixture'), Buffer.alloc(1024 * 1024));
+            await writeFile(path.join(tempRoot, 'tmp', 'pdfs', 'local-proof.pdf'), Buffer.alloc(1024 * 1024));
             await writeFile(path.join(tempRoot, 'electron-builder.yml'), 'appId: test\n', 'utf8');
 
             const stats = await collectWebDeploySourceStats({projectRoot: tempRoot});

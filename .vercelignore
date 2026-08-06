@@ -51,6 +51,7 @@ MEMORIES.md
 .playwright-cli/
 .playwright-mcp/
 .tmp/
+tmp/
 .vscode/
 coverage/
 docs/
