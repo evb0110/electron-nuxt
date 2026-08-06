@@ -1396,6 +1396,21 @@ def affine_output_to_source_coefficients(
     )
 
 
+def intrinsic_output_size_from_crop(
+    output_metadata: dict[str, Any],
+) -> tuple[float, float] | None:
+    """Recover the raster size before matched-canvas publication."""
+
+    crop = output_metadata.get("cropRect")
+    if not isinstance(crop, dict):
+        return None
+    crop_width = float(crop.get("widthPx", 0.0))
+    crop_height = float(crop.get("heightPx", 0.0))
+    if crop_width <= 0 or crop_height <= 0:
+        return None
+    return crop_width, crop_height
+
+
 def align_source_to_output(
     source: Image.Image,
     output_metadata: dict[str, Any],
@@ -1423,18 +1438,11 @@ def align_source_to_output(
     # from the canonical crop rectangle so the affine includes the actual
     # paper-to-document resampling scale; otherwise uniform-canvas pages with
     # trimmed content acquire a false registration shift.
-    crop = output_metadata.get("cropRect")
-    intrinsic_output_size = None
-    if isinstance(crop, dict):
-        crop_width = float(crop.get("widthPx", 0.0))
-        crop_height = float(crop.get("heightPx", 0.0))
-        if crop_width > 0 and crop_height > 0:
-            intrinsic_output_size = (crop_width, crop_height)
     affine = affine_output_to_source_coefficients(
         source.size,
         output_metadata,
         output_size,
-        intrinsic_output_size=intrinsic_output_size,
+        intrinsic_output_size=intrinsic_output_size_from_crop(output_metadata),
     )
     if affine is not None:
         return source.convert("RGB").transform(
@@ -1603,19 +1611,12 @@ def _mapped_output_content_mask(
     output_size: tuple[int, int],
 ) -> Image.Image:
     mask = Image.new("L", source_size, 0)
-    crop = output_metadata.get("cropRect")
-    intrinsic_output_size = None
-    if isinstance(crop, dict):
-        crop_width = float(crop.get("widthPx", 0.0))
-        crop_height = float(crop.get("heightPx", 0.0))
-        if crop_width > 0 and crop_height > 0:
-            intrinsic_output_size = (crop_width, crop_height)
     try:
         affine = affine_output_to_source_coefficients(
             source_size,
             output_metadata,
             output_size,
-            intrinsic_output_size=intrinsic_output_size,
+            intrinsic_output_size=intrinsic_output_size_from_crop(output_metadata),
         )
     except (KeyError, TypeError, ValueError, OverflowError):
         affine = None
@@ -2069,6 +2070,7 @@ def align_binary_mask_to_output(
         source_mask.size,
         output_metadata,
         output_size,
+        intrinsic_output_size=intrinsic_output_size_from_crop(output_metadata),
     )
     if affine is not None:
         return source_mask.transform(

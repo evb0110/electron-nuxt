@@ -420,6 +420,82 @@ print(json.dumps({
         expect(report.identityFailures).toEqual([]);
     });
 
+    it('aligns ownership masks through the same matched-canvas scale as source pixels', () => {
+        const scriptPath = resolve('scripts/diagnostics/scan-cleanup-artifact-audit.py');
+        const python = String.raw`
+import importlib.util, json, sys
+from PIL import Image, ImageDraw
+spec = importlib.util.spec_from_file_location("scan_cleanup_artifact_audit", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+source = Image.new("RGB", (100, 100), "white")
+authored = Image.new("L", source.size, 0)
+ImageDraw.Draw(source).rectangle((78, 78, 82, 82), fill="black")
+ImageDraw.Draw(authored).rectangle((78, 78, 82, 82), fill=255)
+metadata = {
+    "inputWidthPx": 100,
+    "inputHeightPx": 100,
+    "outputWidthPx": 60,
+    "outputHeightPx": 60,
+    "canvasWidthPx": 80,
+    "canvasHeightPx": 80,
+    "matchedCanvasContentWidthPx": 60,
+    "matchedCanvasContentHeightPx": 60,
+    "placementOffsetXPx": 0,
+    "placementOffsetYPx": 0,
+    "cropRect": {"xPx": -10, "yPx": -10, "widthPx": 120, "heightPx": 120},
+    "forwardTransform": {"matrix": [[1, 0, 10], [0, 1, 10], [0, 0, 1]]},
+    "sourceRegion": {"xPx": 0, "yPx": 0, "widthPx": 100, "heightPx": 100},
+    "dewarpMapping": None,
+}
+output_size = (80, 80)
+aligned_source = module.align_source_to_output(source, metadata, output_size)
+aligned_authored = module.align_binary_mask_to_output(authored, metadata, output_size)
+empty = Image.new("L", output_size, 0)
+ownership = module.ownership_metrics(
+    aligned_source,
+    aligned_source,
+    empty,
+    aligned_authored,
+    empty,
+    100,
+    blank_page=False,
+)
+deleted = module.ownership_metrics(
+    aligned_source,
+    Image.new("RGB", output_size, "white"),
+    empty,
+    aligned_authored,
+    empty,
+    100,
+    blank_page=False,
+)
+print(json.dumps({
+    "sourceBbox": aligned_source.convert("L").point(lambda value: 255 if value < 128 else 0).getbbox(),
+    "maskBbox": aligned_authored.getbbox(),
+    "retention": ownership.small_component_retention,
+    "deletedRetention": deleted.small_component_retention,
+}))
+`;
+        const result = spawnSync('python3', [
+            '-c',
+            python,
+            scriptPath,
+        ], {encoding: 'utf8'});
+        expect(result.stderr).toBe('');
+        expect(result.status).toBe(0);
+        const report = JSON.parse(result.stdout);
+        expect(report.maskBbox).toHaveLength(4);
+        expect(report.sourceBbox).toHaveLength(4);
+        for (let index = 0; index < 4; index += 1) {
+            expect(Math.abs(report.maskBbox[index] - report.sourceBbox[index])).toBeLessThanOrEqual(1);
+        }
+        expect(report.retention).toBe(1);
+        expect(report.deletedRetention).toBe(0);
+    });
+
     it('accepts ownership-aware cleanup and rejects cut-out tone, washout, dirty blank paper, and deleted margin text', () => {
         const scriptPath = resolve('scripts/diagnostics/scan-cleanup-artifact-audit.py');
         const python = String.raw`

@@ -2436,12 +2436,17 @@ fn plan_canvas_placement_for(
     // Cropping selects a rectangle from the aligned paper; it does not give
     // that rectangle a new page origin. Compose the crop offset after paper
     // alignment so crop-on and crop-off retain identical page coordinates.
-    let left = paper_left
-        .saturating_add((crop_x.max(0.0) * render_scale).round() as usize)
-        .min(canvas.width_px - content_width);
-    let top = paper_top
-        .saturating_add((crop_y.max(0.0) * render_scale).round() as usize)
-        .min(canvas.height_px - content_height);
+    // A requested margin can move the crop origin above or to the left of the
+    // source paper. Preserve that signed offset: clamping the crop before it
+    // is composed shifts the paper by the synthetic margin whenever the
+    // selected alignment leaves slack on the canvas. Round the completed sum
+    // once so negative and positive crop origins follow the same grid rule.
+    let left = ((paper_left as f64) + crop_x * render_scale)
+        .round()
+        .clamp(0.0, (canvas.width_px - content_width) as f64) as usize;
+    let top = ((paper_top as f64) + crop_y * render_scale)
+        .round()
+        .clamp(0.0, (canvas.height_px - content_height) as f64) as usize;
     CanvasPlacement {
         content_width,
         content_height,
@@ -3162,6 +3167,7 @@ mod tests {
         adaptive_thread_count, box_downsample_gray, estimate_peak_page_bytes, manifest_cache,
         manifest_worker_threads, map_image_error, materialize_stream_page,
         normalize_trusted_foreground_selection, page_worker_threads, parse_cli_args,
+        place_on_white_canvas,
         plan_canvas_placement_for, preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
         reconcile_classification_batch, robust_quantile_dimension, run_manifest_transaction,
         run_stream_page_jobs, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
@@ -3452,6 +3458,49 @@ mod tests {
         assert_eq!((uncropped.left, uncropped.top), (0, 0));
         assert_eq!(cropped.content_width, 580);
         assert_eq!(cropped.content_height, 820);
+    }
+
+    #[test]
+    fn matched_canvas_preserves_paper_alignment_for_negative_crop_origins() {
+        let options = CleanupOptions {
+            dpi: 100.0,
+            page_alignment: crate::PageAlignment::Center,
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 720.0,
+            height_points: 720.0,
+            width_px: 1_000,
+            height_px: 1_000,
+        };
+
+        // The 800x1000 source paper is centered at x=100. The intrinsic crop
+        // carries 50 px of synthetic paper to its left, so the crop itself
+        // starts at x=50 and source-paper x=0 still lands at x=100.
+        let placement = plan_canvas_placement_for(
+            850,
+            1_000,
+            -50.0,
+            0.0,
+            800.0,
+            1_000.0,
+            &options,
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+        );
+        assert_eq!(placement.left, 50);
+
+        let mut intrinsic = GrayImage::new(850, 1_000, 255);
+        intrinsic.set(50, 100, 0);
+        let composed = place_on_white_canvas(
+            &intrinsic,
+            canvas.width_px,
+            canvas.height_px,
+            placement.left,
+            placement.top,
+        );
+        assert_eq!(composed.get(100, 100), 0);
+        assert_eq!(composed.get(150, 100), 255);
     }
 
     #[test]
