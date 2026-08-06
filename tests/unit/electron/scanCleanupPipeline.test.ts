@@ -56,6 +56,10 @@ import {
     SCAN_CLEANUP_COMPACT_SOURCE_FIXED_BYTE_ALLOWANCE,
     SCAN_CLEANUP_COMPACT_SOURCE_MAX_BYTE_RATIO,
 } from '@electron/features/scan-cleanup/policy/scanCleanupRepresentationPolicy';
+import {
+    ScanCleanupMissingOutputError,
+    ScanCleanupPdfValidationError,
+} from '@scan-cleanup-core/errors';
 
 const dirs: string[] = [];
 const PNG = Uint8Array.from(Buffer.from(
@@ -233,6 +237,13 @@ function dependencies(
         getAvailableScratchBytes: vi.fn(async () => null),
         hashNativeBinary: vi.fn(async (path: string) => createHash('sha256').update(path, 'utf8').digest('hex')),
         runCommand: vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const outputIndex = args.indexOf('--output');
             // Matching measures the document through page-sizes, so the tool
             // answers geometry for the two pages this harness renders.
@@ -426,6 +437,13 @@ async function measurePipelineRasterPeak(
     }
     if (site === 'lossless') {
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const outputPath = args[args.indexOf('--output') + 1]!;
             if (args[0] === 'page-sizes') {
                 await writeFile(outputPath, JSON.stringify({pages: pageNumbers.map(pageNumber => ({
@@ -873,6 +891,13 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const outputPath = args[args.indexOf('--output') + 1]!;
             if (args[0] === 'page-sizes') {
                 await writeFile(outputPath, JSON.stringify({pages: [
@@ -1085,6 +1110,13 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const outputIndex = args.indexOf('--output');
             if (args[0] === 'page-sizes') {
                 await writeFile(args[outputIndex + 1]!, JSON.stringify({pages: [
@@ -1265,6 +1297,13 @@ describe('scan cleanup pipeline', () => {
             ]]),
         }));
         pipelineDependencies.runCommand = vi.fn(async (command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const outputIndex = args.indexOf('--output');
             if (command === '/combine') {
                 await writeFile(args[outputIndex + 1]!, '%PDF-1.7\nRASTER\n%%EOF\n');
@@ -1553,6 +1592,13 @@ describe('scan cleanup pipeline', () => {
         );
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             expect(args[0]).not.toBe('page-sizes');
             const outputPath = args[args.indexOf('--output') + 1]!;
             await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
@@ -1592,7 +1638,7 @@ describe('scan cleanup pipeline', () => {
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(pipelineDependencies.detectSourceDpi).not.toHaveBeenCalled();
-        expect(pipelineDependencies.runCommand).toHaveBeenCalledTimes(1);
+        expect(pipelineDependencies.runCommand).toHaveBeenCalledTimes(2);
     });
 
     it.runIf(process.platform !== 'win32')('streams raw rasters to the native consumer before rasterization finishes', async () => {
@@ -1740,6 +1786,13 @@ describe('scan cleanup pipeline', () => {
             await writeFile(outputPath, PPM);
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -1881,6 +1934,13 @@ describe('scan cleanup pipeline', () => {
             ]),
         ));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -1967,6 +2027,13 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -2066,6 +2133,13 @@ describe('scan cleanup pipeline', () => {
         const pdfimagesDetector = pipelineDependencies.detectSourceDpi;
         const baseRunCommand = pipelineDependencies.runCommand;
         pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (args[0] === 'page-sizes') {
                 const outputPath = args[args.indexOf('--output') + 1]!;
                 await writeFile(outputPath, JSON.stringify({pages: [
@@ -2169,6 +2243,13 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -2237,7 +2318,7 @@ describe('scan cleanup pipeline', () => {
             await unlink(manifest.pages[0]!.outputs[0]!.bilevelOutputPath!);
         });
 
-        await expect(runScanCleanupPipeline(
+        const missingRasterRun = runScanCleanupPipeline(
             {
                 sourcePdfPath: fixture.sourcePdfPath,
                 outputPdfPath: fixture.outputPdfPath,
@@ -2249,7 +2330,132 @@ describe('scan cleanup pipeline', () => {
             highTierPolicy,
             vi.fn(),
             dependencies(runSidecar),
-        )).rejects.toThrow(/Page 1 bilevel output is unavailable/u);
+        );
+        await expect(missingRasterRun).rejects.toMatchObject({
+            name: 'ScanCleanupMissingOutputError',
+            code: 'SCAN_CLEANUP_OUTPUT_MISSING',
+            sourcePageNumber: 1,
+        });
+        await expect(missingRasterRun).rejects.toThrow(/source page 1 is missing: bilevel output/u);
+    });
+
+    it('fails the run with a typed source-page error when produced output metadata is missing', async () => {
+        const fixture = await setup();
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string;}>};
+            for (const page of manifest.pages) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+            }
+        });
+
+        let caught: unknown;
+        try {
+            await runScanCleanupPipeline(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options,
+                },
+                pipelinePaths(fixture.dir),
+                new AbortController().signal,
+                vi.fn(),
+                highTierPolicy,
+                vi.fn(),
+                dependencies(runSidecar),
+            );
+        } catch (error) {
+            caught = error;
+        }
+
+        expect(caught).toBeInstanceOf(ScanCleanupMissingOutputError);
+        expect(caught).toMatchObject({
+            code: 'SCAN_CLEANUP_OUTPUT_MISSING',
+            sourcePageNumber: 1,
+            role: 'output metadata',
+        });
+        expect((caught as Error).message).toMatch(/source page 1 is missing: output metadata/u);
+    });
+
+    it('aborts publication and preserves the staged PDF when qpdf rejects its structure', async () => {
+        const fixture = await setup();
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {dpi: number};
+                outputs: ICleanupOutput[];
+            }>};
+            for (const page of manifest.pages) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeCleanupOutput(page.outputs[0]!, 'single-uncut-page', true, false, page.options.dpi);
+            }
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        const baseRunCommand = pipelineDependencies.runCommand;
+        let stagedPdfPath: string | undefined;
+        pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
+            if (args[0] === '--check') {
+                stagedPdfPath = args[1];
+                return {
+                    exitCode: 2,
+                    stdout: '',
+                    stderr: 'malformed xref',
+                };
+            }
+            return baseRunCommand(command, args, commandOptions);
+        });
+
+        let caught: unknown;
+        try {
+            await runScanCleanupPipeline(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options,
+                },
+                pipelinePaths(fixture.dir),
+                new AbortController().signal,
+                vi.fn(),
+                highTierPolicy,
+                vi.fn(),
+                pipelineDependencies,
+            );
+        } catch (error) {
+            caught = error;
+        }
+
+        expect(caught).toBeInstanceOf(ScanCleanupPdfValidationError);
+        expect(caught).toMatchObject({
+            code: 'SCAN_CLEANUP_PDF_VALIDATION_FAILED',
+            stagedPdfPath,
+        });
+        expect(stagedPdfPath).toBeDefined();
+        expect((await readFile(stagedPdfPath!)).toString('utf8')).toContain('%PDF-1.7');
+        await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
+        expect(pipelineDependencies.runCommand).toHaveBeenCalledWith(
+            '/qpdf',
+            [
+                '--check',
+                stagedPdfPath,
+            ],
+            expect.objectContaining({allowedExitCodes: [
+                0,
+                3,
+            ]}),
+        );
     });
 
     it('routes mixed picture pages as layered JPEG and mixed text-only pages as bilevel records', async () => {
@@ -2287,6 +2493,13 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -2457,6 +2670,13 @@ describe('scan cleanup pipeline', () => {
             return layers;
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const manifestIndex = args.indexOf('--compact-manifest');
             if (manifestIndex !== -1) {
                 combineManifest = await readFile(args[manifestIndex + 1]!, 'utf8');
@@ -2578,7 +2798,7 @@ describe('scan cleanup pipeline', () => {
             async (output: ICleanupOutput) => {
                 await unlink(output.backgroundOutputPath!);
             },
-            /Page 1 mixed background layer is unavailable/u,
+            /source page 1 is missing: mixed background layer/u,
         ],
         [
             'malformed',
@@ -2682,6 +2902,13 @@ describe('scan cleanup pipeline', () => {
             ],
         ]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -2920,6 +3147,13 @@ describe('scan cleanup pipeline', () => {
             }
         }));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -3070,6 +3304,13 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -3140,6 +3381,13 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (await answerPageSizesCommand(args)) {
                 return {
                     exitCode: 0,
@@ -3269,6 +3517,13 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const outputPath = args[args.indexOf('--output') + 1]!;
             if (args[0] === 'page-sizes') {
                 // A landscape page, and the same paper stored as a rotated
@@ -3391,6 +3646,13 @@ describe('scan cleanup pipeline', () => {
         // producing pages of differing size.
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             if (command === '/pdfinfo') {
                 return {
                     exitCode: 0,
@@ -3478,6 +3740,13 @@ describe('scan cleanup pipeline', () => {
             if (breakPageOps) {
                 const baseRunCommand = pipelineDependencies.runCommand;
                 pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
+                    if (args[0] === '--check') {
+                        return {
+                            exitCode: 0,
+                            stdout: '',
+                            stderr: '',
+                        };
+                    }
                     if (args[0] === 'page-sizes') throw new Error('evb-pdf-page-ops crashed');
                     return baseRunCommand(command, args, commandOptions);
                 });
@@ -3607,6 +3876,13 @@ describe('scan cleanup pipeline', () => {
             pipelineDependencies.detectSourceDpi = scopedDetector(pageGeometry, sourceDpiByPage);
         }
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const outputPath = args[args.indexOf('--output') + 1]!;
             if (args[0] === 'page-sizes') {
                 await writeFile(outputPath, JSON.stringify({pages: pageGeometry.map((geometry, index) => ({
@@ -4108,6 +4384,13 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
             const outputPath = args[args.indexOf('--output') + 1]!;
             if (args[0] === 'page-sizes') {
                 await writeFile(outputPath, JSON.stringify({pages: pageGeometry.map((geometry, index) => ({

@@ -7,5 +7,6 @@ export {
 } from './pageScope';
 export * from './buildManifest';
 export * from './compactManifest';
+export * from './errors';
 export * from './provenanceStamp';
 export * from './types';

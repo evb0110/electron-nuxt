@@ -42,6 +42,10 @@ import {
     type TScanCleanupLog,
 } from '@scan-cleanup-core/types';
 import {resolveScanCleanupPageScope} from '@scan-cleanup-core/pageScope';
+import {
+    ScanCleanupMissingOutputError,
+    ScanCleanupPdfValidationError,
+} from '@scan-cleanup-core/errors';
 import {createPdfCombineProgressHandler} from '@scan-cleanup-core/createPdfCombineProgressHandler';
 import {
     buildScanCleanupCompactManifest,
@@ -127,15 +131,118 @@ async function readOptionalFileSize(path: string) {
 }
 
 async function requirePublishedRasterFile(path: string | undefined, pageNumber: number, role: string) {
-    if (path === undefined) throw new Error(`Page ${pageNumber} declared a ${role} without an output destination`);
+    if (path === undefined) {
+        throw new ScanCleanupMissingOutputError(
+            pageNumber,
+            path,
+            role,
+            'no output destination was declared',
+        );
+    }
     const stats = await stat(path).catch((error: NodeJS.ErrnoException) => {
-        throw new Error(`Page ${pageNumber} ${role} is unavailable: ${error.message}`);
+        throw new ScanCleanupMissingOutputError(pageNumber, path, role, error.message);
     });
-    if (!stats.isFile()) throw new Error(`Page ${pageNumber} ${role} is not a file: ${path}`);
+    if (!stats.isFile()) throw new ScanCleanupMissingOutputError(pageNumber, path, role, 'path is not a file');
     await access(path, fsConstants.R_OK).catch((error: NodeJS.ErrnoException) => {
-        throw new Error(`Page ${pageNumber} ${role} is unreadable: ${error.message}`);
+        throw new ScanCleanupMissingOutputError(pageNumber, path, role, error.message);
     });
     return path;
+}
+
+async function requireProducedRasterFile(
+    requirePublishedRaster: NonNullable<IRunScanCleanupPipelineDependencies['requirePublishedRaster']>,
+    path: string | undefined,
+    pageNumber: number,
+    role: string,
+) {
+    try {
+        return await requirePublishedRaster(path, pageNumber, role);
+    } catch (error) {
+        if (error instanceof ScanCleanupMissingOutputError) throw error;
+        throw new ScanCleanupMissingOutputError(pageNumber, path, role, getErrorMessage(error));
+    }
+}
+
+async function validateStagedPdf(
+    qpdfBinary: string,
+    stagedPdfPath: string,
+    signal: AbortSignal,
+    log: TScanCleanupLog,
+    runCommand: IRunScanCleanupPipelineDependencies['runCommand'],
+) {
+    let result;
+    try {
+        result = await runCommand(qpdfBinary, [
+            '--check',
+            stagedPdfPath,
+        ], {
+            signal,
+            // qpdf exits 3 for a structurally valid file with warnings (for
+            // example a repaired dictionary); only hard failures block
+            // publication.
+            allowedExitCodes: [
+                0,
+                3,
+            ],
+            commandLabel: 'qpdf(scan-cleanup:publish-structure-check)',
+            timeoutMs: 10 * 60 * 1000,
+            log,
+        });
+    } catch (error) {
+        if (signal.aborted) throw error;
+        throw new ScanCleanupPdfValidationError(stagedPdfPath, getErrorMessage(error));
+    }
+    signal.throwIfAborted();
+    if (result.exitCode === 3) {
+        const warnings = [
+            result.stderr,
+            result.stdout,
+        ]
+            .filter(value => value.length > 0)
+            .join('\n')
+            .trim();
+        log('warn', `Published PDF passed structural validation with qpdf warnings: ${warnings}`);
+        return;
+    }
+    if (result.exitCode !== 0) {
+        const detail = [
+            result.stderr,
+            result.stdout,
+        ]
+            .filter(value => value.length > 0)
+            .join('\n')
+            .trim();
+        throw new ScanCleanupPdfValidationError(
+            stagedPdfPath,
+            detail.length > 0 ? detail : `qpdf exited with code ${String(result.exitCode)}`,
+        );
+    }
+}
+
+function resolveBlankOutputHalves(
+    pageMetadata: INativeScanCleanupPageMetadataV3,
+    pageOutputPages: readonly IRenderedCleanupOutputPage[],
+    missingOutputCount: number,
+): Array<IScanCleanupOutputMapping['half']> {
+    if (missingOutputCount <= 0) {
+        return [];
+    }
+    if (pageMetadata.layoutClassification !== 'two-page-spread') {
+        return Array.from({length: missingOutputCount}, () => 'full');
+    }
+    const producedHalves = new Set(
+        pageOutputPages
+            .map(output => output.metadata.half)
+            .filter((half): half is 'left' | 'right' => half === 'left' || half === 'right'),
+    );
+    const unproducedHalves = ([
+        'left',
+        'right',
+    ] as const).filter(half => !producedHalves.has(half));
+    return Array.from(
+        {length: missingOutputCount},
+        (_, index) => unproducedHalves[index] ?? 'full',
+    );
 }
 
 function validatePdfImagePlacement(
@@ -181,6 +288,7 @@ export async function runScanCleanupConversion(
     // Set once the run knows which assembler it is actually using: a matched
     // lossless run whose pages cannot keep their own pixels renders instead.
     let losslessRun = request.options.preserveOriginalQuality === true;
+    let preserveScratchForDiagnostics = false;
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
     const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun);
     try {
@@ -363,6 +471,7 @@ export async function runScanCleanupConversion(
                 dependencies,
             );
             if ((await stat(stagedPdfPath)).size <= 0) throw new Error('Lossless PDF assembler produced an empty file');
+            await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
             emitProgress('handoff', 0, pageCount, []);
             await copyFile(stagedPdfPath, publishTempPath);
             signal.throwIfAborted();
@@ -892,7 +1001,11 @@ export async function runScanCleanupConversion(
             }
             summary.blankPagesSkipped += pageMetadata.blankOutputsSkipped;
             const pageOutputPages: typeof outputPages = [];
-            for (const output of outputs) {
+            let intentionallyBlankOutputCount = 0;
+            for (const [
+                outputIndex,
+                output,
+            ] of outputs.entries()) {
                 // The sidecar publishes one raster per output and writes this
                 // metadata beside it, so its absence means the output half was
                 // never produced.
@@ -901,7 +1014,22 @@ export async function runScanCleanupConversion(
                     metadataJson = await readFile(output.metadataPath, 'utf8');
                 } catch (error) {
                     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-                    continue;
+                    // Native resolves only the first output_count destinations
+                    // for this page. The remaining plan entries are not
+                    // produced outputs; when native also reports blank outputs,
+                    // retain their explicit empty mapping below.
+                    if (outputIndex >= pageMetadata.outputCount) {
+                        if (pageMetadata.blankOutputsSkipped > 0) {
+                            intentionallyBlankOutputCount += 1;
+                        }
+                        continue;
+                    }
+                    throw new ScanCleanupMissingOutputError(
+                        sourcePageNumber,
+                        output.metadataPath,
+                        'output metadata',
+                        getErrorMessage(error),
+                    );
                 }
                 const metadata = JSON.parse(metadataJson) as INativeScanCleanupOutputMetadataV3;
                 const pageNumber = sourcePageNumber;
@@ -911,19 +1039,22 @@ export async function runScanCleanupConversion(
                 let foregroundAlphaPath: string | undefined;
                 let backgroundIsColor: boolean | undefined;
                 if (metadata.layeredWritten) {
-                    backgroundPath = await requirePublishedRaster(
+                    backgroundPath = await requireProducedRasterFile(
+                        requirePublishedRaster,
                         output.backgroundOutputPath,
                         pageNumber,
                         'mixed background layer',
                     );
                     if (metadata.layeredForegroundKind === 'soft-alpha') {
-                        foregroundAlphaPath = await requirePublishedRaster(
+                        foregroundAlphaPath = await requireProducedRasterFile(
+                            requirePublishedRaster,
                             output.foregroundAlphaOutputPath,
                             pageNumber,
                             'mixed soft foreground alpha',
                         );
                     } else {
-                        foregroundMaskPath = await requirePublishedRaster(
+                        foregroundMaskPath = await requireProducedRasterFile(
+                            requirePublishedRaster,
                             output.foregroundMaskOutputPath,
                             pageNumber,
                             'mixed foreground mask',
@@ -989,13 +1120,19 @@ export async function runScanCleanupConversion(
                     }
                     backgroundIsColor = backgroundHeader.isColor;
                 } else if (metadata.bilevelWritten) {
-                    bilevelPath = await requirePublishedRaster(
+                    bilevelPath = await requireProducedRasterFile(
+                        requirePublishedRaster,
                         output.bilevelOutputPath,
                         pageNumber,
                         'bilevel output',
                     );
                 } else {
-                    await requirePublishedRaster(output.outputPath, pageNumber, 'composite output');
+                    await requireProducedRasterFile(
+                        requirePublishedRaster,
+                        output.outputPath,
+                        pageNumber,
+                        'composite output',
+                    );
                 }
                 const renderedOutput: Omit<IRenderedCleanupOutputPage, 'preservedSource'> = {
                     sourcePageNumber: pageNumber,
@@ -1043,7 +1180,22 @@ export async function runScanCleanupConversion(
                 pageOutputPages.reverse();
             }
             outputPages.push(...pageOutputPages);
-            if (pageOutputPages.length === 0) {
+            if (intentionallyBlankOutputCount > 0 && pageOutputPages.length > 0) {
+                for (const half of resolveBlankOutputHalves(
+                    pageMetadata,
+                    pageOutputPages,
+                    intentionallyBlankOutputCount,
+                )) {
+                    emptyOutputMappings.push({
+                        sourcePage: sourcePageNumber,
+                        half,
+                        outputOrdinal: null,
+                        rotationDegrees: pageMetadata.rotationDegrees ?? 0,
+                        excluded: false,
+                        blank: true,
+                    });
+                }
+            } else if (pageOutputPages.length === 0) {
                 emptyOutputMappings.push({
                     sourcePage: sourcePageNumber,
                     half: 'full',
@@ -1365,20 +1517,30 @@ export async function runScanCleanupConversion(
             JSON.stringify(representationReport, null, 2),
         );
         assertScanCleanupCompactSourceBudget(outputFile.size, compactSourceBudget);
+        await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         emitProgress('handoff', 0, pageCount, []);
         await copyFile(stagedPdfPath, publishTempPath);
         if (signal.aborted) throw signal.reason;
         await rename(publishTempPath, request.outputPdfPath);
         emitProgress('handoff', pageCount, pageCount, pageNumbers);
         return summary;
+    } catch (error) {
+        if (error instanceof ScanCleanupPdfValidationError) {
+            preserveScratchForDiagnostics = true;
+        }
+        throw error;
     } finally {
         await rm(publishTempPath, {force: true}).catch(() => undefined);
         await preserveScanCleanupJsonEvidence(scratch, log).catch(error => {
             log('warn', `Failed to preserve scan cleanup JSON evidence: ${getErrorMessage(error)}`);
         });
-        await rm(scratch, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        if (!preserveScratchForDiagnostics) {
+            await rm(scratch, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined);
+        } else {
+            log('warn', `Preserving invalid staged scan cleanup PDF for diagnostics: ${stagedPdfPath}`);
+        }
     }
 }
