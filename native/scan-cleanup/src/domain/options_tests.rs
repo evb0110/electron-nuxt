@@ -1,9 +1,50 @@
 use super::{
-    CleanupOptions, DespeckleLevel, ManualContentBoxes, MarginsMm, NormalizedRect,
-    OrthogonalRotation, OutputMode, PageAlignment, PictureZoneLayer, PlacementOverrides,
+    CleanupOptions, DespeckleLevel, ManualContentBoxes, ManualZones, MarginsMm, NormalizedRect,
+    NormalizedZonePoint, NormalizedZonePolygon, OrthogonalRotation, OutputMode, PageAlignment,
+    PictureZoneLayer, PlacementOverrides,
 };
 use crate::domain::geometry::PageHalf;
 use scan_primitives::Rect;
+
+fn zone_polygon(points: &[(f64, f64)]) -> NormalizedZonePolygon {
+    NormalizedZonePolygon {
+        points: points
+            .iter()
+            .map(|&(x, y)| NormalizedZonePoint { x, y })
+            .collect(),
+        rotation: OrthogonalRotation::None,
+    }
+}
+
+#[test]
+fn manual_zone_polygons_must_be_simple_and_non_degenerate() {
+    for points in [
+        vec![(0.1, 0.1), (0.8, 0.1), (0.8, 0.1)],
+        vec![(0.1, 0.1), (0.5, 0.5), (0.9, 0.9)],
+        vec![(0.1, 0.1), (0.9, 0.9), (0.1, 0.9), (0.9, 0.1)],
+    ] {
+        let options = CleanupOptions {
+            manual_zones: ManualZones {
+                picture: vec![],
+                fill: vec![zone_polygon(&points)],
+            },
+            ..CleanupOptions::default()
+        };
+        assert!(options.validate().is_err());
+    }
+
+    let concave = vec![(0.1, 0.1), (0.9, 0.1), (0.5, 0.5), (0.9, 0.9), (0.1, 0.9)];
+    for points in [concave.clone(), concave.into_iter().rev().collect()] {
+        let options = CleanupOptions {
+            manual_zones: ManualZones {
+                picture: vec![],
+                fill: vec![zone_polygon(&points)],
+            },
+            ..CleanupOptions::default()
+        };
+        options.validate().unwrap();
+    }
+}
 
 #[test]
 fn page_alignment_covers_all_nine_anchor_positions() {

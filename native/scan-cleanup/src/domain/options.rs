@@ -217,7 +217,85 @@ pub struct NormalizedZonePolygon {
     pub rotation: OrthogonalRotation,
 }
 
+const MANUAL_ZONE_MAX: usize = 256;
+const POLYGON_POINT_MAX: usize = 2_048;
+const MANUAL_ZONE_POINT_MAX: usize = 8_192;
+const POLYGON_EPSILON: f64 = 1e-9;
+const POLYGON_AREA_EPSILON: f64 = 1e-12;
+
+fn polygon_cross(a: NormalizedZonePoint, b: NormalizedZonePoint, c: NormalizedZonePoint) -> f64 {
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+fn point_on_segment(
+    point: NormalizedZonePoint,
+    start: NormalizedZonePoint,
+    end: NormalizedZonePoint,
+) -> bool {
+    polygon_cross(start, end, point).abs() <= POLYGON_EPSILON
+        && point.x >= start.x.min(end.x) - POLYGON_EPSILON
+        && point.x <= start.x.max(end.x) + POLYGON_EPSILON
+        && point.y >= start.y.min(end.y) - POLYGON_EPSILON
+        && point.y <= start.y.max(end.y) + POLYGON_EPSILON
+}
+
+fn segments_intersect(
+    a: NormalizedZonePoint,
+    b: NormalizedZonePoint,
+    c: NormalizedZonePoint,
+    d: NormalizedZonePoint,
+) -> bool {
+    let ab_c = polygon_cross(a, b, c);
+    let ab_d = polygon_cross(a, b, d);
+    let cd_a = polygon_cross(c, d, a);
+    let cd_b = polygon_cross(c, d, b);
+    ((ab_c > POLYGON_EPSILON && ab_d < -POLYGON_EPSILON)
+        || (ab_c < -POLYGON_EPSILON && ab_d > POLYGON_EPSILON))
+        && ((cd_a > POLYGON_EPSILON && cd_b < -POLYGON_EPSILON)
+            || (cd_a < -POLYGON_EPSILON && cd_b > POLYGON_EPSILON))
+        || point_on_segment(c, a, b)
+        || point_on_segment(d, a, b)
+        || point_on_segment(a, c, d)
+        || point_on_segment(b, c, d)
+}
+
 impl NormalizedZonePolygon {
+    fn has_valid_geometry(&self) -> bool {
+        if self.points.len() < 3 || self.points.len() > POLYGON_POINT_MAX {
+            return false;
+        }
+        let mut twice_area = 0.0;
+        for index in 0..self.points.len() {
+            let point = self.points[index];
+            let next = self.points[(index + 1) % self.points.len()];
+            let dx = next.x - point.x;
+            let dy = next.y - point.y;
+            if dx * dx + dy * dy <= POLYGON_EPSILON * POLYGON_EPSILON {
+                return false;
+            }
+            twice_area += point.x * next.y - next.x * point.y;
+        }
+        if twice_area.abs() <= POLYGON_AREA_EPSILON {
+            return false;
+        }
+        for first in 0..self.points.len() {
+            for second in first + 1..self.points.len() {
+                if second == first + 1 || (first == 0 && second == self.points.len() - 1) {
+                    continue;
+                }
+                if segments_intersect(
+                    self.points[first],
+                    self.points[(first + 1) % self.points.len()],
+                    self.points[second],
+                    self.points[(second + 1) % self.points.len()],
+                ) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     pub fn resolve(&self, width: usize, height: usize) -> scan_primitives::Polygon {
         scan_primitives::Polygon {
             points: self
@@ -598,6 +676,22 @@ impl CleanupOptions {
                 ));
             }
         }
+        let zone_count = self.manual_zones.picture.len() + self.manual_zones.fill.len();
+        let point_count = self
+            .manual_zones
+            .picture
+            .iter()
+            .map(|zone| zone.polygon.points.len())
+            .chain(
+                self.manual_zones
+                    .fill
+                    .iter()
+                    .map(|polygon| polygon.points.len()),
+            )
+            .sum::<usize>();
+        if zone_count > MANUAL_ZONE_MAX || point_count > MANUAL_ZONE_POINT_MAX {
+            return Err("Manual zones exceed the supported collection bounds".into());
+        }
         for polygon in self
             .manual_zones
             .picture
@@ -605,7 +699,7 @@ impl CleanupOptions {
             .map(|zone| &zone.polygon)
             .chain(&self.manual_zones.fill)
         {
-            if polygon.points.len() < 3
+            if !polygon.has_valid_geometry()
                 || polygon.rotation != self.rotation
                 || polygon.points.iter().any(|point| {
                     !point.x.is_finite()
@@ -614,7 +708,7 @@ impl CleanupOptions {
                         || !(0.0..=1.0).contains(&point.y)
                 })
             {
-                return Err("Manual zone polygons need at least three normalized points and must be authored under the page rotation".into());
+                return Err("Manual zone polygons must be finite, bounded, non-degenerate, simple, and authored under the page rotation".into());
             }
         }
         Ok(())

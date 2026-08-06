@@ -39,6 +39,83 @@ export const SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX = 8_192;
 export const SCAN_CLEANUP_IPC_PATH_LENGTH_MAX = 32_768;
 export const SCAN_CLEANUP_IPC_IDENTIFIER_LENGTH_MAX = 1_024;
 const SCAN_CLEANUP_IPC_OPEN_PATH_MAX = SCAN_CLEANUP_IPC_PAGE_COLLECTION_MAX * 2;
+const POLYGON_EPSILON = 1e-9;
+const POLYGON_AREA_EPSILON = 1e-12;
+
+interface INormalizedPolygonPoint {
+    xNormalized: number;
+    yNormalized: number;
+}
+
+function polygonCross(
+    first: INormalizedPolygonPoint,
+    second: INormalizedPolygonPoint,
+    third: INormalizedPolygonPoint,
+) {
+    return (second.xNormalized - first.xNormalized) * (third.yNormalized - first.yNormalized)
+        - (second.yNormalized - first.yNormalized) * (third.xNormalized - first.xNormalized);
+}
+
+function pointOnSegment(point: INormalizedPolygonPoint, start: INormalizedPolygonPoint, end: INormalizedPolygonPoint) {
+    return Math.abs(polygonCross(start, end, point)) <= POLYGON_EPSILON
+        && point.xNormalized >= Math.min(start.xNormalized, end.xNormalized) - POLYGON_EPSILON
+        && point.xNormalized <= Math.max(start.xNormalized, end.xNormalized) + POLYGON_EPSILON
+        && point.yNormalized >= Math.min(start.yNormalized, end.yNormalized) - POLYGON_EPSILON
+        && point.yNormalized <= Math.max(start.yNormalized, end.yNormalized) + POLYGON_EPSILON;
+}
+
+function segmentsIntersect(
+    a: INormalizedPolygonPoint,
+    b: INormalizedPolygonPoint,
+    c: INormalizedPolygonPoint,
+    d: INormalizedPolygonPoint,
+) {
+    const abC = polygonCross(a, b, c);
+    const abD = polygonCross(a, b, d);
+    const cdA = polygonCross(c, d, a);
+    const cdB = polygonCross(c, d, b);
+    if (
+        ((abC > POLYGON_EPSILON && abD < -POLYGON_EPSILON)
+            || (abC < -POLYGON_EPSILON && abD > POLYGON_EPSILON))
+        && ((cdA > POLYGON_EPSILON && cdB < -POLYGON_EPSILON)
+            || (cdA < -POLYGON_EPSILON && cdB > POLYGON_EPSILON))
+    ) {
+        return true;
+    }
+    return pointOnSegment(c, a, b) || pointOnSegment(d, a, b)
+        || pointOnSegment(a, c, d) || pointOnSegment(b, c, d);
+}
+
+function validNormalizedPolygon(points: INormalizedPolygonPoint[]) {
+    let twiceArea = 0;
+    for (let index = 0; index < points.length; index += 1) {
+        const point = points[index]!;
+        const next = points[(index + 1) % points.length]!;
+        const dx = next.xNormalized - point.xNormalized;
+        const dy = next.yNormalized - point.yNormalized;
+        if (dx * dx + dy * dy <= POLYGON_EPSILON * POLYGON_EPSILON) {
+            return false;
+        }
+        twiceArea += point.xNormalized * next.yNormalized - next.xNormalized * point.yNormalized;
+    }
+    if (Math.abs(twiceArea) <= POLYGON_AREA_EPSILON) {
+        return false;
+    }
+    for (let first = 0; first < points.length; first += 1) {
+        for (let second = first + 1; second < points.length; second += 1) {
+            if (second === first + 1 || (first === 0 && second === points.length - 1)) continue;
+            if (segmentsIntersect(
+                points[first]!,
+                points[(first + 1) % points.length]!,
+                points[second]!,
+                points[(second + 1) % points.length]!,
+            )) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 function isBoundedNonEmptyString(value: unknown, maxLength: number): value is string {
     return typeof value === 'string'
@@ -424,7 +501,21 @@ function decodeManualZones(
     if (value.picture.length + value.fill.length > SCAN_CLEANUP_IPC_MANUAL_ZONE_MAX) {
         throw new Error('too many scan-cleanup manual zones');
     }
-    let decodedPointCount = 0;
+    let encodedPointCount = 0;
+    const countEncodedPoints = (encodedPolygon: unknown) => {
+        if (isRecord(encodedPolygon) && Array.isArray(encodedPolygon.points)) {
+            encodedPointCount += encodedPolygon.points.length;
+            if (encodedPointCount > SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX) {
+                throw new Error('too many scan-cleanup manual-zone points');
+            }
+        }
+    };
+    for (const encodedZone of value.picture as unknown[]) {
+        countEncodedPoints(isRecord(encodedZone) ? encodedZone.polygon : undefined);
+    }
+    for (const encodedPolygon of value.fill as unknown[]) {
+        countEncodedPoints(encodedPolygon);
+    }
     const decodePolygon = (polygon: unknown, label: string) => {
         if (
             !isRecord(polygon)
@@ -434,18 +525,16 @@ function decodeManualZones(
         ) {
             throw new Error(`invalid scan-cleanup ${label}`);
         }
-        decodedPointCount += polygon.points.length;
-        if (decodedPointCount > SCAN_CLEANUP_IPC_MANUAL_ZONE_POINT_MAX) {
-            throw new Error('too many scan-cleanup manual-zone points');
-        }
+        const points = polygon.points.map((point, index) => {
+            if (!isRecord(point)) throw new Error(`invalid scan-cleanup ${label} point ${index}`);
+            return {
+                xNormalized: decodeNormalizedValue(point.xNormalized, `${label} point ${index} x`),
+                yNormalized: decodeNormalizedValue(point.yNormalized, `${label} point ${index} y`),
+            };
+        });
+        if (!validNormalizedPolygon(points)) throw new Error(`invalid scan-cleanup ${label} polygon geometry`);
         return {
-            points: polygon.points.map((point, index) => {
-                if (!isRecord(point)) throw new Error(`invalid scan-cleanup ${label} point ${index}`);
-                return {
-                    xNormalized: decodeNormalizedValue(point.xNormalized, `${label} point ${index} x`),
-                    yNormalized: decodeNormalizedValue(point.yNormalized, `${label} point ${index} y`),
-                };
-            }),
+            points,
             rotationDegrees: decodeGeometryRotation(polygon.rotationDegrees, rotationDegrees, label),
         };
     };

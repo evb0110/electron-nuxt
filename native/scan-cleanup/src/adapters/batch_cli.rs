@@ -8,7 +8,10 @@ use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
 use crate::mrc::{derive_picture_zones, derive_tone_mask_excluding_foreground};
 use crate::{
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
-    io::{copy_bounded_cancelable, pbm, raster, BoundedIoError, MAX_STREAM_INPUT_BYTES},
+    io::{
+        copy_bounded_cancelable, pbm, raster, BoundedIoError, StagedFileBackup,
+        MAX_STREAM_INPUT_BYTES,
+    },
     pipeline::{AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy, PdfImagePlacement},
     png::{self, RgbImage},
     protocol::{
@@ -235,33 +238,6 @@ struct PageRunResult {
     timings: PageStageTimings,
 }
 
-fn cleanup_written_output(output: &WrittenOutput) {
-    let _ = fs::remove_file(&output.output_path);
-    let _ = fs::remove_file(&output.metadata_path);
-    for path in [
-        output.bilevel_output_path.as_ref(),
-        output.background_output_path.as_ref(),
-        output.foreground_mask_output_path.as_ref(),
-        output.foreground_alpha_output_path.as_ref(),
-        output.picture_mask_output_path.as_ref(),
-        output.tone_preservation_alpha_output_path.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let _ = fs::remove_file(path);
-    }
-}
-
-fn cleanup_page_results(page_results: &[PageRunResult]) {
-    for page_result in page_results {
-        for output in &page_result.outputs {
-            cleanup_written_output(output);
-        }
-        let _ = fs::remove_file(&page_result.page_metadata_path);
-    }
-}
-
 #[derive(Clone, Copy)]
 struct Tier1Provenance {
     verdict: LayoutClassification,
@@ -470,7 +446,7 @@ fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
     manifest.validate()?;
     preflight_manifest_paths(&manifest)?;
     let total = manifest.pages.len();
-    let result = run_manifest_inner(&manifest);
+    let result = run_manifest_transaction(&manifest, || run_manifest_inner(&manifest));
     match result {
         Ok(()) => {
             println!(
@@ -487,6 +463,171 @@ fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
             );
             Err(error)
         }
+    }
+}
+
+struct ManifestPublicationTransaction {
+    destinations: Vec<PathBuf>,
+    backups: Vec<StagedFileBackup>,
+}
+
+impl ManifestPublicationTransaction {
+    fn begin(manifest: &ManifestV3) -> Result<Self, String> {
+        let destinations = manifest
+            .destination_paths()
+            .into_iter()
+            .map(Path::to_path_buf)
+            .collect::<Vec<_>>();
+        let mut transaction = Self {
+            destinations,
+            backups: Vec::new(),
+        };
+        for path in transaction.destinations.clone() {
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.is_file() => match StagedFileBackup::stage(&path) {
+                    Ok(backup) => transaction.backups.push(backup),
+                    Err(error) => {
+                        let restore_error = transaction.restore_backups();
+                        return Err(match restore_error {
+                            Ok(()) => format!(
+                                "Unable to snapshot existing output destination {}: {error}",
+                                path.display()
+                            ),
+                            Err(restore_error) => format!(
+                                "Unable to snapshot existing output destination {}: {error}; restoring prior snapshots was incomplete: {restore_error}",
+                                path.display()
+                            ),
+                        });
+                    }
+                },
+                Ok(metadata) if metadata.is_dir() => {}
+                Ok(_) => {
+                    let restore_error = transaction.restore_backups();
+                    return Err(match restore_error {
+                        Ok(()) => format!(
+                            "Output destination is not a regular file or directory: {}",
+                            path.display()
+                        ),
+                        Err(restore_error) => format!(
+                            "Output destination is not a regular file or directory: {}; restoring prior snapshots was incomplete: {restore_error}",
+                            path.display()
+                        ),
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    let restore_error = transaction.restore_backups();
+                    return Err(match restore_error {
+                        Ok(()) => format!(
+                            "Unable to inspect output destination {}: {error}",
+                            path.display()
+                        ),
+                        Err(restore_error) => format!(
+                            "Unable to inspect output destination {}: {error}; restoring prior snapshots was incomplete: {restore_error}",
+                            path.display()
+                        ),
+                    });
+                }
+            }
+        }
+        Ok(transaction)
+    }
+
+    fn restore_backups(&mut self) -> Result<(), String> {
+        let mut failures = Vec::new();
+        while let Some(backup) = self.backups.pop() {
+            let original = backup.original().to_path_buf();
+            if let Err(error) = backup.restore() {
+                failures.push(format!("{}: {error}", original.display()));
+            }
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        }
+    }
+
+    fn commit(self) -> Result<(), String> {
+        let mut failures = Vec::new();
+        for backup in self.backups {
+            let original = backup.original().to_path_buf();
+            if let Err(error) = backup.discard() {
+                failures.push(format!("{}: {error}", original.display()));
+            }
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        }
+    }
+
+    fn rollback(mut self) -> Result<(), String> {
+        let backed_up = self
+            .backups
+            .iter()
+            .map(|backup| backup.original().to_path_buf())
+            .collect::<HashSet<_>>();
+        let mut failures = Vec::new();
+        for path in &self.destinations {
+            if backed_up.contains(path) {
+                continue;
+            }
+            match fs::symlink_metadata(path) {
+                Ok(metadata) if metadata.is_dir() => continue,
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    failures.push(format!("{}: {error}", path.display()));
+                    continue;
+                }
+            }
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => failures.push(format!("{}: {error}", path.display())),
+            }
+        }
+        if let Err(error) = self.restore_backups() {
+            failures.push(error);
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        }
+    }
+}
+
+fn run_manifest_transaction(
+    manifest: &ManifestV3,
+    operation: impl FnOnce() -> Result<(), Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    let transaction = ManifestPublicationTransaction::begin(manifest).map_err(|error| {
+        NativeError::new(
+            NativeErrorCode::Io,
+            format!("Unable to prepare scan-cleanup output transaction: {error}"),
+        )
+    })?;
+    match operation() {
+        Ok(()) => transaction.commit().map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::Io,
+                format!("Unable to finalize scan-cleanup output transaction: {error}"),
+            )
+            .into()
+        }),
+        Err(operation_error) => match transaction.rollback() {
+            Ok(()) => Err(operation_error),
+            Err(rollback_error) => Err(NativeError::new(
+                NativeErrorCode::NativeFailure,
+                format!(
+                    "Scan-cleanup batch failed ({operation_error}); rollback was incomplete: {rollback_error}"
+                ),
+            )
+            .into()),
+        },
     }
 }
 
@@ -600,12 +741,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         reconcile_classification_batch(manifest, &mut page_results, &cache)?;
     }
     for (index, page_result) in page_results.iter().enumerate() {
-        if let Err(error) =
-            write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)
-        {
-            cleanup_page_results(&page_results);
-            return Err(error);
-        }
+        write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)?;
         if analyzing {
             write_progress(page_complete_progress(page_result, index, total_pages))?;
         }
@@ -614,14 +750,11 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         .iter()
         .flat_map(|page_result| page_result.outputs.iter())
         .collect::<Vec<_>>();
-    if let Err(error) = match_page_sizes(
+    match_page_sizes(
         &written_outputs,
         manifest.render_mode == RenderMode::Preview,
         manifest.document_canvas,
-    ) {
-        cleanup_page_results(&page_results);
-        return Err(error);
-    }
+    )?;
     write_progress(Progress {
         stage: ProgressStage::Completed,
         completed_pages: manifest.pages.len(),
@@ -1211,6 +1344,34 @@ fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
                 "Output destination aliases an input file: {}",
                 path.display()
             )));
+        }
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_dir() => {
+                // An existing directory is never replaced by our atomic file
+                // writers. Optional bilevel/layer destinations intentionally
+                // use this to exercise their composite fallback.
+            }
+            Ok(metadata) if metadata.is_file() => {
+                // Batch publication snapshots regular files into randomized,
+                // exclusively-created same-directory backups before workers
+                // run, then discards or restores them transactionally.
+            }
+            Ok(_) => {
+                return Err(invalid(format!(
+                    "Output destination must be a regular file or directory: {}",
+                    path.display()
+                )));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(NativeError::new(
+                    NativeErrorCode::Io,
+                    format!(
+                        "Unable to inspect output destination {}: {error}",
+                        path.display()
+                    ),
+                ));
+            }
         }
         if !destination_paths.insert(resolved)
             || existing_file_identity(path)
@@ -2984,18 +3145,8 @@ fn suffixed_path(path: &Path, index: usize) -> PathBuf {
 }
 
 fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
-    let mut temporary = path.as_os_str().to_os_string();
-    temporary.push(format!(".{}.tmp", std::process::id()));
-    let temporary = PathBuf::from(temporary);
-    let result = (|| {
-        fs::write(&temporary, serde_json::to_vec_pretty(value)?)?;
-        fs::rename(&temporary, path)?;
-        Ok::<_, Box<dyn Error>>(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    let bytes = serde_json::to_vec_pretty(value)?;
+    crate::io::write_atomic(path, &bytes).map_err(|error| std::io::Error::other(error).into())
 }
 fn map_image_error(message: String) -> NativeError {
     let code = if message.contains("guardrails") {
@@ -3012,9 +3163,9 @@ mod tests {
         manifest_worker_threads, map_image_error, materialize_stream_page,
         normalize_trusted_foreground_selection, page_worker_threads, parse_cli_args,
         plan_canvas_placement_for, preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
-        reconcile_classification_batch, robust_quantile_dimension, run_stream_page_jobs,
-        PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, Tier1Provenance,
-        FALLBACK_SYSTEM_MEMORY_BYTES,
+        reconcile_classification_batch, robust_quantile_dimension, run_manifest_transaction,
+        run_stream_page_jobs, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
+        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -3027,7 +3178,10 @@ mod tests {
     };
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::{BinaryImage, GrayImage, Point};
-    use std::{fs, path::PathBuf};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     fn cli_args(args: &[&str]) -> Vec<String> {
         args.iter()
@@ -3154,6 +3308,76 @@ mod tests {
                 format!("Missing required argument {missing}")
             );
         }
+    }
+
+    #[test]
+    fn batch_failure_rolls_back_every_declared_destination_across_pages() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-transaction-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("input.png");
+        fs::write(&input, b"input must survive rollback").unwrap();
+        let output = |page: usize| PageOutput {
+            output_path: dir.join(format!("page-{page}.png")),
+            metadata_path: dir.join(format!("page-{page}-output.json")),
+            bilevel_output_path: Some(dir.join(format!("page-{page}.pbm"))),
+            background_output_path: Some(dir.join(format!("page-{page}-background.png"))),
+            foreground_mask_output_path: Some(dir.join(format!("page-{page}-foreground.pbm"))),
+            foreground_alpha_output_path: Some(dir.join(format!("page-{page}-foreground.png"))),
+            picture_mask_output_path: Some(dir.join(format!("page-{page}-picture.pbm"))),
+            tone_preservation_alpha_output_path: Some(dir.join(format!("page-{page}-tone.png"))),
+        };
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Render,
+            analysis_purpose: AnalysisPurpose::PagePlan,
+            render_mode: RenderMode::Final,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            host_memory_bytes: None,
+            pages: (0..2)
+                .map(|page| Page {
+                    input_path: input.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index: page,
+                    page_metadata_path: dir.join(format!("page-{page}-page.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: vec![output(page)],
+                })
+                .collect(),
+        };
+        let destinations = manifest
+            .destination_paths()
+            .into_iter()
+            .map(Path::to_path_buf)
+            .collect::<Vec<_>>();
+        assert_eq!(destinations.len(), 18);
+
+        let error = run_manifest_transaction(&manifest, || {
+            // Page one publishes every raster/layer/metadata role. Page two
+            // then leaves a partial publication before processing fails.
+            for path in &destinations[..9] {
+                fs::write(path, b"page one published")?;
+            }
+            for path in &destinations[9..12] {
+                fs::write(path, b"page two partial")?;
+            }
+            Err(std::io::Error::other("page two failed").into())
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("page two failed"));
+        assert_eq!(fs::read(&input).unwrap(), b"input must survive rollback");
+        for path in destinations {
+            assert!(!path.exists(), "rollback left {}", path.display());
+        }
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -3394,10 +3618,10 @@ mod tests {
         fs::hard_link(&shared_destination, &destination_alias).unwrap();
         manifest.operation = Operation::Render;
         manifest.pages[0].options.match_page_size = false;
-        manifest.pages[0].page_metadata_path = shared_destination;
+        manifest.pages[0].page_metadata_path = shared_destination.clone();
         manifest.pages[0].outputs.push(PageOutput {
             output_path: dir.join("output.png"),
-            metadata_path: destination_alias,
+            metadata_path: destination_alias.clone(),
             bilevel_output_path: None,
             background_output_path: None,
             foreground_mask_output_path: None,
@@ -3410,6 +3634,8 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("different files"));
+        assert_eq!(fs::read(&shared_destination).unwrap(), b"old output");
+        assert_eq!(fs::read(&destination_alias).unwrap(), b"old output");
 
         let _ = fs::remove_dir_all(dir);
     }

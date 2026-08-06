@@ -42,7 +42,7 @@ fn read_foreground_selection_with_limit(
 ) -> Result<GrayImage, String> {
     if path
         .extension()
-        .is_some_and(|extension| extension == "jb2e")
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("jb2e"))
     {
         let bytes =
             read_file_bounded(path, max_compressed_bytes).map_err(|error| error.to_string())?;
@@ -218,28 +218,30 @@ mod tests {
 
     #[test]
     fn reads_pdf_embedded_jbig2_selection_samples_as_white_opacity() {
-        let path = temp_path("selection.jb2e");
         let encoded = jbig2_codec::encode_pdf_generic(jbig2_codec::Bilevel {
             width: 8,
             height: 1,
             rows: &[0b1010_0000],
         })
         .unwrap();
-        fs::write(&path, encoded).unwrap();
+        for extension in ["jb2e", "JB2E", "jB2e"] {
+            let path = temp_path(&format!("selection.{extension}"));
+            fs::write(&path, &encoded).unwrap();
 
-        let selection = read_foreground_selection(&path, 64, 64).unwrap();
+            let selection = read_foreground_selection(&path, 64, 64).unwrap();
 
-        assert_eq!(selection.width(), 8);
-        assert_eq!(selection.height(), 1);
-        assert_eq!(selection.get(0, 0), 0);
-        assert_eq!(selection.get(1, 0), 255);
-        assert_eq!(selection.get(2, 0), 0);
-        fs::remove_file(path).unwrap();
+            assert_eq!(selection.width(), 8);
+            assert_eq!(selection.height(), 1);
+            assert_eq!(selection.get(0, 0), 0);
+            assert_eq!(selection.get(1, 0), 255);
+            assert_eq!(selection.get(2, 0), 0);
+            fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]
     fn rejects_jbig2_selection_before_an_oversize_file_is_buffered() {
-        let path = temp_path("oversize-selection.jb2e");
+        let path = temp_path("oversize-selection.Jb2E");
         fs::write(&path, b"0123456789").unwrap();
 
         let error = read_foreground_selection_with_limit(&path, 64, 64, 9).unwrap_err();

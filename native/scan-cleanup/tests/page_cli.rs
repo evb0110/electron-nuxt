@@ -942,6 +942,185 @@ fn failed_bilevel_publication_falls_back_to_the_composite() {
 }
 
 #[test]
+fn failed_second_page_rolls_back_every_manifest_destination() {
+    let scratch = Scratch::new("transaction-rollback");
+    let good_input = scratch.path("transaction-good.png");
+    let bad_input = scratch.path("transaction-truncated.ppm");
+    let manifest = scratch.path("transaction-manifest.json");
+    fs::write(
+        &good_input,
+        encode_gray(&GrayImage::new(80, 60, 220)).unwrap(),
+    )
+    .unwrap();
+    // The dimension probe accepts this header, so page one really enters and
+    // completes processing before page two fails its bounded payload decode.
+    fs::write(&bad_input, b"P6\n80 60\n255\n").unwrap();
+    let page = |index: usize, input: &PathBuf| {
+        let page_metadata = scratch.path(&format!("transaction-{index}-page.json"));
+        let output = scratch.path(&format!("transaction-{index}.png"));
+        let output_metadata = scratch.path(&format!("transaction-{index}-output.json"));
+        let bilevel = scratch.path(&format!("transaction-{index}.pbm"));
+        let background = scratch.path(&format!("transaction-{index}-background.png"));
+        let foreground_mask = scratch.path(&format!("transaction-{index}-foreground.pbm"));
+        let foreground_alpha = scratch.path(&format!("transaction-{index}-foreground.png"));
+        let picture = scratch.path(&format!("transaction-{index}-picture.pbm"));
+        let tone = scratch.path(&format!("transaction-{index}-tone.png"));
+        let destinations = vec![
+            page_metadata.clone(),
+            output.clone(),
+            output_metadata.clone(),
+            bilevel.clone(),
+            background.clone(),
+            foreground_mask.clone(),
+            foreground_alpha.clone(),
+            picture.clone(),
+            tone.clone(),
+        ];
+        (
+            serde_json::json!({
+                "inputPath": input,
+                "sourcePageIndex": index,
+                "pageMetadataPath": page_metadata,
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    layout: LayoutMode::Single,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    match_page_size: false,
+                    ..CleanupOptions::default()
+                },
+                "outputs": [{
+                    "outputPath": output,
+                    "metadataPath": output_metadata,
+                    "bilevelOutputPath": bilevel,
+                    "backgroundOutputPath": background,
+                    "foregroundMaskOutputPath": foreground_mask,
+                    "foregroundAlphaOutputPath": foreground_alpha,
+                    "pictureMaskOutputPath": picture,
+                    "tonePreservationAlphaOutputPath": tone,
+                }],
+            }),
+            destinations,
+        )
+    };
+    let (good_page, mut destinations) = page(0, &good_input);
+    let (bad_page, bad_destinations) = page(1, &bad_input);
+    destinations.extend(bad_destinations);
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "hostMemoryBytes": 4_u64 * 1024 * 1024 * 1024,
+        "pages": [good_page, bad_page],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&result.stdout);
+
+    assert!(!result.status.success(), "stdout={stdout}");
+    assert!(
+        stdout.contains("\"stage\":\"page-complete\"") && stdout.contains("\"pageNumber\":1"),
+        "page one must really publish before page two fails: {stdout}"
+    );
+    assert!(good_input.exists());
+    assert!(bad_input.exists());
+    for destination in destinations {
+        assert!(
+            !destination.exists(),
+            "failed batch left declared destination {}",
+            destination.display()
+        );
+    }
+}
+
+#[test]
+fn failed_batch_restores_a_preexisting_file_destination() {
+    let scratch = Scratch::new("preexisting-destination-rollback");
+    let good_input = scratch.path("preexisting-good.png");
+    let bad_input = scratch.path("preexisting-truncated.ppm");
+    let output = scratch.path("preexisting-output.png");
+    let metadata = scratch.path("preexisting-output.json");
+    let page_metadata = scratch.path("preexisting-page.json");
+    let bad_output = scratch.path("preexisting-bad-output.png");
+    let bad_metadata = scratch.path("preexisting-bad-output.json");
+    let bad_page_metadata = scratch.path("preexisting-bad-page.json");
+    let manifest = scratch.path("preexisting-manifest.json");
+    fs::write(
+        &good_input,
+        encode_gray(&GrayImage::new(80, 60, 220)).unwrap(),
+    )
+    .unwrap();
+    fs::write(&bad_input, b"P6\n80 60\n255\n").unwrap();
+    let original = b"unrelated preexisting output\0with exact bytes";
+    fs::write(&output, original).unwrap();
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [
+            {
+                "inputPath": good_input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": page_metadata,
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    match_page_size: false,
+                    ..CleanupOptions::default()
+                },
+                "outputs": [{"outputPath": output, "metadataPath": metadata}],
+            },
+            {
+                "inputPath": bad_input,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": bad_page_metadata,
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    match_page_size: false,
+                    ..CleanupOptions::default()
+                },
+                "outputs": [{"outputPath": bad_output, "metadataPath": bad_metadata}],
+            }
+        ],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&result.stdout);
+
+    assert!(!result.status.success(), "stdout={stdout}");
+    assert!(
+        stdout.contains("\"stage\":\"page-complete\"") && stdout.contains("\"pageNumber\":1"),
+        "the first page must overwrite the destination before rollback: {stdout}"
+    );
+    assert_eq!(fs::read(&output).unwrap(), original);
+    assert!(good_input.exists());
+    assert!(bad_input.exists());
+    assert!(!metadata.exists());
+    assert!(!page_metadata.exists());
+    assert!(!bad_output.exists());
+    assert!(!bad_metadata.exists());
+    assert!(!bad_page_metadata.exists());
+    assert!(fs::read_dir(&scratch.dir).unwrap().all(|entry| !entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .contains(".evb-tmp-")));
+}
+
+#[test]
 fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
     let scratch = Scratch::new("auto-bw");
     let input = scratch.path("auto-bw-input.png");

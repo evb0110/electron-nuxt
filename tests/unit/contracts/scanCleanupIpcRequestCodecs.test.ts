@@ -250,6 +250,94 @@ describe('scan-cleanup IPC request codecs', () => {
         }})).toThrow('too many scan-cleanup manual-zone points');
     });
 
+    it('rejects degenerate and self-intersecting manual polygons but accepts concave polygons', () => {
+        const decode = (points: Array<{
+            xNormalized: number;
+            yNormalized: number;
+        }>) =>
+            decodeScanCleanupPageOverrides({'1': {
+                ...basePageOverride,
+                manualZones: {
+                    picture: [],
+                    fill: [{
+                        points,
+                        rotationDegrees: 0,
+                    }],
+                },
+            }});
+        for (const points of [
+            [
+                {
+                    xNormalized: 0.1,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.8,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.8,
+                    yNormalized: 0.1,
+                },
+            ],
+            [
+                {
+                    xNormalized: 0.1,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.5,
+                    yNormalized: 0.5,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.9,
+                },
+            ],
+            [
+                {
+                    xNormalized: 0.1,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.9,
+                },
+                {
+                    xNormalized: 0.1,
+                    yNormalized: 0.9,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.1,
+                },
+            ],
+        ]) expect(() => decode(points)).toThrow('polygon geometry');
+
+        expect(() => decode([
+            {
+                xNormalized: 0.1,
+                yNormalized: 0.1,
+            },
+            {
+                xNormalized: 0.9,
+                yNormalized: 0.1,
+            },
+            {
+                xNormalized: 0.5,
+                yNormalized: 0.5,
+            },
+            {
+                xNormalized: 0.9,
+                yNormalized: 0.9,
+            },
+            {
+                xNormalized: 0.1,
+                yNormalized: 0.9,
+            },
+        ])).not.toThrow();
+    });
+
     it('applies the same override limits to settings-update IPC', () => {
         expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
             sourceSha256: 'a'.repeat(64),

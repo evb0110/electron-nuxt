@@ -669,6 +669,31 @@ mod tests {
     }
 
     #[test]
+    fn manifest_validation_rejects_self_intersecting_manual_zone_polygon() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.pages[0].options.manual_zones.fill = vec![crate::NormalizedZonePolygon {
+            points: vec![
+                crate::NormalizedZonePoint { x: 0.1, y: 0.1 },
+                crate::NormalizedZonePoint { x: 0.9, y: 0.9 },
+                crate::NormalizedZonePoint { x: 0.1, y: 0.9 },
+                crate::NormalizedZonePoint { x: 0.9, y: 0.1 },
+            ],
+            rotation: crate::OrthogonalRotation::None,
+        }];
+
+        assert!(manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("Page 1"));
+    }
+
+    #[test]
     fn matched_render_requires_a_document_canvas_at_manifest_decode() {
         let bytes = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
