@@ -85,6 +85,43 @@ describe('scan cleanup sidecar stage timings', () => {
         vi.clearAllMocks();
     });
 
+    it('terminates a malformed NDJSON sidecar once and surfaces the protocol error after exit', async () => {
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const controller = new AbortController();
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/malformed-manifest.json',
+            controller.signal,
+            vi.fn<TWorkerLog>(),
+            () => {},
+        );
+
+        child.stdout.write('{not-json}\n');
+        child.stdout.write('{still-not-json}\n');
+        await vi.waitFor(() => expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce());
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
+        child.emit('exit', 1, null);
+        await expect(run).rejects.toThrow();
+    });
+
+    it('does not duplicate fatal termination when abort follows malformed NDJSON', async () => {
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const controller = new AbortController();
+        const run = runScanCleanupSidecar('/native/evb-scan-cleanup', '/scratch/malformed.json', controller.signal, vi.fn<TWorkerLog>(), () => {});
+        child.stdout.write('{not-json}\n');
+        await vi.waitFor(() => expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce());
+        // Abort shares the same termination guard. It must not issue a second
+        // process-tree kill after the fatal protocol frame.
+        controller.abort(new DOMException('Canceled later', 'AbortError'));
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce();
+        child.emit('exit', null, 'SIGTERM');
+        await expect(run).rejects.toMatchObject({name: 'AbortError'});
+    });
+
     it('reports per-stage totals summed across every page the sidecar timed', async () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);

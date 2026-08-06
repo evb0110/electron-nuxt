@@ -135,6 +135,7 @@ async function streamScanCleanupSidecar(
     let terminalResult: 'success' | 'failure' | null = null;
     let protocolError: Error | null = null;
     let nativeFailure: NativeScanCleanupError | null = null;
+    let terminationStarted = false;
     let timedPages = 0;
     const stageTotalsMs: TScanCleanupStageTotalsMs = {
         decode: 0,
@@ -147,6 +148,13 @@ async function streamScanCleanupSidecar(
         write: 0,
     };
     const completedPageNumbers = new Set<number>();
+    const terminateForFatalError = () => {
+        if (terminationStarted) {
+            return;
+        }
+        terminationStarted = true;
+        void terminateDetachedChildProcess(child, 1_500);
+    };
     child.stderr?.setEncoding('utf8');
     child.stderr?.on('data', (chunk: string) => {
         stderr = `${stderr}${chunk}`.slice(-64 * 1024);
@@ -188,6 +196,7 @@ async function streamScanCleanupSidecar(
         } catch (error) {
             protocolError = error instanceof Error ? error : new Error(String(error));
             log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
+            terminateForFatalError();
         }
     });
     let aborting = false;
@@ -195,7 +204,7 @@ async function streamScanCleanupSidecar(
         aborting = true;
         // AbortSignal is the transport boundary. This native adapter first asks
         // the detached process tree to exit, then force-kills after its grace period.
-        void terminateDetachedChildProcess(child, 1_500);
+        terminateForFatalError();
     };
     signal.addEventListener('abort', handleAbort, {once: true});
     if (signal.aborted) handleAbort();

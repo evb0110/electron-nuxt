@@ -1,5 +1,8 @@
 // Public because document opening must distinguish managed cleanup outputs from user files.
-import {randomUUID} from 'crypto';
+import {
+    createHash,
+    randomUUID,
+} from 'crypto';
 import {realpathSync} from 'fs';
 import {
     mkdir,
@@ -22,6 +25,7 @@ import {
 } from '@electron/utils/appTempDir';
 
 export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_FILENAME_BYTES = 255;
 
 export function getScanCleanupOutputRoot(appTempDir = getAppTempDir()) {
     return join(appTempDir, 'scan-cleanup', 'output');
@@ -52,7 +56,22 @@ export function isScanCleanupGeneratedOutputPath(
 
 function humanOutputName(sourcePdfPath: string, partial: boolean) {
     const sourceName = basename(sourcePdfPath, extname(sourcePdfPath)).trim() || 'document';
-    return `${sourceName} — cleaned${partial ? ' selection' : ''}.pdf`;
+    const suffix = ` — cleaned${partial ? ' selection' : ''}.pdf`;
+    if (Buffer.byteLength(`${sourceName}${suffix}`, 'utf8') <= MAX_FILENAME_BYTES) {
+        return `${sourceName}${suffix}`;
+    }
+    const collisionHash = createHash('sha256').update(sourcePdfPath).digest('hex').slice(0, 12);
+    const reserved = `-${collisionHash}${suffix}`;
+    const budget = MAX_FILENAME_BYTES - Buffer.byteLength(reserved, 'utf8');
+    let truncated = '';
+    let used = 0;
+    for (const character of sourceName) {
+        const bytes = Buffer.byteLength(character, 'utf8');
+        if (used + bytes > budget) break;
+        truncated += character;
+        used += bytes;
+    }
+    return `${truncated || 'document'}${reserved}`;
 }
 
 export async function createScanCleanupGeneratedOutputPath(

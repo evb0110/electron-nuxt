@@ -29,6 +29,10 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE,
+    ScanCleanupPageScopeError,
+} from '@scan-cleanup-core/pageScope';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
 import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
 import {
@@ -173,12 +177,15 @@ export function classifyScanCleanupError(error: unknown, aborted: boolean): TSca
     if (error instanceof ScanCleanupNativeToolUnavailableError) {
         return error.code;
     }
-    if (hasNativeErrorCode(error)) {
-        return error.code;
-    }
     const errorCode = error && typeof error === 'object' && 'code' in error
         ? (error as {code?: unknown}).code
         : undefined;
+    if (error instanceof ScanCleanupPageScopeError || errorCode === SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE) {
+        return 'invalid-request';
+    }
+    if (hasNativeErrorCode(error)) {
+        return error.code;
+    }
     if (errorCode === 'ENOENT') {
         return 'tools-unavailable';
     }

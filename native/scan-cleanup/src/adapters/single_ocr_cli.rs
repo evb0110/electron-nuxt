@@ -2,20 +2,7 @@
 
 use crate::domain::options::CleanupOptions;
 use evb_native_support::{NativeError, NativeErrorCode};
-use std::{fs, path::PathBuf};
-
-pub(crate) fn required_path(args: &[String], name: &str) -> Result<PathBuf, NativeError> {
-    optional_value(args, name)
-        .map(PathBuf::from)
-        .ok_or_else(|| invalid(format!("Missing required argument {name}")))
-}
-
-pub(crate) fn optional_value<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    args.iter()
-        .position(|argument| argument == name)
-        .and_then(|index| args.get(index + 1))
-        .map(String::as_str)
-}
+use std::fs;
 
 pub(crate) fn parse_options(value: &str) -> Result<CleanupOptions, NativeError> {
     let json = if value.trim_start().starts_with('{') {

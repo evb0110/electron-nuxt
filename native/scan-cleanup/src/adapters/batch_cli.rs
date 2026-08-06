@@ -1,4 +1,4 @@
-use crate::adapters::single_ocr_cli::{invalid, optional_value, parse_options, required_path};
+use crate::adapters::single_ocr_cli::{invalid, parse_options};
 use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached, clean_detail_page_with_color,
     clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions, CleanupRaster,
@@ -282,36 +282,161 @@ fn page_cache_for(page: &Page, shared: &Arc<Mutex<ByteLru>>) -> Result<PageCache
     Ok(PageCache::new(Arc::clone(shared), source))
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum ScanCleanupCliInvocation {
+    Direct {
+        input: PathBuf,
+        output: PathBuf,
+        metadata: PathBuf,
+        options: Option<String>,
+        ocr_mode: bool,
+        experimental_auto_dewarp: bool,
+    },
+    Manifest(PathBuf),
+    ProtocolVersion,
+    Version,
+}
+
+fn cli_value<'a>(
+    args: &'a [String],
+    index: &mut usize,
+    flag: &str,
+) -> Result<&'a str, NativeError> {
+    let value = args
+        .get(*index + 1)
+        .filter(|value| !value.is_empty() && !value.starts_with("--"))
+        .ok_or_else(|| invalid(format!("{flag} requires a value")))?;
+    *index += 2;
+    Ok(value)
+}
+
+fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeError> {
+    let mut seen = HashSet::new();
+    let mut manifest = None;
+    let mut input = None;
+    let mut output = None;
+    let mut metadata = None;
+    let mut options = None;
+    let mut ocr_mode = false;
+    let mut experimental_auto_dewarp = false;
+    let mut protocol_version = false;
+    let mut version = false;
+    let mut index = 0;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        if !flag.starts_with("--") {
+            return Err(invalid(format!(
+                "Unexpected positional argument {}",
+                args[index]
+            )));
+        }
+        if !seen.insert(flag) {
+            return Err(invalid(format!("Duplicate argument {flag}")));
+        }
+        match flag {
+            "--manifest" => manifest = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
+            "--input" => input = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
+            "--output" => output = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
+            "--metadata" => metadata = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
+            "--options" => options = Some(cli_value(args, &mut index, flag)?.to_string()),
+            "--ocr-mode" => {
+                ocr_mode = true;
+                index += 1;
+            }
+            "--experimental-auto-dewarp" => {
+                experimental_auto_dewarp = true;
+                index += 1;
+            }
+            "--protocol-version" => {
+                protocol_version = true;
+                index += 1;
+            }
+            "--version" => {
+                version = true;
+                index += 1;
+            }
+            _ => return Err(invalid(format!("Unknown argument {flag}"))),
+        }
+    }
+
+    if protocol_version || version {
+        if args.len() != 1 {
+            let flag = if protocol_version {
+                "--protocol-version"
+            } else {
+                "--version"
+            };
+            return Err(invalid(format!("{flag} must be used alone")));
+        }
+        return Ok(if protocol_version {
+            ScanCleanupCliInvocation::ProtocolVersion
+        } else {
+            ScanCleanupCliInvocation::Version
+        });
+    }
+    if let Some(path) = manifest {
+        if input.is_some()
+            || output.is_some()
+            || metadata.is_some()
+            || options.is_some()
+            || ocr_mode
+            || experimental_auto_dewarp
+        {
+            return Err(invalid(
+                "--manifest cannot be combined with direct-mode arguments",
+            ));
+        }
+        return Ok(ScanCleanupCliInvocation::Manifest(path));
+    }
+
+    Ok(ScanCleanupCliInvocation::Direct {
+        input: input.ok_or_else(|| invalid("Missing required argument --input"))?,
+        output: output.ok_or_else(|| invalid("Missing required argument --output"))?,
+        metadata: metadata.ok_or_else(|| invalid("Missing required argument --metadata"))?,
+        options,
+        ocr_mode,
+        experimental_auto_dewarp,
+    })
+}
+
 pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = args.into_iter().collect();
-    if args.len() == 1 && args[0] == "--protocol-version" {
-        println!("{PROTOCOL_VERSION}");
-        return Ok(());
-    }
-    if args.len() == 1 && args[0] == "--version" {
-        println!("evb-scan-cleanup {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
-    if let Some(index) = args.iter().position(|argument| argument == "--manifest") {
-        let path = args
-            .get(index + 1)
-            .ok_or_else(|| invalid("--manifest requires a JSON path"))?;
-        return run_manifest(Path::new(path));
-    }
-    let input = required_path(&args, "--input")?;
-    let output = required_path(&args, "--output")?;
-    let metadata = required_path(&args, "--metadata")?;
-    let mut options = optional_value(&args, "--options")
+    let (input, output, metadata, options, ocr_mode, experimental_auto_dewarp) =
+        match parse_cli_args(&args)? {
+            ScanCleanupCliInvocation::Direct {
+                input,
+                output,
+                metadata,
+                options,
+                ocr_mode,
+                experimental_auto_dewarp,
+            } => (
+                input,
+                output,
+                metadata,
+                options,
+                ocr_mode,
+                experimental_auto_dewarp,
+            ),
+            ScanCleanupCliInvocation::Manifest(path) => return run_manifest(&path),
+            ScanCleanupCliInvocation::ProtocolVersion => {
+                println!("{PROTOCOL_VERSION}");
+                return Ok(());
+            }
+            ScanCleanupCliInvocation::Version => {
+                println!("evb-scan-cleanup {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+        };
+    let mut options = options
+        .as_deref()
         .map(parse_options)
         .transpose()?
         .unwrap_or_default();
-    if args.iter().any(|argument| argument == "--ocr-mode") {
+    if ocr_mode {
         options.ocr_mode = true;
     }
-    if args
-        .iter()
-        .any(|argument| argument == "--experimental-auto-dewarp")
-    {
+    if experimental_auto_dewarp {
         options.experimental.auto_dewarp = true;
     }
     let page = Page {
@@ -2885,10 +3010,11 @@ mod tests {
     use super::{
         adaptive_thread_count, box_downsample_gray, estimate_peak_page_bytes, manifest_cache,
         manifest_worker_threads, map_image_error, materialize_stream_page,
-        normalize_trusted_foreground_selection, page_worker_threads, plan_canvas_placement_for,
-        preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
+        normalize_trusted_foreground_selection, page_worker_threads, parse_cli_args,
+        plan_canvas_placement_for, preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
         reconcile_classification_batch, robust_quantile_dimension, run_stream_page_jobs,
-        PageResultMetadata, PageRunResult, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, Tier1Provenance,
+        FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -2902,6 +3028,133 @@ mod tests {
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::{BinaryImage, GrayImage, Point};
     use std::{fs, path::PathBuf};
+
+    fn cli_args(args: &[&str]) -> Vec<String> {
+        args.iter()
+            .map(|argument| (*argument).to_string())
+            .collect()
+    }
+
+    #[test]
+    fn strict_cli_parser_preserves_documented_invocations() {
+        assert_eq!(
+            parse_cli_args(&cli_args(&["--manifest", "/tmp/manifest.json"])).unwrap(),
+            ScanCleanupCliInvocation::Manifest(PathBuf::from("/tmp/manifest.json")),
+        );
+        assert_eq!(
+            parse_cli_args(&cli_args(&["--protocol-version"])).unwrap(),
+            ScanCleanupCliInvocation::ProtocolVersion,
+        );
+        assert_eq!(
+            parse_cli_args(&cli_args(&["--version"])).unwrap(),
+            ScanCleanupCliInvocation::Version,
+        );
+        assert_eq!(
+            parse_cli_args(&cli_args(&[
+                "--ocr-mode",
+                "--metadata",
+                "/tmp/page.json",
+                "--output",
+                "/tmp/page.png",
+                "--experimental-auto-dewarp",
+                "--input",
+                "/tmp/page.ppm",
+                "--options",
+                "{}",
+            ]))
+            .unwrap(),
+            ScanCleanupCliInvocation::Direct {
+                input: PathBuf::from("/tmp/page.ppm"),
+                output: PathBuf::from("/tmp/page.png"),
+                metadata: PathBuf::from("/tmp/page.json"),
+                options: Some("{}".to_string()),
+                ocr_mode: true,
+                experimental_auto_dewarp: true,
+            },
+        );
+    }
+
+    #[test]
+    fn strict_cli_parser_rejects_unknown_duplicate_missing_and_invalid_arguments() {
+        let cases: &[(&[&str], &str)] = &[
+            (&["--manifest"], "--manifest requires a value"),
+            (&["--manifest", ""], "--manifest requires a value"),
+            (
+                &["--manifest", "/tmp/a.json", "--manifest", "/tmp/b.json"],
+                "Duplicate argument --manifest",
+            ),
+            (
+                &["--manifest", "/tmp/a.json", "--unknown"],
+                "Unknown argument --unknown",
+            ),
+            (
+                &["--manifest", "/tmp/a.json", "--input", "/tmp/page.ppm"],
+                "--manifest cannot be combined with direct-mode arguments",
+            ),
+            (
+                &["--input", "/tmp/page.ppm", "--output"],
+                "--output requires a value",
+            ),
+            (
+                &[
+                    "--input",
+                    "/tmp/page.ppm",
+                    "--input",
+                    "/tmp/other.ppm",
+                    "--output",
+                    "/tmp/page.png",
+                    "--metadata",
+                    "/tmp/page.json",
+                ],
+                "Duplicate argument --input",
+            ),
+            (
+                &[
+                    "--input",
+                    "/tmp/page.ppm",
+                    "--output",
+                    "/tmp/page.png",
+                    "--metadata",
+                    "/tmp/page.json",
+                    "--ocr-mode",
+                    "true",
+                ],
+                "Unexpected positional argument true",
+            ),
+            (&["--input=page.ppm"], "Unknown argument --input=page.ppm"),
+            (&["--version", "--ocr-mode"], "--version must be used alone"),
+            (&["unflagged"], "Unexpected positional argument unflagged"),
+        ];
+
+        for (args, expected) in cases {
+            let error = parse_cli_args(&cli_args(args)).unwrap_err();
+            assert_eq!(
+                error.code,
+                NativeErrorCode::InvalidRequest,
+                "args: {args:?}"
+            );
+            assert_eq!(error.message, *expected, "args: {args:?}");
+        }
+    }
+
+    #[test]
+    fn strict_direct_cli_reports_each_required_value() {
+        for (args, missing) in [
+            (vec![], "--input"),
+            (vec!["--input", "in.ppm"], "--output"),
+            (
+                vec!["--input", "in.ppm", "--output", "out.png"],
+                "--metadata",
+            ),
+        ] {
+            let error = parse_cli_args(&cli_args(&args)).unwrap_err();
+            assert_eq!(error.code, NativeErrorCode::InvalidRequest);
+            assert_eq!(
+                error.message,
+                format!("Missing required argument {missing}")
+            );
+        }
+    }
 
     #[test]
     fn derived_geometry_guardrail_errors_are_too_large() {

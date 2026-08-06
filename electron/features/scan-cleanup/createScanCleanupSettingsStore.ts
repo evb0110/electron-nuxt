@@ -30,6 +30,8 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
+import {createLogger} from '@electron/utils/createLogger';
 
 interface IScanCleanupSettingsStoreFileSystem {
     readFile: (filePath: string, encoding: 'utf8') => Promise<string>;
@@ -42,7 +44,10 @@ interface IScanCleanupSettingsStoreOptions {
     now?: () => number;
     fileSystem?: Partial<IScanCleanupSettingsStoreFileSystem>;
     replace?: (sourcePath: string, targetPath: string) => Promise<void>;
+    warn?: (message: string) => void;
 }
+
+const logger = createLogger('scan-cleanup-settings');
 
 interface ILegacyCandidate {
     entry: IScanCleanupDocumentOverrideEntry;
@@ -202,6 +207,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             markMutationCommitStarted: false,
         });
     });
+    const warn = options.warn ?? (message => logger.warn(message));
     let queue = Promise.resolve();
 
     function enqueue<T>(operation: () => Promise<T>) {
@@ -223,10 +229,19 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             }
             throw error;
         }
-        return {
-            state: decodeScanCleanupSettingsFile(JSON.parse(raw) as unknown),
-            exists: true,
-        };
+        try {
+            return {
+                state: decodeScanCleanupSettingsFile(JSON.parse(raw) as unknown),
+                exists: true,
+            };
+        } catch (error) {
+            const quarantinePath = await quarantineCorruptFile(options.filePath);
+            warn(`Quarantined corrupt scan-cleanup settings at ${quarantinePath ?? options.filePath}: ${String(error)}`);
+            return {
+                state: createDefaultScanCleanupSettingsFile(),
+                exists: false,
+            };
+        }
     }
 
     async function writeState(state: IScanCleanupSettingsFile) {

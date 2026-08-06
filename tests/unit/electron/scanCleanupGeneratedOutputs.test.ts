@@ -47,6 +47,24 @@ describe('scan cleanup generated output pruning', () => {
         expect(partialPath).toMatch(/My scan — cleaned selection\.pdf$/u);
     });
 
+    it('byte-truncates multibyte names and retains a stable collision hash', async () => {
+        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-path-test-'));
+        tempDirs.push(appTempDir);
+        const firstSource = `/books/${'😀'.repeat(100)}-first.pdf`;
+        const secondSource = `/books/${'😀'.repeat(100)}-second.pdf`;
+        const first = await createScanCleanupGeneratedOutputPath(firstSource, true, appTempDir);
+        const second = await createScanCleanupGeneratedOutputPath(secondSource, true, appTempDir);
+        const firstName = first.split(/[\\/]/u).at(-1)!;
+        const secondName = second.split(/[\\/]/u).at(-1)!;
+
+        expect(Buffer.byteLength(firstName, 'utf8')).toBeLessThanOrEqual(255);
+        expect(firstName).toMatch(/-[\da-f]{12} — cleaned selection\.pdf$/u);
+        expect(secondName).toMatch(/-[\da-f]{12} — cleaned selection\.pdf$/u);
+        expect(firstName).not.toBe(secondName);
+        expect((await createScanCleanupGeneratedOutputPath(firstSource, true, appTempDir))
+            .split(/[\\/]/u).at(-1)).toBe(firstName);
+    });
+
     it('classifies only descendants of the managed output root', async () => {
         const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-classifier-test-'));
         tempDirs.push(appTempDir);

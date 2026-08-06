@@ -1,5 +1,6 @@
 import {
     mkdtemp,
+    readdir,
     readFile,
     rm,
     writeFile,
@@ -52,17 +53,38 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(initial);
     });
 
-    it('rejects an unsupported schema version instead of overwriting it', async () => {
+    it('quarantines malformed JSON and atomically restores clean defaults', async () => {
+        const filePath = await createStoreFile();
+        await writeFile(filePath, '{bad json', 'utf8');
+        const warnings: string[] = [];
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            warn: warning => warnings.push(warning),
+        });
+
+        await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
+        expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
+        expect(await readdir(join(filePath, '..'))).toContainEqual(expect.stringMatching(/\.corrupt$/u));
+        expect(warnings).toHaveLength(1);
+    });
+
+    it('quarantines an invalid schema and restores clean defaults', async () => {
         const filePath = await createStoreFile();
         await writeFile(filePath, JSON.stringify({
             schemaVersion: 99,
             settings: {},
             documentOverrides: {},
         }), 'utf8');
-        const store = createScanCleanupSettingsStore({filePath});
+        const warnings: string[] = [];
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            warn: warning => warnings.push(warning),
+        });
 
-        await expect(store.get()).rejects.toThrow('Unsupported scan-cleanup settings schema version: 99');
-        expect(JSON.parse(await readFile(filePath, 'utf8')).schemaVersion).toBe(99);
+        await expect(store.get()).resolves.toEqual(createDefaultScanCleanupSettingsFile());
+        expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
+        expect(await readdir(join(filePath, '..'))).toContainEqual(expect.stringMatching(/\.corrupt$/u));
+        expect(warnings[0]).toContain('Unsupported scan-cleanup settings schema version: 99');
     });
 
     it('merges the legacy export into a SHA-256 key with newest-wins semantics', async () => {

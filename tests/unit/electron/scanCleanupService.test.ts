@@ -24,7 +24,11 @@ import {
     type IJobBrokerRequest,
     resolveMainJobBrokerCapacity,
 } from '@electron/resources/jobBroker';
-import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
+import {
+    classifyScanCleanupError,
+    createScanCleanupService,
+} from '@electron/features/scan-cleanup/createScanCleanupService';
+import {ScanCleanupPageScopeError} from '@scan-cleanup-core/pageScope';
 
 const mocks = vi.hoisted(() => {
     const acquire = vi.fn(async (_request: IJobBrokerRequest) => ({release: vi.fn()}));
@@ -151,6 +155,13 @@ function sender(): WebContents {
 }
 
 describe('scan cleanup service', () => {
+    it('classifies a page-scope validation failure as an invalid request', () => {
+        expect(classifyScanCleanupError(
+            new ScanCleanupPageScopeError('outside document', [9], 3),
+            false,
+        )).toBe('invalid-request');
+        expect(classifyScanCleanupError({code: 'SCAN_CLEANUP_INVALID_PAGE_SCOPE'}, false)).toBe('invalid-request');
+    });
     afterEach(async () => {
         await Promise.all(outputDirs.splice(0).map(path => rm(path, {
             recursive: true,
