@@ -380,6 +380,13 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
                     ]) => raster.hasBilevelLayer)
                     .map(([pageNumber]) => pageNumber),
             ),
+            dominantBilevelLayerPages: new Set(
+                [...result.pageRasterByNumber]
+                    .filter(([
+                        , raster,
+                    ]) => raster.hasDominantBilevelLayer)
+                    .map(([pageNumber]) => pageNumber),
+            ),
             backgroundDpiByPage: new Map(
                 [...result.pageRasterByNumber].flatMap(([
                     pageNumber,
@@ -812,6 +819,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
                     detected: false,
                     pages: new Set<number>(),
                     bilevelLayerPages: new Set<number>(),
+                    dominantBilevelLayerPages: new Set<number>(),
                     backgroundDpiByPage: new Map<number, number>(),
                 };
             }
@@ -838,6 +846,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
                     detected: false,
                     pages: new Set<number>(),
                     bilevelLayerPages: new Set<number>(),
+                    dominantBilevelLayerPages: new Set<number>(),
                     backgroundDpiByPage: new Map<number, number>(),
                 };
             }
@@ -1171,6 +1180,7 @@ function resolveFallbackDetailDpi(
     request: IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>},
     raw: Pick<IRawPreview, 'width' | 'height' | 'dpi'>,
     sourceDpi: number,
+    sourceHasDominantBilevelLayer: boolean,
     documentCanvas: IScanCleanupDocumentCanvasPlan | null,
 ) {
     const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
@@ -1187,10 +1197,12 @@ function resolveFallbackDetailDpi(
         / (Math.max(1, widthAtPreviewDpi, canvasWidth)
             * Math.max(1, heightAtPreviewDpi, canvasHeight)),
     );
-    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi(
-        Math.max(sourceDpi, raw.dpi),
-        request.detail.outputMode === 'bw' || request.detail.outputMode === 'mixed',
-    );
+    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi({
+        sourceDpi: Math.max(sourceDpi, raw.dpi),
+        outputCarriesBinaryLayer:
+            request.detail.outputMode === 'bw' || request.detail.outputMode === 'mixed',
+        sourceHasDominantBilevelLayer,
+    });
     return {
         renderDpi: Math.max(1, Math.floor(Math.min(requestedRenderDpi, budgetDpi))),
         requestedRenderDpi,
@@ -1516,6 +1528,7 @@ async function runDetailPreview(
     baseRasterPath: string,
     analysis: IBasePreviewAnalysis,
     sourceDpiCandidate: number | null | undefined,
+    sourceHasDominantBilevelLayer: boolean,
     scratch: string,
     dependencies: IScanCleanupPreviewDependencies,
 ): Promise<TScanCleanupPreviewWireResult> {
@@ -1524,10 +1537,11 @@ async function runDetailPreview(
         && Number.isFinite(sourceDpiCandidate)
         && sourceDpiCandidate > 0;
     const sourceDpi = sourceDpiDetected ? Number(sourceDpiCandidate) : DEFAULT_SOURCE_DPI;
-    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi(
-        Math.max(sourceDpi, baseRaw.dpi),
-        request.detail.outputMode === 'bw',
-    );
+    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi({
+        sourceDpi: Math.max(sourceDpi, baseRaw.dpi),
+        outputCarriesBinaryLayer: request.detail.outputMode === 'bw',
+        sourceHasDominantBilevelLayer,
+    });
     const renderDpi = resolveDetailRenderDpi(
         request.detail.viewports,
         analysis.outputs,
@@ -1884,6 +1898,19 @@ async function runPreview(
         let requestedRenderDpi = basePreviewDpi;
         let sourceDpi = previewRasterPlan.pageDpiByNumber.get(request.pageNumber)
             ?? previewRasterPlan.dpi;
+        // A matched preserve-original run needs the document-wide raster facts
+        // below. Reuse that result for this page instead of starting a second
+        // single-page probe merely to choose its render grid.
+        const rasterPages = request.options.preserveOriginalQuality === true
+            && request.options.matchPageSize
+            && pageSizes?.length
+            ? await retention.rasterPages(document, signal)
+            : null;
+        const sourceRasterPage = rasterPages ?? await retention.rasterPage(
+            document, request.pageNumber, signal,
+        );
+        const sourceHasDominantBilevelLayer = sourceRasterPage.dominantBilevelLayerPages
+            ?.has(request.pageNumber) ?? false;
         let fallbackDetail = false;
         if (request.detail) {
             const {
@@ -1919,6 +1946,7 @@ async function runPreview(
                     inputPath,
                     analysis,
                     sourceDpiCandidate,
+                    sourceHasDominantBilevelLayer,
                     scratch,
                     dependencies,
                 );
@@ -1933,7 +1961,13 @@ async function runPreview(
             ({
                 renderDpi,
                 requestedRenderDpi,
-            } = resolveFallbackDetailDpi(detailRequest, baseRaw, sourceDpi, documentCanvas));
+            } = resolveFallbackDetailDpi(
+                detailRequest,
+                baseRaw,
+                sourceDpi,
+                sourceHasDominantBilevelLayer,
+                documentCanvas,
+            ));
             if (renderDpi !== baseRaw.dpi) {
                 ({path: inputPath} = await materializeRawRaster(
                     document,
@@ -1966,17 +2000,12 @@ async function runPreview(
         // final run renders the whole document — so this preview renders it too,
         // rather than presenting the untouched page a lossless run would have
         // produced and calling it what the user will get.
-        const rasterPages = request.options.preserveOriginalQuality === true
-            && request.options.matchPageSize
-            && pageSizes?.length
-            ? await retention.rasterPages(document, signal)
-            : null;
         // The ordinary preview path needs only the requested page's raster
         // facts. A whole-document probe is reserved for the preserve-original
         // quality decision above, where matched-canvas resampling can change
         // the answer for every page.
         const sourceRasterStructure = rasterPages
-            ?? await retention.rasterPage(document, request.pageNumber, signal);
+            ?? sourceRasterPage;
         const rasterizedByMatching = pageSizes !== null
             && rasterPages !== null
             && resolveMatchedCanvasResamplePages(

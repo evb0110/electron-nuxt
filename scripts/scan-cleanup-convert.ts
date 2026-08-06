@@ -882,6 +882,13 @@ async function main() {
                     ]) => raster.hasBilevelLayer)
                     .map(([pageNumber]) => pageNumber),
             ),
+            dominantBilevelLayerPages: new Set(
+                [...result.pageRasterByNumber]
+                    .filter(([
+                        , raster,
+                    ]) => raster.hasDominantBilevelLayer)
+                    .map(([pageNumber]) => pageNumber),
+            ),
             backgroundDpiByPage: new Map(
                 [...result.pageRasterByNumber].flatMap(([
                     pageNumber,

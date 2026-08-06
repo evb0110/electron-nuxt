@@ -138,6 +138,7 @@ function createRecoverablePdfImagesLog(log: TSourceDpiLog): TSourceDpiLog {
 function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
     const pageRasterByNumber = new Map<number, IDetectedPageRaster>();
     const bilevelPages = new Set<number>();
+    const largestBilevelAreaByPage = new Map<number, number>();
     const maskObjectIdsByPage = new Map<number, Set<number>>();
     const continuousImagesByPage = new Map<number, Array<{
         dpi: number;
@@ -173,6 +174,12 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
             && (type === 'image' || type === 'mask' || type === 'smask')
         ) {
             bilevelPages.add(pageNumber);
+            if (Number.isSafeInteger(pixelArea) && pixelArea > 0) {
+                largestBilevelAreaByPage.set(
+                    pageNumber,
+                    Math.max(largestBilevelAreaByPage.get(pageNumber) ?? 0, pixelArea),
+                );
+            }
             if (Number.isSafeInteger(objectId) && objectId > 0) {
                 const ids = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
                 ids.add(objectId);
@@ -221,6 +228,11 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
         const raster = pageRasterByNumber.get(pageNumber);
         if (!raster) continue;
         raster.hasBilevelLayer = true;
+        const dominantArea = raster.width * raster.height;
+        const largestBilevelArea = largestBilevelAreaByPage.get(pageNumber) ?? 0;
+        if (largestBilevelArea >= dominantArea * 0.95) {
+            raster.hasDominantBilevelLayer = true;
+        }
         const maskedObjectIds = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
         const background = (continuousImagesByPage.get(pageNumber) ?? [])
             .filter(image => !maskedObjectIds.has(image.objectId))
@@ -279,15 +291,21 @@ function mergeDpiDetectionResults(
         if (incomingArea > existingArea || (incomingArea === existingArea && raster.dpi > (existing?.dpi ?? 0))) {
             const backgroundDpi = raster.backgroundDpi ?? existing?.backgroundDpi;
             const hasBilevelLayer = raster.hasBilevelLayer === true || existing?.hasBilevelLayer === true;
+            const hasDominantBilevelLayer = raster.hasDominantBilevelLayer === true
+                || existing?.hasDominantBilevelLayer === true;
             target.pageRasterByNumber.set(pageNumber, {
                 dpi: raster.dpi,
                 width: raster.width,
                 height: raster.height,
                 ...(hasBilevelLayer ? {hasBilevelLayer: true} : {}),
+                ...(hasDominantBilevelLayer ? {hasDominantBilevelLayer: true} : {}),
                 ...(backgroundDpi === undefined ? {} : {backgroundDpi}),
             });
         } else if (raster.hasBilevelLayer && existing && !existing.hasBilevelLayer) {
             existing.hasBilevelLayer = true;
+        }
+        if (raster.hasDominantBilevelLayer && existing && !existing.hasDominantBilevelLayer) {
+            existing.hasDominantBilevelLayer = true;
         }
         if (existing && existing.backgroundDpi === undefined && raster.backgroundDpi !== undefined) {
             existing.backgroundDpi = raster.backgroundDpi;

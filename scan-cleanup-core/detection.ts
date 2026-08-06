@@ -154,6 +154,7 @@ export interface IScanCleanupDocumentRasterPages {
     pages: ReadonlySet<number>;
     sourceDpiByPage?: ReadonlyMap<number, number>;
     bilevelLayerPages?: ReadonlySet<number>;
+    dominantBilevelLayerPages?: ReadonlySet<number>;
     backgroundDpiByPage?: ReadonlyMap<number, number>;
 }
 

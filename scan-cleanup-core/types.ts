@@ -49,6 +49,7 @@ export interface IDetectedPageRaster {
     width: number;
     height: number;
     hasBilevelLayer?: boolean;
+    hasDominantBilevelLayer?: boolean;
     backgroundDpi?: number;
 }
 

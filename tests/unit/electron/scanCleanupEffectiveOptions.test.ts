@@ -7,6 +7,7 @@ import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
     resolveEffectiveScanCleanupOptions,
+    resolveScanCleanupCanvasPageDpi,
     resolveScanCleanupRequestedRenderDpi,
 } from '@electron/features/scan-cleanup/policy/effectiveOptions';
 
@@ -40,12 +41,53 @@ function resolve(pageOverride = createScanCleanupPageOverride()) {
 }
 
 describe('effective scan cleanup options', () => {
-    it('supersamples every binary text layer while tonal-only pages retain source DPI', () => {
-        expect(resolveScanCleanupRequestedRenderDpi(200, true)).toBe(600);
-        expect(resolveScanCleanupRequestedRenderDpi(300, true)).toBe(600);
-        expect(resolveScanCleanupRequestedRenderDpi(360, true)).toBe(720);
-        expect(resolveScanCleanupRequestedRenderDpi(720, true)).toBe(1_440);
-        expect(resolveScanCleanupRequestedRenderDpi(360, false)).toBe(360);
+    it('supersamples newly thresholded text but retains an existing dominant binary grid', () => {
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 200,
+            outputCarriesBinaryLayer: true,
+        })).toBe(600);
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 300,
+            outputCarriesBinaryLayer: true,
+        })).toBe(600);
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 360,
+            outputCarriesBinaryLayer: true,
+        })).toBe(720);
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 720,
+            outputCarriesBinaryLayer: true,
+        })).toBe(1_440);
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 360,
+            outputCarriesBinaryLayer: false,
+        })).toBe(360);
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 360,
+            outputCarriesBinaryLayer: true,
+            sourceHasDominantBilevelLayer: true,
+        })).toBe(360);
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 200,
+            outputCarriesBinaryLayer: true,
+            sourceHasDominantBilevelLayer: true,
+        })).toBe(200);
+    });
+
+    it('keeps a dominant binary source on one document canvas grid in every run scope', () => {
+        const input = {
+            configuredMode: 'auto' as const,
+            sourceDpi: 360,
+            sourceHasDominantBilevelLayer: true,
+            guardrail: {
+                dpi: 360,
+                width: 2_200,
+                height: 3_350,
+            },
+        };
+
+        expect(resolveScanCleanupCanvasPageDpi(input)).toBe(360);
+        expect(resolveScanCleanupCanvasPageDpi({...input})).toBe(360);
     });
 
     it('reuses only non-destructive observed layout labels while preserving explicit page choices', () => {

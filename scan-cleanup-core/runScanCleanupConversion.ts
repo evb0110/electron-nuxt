@@ -590,7 +590,9 @@ export async function runScanCleanupConversion(
                 resolvedOutputMode,
                 ...resolveScanCleanupPlannedDpi({
                     sourceDpi: sourceDpiByPage.get(pageNumber)!,
-                    carriesBinaryLayer: requiresBilevelQuality(pageNumber),
+                    outputCarriesBinaryLayer: requiresBilevelQuality(pageNumber),
+                    sourceHasDominantBilevelLayer: detectedRasterByPage.get(pageNumber)
+                        ?.hasDominantBilevelLayer ?? false,
                     maxPixels: resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
                     guardrail,
                 }),
@@ -611,6 +613,8 @@ export async function runScanCleanupConversion(
                     ?? pageOverride.outputModeOverride
                     ?? request.options.outputMode,
                 sourceDpi: sourceDpiByPage.get(pageNumber)!,
+                sourceHasDominantBilevelLayer: detectedRasterByPage.get(pageNumber)
+                    ?.hasDominantBilevelLayer ?? false,
                 guardrail: resolveScanCleanupDocumentGuardrail(
                     detectedRasterByPage.get(pageNumber),
                     sourceDpiByPage.get(pageNumber),

@@ -258,11 +258,14 @@ export function resolveScanCleanupDocumentGuardrail(
     };
 }
 
-// A grayscale scan still carries subpixel edge coverage even though its source
-// raster has a fixed pixel grid. Thresholding directly on that grid throws the
-// coverage away and leaves a visibly coarse 1-bit contour. Rasterizing the
-// source onto a finer grid before thresholding lets the binary mask place that
-// transition more accurately; it does not claim to recover source detail.
+// A continuous-tone scan still carries subpixel edge coverage even though its
+// source raster has a fixed pixel grid. Thresholding directly on that grid
+// throws the coverage away and leaves a visibly coarse 1-bit contour.
+// Rasterizing the source onto a finer grid before thresholding lets the binary
+// mask place that transition more accurately; it does not claim to recover
+// source detail. A dominant 1-bit source layer has no coverage transition to
+// preserve, so expanding that existing sample grid only multiplies work and
+// stored contour coordinates.
 //
 // Two source samples per axis preserve the coverage transition on ordinary
 // scans. The 600-DPI floor is also required for low-resolution scans, where the
@@ -272,10 +275,17 @@ export const SCAN_CLEANUP_BINARY_LAYER_RENDER_SCALE = 2;
 export const SCAN_CLEANUP_BINARY_LAYER_RENDER_DPI_FLOOR = 600;
 
 export function resolveScanCleanupRequestedRenderDpi(
-    sourceDpi: number,
-    carriesBinaryLayer: boolean,
+    {
+        sourceDpi,
+        outputCarriesBinaryLayer,
+        sourceHasDominantBilevelLayer = false,
+    }: {
+        sourceDpi: number;
+        outputCarriesBinaryLayer: boolean;
+        sourceHasDominantBilevelLayer?: boolean
+    },
 ) {
-    return carriesBinaryLayer
+    return outputCarriesBinaryLayer && !sourceHasDominantBilevelLayer
         ? Math.max(
             sourceDpi * SCAN_CLEANUP_BINARY_LAYER_RENDER_SCALE,
             SCAN_CLEANUP_BINARY_LAYER_RENDER_DPI_FLOOR,
@@ -285,7 +295,8 @@ export function resolveScanCleanupRequestedRenderDpi(
 
 export interface IResolveScanCleanupPlannedDpiInput {
     sourceDpi: number;
-    carriesBinaryLayer: boolean;
+    outputCarriesBinaryLayer: boolean;
+    sourceHasDominantBilevelLayer?: boolean;
     maxPixels: number;
     guardrail: {
         dpi: number;
@@ -296,19 +307,24 @@ export interface IResolveScanCleanupPlannedDpiInput {
 
 /**
  * The resolution a page is planned at: continuous-tone output keeps the source
- * grid, while a page carrying a binary text layer gets the finer thresholding
- * grid above. Both remain inside the pixel budget its guardrail allows.
+ * grid, while a page producing a new binary text layer gets the finer
+ * thresholding grid above. An already-dominant binary source keeps its own
+ * grid. All paths remain inside the pixel budget their guardrail allows.
  */
 export function resolveScanCleanupPlannedDpi({
     sourceDpi,
-    carriesBinaryLayer,
+    outputCarriesBinaryLayer,
+    sourceHasDominantBilevelLayer,
     maxPixels,
     guardrail,
 }: IResolveScanCleanupPlannedDpiInput) {
-    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi(
+    const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi({
         sourceDpi,
-        carriesBinaryLayer,
-    );
+        outputCarriesBinaryLayer,
+        ...(sourceHasDominantBilevelLayer === undefined
+            ? {}
+            : {sourceHasDominantBilevelLayer}),
+    });
     return {
         sourceDpi,
         requestedRenderDpi,
@@ -330,12 +346,12 @@ export function resolveScanCleanupPlannedDpi({
  * bilevel foreground.
  */
 export function resolveScanCleanupCanvasPageDpi(
-    input: Omit<IResolveScanCleanupPlannedDpiInput, 'carriesBinaryLayer' | 'maxPixels'>
+    input: Omit<IResolveScanCleanupPlannedDpiInput, 'outputCarriesBinaryLayer' | 'maxPixels'>
         & {configuredMode: TScanCleanupOutputModeSetting},
 ) {
     return resolveScanCleanupPlannedDpi({
         ...input,
-        carriesBinaryLayer: input.configuredMode !== 'grayscale' && input.configuredMode !== 'color',
+        outputCarriesBinaryLayer: input.configuredMode !== 'grayscale' && input.configuredMode !== 'color',
         maxPixels: resolveScanCleanupMatchedCanvasMaxPixels([input.configuredMode]),
     }).dpi;
 }

@@ -121,7 +121,30 @@ describe('ocr dpi detection', () => {
             width: 2119,
             height: 3204,
             hasBilevelLayer: true,
+            hasDominantBilevelLayer: true,
             backgroundDpi: 120,
+        });
+    });
+
+    it('does not treat an incidental small one-bit image as the dominant source grid', async () => {
+        mocks.runOcrCommand.mockResolvedValueOnce({
+            stdout: [
+                'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                '1 0 image 2400 3600 rgb 3 8 jpeg no 10 0 300 300 1M 10%',
+                '1 1 mask 200 200 gray 1 1 jbig2 no 11 0 300 300 1K 1%',
+            ].join('\n'),
+            stderr: '',
+            exitCode: 0,
+        });
+
+        const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
+
+        expect(result.pageRasterByNumber.get(1)).toEqual({
+            dpi: 300,
+            width: 2400,
+            height: 3600,
+            hasBilevelLayer: true,
+            backgroundDpi: 300,
         });
     });
 
