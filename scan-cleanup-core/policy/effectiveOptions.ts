@@ -147,11 +147,9 @@ export interface IEffectiveNativeScanCleanupOptionsV3 extends INativeScanCleanup
     manualZones: IScanCleanupManualZones;
 }
 
-const MAX_BILEVEL_PIXELS = 160_000_000;
-const MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
-const MAX_DIMENSION_PX = 40_000;
-
-export const SCAN_CLEANUP_MAX_DIMENSION_PX = MAX_DIMENSION_PX;
+export const SCAN_CLEANUP_MAX_BILEVEL_PIXELS = 160_000_000;
+export const SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
+export const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
 
 /**
  * One canvas is shared by every output of the document, so it has to fit the
@@ -170,10 +168,10 @@ export function resolveScanCleanupMatchedCanvasMaxPixels(
 ) {
     for (const mode of configuredModes) {
         if (mode !== 'bw') {
-            return MAX_CONTINUOUS_TONE_PIXELS;
+            return SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS;
         }
     }
-    return MAX_BILEVEL_PIXELS;
+    return SCAN_CLEANUP_MAX_BILEVEL_PIXELS;
 }
 
 // An unresolved (absent) mode gets the bilevel budget because the native
@@ -182,8 +180,8 @@ export function resolveScanCleanupPipelineMaxPixels(
     outputMode?: TScanCleanupOutputMode,
 ) {
     return outputMode === undefined || outputMode === 'bw'
-        ? MAX_BILEVEL_PIXELS
-        : MAX_CONTINUOUS_TONE_PIXELS;
+        ? SCAN_CLEANUP_MAX_BILEVEL_PIXELS
+        : SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS;
 }
 
 // Tonal layers do not own crisp text on mixed pages; the high-resolution
@@ -222,7 +220,7 @@ function resolveSafeRenderDpi(
 ) {
     return Math.max(1, Math.floor(Math.min(
         requestedRenderDpi,
-        probe.dpi * Math.min(MAX_DIMENSION_PX / probe.width, MAX_DIMENSION_PX / probe.height),
+        probe.dpi * Math.min(SCAN_CLEANUP_MAX_DIMENSION_PX / probe.width, SCAN_CLEANUP_MAX_DIMENSION_PX / probe.height),
         probe.dpi * Math.sqrt(maxPixels / (probe.width * probe.height)),
     )));
 }
@@ -431,6 +429,6 @@ export function resolveEffectiveScanCleanupOptions({
         excluded: pageOverride.excluded,
         skipBlankPages: !lossless && options.skipBlankPages,
         maxPixels: resolveScanCleanupPipelineMaxPixels(outputMode === 'auto' ? undefined : outputMode),
-        maxDimensionPx: MAX_DIMENSION_PX,
+        maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
     };
 }

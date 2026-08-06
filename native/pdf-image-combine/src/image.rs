@@ -14,7 +14,7 @@ use crate::{
     flate::{deflate_up_filtered_rgb_grayscale, deflate_up_filtered_slices},
     jpeg::parse_jpeg_metadata,
     jpx::parse_jpx_metadata,
-    netpbm::{is_rgb_data_grayscale, parse_netpbm},
+    netpbm::{is_rgb_data_grayscale, parse_netpbm, read_netpbm_file, NetpbmData, OwnedNetpbm},
     pdf::{ImagePage, ImagePayload},
     tiff_io::{visit_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
     ImageProcessing, PdfBuildOptions, PdfPageSize, Result, DEFAULT_DPI,
@@ -74,11 +74,9 @@ pub(crate) fn visit_image_pages_from_file(
         "png" => read_png_page_from_reader(BufReader::new(file), max_pixels, default_dpi)?,
         "jpg" | "jpeg" => read_jpeg_page(read_file(file)?, max_pixels, default_dpi)?,
         "jp2" => read_jpx_page(read_file(file)?, max_pixels, default_dpi)?,
-        "pgm" | "ppm" => read_netpbm_page(
-            &read_file(file)?,
-            max_pixels,
-            default_dpi.unwrap_or(DEFAULT_DPI),
-        )?,
+        "pgm" | "ppm" => {
+            read_netpbm_page_from_file(file, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))?
+        }
         _ => return Err(format!("Unsupported image extension: {}", path.display()).into()),
     };
 
@@ -106,8 +104,8 @@ pub(crate) fn read_image_page_from_file(
                 compression,
                 PdfImageCompression::JpegWithFlateFallback { .. }
             );
-            read_netpbm_jpeg_page(
-                &read_file(file)?,
+            read_netpbm_jpeg_page_from_file(
+                file,
                 options.max_pixels,
                 options.default_dpi.unwrap_or(DEFAULT_DPI),
                 quality,
@@ -143,8 +141,8 @@ pub(crate) fn read_image_page_from_file(
         ("jp2", PdfImageCompression::Auto) => {
             read_jpx_page(read_file(file)?, options.max_pixels, options.default_dpi)
         }
-        ("pgm" | "ppm", _) => read_netpbm_page(
-            &read_file(file)?,
+        ("pgm" | "ppm", _) => read_netpbm_page_from_file(
+            file,
             options.max_pixels,
             options.default_dpi.unwrap_or(DEFAULT_DPI),
         ),
@@ -427,9 +425,17 @@ fn read_png_jpeg_page(
     })
 }
 
+fn read_netpbm_page_from_file(file: File, max_pixels: u64, dpi: u32) -> Result<ImagePage> {
+    let owned = read_netpbm_file(file, max_pixels)?;
+    read_netpbm_page_data(&owned_netpbm_data(&owned), dpi)
+}
+
 fn read_netpbm_page(bytes: &[u8], max_pixels: u64, dpi: u32) -> Result<ImagePage> {
     let netpbm = parse_netpbm(bytes, max_pixels)?;
+    read_netpbm_page_data(&netpbm, dpi)
+}
 
+fn read_netpbm_page_data(netpbm: &NetpbmData<'_>, dpi: u32) -> Result<ImagePage> {
     let total_pixels = netpbm.width as usize * netpbm.height as usize;
     let height = netpbm.height as usize;
     let (colors, color_space, compressed): (u32, &'static str, Vec<u8>) = if netpbm.channels == 1 {
@@ -527,7 +533,61 @@ fn read_netpbm_jpeg_page(
     use_flate_fallback: bool,
 ) -> Result<ImagePage> {
     let netpbm = parse_netpbm(bytes, max_pixels)?;
-    let prepared = prepare_netpbm_for_jpeg(&netpbm, max_pixels, processing, page_size)?;
+    read_netpbm_jpeg_page_data(
+        &netpbm,
+        max_pixels,
+        dpi,
+        quality,
+        processing,
+        page_size,
+        size_guardrail,
+        use_flate_fallback,
+    )
+}
+
+fn read_netpbm_jpeg_page_from_file(
+    file: File,
+    max_pixels: u64,
+    dpi: u32,
+    quality: u8,
+    processing: ImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
+    use_flate_fallback: bool,
+) -> Result<ImagePage> {
+    let owned = read_netpbm_file(file, max_pixels)?;
+    read_netpbm_jpeg_page_data(
+        &owned_netpbm_data(&owned),
+        max_pixels,
+        dpi,
+        quality,
+        processing,
+        page_size,
+        size_guardrail,
+        use_flate_fallback,
+    )
+}
+
+fn owned_netpbm_data(owned: &OwnedNetpbm) -> NetpbmData<'_> {
+    NetpbmData {
+        width: owned.width,
+        height: owned.height,
+        channels: owned.channels,
+        pixels: &owned.pixels,
+    }
+}
+
+fn read_netpbm_jpeg_page_data(
+    netpbm: &NetpbmData<'_>,
+    max_pixels: u64,
+    dpi: u32,
+    quality: u8,
+    processing: ImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
+    use_flate_fallback: bool,
+) -> Result<ImagePage> {
+    let prepared = prepare_netpbm_for_jpeg(netpbm, max_pixels, processing, page_size)?;
     let (prepared, quality) =
         encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
 

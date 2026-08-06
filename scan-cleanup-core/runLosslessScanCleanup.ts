@@ -50,6 +50,7 @@ import {
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
 import type {TEmitScanCleanupProgress} from '@scan-cleanup-core/createScanCleanupProgressReporter';
 import {createEmptyScanCleanupSummary} from '@scan-cleanup-core/createScanCleanupProgressReporter';
+import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 import {
     logRasterHandoff,
     mapScanCleanupRasterPages,
@@ -81,7 +82,7 @@ export async function runLosslessScanCleanup(
     dependencies: IRunScanCleanupPipelineDependencies,
 ) {
     if (!paths.pdfPageOpsBinary) {
-        throw new Error('evb-pdf-page-ops is unavailable for lossless scan cleanup');
+        throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
     const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
     const rasterPlans = pageNumbers.map(pageNumber => {
@@ -154,6 +155,7 @@ export async function runLosslessScanCleanup(
                 : {autoDewarpDepth: request.options.autoDewarpDepth}),
         },
         pages: pageInputs,
+        allowedPathRoot: scratch,
     });
     const pages = manifest.pages;
     const manifestPath = join(scratch, 'lossless-analysis-manifest.json');

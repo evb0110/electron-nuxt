@@ -8,6 +8,7 @@ export {
 export * from './buildManifest';
 export * from './compactManifest';
 export * from './errors';
+export * from './assertScanCleanupPathWithinRoot';
 export * from './provenanceStamp';
 export * from './scratchCleanup';
 export * from './types';

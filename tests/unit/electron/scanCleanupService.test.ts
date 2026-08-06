@@ -280,7 +280,7 @@ describe('scan cleanup service', () => {
         await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
             .toMatchObject({
                 status: 'failed',
-                errorCode: 'internal',
+                errorCode: 'tools-unavailable',
             }));
         const terminal = service.getState(webContents, started.jobId, owner);
         expect(terminal?.status === 'failed' ? terminal.error : '').toContain('evb-pdf-page-ops');

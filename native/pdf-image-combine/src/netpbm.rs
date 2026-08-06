@@ -2,7 +2,7 @@ use crate::{image::assert_pixel_limit, Result};
 use serde::Serialize;
 use std::{
     fs::File,
-    io::{BufReader, Read},
+    io::{BufRead, BufReader, Read},
     path::Path,
 };
 
@@ -24,12 +24,19 @@ pub struct NetpbmProbe {
     pub dominant_color: [u8; 3],
 }
 
-struct CountingReader {
-    inner: BufReader<File>,
+struct CountingReader<R: Read> {
+    inner: BufReader<R>,
     offset: u64,
 }
 
-impl CountingReader {
+impl<R: Read> CountingReader<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            inner: BufReader::new(reader),
+            offset: 0,
+        }
+    }
+
     fn read_byte(&mut self) -> Result<Option<u8>> {
         let mut byte = [0u8; 1];
         if self.inner.read(&mut byte)? == 0 {
@@ -72,6 +79,10 @@ impl CountingReader {
             if !byte.is_ascii_whitespace() {
                 return Err(format!("Invalid {label} terminator in Netpbm header").into());
             }
+            if byte == b'\r' && self.inner.fill_buf()?.first() == Some(&b'\n') {
+                self.inner.consume(1);
+                self.offset += 1;
+            }
             break;
         }
         let value = std::str::from_utf8(&digits)?.parse::<u32>()?;
@@ -82,19 +93,35 @@ impl CountingReader {
     }
 }
 
-pub fn probe_netpbm_path(path: &Path, max_pixels: u64) -> Result<NetpbmProbe> {
-    let mut reader = CountingReader {
-        inner: BufReader::new(File::open(path)?),
-        offset: 0,
-    };
+#[derive(Clone, Copy)]
+struct NetpbmHeader {
+    magic: [u8; 2],
+    width: u32,
+    height: u32,
+    channels: u8,
+}
+
+#[derive(Debug)]
+pub(crate) struct OwnedNetpbm {
+    pub(crate) magic: [u8; 2],
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) channels: u8,
+    pub(crate) pixels: Vec<u8>,
+}
+
+fn read_netpbm_header<R: Read>(
+    reader: &mut CountingReader<R>,
+    max_pixels: u64,
+) -> Result<NetpbmHeader> {
     let magic = [
         reader.read_byte()?.ok_or("Missing Netpbm magic")?,
         reader.read_byte()?.ok_or("Missing Netpbm magic")?,
     ];
     let channels = match &magic {
-        b"P4" => 0usize,
-        b"P5" => 1usize,
-        b"P6" => 3usize,
+        b"P4" => 0,
+        b"P5" => 1,
+        b"P6" => 3,
         _ => return Err("Unsupported Netpbm format".into()),
     };
     let width = reader.read_number("width")?;
@@ -103,6 +130,76 @@ pub fn probe_netpbm_path(path: &Path, max_pixels: u64) -> Result<NetpbmProbe> {
     if channels > 0 && reader.read_number("maxval")? != 255 {
         return Err("Unsupported Netpbm maxval (only 255 is supported)".into());
     }
+    Ok(NetpbmHeader {
+        magic,
+        width,
+        height,
+        channels,
+    })
+}
+
+fn netpbm_payload_size(header: NetpbmHeader) -> Result<usize> {
+    let row_bytes = if header.channels == 0 {
+        (header.width as usize)
+            .checked_add(7)
+            .ok_or("Invalid PBM P4 row stride")?
+            / 8
+    } else {
+        (header.width as usize)
+            .checked_mul(header.channels as usize)
+            .ok_or("Invalid Netpbm row size")?
+    };
+    row_bytes
+        .checked_mul(header.height as usize)
+        .ok_or_else(|| "Invalid Netpbm payload size".into())
+}
+
+pub(crate) fn read_netpbm_file(file: File, max_pixels: u64) -> Result<OwnedNetpbm> {
+    read_netpbm_file_inner(file, max_pixels, false)
+}
+
+fn read_netpbm_file_inner(file: File, max_pixels: u64, allow_pbm: bool) -> Result<OwnedNetpbm> {
+    let mut reader = CountingReader::new(file);
+    let header = read_netpbm_header(&mut reader, max_pixels)?;
+    if allow_pbm {
+        if header.channels != 0 {
+            return Err("Expected a PBM P4 payload".into());
+        }
+    } else if header.channels == 0 {
+        return Err("Expected a PGM P5 or PPM P6 payload".into());
+    }
+    let payload_size = netpbm_payload_size(header)?;
+    let mut pixels = vec![0u8; payload_size];
+    reader.read_exact_counted(&mut pixels)?;
+    Ok(OwnedNetpbm {
+        magic: header.magic,
+        width: header.width,
+        height: header.height,
+        channels: header.channels,
+        pixels,
+    })
+}
+
+pub(crate) fn read_pbm_p4_file(file: File, max_pixels: u64) -> Result<PbmP4Image> {
+    let image = read_netpbm_file_inner(file, max_pixels, true)?;
+    if image.magic != *b"P4" {
+        return Err("Unsupported PBM format".into());
+    }
+    Ok(PbmP4Image {
+        width: image.width,
+        height: image.height,
+        row_stride: (image.width as usize).div_ceil(8),
+        bitmap: image.pixels,
+    })
+}
+
+pub fn probe_netpbm_path(path: &Path, max_pixels: u64) -> Result<NetpbmProbe> {
+    let mut reader = CountingReader::new(File::open(path)?);
+    let header = read_netpbm_header(&mut reader, max_pixels)?;
+    let magic = header.magic;
+    let channels = header.channels as usize;
+    let width = header.width;
+    let height = header.height;
     let data_offset = reader.offset;
     let total_pixels = u64::from(width) * u64::from(height);
     let mut non_white = 0u64;
@@ -405,6 +502,38 @@ mod tests {
         let result = parse_pbm_p4(b"P4\n9 2\n\x80\x00\xff");
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_netpbm_headers_before_reading_payload() {
+        for (extension, header) in [
+            ("pgm", b"P5\n11 1\n255\n".as_slice()),
+            ("ppm", b"P6\n11 1\n255\n".as_slice()),
+            ("pbm", b"P4\n11 1\n".as_slice()),
+        ] {
+            let path = std::env::temp_dir().join(format!(
+                "evb-pdf-image-combine-header-limit-{}-{extension}",
+                std::process::id()
+            ));
+            std::fs::write(&path, header).unwrap();
+            let error = if extension == "pbm" {
+                read_pbm_p4_file(std::fs::File::open(&path).unwrap(), 10).unwrap_err()
+            } else {
+                read_netpbm_file(std::fs::File::open(&path).unwrap(), 10).unwrap_err()
+            };
+            std::fs::remove_file(path).unwrap();
+            assert!(error.to_string().contains("11x1"));
+        }
+    }
+
+    #[test]
+    fn reads_crlf_netpbm_payload_after_header() {
+        let path =
+            std::env::temp_dir().join(format!("evb-pdf-image-combine-crlf-{}", std::process::id()));
+        std::fs::write(&path, b"P5\r\n1 1\r\n255\r\n\x7f").unwrap();
+        let image = read_netpbm_file(std::fs::File::open(&path).unwrap(), 1).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(image.pixels, vec![0x7f]);
     }
 
     #[test]

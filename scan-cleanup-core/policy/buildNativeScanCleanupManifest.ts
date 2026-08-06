@@ -14,10 +14,14 @@ import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCl
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
     resolveEffectiveScanCleanupOptions,
+    resolveScanCleanupPipelineMaxPixels,
+    SCAN_CLEANUP_MAX_DIMENSION_PX,
     type IEffectiveNativeScanCleanupOptionsV3,
     type IScanCleanupExperimentalOptions,
     type TScanCleanupQualityPath,
 } from '@scan-cleanup-core/policy/effectiveOptions';
+import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
+import {assertScanCleanupPathWithinRoot} from '@scan-cleanup-core/assertScanCleanupPathWithinRoot';
 
 export interface IScanCleanupManifestPageInput {
     inputPath: string;
@@ -56,6 +60,132 @@ export interface IBuildNativeScanCleanupManifestInput {
     documentCanvas?: IScanCleanupDocumentCanvasPlan;
     experimental?: IScanCleanupExperimentalOptions;
     hostMemoryBytes?: number;
+    allowedPathRoot?: string;
+}
+
+function clampNativeLimit(value: unknown, maximum: number, label: string) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        throw new ScanCleanupContractError(`${label} must be a number`);
+    }
+    return Math.min(maximum, Math.max(1, Math.floor(value)));
+}
+
+function assertManifestPagePaths(
+    page: IScanCleanupManifestPageInput,
+    pageIndex: number,
+    allowedPathRoot: string,
+) {
+    const pageLabel = `page ${String(pageIndex + 1)}`;
+    assertScanCleanupPathWithinRoot(page.inputPath, allowedPathRoot, `${pageLabel} input path`);
+    assertScanCleanupPathWithinRoot(page.pageMetadataPath, allowedPathRoot, `${pageLabel} metadata path`);
+    for (const [
+        label,
+        path,
+    ] of [
+            [
+                'trusted foreground mask path',
+                page.trustedForegroundMaskPath,
+            ],
+            [
+                'trusted MRC background path',
+                page.trustedMrcBackgroundPath,
+            ],
+        ] as const) {
+        if (path !== undefined) assertScanCleanupPathWithinRoot(path, allowedPathRoot, `${pageLabel} ${label}`);
+    }
+    for (const [
+        outputIndex,
+        output,
+    ] of (page.outputs ?? []).entries()) {
+        for (const [
+            label,
+            path,
+        ] of [
+                [
+                    'output path',
+                    output.outputPath,
+                ],
+                [
+                    'metadata path',
+                    output.metadataPath,
+                ],
+                [
+                    'bilevel output path',
+                    output.bilevelOutputPath,
+                ],
+                [
+                    'background output path',
+                    output.backgroundOutputPath,
+                ],
+                [
+                    'foreground mask output path',
+                    output.foregroundMaskOutputPath,
+                ],
+                [
+                    'foreground alpha output path',
+                    output.foregroundAlphaOutputPath,
+                ],
+                [
+                    'picture mask output path',
+                    output.pictureMaskOutputPath,
+                ],
+                [
+                    'tone-preservation alpha output path',
+                    output.tonePreservationAlphaOutputPath,
+                ],
+            ] as const) {
+            if (path !== undefined) {
+                assertScanCleanupPathWithinRoot(
+                    path,
+                    allowedPathRoot,
+                    `${pageLabel} output ${String(outputIndex)} ${label}`,
+                );
+            }
+        }
+    }
+    const detailRenderPlan = page.detailRenderPlan;
+    if (detailRenderPlan !== undefined) {
+        for (const [
+            label,
+            path,
+        ] of [
+                [
+                    'detail base metadata path',
+                    detailRenderPlan.baseMetadataPath,
+                ],
+                [
+                    'detail base raster path',
+                    detailRenderPlan.baseRasterPath,
+                ],
+                [
+                    'detail base cleaned raster path',
+                    detailRenderPlan.baseCleanedRasterPath,
+                ],
+            ] as const) {
+            if (path !== undefined) assertScanCleanupPathWithinRoot(path, allowedPathRoot, `${pageLabel} ${label}`);
+        }
+    }
+}
+
+function assertManifestOutputContract(
+    page: IScanCleanupManifestPageInput,
+    pageIndex: number,
+) {
+    for (const [
+        outputIndex,
+        output,
+    ] of (page.outputs ?? []).entries()) {
+        const foregroundPlane = output.foregroundAlphaOutputPath !== undefined
+            ? 'soft-alpha'
+            : output.foregroundMaskOutputPath !== undefined
+                ? 'soft-mask'
+                : undefined;
+        if (foregroundPlane !== undefined && output.backgroundOutputPath === undefined) {
+            throw new ScanCleanupContractError(
+                `page ${String(pageIndex + 1)} output ${String(outputIndex)} declares a ${foregroundPlane} plane without a base background image`,
+            );
+        }
+    }
 }
 
 export function serializeNativeScanCleanupOptions(
@@ -86,6 +216,7 @@ export function buildNativeScanCleanupManifest({
     documentCanvas,
     experimental,
     hostMemoryBytes,
+    allowedPathRoot,
 }: IBuildNativeScanCleanupManifestInput): INativeScanCleanupManifestV3 {
     return {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
@@ -95,17 +226,10 @@ export function buildNativeScanCleanupManifest({
         canvasScope,
         ...(documentCanvas === undefined ? {} : {documentCanvas}),
         ...(hostMemoryBytes !== undefined && hostMemoryBytes > 0 ? {hostMemoryBytes} : {}),
-        pages: pages.map(page => ({
-            inputPath: page.inputPath,
-            ...(page.trustedForegroundMaskPath === undefined
-                ? {}
-                : {trustedForegroundMaskPath: page.trustedForegroundMaskPath}),
-            ...(page.trustedMrcBackgroundPath === undefined
-                ? {}
-                : {trustedMrcBackgroundPath: page.trustedMrcBackgroundPath}),
-            sourcePageIndex: page.pageNumber - 1,
-            pageMetadataPath: page.pageMetadataPath,
-            options: serializeNativeScanCleanupOptions({
+        pages: pages.map((page, pageIndex) => {
+            assertManifestOutputContract(page, pageIndex);
+            if (allowedPathRoot !== undefined) assertManifestPagePaths(page, pageIndex, allowedPathRoot);
+            const resolvedOptions = {
                 ...resolveEffectiveScanCleanupOptions({
                     options,
                     pageOverride: getScanCleanupPageOverride(options.pageOverrides, page.pageNumber),
@@ -146,10 +270,33 @@ export function buildNativeScanCleanupManifest({
                     ...(experimental === undefined ? {} : {experimental}),
                 }),
                 ...(page.resolvedOptions ?? {}),
-            }),
-            outputs: page.outputs ?? [],
-            ...(page.documentPrior === undefined ? {} : {documentPrior: page.documentPrior}),
-            ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),
-        })),
+            };
+            const maxPixels = resolveScanCleanupPipelineMaxPixels(
+                resolvedOptions.outputMode === 'auto' ? undefined : resolvedOptions.outputMode,
+            );
+            return {
+                inputPath: page.inputPath,
+                ...(page.trustedForegroundMaskPath === undefined
+                    ? {}
+                    : {trustedForegroundMaskPath: page.trustedForegroundMaskPath}),
+                ...(page.trustedMrcBackgroundPath === undefined
+                    ? {}
+                    : {trustedMrcBackgroundPath: page.trustedMrcBackgroundPath}),
+                sourcePageIndex: page.pageNumber - 1,
+                pageMetadataPath: page.pageMetadataPath,
+                options: serializeNativeScanCleanupOptions({
+                    ...resolvedOptions,
+                    maxPixels: clampNativeLimit(resolvedOptions.maxPixels, maxPixels, 'maxPixels'),
+                    maxDimensionPx: clampNativeLimit(
+                        resolvedOptions.maxDimensionPx,
+                        SCAN_CLEANUP_MAX_DIMENSION_PX,
+                        'maxDimensionPx',
+                    ),
+                }),
+                outputs: page.outputs ?? [],
+                ...(page.documentPrior === undefined ? {} : {documentPrior: page.documentPrior}),
+                ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),
+            };
+        }),
     };
 }

@@ -21,6 +21,7 @@ import type {
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
+import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCleanupJsonEvidence';
 import {
     detectSourceDpiFromPageSizes,
@@ -680,9 +681,10 @@ export async function runScanCleanupDetection<TDocument>(
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
             pages: manifestPages,
+            allowedPathRoot: scratch,
         })));
         const binary = dependencies.resolveBinary();
-        if (!binary) throw new Error('Scan cleanup native tool is unavailable');
+        if (!binary) throw new ScanCleanupNativeToolUnavailableError('evb-scan-cleanup');
         const recordResult = (nativeProgress: TNativeScanCleanupProgressV3) => {
             if (
                 nativeProgress.pageNumber === undefined

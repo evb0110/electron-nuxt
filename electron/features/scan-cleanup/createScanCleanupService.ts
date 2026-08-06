@@ -45,6 +45,7 @@ import {
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
+import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 
 interface IScanCleanupJobResult {
     completedPageNumbers: number[];
@@ -164,6 +165,9 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
 export function classifyScanCleanupError(error: unknown, aborted: boolean): TScanCleanupErrorCode {
     if (aborted) {
         return 'canceled';
+    }
+    if (error instanceof ScanCleanupNativeToolUnavailableError) {
+        return error.code;
     }
     if (hasNativeErrorCode(error)) {
         return error.code;
@@ -321,7 +325,9 @@ export function createScanCleanupService(): IScanCleanupService {
                                 : null,
                         ].filter((name): name is string => name !== null);
                         if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
-                            throw new Error(`Scan cleanup native tools are unavailable: ${missingTools.join(', ')}`);
+                            throw new ScanCleanupNativeToolUnavailableError(
+                                missingTools[0] ?? 'unknown scan-cleanup native tool',
+                            );
                         }
                         const summary = await runScanCleanupWorkerTask(
                             {

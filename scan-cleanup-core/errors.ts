@@ -1,5 +1,6 @@
 export const SCAN_CLEANUP_OUTPUT_MISSING_ERROR_CODE = 'SCAN_CLEANUP_OUTPUT_MISSING' as const;
 export const SCAN_CLEANUP_PDF_VALIDATION_ERROR_CODE = 'SCAN_CLEANUP_PDF_VALIDATION_FAILED' as const;
+export const SCAN_CLEANUP_CONTRACT_ERROR_CODE = 'SCAN_CLEANUP_CONTRACT_VIOLATION' as const;
 
 export class ScanCleanupMissingOutputError extends Error {
     readonly code = SCAN_CLEANUP_OUTPUT_MISSING_ERROR_CODE;
@@ -36,5 +37,25 @@ export class ScanCleanupPdfValidationError extends Error {
         );
         this.name = 'ScanCleanupPdfValidationError';
         this.stagedPdfPath = stagedPdfPath;
+    }
+}
+
+export class ScanCleanupContractError extends Error {
+    readonly code = SCAN_CLEANUP_CONTRACT_ERROR_CODE;
+
+    constructor(detail: string) {
+        super(`Scan cleanup contract violation: ${detail}`);
+        this.name = 'ScanCleanupContractError';
+    }
+}
+
+export class ScanCleanupNativeToolUnavailableError extends Error {
+    readonly code = 'tools-unavailable' as const;
+    readonly toolName: string;
+
+    constructor(toolName: string) {
+        super(`Scan cleanup native tool is unavailable: ${toolName}`);
+        this.name = 'ScanCleanupNativeToolUnavailableError';
+        this.toolName = toolName;
     }
 }

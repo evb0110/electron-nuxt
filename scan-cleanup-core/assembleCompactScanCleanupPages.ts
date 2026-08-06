@@ -28,6 +28,7 @@ import {
     serializeLegacyScanCleanupPageOpsInstructions,
     serializeScanCleanupPageOpsInstructions,
 } from '@scan-cleanup-core/compactManifest';
+import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 
 const REPORTED_PAGE_NUMBER_LIMIT = 20;
 
@@ -251,7 +252,7 @@ export async function assembleWithCompactSourcePages(
         return;
     }
     if (!paths.pdfPageOpsBinary) {
-        throw new Error('evb-pdf-page-ops is unavailable for compact source-page preservation');
+        throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
     const instructionsPath = join(scratch, 'preserved-source-pages.json');
     const preservedPdfPath = join(scratch, 'preserved-source-pages.pdf');

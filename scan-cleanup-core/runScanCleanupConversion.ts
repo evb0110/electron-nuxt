@@ -43,6 +43,7 @@ import {
 import {resolveScanCleanupPageScope} from '@scan-cleanup-core/pageScope';
 import {
     ScanCleanupMissingOutputError,
+    ScanCleanupNativeToolUnavailableError,
     ScanCleanupPdfValidationError,
 } from '@scan-cleanup-core/errors';
 import {createPdfCombineProgressHandler} from '@scan-cleanup-core/createPdfCombineProgressHandler';
@@ -331,7 +332,7 @@ export async function runScanCleanupConversion(
         // too — a default matched run on an installation without page-ops is
         // measured rather than degraded.
         if (request.options.preserveOriginalQuality === true && !paths.pdfPageOpsBinary) {
-            throw new Error('evb-pdf-page-ops is unavailable for lossless scan cleanup');
+            throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
         }
         // The same measurement the preview derives its canvas from, read from
         // the prepared document this run renders. The lossless path cannot
@@ -908,6 +909,7 @@ export async function runScanCleanupConversion(
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
             pages: pageInputs,
+            allowedPathRoot: scratch,
         });
         const pages = manifest.pages;
         const manifestPath = join(scratch, 'cleanup-manifest.json');

@@ -14,6 +14,7 @@ import {
 } from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
 import {assertNativeScanCleanupManifestGeometry} from '@electron/features/scan-cleanup/policy/assertNativeScanCleanupManifestGeometry';
 import {resolveEffectiveScanCleanupOptions} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
 import {
     describe,
     expect,
@@ -169,6 +170,102 @@ describe('native scan-cleanup manifest builder', () => {
             layout: 'force-single',
             outputMode: 'bw',
         });
+    });
+
+    it('clamps trusted native pixel limits to the engine guardrails', () => {
+        const manifest = buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+                resolvedOptions: {
+                    maxPixels: Number.MAX_SAFE_INTEGER,
+                    maxDimensionPx: Number.MAX_SAFE_INTEGER,
+                },
+            }],
+        });
+
+        expect(manifest.pages[0]?.options).toMatchObject({
+            maxPixels: 160_000_000,
+            maxDimensionPx: 40_000,
+        });
+        expect(() => buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+                resolvedOptions: {maxPixels: Number.NaN},
+            }],
+        })).toThrow(ScanCleanupContractError);
+    });
+
+    it('rejects manifest paths that escape the native work root', () => {
+        expect(() => buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            allowedPathRoot: '/tmp/scan-cleanup-boundary',
+            pages: [{
+                inputPath: '/tmp/scan-cleanup-boundary/../outside.png',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '/tmp/scan-cleanup-boundary/page-1.json',
+            }],
+        })).toThrow(ScanCleanupContractError);
+
+        expect(() => buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            allowedPathRoot: '/tmp/scan-cleanup-boundary',
+            pages: [{
+                inputPath: '/tmp/scan-cleanup-boundary/page-1.png',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '/tmp/scan-cleanup-boundary/page-1.json',
+                outputs: [{
+                    outputPath: '/tmp/scan-cleanup-boundary/../outside.png',
+                    metadataPath: '/tmp/scan-cleanup-boundary/page-1-output.json',
+                }],
+            }],
+        })).toThrow(ScanCleanupContractError);
+    });
+
+    it('rejects a soft-alpha output plane without a base layer', () => {
+        expect(() => buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+                outputs: [{
+                    outputPath: '/fixtures/output/page-1.png',
+                    metadataPath: '/fixtures/output/page-1-output.json',
+                    foregroundAlphaOutputPath: '/fixtures/output/page-1-alpha.pgm',
+                }],
+            }],
+        })).toThrow(ScanCleanupContractError);
     });
 
     it.each(cases)('matches the shared $name golden', async testCase => {

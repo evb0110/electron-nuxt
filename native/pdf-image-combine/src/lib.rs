@@ -35,7 +35,10 @@ use crate::{
         assert_pixel_limit, read_image_page_from_bytes, read_image_page_from_file,
         visit_image_pages_from_bytes, visit_image_pages_from_file, PdfImageCompression,
     },
-    netpbm::{is_rgb_data_grayscale, parse_netpbm, parse_pbm_p4},
+    netpbm::{
+        is_rgb_data_grayscale, parse_netpbm, parse_pbm_p4, read_netpbm_file, read_pbm_p4_file,
+        OwnedNetpbm,
+    },
     pdf::{
         write_pdf_to_writer, AffineMaskedLayeredPdfPage, BilevelStream, ImagePage, ImagePayload,
         LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfWriter,
@@ -660,11 +663,11 @@ fn read_affine_foreground_mask(
 
 fn read_mask_bitmap(source: InputSource<'_>, max_pixels: u64) -> Result<crate::netpbm::PbmP4Image> {
     let label = source.label();
-    let bytes = source.read_all()?;
     if label
         .rsplit_once('.')
         .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("png"))
     {
+        let bytes = source.read_all()?;
         let gray = decode_png_gray(
             bytes.as_ref(),
             DecodeLimits {
@@ -691,18 +694,43 @@ fn read_mask_bitmap(source: InputSource<'_>, max_pixels: u64) -> Result<crate::n
             bitmap,
         });
     }
-    let mask = parse_pbm_p4(&bytes)?;
-    assert_pixel_limit(mask.width, mask.height, max_pixels)?;
-    Ok(mask)
+    match source {
+        InputSource::File { file, .. } => Ok(read_pbm_p4_file(file, max_pixels)?),
+        InputSource::Bytes { data, .. } => {
+            let mask = parse_pbm_p4(data)?;
+            assert_pixel_limit(mask.width, mask.height, max_pixels)?;
+            Ok(mask)
+        }
+    }
 }
 
 fn read_soft_mask(source: InputSource<'_>, max_pixels: u64) -> Result<SoftMaskStream> {
-    let bytes = source.read_all()?;
-    let alpha = parse_netpbm(&bytes, max_pixels)?;
-    if alpha.channels != 1 {
-        return Err("Soft foreground alpha must be an 8-bit grayscale PGM".into());
-    }
-    SoftMaskStream::encode(alpha.width, alpha.height, alpha.pixels)
+    let alpha = match source {
+        InputSource::File { file, .. } => read_netpbm_file(file, max_pixels)?,
+        InputSource::Bytes { data, .. } => {
+            let parsed = parse_netpbm(data, max_pixels)?;
+            OwnedNetpbm {
+                magic: if parsed.channels == 1 { *b"P5" } else { *b"P6" },
+                width: parsed.width,
+                height: parsed.height,
+                channels: parsed.channels,
+                pixels: parsed.pixels.to_vec(),
+            }
+        }
+    };
+    let pixels = if alpha.channels == 1 {
+        alpha.pixels
+    } else if alpha.channels == 3 {
+        alpha.pixels.chunks_exact(3).map(netpbm_luma).collect()
+    } else {
+        return Err("Soft foreground alpha must be an 8-bit PGM or grayscale PPM".into());
+    };
+    SoftMaskStream::encode(alpha.width, alpha.height, &pixels)
+}
+
+fn netpbm_luma(pixel: &[u8]) -> u8 {
+    ((u32::from(pixel[0]) * 77 + u32::from(pixel[1]) * 150 + u32::from(pixel[2]) * 29 + 128) >> 8)
+        as u8
 }
 
 impl<'a> InputSource<'a> {
@@ -843,13 +871,10 @@ pub fn encode_netpbm_path_as_png(
     max_pixels: u64,
 ) -> Result<()> {
     let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
-    let mut input = validated_inputs.clone_file(0)?;
-    let mut data = Vec::new();
-    input.read_to_end(&mut data)?;
-    let netpbm = parse_netpbm(&data, max_pixels)?;
+    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
     let total_pixels = netpbm.width as usize * netpbm.height as usize;
     let mut channels = netpbm.channels as usize;
-    let pixels = if channels == 3 && is_rgb_data_grayscale(netpbm.pixels, total_pixels) {
+    let pixels = if channels == 3 && is_rgb_data_grayscale(&netpbm.pixels, total_pixels) {
         channels = 1;
         Cow::Owned(
             netpbm
@@ -859,7 +884,7 @@ pub fn encode_netpbm_path_as_png(
                 .collect(),
         )
     } else {
-        Cow::Borrowed(netpbm.pixels)
+        Cow::Borrowed(&netpbm.pixels)
     };
     let buffer = match channels {
         1 => PixelBuffer::Gray {
@@ -1059,6 +1084,40 @@ mod tests {
 
         assert!(text.contains("/Filter /FlateDecode"));
         assert!(!text.contains("/Filter /DCTDecode"));
+    }
+
+    #[test]
+    fn soft_layered_alpha_accepts_gray_p5_and_luma_converted_p6() {
+        let background = b"P5\n1 1\n255\n\xff";
+        let pgm = b"P5\n2 1\n255\n\x00\x95";
+        let ppm = b"P6\n2 1\n255\n\x00\x00\x00\x00\xff\x00";
+        let build = |file_name: &str, alpha: &[u8]| {
+            write_pdf(
+                Vec::new(),
+                [PageSpec::SoftLayered {
+                    page_size: PAGE,
+                    background: ImageSpec {
+                        source: InputSource::Bytes {
+                            file_name: "background.pgm",
+                            data: background,
+                        },
+                        compression: ImageCompression::Auto,
+                        processing: ImageProcessing::None,
+                        size_guardrail: None,
+                    },
+                    foreground_alpha: InputSource::Bytes {
+                        file_name,
+                        data: alpha,
+                    },
+                    foreground_color: None,
+                }],
+                &PdfBuildOptions::default(),
+                |_| {},
+            )
+            .unwrap()
+        };
+
+        assert_eq!(build("alpha.pgm", pgm), build("alpha.ppm", ppm));
     }
 
     #[test]
