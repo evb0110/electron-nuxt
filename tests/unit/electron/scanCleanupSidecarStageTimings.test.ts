@@ -106,7 +106,7 @@ describe('scan cleanup sidecar stage timings', () => {
         await expect(run).rejects.toThrow();
     });
 
-    it('does not duplicate fatal termination when abort follows malformed NDJSON', async () => {
+    it('keeps the fatal protocol error authoritative when abort follows malformed NDJSON', async () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
@@ -119,7 +119,7 @@ describe('scan cleanup sidecar stage timings', () => {
         controller.abort(new DOMException('Canceled later', 'AbortError'));
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce();
         child.emit('exit', null, 'SIGTERM');
-        await expect(run).rejects.toMatchObject({name: 'AbortError'});
+        await expect(run).rejects.toBeInstanceOf(SyntaxError);
     });
 
     it('reports per-stage totals summed across every page the sidecar timed', async () => {
