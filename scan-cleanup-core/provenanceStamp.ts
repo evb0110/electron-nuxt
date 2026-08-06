@@ -9,6 +9,16 @@ import type {
     TScanCleanupPageRotation,
     TScanCleanupOutputModeSetting,
 } from '@contracts/electronApiScanCleanup';
+import {
+    consumeScanCleanupVertices,
+    consumeScanCleanupZones,
+    createScanCleanupInputBudget,
+    type IScanCleanupInputBudget,
+    SCAN_CLEANUP_INPUT_MAX_PAGES,
+    SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
+    SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
+} from '@contracts/scan-cleanup/inputLimits';
+import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
 import type {
     IScanCleanupOutputMapping,
     TScanCleanupAssemblerBackend,
@@ -19,7 +29,7 @@ import type {
     TScanCleanupQualityPath,
 } from '@scan-cleanup-core/policy/effectiveOptions';
 
-export const SCAN_CLEANUP_STAMP_SCHEMA_VERSION = 1 as const;
+const SCAN_CLEANUP_STAMP_SCHEMA_VERSION = 1 as const;
 export const SCAN_CLEANUP_STAMP_SCHEMA_ID = 'urn:evb:scan-cleanup:stamp:v1';
 export const SCAN_CLEANUP_CORE_BUILD_ID = 'evb-viewer-scan-cleanup-core-v1';
 
@@ -125,11 +135,11 @@ export function canonicalScanCleanupJson(value: unknown): string {
     return JSON.stringify(sortJsonValue(value));
 }
 
-export function sha256ScanCleanupJson(value: unknown): string {
+function sha256ScanCleanupJson(value: unknown): string {
     return sha256Utf8(canonicalScanCleanupJson(value));
 }
 
-export function sha256ScanCleanupBytes(value: Uint8Array | string): string {
+function sha256ScanCleanupBytes(value: Uint8Array | string): string {
     return createHash('sha256').update(value).digest('hex');
 }
 
@@ -336,6 +346,10 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
         fail('effectiveOptions.perSourcePage must be non-empty');
     }
     const effectiveRecords = value.effectiveOptions.perSourcePage;
+    if (effectiveRecords.length > SCAN_CLEANUP_INPUT_MAX_PAGES) {
+        fail('effectiveOptions.perSourcePage exceeds the page limit');
+    }
+    const inputBudget = createScanCleanupInputBudget();
     const optionsBySource = new Map<number, IScanCleanupStampEffectiveOptions>();
     const sourcePages = effectiveRecords.map((record, index) => {
         if (!isRecord(record)) fail(`effectiveOptions.perSourcePage[${String(index)}] must be an object`);
@@ -344,12 +358,16 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
             'options',
         ]);
         assertPositiveInteger(record.sourcePage, `effectiveOptions.perSourcePage[${String(index)}].sourcePage`);
-        assertStampEffectiveOptions(record.options);
+        assertStampEffectiveOptions(record.options, inputBudget);
         optionsBySource.set(record.sourcePage as number, record.options);
         return record.sourcePage as number;
     });
     assertStrictlyIncreasing(sourcePages, 'effectiveOptions.perSourcePage');
-    if (!Array.isArray(value.outputMappings) || value.outputMappings.length === 0) fail('outputMappings must be a non-empty array');
+    if (
+        !Array.isArray(value.outputMappings)
+        || value.outputMappings.length === 0
+        || value.outputMappings.length > SCAN_CLEANUP_INPUT_MAX_PAGES * 2
+    ) fail('outputMappings must be a bounded non-empty array');
     const outputMappings = value.outputMappings.map((mapping, index) => {
         assertOutputMapping(mapping, `outputMappings[${String(index)}]`);
         if (mapping.outputOrdinal !== null && (mapping.excluded || mapping.blank)) {
@@ -357,7 +375,10 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
         }
         return mapping;
     });
-    if (!isUnknownArray(value.pagePlanDigests)) fail('pagePlanDigests must be an array');
+    if (
+        !isUnknownArray(value.pagePlanDigests)
+        || value.pagePlanDigests.length > SCAN_CLEANUP_INPUT_MAX_PAGES
+    ) fail('pagePlanDigests must be a bounded array');
     const digestRecords = value.pagePlanDigests;
     const digestPages = digestRecords.map((digest, index) => {
         if (!isRecord(digest)) fail(`pagePlanDigests[${String(index)}] must be an object`);
@@ -529,7 +550,10 @@ function assertOutputMapping(value: unknown, label: string): asserts value is IS
     if (typeof value.excluded !== 'boolean' || typeof value.blank !== 'boolean') fail(`${label} flags are invalid`);
 }
 
-function assertStampEffectiveOptions(value: unknown): asserts value is IScanCleanupStampEffectiveOptions {
+function assertStampEffectiveOptions(
+    value: unknown,
+    inputBudget: IScanCleanupInputBudget,
+): asserts value is IScanCleanupStampEffectiveOptions {
     if (!isRecord(value)) fail('effective page options must be an object');
     const keys = [
         'qualityPath',
@@ -665,7 +689,7 @@ function assertStampEffectiveOptions(value: unknown): asserts value is IScanClea
     assertNumberMap(value.automaticSkewDegrees, 'automaticSkewDegrees');
     assertNormalizedRectMap(value.automaticContentBoxes, 'automaticContentBoxes');
     assertTextToneDiagnostics(value.resolvedTextToneDiagnostics);
-    assertManualZones(value.manualZones);
+    assertManualZones(value.manualZones, inputBudget);
     assertMargins(value.margins);
     assertPlacementOverrides(value.placementOverrides);
     if (!isRecord(value.experimental) || Object.keys(value.experimental).some(key => ![
@@ -826,6 +850,18 @@ function assertTextToneDiagnostics(value: unknown) {
             'blackPoint',
             'slope',
         ]);
+        const inkAnchorIsValid = diagnostics.inkAnchor === null
+            || Number.isSafeInteger(diagnostics.inkAnchor)
+                && Number(diagnostics.inkAnchor) >= 0
+                && Number(diagnostics.inkAnchor) <= 255;
+        const blackPointIsValid = diagnostics.blackPoint === null
+            || typeof diagnostics.blackPoint === 'number'
+                && Number.isFinite(diagnostics.blackPoint)
+                && diagnostics.blackPoint >= 0;
+        const slopeIsValid = diagnostics.slope === null
+            || typeof diagnostics.slope === 'number'
+                && Number.isFinite(diagnostics.slope)
+                && diagnostics.slope > 0;
         if (typeof diagnostics.applied !== 'boolean'
             || ![
                 'applied',
@@ -840,20 +876,27 @@ function assertTextToneDiagnostics(value: unknown) {
             || !boundedNumberOrZero(diagnostics.outsideMidtoneLargestComponentFraction)
             || !boundedNumberOrZero(diagnostics.outsideMidtoneLargestComponentWidthFraction)
             || !boundedNumberOrZero(diagnostics.outsideMidtoneLargestComponentHeightFraction)
-            || !nullableFiniteNumber(diagnostics.inkAnchor)
-            || !nullableFiniteNumber(diagnostics.blackPoint)
-            || !nullableFiniteNumber(diagnostics.slope)) {
+            || !inkAnchorIsValid
+            || !blackPointIsValid
+            || !slopeIsValid
+            || diagnostics.applied !== (diagnostics.rule === 'applied')
+            || diagnostics.applied !== (diagnostics.blackPoint !== null && diagnostics.slope !== null)) {
             fail('resolvedTextToneDiagnostics is invalid');
         }
     }
 }
 
-function assertManualZones(value: unknown) {
+function assertManualZones(value: unknown, inputBudget: IScanCleanupInputBudget) {
     if (!isRecord(value) || Object.keys(value).some(key => ![
         'picture',
         'fill',
     ].includes(key))
         || !Array.isArray(value.picture) || !Array.isArray(value.fill)) fail('manualZones is invalid');
+    const zoneCount = value.picture.length + value.fill.length;
+    if (zoneCount > SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE) {
+        fail('manualZones exceeds the per-page zone limit');
+    }
+    consumeScanCleanupZones(inputBudget, zoneCount, 'provenance manual zones');
     value.picture.forEach((zone, index) => {
         if (!isRecord(zone)) fail(`manualZones.picture[${String(index)}] is invalid`);
         assertExactKeys(zone, [
@@ -865,25 +908,42 @@ function assertManualZones(value: unknown) {
             'painter2',
             'eraser3',
         ].includes(zone.layer as string)) fail('manualZones picture layer is invalid');
-        assertNormalizedPolygon(zone.polygon, `manualZones.picture[${String(index)}].polygon`);
+        assertNormalizedPolygon(
+            zone.polygon,
+            `manualZones.picture[${String(index)}].polygon`,
+            inputBudget,
+        );
     });
-    value.fill.forEach((polygon, index) => assertNormalizedPolygon(polygon, `manualZones.fill[${String(index)}]`));
+    value.fill.forEach((polygon, index) => assertNormalizedPolygon(
+        polygon,
+        `manualZones.fill[${String(index)}]`,
+        inputBudget,
+    ));
 }
 
-function assertNormalizedPolygon(value: unknown, label: string) {
+function assertNormalizedPolygon(
+    value: unknown,
+    label: string,
+    inputBudget: IScanCleanupInputBudget,
+) {
     if (!isRecord(value)) fail(`${label} is invalid`);
     assertExactKeys(value, [
         'points',
         'rotationDegrees',
     ]);
-    if (!Array.isArray(value.points) || value.points.length < 3 || ![
-        0,
-        90,
-        180,
-        270,
-    ].includes(value.rotationDegrees as number)) {
+    if (
+        !Array.isArray(value.points)
+        || value.points.length < 3
+        || value.points.length > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON
+        || ![
+            0,
+            90,
+            180,
+            270,
+        ].includes(value.rotationDegrees as number)) {
         fail(`${label} is invalid`);
     }
+    consumeScanCleanupVertices(inputBudget, value.points.length, 'provenance manual-zone vertices');
     value.points.forEach((point, index) => {
         if (!isRecord(point)) fail(`${label}.points[${String(index)}] is invalid`);
         assertExactKeys(point, [
@@ -892,6 +952,10 @@ function assertNormalizedPolygon(value: unknown, label: string) {
         ]);
         if (!boundedNumber(point.xNormalized, 0, 1) || !boundedNumber(point.yNormalized, 0, 1)) fail(`${label}.points is invalid`);
     });
+    assertSimpleScanCleanupPolygon(
+        value.points as IScanCleanupManualZones['fill'][number]['points'],
+        label,
+    );
 }
 
 function assertMargins(value: unknown) {
@@ -941,10 +1005,6 @@ function assertPlacementOverrides(value: unknown) {
 
 function boundedNumberOrZero(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
-}
-
-function nullableFiniteNumber(value: unknown): value is number | null {
-    return value === null || (typeof value === 'number' && Number.isFinite(value));
 }
 
 function fail(message: string): never {

@@ -43,7 +43,7 @@ import type {
     IScanCleanupTextToneDiagnostics,
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
-import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/simplePolygon';
+import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
 
 function decodeTextToneEvidence(value: unknown, label: string): IScanCleanupTextToneDiagnostics {
     if (

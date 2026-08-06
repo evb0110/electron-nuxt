@@ -48,7 +48,7 @@ function segmentsIntersect(
         || Math.abs(cdB) <= COORDINATE_EPSILON && onSegment(c, d, b);
 }
 
-export function scanCleanupSimplePolygonError(
+function findScanCleanupSimplePolygonError(
     points: readonly IScanCleanupNormalizedZonePoint[],
 ) {
     for (let left = 0; left < points.length; left += 1) {
@@ -96,7 +96,7 @@ export function assertSimpleScanCleanupPolygon(
     points: readonly IScanCleanupNormalizedZonePoint[],
     label: string,
 ) {
-    const error = scanCleanupSimplePolygonError(points);
+    const error = findScanCleanupSimplePolygonError(points);
     if (error !== null) {
         throw new Error(`invalid scan-cleanup ${label}: ${error}`);
     }

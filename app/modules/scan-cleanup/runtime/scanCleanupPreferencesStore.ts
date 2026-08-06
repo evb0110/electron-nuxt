@@ -274,10 +274,6 @@ export function whenScanCleanupPreferencesReady(): Promise<void> {
     return preferencesHydrationPromise ?? Promise.resolve();
 }
 
-export function isScanCleanupPreferencesStoreDesktop() {
-    return desktopStore;
-}
-
 export function loadScanCleanupDocumentSettings(
     sourceSha256: string | null | undefined,
     legacyDocumentKey: string | null | undefined,
@@ -361,5 +357,3 @@ export function resetScanCleanupPreferencesStore() {
     applyingRemotePreferences = false;
     documentPersistenceEpochs.clear();
 }
-
-export type {IScanCleanupGlobalPreferences};
