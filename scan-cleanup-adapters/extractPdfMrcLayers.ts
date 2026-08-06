@@ -163,17 +163,13 @@ function resolveMrcMaskDecode(
     return null;
 }
 
-async function inspectMrcMaskDecodes(input: {
+async function inspectMrcObjectTable(input: {
     pdfPath: string;
     qpdfBinary: string;
-    foregrounds: readonly IPdfImagesRow[];
     runCommand: TScanCleanupRunCommand;
     commandOptions: IScanCleanupRunCommandOptions;
     log: TScanCleanupLog;
 }) {
-    if (input.foregrounds.length === 0) {
-        return new Map<string, TPdfMrcMaskDecode>();
-    }
     try {
         const result = await input.runCommand(
             input.qpdfBinary,
@@ -197,15 +193,7 @@ async function inspectMrcMaskDecodes(input: {
         if (objects === null) {
             throw new Error('qpdf JSON contains no object table');
         }
-        return new Map(input.foregrounds.flatMap(foreground => {
-            const decode = resolveMrcMaskDecode(objects, foreground);
-            return decode === null
-                ? []
-                : [[
-                    `${String(foreground.objectNumber)}:${String(foreground.generationNumber)}`,
-                    decode,
-                ] as const];
-        }));
+        return objects;
     } catch (error) {
         input.log(
             'warn',
@@ -213,7 +201,7 @@ async function inspectMrcMaskDecodes(input: {
                 error instanceof Error ? error.message : String(error)
             }`,
         );
-        return new Map<string, TPdfMrcMaskDecode>();
+        return null;
     }
 }
 
@@ -361,6 +349,7 @@ export async function extractPdfMrcLayersBatch(input: {
         ...(input.signal === undefined ? {} : {signal: input.signal}),
     };
     let completedPages = 0;
+    let mrcObjects: Record<string, unknown> | null | undefined;
     for (const [
         chunkIndex,
         targets,
@@ -419,20 +408,22 @@ export async function extractPdfMrcLayersBatch(input: {
                 input.onProgress?.(completedPages, input.targets.length);
                 continue;
             }
-            const maskDecodeByForeground = await inspectMrcMaskDecodes({
-                pdfPath: input.pdfPath,
-                qpdfBinary: input.qpdfBinary,
-                foregrounds: selectedCandidates.map(candidate => candidate.selection.foreground),
-                runCommand: input.runCommand,
-                commandOptions,
-                log: input.log,
-            });
+            if (mrcObjects === undefined) {
+                mrcObjects = await inspectMrcObjectTable({
+                    pdfPath: input.pdfPath,
+                    qpdfBinary: input.qpdfBinary,
+                    runCommand: input.runCommand,
+                    commandOptions,
+                    log: input.log,
+                });
+            }
+            const inspectedMrcObjects = mrcObjects;
             const selected = selectedCandidates.flatMap(candidate => {
                 const foreground = candidate.selection.foreground;
-                const selectionMaskDecode = maskDecodeByForeground.get(
-                    `${String(foreground.objectNumber)}:${String(foreground.generationNumber)}`,
-                );
-                return selectionMaskDecode === undefined
+                const selectionMaskDecode = inspectedMrcObjects === null
+                    ? null
+                    : resolveMrcMaskDecode(inspectedMrcObjects, foreground);
+                return selectionMaskDecode === null
                     ? []
                     : [{
                         ...candidate,

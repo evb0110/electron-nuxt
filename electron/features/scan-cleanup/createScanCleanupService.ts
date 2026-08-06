@@ -19,6 +19,7 @@ import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfil
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { documentOutputService } from '@electron/output/documentOutputService';
 import {
+    createStableJobBrokerOwnerId,
     type IJobResourceVector,
     mainJobBroker,
 } from '@electron/resources/jobBroker';
@@ -253,9 +254,21 @@ function resolveScanCleanupRuntimePolicy(
 
 export function createScanCleanupService(): IScanCleanupService {
     const jobs = createScanCleanupJobRegistry();
+    const activeJobsByBrokerOwner = new Map<string, {
+        jobId: string;
+        outputPdfPath: string;
+        request: IScanCleanupStartRequest;
+        signature: string;
+    }>();
+    const startReservationsByBrokerOwner = new Map<string, Promise<void>>();
     return {
         async start(sender, request) {
             const jobId = `scan-cleanup-${randomUUID()}`;
+            const brokerOwnerId = createStableJobBrokerOwnerId(
+                'scan-cleanup',
+                sender.id,
+                request.ownerId,
+            );
             if (!isAbsolute(request.sourcePdfPath)) {
                 return {
                     started: false,
@@ -264,8 +277,58 @@ export function createScanCleanupService(): IScanCleanupService {
                     errorCode: 'invalid-request',
                 };
             }
+            const signature = JSON.stringify(request);
+            const pendingStart = startReservationsByBrokerOwner.get(brokerOwnerId);
+            if (pendingStart) {
+                await pendingStart;
+                return this.start(sender, request);
+            }
+            let releaseStartReservation!: () => void;
+            const reservation = new Promise<void>(resolve => {
+                releaseStartReservation = resolve;
+            });
+            startReservationsByBrokerOwner.set(brokerOwnerId, reservation);
+            const releaseReservation = () => {
+                releaseStartReservation();
+                if (startReservationsByBrokerOwner.get(brokerOwnerId) === reservation) {
+                    startReservationsByBrokerOwner.delete(brokerOwnerId);
+                }
+            };
+            const previous = activeJobsByBrokerOwner.get(brokerOwnerId);
+            if (previous) {
+                const previousState = publicState(jobs.get(
+                    previous.jobId,
+                    ownerActor(sender, previous.request),
+                ));
+                if (previousState && ![
+                    'completed',
+                    'failed',
+                    'canceled',
+                ].includes(previousState.status)) {
+                    if (previous.signature === signature) {
+                        jobs.subscribe(previous.jobId, ownerActor(sender, request), state => {
+                            sendScanCleanupState(sender, state.progress);
+                        });
+                        releaseReservation();
+                        return {
+                            started: true,
+                            jobId: previous.jobId,
+                            outputPdfPath: previous.outputPdfPath,
+                        };
+                    }
+                    jobs.cancel(
+                        previous.jobId,
+                        ownerActor(sender, previous.request),
+                        'Superseded scan cleanup request',
+                    );
+                }
+            }
             const partial = request.sourcePageNumbers !== undefined;
-            const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial);
+            const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial)
+                .catch(error => {
+                    releaseReservation();
+                    throw error;
+                });
             const workerRequest = {
                 ...request,
                 outputPdfPath,
@@ -286,7 +349,7 @@ export function createScanCleanupService(): IScanCleanupService {
                 jobId,
                 initialPhase: 'queued',
             });
-            jobs.start({
+            const handle = jobs.start({
                 jobId,
                 owner: ownerActor(sender, request),
                 operation: {
@@ -314,7 +377,7 @@ export function createScanCleanupService(): IScanCleanupService {
                     let lease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
                     try {
                         lease = await mainJobBroker.acquire({
-                            ownerId: jobId,
+                            ownerId: brokerOwnerId,
                             kind: 'scan-cleanup',
                             priority: 'user',
                             resources: {
@@ -423,6 +486,19 @@ export function createScanCleanupService(): IScanCleanupService {
             jobs.subscribe(jobId, ownerActor(sender, request), state => {
                 sendScanCleanupState(sender, state.progress);
             });
+            const activeEntry = {
+                jobId,
+                outputPdfPath,
+                request,
+                signature,
+            };
+            activeJobsByBrokerOwner.set(brokerOwnerId, activeEntry);
+            releaseReservation();
+            void handle.settled.finally(() => {
+                if (activeJobsByBrokerOwner.get(brokerOwnerId) === activeEntry) {
+                    activeJobsByBrokerOwner.delete(brokerOwnerId);
+                }
+            }).catch(() => undefined);
             return {
                 started: true,
                 jobId,

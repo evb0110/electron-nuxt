@@ -34,7 +34,7 @@ afterEach(async () => {
 });
 
 describe('batched PDF MRC extraction', () => {
-    it('preserves compact JP2 foregrounds while decoding only MRC backgrounds', async () => {
+    it('preserves compact layers and inspects the qpdf object table once across chunks', async () => {
         const scratch = await createScratch();
         const progress: Array<[number, number]> = [];
         const runCommand = vi.fn<typeof runNativeToolCommand>(async (command, args) => {
@@ -72,9 +72,9 @@ describe('batched PDF MRC extraction', () => {
                         '11 0 image 706 1066 rgb 3 8 jpx no 1 0 120 120 1K 1%',
                         '11 1 image 2120 3202 rgb 3 8 jpx no 2 0 360 360 1K 1%',
                         '11 2 smask 2120 3202 gray 1 1 jbig2 no 2 0 360 360 1K 1%',
-                        '12 3 image 706 1066 rgb 3 8 jpx no 3 0 120 120 1K 1%',
-                        '12 4 image 2120 3202 rgb 3 8 jpx no 4 0 360 360 1K 1%',
-                        '12 5 smask 2120 3202 gray 1 1 jbig2 no 4 0 360 360 1K 1%',
+                        '35 3 image 706 1066 rgb 3 8 jpx no 3 0 120 120 1K 1%',
+                        '35 4 image 2120 3202 rgb 3 8 jpx no 4 0 360 360 1K 1%',
+                        '35 5 smask 2120 3202 gray 1 1 jbig2 no 4 0 360 360 1K 1%',
                     ].join('\n'),
                 };
             }
@@ -84,9 +84,9 @@ describe('batched PDF MRC extraction', () => {
                     writeFile(`${prefix}-000.jp2`, 'BACKGROUND-11'),
                     writeFile(`${prefix}-001.jp2`, 'FOREGROUND-11'),
                     writeFile(`${prefix}-002.jb2e`, 'MASK-11'),
-                    writeFile(`${prefix}-003.jp2`, 'BACKGROUND-12'),
-                    writeFile(`${prefix}-004.jp2`, 'FOREGROUND-12'),
-                    writeFile(`${prefix}-005.jb2e`, 'MASK-12'),
+                    writeFile(`${prefix}-003.jp2`, 'BACKGROUND-35'),
+                    writeFile(`${prefix}-004.jp2`, 'FOREGROUND-35'),
+                    writeFile(`${prefix}-005.jb2e`, 'MASK-35'),
                 ]);
                 return {
                     exitCode: 0,
@@ -104,10 +104,7 @@ describe('batched PDF MRC extraction', () => {
                 };
             }
             const decodedPrefix = args.at(-1)!;
-            await Promise.all([
-                writeFile(`${decodedPrefix}-1.ppm`, 'P6\n1 1\n255\n\xff\xff\xff'),
-                writeFile(`${decodedPrefix}-2.ppm`, 'P6\n1 1\n255\n\xff\xff\xff'),
-            ]);
+            await writeFile(`${decodedPrefix}-1.ppm`, 'P6\n1 1\n255\n\xff\xff\xff');
             return {
                 exitCode: 0,
                 stderr: '',
@@ -116,7 +113,7 @@ describe('batched PDF MRC extraction', () => {
         });
         const targets = [
             11,
-            12,
+            35,
         ].map(pageNumber => ({
             pageNumber,
             backgroundOutputPath: join(scratch, `background-${String(pageNumber)}.ppm`),
@@ -141,21 +138,28 @@ describe('batched PDF MRC extraction', () => {
 
         expect([...result.keys()]).toEqual([
             11,
-            12,
+            35,
         ]);
-        expect(runCommand).toHaveBeenCalledTimes(5);
+        expect(runCommand).toHaveBeenCalledTimes(9);
+        expect(runCommand.mock.calls.filter(([command]) => command === '/qpdf')).toHaveLength(1);
         expect(runCommand.mock.calls.some(([
             ,
             args,
         ]) => args.includes('-png'))).toBe(false);
-        expect(progress).toEqual([[
-            2,
-            2,
-        ]]);
+        expect(progress).toEqual([
+            [
+                1,
+                2,
+            ],
+            [
+                2,
+                2,
+            ],
+        ]);
         expect(await readFile(targets[0]!.foregroundOutputPath, 'utf8')).toBe('FOREGROUND-11');
-        expect(await readFile(targets[1]!.selectionMaskOutputPath, 'utf8')).toBe('MASK-12');
+        expect(await readFile(targets[1]!.selectionMaskOutputPath, 'utf8')).toBe('MASK-35');
         expect(result.get(11)?.selectionMaskDecode).toBe('inverted');
-        expect(result.get(12)?.selectionMaskDecode).toBe('default');
+        expect(result.get(35)?.selectionMaskDecode).toBe('default');
         expect(runCommand.mock.calls.some(([
             ,
             args,

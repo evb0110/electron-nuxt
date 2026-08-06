@@ -3815,7 +3815,7 @@ describe('scan cleanup preview', () => {
             ],
         });
         expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
-            started.jobId,
+            'scan-cleanup:1:preview-owner',
             expect.any(AbortSignal),
             expect.objectContaining({
                 rasterConcurrency: 4,
@@ -3947,7 +3947,7 @@ describe('scan cleanup preview', () => {
             detectionRequest,
         )?.status).toBe('failed'));
         expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
-            started.jobId,
+            'scan-cleanup:1:preview-owner',
             expect.any(AbortSignal),
             {
                 rasterConcurrency: 1,
@@ -4949,7 +4949,8 @@ describe('scan cleanup preview', () => {
         const granted = Promise.withResolvers<undefined>();
         // One native process is free, which is what a detection run at
         // capacity-1 leaves behind: a visible request fits, a prefetch does not.
-        deps.acquirePreviewLease = vi.fn(async (_ownerId, visibility, signal) => {
+        deps.acquirePreviewLease = vi.fn(async (ownerId, visibility, signal) => {
+            expect(ownerId).toBe('scan-cleanup:1:preview-owner');
             const admission = {
                 visibility,
                 granted: false,
@@ -5298,14 +5299,14 @@ describe('scan cleanup preview', () => {
         expect(priorities).toEqual([
             {
                 admissionClass: undefined,
-                ownerId: expect.stringContaining('\u0000'),
+                ownerId: 'scan-cleanup:1:preview-owner',
                 perOwnerLimit: undefined,
                 priority: 'visible',
                 nativeProcesses: 1,
             },
             {
                 admissionClass: undefined,
-                ownerId: expect.stringContaining('\u0000'),
+                ownerId: 'scan-cleanup:1:preview-owner',
                 perOwnerLimit: undefined,
                 priority: 'background',
                 nativeProcesses: 1,
@@ -5338,6 +5339,39 @@ describe('scan cleanup preview', () => {
         expect(releaseLease).toHaveBeenCalledOnce();
         await expect(stat(join(manifestPath, '..'))).rejects.toMatchObject({code: 'ENOENT'});
         expect(service.cancelDetection(sender(), started.jobId, request)).toBe(false);
+    });
+
+    it('joins identical detection work and replaces a changed request for the same owner', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = Promise.withResolvers<AbortSignal>();
+        deps.acquireDetectionLease = vi.fn()
+            .mockImplementationOnce(async (_ownerId, signal) => {
+                entered.resolve(signal);
+                return new Promise((_, reject) => {
+                    signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+                });
+            })
+            .mockResolvedValue({release: vi.fn(() => true)});
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const first = await service.detectAll(owner, detectionRequest);
+        const signal = await entered.promise;
+
+        await expect(service.detectAll(owner, detectionRequest)).resolves.toEqual(first);
+        expect(deps.acquireDetectionLease).toHaveBeenCalledOnce();
+
+        const replacement = await service.detectAll(owner, {
+            ...detectionRequest,
+            options: {
+                ...detectionRequest.options,
+                thickness: 1,
+            },
+        });
+        expect(replacement.jobId).not.toBe(first.jobId);
+        expect(signal.aborted).toBe(true);
+        await vi.waitFor(() => expect(deps.acquireDetectionLease).toHaveBeenCalledTimes(2));
+        await service.dispose();
     });
 
     it('cancels detect-all when the owning renderer is destroyed', async () => {

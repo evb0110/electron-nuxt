@@ -34,6 +34,10 @@ import {
 import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@scan-cleanup-core/policy/effectiveOptions';
+import {
+    readAvailableScratchBytes,
+    resolveRasterHandoff,
+} from '@scan-cleanup-core/resolveRasterHandoff';
 
 export const PREVIEW_DPI = 150;
 // Native mode selection and final rendering share a 150-DPI analysis ceiling.
@@ -185,6 +189,13 @@ export interface IScanCleanupDetectionRetention<TDocument> {
 
 export interface IScanCleanupDetectionDependencies {
     getTempDir: () => string;
+    /**
+     * Testable override for the filesystem-space probe used by the non-stream
+     * fallback.  On Windows the complete detection manifest is retained before
+     * native starts reading it, so it must fit the same scratch budget as the
+     * retained-raster cache.
+     */
+    getAvailableScratchBytes?: typeof readAvailableScratchBytes;
     getPdftoppmBinary: () => string;
     resolveBinary: () => string | null;
     renderPage: TScanCleanupRenderPage;
@@ -597,6 +608,39 @@ export async function runScanCleanupDetection<TDocument>(
             }
         }
         const rasterScope = pageNumbers.filter(pageNumber => !retained.has(pageNumber));
+        if (!streamRasters && rasterScope.length > 0) {
+            // The non-FIFO path retains every missing page before the sidecar
+            // starts. Do not let a large Windows document bypass the cache's
+            // whole-manifest scratch limit merely because each producer is
+            // concurrency-bounded. RGB is a conservative upper estimate for
+            // the PNG raster Poppler will stage.
+            const handoff = await resolveRasterHandoff(
+                rasterScope.map(pageNumber => {
+                    const pageSize = pageSizeByNumber.get(pageNumber)!;
+                    const dpi = detectionDpiForPage(pageNumber);
+                    const limits = resolveRasterRenderLimits(pageSize, dpi);
+                    return {
+                        renderDpi: dpi,
+                        raster: {
+                            dpi,
+                            width: limits.expectedWidthPx,
+                            height: limits.expectedHeightPx,
+                        },
+                    };
+                }),
+                scratch,
+                dependencies.getAvailableScratchBytes ?? readAvailableScratchBytes,
+            );
+            if (
+                handoff.estimatedBytes === null
+                || handoff.budgetBytes === null
+                || handoff.estimatedBytes > handoff.budgetBytes
+            ) {
+                throw new Error(
+                    'Scan cleanup detection cannot stage this document without exceeding the raster cache/scratch budget',
+                );
+            }
+        }
         const rasterizedPageNumbers = new Set<number>(retained.keys());
         const publishRasterizing = () => publish([], {
             stage: 'rasterizing',

@@ -9,6 +9,7 @@ import type {TScanCleanupLog} from '@scan-cleanup-core/types';
 // while Poppler produces it.
 const RAW_RASTER_BUDGET_FLOOR_BYTES = 512 * 1024 * 1024;
 const RAW_RASTER_FREE_SPACE_SHARE = 0.25;
+const RAW_RASTER_FREE_SPACE_RESERVE_BYTES = 512 * 1024 * 1024;
 const PPM_HEADER_ESTIMATE_BYTES = 64;
 const COMBINE_OUTPUT_BYTES_PER_PAGE = 8 * 1024 * 1024;
 const COMBINE_OUTPUT_BYTES_FLOOR = 512 * 1024 * 1024;
@@ -82,10 +83,15 @@ export async function resolveRasterHandoff(
         };
     }
     const availableBytes = await getAvailableScratchBytes(scratch);
-    const budgetBytes = Math.max(
-        RAW_RASTER_BUDGET_FLOOR_BYTES,
-        availableBytes === null ? 0 : Math.floor(availableBytes * RAW_RASTER_FREE_SPACE_SHARE),
-    );
+    const budgetBytes = availableBytes === null
+        ? RAW_RASTER_BUDGET_FLOOR_BYTES
+        : Math.min(
+            Math.max(
+                RAW_RASTER_BUDGET_FLOOR_BYTES,
+                Math.floor(availableBytes * RAW_RASTER_FREE_SPACE_SHARE),
+            ),
+            Math.max(0, availableBytes - RAW_RASTER_FREE_SPACE_RESERVE_BYTES),
+        );
     return {
         format: estimatedBytes > budgetBytes ? 'png' as const : 'ppm' as const,
         estimatedBytes,

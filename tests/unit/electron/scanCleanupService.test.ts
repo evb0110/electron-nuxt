@@ -43,6 +43,7 @@ const mocks = vi.hoisted(() => {
     };
     return {
         acquire,
+        createOutput: vi.fn(async () => '/managed/cleaned.pdf'),
         host,
         hostProfile: () => host as IHostResourceProfileSnapshot,
         pageOpsDisabled: false,
@@ -82,10 +83,9 @@ vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
     {resolveNativePdfImageCombinePath: () => '/pdf-image-combine'}
 ));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
-    const createScanCleanupGeneratedOutputPath = async () => '/managed/cleaned.pdf';
     const pruneScanCleanupGeneratedOutputs = async () => 0;
     return {
-        createScanCleanupGeneratedOutputPath,
+        createScanCleanupGeneratedOutputPath: mocks.createOutput,
         pruneScanCleanupGeneratedOutputs,
     };
 });
@@ -142,6 +142,8 @@ function sender(): WebContents {
 describe('scan cleanup service', () => {
     beforeEach(() => {
         mocks.acquire.mockClear();
+        mocks.createOutput.mockClear();
+        mocks.createOutput.mockImplementation(async () => '/managed/cleaned.pdf');
         mocks.runWorker.mockClear();
         mocks.pageOpsDisabled = false;
         Object.assign(mocks.host, {
@@ -214,6 +216,10 @@ describe('scan cleanup service', () => {
         });
 
         const leased = mocks.acquire.mock.calls[0]![0].resources;
+        expect(mocks.acquire.mock.calls[0]![0]).toMatchObject({
+            ownerId: 'scan-cleanup:42:cleanup-owner',
+            perOwnerLimit: 1,
+        });
         expect(leased).toMatchObject({
             cpuTokens: rasterConcurrency,
             nativeProcesses: rasterConcurrency + Number(rasterStreaming),
@@ -245,6 +251,47 @@ describe('scan cleanup service', () => {
         // And the layouts the preview measured its canvas from reach the run, so
         // the run measures the same rectangle.
         expect(mocks.runWorker.mock.calls[0]![0]).toMatchObject({layoutByPage: {'3': 'two-page-spread'}});
+    });
+
+    it('joins an identical active request and replaces a superseded request for the same owner', async () => {
+        const entered = Promise.withResolvers<AbortSignal>();
+        mocks.runWorker.mockImplementationOnce(async (_request, _paths, _policy, signal) => {
+            entered.resolve(signal as AbortSignal);
+            return new Promise((_, reject) => {
+                (signal as AbortSignal).addEventListener('abort', () => reject((signal as AbortSignal).reason), {once: true});
+            });
+        });
+        const service = createScanCleanupService();
+        const first = await service.start(sender(), startRequest);
+        const signal = await entered.promise;
+
+        await expect(service.start(sender(), startRequest)).resolves.toEqual(first);
+        expect(mocks.runWorker).toHaveBeenCalledOnce();
+
+        const replacement = await service.start(sender(), {
+            ...startRequest,
+            options: {
+                ...startRequest.options,
+                thickness: 1,
+            },
+        });
+        expect(replacement.jobId).not.toBe(first.jobId);
+        expect(signal.aborted).toBe(true);
+        await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledTimes(2));
+    });
+
+    it('serializes overlapping starts until their generated output is reserved', async () => {
+        const output = Promise.withResolvers<string>();
+        mocks.createOutput.mockImplementationOnce(async () => output.promise);
+        const service = createScanCleanupService();
+        const first = service.start(sender(), startRequest);
+        await vi.waitFor(() => expect(mocks.createOutput).toHaveBeenCalledOnce());
+        const duplicate = service.start(sender(), startRequest);
+
+        output.resolve('/managed/cleaned.pdf');
+        await expect(duplicate).resolves.toEqual(await first);
+        expect(mocks.createOutput).toHaveBeenCalledOnce();
+        expect(mocks.runWorker).toHaveBeenCalledOnce();
     });
 
     it('leaves page-ops out of a run that needs no page geometry', async () => {

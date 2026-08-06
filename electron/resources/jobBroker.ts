@@ -57,6 +57,18 @@ export interface IJobBrokerLease {
     release: () => boolean;
 }
 
+// Broker ownership is an admission/fairness identity, not a work identifier.
+// Features that create a fresh UUID for every request must derive this from
+// their stable renderer and logical-owner identities instead, otherwise a
+// per-owner limit silently becomes a per-request limit.
+export function createStableJobBrokerOwnerId(
+    feature: string,
+    senderId: number,
+    logicalOwnerId: string,
+) {
+    return `${feature}:${senderId}:${logicalOwnerId}`;
+}
+
 interface IActiveJob extends IJobBrokerRequest {token: string;}
 
 interface IQueuedJob {

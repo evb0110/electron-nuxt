@@ -539,10 +539,11 @@ export async function runScanCleanupConversion(
             height: number
         }>();
         for (const pageNumber of pageNumbers) {
+            const detected = detectedRasterByPage.get(pageNumber);
             const guardrail = resolveScanCleanupDocumentGuardrail(
-                undefined,
-                undefined,
-                pageSizes[pageNumber - 1],
+                detected,
+                sourceDpiByPage.get(pageNumber),
+                pageSizes.find(pageSize => pageSize.pageNumber === pageNumber),
             );
             if (guardrail === undefined) {
                 throw new Error(`Scan cleanup has no trusted raster geometry for page ${String(pageNumber)}`);

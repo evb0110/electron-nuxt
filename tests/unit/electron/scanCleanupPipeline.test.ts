@@ -168,16 +168,14 @@ async function setup() {
 
 // Every matched run measures the document through `page-sizes` before it
 // renders, so a harness that replaces runCommand still has to answer it.
-async function answerPageSizesCommand(args: readonly string[]) {
+async function answerPageSizesCommand(args: readonly string[], pageCount = 4) {
     if (args[0] !== 'page-sizes') {
         return false;
     }
-    await writeFile(args[args.indexOf('--output') + 1]!, JSON.stringify({pages: [
-        1,
-        2,
-        3,
-        4,
-    ].map(pageNumber => ({
+    await writeFile(args[args.indexOf('--output') + 1]!, JSON.stringify({pages: Array.from(
+        {length: pageCount},
+        (_, index) => index + 1,
+    ).map(pageNumber => ({
         pageNumber,
         xPoints: 0,
         yPoints: 0,
@@ -216,7 +214,7 @@ function pdfInfoGeometry(pageCount: number, widthPoints: number, heightPoints: n
 function dependencies(
     runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'],
 ): IRunScanCleanupPipelineDependencies {
-    return {
+    const pipelineDependencies: IRunScanCleanupPipelineDependencies = {
         getPageCount: vi.fn(async () => 2),
         detectSourceDpi: vi.fn(async () => dpiDetails(300, [
             [
@@ -247,12 +245,13 @@ function dependencies(
             }
             const outputIndex = args.indexOf('--output');
             // Matching measures the document through page-sizes, so the tool
-            // answers geometry for the two pages this harness renders.
+            // answers geometry for however many pages this harness renders.
+            const pageCount = await pipelineDependencies.getPageCount('');
             await writeFile(args[outputIndex + 1]!, args[0] === 'page-sizes'
-                ? JSON.stringify({pages: [
-                    1,
-                    2,
-                ].map(pageNumber => ({
+                ? JSON.stringify({pages: Array.from(
+                    {length: pageCount},
+                    (_value, index) => index + 1,
+                ).map(pageNumber => ({
                     pageNumber,
                     xPoints: 0,
                     yPoints: 0,
@@ -268,6 +267,7 @@ function dependencies(
             };
         }),
     };
+    return pipelineDependencies;
 }
 
 async function writeCleanupOutput(
@@ -436,35 +436,33 @@ async function measurePipelineRasterPeak(
             () => renderPagePpm(...args),
         ));
     }
-    if (site === 'lossless') {
-        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            if (args[0] === '--check') {
-                return {
-                    exitCode: 0,
-                    stdout: '',
-                    stderr: '',
-                };
-            }
-            const outputPath = args[args.indexOf('--output') + 1]!;
-            if (args[0] === 'page-sizes') {
-                await writeFile(outputPath, JSON.stringify({pages: pageNumbers.map(pageNumber => ({
-                    pageNumber,
-                    xPoints: 0,
-                    yPoints: 0,
-                    widthPoints: 100,
-                    heightPoints: 100,
-                    rotation: 0,
-                }))}));
-            } else {
-                await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
-            }
+    pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+        if (args[0] === '--check') {
             return {
                 exitCode: 0,
                 stdout: '',
                 stderr: '',
             };
-        });
-    }
+        }
+        const outputPath = args[args.indexOf('--output') + 1]!;
+        if (args[0] === 'page-sizes') {
+            await writeFile(outputPath, JSON.stringify({pages: pageNumbers.map(pageNumber => ({
+                pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 100,
+                heightPoints: 100,
+                rotation: 0,
+            }))}));
+        } else {
+            await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
+        }
+        return {
+            exitCode: 0,
+            stdout: '',
+            stderr: '',
+        };
+    });
 
     await runScanCleanupPipeline(
         {
@@ -1021,7 +1019,6 @@ describe('scan cleanup pipeline', () => {
 
     it.each([
         'lossless',
-        'probe',
         'final',
     ] as const)('%s raster fan-out honors policy concurrency 1/2/3', async site => {
         for (const rasterConcurrency of [
@@ -1032,6 +1029,10 @@ describe('scan cleanup pipeline', () => {
             await expect(measurePipelineRasterPeak(site, rasterConcurrency))
                 .resolves.toBe(rasterConcurrency);
         }
+    });
+
+    it('does not render a redundant guardrail probe when trusted PDF geometry is available', async () => {
+        await expect(measurePipelineRasterPeak('probe', 3)).resolves.toBe(0);
     });
 
     it('rejects an Auto run before rendering when an included page has no locked decision', async () => {
@@ -2035,7 +2036,7 @@ describe('scan cleanup pipeline', () => {
                     stderr: '',
                 };
             }
-            if (await answerPageSizesCommand(args)) {
+            if (await answerPageSizesCommand(args, 1)) {
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -2251,7 +2252,7 @@ describe('scan cleanup pipeline', () => {
                     stderr: '',
                 };
             }
-            if (await answerPageSizesCommand(args)) {
+            if (await answerPageSizesCommand(args, 2)) {
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -2501,7 +2502,7 @@ describe('scan cleanup pipeline', () => {
                     stderr: '',
                 };
             }
-            if (await answerPageSizesCommand(args)) {
+            if (await answerPageSizesCommand(args, 2)) {
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -2910,7 +2911,7 @@ describe('scan cleanup pipeline', () => {
                     stderr: '',
                 };
             }
-            if (await answerPageSizesCommand(args)) {
+            if (await answerPageSizesCommand(args, 2)) {
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -3057,10 +3058,9 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
-        // Undetected binary-capable pages keep the bounded 72-DPI guardrail
-        // probe before rendering at the synthesis floor.
-        expect(pipelineDependencies.renderPage).toHaveBeenCalledOnce();
-        expect(vi.mocked(pipelineDependencies.renderPage).mock.calls[0]![5]).toBe(72);
+        // Trusted PDF geometry bounds the synthesis raster without a redundant
+        // low-DPI probe render.
+        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(requestedRenderDpi).toBe(600);
         expect(finalDpi).toBe(600);
     });
@@ -3155,7 +3155,7 @@ describe('scan cleanup pipeline', () => {
                     stderr: '',
                 };
             }
-            if (await answerPageSizesCommand(args)) {
+            if (await answerPageSizesCommand(args, 4)) {
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -3389,7 +3389,7 @@ describe('scan cleanup pipeline', () => {
                     stderr: '',
                 };
             }
-            if (await answerPageSizesCommand(args)) {
+            if (await answerPageSizesCommand(args, 2)) {
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -3684,18 +3684,14 @@ describe('scan cleanup pipeline', () => {
         });
     });
 
-    /**
-     * Matched page size is the only thing a run reads page geometry for, so a
-     * document it cannot be read from is still a document worth cleaning. Both
-     * ways of not having it — no tool to ask, and a tool that fails — drop
-     * matching, say so in the summary the user reads afterwards, and clean
-     * every page at its own size.
-     */
+    // Every raster mode now needs trusted page geometry before Poppler starts.
+    // Missing or failed measurement is therefore a deterministic preflight
+    // error rather than an unbounded render with matched-page-size disabled.
     for (const [
         label,
         withPdfInfo,
         breakPageOps,
-        expectedWarning,
+        expectedError,
     ] of [
             [
                 'nothing can measure the document',
@@ -3707,36 +3703,12 @@ describe('scan cleanup pipeline', () => {
                 'the measurement itself fails',
                 false,
                 true,
-                /page geometry could not be measured/u,
+                /evb-pdf-page-ops crashed/u,
             ],
         ] as const) {
-        it(`cleans without matching when ${label}`, async () => {
+        it(`rejects before rasterization when ${label}`, async () => {
             const fixture = await setup();
-            let manifestCanvas: unknown;
-            let manifestOptions: Record<string, unknown> | undefined;
-            const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
-                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-                    documentCanvas?: unknown;
-                    pages: Array<{
-                        pageMetadataPath: string;
-                        options: Record<string, unknown>;
-                        outputs: ICleanupOutput[];
-                    }>;
-                };
-                manifestCanvas = manifest.documentCanvas;
-                manifestOptions = manifest.pages[0]!.options;
-                for (const page of manifest.pages) {
-                    await writeFile(page.pageMetadataPath, JSON.stringify({
-                        layoutClassification: 'single-uncut-page',
-                        cutterXPx: null,
-                        rotationDegrees: 0,
-                        excluded: false,
-                        blankOutputsSkipped: 0,
-                        outputCount: 1,
-                    }));
-                    await writeCleanupOutput(page.outputs[0]!, 'single-uncut-page');
-                }
-            });
+            const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn();
             const pipelineDependencies = dependencies(runSidecar);
             if (breakPageOps) {
                 const baseRunCommand = pipelineDependencies.runCommand;
@@ -3753,22 +3725,15 @@ describe('scan cleanup pipeline', () => {
                 });
             }
 
-            const summary = await runScanCleanupPipeline({
+            await expect(runScanCleanupPipeline({
                 sourcePdfPath: fixture.sourcePdfPath,
                 outputPdfPath: fixture.outputPdfPath,
                 options,
-            }, pipelinePaths(fixture.dir, breakPageOps, withPdfInfo), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
-
-            expect(summary.outputPages).toBeGreaterThan(0);
-            // The sidecar is never handed a rectangle nobody measured: it would
-            // invent one from the largest output it happened to produce, which
-            // is not the document the settings describe.
-            expect(manifestCanvas).toBeUndefined();
-            expect(manifestOptions).toMatchObject({matchPageSize: false});
-            expect(summary.warnings.filter(warning => expectedWarning.test(warning))).toHaveLength(1);
-            // And only once: the run names why it has no canvas, not twice.
-            expect(summary.warnings.filter(warning => /Matched page size was dropped/u.test(warning)))
-                .toHaveLength(1);
+            }, pipelinePaths(fixture.dir, breakPageOps, withPdfInfo), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies))
+                .rejects.toThrow(expectedError);
+            expect(runSidecar).not.toHaveBeenCalled();
+            expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
+            expect(pipelineDependencies.renderPagePpm).not.toHaveBeenCalled();
         });
     }
 

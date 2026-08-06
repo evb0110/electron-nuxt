@@ -95,7 +95,10 @@ import {
     resolveScanCleanupPath,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
-import {mainJobBroker} from '@electron/resources/jobBroker';
+import {
+    createStableJobBrokerOwnerId,
+    mainJobBroker,
+} from '@electron/resources/jobBroker';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
@@ -449,9 +452,9 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
         });
     },
-    acquireDetectionLease: (jobId, signal, rasterPolicy) => {
+    acquireDetectionLease: (ownerId, signal, rasterPolicy) => {
         return mainJobBroker.acquire({
-            ownerId: jobId,
+            ownerId,
             kind: 'scan-cleanup-detect-all',
             priority: 'user',
             resources: {
@@ -865,6 +868,15 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
             const pending = (opening.get(request.sourcePdfPath) ?? Promise.resolve())
                 .then(() => resolveDocument(request), () => resolveDocument(request));
             opening.set(request.sourcePdfPath, pending);
+            // Keep only work that is still in flight. The identity check is
+            // essential: a later caller may have chained a new open behind
+            // this one before it settles, and that newer promise must retain
+            // the per-path serialization slot.
+            void pending.finally(() => {
+                if (opening.get(request.sourcePdfPath) === pending) {
+                    opening.delete(request.sourcePdfPath);
+                }
+            }).catch(() => undefined);
             return pending;
         },
         // qpdf --show-npages costs over a second on a cold document for a value
@@ -2444,6 +2456,11 @@ export function createScanCleanupPreviewService(
             }),
         },
     });
+    const activeDetectionJobsByBrokerOwner = new Map<string, {
+        jobId: string;
+        request: IScanCleanupDetectionRequest;
+        signature: string;
+    }>();
     const detectionActor = (sender: IScanCleanupDetectionSubscriber, owner: IScanCleanupOwnerContext) => ({
         sender,
         ownerId: owner.ownerId,
@@ -2473,6 +2490,10 @@ export function createScanCleanupPreviewService(
         sender: IScanCleanupDetectionSubscriber,
         owner: IScanCleanupOwnerContext,
     ) => `${sender.id}\u0000${owner.ownerId}\u0000`;
+    const brokerOwnerId = (
+        sender: IScanCleanupDetectionSubscriber,
+        owner: IScanCleanupOwnerContext,
+    ) => createStableJobBrokerOwnerId('scan-cleanup', sender.id, owner.ownerId);
     const previewDocumentPrefix = (
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupOwnerContext & {sourcePdfPath: string},
@@ -2736,7 +2757,7 @@ export function createScanCleanupPreviewService(
                     controller.signal,
                     dependencies,
                 );
-                return withPreviewLease(documentPrefix, admission, controller.signal, async () => {
+                return withPreviewLease(brokerOwnerId(sender, request), admission, controller.signal, async () => {
                     const result = await runPreview(
                         materialized,
                         controller.signal,
@@ -2802,7 +2823,34 @@ export function createScanCleanupPreviewService(
                     errorCode: 'invalid-request',
                 });
             }
-            detectionJobs.start({
+            const ownerId = brokerOwnerId(sender, request);
+            const signature = JSON.stringify(request);
+            const previous = activeDetectionJobsByBrokerOwner.get(ownerId);
+            if (previous) {
+                const previousState = publicDetectionState(detectionJobs.get(
+                    previous.jobId,
+                    detectionActor(sender, previous.request),
+                ));
+                if (previousState && ![
+                    'completed',
+                    'failed',
+                    'canceled',
+                ].includes(previousState.status)) {
+                    if (previous.signature === signature) {
+                        subscribeDetection(sender, previous.jobId, request);
+                        return Promise.resolve({
+                            started: true,
+                            jobId: previous.jobId,
+                        });
+                    }
+                    detectionJobs.cancel(
+                        previous.jobId,
+                        detectionActor(sender, previous.request),
+                        'Superseded scan cleanup detection request',
+                    );
+                }
+            }
+            const handle = detectionJobs.start({
                 jobId,
                 owner: detectionActor(sender, request),
                 operation: {
@@ -2837,7 +2885,7 @@ export function createScanCleanupPreviewService(
                             process.platform !== 'win32'
                                 && dependencies.createRasterPipes !== undefined,
                         );
-                        lease = await acquire(jobId, job.signal, rasterPolicy);
+                        lease = await acquire(brokerOwnerId(sender, request), job.signal, rasterPolicy);
                         const materializedRequest = await materializeScanCleanupPreviewRequest(
                             request,
                             sender.id,
@@ -2879,6 +2927,17 @@ export function createScanCleanupPreviewService(
                 },
             });
             subscribeDetection(sender, jobId, request);
+            const activeEntry = {
+                jobId,
+                request,
+                signature,
+            };
+            activeDetectionJobsByBrokerOwner.set(ownerId, activeEntry);
+            void handle.settled.finally(() => {
+                if (activeDetectionJobsByBrokerOwner.get(ownerId) === activeEntry) {
+                    activeDetectionJobsByBrokerOwner.delete(ownerId);
+                }
+            }).catch(() => undefined);
             return Promise.resolve({
                 started: true,
                 jobId,
