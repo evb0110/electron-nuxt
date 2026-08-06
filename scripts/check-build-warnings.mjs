@@ -76,7 +76,8 @@ function parseWarningBlocks(logText) {
 function normalizeWarningBlock(block) {
     return block
         .replace(ansiEscapePattern, '')
-        .replaceAll(nulCharacter, '');
+        .replaceAll(nulCharacter, '')
+        .trim();
 }
 
 async function main() {

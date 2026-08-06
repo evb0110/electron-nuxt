@@ -72,10 +72,11 @@ describe('check-build-warnings', () => {
 
     it('allows bounded Rolldown plugin timing diagnostics', async () => {
         const result = await runWarningCheck([
-            'WARN [PLUGIN_TIMINGS] Your build spent 96% of 13.2s inside plugin hooks (12.6s).',
+            '[warn] \u001B[33m\u001B[33m[PLUGIN_TIMINGS] \u001B[0mYour build spent 96% of 13.2s inside plugin hooks (12.6s).',
             'Measured inside the callback, so queue time is excluded:',
             '  - @tailwindcss/vite:generate:build transform (13%, 1.7s, 102 calls)',
             'See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.',
+            '\u001B[39m',
             '',
         ].join('\n'));
 
