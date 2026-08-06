@@ -102,12 +102,11 @@ export async function createScanCleanupGeneratedOutputPath(
 
 export async function pruneScanCleanupGeneratedOutputs(options: {
     appTempDir?: string;
-    openPdfPaths: readonly string[];
+    isOutputLive: (outputPath: string) => boolean;
     nowMs?: number;
 }) {
     const outputRoot = getScanCleanupOutputRoot(options.appTempDir);
     const resolvedRoot = resolve(outputRoot);
-    const openPaths = new Set(options.openPdfPaths.map(path => resolve(path)));
     const nowMs = options.nowMs ?? Date.now();
     let entries;
     try {
@@ -126,10 +125,16 @@ export async function pruneScanCleanupGeneratedOutputs(options: {
         const resolvedDirectory = resolve(directoryPath);
         if (!resolvedDirectory.startsWith(`${resolvedRoot}${process.platform === 'win32' ? '\\' : '/'}`)) continue;
         const files = await readdir(directoryPath, {withFileTypes: true}).catch(() => []);
-        const containsOpenPdf = files.some(file => file.isFile() && openPaths.has(resolve(directoryPath, file.name)));
-        if (containsOpenPdf) continue;
+        const outputPdfPaths = files
+            .filter(file => file.isFile() && extname(file.name).toLowerCase() === '.pdf')
+            .map(file => join(directoryPath, file.name));
+        if (containsLiveOutput(outputPdfPaths, options.isOutputLive)) continue;
         const metadata = await stat(directoryPath).catch(() => null);
         if (!metadata || nowMs - metadata.mtimeMs < SCAN_CLEANUP_OUTPUT_MAX_AGE_MS) continue;
+        // Liveness can change while directory metadata is being read. Check
+        // the main-owned registry again at the last synchronous decision point
+        // before rm is submitted, so an output opened during a prune survives.
+        if (containsLiveOutput(outputPdfPaths, options.isOutputLive)) continue;
         await rm(directoryPath, {
             recursive: true,
             force: true,
@@ -137,4 +142,16 @@ export async function pruneScanCleanupGeneratedOutputs(options: {
         removed += 1;
     }
     return removed;
+}
+
+function containsLiveOutput(
+    outputPdfPaths: readonly string[],
+    isOutputLive: (outputPath: string) => boolean,
+) {
+    for (const outputPdfPath of outputPdfPaths) {
+        if (isOutputLive(outputPdfPath)) {
+            return true;
+        }
+    }
+    return false;
 }

@@ -57,7 +57,10 @@ import {
     type IMainJobRegistry,
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
-import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
+import {
+    getWorkingCopyBackingEntry,
+    isWorkingCopyOriginalPathRegistered,
+} from '@electron/file-access/workingCopyStore';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 
@@ -303,7 +306,7 @@ export interface IScanCleanupService {
     cancel: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => boolean;
     getState: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
     subscribe: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
-    pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
+    pruneGeneratedOutputs: (reportedOpenPdfPaths?: readonly string[]) => Promise<number>;
 }
 
 export const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = 128 * 1024 * 1024;
@@ -643,8 +646,10 @@ export function createScanCleanupService(): IScanCleanupService {
             }
             return state;
         },
-        pruneGeneratedOutputs(openPdfPaths) {
-            return pruneScanCleanupGeneratedOutputs({openPdfPaths});
+        pruneGeneratedOutputs(_reportedOpenPdfPaths) {
+            // A renderer can only report its own projection, and that report
+            // can already be stale by the time this asynchronous prune runs.
+            return pruneScanCleanupGeneratedOutputs({isOutputLive: isWorkingCopyOriginalPathRegistered});
         },
     };
 }

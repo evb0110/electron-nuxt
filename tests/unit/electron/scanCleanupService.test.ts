@@ -65,7 +65,9 @@ const mocks = vi.hoisted(() => {
         handoff: vi.fn(),
         host,
         hostProfile: () => host as IHostResourceProfileSnapshot,
+        isWorkingCopyOriginalPathRegistered: vi.fn(() => false),
         pageOpsDisabled: false,
+        pruneOutputs: vi.fn(async () => 0),
         runWorker,
     };
 });
@@ -102,10 +104,9 @@ vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
     {resolveNativePdfImageCombinePath: () => '/pdf-image-combine'}
 ));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
-    const pruneScanCleanupGeneratedOutputs = async () => 0;
     return {
         createScanCleanupGeneratedOutputPath: mocks.createOutput,
-        pruneScanCleanupGeneratedOutputs,
+        pruneScanCleanupGeneratedOutputs: mocks.pruneOutputs,
     };
 });
 vi.mock('@electron/output/documentOutputService', () => ({documentOutputService: {
@@ -114,7 +115,10 @@ vi.mock('@electron/output/documentOutputService', () => ({documentOutputService:
     handoff: mocks.handoff,
     finish: vi.fn(),
 }}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyBackingEntry: () => ({backing: 'materialized'})}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({
+    getWorkingCopyBackingEntry: () => ({backing: 'materialized'}),
+    isWorkingCopyOriginalPathRegistered: mocks.isWorkingCopyOriginalPathRegistered,
+}));
 vi.mock('@electron/file-access/openPathCapabilities', async importOriginal => ({
     ...await importOriginal<typeof TOpenPathCapabilitiesModule>(),
     allowOpenPath: mocks.allowOpenPath,
@@ -195,6 +199,9 @@ describe('scan cleanup service', () => {
         mocks.createOutput.mockClear();
         mocks.createOutput.mockImplementation(async () => '/managed/cleaned.pdf');
         mocks.handoff.mockReset();
+        mocks.isWorkingCopyOriginalPathRegistered.mockReset();
+        mocks.isWorkingCopyOriginalPathRegistered.mockReturnValue(false);
+        mocks.pruneOutputs.mockClear();
         mocks.runWorker.mockClear();
         mocks.pageOpsDisabled = false;
         Object.assign(mocks.host, {
@@ -246,6 +253,23 @@ describe('scan cleanup service', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('ignores a stale renderer path report and delegates liveness to the main registry', async () => {
+        const service = createScanCleanupService();
+
+        await expect(service.pruneGeneratedOutputs(['/managed/stale-reporter.pdf']))
+            .resolves.toBe(0);
+
+        expect(mocks.pruneOutputs).toHaveBeenCalledWith({isOutputLive: mocks.isWorkingCopyOriginalPathRegistered});
+    });
+
+    it('uses main-owned liveness when startup pruning has no renderer report', async () => {
+        const service = createScanCleanupService();
+
+        await expect(service.pruneGeneratedOutputs()).resolves.toBe(0);
+
+        expect(mocks.pruneOutputs).toHaveBeenCalledWith({isOutputLive: mocks.isWorkingCopyOriginalPathRegistered});
     });
 
     it.each([

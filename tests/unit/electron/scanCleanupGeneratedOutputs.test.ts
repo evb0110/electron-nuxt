@@ -14,6 +14,7 @@ import {
 } from 'path';
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -26,10 +27,20 @@ import {
     SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES,
     SCAN_CLEANUP_OUTPUT_MAX_AGE_MS,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
+import {
+    clearWorkingCopyOriginalPaths,
+    isWorkingCopyOriginalPathRegistered,
+    setWorkingCopyOriginalPath,
+} from '@electron/file-access/workingCopyStore';
 
 const tempDirs: string[] = [];
 
+beforeEach(() => {
+    clearWorkingCopyOriginalPaths();
+});
+
 afterEach(async () => {
+    clearWorkingCopyOriginalPaths();
     const {rm} = await import('fs/promises');
     await Promise.all(tempDirs.splice(0).map(path => rm(path, {
         recursive: true,
@@ -188,11 +199,87 @@ describe('scan cleanup generated output pruning', () => {
 
         await expect(pruneScanCleanupGeneratedOutputs({
             appTempDir,
-            openPdfPaths: [openPdf],
+            isOutputLive: path => path === openPdf,
             nowMs,
         })).resolves.toBe(1);
         await expect(stat(stale)).rejects.toMatchObject({code: 'ENOENT'});
         await expect(stat(open)).resolves.toBeDefined();
         await expect(stat(fresh)).resolves.toBeDefined();
+    });
+
+    it('aggregates main-owned output liveness across two WebContents', async () => {
+        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-owners-test-'));
+        tempDirs.push(appTempDir);
+        const root = getScanCleanupOutputRoot(appTempDir);
+        const first = join(root, 'first');
+        const second = join(root, 'second');
+        const orphan = join(root, 'orphan');
+        await Promise.all([
+            first,
+            second,
+            orphan,
+        ].map(path => mkdir(path, {recursive: true})));
+        const firstPdf = join(first, 'first — cleaned.pdf');
+        const secondPdf = join(second, 'second — cleaned.pdf');
+        await Promise.all([
+            writeFile(firstPdf, 'first'),
+            writeFile(secondPdf, 'second'),
+            writeFile(join(orphan, 'orphan — cleaned.pdf'), 'orphan'),
+        ]);
+        const nowMs = Date.now();
+        const oldSeconds = (nowMs - SCAN_CLEANUP_OUTPUT_MAX_AGE_MS - 1_000) / 1_000;
+        await Promise.all([
+            utimes(first, oldSeconds, oldSeconds),
+            utimes(second, oldSeconds, oldSeconds),
+            utimes(orphan, oldSeconds, oldSeconds),
+        ]);
+        await Promise.all([
+            setWorkingCopyOriginalPath('/working/first.pdf', firstPdf, 101, {deferOriginalFileExpectation: true}),
+            setWorkingCopyOriginalPath('/working/second.pdf', secondPdf, 202, {deferOriginalFileExpectation: true}),
+        ]);
+
+        await expect(pruneScanCleanupGeneratedOutputs({
+            appTempDir,
+            isOutputLive: isWorkingCopyOriginalPathRegistered,
+            nowMs,
+        })).resolves.toBe(1);
+        await expect(stat(first)).resolves.toBeDefined();
+        await expect(stat(second)).resolves.toBeDefined();
+        await expect(stat(orphan)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('rechecks main liveness before deleting when an output opens during pruning', async () => {
+        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-open-race-test-'));
+        tempDirs.push(appTempDir);
+        const root = getScanCleanupOutputRoot(appTempDir);
+        const candidate = join(root, 'candidate');
+        await mkdir(candidate, {recursive: true});
+        const candidatePdf = join(candidate, 'candidate — cleaned.pdf');
+        await writeFile(candidatePdf, 'candidate');
+        const nowMs = Date.now();
+        const oldSeconds = (nowMs - SCAN_CLEANUP_OUTPUT_MAX_AGE_MS - 1_000) / 1_000;
+        await utimes(candidate, oldSeconds, oldSeconds);
+        let initialCheck = true;
+        let registration: Promise<void> | null = null;
+
+        await expect(pruneScanCleanupGeneratedOutputs({
+            appTempDir,
+            isOutputLive: outputPath => {
+                const liveAtCheckStart = isWorkingCopyOriginalPathRegistered(outputPath);
+                if (initialCheck) {
+                    initialCheck = false;
+                    registration = setWorkingCopyOriginalPath(
+                        '/working/newly-opened.pdf',
+                        outputPath,
+                        303,
+                        {deferOriginalFileExpectation: true},
+                    );
+                }
+                return liveAtCheckStart;
+            },
+            nowMs,
+        })).resolves.toBe(0);
+        await registration;
+        await expect(stat(candidate)).resolves.toBeDefined();
     });
 });

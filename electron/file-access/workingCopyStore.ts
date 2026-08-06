@@ -581,6 +581,23 @@ export function isKnownWorkingCopyOriginalPath(originalPath: string, senderWebCo
         ));
 }
 
+/**
+ * Main-process liveness query for resources backing any active working copy.
+ *
+ * Renderer-facing lookups must remain owner-scoped, but main-owned lifecycle
+ * services (for example generated-output pruning) need the union of every
+ * WebContents owner so one window cannot retire another window's source.
+ */
+export function isWorkingCopyOriginalPathRegistered(originalPath: string) {
+    const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
+    if (!normalizedOriginalPath) {
+        return false;
+    }
+    const lookupOriginalPath = normalizePathForLookup(normalizedOriginalPath);
+    return Array.from(workingCopyMap.values())
+        .some(entry => normalizePathForLookup(entry.originalPath) === lookupOriginalPath);
+}
+
 export function getWorkingCopyOwnerWebContentsId(workingPath: string): number | undefined {
     return workingCopyMap.get(workingPath)?.ownerWebContentsId;
 }
