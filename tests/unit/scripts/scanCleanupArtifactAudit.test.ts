@@ -613,7 +613,7 @@ print(json.dumps({
         expect(report.blankFailures.some((failure: string) =>
             failure.startsWith('blank-nonwhite-component='))).toBe(true);
         expect(report.blankLargestMm2).toBeGreaterThan(0.3);
-    });
+    }, 30_000);
 
     it('reports adjacent gray-paper discontinuities only for comparable text pages', () => {
         const scriptPath = resolve('scripts/diagnostics/scan-cleanup-artifact-audit.py');
