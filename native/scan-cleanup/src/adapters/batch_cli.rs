@@ -3167,11 +3167,11 @@ mod tests {
         adaptive_thread_count, box_downsample_gray, estimate_peak_page_bytes, manifest_cache,
         manifest_worker_threads, map_image_error, materialize_stream_page,
         normalize_trusted_foreground_selection, page_worker_threads, parse_cli_args,
-        place_on_white_canvas,
-        plan_canvas_placement_for, preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
-        reconcile_classification_batch, robust_quantile_dimension, run_manifest_transaction,
-        run_stream_page_jobs, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
-        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        place_on_white_canvas, plan_canvas_placement_for, preflight_manifest_paths,
+        preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
+        robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs,
+        PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, Tier1Provenance,
+        FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
