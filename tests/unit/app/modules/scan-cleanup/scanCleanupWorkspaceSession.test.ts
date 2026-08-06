@@ -1330,6 +1330,216 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('starts and waits for scheduled replacement detection when Run lands in the empty-state turn', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`run-before-scheduled-detection-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        mounted.session.settings.values.outputMode = 'grayscale';
+        mounted.session.settings.values.marginsMm.leftMm = 6;
+        await nextTick();
+
+        // Invalidating evidence clears the terminal snapshot and schedules a
+        // replacement for the next timer turn. This used to look idle to Run,
+        // which immediately surfaced evidenceMissing without starting work.
+        expect(mounted.session.detection.terminalStatus.value).toBeNull();
+        expect(mounted.session.detection.pending.value).toBe(false);
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: 'cleanup-after-scheduled-detection',
+            outputPdfPath: '/managed/cleanup-after-scheduled-detection.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: 'cleanup-after-scheduled-detection',
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: Date.now() + 1,
+        });
+
+        const run = mounted.session.run.run();
+        await nextTick();
+
+        expect(mounted.session.run.transitionText.value).toBe('Pre-analyzing pages');
+        expect(mounted.session.run.isRunning.value).toBe(true);
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        expect(harness.value.start).not.toHaveBeenCalled();
+
+        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await run;
+
+        expect(getScanCleanupRunError(mounted.session.run.ownerId)).toBe('');
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        mounted.unmount();
+    });
+
+    it('follows a run-owned detection replaced by authoritative source identity', async () => {
+        const harness = capabilityHarness();
+        const sourceSha256 = ref<string | null>(null);
+        const deferredDetection = Promise.withResolvers<{
+            started: true;
+            jobId: string;
+        }>();
+        capability.value = harness.value;
+        const mounted = mountSession(`run-during-source-identity-${Date.now()}`, {
+            documentRevision: () => 'revision-1',
+            sourceSha256: () => sourceSha256.value,
+        });
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        vi.mocked(harness.value.detectAll)
+            .mockImplementationOnce(() => deferredDetection.promise)
+            .mockResolvedValueOnce({
+                started: true,
+                jobId: 'detect-authoritative-source',
+            });
+        mounted.session.settings.values.outputMode = 'grayscale';
+        mounted.session.settings.values.marginsMm.leftMm = 6;
+        await nextTick();
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: 'cleanup-after-source-identity',
+            outputPdfPath: '/managed/cleanup-after-source-identity.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: 'cleanup-after-source-identity',
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: Date.now() + 1,
+        });
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        expect(mounted.session.run.transitionText.value).toBe('Pre-analyzing pages');
+
+        sourceSha256.value = 'c'.repeat(64);
+        await nextTick();
+        deferredDetection.resolve({
+            started: true,
+            jobId: 'detect-legacy-source',
+        });
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(3));
+        expect(harness.value.cancelDetection).toHaveBeenCalledWith('detect-legacy-source', {
+            ownerId: mounted.session.run.ownerId,
+            documentRevision: 'revision-1',
+        });
+        expect(harness.value.start).not.toHaveBeenCalled();
+
+        harness.emitDetection(detectionState('detect-authoritative-source', 'completed'));
+        await run;
+
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(3);
+        expect(mounted.session.detection.terminalStatus.value).toBe('completed');
+        expect(mounted.session.detection.pagePlanEvidenceByPage.size).toBe(3);
+        expect(getScanCleanupRunError(mounted.session.run.ownerId)).toBe('');
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        mounted.unmount();
+    });
+
+    it('rejects a stale completed status synchronously when Run follows a document switch', async () => {
+        const harness = capabilityHarness();
+        const sourcePath = ref('/docs/immediate-run-first.pdf');
+        const documentKey = ref('immediate-run-first');
+        capability.value = harness.value;
+        const mounted = mountSession('immediate-run-first', {
+            documentKey: () => documentKey.value,
+            documentRevision: () => 'shared-revision',
+            sourcePath: () => sourcePath.value,
+        });
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await nextTick();
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: 'cleanup-second-document',
+            outputPdfPath: '/managed/cleanup-second-document.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: 'cleanup-second-document',
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: Date.now() + 1,
+        });
+
+        sourcePath.value = '/docs/immediate-run-second.pdf';
+        documentKey.value = 'immediate-run-second';
+
+        // Computed identity changes before the lifecycle watcher gets its
+        // queued flush; the prior document's completed snapshot must already
+        // be ineligible for the new document's Run click.
+        expect(mounted.session.detection.terminalStatus.value).toBeNull();
+        const run = mounted.session.run.run();
+        expect(mounted.session.run.transitionText.value).toBe('Pre-analyzing pages');
+        expect(harness.value.start).not.toHaveBeenCalled();
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await run;
+
+        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({sourcePdfPath: '/docs/immediate-run-second.pdf'}));
+        expect(getScanCleanupRunError(mounted.session.run.ownerId)).toBe('');
+        mounted.unmount();
+    });
+
+    it('serializes lifecycle replacement detection behind the exact old cancellation', async () => {
+        const harness = capabilityHarness();
+        const sourceSha256 = ref<string | null>(null);
+        const deferredCancellation = Promise.withResolvers<boolean>();
+        capability.value = harness.value;
+        const mounted = mountSession(`serialized-detection-retirement-${Date.now()}`, {
+            documentRevision: () => 'revision-1',
+            sourceSha256: () => sourceSha256.value,
+        });
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        vi.mocked(harness.value.cancelDetection).mockImplementationOnce(() => deferredCancellation.promise);
+
+        sourceSha256.value = 'd'.repeat(64);
+        await nextTick();
+        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledWith('detect-1', {
+            ownerId: mounted.session.run.ownerId,
+            documentRevision: 'revision-1',
+        }));
+        await new Promise(resolve => setTimeout(resolve, 5));
+
+        expect(harness.value.detectAll).toHaveBeenCalledOnce();
+        expect(mounted.session.detection.terminalStatus.value).toBeNull();
+
+        deferredCancellation.resolve(true);
+        harness.emitDetection(detectionState('detect-1', 'canceled'));
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+
+        expect(mounted.session.detection.isDetecting.value).toBe(true);
+        expect(mounted.session.detection.terminalStatus.value).toBeNull();
+        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        await new Promise(resolve => setTimeout(resolve, 5));
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
+        mounted.unmount();
+    });
+
     it('reports canceled detection as a typed run error', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

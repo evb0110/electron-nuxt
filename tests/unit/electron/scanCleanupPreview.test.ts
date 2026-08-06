@@ -5406,6 +5406,50 @@ describe('scan cleanup preview', () => {
         await service.dispose();
     });
 
+    it('starts fresh identical detection after cancellation is acknowledged but not terminal', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const firstEntered = Promise.withResolvers<undefined>();
+        const settleFirstCancellation = Promise.withResolvers<undefined>();
+        deps.acquireDetectionLease = vi.fn()
+            .mockImplementationOnce(async (_ownerId, signal) => {
+                firstEntered.resolve(undefined);
+                await new Promise<void>(resolve => {
+                    if (signal.aborted) {
+                        resolve();
+                        return;
+                    }
+                    signal.addEventListener('abort', () => resolve(), {once: true});
+                });
+                await settleFirstCancellation.promise;
+                throw signal.reason;
+            })
+            .mockImplementationOnce(async (_ownerId, signal) => new Promise((_, reject) => {
+                signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+            }));
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const first = await service.detectAll(owner, detectionRequest);
+        await firstEntered.promise;
+
+        expect(service.cancelDetection(owner, first.jobId, detectionRequest)).toBe(true);
+        // Detection's public progress remains queued until terminal even
+        // though the registry envelope has accepted cancellation. Join
+        // eligibility must not be inferred from this stale surface status.
+        expect(service.getDetectionJobState(owner, first.jobId, detectionRequest)?.status).toBe('queued');
+
+        const replacement = await service.detectAll(owner, detectionRequest);
+
+        expect(replacement.jobId).not.toBe(first.jobId);
+        expect(service.getDetectionJobState(owner, replacement.jobId, detectionRequest)?.status).toBe('queued');
+        settleFirstCancellation.resolve(undefined);
+        await vi.waitFor(() => expect(
+            service.getDetectionJobState(owner, first.jobId, detectionRequest)?.status,
+        ).toBe('canceled'));
+        expect(service.getDetectionJobState(owner, replacement.jobId, detectionRequest)?.status).not.toBe('canceled');
+        await service.dispose();
+    });
+
     it('cancels detect-all when the owning renderer is destroyed', async () => {
         const dir = await setup();
         const deps = dependencies(dir);

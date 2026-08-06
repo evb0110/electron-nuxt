@@ -131,7 +131,61 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let stopSubscription: (() => void) | null = null;
     let disposed = false;
     let scheduledAutoDetection: ReturnType<typeof setTimeout> | null = null;
+    let detectionRetirementTail = Promise.resolve();
     const terminalWaiters = new Map<string, Set<() => void>>();
+
+    function enqueueDetectionRetirement(detectionJobId: string, documentRevision: string) {
+        const capability = getScanCleanupCapability();
+        detectionRetirementTail = detectionRetirementTail.then(async () => {
+            if (!capability) {
+                return;
+            }
+            await new Promise<void>(resolve => {
+                let settled = false;
+                let timeout: ReturnType<typeof setTimeout> | null = null;
+                const finish = () => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    if (timeout !== null) clearTimeout(timeout);
+                    const waiters = terminalWaiters.get(detectionJobId);
+                    waiters?.delete(finish);
+                    if (waiters?.size === 0) terminalWaiters.delete(detectionJobId);
+                    resolve();
+                };
+                const waiters = terminalWaiters.get(detectionJobId) ?? new Set<() => void>();
+                waiters.add(finish);
+                terminalWaiters.set(detectionJobId, waiters);
+                timeout = setTimeout(finish, DETECTION_CANCELLATION_TIMEOUT_MS);
+                void capability.cancelDetection(detectionJobId, {
+                    ownerId: options.ownerId,
+                    documentRevision,
+                }).then(async () => {
+                    // IPC acknowledges the transition to `canceling`, not the
+                    // terminal cancellation. Reusing the stable broker owner
+                    // before that terminal event can rejoin the retiring job.
+                    const state = await capability.getDetectionJobState(detectionJobId, {
+                        ownerId: options.ownerId,
+                        documentRevision,
+                    }).catch(() => null);
+                    if (!state || detectionIsTerminal(state)) finish();
+                }).catch(finish);
+            });
+        });
+        return detectionRetirementTail;
+    }
+
+    async function waitForDetectionRetirements() {
+        // A second lifecycle transition can enqueue while the first cancel is
+        // crossing IPC. Follow the moving tail until the exact serialized
+        // queue observed after the last await has drained.
+        let awaitedTail: Promise<void>;
+        do {
+            awaitedTail = detectionRetirementTail;
+            await awaitedTail;
+        } while (awaitedTail !== detectionRetirementTail);
+    }
 
     function clearOutputModeRecommendations() {
         recommendedOutputModeByPage.clear();
@@ -164,8 +218,18 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const isDetecting = computed(() => jobState.value?.status === 'queued'
         || jobState.value?.status === 'running'
         || jobState.value?.status === 'canceling');
+    function jobBelongsToCurrentDocument() {
+        return jobDocumentKey === options.lifecycleDocumentKey.value
+            && jobDocumentRevision === options.documentRevision.value;
+    }
     const terminalStatus = computed<'completed' | 'failed' | 'canceled' | null>(() => {
         const status = jobState.value?.status;
+        if (
+            !jobBelongsToCurrentDocument()
+            || (status === 'completed' && !evidenceIsCurrent())
+        ) {
+            return null;
+        }
         return status === 'completed' || status === 'failed' || status === 'canceled'
             ? status
             : null;
@@ -446,10 +510,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         if (isStale()) {
             if (result.started) {
-                void capability.cancelDetection(result.jobId, {
-                    ownerId: options.ownerId,
-                    documentRevision: requestDocumentRevision,
-                }).catch(() => undefined);
+                void enqueueDetectionRetirement(result.jobId, requestDocumentRevision);
             }
             // The lifecycle watcher may have tried to schedule the replacement
             // while `starting` still belonged to this request. Make the retry
@@ -629,7 +690,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     return;
                 }
                 if (!latest) {
-                    finish();
+                    // A subscribed job can briefly be absent from a direct
+                    // reconciliation read while its start is publishing. A
+                    // run waiting for evidence must keep its event waiter in
+                    // place; cancellation, conversely, may treat absence as
+                    // terminal because there is no remaining work to stop.
+                    if (cancelCurrent) finish();
                     return;
                 }
                 applyState(latest);
@@ -642,7 +708,83 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     async function waitForTerminal() {
-        await settleCurrentDetection(false);
+        // Evidence invalidation clears the completed snapshot before its
+        // zero-delay replacement is started. A cleanup click can land in that
+        // turn: make the click own the replacement rather than returning from
+        // an empty session and misclassifying the transient gap as missing
+        // evidence. Acquiring an authoritative source hash can retire that
+        // run-owned start in flight, so follow only the replacement explicitly
+        // scheduled by the current lifecycle. Terminal failed/canceled states
+        // and real start failures remain authoritative and are not retried.
+        const waitSourcePath = options.sourcePath.value;
+        const waitDocumentRevision = options.documentRevision.value;
+        let mayStartMissingDetection = jobState.value === null;
+        const belongsToWaitedDocument = () => waitSourcePath === options.sourcePath.value
+            && waitDocumentRevision === options.documentRevision.value;
+        while (!disposed && options.active() && belongsToWaitedDocument()) {
+            if (terminalStatus.value !== null) {
+                return;
+            }
+            if (
+                jobState.value !== null
+                && (
+                    !jobBelongsToCurrentDocument()
+                    || detectionIsTerminal(jobState.value)
+                )
+            ) {
+                // Computed identity changes synchronously, while the watcher
+                // that retires the old maps and schedules their replacement
+                // runs in Vue's next flush. Do not let the raw prior terminal
+                // snapshot escape through that one-turn gap.
+                mayStartMissingDetection = true;
+                await nextTick();
+                if (!belongsToWaitedDocument() || terminalStatus.value !== null) {
+                    return;
+                }
+            }
+            if (jobState.value === null && !starting.value) {
+                if (
+                    !mayStartMissingDetection
+                    || error.value
+                    || getScanCleanupCapability() === null
+                ) {
+                    return;
+                }
+                if (scheduledAutoDetection !== null) {
+                    clearTimeout(scheduledAutoDetection);
+                    scheduledAutoDetection = null;
+                    autoPending.value = false;
+                }
+                await waitForDetectionRetirements();
+                if (!belongsToWaitedDocument() || disposed || !options.active()) {
+                    return;
+                }
+                const generation = requestGeneration;
+                mayStartMissingDetection = false;
+                await detectAllPages(false);
+                if (!belongsToWaitedDocument() || terminalStatus.value !== null) {
+                    return;
+                }
+                if (jobState.value === null) {
+                    const replacementScheduled = scheduledAutoDetection !== null
+                        || generation !== requestGeneration;
+                    if (!replacementScheduled || error.value) {
+                        return;
+                    }
+                    mayStartMissingDetection = true;
+                    continue;
+                }
+            }
+            await settleCurrentDetection(false);
+            if (!belongsToWaitedDocument() || terminalStatus.value !== null) {
+                return;
+            }
+            if (jobState.value === null && scheduledAutoDetection !== null && !error.value) {
+                mayStartMissingDetection = true;
+                continue;
+            }
+            return;
+        }
     }
 
     function cacheIsFresh(entry: IDetectionSessionCacheEntry) {
@@ -664,6 +806,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (!cached || !cacheIsFresh(cached)) {
             return false;
         }
+        jobDocumentKey = key;
+        jobDocumentRevision = options.documentRevision.value;
         jobState.value = structuredClone(cached.state);
         detectionResultsByPage.clear();
         for (const result of cached.results) detectionResultsByPage.set(result.pageNumber, result);
@@ -720,10 +864,20 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (disposed || scheduledAutoDetection !== null) {
             return;
         }
-        scheduledAutoDetection = setTimeout(() => {
+        const generation = requestGeneration;
+        const scheduled = setTimeout(async () => {
+            await waitForDetectionRetirements();
+            if (scheduledAutoDetection !== scheduled) {
+                return;
+            }
             scheduledAutoDetection = null;
+            if (generation !== requestGeneration) {
+                scheduleAutoDetect();
+                return;
+            }
             void maybeAutoDetect();
         }, 0);
+        scheduledAutoDetection = scheduled;
     }
 
     onMounted(() => {
@@ -734,10 +888,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         retireSupersededScanCleanupDetectionState(key);
         requestGeneration += 1;
         if (jobId && isDetecting.value) {
-            void getScanCleanupCapability()?.cancelDetection(jobId, {
-                ownerId: options.ownerId,
-                documentRevision: jobDocumentRevision ?? options.documentRevision.value,
-            }).catch(() => undefined);
+            void enqueueDetectionRetirement(
+                jobId,
+                jobDocumentRevision ?? options.documentRevision.value,
+            );
         }
         jobId = null;
         jobDocumentRevision = null;

@@ -2823,23 +2823,28 @@ export function createScanCleanupPreviewService(
                     previous.jobId,
                     detectionActor(sender, previous.request),
                 ));
-                if (previousState && ![
-                    'completed',
-                    'failed',
-                    'canceled',
-                ].includes(previousState.status)) {
-                    if (previous.signature === signature) {
+                if (previousState && (
+                    previousState.status === 'queued'
+                    || previousState.status === 'running'
+                    || previousState.status === 'canceling'
+                )) {
+                    if (
+                        previous.signature === signature
+                        && previousState.status !== 'canceling'
+                    ) {
                         subscribeDetection(sender, previous.jobId, request);
                         return Promise.resolve({
                             started: true,
                             jobId: previous.jobId,
                         });
                     }
-                    detectionJobs.cancel(
-                        previous.jobId,
-                        detectionActor(sender, previous.request),
-                        'Superseded scan cleanup detection request',
-                    );
+                    if (previous.signature !== signature) {
+                        detectionJobs.cancel(
+                            previous.jobId,
+                            detectionActor(sender, previous.request),
+                            'Superseded scan cleanup detection request',
+                        );
+                    }
                 }
             }
             const handle = detectionJobs.start({
@@ -2945,7 +2950,19 @@ export function createScanCleanupPreviewService(
             ].includes(state.status)) {
                 return false;
             }
-            return detectionJobs.cancel(jobId, actor, 'Scan cleanup detection canceled');
+            const canceled = detectionJobs.cancel(jobId, actor, 'Scan cleanup detection canceled');
+            if (canceled) {
+                const ownerId = brokerOwnerId(sender, owner);
+                if (activeDetectionJobsByBrokerOwner.get(ownerId)?.jobId === jobId) {
+                    // The registry exposes canceling on its envelope while the
+                    // detection progress payload still carries its last
+                    // queued/running status. Remove the join candidate at the
+                    // same boundary that acknowledges cancellation, so a new
+                    // identical request cannot inherit the retiring job.
+                    activeDetectionJobsByBrokerOwner.delete(ownerId);
+                }
+            }
+            return canceled;
         },
         getDetectionJobState(sender, jobId, owner) {
             return publicDetectionState(detectionJobs.get(jobId, detectionActor(sender, owner)));

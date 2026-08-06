@@ -380,6 +380,7 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-toolbar-status-slot {
     width: var(--app-scan-toolbar-status-width);
+    height: var(--app-control-height-xs);
     min-width: var(--app-scan-toolbar-status-width);
     flex: none;
     justify-content: flex-start;

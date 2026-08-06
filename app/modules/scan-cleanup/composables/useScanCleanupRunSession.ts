@@ -102,12 +102,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         && margin >= 0
         && margin <= 25
     )));
-    const missingAutomaticModeDecisions = computed(() => runPageNumbers.value.filter(pageNumber => {
-        const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
-        return !pageOverride.excluded
-            && (pageOverride.outputModeOverride ?? options.settings.outputMode) === 'auto'
-            && !options.recommendedOutputModeByPage.has(pageNumber);
-    }));
     const progress = computed(() => scanCleanupRun.jobState?.progress ?? {
         stage: 'queued' as const,
         completedUnits: 0,
@@ -215,7 +209,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             // The detection pass is a uniform run input. A click made while it
             // is still running becomes one visible, cancelable cleanup attempt
             // and proceeds only after that pass reaches a terminal state.
-            if (options.detectionPending.value) {
+            if (options.detectionPending.value || options.detectionStatus.value === null) {
                 transition.value = 'waiting-for-detection';
                 await Promise.race([
                     options.waitForDetectionBeforeRun(),
@@ -247,10 +241,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     ? options.detectionErrorCode.value ?? 'internal'
                     : detectionStatus === 'canceled'
                         ? 'canceled'
-                        : 'internal';
+                        : options.detectionErrorCode.value ?? 'internal';
                 reportScanCleanupRunError(
                     options.ownerId,
-                    detectionStatus === 'failed' && options.detectionError.value
+                    (detectionStatus === 'failed' || detectionStatus === null) && options.detectionError.value
                         ? options.detectionError.value
                         : t('scanCleanup.detectAll.evidenceMissing'),
                     requestSourcePdfPath,
@@ -270,7 +264,13 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 );
                 return;
             }
-            if (missingAutomaticModeDecisions.value.length > 0) {
+            const missingAutomaticModeDecisions = requestedPageNumbers.filter(pageNumber => {
+                const pageOverride = getScanCleanupPageOverride(requestOptions.pageOverrides, pageNumber);
+                return !pageOverride.excluded
+                    && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
+                    && !options.recommendedOutputModeByPage.has(pageNumber);
+            });
+            if (missingAutomaticModeDecisions.length > 0) {
                 reportScanCleanupRunError(
                     options.ownerId,
                     options.detectionError.value || t('scanCleanup.detectAll.evidenceMissing'),

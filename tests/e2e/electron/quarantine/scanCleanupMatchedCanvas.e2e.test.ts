@@ -187,11 +187,20 @@ async function openScanCleanup(page: Page, sourcePath: string) {
     // A completed cleanup opens its generated PDF asynchronously. On a slow
     // runner that handoff can otherwise win after openPdfInApp has returned,
     // leaving the generated document's reduced toolbar under this scenario.
+    // The source working copy is established after the visible PDF becomes
+    // interactive; scan cleanup is deliberately disabled until that path is
+    // ready, so wait for the capability input instead of relying on the
+    // toolbar helper's short generic disabled-control grace period.
     await waitForFunctionInPage(page, (expectedPath: string) => {
         const active = (window as IWorkspaceExposeProbeWindow)
             .__evbTestApi
-            ?.readActiveWorkspaceStateValues?.(['originalPath']);
-        return active?.originalPath === expectedPath;
+            ?.readActiveWorkspaceStateValues?.([
+                'originalPath',
+                'workingCopyPath',
+            ]);
+        return active?.originalPath === expectedPath
+            && typeof active.workingCopyPath === 'string'
+            && active.workingCopyPath.length > 0;
     }, {timeout: 180_000}, sourcePath);
     await waitForFunctionInPage(page, () => {
         const toolbar = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
@@ -351,6 +360,21 @@ async function expectChecked(page: Page, label: string) {
     expect(matching.length, `no checkbox labelled "${label}" in ${JSON.stringify(checkboxes)}`)
         .toBeGreaterThan(0);
     expect(matching.every(checkbox => checkbox.checked)).toBe(true);
+}
+
+async function waitForUniformAnalysis(page: Page, sourcePath: string) {
+    await waitForFunctionInPage(page, (expectedPath: string) => {
+        const active = (window as IWorkspaceExposeProbeWindow)
+            .__evbTestApi
+            ?.readActiveWorkspaceStateValues?.(['originalPath']);
+        return active?.originalPath === expectedPath
+            && document.querySelector<HTMLElement>('.scan-cleanup-surface')
+                ?.dataset.detectionStatus === 'completed';
+    }, {timeout: 900_000}, sourcePath);
+    const state = await readRunState(page);
+    if (state.error) {
+        throw new Error(`Uniform page analysis failed: ${state.error}`);
+    }
 }
 
 // Scan cleanup settings are global preferences shared by every document in the
@@ -733,9 +757,7 @@ describe('scan cleanup matched page canvas', () => {
         );
         await openScanCleanup(page, sourcePath);
         await ensureChecked(page, 'Match page size');
-        await waitForFunctionInPage(page, () => document.querySelector(
-            '.scan-cleanup-toolbar-cancel-detection',
-        ) === null, {timeout: 900_000});
+        await waitForUniformAnalysis(page, sourcePath);
         await waitForPreview(page, 1);
         const previewFrames = await readFrames(page);
         const previewCanvasPoints = {
@@ -804,9 +826,7 @@ describe('scan cleanup matched page canvas', () => {
         );
         await openScanCleanup(page, sourcePath);
         await ensureChecked(page, 'Match page size');
-        await waitForFunctionInPage(page, () => document.querySelector(
-            '.scan-cleanup-toolbar-cancel-detection',
-        ) === null, {timeout: 900_000});
+        await waitForUniformAnalysis(page, sourcePath);
 
         // Page 1 is the 288 DPI Letter scan, page 2 the same Letter paper at
         // 144, and page 3 the same original at 144 carried as a half-size page.
@@ -907,9 +927,7 @@ describe('scan cleanup matched page canvas', () => {
         );
         await openScanCleanup(page, sourcePath);
         await ensureChecked(page, 'Match page size');
-        await waitForFunctionInPage(page, () => document.querySelector(
-            '.scan-cleanup-toolbar-cancel-detection',
-        ) === null, {timeout: 900_000});
+        await waitForUniformAnalysis(page, sourcePath);
         await waitForPreview(page, 1);
         const previewFrames = await readFrames(page);
 
@@ -990,9 +1008,7 @@ describe('scan cleanup matched page canvas', () => {
         );
         await openScanCleanup(page, sourcePath);
         await ensureChecked(page, 'Match page size');
-        await waitForFunctionInPage(page, () => document.querySelector(
-            '.scan-cleanup-toolbar-cancel-detection',
-        ) === null, {timeout: 900_000});
+        await waitForUniformAnalysis(page, sourcePath);
         // Turn to the low-resolution page and clean that page alone.
         expect(await nextPage(page)).toBe(true);
         await waitForPreview(page, 2);

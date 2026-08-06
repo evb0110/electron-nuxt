@@ -40,6 +40,7 @@
     <section
         class="scan-cleanup-surface"
         :aria-label="t('scanCleanup.workspaceTitle')"
+        :data-detection-status="detectionTerminalStatus ?? (detectionPending ? 'pending' : 'idle')"
     >
         <div
             v-if="showBlankPageHint"
@@ -348,6 +349,7 @@ const {
     progressPhaseText: detectionProgressPhaseText,
     progressText: detectionProgressText,
     progressWidestText: detectionProgressWidestText,
+    terminalStatus: detectionTerminalStatus,
     settledPages: detectionSettledPages,
     recommendedOutputModeByPage,
     recommendedOutputModeConfidenceByPage,

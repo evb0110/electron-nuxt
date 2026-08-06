@@ -77,18 +77,16 @@ describe('nightly scan cleanup journey', () => {
             timeout: 10_000,
             visible: true,
         });
+        // Cleanup owns the full pre-analysis lifecycle: a click made before
+        // the first page verdict queues behind detection and still has to
+        // produce the same committed document. Waiting for a classification
+        // here bypassed that user-visible path and raced the deferred
+        // document-identity transition that starts automatic detection.
         await waitForFunctionInPage(session.page, () => {
-            const classification = document.querySelector<HTMLElement>(
-                '.scan-thumbnail-overlay[data-classification]',
-            )?.dataset.classification;
             const action = document.querySelector<HTMLButtonElement>(
                 '.scan-cleanup-toolbar-primary-action',
             );
-            return Boolean(
-                classification === 'single'
-                && action
-                && !action.disabled,
-            );
+            return Boolean(action && !action.disabled);
         }, {timeout: 90_000});
 
         await installCommittedSurfaceSampler(session.page);
