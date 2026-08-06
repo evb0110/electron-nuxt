@@ -165,4 +165,50 @@ describe('batched PDF MRC extraction', () => {
             args,
         ]) => args.includes('-jpeg'))).toBe(false);
     });
+
+    it('propagates an aborted object-table inspection without logging or caching a fallback', async () => {
+        const scratch = await createScratch();
+        const controller = new AbortController();
+        const abortError = new DOMException('MRC inspection canceled', 'AbortError');
+        const log = vi.fn();
+        const runCommand = vi.fn<typeof runNativeToolCommand>(async (command, args) => {
+            if (command === '/qpdf') {
+                controller.abort(abortError);
+                throw abortError;
+            }
+            if (args.includes('-list')) {
+                return {
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: [
+                        'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                        '1 0 image 706 1066 rgb 3 8 jpx no 1 0 120 120 1K 1%',
+                        '1 1 image 2120 3202 rgb 3 8 jpx no 2 0 360 360 1K 1%',
+                        '1 2 smask 2120 3202 gray 1 1 jbig2 no 2 0 360 360 1K 1%',
+                    ].join('\n'),
+                };
+            }
+            throw new Error(`Unexpected command: ${command}`);
+        });
+        const extraction = extractPdfMrcLayersBatch({
+            pdfPath: '/source.pdf',
+            targets: [{
+                pageNumber: 1,
+                backgroundOutputPath: join(scratch, 'background-1.ppm'),
+                foregroundOutputPath: join(scratch, 'foreground-1.jp2'),
+                selectionMaskOutputPath: join(scratch, 'selection-1.jb2e'),
+            }],
+            pdfimagesBinary: '/pdfimages',
+            qpdfBinary: '/qpdf',
+            pdfImageCombineBinary: '/combine',
+            pdftoppmBinary: '/pdftoppm',
+            runCommand,
+            log,
+            signal: controller.signal,
+        });
+
+        await expect(extraction).rejects.toBe(abortError);
+        expect(runCommand.mock.calls.filter(([command]) => command === '/qpdf')).toHaveLength(1);
+        expect(log).not.toHaveBeenCalledWith('warn', expect.any(String));
+    });
 });

@@ -160,6 +160,22 @@ async function streamScanCleanupSidecar(
         stderr = `${stderr}${chunk}`.slice(-64 * 1024);
     });
     const lines = createInterface({input: child.stdout!});
+    const failProtocol = (error: unknown, line: string) => {
+        if (protocolError !== null) {
+            return;
+        }
+        protocolError = error instanceof Error ? error : new Error(String(error));
+        try {
+            lines.close();
+        } catch {
+            // Termination and the original protocol failure still take precedence.
+        }
+        // A fatal decoder/schema/progress-consumer failure means stdout can no
+        // longer be consumed safely. Stop the whole detached tree immediately;
+        // the recorded protocol error remains the terminal authority.
+        terminateForFatalError();
+        log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
+    };
     lines.on('line', line => {
         if (protocolError || terminalResult) {
             return;
@@ -194,9 +210,7 @@ async function streamScanCleanupSidecar(
                 nativeFailure = new NativeScanCleanupError(envelope.result.code, envelope.result.message);
             }
         } catch (error) {
-            protocolError = error instanceof Error ? error : new Error(String(error));
-            log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
-            terminateForFatalError();
+            failProtocol(error, line);
         }
     });
     let aborting = false;
@@ -209,18 +223,24 @@ async function streamScanCleanupSidecar(
     signal.addEventListener('abort', handleAbort, {once: true});
     if (signal.aborted) handleAbort();
     try {
-        const result = await new Promise<{
+        let result: {
             code: number | null;
             signal: NodeJS.Signals | null
-        }>((resolve, reject) => {
-            child.once('error', reject);
-            child.once('exit', (code, exitSignal) => resolve({
-                code,
-                signal: exitSignal,
-            }));
-        });
-        if (aborting || signal.aborted) throw abortErrorFromSignal(signal);
+        };
+        try {
+            result = await new Promise((resolve, reject) => {
+                child.once('error', reject);
+                child.once('exit', (code, exitSignal) => resolve({
+                    code,
+                    signal: exitSignal,
+                }));
+            });
+        } catch (error) {
+            throwIfError(protocolError);
+            throw error;
+        }
         throwIfError(protocolError);
+        if (aborting || signal.aborted) throw abortErrorFromSignal(signal);
         throwIfError(nativeFailure);
         if (result.code !== 0) {
             const envelope = parseNativeScanCleanupStderr(stderr);

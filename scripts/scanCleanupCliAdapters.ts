@@ -537,6 +537,12 @@ function decodeNativeEnvelope(line: string) {
     return NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA.decode(JSON.parse(line));
 }
 
+function throwCliProtocolError(error: Error | null) {
+    if (error !== null) {
+        throw error;
+    }
+}
+
 function parseNativeError(stderr: string): {
     code: TNativeErrorCode;
     message: string
@@ -594,6 +600,19 @@ export async function runCliScanCleanupSidecar(
         stderr = `${stderr}${chunk}`.slice(-64 * 1024);
     });
     const lines = createInterface({input: child.stdout});
+    const failProtocol = (error: unknown, line: string) => {
+        if (protocolError !== null) {
+            return;
+        }
+        protocolError = error instanceof Error ? error : new Error(String(error));
+        try {
+            lines.close();
+        } catch {
+            // Termination and the original protocol failure still take precedence.
+        }
+        terminateCliChild(child);
+        log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
+    };
     lines.on('line', line => {
         if (protocolError !== null || terminalStatus !== null) {
             return;
@@ -622,8 +641,7 @@ export async function runCliScanCleanupSidecar(
             terminalStatus = envelope.result.status;
             if (envelope.result.status === 'failure') nativeFailure.value = envelope.result;
         } catch (error) {
-            protocolError = error instanceof Error ? error : new Error(String(error));
-            log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
+            failProtocol(error, line);
         }
     });
     let aborting = false;
@@ -633,19 +651,24 @@ export async function runCliScanCleanupSidecar(
     };
     signal.addEventListener('abort', onAbort, {once: true});
     try {
-        const result = await new Promise<{
+        let result: {
             code: number | null;
             signal: NodeJS.Signals | null
-        }>((resolve, reject) => {
-            child.once('error', reject);
-            child.once('exit', (code, exitSignal) => resolve({
-                code,
-                signal: exitSignal,
-            }));
-        });
+        };
+        try {
+            result = await new Promise((resolve, reject) => {
+                child.once('error', reject);
+                child.once('exit', (code, exitSignal) => resolve({
+                    code,
+                    signal: exitSignal,
+                }));
+            });
+        } catch (error) {
+            throwCliProtocolError(protocolError);
+            throw error;
+        }
+        throwCliProtocolError(protocolError);
         if (aborting || signal.aborted) throw signal.reason;
-        const protocolFailure = protocolError;
-        if (protocolFailure !== null) throw new Error(String(protocolFailure));
         const failure = nativeFailure.value;
         if (failure !== null) {
             throw new Error(`${failure.code}: ${failure.message}`);

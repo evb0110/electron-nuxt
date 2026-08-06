@@ -195,6 +195,17 @@ async function inspectMrcObjectTable(input: {
         }
         return objects;
     } catch (error) {
+        input.commandOptions.signal?.throwIfAborted();
+        if (
+            error !== null
+            && typeof error === 'object'
+            && (
+                ('name' in error && error.name === 'AbortError')
+                || ('code' in error && error.code === 'ABORT_ERR')
+            )
+        ) {
+            throw error;
+        }
         input.log(
             'warn',
             `PDF MRC compact reuse skipped because source mask polarity could not be read: ${
