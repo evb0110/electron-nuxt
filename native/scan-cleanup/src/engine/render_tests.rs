@@ -791,7 +791,7 @@ mod tests {
             let left = 55 + glyph * 20;
             for y in 44..62 {
                 for x in left..left + 12 {
-                    if x < left + 3 || x + 3 >= left + 12 || y < 47 || y >= 59 {
+                    if x < left + 3 || x + 3 >= left + 12 || !(47..59).contains(&y) {
                         source.set(x, y, 142);
                         trusted_foreground.set(x, y, true);
                     }
