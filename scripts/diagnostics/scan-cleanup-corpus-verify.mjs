@@ -540,6 +540,9 @@ function parseDominantSourceDpi(output, pageNumber) {
             && candidate.yPpi > 0);
     candidates.sort((left, right) => right.area - left.area);
     const dominant = candidates[0];
+    const largestBilevelArea = candidates
+        .filter(candidate => candidate.bitsPerComponent === 1)
+        .reduce((largest, candidate) => Math.max(largest, candidate.area), 0);
     const background = candidates
         .filter(candidate => candidate.bitsPerComponent > 1
             && !maskedObjectIds.has(candidate.objectId))
@@ -558,6 +561,8 @@ function parseDominantSourceDpi(output, pageNumber) {
                 'mask',
                 'smask',
             ].includes(parts[2])),
+        hasDominantBilevelLayer: dominant !== undefined
+            && largestBilevelArea >= dominant.area * 0.95,
     };
 }
 
@@ -1263,6 +1268,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             const {
                 dpi: sourceDpi,
                 hasBilevelLayer: sourceHasBilevelLayer,
+                hasDominantBilevelLayer: sourceHasDominantBilevelLayer,
                 backgroundDpi: sourceBackgroundDpi,
             } = parseDominantSourceDpi(dpiListing.stdout, pageNumber);
             const sourceRaster = await rasterize(
@@ -1288,6 +1294,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 pageNumber,
                 sourceDpi,
                 sourceHasBilevelLayer,
+                sourceHasDominantBilevelLayer,
                 sourceBackgroundDpi,
                 sourceRaster,
             };
@@ -1341,14 +1348,16 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 pageNumber,
                 sourceDpi,
                 sourceHasBilevelLayer,
+                sourceHasDominantBilevelLayer,
                 sourceRaster,
             } = page;
             const supersampled = analysis.recommendedOutputMode === 'bw'
             || analysis.recommendedOutputMode === 'mixed';
-            const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi(
+            const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi({
                 sourceDpi,
-                supersampled,
-            );
+                outputCarriesBinaryLayer: supersampled,
+                sourceHasDominantBilevelLayer,
+            });
             const renderDpi = supersampled
                 ? resolveSafeRenderDpi(
                     requestedRenderDpi,
