@@ -1,6 +1,6 @@
 # Scan-cleanup live-run improvement ledger (2026-08-07)
 
-Status: implemented and verified locally; final independent review and remote publication are recorded below. This ledger is based on a live 392-page development-app run and an independent read-only Claude Opus 5 design review. It supersedes guesses made from the screenshot alone and does not reopen completed stage-28 audit findings.
+Status: implementation, local verification, and final independent review complete; remote reconciliation/publication follows this ledger commit. This ledger is based on a live 392-page development-app run and two independent read-only Claude Opus 5 passes (design and final implementation review). It supersedes guesses made from the screenshot alone and does not reopen completed stage-28 audit findings.
 
 ## Goal
 
@@ -12,7 +12,7 @@ The reference input is:
 - 392 pages, 38,272,924 bytes
 - already-compact 360-DPI MRC: 392 full-page 1-bit JBIG2 selection masks plus continuous-tone JPX layers
 
-The reference output is:
+The pre-fix reference output is:
 
 - `History of Ancient Rome_2005 raw — cleaned.pdf`
 - 59,312,694 bytes, 1.550x the source
@@ -155,7 +155,7 @@ Implementation:
 
 Acceptance:
 
-- 5mm requested on differently sized/cropped pages delivers `5.0 +/- 0.1mm` on every matched output while the PDF page rectangle remains unchanged;
+- 5mm requested on differently sized/cropped pages produces a `5.0 +/- 0.1mm` final-grid margin-box inset while the PDF page rectangle remains unchanged; the visible soft paper band is never smaller and may be enlarged by content alignment;
 - unmatched behavior retains current outward-rounded sample preservation;
 - preview and final use identical geometry;
 - changing margins then immediately starting a final run cannot leave `loading=false` with the previous settings' cleaned result.
@@ -254,17 +254,18 @@ Review and delivery:
 | Stage | Commit(s) | Outcome |
 | --- | --- | --- |
 | Ledger and independent design review | `756be00f8` | Reconstructed the live run from logs and PDF structure, then recorded decisions before implementation. |
-| S1 source-aware render DPI | `7e2d17290` | Dominant full-page bilevel sources retain their source grid; continuous sources still receive the 2x/600-DPI thresholding policy. |
+| S1 source-aware render DPI | `7e2d17290`, `acbfa31ee` | Dominant full-page bilevel sources retain their source grid; continuous sources still receive the 2x/600-DPI thresholding policy. The review follow-up recognizes stencils and keeps a finer dominant mask grid instead of accidentally downgrading it to a lower-resolution tonal companion. |
 | S2 progress and toolbar | `49ea68584` | Streaming conversion is one weighted `rendering` stage with ETA; the toolbar track and numeric slots have stable geometry. |
 | S3 matched margins and preview truth | `c8c8c5725`, `1469e3cd3` | Final-canvas insets preserve physical margins, preview uses the same geometry, and stale results are not presented as current. |
-| S4 bounded FIFO look-ahead | `01a713213`, `34adf4099`, `b8a6a23e8`, `8d3d8a844` | Reader materialization overlaps native work within the declared raster window, with cancellation/deadline stress coverage. |
-| S5 bounded MRC extraction | `a01216014`, `b3ffe76a9` | Independent chunks extract concurrently while qpdf inspection remains once-only and progress stays monotonic. |
+| S4 bounded FIFO look-ahead | `01a713213`, `34adf4099`, `b8a6a23e8`, `8d3d8a844`, `7a2772799` | Reader materialization overlaps native work within the declared raster window. The review follow-up makes future FIFO opens nonblocking/cancel-aware and budgets both producer and native materialized copies. |
+| S5 bounded MRC extraction | `a01216014`, `b3ffe76a9`, `7a2772799` | Independent chunks extract concurrently while qpdf inspection remains once-only and progress stays monotonic. Successful pages from a partially failed chunk survive; abort still terminates the operation. |
 | S6 migration salvage | `4c6bd1182` | Valid legacy settings survive malformed siblings; current writes remain strict. |
-| Cleanup and verification support | `5c6d578bc`, `647cbbbb1`, `7e61cfc25`, `b1d27d049` | Removed obsolete shims, kept corpus DPI planning aligned, made restricted JPX verification fail-closed but correctly classified, and made word-loss checks consume canonical render geometry. |
+| Cleanup and verification support | `5c6d578bc`, `647cbbbb1`, `7e61cfc25`, `b1d27d049`, `fac13f27d`, `92e8c3955` | Removed obsolete shims, kept corpus DPI planning aligned, made restricted-renderer verification and weak word-loss comparisons fail closed, added negative controls, and refreshed only shifted coordinates for already-baselined clone groups. |
+| Measured outcome | `7278417a9` | Recorded the real 392-page conversion rather than extrapolating from unit timings. |
 
 ### Reference-book result
 
-The final 392-page parity conversion is at
+The measured 392-page parity conversion is at
 `.devkit/tmp/scan-cleanup-ledger-evidence/reference-full-after/History of Ancient Rome_2005 raw — cleaned.pdf`.
 Its adjacent machine summary is the authority for these figures:
 
@@ -273,7 +274,9 @@ Its adjacent machine summary is the authority for these figures:
 - total wall: 530.2s versus 969.5s, 45.3% faster;
 - detection: 175.3s; conversion after detection: 354.9s;
 - modes unchanged at 331 `bw`, 57 `mixed`, 2 `grayscale`, and 2 `color`;
-- all 392 outputs use the 360-DPI source grid; the policy still supersamples continuous sources that are thresholded for the first time.
+- all 392 outputs in this source-specific run use the 360-DPI source grid; the policy still supersamples continuous sources that are thresholded for the first time, and the final parser recognizes both ordinary 1-bit images and PDF stencils while retaining any finer dominant mask grid.
+
+This benchmark predates the final Opus follow-up commits `acbfa31ee`, `7a2772799`, and `fac13f27d`. It validates the primary performance implementation, not a remeasurement of the later guardrails and diagnostic semantics. Those follow-ups do not deliberately add per-page image work, but no post-review runtime or size claim is inferred without another full conversion.
 
 The aspirational `<= 0.85x` size target and `<= 260s` conversion target were not met. They were measurement goals, not product limits, and no quality or compatibility rule was weakened to force them. The remaining bytes belong chiefly to the 57 mixed and four continuous-tone pages; deleting their retained tone would be a different product-quality decision. The implemented result satisfies the user's representation-aware expectation for this already highly compressed MRC source: the predominantly B/W conversion is smaller despite retaining necessary mixed/color content.
 
@@ -282,35 +285,51 @@ The aspirational `<= 0.85x` size target and `<= 260s` conversion target were not
 - Streaming logs now advance through `rendering:0/392 ... rendering:392/392`; they no longer present rasterization and native cleanup as sequential work.
 - Reporter tests pin monotonic weighted progress and the ETA warm-up rule.
 - Toolbar tests pin a fixed central track with reserved count and percent widths.
-- Native/core/app tests pin final-grid 5mm margins to `5.0 +/- 0.1mm`, including rotated and differently cropped matched pages.
-- Preview/final geometry parity and stale-result invalidation are covered at their ownership boundaries.
+- Native/core/app tests pin a requested final-grid 5mm inset to at least `5.0mm`, including rotated and differently cropped matched pages. Placement/alignment can create a larger visible paper band; it must never make the requested inset smaller.
+- `appliedMargins` records the requested physical inset, while `softMarginsPixels` records the delivered final-grid paper band. Warnings now name the requested margin box and final conversion aggregates affected pages instead of emitting misleading per-page spam.
+- Preview and Rust have mirrored implementations of the same geometry contract, warning semantics, and parity fixtures; they do not literally share a cross-language runtime function. Stale-result invalidation is covered at the preview ownership boundary.
 
 ### Quality and compatibility evidence
 
 - Acceptance2 corpus: 24/24 assertions, artifact audit 6/6 pages, no page or neighbor failures; evidence at `.devkit/tmp/scan-cleanup-ledger-evidence/acceptance2-after-2/corpus-summary.json`.
 - Rome regression corpus: 29/29 assertions, including the visually inspected legitimate torch/staff boundary component; evidence at `.devkit/tmp/scan-cleanup-ledger-evidence/regress-corpus-final/corpus-summary.json`.
-- Word-loss audit: acceptance2 0/6 flagged, Linguae page 2 clean after crop-level confirmation of the preserved header rule, and Rome pages 46/49/52/56 all clean with reliable canonical-geometry overlap. The synthetic standalone invented bar remains a failing negative control.
-- Generated-PDF verifier: representative pages 1–10, 45, 120, 200, 300, 389, and 392 pass structural and visual checks; its negative control is detected. In a restricted no-WASM renderer, expected JPX-only pages are classified `requires-jpx-consumer`, not silently accepted. Ledger: `.devkit/tmp/scan-cleanup-ledger-evidence/reference-full-verification-3/verification-ledger.json`.
-- The exact generated PDF was opened in the EVB Viewer product renderer; pages 1 and 392 rendered successfully. Captures are in the same verification directory.
+- Word-loss audit: acceptance2 analyzes 6/6 pages with zero flags and zero suppressed comparisons at `.devkit/tmp/scan-cleanup-ledger-evidence/acceptance-word-audit-post-review.json`. Linguae page 2 is no longer called automatically clean: canonical alignment covers only `0.594426` of source ink and `0.218914` of cleaned ink, so the audit suppresses classification and `--fail-on any` exits nonzero. Crop-level inspection found no visible product regression, but automation deliberately leaves that page uncertified. Synthetic solid and sparse invented-ink controls both fail.
+- Generated-PDF compatibility classification covers representative pages 1–10, 45, 120, 200, 300, 389, and 392 at `.devkit/tmp/scan-cleanup-ledger-evidence/reference-full-verification-post-review/compatibility-classification.json`. The bundled restricted renderer cannot decode two JPX-only pages, so the honest result is `requires-compatible-renderer`, not a pass or a product failure. Warning attribution and the negative classifier path are unit-pinned.
+- The exact generated PDF was also opened in the EVB Viewer product renderer; pages 1 and 392 rendered successfully. Those product-renderer captures plus the visible Poppler contact sheet establish compatibility for the sampled pages; the classifier report alone does not claim full visual verification.
 
 ### Gate evidence
 
-- Full release runner passed at `.devkit/gates/2026-08-07T012851Z/summary.json`, including 929 test files, 6,928 passing tests, seven intentional skips, native/wasm/package checks, and release-cut preflight.
-- Native `cargo fmt --check`, release clippy with warnings denied, and release tests passed (343 passing, four ignored, plus integration coverage).
-- After the final diagnostic changes, `pnpm lint`, `pnpm typecheck`, 71 pipeline tests, and nine word-loss-audit tests passed.
+- The pre-review full release run at `.devkit/gates/2026-08-07T012851Z/summary.json` is retained as historical evidence only; it does not validate the Opus follow-up commits.
+- Post-review validation and coverage passed at `.devkit/gates/2026-08-07T051419Z/summary.json`: lint, typecheck, strict build, Electron blocking smoke, 930 unit files / 6,940 passing tests / seven intentional skips, and the coverage ratchet. Release verification initially stopped because review edits shifted line numbers for ten already-baselined clone groups; semantic inspection found no new clone family and `92e8c3955` refreshed only those coordinates.
+- The clean rerun at `.devkit/gates/2026-08-07T052136Z/summary.json` passed release verification, the entire native workspace, repeated coverage, macOS packaging/native-tool smoke tests, and release-cut preflight.
+- Touched-crate `cargo fmt --check`, release clippy with warnings denied, and release tests passed after the review fixes: 345 unit tests passed, four intentionally ignored, plus 44 integration/harness/CLI tests and doc tests.
+- Focused review coverage passed 14 script tests and 180 pipeline/preview/detection tests, including weak-alignment failure, sparse invention, partial MRC salvage, abort propagation, bounded FIFO success/failure/cancel, scratch fallback, and exact millimetre margin cases.
 
 ### Methodology corrections made during implementation
 
 - The previous assumption that every binary output benefits from 2x rendering was narrowed to continuous-source thresholding; existing dominant 1-bit information is not upsampled.
 - The acceptance artifact failure was fixed through matched-canvas placement/margin semantics, never by lowering image-quality thresholds.
 - Word-loss comparisons now consume canonical crop, matched-canvas scale, affine transform, and placement metadata from the conversion summary. Empirical fitting remains only for old summaries and unsupported/dewarped geometry.
-- One-bit tolerance keys off bit depth rather than the PDF `stencil` spelling, because Poppler may report equivalent bilevel output as an `image`.
-- “Invented component” now requires both a material unsupported area and at least 25% unsupported component ink. This cleared a visually confirmed printed rule with a 6.4% resampling fringe while the 100%-unsupported negative control still fails.
+- One-bit tolerance keys off bit depth rather than only the PDF `stencil` spelling, because Poppler may report equivalent bilevel output as an `image`; dominant-source parsing recognizes both spellings.
+- “Invented component” requires both a material unsupported area and at least 25% unsupported component ink, but no longer requires a densely filled bounding box. This preserves a resampling-fringe exemption while solid and sparse 100%-unsupported negative controls fail.
 - The scanner-boundary baseline was not broadly exempted: one exact physical bbox was refreshed after source/output crop inspection showed the current component is the legitimate torch/staff drawing.
+- The S4 `>=80s` stage-only wall improvement, S4 scratch high-water, and S5 `<=40s` extraction target were not independently measured after implementation. The reference timing is aggregate; bounded-window, budget-accounting, and concurrency tests prove the safety model but are not substituted for missing stage benchmarks.
 
 ## Final independent review and publication
 
-Pending the fresh read-only Claude Opus 5 implementation review required by S7. Its findings and dispositions will be appended here before the final push.
+The required fresh read-only review ran with exact model `claude-opus-5`, high effort, session `45cc2585-c021-4563-94c2-96ee838e077b`. It reviewed the complete implementation, tests, evidence, lifecycle ownership, and failure cleanup. Supported findings were applied in `acbfa31ee`, `7a2772799`, and `fac13f27d`:
+
+- retain a finer dominant bilevel mask grid and recognize `stencil` sources;
+- prevent a windowed FIFO task from hanging on an unwritten future producer, and account for both producer and native scratch copies;
+- keep successful MRC pages from a partly failed chunk, propagate aborts, and use manifest source indices rather than array position;
+- make margin warnings precise/aggregated and pin production millimetre conversion;
+- classify restricted-renderer JPX limitations without describing an unrendered page as verified;
+- make weak word-loss comparisons fail closed and remove the sparse-component blind spot;
+- qualify the duplicated TypeScript/Rust geometry ownership and every unmeasured target in this ledger.
+
+One limitation remains explicit rather than hidden: Linguae page 2 cannot currently be certified by the automated word-loss alignment, even though crop inspection is visually clean. The diagnostic now fails closed until its canonical geometry/alignment evidence becomes strong enough. No product threshold was weakened to turn that uncertainty green.
+
+Publication procedure: commit this final ledger, fetch `origin/main`, reconcile without force, rerun conflict-sensitive checks if upstream moved, then push `main`. The definitive remote tip is reported in the delivery handoff because it cannot be known inside the commit that creates this record.
 
 ## Stop conditions
 
