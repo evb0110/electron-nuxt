@@ -147,7 +147,8 @@
     ],
     "workspaces": {
         "patterns": [
-            "packages/*"
+            "packages/*",
+            "scan-cleanup-core"
         ]
     },
     "duplicates": {

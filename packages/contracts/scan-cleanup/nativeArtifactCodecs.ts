@@ -55,6 +55,8 @@ const BINARIZATION_MODES = [
 ] as const;
 
 export class InvalidScanCleanupNativeArtifactError extends Error {
+    // Stable typed-error discriminator consumed across process boundaries.
+    // fallow-ignore-next-line unused-class-member
     readonly code = 'native-failure' as const;
     readonly artifact: 'page metadata' | 'output metadata';
 

@@ -16,7 +16,7 @@ export interface IScanCleanupDetectionSessionCacheLimits {
     maxEntries: number;
 }
 
-export const SCAN_CLEANUP_DETECTION_SESSION_CACHE_LIMITS: Readonly<IScanCleanupDetectionSessionCacheLimits> = {
+const SCAN_CLEANUP_DETECTION_SESSION_CACHE_LIMITS: Readonly<IScanCleanupDetectionSessionCacheLimits> = {
     // A handful of recently visited documents makes back/forward restoration
     // instant without allowing full-page detection evidence to accumulate for
     // an unbounded renderer lifetime.
@@ -44,7 +44,7 @@ function estimateEntryBytes(entry: IScanCleanupDetectionSessionCacheEntry) {
     }
 }
 
-export class ScanCleanupDetectionSessionCache extends Map<string, IScanCleanupDetectionSessionCacheEntry> {
+class ScanCleanupDetectionSessionCache extends Map<string, IScanCleanupDetectionSessionCacheEntry> {
     private readonly entryBytes = new Map<string, number>();
     private retainedBytes = 0;
 

@@ -451,6 +451,8 @@ importers:
         specifier: ^1.47.0
         version: 1.47.0
 
+  scan-cleanup-core: {}
+
 packages:
 
   7zip-bin@5.2.0:

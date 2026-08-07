@@ -1,4 +1,3 @@
-export type {IScanCleanupCompactSourceBudget} from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
 export {
     assertScanCleanupCompactSourceBudget,
     resolveScanCleanupCompactSourceBudget,

@@ -1,5 +1,1 @@
-export {
-    readPbmDimensions,
-    readPngDimensions,
-    readPpmDimensions,
-} from '@scan-cleanup-core/rasterLayerDimensions';
+export {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';

@@ -1,13 +1,6 @@
-export type {
-    IScanCleanupInsets,
-    IScanCleanupOrientedRect,
-    IScanCleanupRect,
-} from '@scan-cleanup-core/policy/documentCanvas';
 export {
     CANVAS_CONTENT_SCALE_EPSILON,
-    mapLosslessAnalysisRectToPdf,
     orientScanCleanupInsetsToPageSpace,
-    placeUniformBox,
     resolveMatchedCanvasResamplePages,
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvasDpi,

@@ -4,14 +4,7 @@ import {
     detectSourceDpiDetails as detectCoreSourceDpiDetails,
     type TSourceDpiLog,
 } from '@scan-cleanup-core/sourceDpiDetection';
-export type {
-    IDetectedPageRaster,
-    ISourceDpiDetectionResult,
-} from '@scan-cleanup-core/types';
-export {
-    detectSourceDpiFromPageSizes,
-    resolveSourceDpi,
-} from '@scan-cleanup-core/types';
+export {detectSourceDpiFromPageSizes} from '@scan-cleanup-core/types';
 export type {TSourceDpiLog};
 
 export function detectSourceDpiDetails(
