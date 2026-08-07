@@ -55,6 +55,7 @@ import {
     resolveScanCleanupCompactSourceBudget,
     SCAN_CLEANUP_COMPACT_SOURCE_FIXED_BYTE_ALLOWANCE,
     SCAN_CLEANUP_COMPACT_SOURCE_MAX_BYTE_RATIO,
+    shouldExtractTrustedMrcForeground,
 } from '@electron/features/scan-cleanup/policy/scanCleanupRepresentationPolicy';
 import {
     ScanCleanupMissingOutputError,
@@ -502,6 +503,49 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it.each([
+        [
+            'Auto without a page override',
+            'auto',
+            undefined,
+            true,
+        ],
+        [
+            'explicit B/W',
+            'bw',
+            undefined,
+            true,
+        ],
+        [
+            'a B/W page override',
+            'grayscale',
+            'bw',
+            true,
+        ],
+        [
+            'an explicit tonal mode',
+            'grayscale',
+            undefined,
+            false,
+        ],
+        [
+            'a tonal page override',
+            'bw',
+            'mixed',
+            false,
+        ],
+    ] as const)('extracts trusted MRC foreground for %s', (
+        _case,
+        documentOutputMode,
+        pageOutputModeOverride,
+        expected,
+    ) => {
+        expect(shouldExtractTrustedMrcForeground(
+            documentOutputMode,
+            pageOutputModeOverride,
+        )).toBe(expected);
+    });
+
     it('treats locked Auto Color as preservation while explicit Color may normalize', () => {
         const pageOverride = {
             rotationDegrees: 0 as const,

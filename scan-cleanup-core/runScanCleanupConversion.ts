@@ -93,6 +93,7 @@ import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver'
 import {
     assertScanCleanupCompactSourceBudget,
     resolveScanCleanupCompactSourceBudget,
+    shouldExtractTrustedMrcForeground,
 } from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
 import {
     readPbmDimensions,
@@ -741,10 +742,12 @@ export async function runScanCleanupConversion(
                 request.options.pageOverrides,
                 plan.pageNumber,
             );
-            return request.options.outputMode === 'auto'
+            return shouldExtractTrustedMrcForeground(
+                request.options.outputMode,
+                pageOverride.outputModeOverride,
+            )
                 && request.options.thickness === 0
                 && request.options.autoDewarp !== true
-                && pageOverride.outputModeOverride === undefined
                 && pageOverride.rotationDegrees === 0
                 && (pageOverride.manualZones?.picture.length ?? 0) === 0
                 && (pageOverride.manualZones?.fill.length ?? 0) === 0

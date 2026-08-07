@@ -114,6 +114,7 @@ import {
     resolveScanCleanupRequestedRenderDpi,
 } from '@electron/features/scan-cleanup/policy/effectiveOptions';
 import type {IScanCleanupRasterRenderLimits} from '@scan-cleanup-core/types';
+import {shouldExtractTrustedMrcForeground} from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
 import {
     createMainJobRegistry,
     type IMainJobErrorEnvelope,
@@ -2031,10 +2032,12 @@ async function runPreview(
         const sourceBackgroundDpi = sourceRasterStructure.backgroundDpiByPage?.get(request.pageNumber);
         let trustedMrcLayers: IPdfMrcLayers | null = null;
         if (
-            request.options.outputMode === 'auto'
+            shouldExtractTrustedMrcForeground(
+                request.options.outputMode,
+                pageOverride.outputModeOverride,
+            )
             && request.options.thickness === 0
             && request.options.autoDewarp !== true
-            && pageOverride.outputModeOverride === undefined
             && pageOverride.rotationDegrees === 0
             && (pageOverride.manualZones?.picture.length ?? 0) === 0
             && (pageOverride.manualZones?.fill.length ?? 0) === 0

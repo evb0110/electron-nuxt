@@ -3580,6 +3580,8 @@ mod tests {
         let trusted_background = GrayImage::new(160, 100, 0);
         let options = CleanupOptions {
             dpi: 300.0,
+            source_has_bilevel_layer: true,
+            trusted_selection_incomplete: true,
             output_mode: OutputMode::Mixed,
             normalize_illumination: false,
             crop_content: false,
@@ -3646,6 +3648,7 @@ mod tests {
         }
         let options = CleanupOptions {
             dpi: 300.0,
+            source_has_bilevel_layer: true,
             output_mode: OutputMode::Bw,
             normalize_illumination: false,
             crop_content: false,
@@ -4930,7 +4933,7 @@ mod tests {
     }
 
     #[test]
-    fn trusted_foreground_is_the_complete_output_ink_authority() {
+    fn complete_trusted_foreground_is_the_output_ink_authority() {
         let mut binary = BinaryImage::new(64, 32);
         let mut trusted = BinaryImage::new(64, 32);
         for y in 10..15 {
@@ -4947,14 +4950,23 @@ mod tests {
         }
         binary.set(50, 25, true);
 
-        let raw = GrayImage::new(64, 32, 255);
-        let enforced = enforce_source_ink_support(binary, &raw, Some(&trusted), 300.0);
+        let mut raw = GrayImage::new(64, 32, 255);
+        raw.set(50, 25, 0);
+        let enforced =
+            enforce_source_ink_support(binary.clone(), &raw, Some(&trusted), true, 300.0);
 
         assert!(enforced.get(22, 12), "missing source glyph was not restored");
         assert!(enforced.get(34, 12), "existing source glyph was changed");
         assert!(enforced.get(10, 1), "source-supported edge ink was removed");
         assert!(!enforced.get(50, 25), "unsupported output ink survived");
         assert_eq!(enforced.count_black(), trusted.count_black());
+
+        let incomplete = enforce_source_ink_support(binary, &raw, Some(&trusted), false, 300.0);
+        assert!(
+            incomplete.get(50, 25),
+            "an incomplete selection did not admit independently supported source ink"
+        );
+        assert!(incomplete.count_black() > trusted.count_black());
     }
 
     #[test]
@@ -4974,7 +4986,7 @@ mod tests {
             }
         }
 
-        let enforced = enforce_source_ink_support(binary, &raw, None, 300.0);
+        let enforced = enforce_source_ink_support(binary, &raw, None, false, 300.0);
 
         assert!((0..100).all(|y| (0..80).all(|x| !enforced.get(x, y))));
         assert!((40..60).all(|y| (130..134).all(|x| enforced.get(x, y))));

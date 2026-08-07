@@ -1,4 +1,8 @@
-import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
+import type {
+    IScanCleanupOptions,
+    TScanCleanupOutputMode,
+    TScanCleanupOutputModeSetting,
+} from '@contracts/electronApiScanCleanup';
 import type {IDetectedPageRaster} from '@scan-cleanup-core/types';
 
 /**
@@ -9,6 +13,21 @@ import type {IDetectedPageRaster} from '@scan-cleanup-core/types';
 export const SCAN_CLEANUP_COMPACT_SOURCE_MAX_BYTE_RATIO = 2.5;
 export const SCAN_CLEANUP_COMPACT_SOURCE_FIXED_BYTE_ALLOWANCE = 8 * 1024 * 1024;
 const COMPACT_SOURCE_PAGE_MAJORITY = 0.5;
+
+/**
+ * Reuse an MRC/JBIG2 source foreground only when the requested output is
+ * allowed to remain bilevel. Explicit B/W needs the same contour-preserving
+ * source ownership as Auto; tonal modes continue to render the composite.
+ */
+export function shouldExtractTrustedMrcForeground(
+    documentOutputMode: TScanCleanupOutputModeSetting,
+    pageOutputModeOverride: TScanCleanupOutputMode | undefined,
+): boolean {
+    if (pageOutputModeOverride !== undefined) {
+        return pageOutputModeOverride === 'bw';
+    }
+    return documentOutputMode === 'auto' || documentOutputMode === 'bw';
+}
 
 export interface IScanCleanupCompactSourceBudget {
     compactLayeredPages: number;

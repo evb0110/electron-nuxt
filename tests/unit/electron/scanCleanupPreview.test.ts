@@ -1763,7 +1763,22 @@ describe('scan cleanup preview', () => {
         expect(outputMode).toBe('bw');
     });
 
-    it('passes the same trusted MRC ownership layers to an automatic preview', async () => {
+    it.each([
+        [
+            'automatic',
+            'auto',
+            'mixed',
+        ],
+        [
+            'explicit B/W',
+            'bw',
+            undefined,
+        ],
+    ] as const)('passes the same trusted MRC ownership layers to an %s preview', async (
+        _case,
+        outputMode,
+        outputModeRecommendation,
+    ) => {
         const dir = await setup();
         const deps = dependencies(dir);
         deps.detectRasterPages = vi.fn(async () => ({
@@ -1816,9 +1831,11 @@ describe('scan cleanup preview', () => {
             ...request,
             options: {
                 ...request.options,
-                outputMode: 'auto',
+                outputMode,
             },
-            outputModeRecommendation: 'mixed',
+            ...(outputModeRecommendation === undefined
+                ? {}
+                : {outputModeRecommendation}),
         });
 
         expect(deps.extractMrcLayers).toHaveBeenCalledTimes(1);

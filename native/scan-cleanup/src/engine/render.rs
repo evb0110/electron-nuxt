@@ -3069,6 +3069,7 @@ fn enforce_source_ink_support(
     binary: BinaryImage,
     raw: &GrayImage,
     trusted_foreground: Option<&BinaryImage>,
+    trusted_selection_complete: bool,
     dpi: f64,
 ) -> BinaryImage {
     debug_assert_eq!(binary.width(), raw.width());
@@ -3076,6 +3077,16 @@ fn enforce_source_ink_support(
     if let Some(trusted_foreground) = trusted_foreground {
         debug_assert_eq!(binary.width(), trusted_foreground.width());
         debug_assert_eq!(binary.height(), trusted_foreground.height());
+        // A complete high-resolution MRC selection already records the
+        // producer's exact glyph boundary. Re-thresholding the flattened page
+        // can only grow or reshape those one-bit contours, which is especially
+        // visible on serif text at high zoom. Full-resolution MRC backgrounds
+        // are classified as incomplete by the batch adapter and retain the
+        // raw-supported union below because real ink may live outside their
+        // selection mask.
+        if trusted_selection_complete {
+            return trusted_foreground.clone();
+        }
     }
     let components = ComponentMap::from_binary(&binary);
     let padding = (dpi.max(1.0) * 0.7 / 25.4).round().max(2.0) as usize;
@@ -4271,6 +4282,7 @@ fn clean_region(
                     binary,
                     &rendered_source_gray,
                     rendered_trusted_foreground_mask.as_ref(),
+                    options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
                     options.dpi,
                 );
                 (
@@ -4329,6 +4341,7 @@ fn clean_region(
                         binary,
                         &rendered_source_gray,
                         rendered_trusted_foreground_mask.as_ref(),
+                        options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
                         options.dpi,
                     );
                     (
@@ -4411,6 +4424,7 @@ fn clean_region(
                         binary,
                         &rendered_source_gray,
                         rendered_trusted_foreground_mask.as_ref(),
+                        options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
                         options.dpi,
                     );
                     let (mixed_gray, mixed_color, layers) = compose_mixed(
