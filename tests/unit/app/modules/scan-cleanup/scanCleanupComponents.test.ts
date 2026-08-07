@@ -228,6 +228,7 @@ const translations: Record<string, string> = {
     'scanCleanup.preview.zoomFit': 'Fit',
     'scanCleanup.preview.zoomValue': '{zoom}%',
     'scanCleanup.preview.fitPage': 'Fit whole page in view',
+    'scanCleanup.preview.legend': 'Preview overlay legend',
     'scanCleanup.preview.toggleZoom': 'Zoom {zoom}, toggle fit and 100%',
     'scanCleanup.output.label': 'Output mode',
     'scanCleanup.output.pageLabel': 'Output mode for pages',
@@ -768,6 +769,10 @@ function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
 
 const previewShellStyleSource = readFileSync(
     'app/modules/scan-cleanup/components/preview/PreviewShell.css',
+    'utf8',
+);
+const previewShellSource = readFileSync(
+    'app/modules/scan-cleanup/components/preview/PreviewShell.vue',
     'utf8',
 );
 const scanCleanupSegmentedSource = readFileSync(
@@ -2349,8 +2354,9 @@ describe('Scan cleanup components', () => {
 
         expect(harness.host.querySelector('[data-testid="scan-cleanup-original-only"]')).not.toBeNull();
         expect(harness.host.querySelector('[role="alert"]')).toBeNull();
-        const reservedLegend = harness.host.querySelector('.overlay-legend');
-        expect(reservedLegend?.classList).toContain('is-space-reserved');
+        const overlayHelp = harness.host.querySelector('.preview-overlay-help-trigger');
+        expect(overlayHelp).not.toBeNull();
+        expect(harness.host.querySelector('.overlay-legend')).toBeNull();
 
         viewMode.value = 'cleaned';
         await nextTick();
@@ -2358,9 +2364,7 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('[data-testid="scan-cleanup-original-only"]')).toBeNull();
         expect(harness.host.querySelector('[role="alert"]')?.textContent)
             .toContain('Preview isn\'t available. You can still run cleanup.');
-        const visibleLegend = harness.host.querySelector('.overlay-legend');
-        expect(visibleLegend).toBe(reservedLegend);
-        expect(visibleLegend?.classList).not.toContain('is-space-reserved');
+        expect(harness.host.querySelector('.preview-overlay-help-trigger')).toBe(overlayHelp);
     });
 
     it('shows dismissible first-run guidance inline over the reserved preview surface', () => {
@@ -2651,6 +2655,26 @@ describe('Scan cleanup components', () => {
         harness.surface.dispatchEvent(zoomPastActualSize);
         await nextTick();
         expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(100);
+    });
+
+    it('keeps both step controls enabled at Fit and lets minus enter a smaller manual zoom', async () => {
+        const harness = mountPreviewZoomHarness();
+        await nextTick();
+        const zoomOut = harness.host.querySelector<HTMLButtonElement>('[aria-label="Zoom out"]');
+        const zoomIn = harness.host.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]');
+
+        expect(harness.surface.dataset.previewZoomMode).toBe('fit');
+        expect(harness.surface.dataset.previewZoomPercent).toBe('50');
+        expect(zoomOut?.disabled).toBe(false);
+        expect(zoomIn?.disabled).toBe(false);
+
+        zoomOut?.click();
+        await nextTick();
+
+        expect(harness.surface.dataset.previewZoomMode).toBe('custom');
+        expect(harness.surface.dataset.previewZoomPercent).toBe('25');
+        expect(zoomOut?.disabled).toBe(true);
+        expect(zoomIn?.disabled).toBe(false);
     });
 
     it('leaves plain and macOS platform-scroll wheel gestures to the shared viewer policy', async () => {
@@ -4165,6 +4189,46 @@ describe('Scan cleanup components', () => {
         expect(placed?.style.height).toBe('75%');
     });
 
+    it('keeps top-center matched preview content below its requested top margin', async () => {
+        const result = spreadPreviewResult();
+        const first = result.outputs[0]!;
+        Object.assign(first.metadata, {
+            appliedMargins: {
+                leftPx: 17,
+                topPx: 17,
+                rightPx: 17,
+                bottomPx: 17,
+            },
+            outputWidthPx: 233,
+            outputHeightPx: 350,
+            canvasWidthPx: 500,
+            canvasHeightPx: 800,
+            matchedCanvasContentWidthPx: 466,
+            matchedCanvasContentHeightPx: 700,
+            placementOffsetXPx: 17,
+            placementOffsetYPx: 17,
+        });
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        await nextTick();
+        const placed = harness.host.querySelector<HTMLElement>('.placed-image');
+        expect(placed?.style.left).toBe(`${17 / 500 * 100}%`);
+        expect(placed?.style.top).toBe(`${17 / 800 * 100}%`);
+        expect(placed?.style.width).toBe(`${466 / 500 * 100}%`);
+        expect(placed?.style.height).toBe(`${700 / 800 * 100}%`);
+    });
+
     it('repositions a cached preview when its placement override changes', async () => {
         const result = spreadPreviewResult();
         const first = result.outputs[0]!;
@@ -4209,16 +4273,20 @@ describe('Scan cleanup components', () => {
         expect(fit).not.toBeNull();
         expect(fit?.querySelector('[data-ui-icon]')?.getAttribute('name')).toBe('i-ph-frame-corners');
         expect(fit?.getAttribute('aria-pressed')).toBe('true');
+        expect(fit?.classList).toContain('is-fit-page');
         expect(harness.host.querySelector('[aria-label="Fit preview"]')).toBeNull();
         expect(harness.host.querySelector('[name="i-ph-arrows-out"]')).toBeNull();
     });
 
-    it('borrows the app-wide active-control tokens for the preview zoom and comparison controls', () => {
+    it('keeps Fit integrated with its rounded group while comparison options use bordered selection', () => {
         expect(previewShellStyleSource).toMatch(
-            /\.preview-zoom-button\.is-active\s*\{[^}]*--app-toolbar-control-active-bg[^}]*--app-control-active-border[^}]*\}/,
+            /\.preview-zoom-button\.is-active\s*\{[^}]*--app-toolbar-control-active-bg[^}]*\}/,
         );
         expect(previewShellStyleSource).not.toMatch(
-            /\.preview-zoom-button\.is-active\s*\{[^}]*--ui-primary/,
+            /\.preview-zoom-button\.is-active(?::hover[^\s{]*)?\s*\{[^}]*box-shadow/,
+        );
+        expect(previewShellStyleSource).toMatch(
+            /\.preview-zoom-button\.is-fit-page\s*\{[^}]*border-start-end-radius:[^}]*border-end-end-radius:/,
         );
         expect(scanCleanupSegmentedSource).toMatch(
             /\.scan-cleanup-segmented-option\.is-selected\s*\{[^}]*--app-control-active-bg[^}]*--app-control-active-border[^}]*\}/,
@@ -4237,7 +4305,7 @@ describe('Scan cleanup components', () => {
         );
     });
 
-    it('keeps the preview zoom group, legend row and every legend entry mounted in every view state', async () => {
+    it('keeps overlay help in the header without reserving a full legend row', async () => {
         const viewMode = ref<'original' | 'cleaned'>('cleaned');
         const matchPageSize = ref(true);
         const result = ref<IScanCleanupPreviewResult | null>(null);
@@ -4255,32 +4323,35 @@ describe('Scan cleanup components', () => {
             readingOrder: 'ltr',
         })}));
 
-        const legendEntries = () => harness.host.querySelectorAll('.overlay-legend > span').length;
         const zoomGroup = () => harness.host.querySelector('.preview-zoom-controls');
+        const overlayHelp = () => harness.host.querySelector('.preview-overlay-help-trigger');
 
-        // No result at all: the zoom group still holds its place, disabled.
+        // No result at all: controls retain their place, while the old full
+        // width legend row is absent.
         expect(zoomGroup()).not.toBeNull();
         expect(harness.host.querySelector<HTMLButtonElement>('.preview-zoom-value')?.disabled).toBe(true);
-        expect(legendEntries()).toBe(3);
-        expect(harness.host.querySelector('.overlay-legend')).not.toBeNull();
+        expect(overlayHelp()).not.toBeNull();
+        expect(overlayHelp()?.getAttribute('aria-label')).toBe('Preview overlay legend');
+        expect(harness.host.querySelector('.overlay-legend')).toBeNull();
 
         result.value = spreadPreviewResult();
         await nextTick();
         expect(harness.host.querySelector<HTMLButtonElement>('.preview-zoom-value')?.disabled).toBe(false);
-        expect(legendEntries()).toBe(3);
 
-        // Switching comparison mode hides the ink but keeps the row and its divider.
+        // Comparison and canvas-mode changes do not move the compact help
+        // trigger or bring the removed row back.
         viewMode.value = 'original';
         await nextTick();
-        expect(harness.host.querySelector('.overlay-legend')?.classList.contains('is-space-reserved')).toBe(true);
-        expect(legendEntries()).toBe(3);
+        expect(overlayHelp()).not.toBeNull();
 
-        // Turning off "match page size" must not remove a legend entry either.
         matchPageSize.value = false;
         viewMode.value = 'cleaned';
         await nextTick();
-        expect(legendEntries()).toBe(3);
-        expect(harness.host.querySelectorAll('.overlay-legend > span.is-hidden-entry')).toHaveLength(1);
+        expect(overlayHelp()).not.toBeNull();
+        expect(harness.host.querySelector('.overlay-legend')).toBeNull();
+        expect(previewShellSource).toContain('<template #content>');
+        expect(previewShellSource).toContain('class="preview-overlay-tooltip"');
+        expect(previewShellSource).toContain('<span v-if="matchPageSize"><i class="legend-swatch is-canvas"');
     });
 
     it('reserves the widest page counter and detection counter so their neighbours never move', async () => {

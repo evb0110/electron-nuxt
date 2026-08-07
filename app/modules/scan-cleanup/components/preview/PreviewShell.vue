@@ -77,7 +77,7 @@
                     <AppTooltip :text="t('scanCleanup.preview.fitPage')" usefulness="always">
                         <button
                             type="button"
-                            class="preview-zoom-button"
+                            class="preview-zoom-button is-fit-page"
                             :class="{'is-active': previewZoomMode === 'fit'}"
                             :aria-label="t('scanCleanup.preview.fitPage')"
                             :aria-pressed="previewZoomMode === 'fit'"
@@ -88,6 +88,34 @@
                         </button>
                     </AppTooltip>
                 </div>
+                <AppTooltip
+                    usefulness="always"
+                    :delay-duration="150"
+                    class="preview-overlay-help"
+                >
+                    <UButton
+                        type="button"
+                        class="preview-overlay-help-trigger"
+                        color="neutral"
+                        variant="ghost"
+                        size="sm"
+                        square
+                        icon="i-ph-info"
+                        :aria-label="t('scanCleanup.preview.legend')"
+                        @click.stop.prevent
+                    />
+
+                    <template #content>
+                        <div
+                            class="preview-overlay-tooltip"
+                            :aria-label="t('scanCleanup.preview.legend')"
+                        >
+                            <span><i class="legend-swatch is-content" />{{ t('scanCleanup.preview.contentBox') }}</span>
+                            <span><i class="legend-swatch is-margin" />{{ t('scanCleanup.preview.marginBox') }}</span>
+                            <span v-if="matchPageSize"><i class="legend-swatch is-canvas" />{{ t('scanCleanup.preview.canvas') }}</span>
+                        </div>
+                    </template>
+                </AppTooltip>
                 <ScanCleanupSegmented
                     :model-value="effectiveViewMode"
                     :items="viewModes"
@@ -370,16 +398,6 @@
             </aside>
         </div>
 
-        <div
-            class="overlay-legend"
-            :class="{'is-space-reserved': legendHidden}"
-            :aria-hidden="legendHidden"
-            :aria-label="t('scanCleanup.preview.legend')"
-        >
-            <span><i class="legend-swatch is-content" />{{ t('scanCleanup.preview.contentBox') }}</span>
-            <span><i class="legend-swatch is-margin" />{{ t('scanCleanup.preview.marginBox') }}</span>
-            <span :class="{'is-hidden-entry': !matchPageSize}"><i class="legend-swatch is-canvas" />{{ t('scanCleanup.preview.canvas') }}</span>
-        </div>
     </section>
 </template>
 
@@ -597,7 +615,6 @@ const effectiveViewMode = computed(() => props.lossless
     : props.viewMode ?? 'cleaned');
 const zoomControlsDisabled = computed(() => props.disabled === true
     || (props.result ?? props.rawResult ?? null) === null);
-const legendHidden = computed(() => effectiveViewMode.value === 'original' && !props.lossless);
 const devicePixelScale = ref(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
 let devicePixelMediaQuery: MediaQueryList | null = null;
 

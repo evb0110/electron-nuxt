@@ -276,6 +276,52 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it('keeps live matched-canvas alignment inside every applied margin', () => {
+        const matchedMetadata = metadata({
+            appliedMargins: {
+                leftPx: 10,
+                topPx: 20,
+                rightPx: 30,
+                bottomPx: 40,
+            },
+            outputWidthPx: 60,
+            outputHeightPx: 100,
+            canvasWidthPx: 200,
+            canvasHeightPx: 300,
+            matchedCanvasContentWidthPx: 120,
+            matchedCanvasContentHeightPx: 200,
+            placementOffsetXPx: 10,
+            placementOffsetYPx: 20,
+        });
+
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'top-center')).toMatchObject({
+            left: 30,
+            top: 20,
+        });
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center')).toMatchObject({
+            left: 30,
+            top: 40,
+        });
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right')).toMatchObject({
+            left: 50,
+            top: 60,
+        });
+    });
+
+    it('does not apply canvas insets to intrinsic rasters that already contain their margins', () => {
+        const intrinsicMetadata = metadata({
+            outputWidthPx: 230,
+            outputHeightPx: 330,
+            canvasWidthPx: 230,
+            canvasHeightPx: 330,
+        });
+
+        expect(resolvePreviewMetadataPlacement(intrinsicMetadata, 'bottom-right')).toMatchObject({
+            left: 0,
+            top: 0,
+        });
+    });
+
     it('presents a page the document scaled up at the size the final run will write', () => {
         // The page is half the document's paper, so the sidecar reports the box
         // it belongs in and the renderer scales the raster it rendered into it,

@@ -65,7 +65,11 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         );
         return Number.isFinite(fit) && fit > 0 ? Math.min(ZOOM.MAX, fit) : 1;
     });
-    const previewMinimumZoom = computed(() => Math.min(1, previewFitZoom.value));
+    // Fit is a presentation mode, not the lower zoom bound. When the fitted
+    // page is larger than the viewer's manual minimum, both step buttons must
+    // remain usable: minus leaves Fit for the next smaller manual level just
+    // as plus leaves it for the next larger one.
+    const previewMinimumZoom = computed(() => Math.min(ZOOM.MIN, previewFitZoom.value));
     const previewEffectiveZoom = computed(() => previewZoomMode.value === 'fit'
         ? previewFitZoom.value
         : clamp(previewCustomZoom.value, previewMinimumZoom.value, ZOOM.MAX));

@@ -16,7 +16,6 @@
 .preview-header,
 .page-navigation,
 .preview-controls,
-.overlay-legend,
 .refresh-indicator,
 .page-loading-overlay,
 .cutter-grab-handle {
@@ -669,32 +668,6 @@
     }
 }
 
-.overlay-legend {
-    box-sizing: border-box;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: var(--app-space-5xl);
-    border-block-start: var(--app-hairline-height) solid var(--ui-border);
-    padding-block: var(--app-space-3xl);
-    padding-inline: var(--app-space-12xl);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-/* The legend row, its border and every entry keep their box in every state:
-   only the ink is switched off, so switching Original/Cleaned or toggling
-   "match page size" can never move the preview surface above it. */
-.overlay-legend.is-space-reserved > span,
-.overlay-legend > span.is-hidden-entry {
-    visibility: hidden;
-}
-
-.overlay-legend > span {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-sm);
-}
-
 .preview-zoom-controls {
     display: inline-flex;
     align-items: center;
@@ -728,6 +701,11 @@
     width: var(--app-control-height-sm);
 }
 
+.preview-zoom-button.is-fit-page {
+    border-start-end-radius: calc(var(--app-toolbar-segmented-radius) - var(--app-hairline-height));
+    border-end-end-radius: calc(var(--app-toolbar-segmented-radius) - var(--app-hairline-height));
+}
+
 .preview-zoom-value {
     min-width: calc(var(--app-control-height-sm) * 2);
     padding-inline: var(--app-space-3xl);
@@ -743,18 +721,16 @@
     color: var(--app-toolbar-control-hover-fg);
 }
 
-/* Same active vocabulary as ToolbarButton.is-active and the sidebar tabs:
-   an elevated surface plus the active border, never a primary tint. The border
-   is drawn with an inset shadow because these buttons share a segmented edge. */
+/* The group border already describes this segmented control. A second inset
+   border around Fit reads as a square button nested inside the rounded group,
+   so selection is communicated with the segment surface and ink alone. */
 .preview-zoom-button.is-active {
     background: var(--app-toolbar-control-active-bg);
-    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-control-active-border);
     color: var(--app-toolbar-control-hover-fg);
 }
 
 .preview-zoom-button.is-active:hover:not(:disabled) {
     background: var(--app-control-active-hover-bg);
-    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-control-active-hover-border);
     color: var(--app-toolbar-control-hover-fg);
 }
 
@@ -775,6 +751,23 @@
 .preview-zoom-icon {
     width: var(--app-toolbar-icon-size);
     height: var(--app-toolbar-icon-size);
+}
+
+.preview-overlay-help-trigger {
+    color: var(--app-toolbar-control-inactive-fg);
+    cursor: help;
+}
+
+.preview-overlay-tooltip {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-sm);
+}
+
+.preview-overlay-tooltip > span {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-sm);
 }
 
 .cutter-stage,
