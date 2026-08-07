@@ -168,6 +168,7 @@
                             :inert="!cleanedLayerVisible"
                             :match-page-size="matchPageSize"
                             :outputs="renderedOutputs"
+                            :show-margin-boundary="showMarginBoundary"
                             @complete="completeCleanedPixelSwap"
                             @load="loadCleanedPixelSwap"
                             @set-canvas="setOutputCanvas"
@@ -485,6 +486,7 @@ const props = defineProps<{
     pageNumber: number;
     totalPages: number;
     stalePage?: boolean;
+    showMarginBoundary?: boolean;
     showFirstRunGuidance?: boolean;
     manualSplit: IScanCleanupNormalizedSplit | null;
     readingOrder: 'ltr' | 'rtl';
@@ -1518,6 +1520,12 @@ const renderedOutputs = computed(() => {
             widthPx: metadata.outputWidthPx,
             heightPx: metadata.outputHeightPx,
         }, placement);
+        const marginBoundaryStyle = {
+            left: `${metadata.appliedMargins.leftPx / Math.max(1, metadata.canvasWidthPx) * 100}%`,
+            top: `${metadata.appliedMargins.topPx / Math.max(1, metadata.canvasHeightPx) * 100}%`,
+            right: `${metadata.appliedMargins.rightPx / Math.max(1, metadata.canvasWidthPx) * 100}%`,
+            bottom: `${metadata.appliedMargins.bottomPx / Math.max(1, metadata.canvasHeightPx) * 100}%`,
+        };
         const manualContentRect = resolveNormalizedContentBox(metadata, props.manualContentBoxes?.[metadata.half]);
         const contentRect = manualContentRect ?? metadata.contentBox;
         const content = manualContentRect
@@ -1528,6 +1536,7 @@ const renderedOutputs = computed(() => {
             pixelSwap: cleanedPixelSwaps[metadata.half] ?? createPreviewImageSwap(),
             placement,
             imageStyle,
+            marginBoundaryStyle,
             contentRect,
             contentStyle: content ? toPreviewStyleRect(content, placement) : null,
             canvasStyle: {},

@@ -1519,13 +1519,34 @@ fn analyze_page_with_color_and_document_prior_impl(
             });
             (content, detected.diagnostics)
         };
+        if options.match_page_size {
+            // Matched margins are composed on the final document grid, but
+            // their untrusted request geometry still has to pass the same
+            // finite-arithmetic checks before the engine omits them here.
+            content_result_for_dimensions(
+                region.width.ceil().max(1.0) as usize,
+                region.height.ceil().max(1.0) as usize,
+                options.dpi,
+                detected_content,
+                options.margins_mm.map(crate::MarginsMm::values),
+                options.margins_pixels,
+            )?;
+        }
         let content = content_result_for_dimensions(
             region.width.ceil().max(1.0) as usize,
             region.height.ceil().max(1.0) as usize,
             options.dpi,
             detected_content,
-            options.margins_mm.map(crate::MarginsMm::values),
-            options.margins_pixels,
+            if options.match_page_size {
+                None
+            } else {
+                options.margins_mm.map(crate::MarginsMm::values)
+            },
+            if options.match_page_size {
+                Some([0.0; 4])
+            } else {
+                options.margins_pixels
+            },
         )?;
         options.validate_derived_raster_dimensions(
             content.output_rect.width,
@@ -3807,13 +3828,33 @@ fn clean_region(
         detected
     };
     timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
+    if options.match_page_size {
+        // See the analysis path above: placement owns matched margins, while
+        // the renderer still rejects arithmetic that could not be represented.
+        content_result_for_dimensions(
+            working_width,
+            working_height,
+            options.dpi,
+            detected.detected_content,
+            options.margins_mm.map(crate::MarginsMm::values),
+            options.margins_pixels,
+        )?;
+    }
     let content = content_result_for_dimensions(
         working_width,
         working_height,
         options.dpi,
         detected.detected_content,
-        options.margins_mm.map(crate::MarginsMm::values),
-        options.margins_pixels,
+        if options.match_page_size {
+            None
+        } else {
+            options.margins_mm.map(crate::MarginsMm::values)
+        },
+        if options.match_page_size {
+            Some([0.0; 4])
+        } else {
+            options.margins_pixels
+        },
     )?;
     let source_content_box = detected.source_content_box;
     let content_diagnostics = detected.diagnostics;

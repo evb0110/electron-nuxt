@@ -27,6 +27,13 @@ export interface IScanCleanupOrientedRect {
     heightPoints: number;
 }
 
+export interface IScanCleanupInsets {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}
+
 function normalizeScanCleanupQuarterTurns(rotationDegrees: number) {
     return ((Math.round(rotationDegrees / 90) % 4) + 4) % 4;
 }
@@ -38,6 +45,43 @@ function orient(rect: IScanCleanupOrientedRect, quarterTurns: number): IScanClea
             widthPoints: rect.heightPoints,
             heightPoints: rect.widthPoints,
         };
+}
+
+/**
+ * Turns margins expressed on the displayed sheet back into the unrotated PDF
+ * user space consumed by page-ops. This mirrors `resolveScanCleanupPageCanvasBox`:
+ * the delivered top/left/right/bottom remain visual directions even when the
+ * source page carries a rotation entry.
+ */
+export function orientScanCleanupInsetsToPageSpace(
+    insets: IScanCleanupInsets,
+    rotationDegrees: number,
+): IScanCleanupInsets {
+    switch (normalizeScanCleanupQuarterTurns(rotationDegrees)) {
+        case 1:
+            return {
+                left: insets.top,
+                top: insets.right,
+                right: insets.bottom,
+                bottom: insets.left,
+            };
+        case 2:
+            return {
+                left: insets.right,
+                top: insets.bottom,
+                right: insets.left,
+                bottom: insets.top,
+            };
+        case 3:
+            return {
+                left: insets.bottom,
+                top: insets.left,
+                right: insets.top,
+                bottom: insets.right,
+            };
+        default:
+            return {...insets};
+    }
 }
 
 /**

@@ -116,6 +116,7 @@
                     @reset-manual-split="resetScopeManualSplit"
                     @reset-manual-skew="resetScopeManualSkew"
                     @reset-scope-overrides="resetScopeOverrides"
+                    @margin-interaction="marginBoundaryVisible = $event"
                     @thickness-input="handleThicknessInput"
                     @update-inclusion="handleScopeInclusion"
                     @update-layout="handleScopeLayout"
@@ -171,6 +172,7 @@
                     :page-number="previewPage"
                     :total-pages="previewTotalPages"
                     :stale-page="previewResult !== null && !previewResultCurrent"
+                    :show-margin-boundary="marginBoundaryVisible"
                     :manual-split="currentPageOverride.manualSplit"
                     :reading-order="settings.readingOrder"
                     :manual-content-boxes="currentPageOverride.manualContentBoxes ?? {}"
@@ -397,6 +399,7 @@ const {
     transitionText: runTransitionText,
     waitingForDetection,
 } = workspaceSession.run;
+const marginBoundaryVisible = ref(false);
 let pageMappingConsumed = false;
 watch(() => sessionState?.pageMapping, (mapping, previousMapping) => {
     if (mapping !== previousMapping) {
@@ -885,6 +888,7 @@ watch([
 watch(isRunning, running => {
     if (running) {
         zoneEditing.value = false;
+        marginBoundaryVisible.value = false;
     }
 });
 </script>

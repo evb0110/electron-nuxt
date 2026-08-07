@@ -1481,6 +1481,7 @@ mod tests {
                 crop_content: true,
                 margins_mm: None,
                 margins_pixels: Some([14.0; 4]),
+                match_page_size: false,
                 layout: crate::LayoutMode::Single,
                 dewarp: Some(crate::DewarpOptions {
                     top_curve: vec![

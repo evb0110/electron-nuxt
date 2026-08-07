@@ -10,7 +10,10 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {
+    getScanCleanupPageOverride,
+    resolveScanCleanupMarginsMm,
+} from '@contracts/scanCleanupPageOverrides';
 import {
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
@@ -41,6 +44,7 @@ import {
     CANVAS_CONTENT_SCALE_EPSILON,
     type IScanCleanupRect,
     mapLosslessAnalysisRectToPdf,
+    orientScanCleanupInsetsToPageSpace,
     placeUniformBox,
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvas,
@@ -190,6 +194,7 @@ export async function runLosslessScanCleanup(
                 translateX: number;
                 translateY: number;
             };
+            contentDetected: boolean;
         }>;
         pageOverride: ReturnType<typeof getScanCleanupPageOverride>;
         pageSize: IPdfPageSize;
@@ -218,6 +223,7 @@ export async function runLosslessScanCleanup(
         }
         const outputs = (metadata.outputs ?? []).map(output => ({
             half: output.half,
+            contentDetected: output.contentBox !== undefined,
             cropRect: mapLosslessAnalysisRectToPdf(
                 output.cropRect,
                 output.inputWidthPx,
@@ -273,11 +279,74 @@ export async function runLosslessScanCleanup(
                 page.pageOverride.rotationDegrees,
             );
             for (const output of page.outputs) {
+                const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, page.pageOverride);
+                const requestedVisualMargins = {
+                    left: marginsMm.leftMm / 25.4 * 72,
+                    top: marginsMm.topMm / 25.4 * 72,
+                    right: marginsMm.rightMm / 25.4 * 72,
+                    bottom: marginsMm.bottomMm / 25.4 * 72,
+                };
+                const marginsRequested = Object.values(requestedVisualMargins).some(margin => margin > 0);
+                const marginsAvailable = request.options.crop && output.contentDetected;
+                if (marginsRequested && !marginsAvailable) {
+                    fittedPageWarnings.push(
+                        `Page ${String(page.sourcePageIndex + 1)}: Requested margins were not applied because `
+                        + 'content detection or cropping is unavailable',
+                    );
+                }
+                const requestedMargins = orientScanCleanupInsetsToPageSpace(
+                    marginsAvailable ? requestedVisualMargins : {
+                        left: 0,
+                        top: 0,
+                        right: 0,
+                        bottom: 0,
+                    },
+                    page.pageSize.rotation + page.pageOverride.rotationDegrees,
+                );
+                const fitMarginAxis = (leading: number, trailing: number, total: number) => {
+                    const sum = leading + trailing;
+                    if (sum < total || sum === 0) {
+                        return [
+                            leading,
+                            trailing,
+                        ] as const;
+                    }
+                    const available = Math.max(0, total - 0.01);
+                    const fittedLeading = available * leading / sum;
+                    return [
+                        fittedLeading,
+                        available - fittedLeading,
+                    ] as const;
+                };
+                const [
+                    marginLeft,
+                    marginRight,
+                ] = fitMarginAxis(requestedMargins.left, requestedMargins.right, box.widthPoints);
+                const [
+                    marginBottom,
+                    marginTop,
+                ] = fitMarginAxis(requestedMargins.bottom, requestedMargins.top, box.heightPoints);
+                if (
+                    marginLeft !== requestedMargins.left
+                    || marginTop !== requestedMargins.top
+                    || marginRight !== requestedMargins.right
+                    || marginBottom !== requestedMargins.bottom
+                ) {
+                    fittedPageWarnings.push(
+                        `Page ${String(page.sourcePageIndex + 1)}: Matched page size reduced requested margins `
+                        + 'because they leave no drawable canvas',
+                    );
+                }
+                const innerWidth = Math.max(0.01, box.widthPoints - marginLeft - marginRight);
+                const innerHeight = Math.max(0.01, box.heightPoints - marginTop - marginBottom);
                 const paperScale = resolveScanCleanupCanvasFitScale(box, {
                     widthPoints: output.paperRect.width,
                     heightPoints: output.paperRect.height,
                 });
-                const fit = Math.min(1, resolveScanCleanupCanvasFitScale(box, {
+                const fit = Math.min(1, resolveScanCleanupCanvasFitScale({
+                    widthPoints: innerWidth,
+                    heightPoints: innerHeight,
+                }, {
                     widthPoints: output.cropRect.width * paperScale,
                     heightPoints: output.cropRect.height * paperScale,
                 }));
@@ -295,32 +364,42 @@ export async function runLosslessScanCleanup(
                     fittedPageWarnings.push(
                         `Page ${String(page.sourcePageIndex + 1)}: Matched page size fitted this page to `
                         + `${(output.cropRect.width * scale).toFixed(1)}x${(output.cropRect.height * scale).toFixed(1)} pt `
-                        + `inside the ${box.widthPoints.toFixed(1)}x${box.heightPoints.toFixed(1)} pt document canvas, `
+                        + `inside the ${innerWidth.toFixed(1)}x${innerHeight.toFixed(1)} pt margin box, `
                         + 'below the document\'s scale',
                     );
                 }
                 const alignment = page.pageOverride.placementOverrides?.[output.half]
                     ?? request.options.pageAlignment;
                 if (Math.abs(scale - 1) <= CANVAS_CONTENT_SCALE_EPSILON) {
-                    output.cropRect = placeUniformBox(
+                    const innerBox = placeUniformBox(
                         output.cropRect,
-                        box.widthPoints,
-                        box.heightPoints,
+                        innerWidth,
+                        innerHeight,
                         alignment,
                     );
+                    output.cropRect = {
+                        x: innerBox.x - marginLeft,
+                        y: innerBox.y - marginBottom,
+                        width: box.widthPoints,
+                        height: box.heightPoints,
+                    };
                     continue;
                 }
-                const placed = placeUniformBox(
+                const innerBox = placeUniformBox(
                     {
                         x: output.cropRect.x * scale,
                         y: output.cropRect.y * scale,
                         width: output.cropRect.width * scale,
                         height: output.cropRect.height * scale,
                     },
-                    box.widthPoints,
-                    box.heightPoints,
+                    innerWidth,
+                    innerHeight,
                     alignment,
                 );
+                const placed = {
+                    x: innerBox.x - marginLeft,
+                    y: innerBox.y - marginBottom,
+                };
                 output.contentTransform = {
                     scale,
                     translateX: -placed.x,

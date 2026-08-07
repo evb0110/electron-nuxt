@@ -181,6 +181,7 @@ struct WrittenOutput {
     /// cropped raster itself moves every retained mark toward the page edge.
     crop_x: f64,
     crop_y: f64,
+    content_detected: bool,
     matched_in_memory: bool,
 }
 
@@ -1888,6 +1889,7 @@ fn run_page(
                     output.metadata.crop_rect.y,
                     output.metadata.source_region.width,
                     output.metadata.source_region.height,
+                    output.metadata.content_box.is_some(),
                     &options,
                     output.metadata.half,
                     &canvas,
@@ -2128,6 +2130,7 @@ fn run_page(
                 paper_height: output.metadata.source_region.height,
                 crop_x: output.metadata.crop_rect.x,
                 crop_y: output.metadata.crop_rect.y,
+                content_detected: output.metadata.content_box.is_some(),
                 matched_in_memory: matched_placement.is_some(),
             });
         }
@@ -2344,6 +2347,12 @@ struct CanvasPlacement {
     content_height: usize,
     left: usize,
     top: usize,
+    /// Requested physical margin inset on the final canvas grid. The actual
+    /// paper band can be larger when crop coordinates or alignment leave more
+    /// whitespace, but content never crosses these edges.
+    requested_margins: [usize; 4],
+    margins_reduced: bool,
+    margins_unavailable: bool,
     /// The page could not hold the document's scale and was fitted below it,
     /// which happens when margins push content past the paper it was measured
     /// on. Nothing is clipped; the page is simply smaller than its neighbours.
@@ -2383,6 +2392,7 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
         output.crop_y,
         output.paper_width,
         output.paper_height,
+        output.content_detected,
         &output.options,
         output.half,
         canvas,
@@ -2396,10 +2406,55 @@ fn plan_canvas_placement_for(
     crop_y: f64,
     paper_width: f64,
     paper_height: f64,
+    content_detected: bool,
     options: &CleanupOptions,
     half: crate::pipeline::PageHalf,
     canvas: &DocumentCanvas,
 ) -> CanvasPlacement {
+    let configured_margins = if let Some(margins) = options.margins_pixels {
+        margins.map(|pixels| (pixels * canvas.dpi() / options.dpi).round().max(0.0) as usize)
+    } else {
+        options
+            .margins_mm
+            .map(crate::MarginsMm::values)
+            .unwrap_or([0.0; 4])
+            .map(|millimeters| (millimeters * canvas.dpi() / 25.4).round() as usize)
+    };
+    let margins_unavailable = configured_margins.iter().any(|margin| *margin > 0)
+        && (!content_detected || !options.crop_content);
+    let mut requested_margins = if margins_unavailable {
+        [0; 4]
+    } else {
+        configured_margins
+    };
+    let requested_before_fit = requested_margins;
+    let fit_margin_axis = |leading: &mut usize, trailing: &mut usize, total: usize| {
+        let sum = leading.saturating_add(*trailing);
+        if sum < total || sum == 0 {
+            return;
+        }
+        let available = total.saturating_sub(1);
+        let fitted_leading =
+            ((available as f64 * *leading as f64 / sum as f64).round() as usize).min(available);
+        *leading = fitted_leading;
+        *trailing = available - fitted_leading;
+    };
+    let [ref mut margin_left, ref mut margin_top, ref mut margin_right, ref mut margin_bottom] =
+        requested_margins;
+    fit_margin_axis(margin_left, margin_right, canvas.width_px);
+    fit_margin_axis(margin_top, margin_bottom, canvas.height_px);
+    let margins_reduced = requested_margins != requested_before_fit;
+    let [margin_left, margin_top, margin_right, margin_bottom] = requested_margins;
+    let inner_width = canvas
+        .width_px
+        .saturating_sub(margin_left)
+        .saturating_sub(margin_right)
+        .max(1);
+    let inner_height = canvas
+        .height_px
+        .saturating_sub(margin_top)
+        .saturating_sub(margin_bottom)
+        .max(1);
     let paper_width_points = paper_width.max(1.0) / options.dpi * 72.0;
     let paper_height_points = paper_height.max(1.0) / options.dpi * 72.0;
     let paper_scale =
@@ -2416,17 +2471,17 @@ fn plan_canvas_placement_for(
     let mut render_scale = pixel_scale;
     let mut scaled_width = width as f64 * render_scale;
     let mut scaled_height = height as f64 * render_scale;
-    let overflow = scaled_width > canvas.width_px as f64 + CANVAS_GRID_TOLERANCE_PX
-        || scaled_height > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
+    let overflow = scaled_width > inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
+        || scaled_height > inner_height as f64 + CANVAS_GRID_TOLERANCE_PX;
     if overflow {
-        let fit = (canvas.width_px as f64 / scaled_width.max(1.0))
-            .min(canvas.height_px as f64 / scaled_height.max(1.0));
+        let fit = (inner_width as f64 / scaled_width.max(1.0))
+            .min(inner_height as f64 / scaled_height.max(1.0));
         render_scale *= fit;
         scaled_width *= fit;
         scaled_height *= fit;
     }
-    let content_width = (scaled_width.round() as usize).clamp(1, canvas.width_px);
-    let content_height = (scaled_height.round() as usize).clamp(1, canvas.height_px);
+    let content_width = (scaled_width.round() as usize).clamp(1, inner_width);
+    let content_height = (scaled_height.round() as usize).clamp(1, inner_height);
     let aligned_paper_width = (paper_width * render_scale).round() as usize;
     let aligned_paper_height = (paper_height * render_scale).round() as usize;
     let (paper_left, paper_top) = options.placement_for(half).offset(
@@ -2441,17 +2496,26 @@ fn plan_canvas_placement_for(
     // is composed shifts the paper by the synthetic margin whenever the
     // selected alignment leaves slack on the canvas. Round the completed sum
     // once so negative and positive crop origins follow the same grid rule.
-    let left = ((paper_left as f64) + crop_x * render_scale)
-        .round()
-        .clamp(0.0, (canvas.width_px - content_width) as f64) as usize;
-    let top = ((paper_top as f64) + crop_y * render_scale)
-        .round()
-        .clamp(0.0, (canvas.height_px - content_height) as f64) as usize;
+    let left = ((paper_left as f64) + crop_x * render_scale).round().clamp(
+        margin_left as f64,
+        canvas
+            .width_px
+            .saturating_sub(margin_right.saturating_add(content_width)) as f64,
+    ) as usize;
+    let top = ((paper_top as f64) + crop_y * render_scale).round().clamp(
+        margin_top as f64,
+        canvas
+            .height_px
+            .saturating_sub(margin_bottom.saturating_add(content_height)) as f64,
+    ) as usize;
     CanvasPlacement {
         content_width,
         content_height,
         left,
         top,
+        requested_margins,
+        margins_reduced,
+        margins_unavailable,
         overflow,
         paper_scale,
         undersized_paper,
@@ -2468,6 +2532,7 @@ fn apply_canvas_metadata(
         content_height,
         left,
         top,
+        requested_margins,
         ..
     } = placement;
     metadata.soft_margins_pixels = [
@@ -2476,6 +2541,7 @@ fn apply_canvas_metadata(
         canvas.width_px - content_width - left,
         canvas.height_px - content_height - top,
     ];
+    metadata.applied_margins = requested_margins.map(|margin| margin as f64).into();
     metadata.uniform_canvas = true;
     metadata.canvas_policy = MatchedCanvasPolicy::StrictMaximum;
     metadata.canvas_overflow = placement.overflow;
@@ -2495,6 +2561,18 @@ fn apply_canvas_metadata(
              inside the {}x{} px document canvas, below the document's scale",
             canvas.width_px, canvas.height_px,
         ));
+    }
+    if placement.margins_reduced {
+        metadata.warnings.push(
+            "Matched page size reduced requested margins because they leave no drawable canvas"
+                .to_owned(),
+        );
+    }
+    if placement.margins_unavailable {
+        metadata.warnings.push(
+            "Requested margins were not applied because content detection or cropping is unavailable"
+                .to_owned(),
+        );
     }
     if placement.undersized_paper {
         let percent = placement.paper_scale * 100.0;
@@ -3438,6 +3516,7 @@ mod tests {
             90.0,
             700.0,
             1_000.0,
+            false,
             &options,
             crate::pipeline::PageHalf::Full,
             &canvas,
@@ -3449,6 +3528,7 @@ mod tests {
             0.0,
             700.0,
             1_000.0,
+            false,
             &options,
             crate::pipeline::PageHalf::Full,
             &canvas,
@@ -3484,6 +3564,7 @@ mod tests {
             0.0,
             800.0,
             1_000.0,
+            false,
             &options,
             crate::pipeline::PageHalf::Full,
             &canvas,
@@ -3501,6 +3582,54 @@ mod tests {
         );
         assert_eq!(composed.get(100, 100), 0);
         assert_eq!(composed.get(150, 100), 255);
+    }
+
+    #[test]
+    fn matched_canvas_keeps_requested_margins_on_the_final_grid() {
+        let options = CleanupOptions {
+            dpi: 100.0,
+            page_alignment: crate::PageAlignment::Center,
+            margins_pixels: Some([20.0; 4]),
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 720.0,
+            height_points: 720.0,
+            width_px: 1_000,
+            height_px: 1_000,
+        };
+
+        let placement = plan_canvas_placement_for(
+            1_000,
+            1_000,
+            0.0,
+            0.0,
+            1_000.0,
+            1_000.0,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+        );
+
+        assert_eq!(placement.requested_margins, [20; 4]);
+        assert_eq!((placement.left, placement.top), (20, 20));
+        assert_eq!(
+            (placement.content_width, placement.content_height),
+            (960, 960)
+        );
+        let intrinsic = GrayImage::new(1_000, 1_000, 0);
+        let composed = place_on_white_canvas(
+            &intrinsic.resample_to_dimensions(placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.left,
+            placement.top,
+        );
+        assert_eq!(composed.get(19, 20), 255);
+        assert_eq!(composed.get(20, 20), 0);
+        assert_eq!(composed.get(979, 979), 0);
+        assert_eq!(composed.get(980, 979), 255);
     }
 
     #[test]

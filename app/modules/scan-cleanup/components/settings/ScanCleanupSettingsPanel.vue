@@ -193,7 +193,11 @@
                 />
             </div>
 
-            <div class="scan-cleanup-margins-control">
+            <div
+                class="scan-cleanup-margins-control"
+                @focusin="$emit('margin-interaction', true)"
+                @focusout="handleMarginFocusOut"
+            >
                 <div class="scan-cleanup-margins-header">
                     <div class="scan-cleanup-control-label">
                         <span>{{ t('scanCleanup.margins.title') }}</span>
@@ -686,6 +690,7 @@ const props = defineProps<{
     totalPages: number;
 }>();
 const emit = defineEmits<{
+    'margin-interaction': [active: boolean];
     'reset-control-override': [control: TScanCleanupOverrideControl];
     'reset-content-boxes': [];
     'reset-manual-split': [];
@@ -796,6 +801,18 @@ function emitMargin(target: TScanCleanupMarginTarget, value: number | null | und
     if (typeof value === 'number' && Number.isFinite(value)) {
         emit('update-margin', target, value);
     }
+}
+
+function handleMarginFocusOut(event: FocusEvent) {
+    const control = event.currentTarget;
+    if (
+        control instanceof HTMLElement
+        && event.relatedTarget instanceof Node
+        && control.contains(event.relatedTarget)
+    ) {
+        return;
+    }
+    emit('margin-interaction', false);
 }
 
 function emitManualSkew(value: number | null | undefined) {

@@ -2114,14 +2114,18 @@ describe('scan cleanup preview', () => {
                 canvasHeightPx: DOCUMENT_CANVAS.heightPx,
                 outputWidthPx: 120,
                 outputHeightPx: 80,
-                // A lossless run scales the original page objects onto the
-                // canvas without resampling them, so the preview presents the
-                // content at the size the output page will carry: this half's
-                // paper is 120x80 of a 1275x1650 canvas, so its content is
-                // scaled by 1275/120 and the sheet is filled rather than the
-                // page sitting unscaled in a corner of it.
-                matchedCanvasContentWidthPx: 1_275,
-                matchedCanvasContentHeightPx: 850,
+                // The original objects are scaled without resampling, but the
+                // five-millimetre final-canvas inset is reserved first. At
+                // preview DPI that leaves 1215 px across; aspect ratio keeps
+                // this 120x80 half at 1215x810 inside the boundary.
+                matchedCanvasContentWidthPx: 1_215,
+                matchedCanvasContentHeightPx: 810,
+                appliedMargins: {
+                    leftPx: 30,
+                    topPx: 30,
+                    rightPx: 30,
+                    bottomPx: 30,
+                },
                 resamplePasses: 0,
             }},
             {metadata: {
@@ -2131,7 +2135,7 @@ describe('scan cleanup preview', () => {
         ]});
     });
 
-    it('fits a lossless preview whose margins overflow the document rectangle and says so', async () => {
+    it('reserves exact final-canvas margins in a matched lossless preview and says when content is fitted', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         deps.runSidecar = vi.fn(async (_binary, manifestPath) => {
@@ -2147,27 +2151,31 @@ describe('scan cleanup preview', () => {
                 outputCount: 1,
                 outputs: [{
                     half: 'full',
-                    // The page's own paper, and content cropped to its ink and
-                    // then laid out with a tenth of the page in margins around
-                    // it, which asks for more room than the paper has.
+                    // The engine reports content without pre-scaling its
+                    // margins; the preview owns the final matched sheet.
                     sourceRegion: {
                         xPx: 0,
                         yPx: 0,
                         widthPx: 120,
                         heightPx: 80,
                     },
-                    contentBox: null,
+                    contentBox: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 120,
+                        heightPx: 80,
+                    },
                     cropRect: {
-                        xPx: -6,
-                        yPx: -4,
-                        widthPx: 132,
-                        heightPx: 88,
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 120,
+                        heightPx: 80,
                     },
                     appliedMargins: {
-                        leftPx: 6,
-                        topPx: 4,
-                        rightPx: 6,
-                        bottomPx: 4,
+                        leftPx: 0,
+                        topPx: 0,
+                        rightPx: 0,
+                        bottomPx: 0,
                     },
                     inputWidthPx: 120,
                     inputHeightPx: 80,
@@ -2185,19 +2193,23 @@ describe('scan cleanup preview', () => {
 
         const metadata = decodeScanCleanupPreviewResult(result);
         const output = 'outputs' in metadata ? metadata.outputs[0]!.metadata : null;
-        // The page is fitted inside the document rectangle whole, keeping the
-        // shape it asked for, rather than having its margins clipped at the
-        // edge of the box — the policy the raster path applies to the same
-        // overflow, reported the same way.
+        // The page rectangle stays fixed and content is fitted inside the
+        // 5 mm boundary, which is the same geometry the final assembler uses.
         expect(output).toMatchObject({
             canvasWidthPx: DOCUMENT_CANVAS.widthPx,
             canvasHeightPx: DOCUMENT_CANVAS.heightPx,
             canvasOverflow: true,
+            appliedMargins: {
+                leftPx: 30,
+                topPx: 30,
+                rightPx: 30,
+                bottomPx: 30,
+            },
             warnings: [expect.stringContaining('below the document\'s scale')],
         });
-        expect(output!.matchedCanvasContentWidthPx).toBe(DOCUMENT_CANVAS.widthPx);
+        expect(output!.matchedCanvasContentWidthPx).toBe(DOCUMENT_CANVAS.widthPx - 60);
         expect(output!.matchedCanvasContentHeightPx! / output!.matchedCanvasContentWidthPx!)
-            .toBeCloseTo(88 / 132, 2);
+            .toBeCloseTo(80 / 120, 2);
     });
 
     it('lets a visible request run beside the adjacent prefetch instead of aborting it', async () => {

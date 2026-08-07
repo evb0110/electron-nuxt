@@ -15,6 +15,7 @@ export interface IRenderedScanCleanupOutput {
     contentRect: IScanCleanupPixelRect | null;
     contentStyle: CSSProperties | null;
     imageStyle: CSSProperties;
+    marginBoundaryStyle: CSSProperties;
     metadata: IScanCleanupPreviewMetadata;
     pixelSwap: IScanCleanupPreviewImageSwap;
     placement: IScanCleanupPreviewPlacement;

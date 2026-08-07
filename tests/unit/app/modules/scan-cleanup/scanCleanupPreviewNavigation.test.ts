@@ -317,6 +317,7 @@ function mountPreviewSession(
     lifecycleKey?: Ref<string>,
 ) {
     let session: ReturnType<typeof useScanCleanupPreviewSession> | null = null;
+    const settings = reactive(scanCleanupOptions());
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(defineComponent({setup() {
@@ -332,7 +333,7 @@ function mountPreviewSession(
             recommendedOutputModeByPage: new Map(),
             softAlphaForegroundRecommendationByPage: new Map(),
             selectPage: page => { previewPage.value = page; },
-            settings: reactive(scanCleanupOptions()),
+            settings,
             sourcePath: computed(() => '/docs/reference.pdf'),
             totalPages: computed(() => TOTAL_PAGES),
         });
@@ -341,6 +342,7 @@ function mountPreviewSession(
     app.mount(host);
     return {
         session: session!,
+        settings,
         unmount() {
             app.unmount();
             host.remove();
@@ -803,6 +805,40 @@ describe('scan cleanup preview navigation', () => {
         mounted.unmount();
     });
 
+    it('clears a mismatched preview when a final run cancels the pending refresh', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const documentPriorByPage = reactive(new Map<number, IScanCleanupDocumentPrior>());
+        const mounted = mountPreviewSession(previewPage, documentPriorByPage);
+
+        await backend.advanceBy(PREVIEW_MS + 500);
+        expect(mounted.session.resultCurrent.value).toBe(true);
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+
+        // A settled detection/settings fact changes the request key, but the
+        // replacement preview is still waiting on its debounce when Run takes
+        // ownership and cancels preview work without invalidating raw caches.
+        documentPriorByPage.set(100, {
+            dominantLayout: 'single-uncut-page',
+            cutterRatioMedian: null,
+            clusterDims: {
+                widthPx: 883,
+                heightPx: 1335,
+            },
+            agreementStrength: 0.74,
+        });
+        await nextTick();
+        expect(mounted.session.resultCurrent.value).toBe(false);
+
+        mounted.session.cancel(false);
+
+        expect(mounted.session.loading.value).toBe(false);
+        expect(mounted.session.result.value).toBeNull();
+        expect(mounted.session.rawResult.value).toBeNull();
+        mounted.unmount();
+    });
+
     it('adopts the in-flight prefetch of the page the user navigates to instead of restarting it', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;
@@ -954,6 +990,33 @@ describe('scan cleanup preview navigation', () => {
         expect(mounted.session.result.value?.pageNumber).toBe(400);
         expect(mounted.session.loading.value).toBe(false);
         expect(mounted.session.error.value).toBe('');
+        mounted.unmount();
+        capability.value = null;
+    });
+
+    it('does not retain a previous-settings raster when a final run cancels a debounced preview', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const mounted = mountPreviewSession(previewPage, reactive(new Map()));
+
+        await backend.advanceBy(PREVIEW_MS + 500);
+        expect(mounted.session.resultCurrent.value).toBe(true);
+
+        mounted.settings.marginsMm.topMm = 8;
+        await nextTick();
+        expect(mounted.session.resultCurrent.value).toBe(false);
+        expect(mounted.session.loading.value).toBe(true);
+
+        // `beforeRun` deliberately preserves the main-process raw cache, but
+        // the renderer must not present the previous margin geometry as the
+        // final run's current preview.
+        mounted.session.cancel(false);
+
+        expect(mounted.session.loading.value).toBe(false);
+        expect(mounted.session.result.value).toBeNull();
+        expect(mounted.session.rawResult.value).toBeNull();
+        expect(mounted.session.resultCurrent.value).toBe(false);
         mounted.unmount();
         capability.value = null;
     });

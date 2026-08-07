@@ -2224,6 +2224,80 @@ describe('Scan cleanup components', () => {
         expect(caption()).not.toBeNull();
     });
 
+    it('shows the delivered margin boundary only while the margin control is active', async () => {
+        const showMarginBoundary = ref(false);
+        const result = spreadPreviewResult();
+        result.outputs = result.outputs.map(output => ({
+            ...output,
+            metadata: {
+                ...output.metadata,
+                appliedMargins: {
+                    leftPx: 20,
+                    topPx: 30,
+                    rightPx: 40,
+                    bottomPx: 50,
+                },
+            },
+        }));
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+            showMarginBoundary: showMarginBoundary.value,
+        })}));
+
+        expect(harness.host.querySelector('.margin-boundary-overlay')).toBeNull();
+        showMarginBoundary.value = true;
+        await nextTick();
+
+        const boundary = harness.host.querySelector<HTMLElement>('.margin-boundary-overlay');
+        expect(boundary?.style.left).toBe('4%');
+        expect(boundary?.style.top).toBe('3.75%');
+        expect(boundary?.style.right).toBe('8%');
+        expect(boundary?.style.bottom).toBe('6.25%');
+    });
+
+    it('reports when focus enters and leaves the margin controls', () => {
+        const marginInteraction = vi.fn();
+        const settings = reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto' as const,
+            outputMode: 'bw' as const,
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'center' as const,
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        const harness = mount(defineComponent({setup: () => () => h(
+            ScanCleanupSettingsPanel,
+            Object.assign({}, settingsPanelProps(settings, 'all'), {onMarginInteraction: marginInteraction}),
+        )}));
+        const control = harness.host.querySelector('.scan-cleanup-margins-control');
+
+        control?.dispatchEvent(new FocusEvent('focusin', {bubbles: true}));
+        control?.dispatchEvent(new FocusEvent('focusout', {bubbles: true}));
+
+        expect(marginInteraction).toHaveBeenNthCalledWith(1, true);
+        expect(marginInteraction).toHaveBeenNthCalledWith(2, false);
+    });
+
     it('shows a friendly retry state with raw details collapsed', () => {
         const rawError = 'Error: An object could not be cloned.';
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {

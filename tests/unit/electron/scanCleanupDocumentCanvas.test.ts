@@ -9,6 +9,7 @@ import type {
     TScanCleanupLayoutByPage,
 } from '@contracts/electronApiScanCleanup';
 import {
+    orientScanCleanupInsetsToPageSpace,
     resolveMatchedCanvasResamplePages,
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvasRenderDpi,
@@ -809,6 +810,35 @@ describe('scan cleanup document canvas', () => {
         }), 90)).toEqual({
             widthPoints: 612,
             heightPoints: 792,
+        });
+    });
+
+    it('turns visual margin directions back with the matched canvas', () => {
+        const margins = {
+            left: 1,
+            top: 2,
+            right: 3,
+            bottom: 4,
+        };
+
+        expect(orientScanCleanupInsetsToPageSpace(margins, 0)).toEqual(margins);
+        expect(orientScanCleanupInsetsToPageSpace(margins, 90)).toEqual({
+            left: 2,
+            top: 3,
+            right: 4,
+            bottom: 1,
+        });
+        expect(orientScanCleanupInsetsToPageSpace(margins, 180)).toEqual({
+            left: 3,
+            top: 4,
+            right: 1,
+            bottom: 2,
+        });
+        expect(orientScanCleanupInsetsToPageSpace(margins, 270)).toEqual({
+            left: 4,
+            top: 1,
+            right: 2,
+            bottom: 3,
         });
     });
 

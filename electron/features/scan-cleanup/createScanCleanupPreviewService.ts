@@ -433,6 +433,7 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
                 pdftoppmBinary: paths.pdftoppm,
                 runCommand: runNativeToolCommand,
                 log,
+                rasterConcurrency: 1,
                 signal,
             });
             return extracted.get(pageNumber) ?? null;
@@ -2155,6 +2156,61 @@ async function runPreview(
                     // would be the per-page frame drift it exists to prevent.
                     const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
                     const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
+                    const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
+                    const requestedMargins = matchedCanvas === undefined
+                        ? {
+                            leftPx: 0,
+                            topPx: 0,
+                            rightPx: 0,
+                            bottomPx: 0,
+                        }
+                        : {
+                            leftPx: Math.max(0, Math.round(marginsMm.leftMm / 25.4 * renderDpi)),
+                            topPx: Math.max(0, Math.round(marginsMm.topMm / 25.4 * renderDpi)),
+                            rightPx: Math.max(0, Math.round(marginsMm.rightMm / 25.4 * renderDpi)),
+                            bottomPx: Math.max(0, Math.round(marginsMm.bottomMm / 25.4 * renderDpi)),
+                        };
+                    const marginsRequested = Object.values(requestedMargins).some(margin => margin > 0);
+                    const marginsAvailable = request.options.crop && output.contentBox !== undefined;
+                    const appliedMargins = matchedCanvas === undefined
+                        ? output.appliedMargins
+                        : marginsAvailable ? requestedMargins : {
+                            leftPx: 0,
+                            topPx: 0,
+                            rightPx: 0,
+                            bottomPx: 0,
+                        };
+                    const fitMarginAxis = (leading: number, trailing: number, total: number) => {
+                        const sum = leading + trailing;
+                        if (sum < total || sum === 0) {
+                            return [
+                                leading,
+                                trailing,
+                            ] as const;
+                        }
+                        const available = Math.max(0, total - 1);
+                        const fittedLeading = Math.min(available, Math.round(available * leading / sum));
+                        return [
+                            fittedLeading,
+                            available - fittedLeading,
+                        ] as const;
+                    };
+                    const [
+                        marginLeft,
+                        marginRight,
+                    ] = fitMarginAxis(appliedMargins.leftPx, appliedMargins.rightPx, resolvedCanvasWidth);
+                    const [
+                        marginTop,
+                        marginBottom,
+                    ] = fitMarginAxis(appliedMargins.topPx, appliedMargins.bottomPx, resolvedCanvasHeight);
+                    const deliveredMargins = {
+                        leftPx: marginLeft,
+                        topPx: marginTop,
+                        rightPx: marginRight,
+                        bottomPx: marginBottom,
+                    };
+                    const innerCanvasWidth = Math.max(1, resolvedCanvasWidth - marginLeft - marginRight);
+                    const innerCanvasHeight = Math.max(1, resolvedCanvasHeight - marginTop - marginBottom);
                     // The assembler scales this output's own objects from the
                     // paper it was cut from onto the canvas, so the preview
                     // presents it at the same scale. Measuring from the paper
@@ -2169,30 +2225,29 @@ async function runPreview(
                             widthPoints: Math.max(1, output.sourceRegion.widthPx),
                             heightPoints: Math.max(1, output.sourceRegion.heightPx),
                         });
-                    // Margins laid around cropped content can ask for more room
-                    // than the paper the scale was measured on. The rectangle
-                    // does not grow, so the page is fitted inside it whole — the
-                    // same policy the raster path applies, reported the same way
-                    // — rather than having its margins clipped at the box edge.
+                    // Matched margins are final-canvas insets, so content is
+                    // fitted into the remaining inner rectangle. Intrinsic
+                    // previews already carry their outward crop margins in the
+                    // raster and therefore use the whole output rectangle here.
                     const contentScale = paperScale * Math.min(1, resolveScanCleanupCanvasFitScale({
-                        widthPoints: resolvedCanvasWidth,
-                        heightPoints: resolvedCanvasHeight,
+                        widthPoints: innerCanvasWidth,
+                        heightPoints: innerCanvasHeight,
                     }, {
                         widthPoints: Math.max(1, outputWidthPx * paperScale),
                         heightPoints: Math.max(1, outputHeightPx * paperScale),
                     }));
                     const contentWidthPx = Math.min(
-                        resolvedCanvasWidth,
+                        innerCanvasWidth,
                         Math.max(1, Math.round(outputWidthPx * contentScale)),
                     );
                     const contentHeightPx = Math.min(
-                        resolvedCanvasHeight,
+                        innerCanvasHeight,
                         Math.max(1, Math.round(outputHeightPx * contentScale)),
                     );
                     const canvasOverflow = contentScale < paperScale * (1 - CANVAS_CONTENT_SCALE_EPSILON);
                     const placement = resolveScanCleanupPlacementOffset(
-                        resolvedCanvasWidth - contentWidthPx,
-                        resolvedCanvasHeight - contentHeightPx,
+                        innerCanvasWidth - contentWidthPx,
+                        innerCanvasHeight - contentHeightPx,
                         pageOverride.placementOverrides?.[output.half] ?? request.options.pageAlignment,
                     );
                     return {
@@ -2207,13 +2262,13 @@ async function runPreview(
                             ...(output.contentDiagnostics === undefined
                                 ? {}
                                 : {contentDiagnostics: output.contentDiagnostics}),
-                            appliedMargins: output.appliedMargins,
+                            appliedMargins: deliveredMargins,
                             outputWidthPx,
                             outputHeightPx,
                             canvasWidthPx: resolvedCanvasWidth,
                             canvasHeightPx: resolvedCanvasHeight,
-                            placementOffsetXPx: placement.x,
-                            placementOffsetYPx: placement.y,
+                            placementOffsetXPx: marginLeft + placement.x,
+                            placementOffsetYPx: marginTop + placement.y,
                             forwardTransform: null,
                             cutterXPx: pageMetadata.cutterXPx,
                             inputWidthPx: output.inputWidthPx,
@@ -2240,9 +2295,18 @@ async function runPreview(
                             matchedCanvasContentHeightPx: contentHeightPx,
                             warnings: [
                                 ...previewWarnings,
+                                ...(matchedCanvas !== undefined && marginsRequested && !marginsAvailable
+                                    ? ['Requested margins were not applied because content detection or cropping is unavailable']
+                                    : []),
+                                ...(deliveredMargins.leftPx !== appliedMargins.leftPx
+                                    || deliveredMargins.topPx !== appliedMargins.topPx
+                                    || deliveredMargins.rightPx !== appliedMargins.rightPx
+                                    || deliveredMargins.bottomPx !== appliedMargins.bottomPx
+                                    ? ['Matched page size reduced requested margins because they leave no drawable canvas']
+                                    : []),
                                 ...(canvasOverflow
                                     ? [`Matched page size fitted this page to ${String(contentWidthPx)}x${String(contentHeightPx)} px `
-                                        + `inside the ${String(resolvedCanvasWidth)}x${String(resolvedCanvasHeight)} px document canvas, `
+                                        + `inside the ${String(innerCanvasWidth)}x${String(innerCanvasHeight)} px margin box, `
                                         + 'below the document\'s scale']
                                     : []),
                             ],

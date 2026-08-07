@@ -532,6 +532,18 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         prefetcher.supersede();
         clearTimer();
         invalidateDetailRequest();
+        // A final run can begin while a settings-driven preview is still
+        // debouncing. Do not leave the previous settings' cleaned raster (or
+        // its raw cleaning placeholder) looking authoritative after loading
+        // has been cleared. A result for the current key remains useful and
+        // may stay visible while the run owns the document.
+        if (!resultCurrent.value) {
+            result.value = null;
+            rawResult.value = null;
+            resultKey.value = null;
+            detailResult.value = null;
+            displayedDetailSourceKey = null;
+        }
         // Every request a streamed raster could still belong to is superseded.
         streamedRawByRequest.clear();
         inFlightPreviewRequestIds.clear();

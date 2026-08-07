@@ -452,6 +452,15 @@
     pointer-events: none;
 }
 
+.margin-boundary-overlay {
+    position: absolute;
+    z-index: var(--app-z-local-raised);
+    box-sizing: border-box;
+    border: var(--app-hairline-height) solid var(--ui-warning);
+    border-radius: max(0px, calc(var(--app-radius-md) - var(--app-space-xs)));
+    pointer-events: none;
+}
+
 .content-overlay {
     box-sizing: border-box;
     border: 0;

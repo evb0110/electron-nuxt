@@ -4349,6 +4349,7 @@ describe('scan cleanup pipeline', () => {
                             heightPx: 200,
                         },
                         cropRect,
+                        contentBox: cropRect,
                         inputWidthPx: 400,
                         inputHeightPx: 200,
                     }],
@@ -4543,6 +4544,12 @@ describe('scan cleanup pipeline', () => {
                 crop: false,
                 matchPageSize: true,
                 pageAlignment: 'center',
+                marginsMm: {
+                    leftMm: 0,
+                    topMm: 0,
+                    rightMm: 0,
+                    bottomMm: 0,
+                },
             },
             // Detection has settled, so the run measures a document it knows
             // the shape of and has nothing to report about it.
@@ -4611,6 +4618,12 @@ describe('scan cleanup pipeline', () => {
                 crop: false,
                 matchPageSize: true,
                 pageAlignment: 'center',
+                marginsMm: {
+                    leftMm: 0,
+                    topMm: 0,
+                    rightMm: 0,
+                    bottomMm: 0,
+                },
             },
             layoutByPage: {
                 '1': 'two-page-spread',
@@ -4659,6 +4672,12 @@ describe('scan cleanup pipeline', () => {
                 crop: false,
                 matchPageSize: true,
                 pageAlignment: 'center',
+                marginsMm: {
+                    leftMm: 0,
+                    topMm: 0,
+                    rightMm: 0,
+                    bottomMm: 0,
+                },
             },
             layoutByPage: {
                 '1': 'two-page-spread',
@@ -4689,20 +4708,12 @@ describe('scan cleanup pipeline', () => {
         ]);
     });
 
-    it('fits a lossless page whose margins overflow the document rectangle and says so', async () => {
+    it('reserves exact final-canvas margins for a lossless matched page and says when content is fitted', async () => {
         const fixture = await setup();
-        // Content cropped to this page's ink and then laid out with margins
-        // that ask for a tenth more paper than the sheet the scale was
-        // measured on.
         const harness = losslessMatchedHarness([{
             widthPoints: 400,
             heightPoints: 200,
-        }], {
-            xPx: -20,
-            yPx: -10,
-            widthPx: 440,
-            heightPx: 220,
-        });
+        }]);
         harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
         harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
 
@@ -4721,10 +4732,9 @@ describe('scan cleanup pipeline', () => {
             pdfimagesBinary: '/pdfimages',
         }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
 
-        // The box is the document rectangle exactly, and the page was scaled
-        // to fit inside it: the margins the user asked for survive whole
-        // instead of being clipped at the edge of the box, which is the policy
-        // the raster path applies to the same overflow.
+        // The page rectangle stays fixed. Five millimetres is removed from
+        // each final edge before fitting, rather than being padded around the
+        // content and then scaled back down with it.
         const output = harness.readSplitInstructions()!.pages[0]!.outputs[0]!;
         expect(output.cropRect).toEqual({
             x: 0,
@@ -4732,9 +4742,14 @@ describe('scan cleanup pipeline', () => {
             width: 400,
             height: 200,
         });
-        expect(output.contentTransform!.scale).toBeCloseTo(400 / 440, 6);
+        const fiveMillimetersPoints = 5 / 25.4 * 72;
+        expect(output.contentTransform!.scale).toBeCloseTo(
+            (200 - 2 * fiveMillimetersPoints) / 200,
+            6,
+        );
+        expect(output.contentTransform!.translateY).toBeCloseTo(fiveMillimetersPoints, 6);
         // And a page that ended up below the document's scale is named rather
         // than left to be found.
-        expect(summary.warnings).toEqual([expect.stringContaining('Page 1: Matched page size fitted this page to 400.0x200.0 pt')]);
+        expect(summary.warnings).toEqual([expect.stringContaining('Page 1: Matched page size fitted this page to 343.3x171.7 pt inside the 371.7x171.7 pt margin box')]);
     });
 });

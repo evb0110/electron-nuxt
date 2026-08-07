@@ -59,8 +59,13 @@
                             alt=""
                             aria-hidden="true"
                         >
-                        <span class="margin-overlay" aria-hidden="true" />
                     </div>
+                    <span
+                        v-if="showMarginBoundary && hasAppliedMargins(output)"
+                        class="margin-boundary-overlay"
+                        :style="output.marginBoundaryStyle"
+                        aria-hidden="true"
+                    />
                     <slot name="paper-overlay" :output="output" />
                 </div>
             </div>
@@ -83,6 +88,7 @@ defineProps<{
     detailStyles?: Partial<Record<TScanCleanupOutputHalf, CSSProperties>>;
     matchPageSize: boolean;
     outputs: IRenderedScanCleanupOutput[];
+    showMarginBoundary?: boolean;
 }>();
 defineEmits<{
     complete: [half: TScanCleanupOutputHalf, url: string];
@@ -91,4 +97,9 @@ defineEmits<{
     'set-fit-area': [half: TScanCleanupOutputHalf, element: Element | ComponentPublicInstance | null];
 }>();
 defineSlots<{'paper-overlay': (props: {output: IRenderedScanCleanupOutput}) => unknown}>();
+
+function hasAppliedMargins(output: IRenderedScanCleanupOutput) {
+    const margins = output.metadata.appliedMargins;
+    return margins.leftPx > 0 || margins.topPx > 0 || margins.rightPx > 0 || margins.bottomPx > 0;
+}
 </script>
