@@ -23,7 +23,10 @@ import type {
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
-import {extractPdfMrcLayers} from '@scan-cleanup-adapters/extractPdfMrcLayers';
+import {
+    extractPdfMrcLayers,
+    extractPdfMrcLayersBatch,
+} from '@scan-cleanup-adapters/extractPdfMrcLayers';
 import {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
 import {readAvailableScratchBytes} from '@scan-cleanup-core/resolveRasterHandoff';
 import {detectSourceDpiDetails} from '@scan-cleanup-core/sourceDpiDetection';
@@ -1029,6 +1032,10 @@ async function main() {
             runCommand,
             getAvailableScratchBytes: readAvailableScratchBytes,
             extractMrcLayers: async input => extractPdfMrcLayers({
+                ...input,
+                runCommand,
+            }),
+            extractMrcLayersBatch: async input => extractPdfMrcLayersBatch({
                 ...input,
                 runCommand,
             }),
