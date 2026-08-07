@@ -56,6 +56,10 @@ const defaultOutputPath = join(
 const CROP_SCALE = 2197 / 2261;
 const ALIGNMENT_RADIUS_FULL_PX = 160;
 const ALIGNMENT_MIN_RELIABLE_OVERLAP = 0.4;
+// Output-side support drops by definition when the cleaned page really does
+// contain invented ink. A strong source-side match is therefore sufficient;
+// otherwise require both directions to agree before classifying differences.
+const ALIGNMENT_STRONG_SOURCE_OVERLAP = 0.75;
 const QUARTER_DOWNSAMPLE = 4;
 const BROAD_DOWNSAMPLE = 16;
 const MAX_BROAD_ALIGNMENT_SAMPLES = 30_000;
@@ -66,7 +70,6 @@ const MAX_COMPONENT_PIXELS_FOR_LOCAL_SEARCH = 50_000;
 const SOURCE_SUPPORT_PAPER_DELTA = 0;
 const SOURCE_SUPPORT_PERCENTILE = 0.75;
 const INVENTED_UNSUPPORTED_AREA_FACTOR = 1;
-const INVENTED_MIN_COMPONENT_FILL_RATIO = 0.7;
 // A mostly preserved component can acquire a connected unsupported fringe
 // when a thin source rule is rotated or resampled onto a much finer output
 // grid. Treat a component as invented only when the unsupported region is
@@ -2298,10 +2301,7 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
             continue;
         }
         const owner = cleanedComponentLabels[unsupportedComponent.pixels[0]] - 1;
-        if (
-            owner >= 0
-            && components[owner].fillRatio >= INVENTED_MIN_COMPONENT_FILL_RATIO
-        ) {
+        if (owner >= 0) {
             inventedUnsupportedPixels[owner] += unsupportedComponent.area;
         }
     }
@@ -2371,7 +2371,6 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
             minimumPaperReference: components.length === 0 ? null : minimumPaperReference,
             paperDelta: SOURCE_SUPPORT_PAPER_DELTA,
             minimumComponentArea,
-            minimumComponentFillRatio: INVENTED_MIN_COMPONENT_FILL_RATIO,
             minimumUnsupportedComponentArea: inventedUnsupportedArea,
             minimumUnsupportedComponentFraction: INVENTED_MIN_UNSUPPORTED_FRACTION,
         },
@@ -2640,7 +2639,12 @@ async function analyzePage({
         const alignment = canonicalGeometryAlignment ?? alignments.reduce((best, candidate) =>
             candidate.fullOverlapScore > best.fullOverlapScore ? candidate : best,
         );
-        const alignmentReliable = alignment.overlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP;
+        const alignmentReliable =
+            alignment.overlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP
+            && (
+                alignment.fullOverlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP
+                || alignment.overlapScore >= ALIGNMENT_STRONG_SOURCE_OVERLAP
+            );
         const auditDilationRadius = resolveAuditDilationRadius(
             cleanedRow,
             mappingActive,
@@ -2717,6 +2721,7 @@ async function analyzePage({
         const potentialFlagged =
             componentMetrics.lostCount >= 3
             || componentMetrics.lostInkFraction >= 0.01;
+        const comparisonSuppressed = !alignmentReliable;
         const lossFlagged = alignmentReliable && potentialFlagged;
         const inventedFlagged = alignmentReliable && inventedMetrics.inventedCount > 0;
         const flagged = lossFlagged || inventedFlagged;
@@ -2773,7 +2778,7 @@ async function analyzePage({
             lostInkFraction: roundNumber(componentMetrics.lostInkFraction),
             localRealignment: componentMetrics.localRealignment,
             auditDilationRadius,
-            ...(potentialFlagged && !alignmentReliable
+            ...(comparisonSuppressed
                 ? {comparisonSuppressed: 'alignment overlap below reliable threshold'}
                 : {}),
             outputPage: outputPageNumber,
@@ -2867,6 +2872,9 @@ function summarizeMappedPage(pageNumber, outputPageNumbers, pageAudits) {
         inventedCount: sumPageValues(analyzed, 'inventedCount'),
         inventedInkFraction: weightedPageFraction(analyzed, 'inventedInkFraction', 'cleanedInkPixels'),
         inventedInkPixels: sumPageValues(analyzed, 'inventedInkPixels'),
+        ...(analyzed.some(page => page.comparisonSuppressed !== undefined)
+            ? {comparisonSuppressed: 'one or more output comparisons had unreliable alignment'}
+            : {}),
         lossFlagged: analyzed.some(page => page.lossFlagged),
         localRealignment: {
             improvedComponents: analyzed.reduce(
@@ -3323,7 +3331,7 @@ function formatPageList(pages) {
     return pages.length === 0 ? '(none)' : pages.join(', ');
 }
 
-function shouldFailFor(options, lossFlaggedPages, silhouettePages, inventedPages) {
+function shouldFailFor(options, lossFlaggedPages, silhouettePages, inventedPages, suppressedPages) {
     if (options.failOn === 'text-loss') {
         return lossFlaggedPages.length > 0;
     }
@@ -3336,7 +3344,8 @@ function shouldFailFor(options, lossFlaggedPages, silhouettePages, inventedPages
     if (options.failOn === 'any') {
         return lossFlaggedPages.length > 0
             || silhouettePages.length > 0
-            || inventedPages.length > 0;
+            || inventedPages.length > 0
+            || suppressedPages.length > 0;
     }
     return false;
 }
@@ -3444,6 +3453,9 @@ async function main() {
         const silhouettePages = pageResults
             .filter(page => page.status === 'analyzed' && page.silhouetteFlagged)
             .map(page => page.page);
+        const suppressedPages = pageResults
+            .filter(page => page.status === 'analyzed' && page.comparisonSuppressed !== undefined)
+            .map(page => page.page);
         const report = {
             generatedAt: new Date().toISOString(),
             inputs: {
@@ -3489,6 +3501,8 @@ async function main() {
                 ),
                 pageCount: pageResults.length,
                 skippedPages: pageResults.filter(page => page.status === 'skipped').map(page => page.page),
+                suppressedCount: suppressedPages.length,
+                suppressedPages,
                 silhouetteCount: pageResults.reduce(
                     (total, page) => total + (page.silhouettes?.length ?? 0),
                     0,
@@ -3514,7 +3528,6 @@ async function main() {
                 },
                 name: 'scan-cleanup-word-loss-audit',
                 inventedInk: {
-                    minimumComponentFillRatio: INVENTED_MIN_COMPONENT_FILL_RATIO,
                     minimumUnsupportedComponentFraction: INVENTED_MIN_UNSUPPORTED_FRACTION,
                     minimumUnsupportedComponentAreaFactor: INVENTED_UNSUPPORTED_AREA_FACTOR,
                     paperDelta: SOURCE_SUPPORT_PAPER_DELTA,
@@ -3528,7 +3541,7 @@ async function main() {
                     minAreaMillimeters: SILHOUETTE_MIN_SIZE_MM,
                     minFillRatio: 0.8,
                 },
-                version: 4,
+                version: 5,
             },
         };
         if (options.baseline) {
@@ -3574,7 +3587,13 @@ async function main() {
         if (stampFail) {
             console.error(`FAIL: provenance stamp verification is ${stampVerification?.status ?? 'missing'}`);
         }
-        const fail = shouldFailFor(options, lossFlaggedPages, silhouettePages, inventedPages) || stampFail;
+        const fail = shouldFailFor(
+            options,
+            lossFlaggedPages,
+            silhouettePages,
+            inventedPages,
+            suppressedPages,
+        ) || stampFail;
         if (fail) {
             console.error(`FAIL: --fail-on ${options.failOn} found a matching flag`);
         }

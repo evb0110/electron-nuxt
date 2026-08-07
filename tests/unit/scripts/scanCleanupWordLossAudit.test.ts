@@ -69,9 +69,11 @@ type TSyntheticCleanedVariant =
     | 'attached-fringe'
     | 'equal'
     | 'invented'
+    | 'sparse-invented'
     | 'scaled-islands'
     | 'scaled-local-shift'
-    | 'thick';
+    | 'thick'
+    | 'unrelated';
 
 function buildRasterPdf({
     bitsPerComponent,
@@ -158,12 +160,18 @@ function buildSyntheticSourceRaster(
     const height = 160;
     const pixels = new Uint8Array(width * height).fill(255);
     if (variant === 'attached-fringe') {
-        for (let y = 30; y < 130; y += 1) {
-            for (let x = 20; x < 140; x += 1) {
-                pixels[y * width + x] = 40;
+        for (const left of [
+            20,
+            65,
+            110,
+        ]) {
+            for (let y = 30; y < 70; y += 1) {
+                for (let x = left; x < left + 30; x += 1) {
+                    pixels[y * width + x] = 40;
+                }
             }
         }
-    } else {
+    } else if (variant !== 'unrelated') {
         for (const left of [
             24,
             76,
@@ -206,9 +214,19 @@ function buildSyntheticCleanedRaster(
         128,
     ];
     if (variant === 'attached-fringe') {
-        for (let y = 30 * scale; y < 130 * scale; y += 1) {
-            for (let x = 20 * scale; x < 160 * scale; x += 1) {
-                setPixel(x, y);
+        for (const [
+            index,
+            left,
+        ] of [
+                20,
+                65,
+                110,
+            ].entries()) {
+            for (let y = 30 * scale; y < 70 * scale; y += 1) {
+                const extra = index === 0 ? 8 * scale : 0;
+                for (let x = left * scale; x < (left + 30) * scale + extra; x += 1) {
+                    setPixel(x, y);
+                }
             }
         }
     } else {
@@ -233,6 +251,25 @@ function buildSyntheticCleanedRaster(
         for (let y = 86 * scale; y < 106 * scale; y += 1) {
             for (let x = 72 * scale; x < 136 * scale; x += 1) {
                 setPixel(x, y);
+            }
+        }
+    }
+    if (variant === 'sparse-invented' || variant === 'unrelated') {
+        const left = 35 * scale;
+        const top = 80 * scale;
+        const right = 130 * scale;
+        const bottom = 145 * scale;
+        const thickness = 2 * scale;
+        for (let y = top; y < bottom; y += 1) {
+            for (let x = left; x < right; x += 1) {
+                if (
+                    x < left + thickness
+                    || x >= right - thickness
+                    || y < top + thickness
+                    || y >= bottom - thickness
+                ) {
+                    setPixel(x, y);
+                }
             }
         }
     }
@@ -513,40 +550,48 @@ describe('scan-cleanup invented-ink audit', () => {
             failOn: 'any',
             verifyStamp: false,
         });
-        const report = JSON.parse(await readFile(reportPath, 'utf8')) as {pages: Array<{
-            alignment?: {
-                attemptedScales?: string[];
-                scale?: string;
-                scaleX?: number;
-                scaleY?: number;
-            };
-            auditDilationRadius?: number;
-            components?: Array<{
-                area?: number;
-                bbox?: {
-                    height?: number;
-                    width?: number;
+        const report = JSON.parse(await readFile(reportPath, 'utf8')) as {
+            pages: Array<{
+                alignment?: {
+                    attemptedScales?: string[];
+                    reliable?: boolean;
+                    scale?: string;
+                    scaleX?: number;
+                    scaleY?: number;
                 };
-                classification?: string;
-                unsupportedFraction?: number;
+                auditDilationRadius?: number;
+                components?: Array<{
+                    area?: number;
+                    bbox?: {
+                        height?: number;
+                        width?: number;
+                    };
+                    classification?: string;
+                    unsupportedFraction?: number;
+                }>;
+                damagedCount?: number;
+                comparisonSuppressed?: string;
+                flagged?: boolean;
+                inventedCount?: number;
+                inventedFlagged?: boolean;
+                inventedInkFraction?: number;
+                inventedSourceSupport?: {
+                    alignmentRadiusPx?: number;
+                    minimumComponentArea?: number;
+                    minimumUnsupportedComponentArea?: number;
+                };
+                localRealignment?: {
+                    improvedComponents?: number;
+                    maxShiftDistance?: number;
+                    radiusPx?: number;
+                };
+                lostCount?: number;
             }>;
-            damagedCount?: number;
-            flagged?: boolean;
-            inventedCount?: number;
-            inventedFlagged?: boolean;
-            inventedInkFraction?: number;
-            inventedSourceSupport?: {
-                alignmentRadiusPx?: number;
-                minimumComponentArea?: number;
-                minimumUnsupportedComponentArea?: number;
-            };
-            localRealignment?: {
-                improvedComponents?: number;
-                maxShiftDistance?: number;
-                radiusPx?: number;
-            };
-            lostCount?: number;
-        }>;};
+            summary?: {
+                suppressedCount?: number;
+                suppressedPages?: number[]
+            }
+        };
         await rm(temporaryDirectory, {
             force: true,
             recursive: true,
@@ -558,6 +603,7 @@ describe('scan-cleanup invented-ink audit', () => {
         return {
             exitCode,
             page,
+            summary: report.summary,
         };
     }
 
@@ -565,6 +611,7 @@ describe('scan-cleanup invented-ink audit', () => {
         const result = await runSyntheticCase('invented');
 
         expect(result.exitCode).toBe(1);
+        expect(result.page.alignment).toMatchObject({reliable: true});
         expect(result.page).toMatchObject({
             flagged: true,
             inventedCount: 1,
@@ -581,6 +628,39 @@ describe('scan-cleanup invented-ink audit', () => {
         })]));
     }, 30_000);
 
+    it('flags a sparse connected invention without requiring a dense bounding box', async () => {
+        const result = await runSyntheticCase('sparse-invented');
+
+        expect(result.exitCode).toBe(1);
+        expect(result.page).toMatchObject({
+            flagged: true,
+            inventedCount: 1,
+            inventedFlagged: true,
+        });
+        expect(result.page.components).toEqual(expect.arrayContaining([expect.objectContaining({
+            bbox: expect.objectContaining({
+                height: 65,
+                width: 95,
+            }),
+            classification: 'invented',
+            unsupportedFraction: 1,
+        })]));
+    }, 30_000);
+
+    it('makes fail-on any fail closed when comparison alignment is unreliable', async () => {
+        const result = await runSyntheticCase('unrelated');
+
+        expect(result.exitCode).toBe(1);
+        expect(result.page).toMatchObject({
+            alignment: {reliable: false},
+            comparisonSuppressed: 'alignment overlap below reliable threshold',
+        });
+        expect(result.summary).toMatchObject({
+            suppressedCount: 1,
+            suppressedPages: [1],
+        });
+    }, 30_000);
+
     it('keeps a cleaned page that only thickens existing strokes clean', async () => {
         const result = await runSyntheticCase('thick');
 
@@ -594,7 +674,10 @@ describe('scan-cleanup invented-ink audit', () => {
     }, 30_000);
 
     it('does not call a mostly supported component with a resampled fringe invented', async () => {
-        const result = await runSyntheticCase('attached-fringe', {mapped: true});
+        const result = await runSyntheticCase('attached-fringe', {
+            canonicalGeometry: true,
+            mapped: true,
+        });
 
         expect(result.exitCode).toBe(0);
         expect(result.page).toMatchObject({
@@ -649,6 +732,7 @@ describe('scan-cleanup invented-ink audit', () => {
 
         const invented = await runSyntheticCase('invented', mappedOptions);
         expect(invented.exitCode).toBe(1);
+        expect(invented.page.alignment).toMatchObject({reliable: true});
         expect(invented.page).toMatchObject({
             alignment: {
                 attemptedScales: expect.arrayContaining(['uniform-fit(2.000000)']),

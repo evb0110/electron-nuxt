@@ -234,27 +234,36 @@ def jpx_pages(pdf_path: Path, pages: list[int]) -> set[int]:
 def classify_decoder_failures(
     report: dict[str, Any],
     expected_jpx_pages: set[int],
+    requested_pages: set[int],
 ) -> tuple[list[str], list[str]]:
     expected: list[str] = []
     unexpected: list[str] = []
+    pending_unscoped: list[str] = []
+    last_scoped_page: int | None = None
+
+    def classify(message: str, page: int) -> None:
+        (expected if page in expected_jpx_pages else unexpected).append(message)
+
     for message in decoder_failures(report):
         image_match = re.search(r"img_p(\d+)_", message)
         if image_match is not None:
             page = int(image_match.group(1)) + 1
-            (expected if page in expected_jpx_pages else unexpected).append(message)
+            for pending in pending_unscoped:
+                classify(pending, page)
+            pending_unscoped.clear()
+            classify(message, page)
+            last_scoped_page = page
             continue
-        is_jpx_decoder_message = any(marker in message for marker in (
-            "JpxError",
-            "JpxImage",
-            "OpenJPEG",
-            "openjpeg",
-            "wasmUrl API parameter",
-            "Dependent image isn't ready",
-        ))
-        if expected_jpx_pages and is_jpx_decoder_message:
-            expected.append(message)
-        else:
-            unexpected.append(message)
+        if "Dependent image isn't ready" in message and last_scoped_page is not None:
+            classify(message, last_scoped_page)
+            continue
+        pending_unscoped.append(message)
+
+    # A decoder bootstrap warning with no page-bearing image failure cannot be
+    # attributed safely in a mixed request. It is expected only when every
+    # requested page is structurally known to require JPX support.
+    all_requested_pages_are_jpx = bool(requested_pages) and requested_pages <= expected_jpx_pages
+    (expected if all_requested_pages_are_jpx else unexpected).extend(pending_unscoped)
     return expected, unexpected
 
 
@@ -416,6 +425,7 @@ def main() -> int:
     expected_decoder_warnings, unexpected_decoder_warnings = classify_decoder_failures(
         exact_report,
         expected_jpx_pages,
+        set(pages),
     )
     global_failures = [
         f"Renderer warning: {message}"
@@ -483,9 +493,16 @@ def main() -> int:
         for page, page_failures in failures_by_page.items()
         for failure in page_failures
     ]
+    status = (
+        "failed"
+        if failures
+        else "requires-compatible-renderer"
+        if expected_jpx_pages
+        else "classified-compatible"
+    )
     report = {
-        "schemaVersion": 2,
-        "status": "failed" if failures else "passed",
+        "schemaVersion": 3,
+        "status": status,
         "input": {
             "path": str(pdf_path),
             "sha256": sha256(pdf_path),
@@ -514,7 +531,7 @@ def main() -> int:
     report_name = (
         "verification-failure.json"
         if failures
-        else "verification-ledger.json"
+        else "compatibility-classification.json"
     )
     report_path = artifact_dir / report_name
     report_path.write_text(

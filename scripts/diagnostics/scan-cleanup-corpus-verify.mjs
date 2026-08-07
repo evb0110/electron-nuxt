@@ -264,8 +264,9 @@ const corpusOptions = {
 // The production preview service makes the durable Auto decision at 150 DPI.
 // Verify that decision on the same grid, then replay it on final-quality input.
 const DETECTION_DPI = 150;
-// Roughly 1.5 pixels at 720 DPI: enough for integer bbox rounding without
-// allowing the ledger entry to absorb a neighboring scanner-edge component.
+// A physical 0.05 mm tolerance is about 0.7 pixels on the current 360-DPI
+// dominant-bilevel grid. It covers coordinate rounding without coupling this
+// exact source-component ledger to whichever render grid policy is active.
 const SCANNER_BOUNDARY_BBOX_TOLERANCE_MM = 0.05;
 const OUTPUT_MODES = [
     'bw',
