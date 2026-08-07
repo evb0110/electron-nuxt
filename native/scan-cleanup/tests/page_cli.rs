@@ -3131,17 +3131,18 @@ fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
 }
 
 #[test]
-fn matched_canvas_preserves_requested_output_padding_beyond_the_source_page() {
-    // Margins create output paper even when the detected content is too close
-    // to the scan edge to supply that paper from source pixels. The complete
-    // padded raster is then fitted onto the document canvas.
+fn matched_canvas_reserves_requested_output_padding_inside_the_physical_page() {
+    // Matched margins are physical insets in the document canvas. When the
+    // detected content reaches the scan edge, the content is fitted into that
+    // inset rather than expanding a padded raster and scaling the requested
+    // margin back below its physical size.
     let scratch = Scratch::new("matched-overflow-warning");
     let manifest = scratch.path("matched-overflow-manifest.json");
     let input = scratch.path("matched-overflow-input.png");
     let output = scratch.path("matched-overflow-out.png");
     let metadata = scratch.path("matched-overflow-out.json");
     // A full-bleed cover: there are no source pixels from which the requested
-    // margin could be retained, so the renderer has to synthesize white paper.
+    // margin could be retained, so placement has to reserve white PDF paper.
     let image = GrayImage::new(100, 100, 40);
     fs::write(&input, encode_gray(&image).unwrap()).unwrap();
     fs::write(
@@ -3206,20 +3207,16 @@ fn matched_canvas_preserves_requested_output_padding_beyond_the_source_page() {
         "warnings={warnings:?}"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
-    assert_eq!((image.width(), image.height()), (148, 148));
-    assert!(metadata_json["pdfImagePlacement"].is_null());
-    // The requested left/right padding is actual white raster content, and the
-    // authored ink survives between it.
-    assert!((0..10).all(|x| (0..image.height()).all(|y| image.get(x, y) == 255)));
-    assert!((138..148).all(|x| (0..image.height()).all(|y| image.get(x, y) == 255)));
-    assert!(
-        image.get(24, 24) < 128,
-        "the source's top-left edge ink was clipped"
-    );
-    assert!(
-        image.get(123, 123) < 128,
-        "the source's bottom-right edge ink was clipped"
-    );
+    assert_eq!((image.width(), image.height()), (100, 100));
+    assert_pdf_image_placement_matches_canvas(&metadata_json);
+    assert_eq!(metadata_json["appliedMargins"]["leftPx"], 24.0);
+    assert_eq!(metadata_json["appliedMargins"]["topPx"], 24.0);
+    assert_eq!(metadata_json["appliedMargins"]["rightPx"], 24.0);
+    assert_eq!(metadata_json["appliedMargins"]["bottomPx"], 24.0);
+    // Six millimetres at 100 DPI rounds to 24 pixels on every edge. A
+    // continuous-tone page keeps its intrinsic samples and carries that inset
+    // as PDF placement rather than baking redundant white pixels into PNG.
+    assert!((0..image.width()).all(|x| (0..image.height()).all(|y| image.get(x, y) < 128)));
 }
 
 #[test]
@@ -3302,13 +3299,11 @@ fn matched_canvas_reports_a_sheet_larger_than_the_rectangle_it_was_measured_for(
     assert_pdf_image_placement_matches_canvas(&metadata_json);
 }
 
-/// The same overflow, previewed. A preview keeps the raster it rendered — the
-/// renderer scales it — so its intrinsic size stays larger than the canvas
-/// while the box it is placed in stays inside it. Every consumer of this
-/// metadata reads the placement from the content box, so this is the shape the
-/// bridge has to accept rather than reject as an impossible placement.
+/// The same overflow, previewed. Preview and final renders share the exact
+/// final-grid inset: the intrinsic raster is the physical page and the
+/// matched-content box describes where its full-bleed source is displayed.
 #[test]
-fn matched_canvas_preview_renders_padding_beyond_the_physical_page() {
+fn matched_canvas_preview_reserves_padding_inside_the_physical_page() {
     let scratch = Scratch::new("matched-overflow-preview");
     let manifest = scratch.path("matched-overflow-preview-manifest.json");
     let input = scratch.path("matched-overflow-preview-input.png");
@@ -3382,28 +3377,36 @@ fn matched_canvas_preview_renders_padding_beyond_the_physical_page() {
     let offset_y = metadata_json["placementOffsetYPx"].as_u64().unwrap();
     assert_eq!((canvas_width, canvas_height), (200, 180));
     assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(true));
-    // The padded page and its placement both remain on the canvas after the
-    // presentation scales its intrinsic preview raster.
+    // The intrinsic page and its inset placement both remain on the canvas
+    // after presentation scales the source raster into its content box.
     assert!(offset_x + content_width <= canvas_width);
     assert!(offset_y + content_height <= canvas_height);
-    assert!(metadata_json["outputWidthPx"].as_u64().unwrap() > canvas_width);
-    // Preview publishes the complete padded intrinsic raster unchanged; the
-    // renderer applies matchedCanvasContentWidth/Height to display it.
+    assert_eq!(
+        metadata_json["outputWidthPx"].as_u64().unwrap(),
+        canvas_width
+    );
+    assert_eq!(
+        metadata_json["outputHeightPx"].as_u64().unwrap(),
+        canvas_height
+    );
+    assert_eq!(metadata_json["appliedMargins"]["leftPx"], 30.0);
+    assert_eq!(metadata_json["appliedMargins"]["topPx"], 30.0);
+    assert_eq!(metadata_json["appliedMargins"]["rightPx"], 30.0);
+    assert_eq!(metadata_json["appliedMargins"]["bottomPx"], 30.0);
+    // Preserve the source aspect ratio inside the 140x120 inner rectangle;
+    // the seven spare horizontal pixels follow the requested top-center
+    // alignment.
+    assert_eq!((content_width, content_height), (133, 120));
+    assert_eq!((offset_x, offset_y), (33, 30));
+    // Preview publishes the physical page unchanged; presentation applies
+    // the content box and exposes the exact five-millimetre boundary.
     let published = decode_gray(&fs::read(&output).unwrap(), 200_000, 400).unwrap();
     assert_eq!(
         u64::try_from(published.width()).unwrap(),
         metadata_json["outputWidthPx"].as_u64().unwrap()
     );
-    assert_eq!((published.width(), published.height()), (260, 240));
-    assert!((0..20).all(|x| (0..published.height()).all(|y| published.get(x, y) == 255)));
-    assert!((published.width() - 20..published.width())
-        .all(|x| (0..published.height()).all(|y| published.get(x, y) == 255)));
+    assert_eq!((published.width(), published.height()), (200, 180));
     assert!(
-        published.get(30, 30) < 128,
-        "preview clipped the source's top-left edge ink"
-    );
-    assert!(
-        published.get(229, 209) < 128,
-        "preview clipped the source's bottom-right edge ink"
+        (0..published.width()).all(|x| (0..published.height()).all(|y| published.get(x, y) < 128))
     );
 }
