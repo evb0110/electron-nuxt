@@ -14,6 +14,7 @@ import {
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewResult,
+    TScanCleanupPageAlignment,
 } from '@contracts/electronApiScanCleanup';
 import {
     completePreviewImageSwap,
@@ -35,9 +36,9 @@ import {
     resolvePreviewPlaceholderViewportFrame,
     resolvePreviewSpreadCutterCenter,
     resolvePreviewViewportFrame,
-    resolveCutterControlGeometry,
 } from '@app/modules/scan-cleanup/geometry/viewport';
 import {
+    resolvePreviewAlignmentReferenceRect,
     resolvePreviewMetadataPlacement,
     toPreviewStyleRect,
 } from '@app/modules/scan-cleanup/geometry/placement';
@@ -308,6 +309,56 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it.each([
+        'top-left',
+        'top-center',
+        'top-right',
+        'center-left',
+        'center',
+        'center-right',
+        'bottom-left',
+        'bottom-center',
+        'bottom-right',
+    ] satisfies TScanCleanupPageAlignment[])('round-trips inset placement for %s', alignment => {
+        const matchedMetadata = metadata({
+            appliedMargins: {
+                leftPx: 10,
+                topPx: 20,
+                rightPx: 30,
+                bottomPx: 40,
+            },
+            outputWidthPx: 60,
+            outputHeightPx: 100,
+            canvasWidthPx: 200,
+            canvasHeightPx: 300,
+            matchedCanvasContentWidthPx: 120,
+            matchedCanvasContentHeightPx: 200,
+            placementOffsetXPx: 10,
+            placementOffsetYPx: 20,
+        });
+        const reference = resolvePreviewAlignmentReferenceRect(matchedMetadata, 120, 200);
+        const placement = resolvePreviewMetadataPlacement(matchedMetadata, alignment);
+        const horizontalRatio = (placement.left - reference.originX) / reference.spanX;
+        const verticalRatio = (placement.top - reference.originY) / reference.spanY;
+        const horizontal = horizontalRatio < 0.25
+            ? 'left'
+            : horizontalRatio > 0.75 ? 'right' : 'center';
+        const vertical = verticalRatio < 0.25
+            ? 'top'
+            : verticalRatio > 0.75 ? 'bottom' : 'center';
+        const roundTripped = vertical === 'center' && horizontal === 'center'
+            ? 'center'
+            : `${vertical}-${horizontal}`;
+
+        expect(reference).toEqual({
+            originX: 10,
+            originY: 20,
+            spanX: 40,
+            spanY: 40,
+        });
+        expect(roundTripped).toBe(alignment);
+    });
+
     it('does not apply canvas insets to intrinsic rasters that already contain their margins', () => {
         const intrinsicMetadata = metadata({
             outputWidthPx: 230,
@@ -530,13 +581,6 @@ describe('scan cleanup preview geometry', () => {
         expect(rendered).toHaveLength(2);
         expect(rendered[0]!.width / rendered[0]!.height).toBe(500 / 800);
         expect(rendered[1]).toEqual(rendered[0]);
-    });
-
-    it('centers both the cutter line and grab handle on the requested coordinate', () => {
-        const geometry = resolveCutterControlGeometry(417, 36, 2);
-        expect(geometry.controlLeft).toBe(399);
-        expect(geometry.handleCenter).toBe(417);
-        expect(geometry.lineCenter).toBe(417);
     });
 
     it('places a symmetric spread cutter at the exact rendered-box gap center', () => {

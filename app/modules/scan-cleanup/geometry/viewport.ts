@@ -13,11 +13,6 @@ export interface IScanCleanupPreviewFitArea extends IScanCleanupPreviewSize {
 }
 export interface IScanCleanupPreviewFitPlacement extends IScanCleanupPreviewFitArea {}
 export interface IScanCleanupPreviewFrameOutput extends IScanCleanupPreviewSize {half: IScanCleanupPreviewMetadata['half'];}
-interface IScanCleanupCutterControlGeometry {
-    controlLeft: number;
-    handleCenter: number;
-    lineCenter: number;
-}
 
 export function resolvePreviewFitPlacement(
     containerWidth: number,
@@ -109,13 +104,4 @@ export function resolvePreviewSpreadCutterCenter(renderedBoxes: readonly IScanCl
         right,
     ] = [...renderedBoxes].sort((first, second) => first.left - second.left);
     return ((left?.left ?? 0) + (left?.width ?? 0) + (right?.left ?? 0)) / 2;
-}
-
-export function resolveCutterControlGeometry(center: number, controlWidth: number, lineWidth: number) {
-    const controlLeft = center - controlWidth / 2;
-    return {
-        controlLeft,
-        handleCenter: controlLeft + controlWidth / 2,
-        lineCenter: controlLeft + (controlWidth - lineWidth) / 2 + lineWidth / 2,
-    } satisfies IScanCleanupCutterControlGeometry;
 }

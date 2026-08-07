@@ -210,7 +210,7 @@
                                     :outputs="placementOverlayOutputFor(output.metadata.half)"
                                     @abort="dragTransaction.abort"
                                     @cancel="dragTransaction.cancel"
-                                    @finish="dragTransaction.finish"
+                                    @finish="finishPlacementDrag"
                                     @lost-pointer-capture="dragTransaction.lostPointerCapture"
                                     @move="dragTransaction.move"
                                     @nudge="nudgePlacement"
@@ -465,6 +465,7 @@ import {
     resolvePreviewSpreadCutterCenter,
 } from '@app/modules/scan-cleanup/geometry/viewport';
 import {
+    resolvePreviewAlignmentReferenceRect,
     resolvePreviewMetadataPlacement,
     toPreviewStyleRect,
 } from '@app/modules/scan-cleanup/geometry/placement';
@@ -593,7 +594,7 @@ const {
     observeCutterStage,
     outputCanvasRects,
     outputFitAreaSizes,
-    placementAnchors,
+    placementAnchors: outerPlacementAnchors,
     pruneOutputElementRefs,
     setOutputCanvas,
     setOutputFitArea,
@@ -1276,13 +1277,19 @@ function nudgeContentBox(
     ));
 }
 
-function alignmentFromOffset(left: number, top: number, maxLeft: number, maxTop: number) {
-    const horizontal = maxLeft <= 0 || left / maxLeft < 0.25
+function alignmentFromOffset(
+    left: number,
+    top: number,
+    reference: ReturnType<typeof resolvePreviewAlignmentReferenceRect>,
+) {
+    const relativeLeft = left - reference.originX;
+    const relativeTop = top - reference.originY;
+    const horizontal = reference.spanX <= 0 || relativeLeft / reference.spanX < 0.25
         ? 'left'
-        : left / maxLeft > 0.75 ? 'right' : 'center';
-    const vertical = maxTop <= 0 || top / maxTop < 0.25
+        : relativeLeft / reference.spanX > 0.75 ? 'right' : 'center';
+    const vertical = reference.spanY <= 0 || relativeTop / reference.spanY < 0.25
         ? 'top'
-        : top / maxTop > 0.75 ? 'bottom' : 'center';
+        : relativeTop / reference.spanY > 0.75 ? 'bottom' : 'center';
     return vertical === 'center' && horizontal === 'center'
         ? 'center' as const
         : `${vertical}-${horizontal}` as TScanCleanupPageAlignment;
@@ -1299,8 +1306,11 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
     if (!props.matchPageSize || canvasClientRect.width <= 0 || canvasClientRect.height <= 0) {
         return;
     }
-    const maxLeft = Math.max(0, output.placement.canvasWidthPx - output.placement.contentWidthPx);
-    const maxTop = Math.max(0, output.placement.canvasHeightPx - output.placement.contentHeightPx);
+    const alignmentReference = resolvePreviewAlignmentReferenceRect(
+        output.metadata,
+        output.placement.contentWidthPx,
+        output.placement.contentHeightPx,
+    );
     const canonicalGeometry: IPlacementDragGeometry = {
         kind: 'placement',
         half: output.metadata.half,
@@ -1318,16 +1328,24 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
         stageRect,
         fitScale,
         update: (pointerEvent, snapshot) => {
-            const left = Math.min(maxLeft, Math.max(0,
-                output.placement.left + (pointerEvent.clientX - snapshot.pointerStart.x) / snapshot.fitScale,
-            ));
-            const top = Math.min(maxTop, Math.max(0,
-                output.placement.top + (pointerEvent.clientY - snapshot.pointerStart.y) / snapshot.fitScale,
-            ));
+            const left = Math.min(
+                alignmentReference.originX + alignmentReference.spanX,
+                Math.max(
+                    alignmentReference.originX,
+                    output.placement.left + (pointerEvent.clientX - snapshot.pointerStart.x) / snapshot.fitScale,
+                ),
+            );
+            const top = Math.min(
+                alignmentReference.originY + alignmentReference.spanY,
+                Math.max(
+                    alignmentReference.originY,
+                    output.placement.top + (pointerEvent.clientY - snapshot.pointerStart.y) / snapshot.fitScale,
+                ),
+            );
             return {
                 kind: 'placement',
                 half: output.metadata.half,
-                alignment: alignmentFromOffset(left, top, maxLeft, maxTop),
+                alignment: alignmentFromOffset(left, top, alignmentReference),
                 left,
                 top,
             };
@@ -1342,6 +1360,24 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
         captureDragOutputSnapshot();
         dragTransaction.move(event);
     }
+}
+
+function finishPlacementDrag(event: PointerEvent) {
+    const snapshot = dragTransaction.snapshot.value;
+    dragTransaction.move(event);
+    const draft = dragTransaction.draftGeometry.value;
+    if (
+        snapshot?.pointerId === event.pointerId
+        && snapshot.canonicalGeometry.kind === 'placement'
+        && draft?.kind === 'placement'
+        && draft.half === snapshot.canonicalGeometry.half
+        && draft.left === snapshot.canonicalGeometry.left
+        && draft.top === snapshot.canonicalGeometry.top
+    ) {
+        dragTransaction.cancel();
+        return;
+    }
+    dragTransaction.finish(event);
 }
 
 function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput) {
@@ -1661,6 +1697,47 @@ const placementOverlayOutputs = computed<IScanCleanupPlacementOverlayOutput[]>((
                 heightPx: output.metadata.outputHeightPx,
             }, placement),
         }];
+    });
+});
+
+function placementAnchorPosition(axis: string, origin: number, span: number, contentSize: number) {
+    const ratio = axis === 'left' || axis === 'top'
+        ? 0
+        : axis === 'right' || axis === 'bottom' ? 1 : 0.5;
+    return origin + (span + contentSize) * ratio;
+}
+
+const placementAnchors = computed(() => {
+    const output = placementOverlayOutputs.value.find(candidate => candidate.active);
+    if (!output) {
+        return outerPlacementAnchors;
+    }
+    const reference = resolvePreviewAlignmentReferenceRect(
+        output.metadata,
+        output.placement.contentWidthPx,
+        output.placement.contentHeightPx,
+    );
+    return outerPlacementAnchors.map(anchor => {
+        const axes = anchor.alignment.split('-');
+        const vertical = axes[0]!;
+        const horizontal = axes[1] ?? vertical;
+        return {
+            alignment: anchor.alignment,
+            style: {
+                left: `${placementAnchorPosition(
+                    horizontal,
+                    reference.originX,
+                    reference.spanX,
+                    output.placement.contentWidthPx,
+                ) / Math.max(1, output.placement.canvasWidthPx) * 100}%`,
+                top: `${placementAnchorPosition(
+                    vertical,
+                    reference.originY,
+                    reference.spanY,
+                    output.placement.contentHeightPx,
+                ) / Math.max(1, output.placement.canvasHeightPx) * 100}%`,
+            },
+        };
     });
 });
 

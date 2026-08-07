@@ -16,7 +16,7 @@
             class="zone-editor-polygons"
             viewBox="0 0 1 1"
             preserveAspectRatio="none"
-            @pointerdown="startDrawing"
+            @pointerdown.stop="startDrawing"
         >
             <polygon
                 v-for="zone in renderedZones"
@@ -335,6 +335,19 @@ function replaceZone(
     }
 }
 
+function samePolygon(
+    left: IScanCleanupNormalizedZonePolygon,
+    right: IScanCleanupNormalizedZonePolygon,
+) {
+    return left.rotationDegrees === right.rotationDegrees
+        && left.points.length === right.points.length
+        && left.points.every((point, index) => {
+            const other = right.points[index]!;
+            return point.xNormalized === other.xNormalized
+                && point.yNormalized === other.yNormalized;
+        });
+}
+
 function finishDrag(event: PointerEvent) {
     const current = draft.value;
     if (!current || current.pointerId !== event.pointerId) {
@@ -368,7 +381,7 @@ function finishDrag(event: PointerEvent) {
             emit('update:manualZones', next);
             emit('update:selected', selection);
         }
-    } else {
+    } else if (!samePolygon(current.original, current.polygon)) {
         const next = cloneZones();
         replaceZone(next, current.selection, current.polygon);
         emit('update:manualZones', next);

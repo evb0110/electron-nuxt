@@ -68,33 +68,42 @@ function resolveAlignedPreviewPlacement(
     contentHeightPx: number,
     alignment: TScanCleanupPageAlignment,
 ) {
-    const matchedCanvas = metadata.matchedCanvasContentWidthPx != null
-        || metadata.matchedCanvasContentHeightPx != null;
-    if (!matchedCanvas) {
-        return resolveScanCleanupPlacementOffset(
-            metadata.canvasWidthPx - contentWidthPx,
-            metadata.canvasHeightPx - contentHeightPx,
-            alignment,
-        );
-    }
-
-    // Matched-canvas margins are hard insets around the same inner rectangle
-    // used by the main-process preview and final PDF assembler. Live alignment
-    // changes therefore align inside that rectangle, not against the outer
-    // canvas edge; otherwise top/left alignment visually erases the margin.
-    const margins = metadata.appliedMargins;
-    const innerWidthPx = Math.max(0,
-        metadata.canvasWidthPx - margins.leftPx - margins.rightPx);
-    const innerHeightPx = Math.max(0,
-        metadata.canvasHeightPx - margins.topPx - margins.bottomPx);
-    const innerOffset = resolveScanCleanupPlacementOffset(
-        Math.max(0, innerWidthPx - contentWidthPx),
-        Math.max(0, innerHeightPx - contentHeightPx),
+    const reference = resolvePreviewAlignmentReferenceRect(
+        metadata,
+        contentWidthPx,
+        contentHeightPx,
+    );
+    const offset = resolveScanCleanupPlacementOffset(
+        reference.spanX,
+        reference.spanY,
         alignment,
     );
     return {
-        x: margins.leftPx + innerOffset.x,
-        y: margins.topPx + innerOffset.y,
+        x: reference.originX + offset.x,
+        y: reference.originY + offset.y,
+    };
+}
+
+export function resolvePreviewAlignmentReferenceRect(
+    metadata: IScanCleanupPreviewMetadata,
+    contentWidthPx: number,
+    contentHeightPx: number,
+) {
+    const matchedCanvas = metadata.matchedCanvasContentWidthPx != null
+        || metadata.matchedCanvasContentHeightPx != null;
+    const originX = matchedCanvas ? metadata.appliedMargins.leftPx : 0;
+    const originY = matchedCanvas ? metadata.appliedMargins.topPx : 0;
+    const horizontalInsets = matchedCanvas
+        ? metadata.appliedMargins.leftPx + metadata.appliedMargins.rightPx
+        : 0;
+    const verticalInsets = matchedCanvas
+        ? metadata.appliedMargins.topPx + metadata.appliedMargins.bottomPx
+        : 0;
+    return {
+        originX,
+        originY,
+        spanX: Math.max(0, metadata.canvasWidthPx - horizontalInsets - contentWidthPx),
+        spanY: Math.max(0, metadata.canvasHeightPx - verticalInsets - contentHeightPx),
     };
 }
 

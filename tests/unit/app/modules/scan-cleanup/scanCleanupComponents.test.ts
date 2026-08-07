@@ -18,6 +18,7 @@ import {
     shallowRef,
 } from 'vue';
 import type {
+    IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
     IScanCleanupPreviewRequest,
@@ -33,6 +34,7 @@ import {
 } from '@contracts/scanCleanupPageOverrides';
 import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
+import ZoneEditorOverlay from '@app/modules/scan-cleanup/components/preview/ZoneEditorOverlay.vue';
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
@@ -767,6 +769,18 @@ function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
     });
 }
 
+const placementAlignments = [
+    'top-left',
+    'top-center',
+    'top-right',
+    'center-left',
+    'center',
+    'center-right',
+    'bottom-left',
+    'bottom-center',
+    'bottom-right',
+] as const satisfies readonly TScanCleanupPageAlignment[];
+
 const previewShellStyleSource = readFileSync(
     'app/modules/scan-cleanup/components/preview/PreviewShell.css',
     'utf8',
@@ -852,12 +866,15 @@ function settingsPanelProps(
 function mountPreviewZoomHarness(options: {
     canvasRect?: (index: number, scale: number, panX: number, panY: number) => DOMRect;
     detailResult?: IScanCleanupPreviewResult | null;
+    manualZones?: IScanCleanupManualZones;
+    onUpdateManualZones?: (value: IScanCleanupManualZones) => void;
     onRequestDetail?: (
         viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
     ) => void;
     rawResult?: IScanCleanupRawPreviewResult | null;
     result?: IScanCleanupPreviewResult | null;
     viewMode?: 'original' | 'cleaned';
+    zoneEditing?: boolean;
 } = {}) {
     const viewMode = ref<'original' | 'cleaned'>(options.viewMode ?? 'original');
     const splitUpdates: IScanCleanupNormalizedSplit[] = [];
@@ -873,8 +890,11 @@ function mountPreviewZoomHarness(options: {
         pageNumber: 1,
         totalPages: 3,
         manualSplit: null,
+        manualZones: options.manualZones,
         readingOrder: 'ltr',
+        zoneEditing: options.zoneEditing,
         detailResult: options.detailResult ?? null,
+        ...(options.onUpdateManualZones ? {'onUpdate:manualZones': options.onUpdateManualZones} : {}),
         ...(options.onRequestDetail ? {onRequestDetail: options.onRequestDetail} : {}),
         'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
             if (value) splitUpdates.push(value);
@@ -3174,6 +3194,126 @@ describe('Scan cleanup components', () => {
         expect(harness.surface.classList).not.toContain('is-panning-preview');
     });
 
+    it('draws a manual zone at navigation zoom without giving the pointer to preview pan', async () => {
+        const updateManualZones = vi.fn<(value: IScanCleanupManualZones) => void>();
+        const harness = mountPreviewZoomHarness({
+            onUpdateManualZones: updateManualZones,
+            viewMode: 'cleaned',
+            zoneEditing: true,
+        });
+        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+        expect(harness.stage.style.transform).toContain('scale(2)');
+
+        const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
+        const polygons = harness.host.querySelector<SVGElement>('.zone-editor-polygons')!;
+        vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 500, 400));
+        const editorCapture = mockPointerCapture(editor);
+        polygons.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 100,
+            clientY: 100,
+            pointerId: 52,
+        }));
+
+        expect(editorCapture.setPointerCapture).toHaveBeenCalledWith(52);
+        expect(harness.surface.setPointerCapture).not.toHaveBeenCalled();
+        expect(harness.surface.classList).not.toContain('is-panning-preview');
+
+        editor.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 200,
+            clientY: 200,
+            pointerId: 52,
+        }));
+        editor.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 200,
+            clientY: 200,
+            pointerId: 52,
+        }));
+
+        expect(updateManualZones).toHaveBeenCalledOnce();
+        expect(updateManualZones.mock.calls[0]![0].picture).toHaveLength(1);
+    });
+
+    it('selects an existing manual zone without emitting an unchanged zone list', () => {
+        const manualZones: IScanCleanupManualZones = {
+            picture: [{
+                layer: 'painter2',
+                polygon: {
+                    points: [
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.1,
+                        },
+                        {
+                            xNormalized: 0.4,
+                            yNormalized: 0.1,
+                        },
+                        {
+                            xNormalized: 0.4,
+                            yNormalized: 0.5,
+                        },
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.5,
+                        },
+                    ],
+                    rotationDegrees: 0,
+                },
+            }],
+            fill: [],
+        };
+        const updateManualZones = vi.fn<(value: IScanCleanupManualZones) => void>();
+        const updateSelected = vi.fn();
+        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
+            frame: {
+                height: 300,
+                left: 0,
+                top: 0,
+                width: 200,
+            },
+            manualZones,
+            rotationDegrees: 0,
+            selected: null,
+            zoneKind: 'picture',
+            'onUpdate:manualZones': updateManualZones,
+            'onUpdate:selected': updateSelected,
+        })}));
+        const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
+        vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 200, 300));
+        mockPointerCapture(editor);
+        const polygon = harness.host.querySelector<SVGPolygonElement>('.zone-editor-polygon')!;
+
+        polygon.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 40,
+            clientY: 60,
+            pointerId: 53,
+        }));
+        polygon.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 40,
+            clientY: 60,
+            pointerId: 53,
+        }));
+
+        expect(updateSelected).toHaveBeenCalledOnce();
+        expect(updateSelected).toHaveBeenCalledWith({
+            kind: 'picture',
+            index: 0,
+        });
+        expect(updateManualZones).not.toHaveBeenCalled();
+    });
+
     it('toggles preview zoom between fit and bitmap 100% on double-click', async () => {
         const harness = mountPreviewZoomHarness();
 
@@ -3614,6 +3754,85 @@ describe('Scan cleanup components', () => {
         expect(sessionWrites.override).toHaveBeenCalledOnce();
         expect(sessionWrites.ipc).not.toHaveBeenCalled();
     });
+
+    it.each(placementAlignments)(
+        'round-trips inset %s placement and skips a no-op pointer commit',
+        async alignment => {
+            const result = spreadPreviewResult();
+            const first = result.outputs[0]!;
+            Object.assign(first.metadata, {
+                appliedMargins: {
+                    leftPx: 10,
+                    topPx: 20,
+                    rightPx: 30,
+                    bottomPx: 40,
+                },
+                outputWidthPx: 60,
+                outputHeightPx: 100,
+                canvasWidthPx: 200,
+                canvasHeightPx: 300,
+                matchedCanvasContentWidthPx: 120,
+                matchedCanvasContentHeightPx: 200,
+                placementOffsetXPx: 10,
+                placementOffsetYPx: 20,
+            });
+            const commitCurrentPlacement = vi.fn();
+            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+                result,
+                loading: false,
+                error: '',
+                viewMode: 'cleaned',
+                matchPageSize: true,
+                alignment,
+                pageNumber: 1,
+                totalPages: 3,
+                manualSplit: null,
+                readingOrder: 'ltr',
+                'onUpdate:placement': commitCurrentPlacement,
+            })}));
+            mockPreviewGeometry(harness.host, [
+                domRect(0, 0, 200, 300),
+                domRect(200, 0, 500, 800),
+            ]);
+            const placement = harness.host.querySelector<HTMLElement>('.placement-control')!;
+            mockPointerCapture(placement);
+
+            placement.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 100,
+                clientY: 100,
+                pointerId: 54,
+            }));
+            await nextTick();
+
+            const anchors = Array.from(harness.host.querySelectorAll<HTMLElement>('.placement-snap-anchor'));
+            const nearestIndex = anchors.findIndex(anchor => anchor.classList.contains('is-nearest'));
+            const nearest = anchors[nearestIndex]!;
+            const [
+                vertical,
+                horizontal = vertical,
+            ] = alignment.split('-');
+            const expectedLeft = horizontal === 'left' ? 5 : horizontal === 'right' ? 85 : 45;
+            const expectedTop = vertical === 'top'
+                ? 20 / 300 * 100
+                : vertical === 'bottom' ? 260 / 300 * 100 : 140 / 300 * 100;
+
+            expect(anchors).toHaveLength(9);
+            expect(nearestIndex).toBe(placementAlignments.indexOf(alignment));
+            expect(Number.parseFloat(nearest.style.left)).toBeCloseTo(expectedLeft);
+            expect(Number.parseFloat(nearest.style.top)).toBeCloseTo(expectedTop);
+
+            placement.dispatchEvent(new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 100,
+                clientY: 100,
+                pointerId: 54,
+            }));
+
+            expect(commitCurrentPlacement).not.toHaveBeenCalled();
+        },
+    );
 
     it('re-fits a margin sweep from native paper geometry without letting the raster escape', async () => {
         const resize = installResizeObserverHarness();
