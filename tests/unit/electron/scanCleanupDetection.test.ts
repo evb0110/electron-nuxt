@@ -68,6 +68,10 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const rasterConcurrency = 3;
         const beginConsumption = Promise.withResolvers<undefined>();
         const stagedPaths = new Map<number, string>();
+        const stagedReady = Array.from(
+            {length: pageCount},
+            () => Promise.withResolvers<string>(),
+        );
         const liveStagedPaths = new Set<string>();
         let peakLiveStagedBytes = 0;
         const ppm = Buffer.from('P6\n1 1\n255\n\0\0\0', 'binary');
@@ -106,6 +110,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 renderPagePpm: vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
                     await writeFile(outputPath, ppm);
                     stagedPaths.set(pageNumber, outputPath);
+                    stagedReady[pageNumber - 1]!.resolve(outputPath);
                     liveStagedPaths.add(outputPath);
                     peakLiveStagedBytes = Math.max(
                         peakLiveStagedBytes,
@@ -191,7 +196,11 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                         page,
                     ] of manifest.pages.entries()) {
                         const pageNumber = page.sourcePageIndex + 1;
-                        const stagedPath = stagedPaths.get(pageNumber)!;
+                        // The FIFO consumer can finish the previous page before
+                        // the producer's continuation records the next staged
+                        // path. Await that producer-owned event instead of
+                        // depending on libuv/coverage scheduling order.
+                        const stagedPath = await stagedReady[pageNumber - 1]!.promise;
                         for (;;) {
                             try {
                                 await stat(stagedPath);
