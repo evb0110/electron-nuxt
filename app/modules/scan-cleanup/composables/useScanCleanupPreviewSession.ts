@@ -1,7 +1,6 @@
 import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
-    IScanCleanupPagePlanEvidence,
     IScanCleanupRawPreviewEvent,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
@@ -32,115 +31,6 @@ import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/
 import type {TScanCleanupSelectionIntent} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
-
-function normalizePreviewContentBox(
-    metadata: IScanCleanupPreviewResult['outputs'][number]['metadata'],
-) {
-    const contentBox = metadata.contentBox;
-    if (
-        contentBox === null
-        || metadata.inputWidthPx <= 0
-        || metadata.inputHeightPx <= 0
-        || metadata.sourceRegion.widthPx <= 0
-        || metadata.sourceRegion.heightPx <= 0
-    ) {
-        return undefined;
-    }
-    const analysisWidth = metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270
-        ? metadata.inputHeightPx
-        : metadata.inputWidthPx;
-    const analysisHeight = metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270
-        ? metadata.inputWidthPx
-        : metadata.inputHeightPx;
-    // Native content boxes are local to their output's source region, while
-    // normalized content overrides use the full rotated sheet as their scale.
-    // Clip in local space, then divide by the full-sheet dimensions. Adding
-    // sourceRegion.xPx here shifts a right-hand page by the cutter twice.
-    const regionWidth = metadata.sourceRegion.widthPx;
-    const regionHeight = metadata.sourceRegion.heightPx;
-    const left = Math.max(0, Math.min(regionWidth, contentBox.xPx));
-    const top = Math.max(0, Math.min(regionHeight, contentBox.yPx));
-    const right = Math.max(
-        left,
-        Math.min(regionWidth, contentBox.xPx + contentBox.widthPx),
-    );
-    const bottom = Math.max(
-        top,
-        Math.min(regionHeight, contentBox.yPx + contentBox.heightPx),
-    );
-    if (right <= left || bottom <= top) {
-        return undefined;
-    }
-    return {
-        xNormalized: left / analysisWidth,
-        yNormalized: top / analysisHeight,
-        widthNormalized: (right - left) / analysisWidth,
-        heightNormalized: (bottom - top) / analysisHeight,
-        rotationDegrees: metadata.rotationDegrees,
-    };
-}
-
-export function createScanCleanupPagePlanEvidence(
-    previewResult: IScanCleanupPreviewResult,
-): IScanCleanupPagePlanEvidence | undefined {
-    const rotationDegrees = previewResult.pageMetadata.rotationDegrees;
-    const analysisWidth = rotationDegrees === 90 || rotationDegrees === 270
-        ? previewResult.rawHeightPx
-        : previewResult.rawWidthPx;
-    const cutterXPx = previewResult.pageMetadata.cutterXPx;
-    const splitXNormalized = cutterXPx === null || analysisWidth <= 0
-        ? undefined
-        : cutterXPx / analysisWidth;
-    const automaticSplit = splitXNormalized === undefined
-        || splitXNormalized <= 0
-        || splitXNormalized >= 1
-        ? undefined
-        : {
-            xNormalized: splitXNormalized,
-            rotationDegrees,
-        };
-    const outputs = Object.fromEntries(previewResult.outputs.flatMap(output => {
-        const metadata = output.metadata;
-        // A dewarp model is resolution-dependent and is not part of the
-        // portable evidence yet. Re-analyze such pages instead of replaying
-        // only half of their geometry.
-        if (metadata.dewarpApplied === true) {
-            return [];
-        }
-        const contentBox = normalizePreviewContentBox(metadata);
-        const detectedSkewDegrees = metadata.manualSkew !== true
-            && metadata.skewApplied === true
-            && Number.isFinite(metadata.detectedSkewDegrees)
-            ? metadata.detectedSkewDegrees
-            : undefined;
-        const textToneDiagnostics = metadata.textToneDiagnostics;
-        if (
-            contentBox === undefined
-            && detectedSkewDegrees === undefined
-            && textToneDiagnostics === undefined
-        ) {
-            return [];
-        }
-        return [[
-            metadata.half,
-            {
-                ...(contentBox === undefined ? {} : {contentBox}),
-                ...(detectedSkewDegrees === undefined ? {} : {detectedSkewDegrees}),
-                ...(textToneDiagnostics === undefined ? {} : {textToneDiagnostics}),
-            },
-        ]];
-    }));
-    if (Object.keys(outputs).length === 0 && automaticSplit === undefined) {
-        return undefined;
-    }
-    return {
-        pageNumber: previewResult.pageNumber,
-        rotationDegrees,
-        layoutClassification: previewResult.pageMetadata.layoutClassification,
-        ...(automaticSplit === undefined ? {} : {automaticSplit}),
-        outputs,
-    };
-}
 
 /**
  * Longer than the ~400-500 ms cadence of a rail flick measured in the user's
@@ -488,20 +378,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }
 
     function cachePreview(key: string, previewResult: IScanCleanupPreviewResult) {
-        cache.set(key, previewResult);
-        metadataByPage.set(previewResult.pageNumber, previewResult.pageMetadata);
-    }
-
-    function resolvePagePlanEvidence(pageNumbers: readonly number[]) {
-        const evidence = new Map<number, IScanCleanupPagePlanEvidence>();
-        const previewOptions = resolvedOptions.value;
-        for (const pageNumber of pageNumbers) {
-            const cached = cache.get(cacheKey(pageNumber, previewOptions));
-            if (!cached) continue;
-            const pagePlan = createScanCleanupPagePlanEvidence(cached);
-            if (pagePlan !== undefined) evidence.set(pageNumber, pagePlan);
+        if (!key.endsWith(
+            `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`,
+        )) {
+            return;
         }
-        return evidence;
+        cache.set(key, previewResult);
     }
 
     function clearTimer() {
@@ -748,6 +630,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 if (requestSequence !== sequence) {
                     return;
                 }
+                metadataByPage.set(previewResult.pageNumber, previewResult.pageMetadata);
                 result.value = previewResult;
                 resultKey.value = key;
                 scheduleAdjacentPrefetch(previewResult, requestOptions, requestSourcePath);
@@ -897,9 +780,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             detailResult.value = next;
             displayedDetailSourceKey = sourceKey;
         } catch (caught) {
+            const normalizedMessage = caught instanceof Error
+                ? caught.message
+                    .replace(/^Error invoking remote method '[^']+':\s*/u, '')
+                    .replace(/^(?:Error:\s*)+/u, '')
+                    .trim()
+                : '';
             if (
-                caught instanceof Error
-                && caught.message.startsWith('Scan cleanup detail geometry is unavailable')
+                normalizedMessage.startsWith('Scan cleanup detail geometry is unavailable')
             ) {
                 cache.delete(baseKey);
                 schedule();
@@ -938,8 +826,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         else cancel();
     }, {immediate: true});
     watch(options.lifecycleDocumentKey, () => {
+        cancel();
         lifecycleGeneration.value += 1;
-        invalidateDetailRequest();
         cancellationRetryKey = null;
         cancellationRetries = 0;
         error.value = '';
@@ -976,7 +864,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         resultCurrent,
         retry,
         requestDetail,
-        resolvePagePlanEvidence,
         schedule,
         totalPages,
         viewMode,

@@ -11,8 +11,8 @@ import {
 import {
     DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
     SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
-    type IScanCleanupDocumentPreferencePatch,
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import type {IScanCleanupDocumentPreferencePatch} from '@contracts/scanCleanupSettings';
 import {
     captureScanCleanupDocumentPersistenceToken,
     flushScanCleanupPreferencesStore,
@@ -290,6 +290,13 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         });
     }
 
+    async function finishDocumentLoad(generation: number) {
+        await nextTick();
+        if (generation === documentLoadGeneration) {
+            loadingDocument = false;
+        }
+    }
+
     function applyDocumentSettings(
         generation: number,
         lifecycleKey: string | null,
@@ -301,7 +308,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             return;
         }
         if (lifecycleKey !== options.documentLifecycleKey.value) {
-            loadingDocument = false;
+            void finishDocumentLoad(generation);
             return;
         }
         values.pageOverrides = snapshot.overrides;
@@ -315,7 +322,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         Object.assign(values.marginsMm, snapshot.marginsMm
             ?? preferences.marginsMm);
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
-        loadingDocument = false;
+        void finishDocumentLoad(generation);
     }
 
     function loadDocumentSettingsForCurrentSource() {
@@ -346,7 +353,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             ))
             .catch(() => {
                 if (generation === documentLoadGeneration) {
-                    loadingDocument = false;
+                    void finishDocumentLoad(generation);
                 }
             });
     }

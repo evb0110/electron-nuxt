@@ -36,7 +36,6 @@ import {
     getScanCleanupPreferencesStore,
     resetScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
-import type * as preferencesRepositoryModule from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
     getScanCleanupRunErrorCode,
     getScanCleanupRunError,
@@ -45,7 +44,6 @@ import {
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
-const preferenceCloneCalls = vi.hoisted(() => ({count: 0}));
 // Counts the real reduction rather than replacing it: the document's layouts
 // are a pass over every page, and how often a session performs it is the thing
 // under test in `derives the document's layouts once per change`.
@@ -64,16 +62,6 @@ vi.mock('@contracts/scanCleanupPageOverrides', async importOriginal => {
     };
 });
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
-vi.mock('@app/modules/scan-cleanup/persistence/preferencesRepository', async importOriginal => {
-    const original = await importOriginal<typeof preferencesRepositoryModule>();
-    return {
-        ...original,
-        toPlainScanCleanupOptions: (...args: Parameters<typeof original.toPlainScanCleanupOptions>) => {
-            preferenceCloneCalls.count += 1;
-            return original.toPlainScanCleanupOptions(...args);
-        },
-    };
-});
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
     key: string,
     values?: Record<string, unknown>,
@@ -789,6 +777,39 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('rebuilds the base preview after the wrapped IPC detail-geometry error', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => {
+            if (request.detail) {
+                throw new Error(
+                    'Error invoking remote method \'x\': Error: '
+                    + 'Scan cleanup detail geometry is unavailable; rebuild the base preview',
+                );
+            }
+            return previewResult(request.pageNumber, 'single-uncut-page');
+        });
+        capability.value = harness.value;
+        const mounted = mountSession(`detail-stale-base-${Date.now()}`);
+        mounted.session.settings.values.outputMode = 'bw';
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+        const baseCallsBefore = vi.mocked(harness.value.preview).mock.calls
+            .filter(([request]) => request?.pageNumber === 1 && !request.detail).length;
+
+        await mounted.session.preview.requestDetail({full: {
+            xNormalized: 0,
+            yNormalized: 0,
+            widthNormalized: 1,
+            heightNormalized: 1,
+            rotationDegrees: 0,
+        }});
+
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls
+            .filter(([request]) => request?.pageNumber === 1 && !request.detail)).toHaveLength(baseCallsBefore + 1));
+        expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.detail))
+            .toHaveLength(1);
+        mounted.unmount();
+    });
+
     it('cancels a pending detail retry when the preview source disappears', async () => {
         const harness = capabilityHarness();
         const sourcePath = ref<string | null>(`/docs/detail-retry-source-${Date.now()}.pdf`);
@@ -981,23 +1002,6 @@ describe('scan cleanup workspace session detection guidance', () => {
             .toMatchObject({[firstKey]: {outputMode: 'grayscale'}});
 
         setItem.mockRestore();
-        mounted.unmount();
-    });
-
-    it('takes one plain settings snapshot for a page-plan evidence lookup', () => {
-        const active = ref(false);
-        preferenceCloneCalls.count = 0;
-        const mounted = mountSession(`page-plan-snapshot-${Date.now()}`, {active: () => active.value});
-        const before = preferenceCloneCalls.count;
-
-        mounted.session.settings.values.thickness = 1;
-        mounted.session.preview.resolvePagePlanEvidence([
-            1,
-            2,
-            3,
-        ]);
-
-        expect(preferenceCloneCalls.count - before).toBe(1);
         mounted.unmount();
     });
 
@@ -1713,7 +1717,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('ignores preview enrichment when resolving run page evidence', async () => {
+    it('uses detection-owned page evidence when resolving a run', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`uniform-run-evidence-${Date.now()}`);
@@ -1735,18 +1739,6 @@ describe('scan cleanup workspace session detection guidance', () => {
         };
         harness.emitDetection(completed);
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
-        const previewEvidence: IScanCleanupPagePlanEvidence = {
-            ...detectionEvidence,
-            automaticSplit: {
-                xNormalized: 0.78,
-                rotationDegrees: 0,
-            },
-        };
-        const previewLookup = vi.spyOn(mounted.session.preview, 'resolvePagePlanEvidence')
-            .mockReturnValue(new Map([[
-                1,
-                previewEvidence,
-            ]]));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
@@ -1769,7 +1761,6 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         await mounted.session.run.run();
 
-        expect(previewLookup).not.toHaveBeenCalled();
         const expectedEvidenceByPage = expect.objectContaining({'1': detectionEvidence});
         expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({pagePlanEvidenceByPage: expectedEvidenceByPage}));
         mounted.unmount();

@@ -16,7 +16,8 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 import {
     cloneScanCleanupPreferenceValue,
     scanCleanupPreferenceRecord,
-} from '@app/modules/scan-cleanup/persistence/preferencesSchema';
+} from '@contracts/scanCleanupSettings';
+import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
 
 // Version 1 is retained for documents saved before normalized geometry shipped.
 // Expiry 2027-07: remove after the first release whose minimum supported upgrade
@@ -86,6 +87,26 @@ function decodeMarginsMm(value: unknown): IScanCleanupMarginsMm | undefined {
         && margin >= 0
         && margin <= 25
     )) ? decoded as IScanCleanupMarginsMm : undefined;
+}
+
+function decodeManualZones(
+    value: unknown,
+    rotationDegrees: TScanCleanupPageRotation,
+) {
+    if (value === undefined) {
+        return undefined;
+    }
+    try {
+        return decodeScanCleanupPageOverrides({'1': {
+            rotationDegrees,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualZones: value,
+        }})['1']?.manualZones;
+    } catch {
+        return undefined;
+    }
 }
 
 function positiveDimension(value: unknown) {
@@ -259,6 +280,7 @@ export function migrateScanCleanupDocumentOverridesV1(
         const dimensions = legacyRasterDimensions(entry, value, pageKey, rotationDegrees);
         const manualSplit = migrateManualSplit(value.manualSplit ?? value.manualSplitX, rotationDegrees, dimensions);
         const manualContentBoxes = migrateManualContentBoxes(value.manualContentBoxes, rotationDegrees, dimensions);
+        const manualZones = decodeManualZones(value.manualZones, rotationDegrees);
         const placementOverrides = decodePlacementOverrides(value.placementOverrides);
         const marginsMm = decodeMarginsMm(value.marginsMm);
         const manualSkewDegrees = typeof value.manualSkewDegrees === 'number'
@@ -286,6 +308,7 @@ export function migrateScanCleanupDocumentOverridesV1(
             ...(Object.keys(manualContentBoxes.value).length > 0
                 ? {manualContentBoxes: manualContentBoxes.value}
                 : {}),
+            ...(manualZones === undefined ? {} : {manualZones}),
             ...(marginsMm === undefined ? {} : {marginsMm}),
             ...(placementOverrides !== undefined
                 ? {placementOverrides}

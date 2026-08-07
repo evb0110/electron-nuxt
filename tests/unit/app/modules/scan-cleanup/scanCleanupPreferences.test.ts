@@ -4,6 +4,9 @@ import {
     it,
 } from 'vitest';
 import {reactive} from 'vue';
+import type {IScanCleanupPageOverride} from '@contracts/electronApiScanCleanup';
+import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scanCleanupSettings';
 import {
     DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
     dismissScanCleanupFirstRunGuidance,
@@ -12,6 +15,7 @@ import {
     loadScanCleanupDocumentOverrides,
     loadScanCleanupPreferences,
     resetScanCleanupDocumentOverrides,
+    saveScanCleanupDocumentPreferences,
     saveScanCleanupDocumentOverrides,
     saveScanCleanupDocumentMargins,
     saveScanCleanupDocumentOutputMode,
@@ -19,7 +23,6 @@ import {
     toPlainScanCleanupOptions,
     type IScanCleanupPreferenceStorage,
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
-import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@app/modules/scan-cleanup/persistence/preferencesSchema';
 
 function memoryStorage(): IScanCleanupPreferenceStorage {
     const values = new Map<string, string>();
@@ -230,6 +233,81 @@ describe('scan cleanup preferences', () => {
         }});
     });
 
+    it('round-trips every page-override contract field through persistence', () => {
+        const storage = memoryStorage();
+        const fullyPopulatedFields = {
+            rotationDegrees: 90,
+            layoutOverride: 'spread',
+            excluded: true,
+            manualSplit: {
+                xNormalized: 0.4,
+                rotationDegrees: 90,
+            },
+            manualSkewDegrees: 1.25,
+            outputModeOverride: 'color',
+            manualContentBoxes: {left: {
+                xNormalized: 0.1,
+                yNormalized: 0.2,
+                widthNormalized: 0.3,
+                heightNormalized: 0.4,
+                rotationDegrees: 90,
+            }},
+            manualZones: {
+                picture: [{
+                    layer: 'painter2',
+                    polygon: {
+                        points: [
+                            {
+                                xNormalized: 0.1,
+                                yNormalized: 0.1,
+                            },
+                            {
+                                xNormalized: 0.4,
+                                yNormalized: 0.1,
+                            },
+                            {
+                                xNormalized: 0.4,
+                                yNormalized: 0.4,
+                            },
+                        ],
+                        rotationDegrees: 90,
+                    },
+                }],
+                fill: [{
+                    points: [
+                        {
+                            xNormalized: 0.5,
+                            yNormalized: 0.5,
+                        },
+                        {
+                            xNormalized: 0.8,
+                            yNormalized: 0.5,
+                        },
+                        {
+                            xNormalized: 0.8,
+                            yNormalized: 0.8,
+                        },
+                    ],
+                    rotationDegrees: 90,
+                }],
+            },
+            marginsMm: {
+                leftMm: 1,
+                topMm: 2,
+                rightMm: 3,
+                bottomMm: 4,
+            },
+            placementOverrides: {left: 'bottom-right'},
+        } satisfies Required<IScanCleanupPageOverride>;
+        const expected = createScanCleanupPageOverride(fullyPopulatedFields);
+
+        saveScanCleanupDocumentPreferences('document-all-fields', {overrides: {'1': expected}}, storage);
+        const restored = loadScanCleanupDocumentOverrides('document-all-fields', storage)['1'];
+
+        expect(restored).toEqual(expected);
+        expect(Object.keys(restored!).sort()).toEqual(Object.keys(expected).sort());
+    });
+
     it('migrates legacy pixel overrides with known 150-DPI raster dimensions', () => {
         const storage = memoryStorage();
         storage.set('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-a': {
@@ -350,9 +428,9 @@ describe('scan cleanup preferences', () => {
         expect(storage.get('evb.scanCleanup.settings.v1')).toBeNull();
     });
 
-    it('drops non-finite override geometry instead of serializing JSON nulls', () => {
+    it('rejects non-finite override geometry before persistence', () => {
         const storage = memoryStorage();
-        saveScanCleanupDocumentOverrides('document-a', {'1': {
+        expect(() => saveScanCleanupDocumentOverrides('document-a', {'1': {
             rotationDegrees: 0,
             layoutOverride: 'spread',
             excluded: false,
@@ -360,8 +438,8 @@ describe('scan cleanup preferences', () => {
                 xNormalized: Number.POSITIVE_INFINITY,
                 rotationDegrees: 0,
             },
-        }}, storage);
-
-        expect(loadScanCleanupDocumentOverrides('document-a', storage)['1']?.manualSplit).toBeNull();
+        }}, storage))
+            .toThrow('manual split x');
+        expect(storage.get('evb.scanCleanup.documentOverrides.v1')).toBeNull();
     });
 });

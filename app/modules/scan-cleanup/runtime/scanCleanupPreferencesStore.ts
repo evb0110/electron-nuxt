@@ -8,12 +8,15 @@ import {
     createDefaultScanCleanupSettingsFile,
     isScanCleanupSourceSha256,
     type IScanCleanupDocumentPreferencePatch,
+    type IScanCleanupGlobalPreferences,
     type IScanCleanupSettingsFile,
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
 } from '@contracts/scanCleanupSettings';
 import type {EffectScope} from 'vue';
+import {isEqual} from 'es-toolkit/predicate';
 import {
+    clearScanCleanupLegacyStorage,
     exportScanCleanupLegacyStorage,
     loadScanCleanupDocumentMargins,
     loadScanCleanupDocumentOutputMode,
@@ -23,7 +26,6 @@ import {
     saveScanCleanupPreferences,
     SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS,
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
-import type {IScanCleanupGlobalPreferences} from '@app/modules/scan-cleanup/persistence/preferencesSchema';
 import {isDesktopPlatformActive} from '@app/utils/platform';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
@@ -153,9 +155,10 @@ function warnMissingDocumentSourceHash(action: 'load' | 'persist', legacyDocumen
 function createSettingsReadRequest(
     sourceSha256: string | null | undefined,
     legacyDocumentKey: string | null | undefined,
+    includeLegacyStorage = false,
 ): IScanCleanupSettingsReadRequest {
     return {
-        legacyStorage: exportScanCleanupLegacyStorage(),
+        ...(includeLegacyStorage ? {legacyStorage: exportScanCleanupLegacyStorage()} : {}),
         ...(sourceSha256 === undefined ? {} : {sourceSha256}),
         ...(legacyDocumentKey === undefined ? {} : {legacyDocumentKey}),
     };
@@ -185,15 +188,17 @@ async function hydratePreferences() {
         const result = await readRemoteSettings(createSettingsReadRequest(
             migrationContext.sourceSha256,
             migrationContext.legacyDocumentKey,
+            true,
         ));
         remoteSettingsFile = result;
         applyingRemotePreferences = true;
         Object.assign(preferences, result.settings);
-        applyingRemotePreferences = false;
+        await nextTick();
+        clearScanCleanupLegacyStorage();
     } catch (error) {
-        applyingRemotePreferences = false;
         BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error);
     } finally {
+        applyingRemotePreferences = false;
         preferencesHydrated = true;
     }
 }
@@ -218,6 +223,9 @@ export function flushScanCleanupPreferencesStore() {
         return;
     }
     if (desktopStore) {
+        if (remoteSettingsFile && isEqual(pending, remoteSettingsFile.settings)) {
+            return;
+        }
         queueRemoteUpdate({settings: pending});
     } else {
         saveScanCleanupPreferences(pending);

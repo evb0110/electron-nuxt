@@ -30,10 +30,7 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type * as scanCleanupPreviewCacheModule from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import type {IScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
-import {
-    createScanCleanupPagePlanEvidence,
-    useScanCleanupPreviewSession,
-} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
+import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 
 // M2 (U21), page 200 of the reference document, cold: one cleaned preview costs
 // 2412 ms. M1: its raw PNG is 1 056 837 B. The raster is modelled as free, the
@@ -550,172 +547,6 @@ async function runScenario(scenario: IScenario) {
 }
 
 describe('scan cleanup preview navigation', () => {
-    it('normalizes valid base-preview geometry for a final run and excludes dewarped output', () => {
-        const wire = previewResult(12);
-        if (wire.canceled === true) throw new Error('fixture unexpectedly canceled');
-        const result = {
-            ...wire,
-            rawImageData: new Uint8Array([1]),
-        };
-        expect(createScanCleanupPagePlanEvidence(result)).toEqual({
-            pageNumber: 12,
-            rotationDegrees: 0,
-            layoutClassification: 'single-uncut-page',
-            outputs: {full: {contentBox: {
-                xNormalized: 0,
-                yNormalized: 0,
-                widthNormalized: 1,
-                heightNormalized: 1,
-                rotationDegrees: 0,
-            }}},
-        });
-        const spreadResult = {
-            ...result,
-            pageMetadata: {
-                ...result.pageMetadata,
-                layoutClassification: 'two-page-spread' as const,
-                cutterXPx: 400,
-            },
-            outputs: result.outputs.map(output => ({
-                ...output,
-                metadata: {
-                    ...output.metadata,
-                    half: 'left' as const,
-                    layoutClassification: 'two-page-spread' as const,
-                    sourceRegion: {
-                        xPx: 0,
-                        yPx: 0,
-                        widthPx: 400,
-                        heightPx: 1_335,
-                    },
-                    contentBox: {
-                        xPx: 20,
-                        yPx: 40,
-                        widthPx: 360,
-                        heightPx: 1_200,
-                    },
-                },
-            })),
-        };
-        expect(
-            createScanCleanupPagePlanEvidence(spreadResult)?.outputs.left?.contentBox,
-        ).toEqual({
-            xNormalized: 20 / 883,
-            yNormalized: 40 / 1_335,
-            widthNormalized: 360 / 883,
-            heightNormalized: 1_200 / 1_335,
-            rotationDegrees: 0,
-        });
-        const overflowingSpreadResult = {
-            ...spreadResult,
-            outputs: spreadResult.outputs.map(output => ({
-                ...output,
-                metadata: {
-                    ...output.metadata,
-                    contentBox: {
-                        xPx: 20,
-                        yPx: 40,
-                        widthPx: 500,
-                        heightPx: 1_200,
-                    },
-                },
-            })),
-        };
-        expect(
-            createScanCleanupPagePlanEvidence(overflowingSpreadResult)
-                ?.outputs.left?.contentBox,
-        ).toEqual({
-            xNormalized: 20 / 883,
-            yNormalized: 40 / 1_335,
-            widthNormalized: 380 / 883,
-            heightNormalized: 1_200 / 1_335,
-            rotationDegrees: 0,
-        });
-        const rightSpreadResult = {
-            ...spreadResult,
-            outputs: spreadResult.outputs.map(output => ({
-                ...output,
-                metadata: {
-                    ...output.metadata,
-                    half: 'right' as const,
-                    sourceRegion: {
-                        xPx: 400,
-                        yPx: 0,
-                        widthPx: 483,
-                        heightPx: 1_335,
-                    },
-                    contentBox: {
-                        xPx: 20,
-                        yPx: 40,
-                        widthPx: 440,
-                        heightPx: 1_200,
-                    },
-                },
-            })),
-        };
-        expect(
-            createScanCleanupPagePlanEvidence(rightSpreadResult)?.outputs.right?.contentBox,
-        ).toEqual({
-            xNormalized: 20 / 883,
-            yNormalized: 40 / 1_335,
-            widthNormalized: 440 / 883,
-            heightNormalized: 1_200 / 1_335,
-            rotationDegrees: 0,
-        });
-        const overflowingResult = {
-            ...result,
-            outputs: result.outputs.map(output => ({
-                ...output,
-                metadata: {
-                    ...output.metadata,
-                    contentBox: {
-                        xPx: -20,
-                        yPx: -10,
-                        widthPx: 950,
-                        heightPx: 1_400,
-                    },
-                },
-            })),
-        };
-        expect(
-            createScanCleanupPagePlanEvidence(overflowingResult)?.outputs.full?.contentBox,
-        ).toEqual({
-            xNormalized: 0,
-            yNormalized: 0,
-            widthNormalized: 1,
-            heightNormalized: 1,
-            rotationDegrees: 0,
-        });
-        expect(createScanCleanupPagePlanEvidence({
-            ...result,
-            outputs: result.outputs.map(output => ({
-                ...output,
-                metadata: {
-                    ...output.metadata,
-                    dewarpApplied: true,
-                },
-            })),
-        })).toBeUndefined();
-        expect(createScanCleanupPagePlanEvidence({
-            ...result,
-            pageMetadata: {
-                ...result.pageMetadata,
-                layoutClassification: 'two-page-spread',
-                cutterXPx: result.rawWidthPx * 0.46,
-            },
-            outputs: [],
-        })).toEqual({
-            pageNumber: 12,
-            rotationDegrees: 0,
-            layoutClassification: 'two-page-spread',
-            automaticSplit: {
-                xNormalized: 0.46,
-                rotationDegrees: 0,
-            },
-            outputs: {},
-        });
-    });
-
     beforeEach(() => {
         vi.useFakeTimers();
         vi.setSystemTime(0);
@@ -780,6 +611,44 @@ describe('scan cleanup preview navigation', () => {
         // Detection landing mid-read rewrites every key; the pages read after it
         // used to miss every time.
         expect(byName.get('detection-lands-midway')!.hitRate).toBeGreaterThan(0.3);
+    });
+
+    it('cancels in-flight work and discards results from a retired lifecycle', async () => {
+        const backend = previewBackend();
+        const retiredPreview = Promise.withResolvers<TScanCleanupPreviewWireResult>();
+        const preview = vi.fn((_request: IScanCleanupPreviewRequest) => retiredPreview.promise);
+        const cancelPreview = vi.fn(async () => true);
+        capability.value = {
+            ...backend.capability,
+            preview,
+            cancelPreview,
+        };
+        const lifecycleKey = ref('reference.pdf:0');
+        const mounted = mountPreviewSession(ref(100), reactive(new Map()), undefined, lifecycleKey);
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        expect(preview).toHaveBeenCalledOnce();
+        cancelPreview.mockClear();
+
+        lifecycleKey.value = 'reference.pdf:1';
+        await nextTick();
+
+        expect(cancelPreview).toHaveBeenCalledWith(expect.objectContaining({
+            sourcePdfPath: '/docs/reference.pdf',
+            ownerId: 'owner-1',
+            documentRevision: 'revision-1',
+        }));
+        const retiredResult = previewResult(100);
+        if (retiredResult.canceled === true) throw new Error('fixture unexpectedly canceled');
+        retiredPreview.resolve({
+            ...retiredResult,
+            rawImageData: new Uint8Array(new ArrayBuffer(PAGE_BYTES)),
+        });
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+
+        expect(mounted.session.metadataByPage.size).toBe(0);
+        expect(cacheProbe.instances[0]?.size).toBe(0);
+        mounted.unmount();
     });
 
     it('reschedules the visible page after its lifecycle generation changes', async () => {
