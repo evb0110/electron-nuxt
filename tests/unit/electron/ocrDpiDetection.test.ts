@@ -148,6 +148,75 @@ describe('ocr dpi detection', () => {
         });
     });
 
+    it('retains the finer selection-mask grid over a lower-resolution tonal image', async () => {
+        mocks.runOcrCommand.mockResolvedValueOnce({
+            stdout: [
+                'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                '1 0 image 800 1200 rgb 3 8 jpx no 10 0 100 100 1M 10%',
+                '1 1 smask 4800 7200 gray 1 1 jbig2 no 11 0 600 600 1M 1%',
+            ].join('\n'),
+            stderr: '',
+            exitCode: 0,
+        });
+
+        const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
+
+        expect(result.pageRasterByNumber.get(1)).toEqual({
+            dpi: 600,
+            width: 4800,
+            height: 7200,
+            hasBilevelLayer: true,
+            hasDominantBilevelLayer: true,
+            backgroundDpi: 100,
+        });
+    });
+
+    it('keeps the finer continuous grid when a nearly full-page mask is coarser', async () => {
+        mocks.runOcrCommand.mockResolvedValueOnce({
+            stdout: [
+                'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                '1 0 image 3000 4000 rgb 3 8 jpx no 10 0 600 600 1M 10%',
+                '1 1 mask 2950 3900 gray 1 1 jbig2 no 11 0 590 590 1M 1%',
+            ].join('\n'),
+            stderr: '',
+            exitCode: 0,
+        });
+
+        const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
+
+        expect(result.pageRasterByNumber.get(1)).toEqual({
+            dpi: 600,
+            width: 3000,
+            height: 4000,
+            hasBilevelLayer: true,
+            hasDominantBilevelLayer: true,
+            backgroundDpi: 600,
+        });
+    });
+
+    it('recognizes pdfimages stencil rows as dominant bilevel sources', async () => {
+        mocks.runOcrCommand.mockResolvedValueOnce({
+            stdout: [
+                'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                '1 0 image 1200 1800 rgb 3 8 jpeg no 10 0 300 300 1M 10%',
+                '1 1 stencil 1200 1800 gray 1 1 jbig2 no 11 0 300 300 1M 1%',
+            ].join('\n'),
+            stderr: '',
+            exitCode: 0,
+        });
+
+        const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
+
+        expect(result.pageRasterByNumber.get(1)).toEqual({
+            dpi: 300,
+            width: 1200,
+            height: 1800,
+            hasBilevelLayer: true,
+            hasDominantBilevelLayer: true,
+            backgroundDpi: 300,
+        });
+    });
+
     it('returns the document dpi for the legacy detector', async () => {
         mocks.runOcrCommand.mockResolvedValueOnce({
             stdout: [

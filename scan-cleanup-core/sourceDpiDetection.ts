@@ -138,7 +138,11 @@ function createRecoverablePdfImagesLog(log: TSourceDpiLog): TSourceDpiLog {
 function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
     const pageRasterByNumber = new Map<number, IDetectedPageRaster>();
     const bilevelPages = new Set<number>();
-    const largestBilevelAreaByPage = new Map<number, number>();
+    const largestBilevelRasterByPage = new Map<number, {
+        dpi: number;
+        height: number;
+        width: number
+    }>();
     const maskObjectIdsByPage = new Map<number, Set<number>>();
     const continuousImagesByPage = new Map<number, Array<{
         dpi: number;
@@ -171,14 +175,19 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
         }
         if (
             bitsPerComponent === 1
-            && (type === 'image' || type === 'mask' || type === 'smask')
+            && (type === 'image' || type === 'mask' || type === 'smask' || type === 'stencil')
         ) {
             bilevelPages.add(pageNumber);
-            if (Number.isSafeInteger(pixelArea) && pixelArea > 0) {
-                largestBilevelAreaByPage.set(
-                    pageNumber,
-                    Math.max(largestBilevelAreaByPage.get(pageNumber) ?? 0, pixelArea),
-                );
+            if (Number.isSafeInteger(pixelArea) && pixelArea > 0 && dpi > 0) {
+                const previous = largestBilevelRasterByPage.get(pageNumber);
+                const previousArea = previous === undefined ? 0 : previous.width * previous.height;
+                if (pixelArea > previousArea || (pixelArea === previousArea && dpi > (previous?.dpi ?? 0))) {
+                    largestBilevelRasterByPage.set(pageNumber, {
+                        dpi,
+                        height,
+                        width,
+                    });
+                }
             }
             if (Number.isSafeInteger(objectId) && objectId > 0) {
                 const ids = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
@@ -229,9 +238,21 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
         if (!raster) continue;
         raster.hasBilevelLayer = true;
         const dominantArea = raster.width * raster.height;
-        const largestBilevelArea = largestBilevelAreaByPage.get(pageNumber) ?? 0;
-        if (largestBilevelArea >= dominantArea * 0.95) {
+        const largestBilevelRaster = largestBilevelRasterByPage.get(pageNumber);
+        const largestBilevelArea = largestBilevelRaster === undefined
+            ? 0
+            : largestBilevelRaster.width * largestBilevelRaster.height;
+        if (largestBilevelRaster !== undefined && largestBilevelArea >= dominantArea * 0.95) {
             raster.hasDominantBilevelLayer = true;
+            // A PDF mask can be finer than the lower-DPI tonal image it selects.
+            // Retaining the binary source grid must retain that finer grid, not
+            // accidentally adopt the background's resolution merely because
+            // pdfimages spells the mask as mask/smask/stencil instead of image.
+            if (largestBilevelRaster.dpi > raster.dpi) {
+                raster.dpi = largestBilevelRaster.dpi;
+                raster.width = largestBilevelRaster.width;
+                raster.height = largestBilevelRaster.height;
+            }
         }
         const maskedObjectIds = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
         const background = (continuousImagesByPage.get(pageNumber) ?? [])
@@ -301,14 +322,16 @@ function mergeDpiDetectionResults(
                 ...(hasDominantBilevelLayer ? {hasDominantBilevelLayer: true} : {}),
                 ...(backgroundDpi === undefined ? {} : {backgroundDpi}),
             });
-        } else if (raster.hasBilevelLayer && existing && !existing.hasBilevelLayer) {
-            existing.hasBilevelLayer = true;
-        }
-        if (raster.hasDominantBilevelLayer && existing && !existing.hasDominantBilevelLayer) {
-            existing.hasDominantBilevelLayer = true;
-        }
-        if (existing && existing.backgroundDpi === undefined && raster.backgroundDpi !== undefined) {
-            existing.backgroundDpi = raster.backgroundDpi;
+        } else if (existing) {
+            if (raster.hasBilevelLayer && !existing.hasBilevelLayer) {
+                existing.hasBilevelLayer = true;
+            }
+            if (raster.hasDominantBilevelLayer && !existing.hasDominantBilevelLayer) {
+                existing.hasDominantBilevelLayer = true;
+            }
+            if (existing.backgroundDpi === undefined && raster.backgroundDpi !== undefined) {
+                existing.backgroundDpi = raster.backgroundDpi;
+            }
         }
         target.pageDpiByNumber.set(pageNumber, Math.max(target.pageDpiByNumber.get(pageNumber) ?? 0, raster.dpi));
     }
