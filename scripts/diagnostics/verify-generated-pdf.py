@@ -7,6 +7,7 @@ import argparse
 import base64
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -205,6 +206,58 @@ def decoder_failures(report: dict[str, Any]) -> list[str]:
     ]
 
 
+def jpx_pages(pdf_path: Path, pages: list[int]) -> set[int]:
+    requested = set(pages)
+    listing = run([
+        require_command("pdfimages"),
+        "-f",
+        str(min(pages)),
+        "-l",
+        str(max(pages)),
+        "-list",
+        str(pdf_path),
+    ]).stdout
+    detected: set[int] = set()
+    for line in listing.splitlines():
+        parts = line.strip().split()
+        if len(parts) < 9:
+            continue
+        try:
+            page = int(parts[0])
+        except ValueError:
+            continue
+        if page in requested and parts[8].lower() == "jpx":
+            detected.add(page)
+    return detected
+
+
+def classify_decoder_failures(
+    report: dict[str, Any],
+    expected_jpx_pages: set[int],
+) -> tuple[list[str], list[str]]:
+    expected: list[str] = []
+    unexpected: list[str] = []
+    for message in decoder_failures(report):
+        image_match = re.search(r"img_p(\d+)_", message)
+        if image_match is not None:
+            page = int(image_match.group(1)) + 1
+            (expected if page in expected_jpx_pages else unexpected).append(message)
+            continue
+        is_jpx_decoder_message = any(marker in message for marker in (
+            "JpxError",
+            "JpxImage",
+            "OpenJPEG",
+            "openjpeg",
+            "wasmUrl API parameter",
+            "Dependent image isn't ready",
+        ))
+        if expected_jpx_pages and is_jpx_decoder_message:
+            expected.append(message)
+        else:
+            unexpected.append(message)
+    return expected, unexpected
+
+
 def load_font(size: int) -> ImageFont.ImageFont:
     candidates = (
         Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
@@ -233,6 +286,7 @@ def create_contact_sheet(
     reference: dict[int, Path],
     exact: dict[int, Path],
     failures_by_page: dict[int, list[str]],
+    compatibility_by_page: dict[int, str],
 ) -> None:
     cell_width = 360
     cell_height = 500
@@ -257,23 +311,31 @@ def create_contact_sheet(
     )
     draw.text(
         (row_label_width + cell_width + 12, 14),
-        "Exact artifact preview",
+        "Restricted no-WASM preview",
         fill="black",
         font=header_font,
     )
     for row, page in enumerate(pages):
         y = header_height + row * cell_height
         failed = bool(failures_by_page.get(page))
+        requires_jpx = compatibility_by_page[page] == "requires-jpx-consumer"
         draw.rectangle(
             (0, y, row_label_width, y + cell_height),
-            fill="#fee2e2" if failed else "#dcfce7",
+            fill="#fee2e2" if failed else "#fef3c7" if requires_jpx else "#dcfce7",
         )
         draw.text(
             (12, y + 18),
             f"p. {page}",
-            fill="#991b1b" if failed else "#166534",
+            fill="#991b1b" if failed else "#92400e" if requires_jpx else "#166534",
             font=label_font,
         )
+        if requires_jpx:
+            draw.text(
+                (12, y + 44),
+                "JPX",
+                fill="#92400e",
+                font=label_font,
+            )
         sheet.paste(
             fitted_thumbnail(reference[page], cell_width, cell_height),
             (row_label_width, y),
@@ -350,18 +412,31 @@ def main() -> int:
         args.dpi,
     )
     exact_render_paths = exact_paths(exact_report)
+    expected_jpx_pages = jpx_pages(pdf_path, pages)
+    expected_decoder_warnings, unexpected_decoder_warnings = classify_decoder_failures(
+        exact_report,
+        expected_jpx_pages,
+    )
     global_failures = [
         f"Renderer warning: {message}"
-        for message in decoder_failures(exact_report)
+        for message in unexpected_decoder_warnings
     ]
     page_results = []
     failures_by_page: dict[int, list[str]] = {}
+    compatibility_by_page: dict[int, str] = {}
     for page in pages:
         reference_metrics = metrics(reference_paths[page])
         exact_metrics = metrics(exact_render_paths[page])
         failures: list[str] = []
+        compatibility = (
+            "requires-jpx-consumer"
+            if page in expected_jpx_pages
+            else "compatible-with-restricted-preview"
+        )
+        compatibility_by_page[page] = compatibility
         if (
-            reference_metrics.ink_pixel_ratio > 0.003
+            page not in expected_jpx_pages
+            and reference_metrics.ink_pixel_ratio > 0.003
             and exact_metrics.ink_pixel_ratio
             < max(0.0001, reference_metrics.ink_pixel_ratio * 0.05)
         ):
@@ -370,7 +445,8 @@ def main() -> int:
                 "renderer contains visible content"
             )
         if (
-            reference_metrics.mean_luminance < 252
+            page not in expected_jpx_pages
+            and reference_metrics.mean_luminance < 252
             and exact_metrics.mean_luminance > 254.5
         ):
             failures.append(
@@ -380,6 +456,7 @@ def main() -> int:
             failures_by_page[page] = failures
         page_results.append({
             "page": page,
+            "compatibility": compatibility,
             "failures": failures,
             "exact": {
                 **asdict(exact_metrics),
@@ -399,6 +476,7 @@ def main() -> int:
         reference_paths,
         exact_render_paths,
         failures_by_page,
+        compatibility_by_page,
     )
     failures = global_failures + [
         f"Page {page}: {failure}"
@@ -406,7 +484,7 @@ def main() -> int:
         for failure in page_failures
     ]
     report = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "status": "failed" if failures else "passed",
         "input": {
             "path": str(pdf_path),
@@ -421,6 +499,11 @@ def main() -> int:
             "contract": "getDocument({data}) without wasmUrl",
         },
         "negativeControl": negative_control,
+        "compatibility": {
+            "requiresJpxConsumerPages": sorted(expected_jpx_pages),
+            "expectedDecoderWarnings": expected_decoder_warnings,
+            "unexpectedDecoderWarnings": unexpected_decoder_warnings,
+        },
         "pageResults": page_results,
         "failures": failures,
         "contactSheet": {

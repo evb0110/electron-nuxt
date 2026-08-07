@@ -2,10 +2,10 @@
 
 ## Generated PDF visual compatibility
 
-Generated PDFs must pass the exact artifact-preview replica as well as a
-reference renderer. The verifier first exercises a synthetic JPX negative
-control, captures renderer warnings, compares every requested page, and writes
-a human-viewable contact sheet:
+Generated PDFs must pass the restricted artifact-preview compatibility
+classifier as well as a reference renderer. The verifier first exercises a
+synthetic JPX negative control, captures renderer warnings, compares every
+requested page, and writes a human-viewable contact sheet:
 
 ```bash
 pnpm run diag:verify-generated-pdf -- \
@@ -15,8 +15,10 @@ pnpm run diag:verify-generated-pdf -- \
 
 The default limit is 20 pages. Use a representative smoke extract; pass
 `--allow-large` only for an intentional resource-exhaustion test. A successful
-run writes `verification-ledger.json`. A renderer incompatibility writes
-`verification-failure.json` and exits non-zero.
+run writes `verification-ledger.json`. Pages that structurally carry JPX are
+classified as `requires-jpx-consumer` when the deliberately no-WASM preview
+cannot decode them; unexpected decoder warnings or blank JPX-free pages still
+write `verification-failure.json` and exit non-zero.
 
 The three PDF diagnostics are scenarios on `runPdfDiagnosticScenario.ts`, which owns
 isolated Electron sessions, diagnostic trace buffers, timed sampling, optional frame
