@@ -4318,8 +4318,8 @@ describe('scan cleanup preview', () => {
                 matchedCanvasContentHeightPx: 180,
                 placementOffsetXPx: 2,
                 placementOffsetYPx: 0,
-                warnings: ['Matched page size fitted this page to 196x180 px inside the 200x180 px document canvas, '
-                    + 'below the document\'s scale'],
+                warnings: ['Matched page size fitted this page to 196x180 px inside the 196x180 px requested '
+                    + 'margin box on the 200x180 px document canvas, below the document\'s scale'],
             }));
         });
 

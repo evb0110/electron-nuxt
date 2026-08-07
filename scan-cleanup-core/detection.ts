@@ -36,6 +36,7 @@ import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@scan-cleanup-core/policy/effectiveOptions';
 import {
+    logRasterHandoff,
     readAvailableScratchBytes,
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
@@ -600,8 +601,32 @@ export async function runScanCleanupDetection<TDocument>(
         // ceiling without upsampling a proven lower-resolution page. On POSIX,
         // feed raw PPM through FIFOs so native starts classifying the first page
         // while Poppler is still producing the rest.
-        const streamRasters = process.platform !== 'win32'
+        let streamRasters = process.platform !== 'win32'
             && dependencies.createRasterPipes !== undefined;
+        if (streamRasters && pageNumbers.length > 0) {
+            const handoff = await resolveRasterHandoff(
+                pageNumbers.map(pageNumber => {
+                    const dpi = detectionDpiForPage(pageNumber);
+                    const limits = resolveRasterRenderLimits(pageSizeByNumber.get(pageNumber), dpi);
+                    return {
+                        renderDpi: dpi,
+                        raster: {
+                            dpi,
+                            width: limits.expectedWidthPx,
+                            height: limits.expectedHeightPx,
+                        },
+                    };
+                }),
+                scratch,
+                dependencies.getAvailableScratchBytes ?? readAvailableScratchBytes,
+                policy.rasterConcurrency * 2,
+            );
+            logRasterHandoff(log, 'detection stream', handoff);
+            // The fallback already has a bounded retained-PNG path. Use it
+            // when producer PPMs plus native materializations do not fit the
+            // simultaneous scratch allowance.
+            streamRasters = handoff.format === 'ppm';
+        }
         const retained = new Map<number, IScanCleanupRetainedRaster>();
         if (!streamRasters) {
             const pagesByDpi = new Map<number, number[]>();
@@ -793,7 +818,8 @@ export async function runScanCleanupDetection<TDocument>(
             }
             log(
                 'debug',
-                `Scan cleanup detection peak staged raster bytes: ${String(peakRasterScratchBytes)}`,
+                'Scan cleanup detection peak producer-staged raster bytes '
+                + `(excluding native materialized copies): ${String(peakRasterScratchBytes)}`,
             );
         };
         if (!streamRasters) await rasterize(signal);

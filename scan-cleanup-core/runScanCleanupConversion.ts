@@ -137,6 +137,15 @@ async function readOptionalFileSize(path: string) {
     }
 }
 
+function isAbortError(error: unknown) {
+    return error !== null
+        && typeof error === 'object'
+        && (
+            ('name' in error && error.name === 'AbortError')
+            || ('code' in error && error.code === 'ABORT_ERR')
+        );
+}
+
 async function requirePublishedRasterFile(path: string | undefined, pageNumber: number, role: string) {
     if (path === undefined) {
         throw new ScanCleanupMissingOutputError(
@@ -720,7 +729,9 @@ export async function runScanCleanupConversion(
             renderDpi: plan.dpi,
             raster: plan.guardrail,
         })), scratch, dependencies.getAvailableScratchBytes, supportsRasterStreaming
-            ? policy.rasterConcurrency
+            // At most one producer PPM and one native materialization per
+            // window slot can coexist while a FIFO transfer is in flight.
+            ? policy.rasterConcurrency * 2
             : rasterPlans.length);
         logRasterHandoff(log, 'final', rasterHandoff);
         const pageDpi = new Map<number, number>();
@@ -777,6 +788,8 @@ export async function runScanCleanupConversion(
                         trustedMrcLayersByPage.set(pageNumber, layer);
                     }
                 } catch (error) {
+                    signal.throwIfAborted();
+                    if (isAbortError(error)) throw error;
                     warn(
                         'Compact source layers could not be read in a batch; '
                         + `using raster reconstruction (${getErrorMessage(error)})`,
@@ -1035,6 +1048,7 @@ export async function runScanCleanupConversion(
         const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
         const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
         const summary = createEmptyScanCleanupSummary(pageCount, warnings);
+        const fittedMarginBoxPages = new Set<number>();
         for (const [
             pageIndex,
             page,
@@ -1043,7 +1057,7 @@ export async function runScanCleanupConversion(
             const pageMetadata = decodeNativeScanCleanupPageMetadataJson(
                 await readFile(page.pageMetadataPath, 'utf8'),
             );
-            const sourcePageNumber = pageNumbers[pageIndex]!;
+            const sourcePageNumber = page.sourcePageIndex + 1;
             pageMetadataBySource.set(sourcePageNumber, pageMetadata);
             emitProgress('collecting', pageIndex + 1, pages.length);
             if (pageMetadata.excluded) {
@@ -1202,12 +1216,12 @@ export async function runScanCleanupConversion(
                     ...(foregroundAlphaPath === undefined ? {} : {foregroundAlphaPath}),
                     ...(backgroundIsColor === undefined ? {} : {backgroundIsColor}),
                     dpi: metadata.renderDpi
-                        ?? pageDpi.get(pageNumbers[pageIndex]!)
+                        ?? pageDpi.get(pageNumber)
                         ?? documentDpi,
                     // The engine reports the mode it actually rendered with,
                     // which is the only authority once `auto` resolves natively.
                     resolvedOutputMode: metadata.outputMode
-                        ?? resolvedOutputModeByPage.get(pageNumbers[pageIndex]!)
+                        ?? resolvedOutputModeByPage.get(pageNumber)
                         ?? 'color',
                     metadata,
                 };
@@ -1230,7 +1244,14 @@ export async function runScanCleanupConversion(
                 // could not publish. It travels with the summary and is logged
                 // here, so a run that quietly compromised says where.
                 for (const warning of metadata.warnings ?? []) {
-                    const reported = `Page ${String(pageNumbers[pageIndex]!)}: ${warning}`;
+                    if (
+                        warning.startsWith('Matched page size fitted this page to ')
+                        && warning.includes(' requested margin box ')
+                    ) {
+                        fittedMarginBoxPages.add(pageNumber);
+                        continue;
+                    }
+                    const reported = `Page ${String(pageNumber)}: ${warning}`;
                     summary.warnings.push(reported);
                     log('warn', `Scan cleanup: ${reported}`);
                 }
@@ -1266,6 +1287,13 @@ export async function runScanCleanupConversion(
             }
             if (pageMetadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
             if (pageMetadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
+        }
+        if (fittedMarginBoxPages.size > 0) {
+            const reported = 'Matched page size fitted '
+                + `${String(fittedMarginBoxPages.size)} page(s) inside their requested margin boxes, `
+                + `below the document's scale: ${describePageNumbers([...fittedMarginBoxPages])}`;
+            summary.warnings.push(reported);
+            log('warn', `Scan cleanup: ${reported}`);
         }
         summary.outputPages = outputPages.length;
         if (outputPages.length === 0) throw new Error('evb-scan-cleanup produced no output pages');

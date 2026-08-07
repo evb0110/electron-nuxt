@@ -297,6 +297,7 @@ dependencies = [
  "getrandom",
  "jbig2-codec",
  "jpeg-encoder",
+ "libc",
  "rayon",
  "scan-primitives",
  "serde",

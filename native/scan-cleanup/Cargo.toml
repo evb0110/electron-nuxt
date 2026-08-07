@@ -14,6 +14,7 @@ evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
 getrandom = "0.4.2"
 jbig2-codec = { version = "0.1.0", path = "../jbig2-codec" }
+libc.workspace = true
 rayon.workspace = true
 scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 serde.workspace = true

@@ -880,8 +880,27 @@ fn materialize_stream_page(
         if is_canceled() {
             return Err(BoundedIoError::Canceled);
         }
-        let mut source = fs::File::open(&page.input_path)?;
         let mut destination = fs::File::create(&temporary_input)?;
+        #[cfg(unix)]
+        {
+            use crate::io::copy_bounded_nonblocking_stream_cancelable;
+            use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+
+            if fs::metadata(&page.input_path)?.file_type().is_fifo() {
+                let mut source = fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&page.input_path)?;
+                copy_bounded_nonblocking_stream_cancelable(
+                    &mut source,
+                    &mut destination,
+                    max_bytes,
+                    &is_canceled,
+                )?;
+                return Ok(());
+            }
+        }
+        let mut source = fs::File::open(&page.input_path)?;
         copy_bounded_cancelable(&mut source, &mut destination, max_bytes, &is_canceled)?;
         Ok(())
     })();
@@ -2613,9 +2632,21 @@ fn apply_canvas_metadata(
     metadata.placement_offset_x = left;
     metadata.placement_offset_y = top;
     if placement.overflow {
+        let [margin_left, margin_top, margin_right, margin_bottom] = placement.requested_margins;
+        let inner_width = canvas
+            .width_px
+            .saturating_sub(margin_left)
+            .saturating_sub(margin_right)
+            .max(1);
+        let inner_height = canvas
+            .height_px
+            .saturating_sub(margin_top)
+            .saturating_sub(margin_bottom)
+            .max(1);
         metadata.warnings.push(format!(
             "Matched page size fitted this page to {content_width}x{content_height} px \
-             inside the {}x{} px document canvas, below the document's scale",
+             inside the {inner_width}x{inner_height} px requested margin box on the {}x{} px \
+             document canvas, below the document's scale",
             canvas.width_px, canvas.height_px,
         ));
     }
@@ -3692,6 +3723,62 @@ mod tests {
     }
 
     #[test]
+    fn matched_canvas_converts_millimeter_margins_on_the_final_grid() {
+        let options = CleanupOptions {
+            dpi: 360.0,
+            page_alignment: crate::PageAlignment::Center,
+            margins_mm: Some(crate::MarginsMm {
+                left_mm: 5.0,
+                top_mm: 5.0,
+                right_mm: 5.0,
+                bottom_mm: 5.0,
+            }),
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 200.0,
+            height_points: 200.0,
+            width_px: 1_000,
+            height_px: 1_000,
+        };
+
+        let placement = plan_canvas_placement_for(
+            1_000,
+            1_000,
+            0.0,
+            0.0,
+            1_000.0,
+            1_000.0,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+        );
+
+        // 5 mm at 360 DPI is 70.866 px: reserve the nearest final-grid
+        // pixel. Alignment/cropping may leave a larger band, never a smaller
+        // one.
+        assert_eq!(placement.requested_margins, [71; 4]);
+        assert_eq!((placement.left, placement.top), (71, 71));
+        assert_eq!(
+            (placement.content_width, placement.content_height),
+            (858, 858)
+        );
+        let intrinsic = GrayImage::new(1_000, 1_000, 0);
+        let composed = place_on_white_canvas(
+            &intrinsic.resample_to_dimensions(placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.left,
+            placement.top,
+        );
+        assert_eq!(composed.get(70, 71), 255);
+        assert_eq!(composed.get(71, 71), 0);
+        assert_eq!(composed.get(928, 928), 0);
+        assert_eq!(composed.get(929, 928), 255);
+    }
+
+    #[test]
     fn trusted_mrc_foreground_uses_sparse_marks_for_either_soft_mask_polarity() {
         let mut source = GrayImage::new(8, 4, 176);
         for x in 2..6 {
@@ -4247,6 +4334,77 @@ mod tests {
 
         producer.join().unwrap().unwrap();
         assert!(error.to_string().contains("page 1 failed"));
+        assert!(fs::read_dir(&dir).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".raster")));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn windowed_stream_task_failure_cancels_an_open_unwritten_fifo() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-stream-window-failure-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo_paths = (0..3)
+            .map(|index| dir.join(format!("page-{index}.fifo")))
+            .collect::<Vec<_>>();
+        for fifo in &fifo_paths {
+            assert!(std::process::Command::new("mkfifo")
+                .arg(fifo)
+                .status()
+                .unwrap()
+                .success());
+        }
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: None,
+            raster_window: 3,
+            pages: fifo_paths
+                .iter()
+                .enumerate()
+                .map(|(index, input_path)| Page {
+                    input_path: input_path.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        let first_fifo = fifo_paths[0].clone();
+        let producer = std::thread::spawn(move || fs::write(first_fifo, b"first page"));
+        let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
+        let run = std::thread::spawn(move || {
+            let result = run_stream_page_jobs(&manifest, |(index, _)| {
+                Err::<(), _>(NativeError::new(
+                    NativeErrorCode::NativeFailure,
+                    format!("page {} failed", index + 1),
+                ))
+            });
+            let _ = finished_sender.send(result.map_err(|error| error.to_string()));
+        });
+
+        producer.join().unwrap().unwrap();
+        let error = finished_receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("windowed reader remained blocked on an unwritten future FIFO")
+            .unwrap_err();
+        run.join().unwrap();
+        assert!(error.contains("page 1 failed"));
         assert!(fs::read_dir(&dir).unwrap().all(|entry| !entry
             .unwrap()
             .file_name()

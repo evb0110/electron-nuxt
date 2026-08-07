@@ -101,6 +101,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isAbortError(error: unknown) {
+    return isRecord(error)
+        && (error.name === 'AbortError' || error.code === 'ABORT_ERR');
+}
+
 function qpdfObjectTable(value: unknown) {
     if (!isRecord(value) || !Array.isArray(value.qpdf)) {
         return null;
@@ -197,14 +202,7 @@ async function inspectMrcObjectTable(input: {
         return objects;
     } catch (error) {
         input.commandOptions.signal?.throwIfAborted();
-        if (
-            error !== null
-            && typeof error === 'object'
-            && (
-                ('name' in error && error.name === 'AbortError')
-                || ('code' in error && error.code === 'ABORT_ERR')
-            )
-        ) {
+        if (isAbortError(error)) {
             throw error;
         }
         input.log(
@@ -363,7 +361,10 @@ export async function extractPdfMrcLayersBatch(input: {
         ...(input.signal === undefined ? {} : {signal: input.signal}),
     };
     let completedPages = 0;
-    const failures: unknown[] = [];
+    const failures: Array<{
+        error: unknown;
+        pages: number[]
+    }> = [];
     let mrcObjectsPromise: Promise<Record<string, unknown> | null> | null = null;
     const completePages = (count: number) => {
         completedPages += count;
@@ -586,13 +587,28 @@ export async function extractPdfMrcLayersBatch(input: {
             } catch (error) {
                 // Do not let the mapper reject while sibling native commands
                 // are still running. Every chunk first completes its own
-                // cleanup; the caller then falls back as one batch.
-                failures.push(error);
+                // cleanup. Successful siblings remain reusable; only this
+                // chunk falls back to raster reconstruction.
+                input.signal?.throwIfAborted();
+                if (isAbortError(error)) {
+                    throw error;
+                }
+                failures.push({
+                    error,
+                    pages: targets.map(target => target.pageNumber),
+                });
+                completePages(targets.length);
             }
         },
     );
-    if (failures.length > 0) {
-        throw failures[0];
+    for (const failure of failures) {
+        input.log(
+            'warn',
+            `PDF MRC compact reuse skipped for page(s) ${failure.pages.join(', ')}; `
+            + `using raster reconstruction for that chunk (${
+                failure.error instanceof Error ? failure.error.message : String(failure.error)
+            })`,
+        );
     }
     return extracted;
 }

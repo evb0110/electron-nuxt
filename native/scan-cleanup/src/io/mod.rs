@@ -5,6 +5,8 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
+    thread,
+    time::Duration,
 };
 
 pub mod pbm;
@@ -79,6 +81,56 @@ pub(crate) fn copy_bounded_cancelable(
         if count == 0 {
             return Ok(copied as u64);
         }
+        if count > max_bytes.saturating_sub(copied) {
+            return Err(BoundedIoError::TooLarge { limit: max_bytes });
+        }
+        destination.write_all(&buffer[..count])?;
+        copied += count;
+    }
+}
+
+/// Copy a non-blocking FIFO while retaining cancellation between producer
+/// writes. Opening a FIFO in blocking mode can strand the scoped reader when
+/// an earlier page fails before the producer ever opens this stream.
+#[cfg(unix)]
+pub(crate) fn copy_bounded_nonblocking_stream_cancelable(
+    source: &mut impl Read,
+    destination: &mut impl Write,
+    max_bytes: usize,
+    is_canceled: impl Fn() -> bool,
+) -> Result<u64, BoundedIoError> {
+    let mut copied = 0usize;
+    let mut received_data = false;
+    let mut buffer = [0u8; COPY_BUFFER_BYTES];
+    loop {
+        if is_canceled() {
+            return Err(BoundedIoError::Canceled);
+        }
+        let remaining_with_probe = max_bytes.saturating_sub(copied).saturating_add(1);
+        let read_limit = remaining_with_probe.min(buffer.len());
+        let count = match source.read(&mut buffer[..read_limit]) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+            Ok(0) if !received_data => {
+                // O_NONBLOCK reports EOF while no writer is connected. Wait
+                // for either a producer or cancellation instead of accepting
+                // a truncated, empty raster.
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            }
+            Ok(count) => count,
+        };
+        if is_canceled() {
+            return Err(BoundedIoError::Canceled);
+        }
+        if count == 0 {
+            return Ok(copied as u64);
+        }
+        received_data = true;
         if count > max_bytes.saturating_sub(copied) {
             return Err(BoundedIoError::TooLarge { limit: max_bytes });
         }

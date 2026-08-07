@@ -4,9 +4,10 @@ import type {TScanCleanupLog} from '@scan-cleanup-core/types';
 // PPM removes the costly PNG encode/decode step on both sides of the native
 // handoff: pdftoppm writes a JPEG 2000 scan page in about a second where the
 // same page spends five more seconds in deflate. The cost is scratch space.
-// Retained handoffs budget the whole manifest; FIFO handoffs budget only the
-// rasterizer's concurrent window because the native consumer drains each page
-// while Poppler produces it.
+// Retained handoffs budget the whole manifest. FIFO handoffs budget the
+// concurrent producer window plus the native consumer's bounded materialized
+// copies; draining a FIFO moves bytes between those two scratch files rather
+// than making the producer's file disappear instantaneously.
 const RAW_RASTER_BUDGET_FLOOR_BYTES = 512 * 1024 * 1024;
 const RAW_RASTER_FREE_SPACE_SHARE = 0.25;
 const RAW_RASTER_FREE_SPACE_RESERVE_BYTES = 512 * 1024 * 1024;
@@ -41,7 +42,7 @@ export async function readAvailableScratchBytes(directory: string) {
 
 function estimateRawRasterBytes(
     plans: readonly IScanCleanupRasterHandoffPlan[],
-    residentRasterCount: number,
+    residentScratchRasterCount: number,
 ) {
     const pageEstimates: number[] = [];
     for (const plan of plans) {
@@ -77,7 +78,7 @@ function estimateRawRasterBytes(
     }
     pageEstimates.sort((left, right) => right - left);
     const estimatedBytes = pageEstimates
-        .slice(0, Math.max(1, residentRasterCount))
+        .slice(0, Math.max(1, residentScratchRasterCount))
         .reduce((sum, pageBytes) => sum + pageBytes, 0);
     return Number.isSafeInteger(estimatedBytes) ? estimatedBytes : null;
 }
@@ -86,9 +87,9 @@ export async function resolveRasterHandoff(
     plans: readonly IScanCleanupRasterHandoffPlan[],
     scratch: string,
     getAvailableScratchBytes: typeof readAvailableScratchBytes,
-    residentRasterCount = plans.length,
+    residentScratchRasterCount = plans.length,
 ) {
-    const estimatedBytes = estimateRawRasterBytes(plans, residentRasterCount);
+    const estimatedBytes = estimateRawRasterBytes(plans, residentScratchRasterCount);
     if (estimatedBytes === null) {
         return {
             format: 'png' as const,
@@ -205,7 +206,7 @@ export function logRasterHandoff(
     const mib = (bytes: number) => `${Math.ceil(bytes / (1024 * 1024))} MiB`;
     const footprint = handoff.estimatedBytes === null
         ? 'unknown footprint'
-        : `${mib(handoff.estimatedBytes)} estimated footprint`;
+        : `${mib(handoff.estimatedBytes)} estimated simultaneous scratch footprint`;
     const budget = handoff.budgetBytes === null ? '' : ` against a ${mib(handoff.budgetBytes)} scratch budget`;
     log('debug', `Scan cleanup ${scope} raster handoff uses ${handoff.format.toUpperCase()} (${footprint}${budget})`);
 }

@@ -220,4 +220,109 @@ describe('batched PDF MRC extraction', () => {
         expect(runCommand.mock.calls.filter(([command]) => command === '/qpdf')).toHaveLength(1);
         expect(log).not.toHaveBeenCalledWith('warn', expect.any(String));
     });
+
+    it('keeps successful chunks when a sibling chunk falls back', async () => {
+        const scratch = await createScratch();
+        const log = vi.fn();
+        const progress: Array<[number, number]> = [];
+        const runCommand = vi.fn<typeof runNativeToolCommand>(async (command, args) => {
+            if (command === '/qpdf') {
+                return {
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: JSON.stringify({qpdf: [{
+                        'obj:2 0 R': {stream: {dict: {'/SMask': '20 0 R'}}},
+                        'obj:20 0 R': {stream: {dict: {
+                            '/BitsPerComponent': 1,
+                            '/Filter': '/JBIG2Decode',
+                        }}},
+                        'obj:4 0 R': {stream: {dict: {'/SMask': '40 0 R'}}},
+                        'obj:40 0 R': {stream: {dict: {
+                            '/BitsPerComponent': 1,
+                            '/Filter': '/JBIG2Decode',
+                        }}},
+                    }]}),
+                };
+            }
+            const firstPage = Number(args[args.indexOf('-f') + 1]);
+            const objectNumber = firstPage === 1 ? 2 : 4;
+            if (args.includes('-list')) {
+                return {
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: [
+                        'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                        `${String(firstPage)} 0 image 100 140 rgb 3 8 jpx no 1 0 100 100 1K 1%`,
+                        `${String(firstPage)} 1 image 300 420 rgb 3 8 jpx no ${String(objectNumber)} 0 300 300 1K 1%`,
+                        `${String(firstPage)} 2 smask 300 420 gray 1 1 jbig2 no ${String(objectNumber)} 0 300 300 1K 1%`,
+                    ].join('\n'),
+                };
+            }
+            if (args.includes('-all')) {
+                if (firstPage === 30) throw new Error('chunk 30 failed');
+                const prefix = args.at(-1)!;
+                await Promise.all([
+                    writeFile(`${prefix}-000.jp2`, 'BACKGROUND-1'),
+                    writeFile(`${prefix}-001.jp2`, 'FOREGROUND-1'),
+                    writeFile(`${prefix}-002.jb2e`, 'MASK-1'),
+                ]);
+                return {
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: '',
+                };
+            }
+            const outputIndex = args.indexOf('--output');
+            if (outputIndex !== -1) {
+                await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
+                return {
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: '',
+                };
+            }
+            await writeFile(`${args.at(-1)!}-1.ppm`, 'P6\n1 1\n255\n\xff\xff\xff');
+            return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
+        });
+        const targets = [
+            1,
+            30,
+        ].map(pageNumber => ({
+            pageNumber,
+            backgroundOutputPath: join(scratch, `background-${String(pageNumber)}.ppm`),
+            foregroundOutputPath: join(scratch, `foreground-${String(pageNumber)}.jp2`),
+            selectionMaskOutputPath: join(scratch, `selection-${String(pageNumber)}.jb2e`),
+        }));
+
+        const result = await extractPdfMrcLayersBatch({
+            pdfPath: '/source.pdf',
+            targets,
+            pdfimagesBinary: '/pdfimages',
+            qpdfBinary: '/qpdf',
+            pdfImageCombineBinary: '/combine',
+            pdftoppmBinary: '/pdftoppm',
+            runCommand,
+            log,
+            rasterConcurrency: 2,
+            onProgress: (completed, total) => progress.push([
+                completed,
+                total,
+            ]),
+        });
+
+        expect([...result.keys()]).toEqual([1]);
+        expect(await readFile(targets[0]!.foregroundOutputPath, 'utf8')).toBe('FOREGROUND-1');
+        expect(log).toHaveBeenCalledWith(
+            'warn',
+            expect.stringContaining('page(s) 30'),
+        );
+        expect(progress.at(-1)).toEqual([
+            2,
+            2,
+        ]);
+    });
 });

@@ -93,4 +93,38 @@ describe('scan-cleanup raster handoff scratch budget', () => {
 
         expect(result.estimatedBytes).toBe(100 * 100 * 3 + 64 * 1024);
     });
+
+    it('budgets the largest simultaneous producer and native scratch copies', async () => {
+        const result = await resolveRasterHandoff([
+            {
+                renderDpi: 300,
+                raster: {
+                    dpi: 300,
+                    height: 100,
+                    width: 100,
+                },
+            },
+            {
+                renderDpi: 300,
+                raster: {
+                    dpi: 300,
+                    height: 200,
+                    width: 200,
+                },
+            },
+            {
+                renderDpi: 300,
+                raster: {
+                    dpi: 300,
+                    height: 300,
+                    width: 300,
+                },
+            },
+        ], '/scratch', vi.fn(async () => null), 2);
+
+        expect(result.estimatedBytes).toBe(
+            300 * 300 * 3 + 64 * 1024
+            + 200 * 200 * 3 + 64 * 1024,
+        );
+    });
 });
