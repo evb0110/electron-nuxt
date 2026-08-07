@@ -33,6 +33,10 @@ import {
     grantScanCleanupOutputAccess,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
 import {ScanCleanupPageScopeError} from '@scan-cleanup-core/pageScope';
+import {
+    beginMainOperationShutdown,
+    resetMainOperationLifecycleForTests,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const mocks = vi.hoisted(() => {
     const acquire = vi.fn(async (_request: IJobBrokerRequest) => ({release: vi.fn()}));
@@ -411,6 +415,23 @@ describe('scan cleanup service', () => {
         await expect(duplicate).resolves.toEqual(await first);
         expect(mocks.createOutput).toHaveBeenCalledOnce();
         expect(mocks.runWorker).toHaveBeenCalledOnce();
+    });
+
+    it('releases a start reservation when job registration throws', async () => {
+        const service = createScanCleanupService();
+        beginMainOperationShutdown('simulated shutdown admission failure');
+        try {
+            await expect(service.start(sender(), startRequest))
+                .rejects.toThrow('simulated shutdown admission failure');
+        } finally {
+            resetMainOperationLifecycleForTests();
+        }
+
+        await expect(service.start(sender(), startRequest)).resolves.toMatchObject({
+            started: true,
+            outputPdfPath: '/managed/cleaned.pdf',
+        });
+        await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
     });
 
     it('leaves page-ops out of a run that needs no page geometry', async () => {

@@ -1643,6 +1643,57 @@ describe('scan cleanup preview', () => {
         await expect(stat(baseCleanedRasterPaths[0]!)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
+    it('keeps a recently-read base analysis while pruning a stale entry', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.getPageCount = vi.fn(async () => 33);
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const baseRequest = {
+            ...request,
+            options: {
+                ...request.options,
+                matchPageSize: false,
+            },
+        };
+        const detailRequest = (pageNumber: number, requestId: string): IScanCleanupPreviewRequest => ({
+            ...baseRequest,
+            pageNumber,
+            requestId,
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                    widthNormalized: 1,
+                    heightNormalized: 1,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'bw',
+            },
+        });
+
+        for (let pageNumber = 1; pageNumber <= 32; pageNumber += 1) {
+            await previewOf(service, previewSender, {
+                ...baseRequest,
+                pageNumber,
+                requestId: `base-${String(pageNumber)}`,
+            });
+        }
+        await expect(previewOf(service, previewSender, detailRequest(1, 'touch-page-1')))
+            .resolves.toMatchObject({pageNumber: 1});
+        await previewOf(service, previewSender, {
+            ...baseRequest,
+            pageNumber: 33,
+            requestId: 'base-33',
+        });
+
+        await expect(previewOf(service, previewSender, detailRequest(1, 'verify-page-1')))
+            .resolves.toMatchObject({pageNumber: 1});
+        await expect(previewOf(service, previewSender, detailRequest(2, 'verify-page-2')))
+            .rejects.toThrow('detail geometry is unavailable');
+        await service.dispose();
+    });
+
     it('probes only the requested page for the first preview raster structure', async () => {
         const dir = await setup();
         const deps = dependencies(dir);

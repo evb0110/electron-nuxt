@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import {
     createDefaultScanCleanupSettingsFile,
+    decodeScanCleanupSettingsUpdateRequest,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS,
 } from '@contracts/scanCleanupSettings';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
@@ -253,11 +254,8 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(initial);
     });
 
-    it('keeps new page-override writes strict', async () => {
-        const filePath = await createStoreFile();
-        const store = createScanCleanupSettingsStore({filePath});
-
-        await expect(store.update({document: {
+    it('keeps new page-override writes strict at the IPC boundary', () => {
+        expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
             sourceSha256: 'a'.repeat(64),
             patch: {overrides: {'01': {
                 rotationDegrees: 0,
@@ -265,7 +263,7 @@ describe('file-backed scan-cleanup settings store', () => {
                 excluded: false,
                 manualSplit: null,
             }}},
-        }})).rejects.toThrow('page override number');
+        }})).toThrow('page override number');
     });
 
     it('expires old document overrides on load and keeps recent entries', async () => {

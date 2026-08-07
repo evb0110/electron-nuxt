@@ -76,8 +76,7 @@ import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
-    type IPdfMrcLayers,
-} from '@electron/pdf/extractPdfMrcLayers';
+} from '@scan-cleanup-adapters/extractPdfMrcLayers';
 import {resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import {
     renderPdfPageToPng,
@@ -113,7 +112,10 @@ import {
     resolveScanCleanupPipelineMaxPixels,
     resolveScanCleanupRequestedRenderDpi,
 } from '@electron/features/scan-cleanup/policy/effectiveOptions';
-import type {IScanCleanupRasterRenderLimits} from '@scan-cleanup-core/types';
+import type {
+    IPdfMrcLayers,
+    IScanCleanupRasterRenderLimits,
+} from '@scan-cleanup-core/types';
 import {shouldExtractTrustedMrcForeground} from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
 import {
     createMainJobRegistry,
@@ -1919,7 +1921,12 @@ async function runPreview(
                 detail: _detail,
                 ...baseRequest
             } = request;
-            const analysis = baseAnalysisCache.get(baseAnalysisKey(baseRequest, documentCanvas));
+            const analysisKey = baseAnalysisKey(baseRequest, documentCanvas);
+            const analysis = baseAnalysisCache.get(analysisKey);
+            if (analysis) {
+                baseAnalysisCache.delete(analysisKey);
+                baseAnalysisCache.set(analysisKey, analysis);
+            }
             if (
                 !analysis
                 || analysis.sourceStatIdentity !== baseRaw.document.sourceStatIdentity
@@ -2410,7 +2417,10 @@ async function runPreview(
                 dependencies,
             );
             const previous = baseAnalysisCache.get(analysisKey);
-            if (previous) void removeBaseAnalysisArtifacts(previous);
+            if (previous) {
+                baseAnalysisCache.delete(analysisKey);
+                void removeBaseAnalysisArtifacts(previous);
+            }
             baseAnalysisCache.set(analysisKey, {
                 sourcePdfPath: request.sourcePdfPath,
                 documentRevision: request.documentRevision,

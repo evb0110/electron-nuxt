@@ -412,7 +412,6 @@ export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSetti
         throw new Error('Too many scan-cleanup settings documentOverrides');
     }
     const documentOverrides: Record<string, IScanCleanupDocumentOverrideEntry> = {};
-    const budget = createScanCleanupInputBudget();
     for (const [
         key,
         entry,
@@ -420,7 +419,12 @@ export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSetti
         if (!isScanCleanupSourceSha256(key)) {
             continue;
         }
-        const decoded = decodeDocumentOverrideEntry(entry, budget);
+        let decoded: IScanCleanupDocumentOverrideEntry | null;
+        try {
+            decoded = decodeDocumentOverrideEntry(entry, createScanCleanupInputBudget());
+        } catch {
+            continue;
+        }
         if (decoded) {
             documentOverrides[key.toLowerCase()] = decoded;
         }

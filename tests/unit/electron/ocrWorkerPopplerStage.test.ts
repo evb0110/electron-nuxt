@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@electron/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
 vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPpmRaster: mocks.readPpmRaster}));
 
-vi.mock('fs/promises', () => ({
+vi.mock('node:fs/promises', () => ({
     rm: mocks.rm,
     stat: mocks.stat,
     writeFile: mocks.writeFile,

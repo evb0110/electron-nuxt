@@ -394,228 +394,226 @@ export function createScanCleanupService(): IScanCleanupService {
                     startReservationsByBrokerOwner.delete(brokerOwnerId);
                 }
             };
-            const previous = activeJobsByBrokerOwner.get(brokerOwnerId);
-            if (previous) {
-                const previousState = publicState(jobs.get(
-                    previous.jobId,
-                    ownerActor(sender, previous.request),
-                ));
-                if (previousState && ![
-                    'completed',
-                    'failed',
-                    'canceled',
-                ].includes(previousState.status)) {
-                    if (previous.signature === signature) {
-                        jobs.subscribe(previous.jobId, ownerActor(sender, request), state => {
-                            sendScanCleanupState(sender, state.progress);
-                        });
-                        releaseReservation();
-                        return {
-                            started: true,
-                            jobId: previous.jobId,
-                            outputPdfPath: previous.outputPdfPath,
-                        };
-                    }
-                    jobs.cancel(
+            try {
+                const previous = activeJobsByBrokerOwner.get(brokerOwnerId);
+                if (previous) {
+                    const previousState = publicState(jobs.get(
                         previous.jobId,
                         ownerActor(sender, previous.request),
-                        'Superseded scan cleanup request',
-                    );
-                }
-            }
-            const partial = request.sourcePageNumbers !== undefined;
-            const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial)
-                .catch(error => {
-                    releaseReservation();
-                    throw error;
-                });
-            const workerRequest = {
-                ...request,
-                outputPdfPath,
-            };
-            const runtimePolicy = resolveScanCleanupRuntimePolicy(
-                getHostResourceProfileSnapshot(),
-            );
-            const progress: TScanCleanupProgress = {
-                stage: 'queued' as const,
-                completedUnits: 0,
-                totalUnits: 0,
-                percent: 0,
-                completedPageNumbers: [],
-            };
-            documentOutputService.start({
-                operation: 'scan-cleanup',
-                sourceKind: 'pdf',
-                jobId,
-                initialPhase: 'queued',
-            });
-            const handle = jobs.start({
-                jobId,
-                owner: ownerActor(sender, request),
-                operation: {
-                    // The worker may have atomically published its generated
-                    // PDF immediately before its result reaches main. Main is
-                    // the terminal-state authority: cancellation that arrived
-                    // first removes that publication, while a result handled
-                    // first enters a non-cancelable commit state.
-                    kind: 'critical-write',
-                    workingCopyPath: request.sourcePdfPath,
-                },
-                initialProgress: {
-                    jobId,
-                    status: 'queued',
-                    progress,
-                    updatedAtMs: Date.now(),
-                },
-                ownerLifecycle: {
-                    // A destroyed or crashed renderer can never present this
-                    // job again: authorization is bound to the original
-                    // WebContents and a replacement renderer cannot adopt it,
-                    // so the work would run to completion for nobody. Only a
-                    // same-WebContents navigation can reconnect (getJobState/
-                    // reconnectJob), so only it detaches.
-                    destroyed: 'cancel',
-                    renderProcessGone: 'cancel',
-                    mainFrameNavigation: 'detach',
-                },
-                run: async job => {
-                    let lease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
-                    try {
-                        lease = await mainJobBroker.acquire({
-                            ownerId: brokerOwnerId,
-                            kind: 'scan-cleanup',
-                            priority: 'user',
-                            resources: {
-                                cpuTokens: runtimePolicy.rasterConcurrency,
-                                estimatedResidentBytes: runtimePolicy.rasterConcurrency * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
-                                nativeProcesses: runtimePolicy.rasterConcurrency
-                                    + Number(runtimePolicy.rasterStreaming),
-                                ioWeight: 4,
-                            },
-                            perOwnerLimit: 1,
-                            signal: job.signal,
-                        });
-                        const pdfPaths = getPdfNativeToolPaths();
-                        const scanCleanupBinary = resolveScanCleanupPath();
-                        const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
-                        // Page geometry is what matched page size is measured
-                        // from, so the raster path asks for this tool too — and
-                        // takes Poppler's answer when it is missing, rather than
-                        // dropping matching without telling anyone. Only the
-                        // lossless assembler needs the tool itself.
-                        // Auto can retain an existing compact MRC/JPX page when
-                        // its resolved Color result only needs page geometry.
-                        // Page-ops applies that geometry without decoding or
-                        // recompressing the source image objects.
-                        const requiresPageOps = request.options.preserveOriginalQuality === true
-                            || request.options.matchPageSize
-                            || request.options.outputMode === 'auto';
-                        const pdfPageOpsBinary = requiresPageOps && !isNativePageOpsDisabled()
-                            ? resolveNativePageOpsPath()
-                            : null;
-                        const missingTools = [
-                            scanCleanupBinary ? null : 'evb-scan-cleanup',
-                            pdfImageCombineBinary ? null : 'evb-pdf-image-combine',
-                            request.options.preserveOriginalQuality === true && !pdfPageOpsBinary
-                                ? 'evb-pdf-page-ops'
-                                : null,
-                        ].filter((name): name is string => name !== null);
-                        if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
-                            throw new ScanCleanupNativeToolUnavailableError(
-                                missingTools[0] ?? 'unknown scan-cleanup native tool',
-                            );
+                    ));
+                    if (previousState && ![
+                        'completed',
+                        'failed',
+                        'canceled',
+                    ].includes(previousState.status)) {
+                        if (previous.signature === signature) {
+                            jobs.subscribe(previous.jobId, ownerActor(sender, request), state => {
+                                sendScanCleanupState(sender, state.progress);
+                            });
+                            return {
+                                started: true,
+                                jobId: previous.jobId,
+                                outputPdfPath: previous.outputPdfPath,
+                            };
                         }
-                        const summary = await runScanCleanupWorkerTask(
-                            {
-                                ...workerRequest,
-                                sourcePdfPath: await materializeScanCleanupSourcePath(
-                                    request.sourcePdfPath,
-                                    sender.id,
-                                    job.signal,
-                                ),
-                            },
-                            {
-                                qpdfBinary: pdfPaths.qpdf,
-                                pdftoppmBinary: pdfPaths.pdftoppm,
-                                ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
-                                pdfinfoBinary: pdfPaths.pdfinfo,
-                                scanCleanupBinary,
-                                pdfImageCombineBinary,
-                                ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
-                                tempDir: getAppTempDir(),
-                            },
-                            runtimePolicy,
-                            job.signal,
-                            nextProgress => {
-                                job.publish({
-                                    jobId,
-                                    status: nextProgress.stage === 'handoff' ? 'handoff' : 'running',
-                                    progress: nextProgress,
-                                    updatedAtMs: Date.now(),
-                                });
-                                documentOutputService.update(jobId, {
-                                    phase: nextProgress.stage,
-                                    percent: nextProgress.percent,
-                                    current: nextProgress.completedUnits,
-                                    total: nextProgress.totalUnits,
-                                });
-                            },
+                        jobs.cancel(
+                            previous.jobId,
+                            ownerActor(sender, previous.request),
+                            'Superseded scan cleanup request',
                         );
-                        // Resolve the cancel-vs-publish race in the same main
-                        // process that owns the job state. If cancel won while
-                        // the worker was publishing, the catch path removes the
-                        // generated-output directory. Otherwise later cancel
-                        // requests are rejected as soon as commit begins.
-                        job.signal.throwIfAborted();
-                        job.markCommitStarted();
-                        documentOutputService.handoff(jobId, outputPdfPath);
-                        documentOutputService.finish(jobId, 'completed');
-                        const completedPageNumbers = request.sourcePageNumbers
-                        ?? Array.from({length: summary.inputPages}, (_, index) => index + 1);
-                        return {
-                            outputPdfPath,
-                            summary,
-                            partial,
-                            completedPageNumbers,
-                        };
-                    } catch (error) {
-                        const aborted = job.signal.aborted;
-                        await rm(dirname(outputPdfPath), {
-                            recursive: true,
-                            force: true,
-                        }).catch(() => undefined);
-                        documentOutputService.finish(
-                            jobId,
-                            aborted ? 'canceled' : 'failed',
-                            aborted ? undefined : getErrorMessage(error),
-                        );
-                        throw error;
-                    } finally {
-                        lease?.release();
                     }
-                },
-            });
-            jobs.subscribe(jobId, ownerActor(sender, request), state => {
-                sendScanCleanupState(sender, state.progress);
-            });
-            const activeEntry = {
-                jobId,
-                outputPdfPath,
-                request,
-                signature,
-            };
-            activeJobsByBrokerOwner.set(brokerOwnerId, activeEntry);
-            releaseReservation();
-            void handle.settled.finally(() => {
-                if (activeJobsByBrokerOwner.get(brokerOwnerId) === activeEntry) {
-                    activeJobsByBrokerOwner.delete(brokerOwnerId);
                 }
-            }).catch(() => undefined);
-            return {
-                started: true,
-                jobId,
-                outputPdfPath,
-            };
+                const partial = request.sourcePageNumbers !== undefined;
+                const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial);
+                const workerRequest = {
+                    ...request,
+                    outputPdfPath,
+                };
+                const runtimePolicy = resolveScanCleanupRuntimePolicy(
+                    getHostResourceProfileSnapshot(),
+                );
+                const progress: TScanCleanupProgress = {
+                    stage: 'queued' as const,
+                    completedUnits: 0,
+                    totalUnits: 0,
+                    percent: 0,
+                    completedPageNumbers: [],
+                };
+                documentOutputService.start({
+                    operation: 'scan-cleanup',
+                    sourceKind: 'pdf',
+                    jobId,
+                    initialPhase: 'queued',
+                });
+                const handle = jobs.start({
+                    jobId,
+                    owner: ownerActor(sender, request),
+                    operation: {
+                        // The worker may have atomically published its generated
+                        // PDF immediately before its result reaches main. Main is
+                        // the terminal-state authority: cancellation that arrived
+                        // first removes that publication, while a result handled
+                        // first enters a non-cancelable commit state.
+                        kind: 'critical-write',
+                        workingCopyPath: request.sourcePdfPath,
+                    },
+                    initialProgress: {
+                        jobId,
+                        status: 'queued',
+                        progress,
+                        updatedAtMs: Date.now(),
+                    },
+                    ownerLifecycle: {
+                        // A destroyed or crashed renderer can never present this
+                        // job again: authorization is bound to the original
+                        // WebContents and a replacement renderer cannot adopt it,
+                        // so the work would run to completion for nobody. Only a
+                        // same-WebContents navigation can reconnect (getJobState/
+                        // reconnectJob), so only it detaches.
+                        destroyed: 'cancel',
+                        renderProcessGone: 'cancel',
+                        mainFrameNavigation: 'detach',
+                    },
+                    run: async job => {
+                        let lease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
+                        try {
+                            lease = await mainJobBroker.acquire({
+                                ownerId: brokerOwnerId,
+                                kind: 'scan-cleanup',
+                                priority: 'user',
+                                resources: {
+                                    cpuTokens: runtimePolicy.rasterConcurrency,
+                                    estimatedResidentBytes: runtimePolicy.rasterConcurrency * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
+                                    nativeProcesses: runtimePolicy.rasterConcurrency
+                                        + Number(runtimePolicy.rasterStreaming),
+                                    ioWeight: 4,
+                                },
+                                perOwnerLimit: 1,
+                                signal: job.signal,
+                            });
+                            const pdfPaths = getPdfNativeToolPaths();
+                            const scanCleanupBinary = resolveScanCleanupPath();
+                            const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
+                            // Page geometry is what matched page size is measured
+                            // from, so the raster path asks for this tool too — and
+                            // takes Poppler's answer when it is missing, rather than
+                            // dropping matching without telling anyone. Only the
+                            // lossless assembler needs the tool itself.
+                            // Auto can retain an existing compact MRC/JPX page when
+                            // its resolved Color result only needs page geometry.
+                            // Page-ops applies that geometry without decoding or
+                            // recompressing the source image objects.
+                            const requiresPageOps = request.options.preserveOriginalQuality === true
+                                || request.options.matchPageSize
+                                || request.options.outputMode === 'auto';
+                            const pdfPageOpsBinary = requiresPageOps && !isNativePageOpsDisabled()
+                                ? resolveNativePageOpsPath()
+                                : null;
+                            const missingTools = [
+                                scanCleanupBinary ? null : 'evb-scan-cleanup',
+                                pdfImageCombineBinary ? null : 'evb-pdf-image-combine',
+                                request.options.preserveOriginalQuality === true && !pdfPageOpsBinary
+                                    ? 'evb-pdf-page-ops'
+                                    : null,
+                            ].filter((name): name is string => name !== null);
+                            if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
+                                throw new ScanCleanupNativeToolUnavailableError(
+                                    missingTools[0] ?? 'unknown scan-cleanup native tool',
+                                );
+                            }
+                            const summary = await runScanCleanupWorkerTask(
+                                {
+                                    ...workerRequest,
+                                    sourcePdfPath: await materializeScanCleanupSourcePath(
+                                        request.sourcePdfPath,
+                                        sender.id,
+                                        job.signal,
+                                    ),
+                                },
+                                {
+                                    qpdfBinary: pdfPaths.qpdf,
+                                    pdftoppmBinary: pdfPaths.pdftoppm,
+                                    ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
+                                    pdfinfoBinary: pdfPaths.pdfinfo,
+                                    scanCleanupBinary,
+                                    pdfImageCombineBinary,
+                                    ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
+                                    tempDir: getAppTempDir(),
+                                },
+                                runtimePolicy,
+                                job.signal,
+                                nextProgress => {
+                                    job.publish({
+                                        jobId,
+                                        status: nextProgress.stage === 'handoff' ? 'handoff' : 'running',
+                                        progress: nextProgress,
+                                        updatedAtMs: Date.now(),
+                                    });
+                                    documentOutputService.update(jobId, {
+                                        phase: nextProgress.stage,
+                                        percent: nextProgress.percent,
+                                        current: nextProgress.completedUnits,
+                                        total: nextProgress.totalUnits,
+                                    });
+                                },
+                            );
+                            // Resolve the cancel-vs-publish race in the same main
+                            // process that owns the job state. If cancel won while
+                            // the worker was publishing, the catch path removes the
+                            // generated-output directory. Otherwise later cancel
+                            // requests are rejected as soon as commit begins.
+                            job.signal.throwIfAborted();
+                            job.markCommitStarted();
+                            documentOutputService.handoff(jobId, outputPdfPath);
+                            documentOutputService.finish(jobId, 'completed');
+                            const completedPageNumbers = request.sourcePageNumbers
+                                ?? Array.from({length: summary.inputPages}, (_, index) => index + 1);
+                            return {
+                                outputPdfPath,
+                                summary,
+                                partial,
+                                completedPageNumbers,
+                            };
+                        } catch (error) {
+                            const aborted = job.signal.aborted;
+                            await rm(dirname(outputPdfPath), {
+                                recursive: true,
+                                force: true,
+                            }).catch(() => undefined);
+                            documentOutputService.finish(
+                                jobId,
+                                aborted ? 'canceled' : 'failed',
+                                aborted ? undefined : getErrorMessage(error),
+                            );
+                            throw error;
+                        } finally {
+                            lease?.release();
+                        }
+                    },
+                });
+                jobs.subscribe(jobId, ownerActor(sender, request), state => {
+                    sendScanCleanupState(sender, state.progress);
+                });
+                const activeEntry = {
+                    jobId,
+                    outputPdfPath,
+                    request,
+                    signature,
+                };
+                activeJobsByBrokerOwner.set(brokerOwnerId, activeEntry);
+                void handle.settled.finally(() => {
+                    if (activeJobsByBrokerOwner.get(brokerOwnerId) === activeEntry) {
+                        activeJobsByBrokerOwner.delete(brokerOwnerId);
+                    }
+                }).catch(() => undefined);
+                return {
+                    started: true,
+                    jobId,
+                    outputPdfPath,
+                };
+            } finally {
+                releaseReservation();
+            }
         },
         cancel(sender, jobId, owner) {
             const actor = ownerActor(sender, owner);

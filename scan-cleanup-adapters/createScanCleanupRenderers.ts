@@ -16,6 +16,10 @@ import {
 } from '@scan-cleanup-core/policy/effectiveOptions';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_RASTER_LIMITS = {
+    maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+    maxPixels: SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
+};
 
 function validateRenderLimits(limits: IScanCleanupRasterRenderLimits | undefined) {
     if (limits === undefined) {
@@ -120,11 +124,12 @@ async function convertPpmToPng(
     ppmPath: string,
     outputPngPath: string,
     limits: IScanCleanupRasterRenderLimits | undefined,
+    fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'>,
     signal?: AbortSignal,
 ) {
     const ppm = await readPpmRaster(ppmPath, {
-        maxDimensionPx: limits?.maxDimensionPx ?? SCAN_CLEANUP_MAX_DIMENSION_PX,
-        maxPixels: limits?.maxPixels ?? SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
+        maxDimensionPx: limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx,
+        maxPixels: limits?.maxPixels ?? fallbackLimits.maxPixels,
         ...(signal === undefined ? {} : {signal}),
     });
     signal?.throwIfAborted();
@@ -139,7 +144,10 @@ async function convertPpmToPng(
     await writeFile(outputPngPath, png);
 }
 
-export function createScanCleanupRenderers(runCommand: TScanCleanupRunCommand) {
+export function createScanCleanupRenderers(
+    runCommand: TScanCleanupRunCommand,
+    fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
+) {
     const renderPageToPng: TScanCleanupRenderPage = async (
         paths,
         log,
@@ -168,7 +176,7 @@ export function createScanCleanupRenderers(runCommand: TScanCleanupRunCommand) {
                 crop,
                 limits,
             );
-            await convertPpmToPng(ppmPath, outputPngPath, limits, signal);
+            await convertPpmToPng(ppmPath, outputPngPath, limits, fallbackLimits, signal);
         } finally {
             await rm(ppmPath, {force: true});
         }

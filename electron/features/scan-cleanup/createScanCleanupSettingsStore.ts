@@ -6,7 +6,6 @@ import {
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     assertScanCleanupLegacyStorageByteLimit,
-    assertFiniteScanCleanupPreferences,
     cloneScanCleanupPreferenceValue,
     createDefaultScanCleanupSettingsFile,
     decodeScanCleanupGlobalPreferences,
@@ -286,7 +285,8 @@ function pruneDocumentOverrides(
         .sort((left, right) => right[1].lastUsedAtMs - left[1].lastUsedAtMs)
         .slice(0, SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES);
     const nextEntries = Object.fromEntries(entries);
-    const changed = JSON.stringify(nextEntries) !== JSON.stringify(state.documentOverrides);
+    const changed = entries.length !== Object.keys(state.documentOverrides).length
+        || entries.some(([key]) => state.documentOverrides[key] === undefined);
     if (changed) {
         state.documentOverrides = nextEntries;
     }
@@ -442,8 +442,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
         return enqueue(async () => {
             const state = await loadAndNormalize({});
             if (request.settings !== undefined) {
-                assertFiniteScanCleanupPreferences(request.settings);
-                state.settings = decodeScanCleanupGlobalPreferences(request.settings);
+                state.settings = request.settings;
             }
             const document = request.document;
             if (document) {
@@ -459,10 +458,10 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                 if (resetToEmptyOverrides) {
                     Reflect.deleteProperty(nextEntry, 'overrides');
                 } else if (patch.overrides !== undefined) {
-                    nextEntry.overrides = decodeScanCleanupPageOverrides(patch.overrides);
+                    nextEntry.overrides = patch.overrides;
                 }
                 if (patch.marginsMm !== undefined) {
-                    nextEntry.marginsMm = decodeScanCleanupMarginsMm(patch.marginsMm);
+                    nextEntry.marginsMm = patch.marginsMm;
                 }
                 if (patch.outputMode !== undefined) {
                     nextEntry.outputMode = patch.outputMode;

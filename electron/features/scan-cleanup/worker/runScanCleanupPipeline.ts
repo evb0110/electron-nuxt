@@ -8,7 +8,7 @@ import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
-} from '@electron/pdf/extractPdfMrcLayers';
+} from '@scan-cleanup-adapters/extractPdfMrcLayers';
 import {
     renderPdfPageToPng,
     renderPdfPageToPpm,
