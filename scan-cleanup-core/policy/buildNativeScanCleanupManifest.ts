@@ -60,6 +60,7 @@ export interface IBuildNativeScanCleanupManifestInput {
     documentCanvas?: IScanCleanupDocumentCanvasPlan;
     experimental?: IScanCleanupExperimentalOptions;
     hostMemoryBytes?: number;
+    rasterWindow?: number;
     allowedPathRoot?: string;
 }
 
@@ -216,6 +217,7 @@ export function buildNativeScanCleanupManifest({
     documentCanvas,
     experimental,
     hostMemoryBytes,
+    rasterWindow,
     allowedPathRoot,
 }: IBuildNativeScanCleanupManifestInput): INativeScanCleanupManifestV3 {
     return {
@@ -226,6 +228,9 @@ export function buildNativeScanCleanupManifest({
         canvasScope,
         ...(documentCanvas === undefined ? {} : {documentCanvas}),
         ...(hostMemoryBytes !== undefined && hostMemoryBytes > 0 ? {hostMemoryBytes} : {}),
+        ...(rasterWindow === undefined
+            ? {}
+            : {rasterWindow: clampNativeLimit(rasterWindow, 16, 'rasterWindow')}),
         pages: pages.map((page, pageIndex) => {
             assertManifestOutputContract(page, pageIndex);
             if (allowedPathRoot !== undefined) assertManifestPagePaths(page, pageIndex, allowedPathRoot);

@@ -1655,11 +1655,15 @@ describe('scan cleanup pipeline', () => {
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
             async (_binary, manifestPath, _signal, _log, onProgress) => {
                 sidecarStarted.resolve(undefined);
-                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
-                    pageMetadataPath: string;
-                    options: {dpi: number};
-                    outputs: ICleanupOutput[]
-                }>};
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                    rasterWindow?: number;
+                    pages: Array<{
+                        pageMetadataPath: string;
+                        options: {dpi: number};
+                        outputs: ICleanupOutput[]
+                    }>;
+                };
+                expect(manifest.rasterWindow).toBe(highTierPolicy.rasterConcurrency);
                 const page = manifest.pages[0]!;
                 await writeFile(page.pageMetadataPath, JSON.stringify({
                     layoutClassification: 'single-uncut-page',

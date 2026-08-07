@@ -822,6 +822,7 @@ export async function runScanCleanupDetection<TDocument>(
             renderMode: 'preview',
             canvasScope: 'page',
             qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
+            ...(streamRasters ? {rasterWindow: policy.rasterConcurrency} : {}),
             options: request.options,
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,

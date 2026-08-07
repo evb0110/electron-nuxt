@@ -612,4 +612,29 @@ describe('native scan-cleanup manifest builder', () => {
         expect(build()).not.toHaveProperty('hostMemoryBytes');
         expect(build(0)).not.toHaveProperty('hostMemoryBytes');
     });
+
+    it('bounds an explicit streamed-raster lookahead and omits it for replayable inputs', () => {
+        const build = (rasterWindow?: number) => buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            ...(rasterWindow === undefined ? {} : {rasterWindow}),
+            pages: [{
+                inputPath: '/fixtures/input/page-1.ppm',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+                outputs: [{
+                    outputPath: '/fixtures/output/page-1.png',
+                    metadataPath: '/fixtures/output/page-1-output.json',
+                }],
+            }],
+        });
+
+        expect(build(3).rasterWindow).toBe(3);
+        expect(build(99).rasterWindow).toBe(16);
+        expect(build()).not.toHaveProperty('rasterWindow');
+    });
 });

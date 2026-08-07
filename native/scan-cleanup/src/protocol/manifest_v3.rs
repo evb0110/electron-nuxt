@@ -8,6 +8,11 @@ use std::{
 };
 
 pub const VERSION: u32 = 3;
+pub const MAX_RASTER_WINDOW: usize = 16;
+
+const fn default_raster_window() -> usize {
+    1
+}
 
 /// Optional diagnostic geometry for a non-straight page seam. The existing
 /// cutter and page polygons remain the rendering contract; consumers that do
@@ -239,6 +244,10 @@ pub struct ManifestV3 {
     /// invocations, which then size themselves conservatively.
     #[serde(default)]
     pub host_memory_bytes: Option<u64>,
+    /// Bounded streamed-raster look-ahead. Direct CLI callers that do not
+    /// coordinate producers retain the one-page acknowledgement turnstile.
+    #[serde(default = "default_raster_window")]
+    pub raster_window: usize,
     pub pages: Vec<Page>,
 }
 
@@ -267,6 +276,11 @@ impl ManifestV3 {
         }
         if self.host_memory_bytes == Some(0) {
             return Err(invalid("Host memory must be a positive byte count"));
+        }
+        if !(1..=MAX_RASTER_WINDOW).contains(&self.raster_window) {
+            return Err(invalid(format!(
+                "Raster window must be between 1 and {MAX_RASTER_WINDOW}",
+            )));
         }
         if self.operation == Operation::Render
             && self.document_canvas.is_none()
@@ -577,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn host_memory_is_optional_and_must_be_positive_when_present() {
+    fn host_memory_and_raster_window_are_bounded_additive_fields() {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
@@ -586,6 +600,7 @@ mod tests {
         let absent: ManifestV3 = serde_json::from_str(json).unwrap();
         absent.validate().unwrap();
         assert_eq!(absent.host_memory_bytes, None);
+        assert_eq!(absent.raster_window, 1);
 
         let reported: ManifestV3 = serde_json::from_str(
             &json.replace("\"pages\"", "\"hostMemoryBytes\":34359738368,\"pages\""),
@@ -602,6 +617,21 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Host memory"));
+
+        let windowed: ManifestV3 =
+            serde_json::from_str(&json.replace("\"pages\"", "\"rasterWindow\":3,\"pages\""))
+                .unwrap();
+        windowed.validate().unwrap();
+        assert_eq!(windowed.raster_window, 3);
+
+        let oversized: ManifestV3 =
+            serde_json::from_str(&json.replace("\"pages\"", "\"rasterWindow\":17,\"pages\""))
+                .unwrap();
+        assert!(oversized
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("Raster window"));
     }
 
     #[test]

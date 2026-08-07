@@ -912,31 +912,98 @@ where
     T: Send,
     F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
 {
-    // A FIFO is a one-shot transport, not a replayable page file. A dedicated
-    // reader materializes one bounded page at a time, and an acknowledgement
-    // turnstile keeps it from opening a future FIFO until processing succeeds.
-    // This bounds scratch to one raster and makes a task failure cancelable
-    // without leaving the scoped reader blocked on a producer that stopped.
+    if manifest.raster_window <= 1 {
+        // A FIFO is a one-shot transport, not a replayable page file. Direct
+        // callers coordinate no producer window, so keep the conservative
+        // acknowledgement turnstile: it never opens an unwritten future FIFO
+        // after a task failure and bounds scratch to one raster.
+        return thread::scope(|scope| {
+            let (sender, receiver) = sync_channel(0);
+            let (acknowledge, acknowledged) = sync_channel(0);
+            let canceled = Arc::new(AtomicBool::new(false));
+            let reader_canceled = Arc::clone(&canceled);
+            scope.spawn(move || {
+                for (index, page) in manifest.pages.iter().enumerate() {
+                    let materialized =
+                        materialize_stream_page(index, page, MAX_STREAM_INPUT_BYTES, || {
+                            reader_canceled.load(Ordering::Acquire)
+                        });
+                    let failed = materialized.is_err();
+                    if sender.send(materialized).is_err() || failed {
+                        break;
+                    }
+                    // Taking a rendezvous message does not mean page processing
+                    // succeeded. Wait for its explicit acknowledgement before
+                    // opening the next FIFO, otherwise a task failure can strand
+                    // this scoped thread forever in an unwritten future stream.
+                    if acknowledged.recv() != Ok(true) {
+                        break;
+                    }
+                }
+            });
+
+            let mut results = Vec::with_capacity(manifest.pages.len());
+            let mut first_error = None;
+            for materialized in receiver {
+                match materialized {
+                    Ok(materialized) if first_error.is_none() => {
+                        match task((materialized.index, &materialized.page)) {
+                            Ok(result) => {
+                                results.push(result);
+                                if acknowledge.send(true).is_err() {
+                                    first_error = Some(NativeError::new(
+                                        NativeErrorCode::Io,
+                                        "Streamed scan-cleanup reader stopped before acknowledgement",
+                                    ));
+                                }
+                            }
+                            Err(error) => {
+                                canceled.store(true, Ordering::Release);
+                                first_error = Some(error);
+                                let _ = acknowledge.send(false);
+                            }
+                        }
+                    }
+                    Ok(_) => {
+                        let _ = acknowledge.send(false);
+                    }
+                    Err(error) => {
+                        canceled.store(true, Ordering::Release);
+                        first_error.get_or_insert(error);
+                        break;
+                    }
+                }
+            }
+            match first_error {
+                Some(error) => Err(error.into()),
+                None if results.len() == manifest.pages.len() => Ok(results),
+                None => Err(invalid("Streamed scan-cleanup input ended before every page").into()),
+            }
+        });
+    }
+
+    // The owning process has promised this many concurrent producers. Keep
+    // page processing serial (nested Rayon work still owns the native pool),
+    // but let the dedicated reader materialize the next pages while the
+    // current page is processed. The channel is two slots smaller than the
+    // window because the processing page and the reader's in-progress page
+    // are both live outside it.
+    let channel_capacity = manifest.raster_window.saturating_sub(2);
     thread::scope(|scope| {
-        let (sender, receiver) = sync_channel(0);
-        let (acknowledge, acknowledged) = sync_channel(0);
+        let (sender, receiver) = sync_channel(channel_capacity);
         let canceled = Arc::new(AtomicBool::new(false));
         let reader_canceled = Arc::clone(&canceled);
         scope.spawn(move || {
             for (index, page) in manifest.pages.iter().enumerate() {
+                if reader_canceled.load(Ordering::Acquire) {
+                    break;
+                }
                 let materialized =
                     materialize_stream_page(index, page, MAX_STREAM_INPUT_BYTES, || {
                         reader_canceled.load(Ordering::Acquire)
                     });
                 let failed = materialized.is_err();
                 if sender.send(materialized).is_err() || failed {
-                    break;
-                }
-                // Taking a rendezvous message does not mean page processing
-                // succeeded. Wait for its explicit acknowledgement before
-                // opening the next FIFO, otherwise a task failure can strand
-                // this scoped thread forever in an unwritten future stream.
-                if acknowledged.recv() != Ok(true) {
                     break;
                 }
             }
@@ -946,30 +1013,17 @@ where
         let mut first_error = None;
         for materialized in receiver {
             match materialized {
-                Ok(materialized) if first_error.is_none() => {
-                    match task((materialized.index, &materialized.page)) {
-                        Ok(result) => {
-                            results.push(result);
-                            if acknowledge.send(true).is_err() {
-                                first_error = Some(NativeError::new(
-                                    NativeErrorCode::Io,
-                                    "Streamed scan-cleanup reader stopped before acknowledgement",
-                                ));
-                            }
-                        }
-                        Err(error) => {
-                            canceled.store(true, Ordering::Release);
-                            first_error = Some(error);
-                            let _ = acknowledge.send(false);
-                        }
+                Ok(materialized) => match task((materialized.index, &materialized.page)) {
+                    Ok(result) => results.push(result),
+                    Err(error) => {
+                        canceled.store(true, Ordering::Release);
+                        first_error = Some(error);
+                        break;
                     }
-                }
-                Ok(_) => {
-                    let _ = acknowledge.send(false);
-                }
+                },
                 Err(error) => {
                     canceled.store(true, Ordering::Release);
-                    first_error.get_or_insert(error);
+                    first_error = Some(error);
                     break;
                 }
             }
@@ -2399,6 +2453,9 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
     )
 }
 
+// Kept as explicit scalar geometry at the test seam: grouping these values
+// would hide which coordinate space each call supplies.
+#[allow(clippy::too_many_arguments)]
 fn plan_canvas_placement_for(
     width: usize,
     height: usize,
@@ -3265,6 +3322,7 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     };
 
     fn cli_args(args: &[&str]) -> Vec<String> {
@@ -3422,6 +3480,7 @@ mod tests {
             canvas_scope: CanvasScope::Page,
             document_canvas: None,
             host_memory_bytes: None,
+            raster_window: 1,
             pages: (0..2)
                 .map(|page| Page {
                     input_path: input.clone(),
@@ -3718,6 +3777,7 @@ mod tests {
             // 600 kB remains after the process/cache split: enough for two
             // 40-Bpp pages, but only one 80-Bpp page.
             host_memory_bytes: Some(2_000_000),
+            raster_window: 1,
             pages: (0..2)
                 .map(|source_page_index| Page {
                     input_path: input.clone(),
@@ -3772,6 +3832,7 @@ mod tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes: None,
+            raster_window: 1,
             pages: vec![Page {
                 input_path: input,
                 trusted_foreground_mask_path: None,
@@ -3839,6 +3900,7 @@ mod tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes,
+            raster_window: 1,
             pages: (0..8)
                 .map(|index| Page {
                     input_path: input.clone(),
@@ -3891,6 +3953,7 @@ mod tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            raster_window: 1,
             pages: (0..8)
                 .map(|index| Page {
                     input_path: fifo.clone(),
@@ -3937,6 +4000,7 @@ mod tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            raster_window: 1,
             pages: fifo_paths
                 .iter()
                 .enumerate()
@@ -3978,6 +4042,109 @@ mod tests {
                 .to_string_lossy()
                 .contains(".raster")),
             "bounded materializations must be removed after processing"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn streamed_page_window_overlaps_materialization_without_exceeding_its_bound() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-stream-window-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo_paths = (0..5)
+            .map(|index| dir.join(format!("page-{index}.fifo")))
+            .collect::<Vec<_>>();
+        for fifo in &fifo_paths {
+            assert!(std::process::Command::new("mkfifo")
+                .arg(fifo)
+                .status()
+                .unwrap()
+                .success());
+        }
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            raster_window: 3,
+            pages: fifo_paths
+                .iter()
+                .enumerate()
+                .map(|(index, input_path)| Page {
+                    input_path: input_path.clone(),
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        let producer_paths = fifo_paths.clone();
+        let producer = std::thread::spawn(move || {
+            for (index, path) in producer_paths.iter().enumerate() {
+                fs::write(path, format!("page-{index}")).unwrap();
+            }
+        });
+        let observed_lookahead = AtomicBool::new(false);
+        let peak_materializations = AtomicUsize::new(0);
+        let count_materializations = || {
+            fs::read_dir(&dir)
+                .unwrap()
+                .filter(|entry| {
+                    entry
+                        .as_ref()
+                        .is_ok_and(|entry| entry.file_name().to_string_lossy().contains(".raster"))
+                })
+                .count()
+        };
+
+        let processed = run_stream_page_jobs(&manifest, |(index, page)| {
+            if index == 0 {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                loop {
+                    let live = count_materializations();
+                    peak_materializations.fetch_max(live, Ordering::AcqRel);
+                    if live == manifest.raster_window {
+                        observed_lookahead.store(true, Ordering::Release);
+                        break;
+                    }
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "reader did not fill the promised raster window"
+                    );
+                    std::thread::yield_now();
+                }
+            }
+            let live = count_materializations();
+            peak_materializations.fetch_max(live, Ordering::AcqRel);
+            assert!(live <= manifest.raster_window);
+            let bytes = fs::read(&page.input_path).unwrap();
+            assert_eq!(bytes, format!("page-{index}").as_bytes());
+            Ok::<_, NativeError>(bytes)
+        })
+        .unwrap();
+
+        producer.join().unwrap();
+        assert_eq!(processed.len(), 5);
+        assert!(observed_lookahead.load(Ordering::Acquire));
+        assert_eq!(peak_materializations.load(Ordering::Acquire), 3);
+        assert!(
+            fs::read_dir(&dir).unwrap().all(|entry| !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".raster")),
+            "windowed materializations must be removed after processing"
         );
         let _ = fs::remove_dir_all(dir);
     }
@@ -4050,6 +4217,7 @@ mod tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes: None,
+            raster_window: 1,
             pages: fifo_paths
                 .iter()
                 .enumerate()
@@ -4104,6 +4272,7 @@ mod tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            raster_window: 1,
             pages: (0..4)
                 .map(|index| Page {
                     input_path: input.clone(),

@@ -906,12 +906,16 @@ export async function runScanCleanupConversion(
         // On POSIX, raw PPM inputs are FIFOs: Poppler produces each page while
         // the native worker consumes it, so PDF rendering and cleanup overlap
         // without changing a pixel or padding each worker window separately.
+        const canStreamRasters = supportsRasterStreaming
+            && rasterHandoff.format === 'ppm'
+            && dependencies.createRasterPipes !== undefined;
         const manifest = buildNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
             qualityPath: 'raster',
             hostMemoryBytes: policy.totalRamBytes,
+            ...(canStreamRasters ? {rasterWindow: policy.rasterConcurrency} : {}),
             options,
             ...(documentCanvas === null ? {} : {documentCanvas}),
             experimental: {
@@ -929,9 +933,6 @@ export async function runScanCleanupConversion(
         const pages = manifest.pages;
         const manifestPath = join(scratch, 'cleanup-manifest.json');
         await writeFile(manifestPath, JSON.stringify(manifest));
-        const canStreamRasters = supportsRasterStreaming
-            && rasterHandoff.format === 'ppm'
-            && dependencies.createRasterPipes !== undefined;
         rasterStreamingRun = canStreamRasters;
         let rasterizedCount = 0;
         const rasterizedPageNumbers = new Set<number>();

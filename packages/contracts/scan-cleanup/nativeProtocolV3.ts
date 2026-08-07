@@ -415,6 +415,12 @@ export interface INativeScanCleanupManifestV3 {
      * so it sizes its worker pool and stage cache from this figure instead.
      */
     hostMemoryBytes?: number;
+    /**
+     * Maximum number of streamed raster materializations that may be live
+     * while native page processing remains serial. Omitted direct-CLI
+     * manifests retain the one-page turnstile.
+     */
+    rasterWindow?: number;
     pages: INativeScanCleanupPageV3[];
 }
 
