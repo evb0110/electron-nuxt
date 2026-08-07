@@ -481,9 +481,6 @@ pub(crate) fn clean_detail_page_with_color(
         &mapped_gray,
         mapped_color.as_ref(),
         None,
-        None,
-        None,
-        None,
         &tile_options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1058,10 +1055,6 @@ struct PreparedPage<'a> {
     text_mask: Option<Arc<BinaryImage>>,
     text_vicinity_mask: Option<Arc<BinaryImage>>,
     trusted_foreground_mask: Option<BinaryImage>,
-    trusted_tone_mask: Option<BinaryImage>,
-    trusted_background_gray: Option<GrayImage>,
-    trusted_background_color: Option<RgbImage>,
-    trusted_composite_color: Option<RgbImage>,
     split: SplitResult,
     split_cache_key: Option<StageCacheKey>,
     source_effectively_blank: bool,
@@ -1638,9 +1631,6 @@ pub fn clean_page(
         source,
         None,
         None,
-        None,
-        None,
-        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1661,9 +1651,6 @@ pub fn clean_page_with_calibration_config(
     let mut timings = PageStageTimings::default();
     clean_page_with_color_and_calibration_config(
         source,
-        None,
-        None,
-        None,
         None,
         None,
         options,
@@ -1687,9 +1674,6 @@ pub fn clean_page_with_color(
         source,
         color_source,
         None,
-        None,
-        None,
-        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1712,9 +1696,6 @@ pub fn clean_page_with_color_and_document_prior(
         source,
         color_source,
         None,
-        None,
-        None,
-        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1730,9 +1711,6 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
     trusted_foreground_mask: Option<&BinaryImage>,
-    trusted_tone_mask: Option<&BinaryImage>,
-    trusted_background_gray: Option<&GrayImage>,
-    trusted_background_color: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     document_prior: Option<DocumentPrior>,
@@ -1745,9 +1723,6 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
         source,
         color_source,
         trusted_foreground_mask,
-        trusted_tone_mask,
-        trusted_background_gray,
-        trusted_background_color,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1771,9 +1746,6 @@ fn clean_page_with_color_and_calibration_config(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
     trusted_foreground_mask: Option<&BinaryImage>,
-    trusted_tone_mask: Option<&BinaryImage>,
-    trusted_background_gray: Option<&GrayImage>,
-    trusted_background_color: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     calibration_config: CalibrationConfig,
@@ -1805,9 +1777,6 @@ fn clean_page_with_color_and_calibration_config(
         source,
         color_source,
         trusted_foreground_mask,
-        trusted_tone_mask,
-        trusted_background_gray,
-        trusted_background_color,
         options,
         calibration_config,
         document_prior,
@@ -1846,10 +1815,6 @@ fn clean_page_with_color_and_calibration_config(
         text_mask,
         text_vicinity_mask,
         trusted_foreground_mask,
-        trusted_tone_mask,
-        trusted_background_gray,
-        trusted_background_color,
-        trusted_composite_color,
         split,
         split_cache_key,
         source_effectively_blank,
@@ -1887,10 +1852,6 @@ fn clean_page_with_color_and_calibration_config(
             text_mask.as_deref(),
             text_vicinity_mask.as_deref(),
             trusted_foreground_mask.as_ref(),
-            trusted_tone_mask.as_ref(),
-            trusted_background_gray.as_ref(),
-            trusted_background_color.as_ref(),
-            trusted_composite_color.as_ref(),
             options,
             source_page_index,
             &split,
@@ -1928,9 +1889,6 @@ fn prepare_page<'a>(
     source: &'a GrayImage,
     color_source: Option<&RgbImage>,
     trusted_foreground_mask: Option<&BinaryImage>,
-    trusted_tone_mask: Option<&BinaryImage>,
-    trusted_background_gray: Option<&GrayImage>,
-    trusted_background_color: Option<&RgbImage>,
     options: &CleanupOptions,
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
@@ -2058,24 +2016,12 @@ fn prepare_page<'a>(
         }
         OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
     };
-    let rotated_color_source = color_source.map(|image| {
-        let rotated = match options.rotation {
-            OrthogonalRotation::None => Cow::Borrowed(image),
-            rotation => Cow::Owned(rotate_rgb_orthogonal(image, rotation)),
-        };
-        rotated.into_owned()
+    let rotated_color_source = color_source.map(|image| match options.rotation {
+        OrthogonalRotation::None => Cow::Borrowed(image),
+        rotation => Cow::Owned(rotate_rgb_orthogonal(image, rotation)),
     });
     let trusted_foreground_mask =
         trusted_foreground_mask.map(|mask| rotate_binary_orthogonal(mask, options.rotation));
-    let trusted_tone_mask =
-        trusted_tone_mask.map(|mask| rotate_binary_orthogonal(mask, options.rotation));
-    let trusted_background_gray =
-        trusted_background_gray.map(|image| rotate_orthogonal(image, options.rotation));
-    let trusted_background_color =
-        trusted_background_color.map(|image| rotate_rgb_orthogonal(image, options.rotation));
-    let trusted_composite_color = trusted_tone_mask
-        .as_ref()
-        .and_then(|_| rotated_color_source.clone());
     let paired_normalized = if !analysis_is_full
         && options.normalize_illumination
         && matches!(options.output_mode, OutputMode::Mixed | OutputMode::Color)
@@ -2104,7 +2050,7 @@ fn prepare_page<'a>(
                 photo_preservation_alpha,
             )
         } else {
-            rotated
+            rotated.into_owned()
         }
     });
     let (rotated_source, normalized, analysis_normalized) = if analysis_is_full {
@@ -2153,10 +2099,6 @@ fn prepare_page<'a>(
         text_mask: analysis_text_mask,
         text_vicinity_mask: analysis_text_vicinity_mask,
         trusted_foreground_mask,
-        trusted_tone_mask,
-        trusted_background_gray,
-        trusted_background_color,
-        trusted_composite_color,
         split,
         split_cache_key,
         source_effectively_blank,
@@ -3527,10 +3469,6 @@ fn clean_region(
     text_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
     trusted_foreground_mask: Option<&BinaryImage>,
-    _trusted_tone_mask: Option<&BinaryImage>,
-    _trusted_background_gray: Option<&GrayImage>,
-    _trusted_background_color: Option<&RgbImage>,
-    _trusted_composite_color: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     split: &SplitResult,
@@ -4158,11 +4096,18 @@ fn clean_region(
         } else {
             mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
         };
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
-        })
+        render_binary_mask_preserve_ink(
+            mask,
+            rendered_width,
+            rendered_height,
+            mask_scale_x,
+            mask_scale_y,
+            |point| {
+                render_plan
+                    .output_to_source(point)
+                    .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+            },
+        )
     });
     if options.output_mode == OutputMode::Mixed {
         partition_mixed_picture_mask(
@@ -4218,81 +4163,98 @@ fn clean_region(
         match options.output_mode {
             OutputMode::Bw => {
                 let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                let route = resolve_binarization_diagnostics(&routing_sample, options).route;
-                let global_threshold_source =
-                    (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
-                let binarization_started = Instant::now();
-                let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
-                    binarize_normalized_with_diagnostics(
-                        &rendered_gray,
-                        &rendered_source_gray,
-                        &routing_sample,
-                        global_threshold_source,
-                        options,
-                        calibration,
-                        rendered_picture_mask.as_ref(),
-                        rendered_text_vicinity_mask.as_ref(),
-                    );
-                timings.threshold_preparation_ms += stage_timings.preparation_ms;
-                timings.thresholding_ms += stage_timings.thresholding_ms;
-                timings.binary_postprocess_ms += stage_timings.postprocess_ms;
-                timings.binarization_ms += binarization_started.elapsed().as_secs_f64() * 1_000.0;
-                let mode = diagnostics.route;
-                let reusable = split.reusable_binary.as_ref().filter(|binary| {
-                    mode == crate::BinarizationMode::Otsu
-                        && options.thickness == 0
-                        && !deskew.accepted
-                        && effective_dewarp.is_none()
-                        && !crop_enabled
-                        && region.x == 0.0
-                        && region.y == 0.0
-                        && region.width == normalized.width() as f64
-                        && region.height == normalized.height() as f64
-                        && binary.width() == rendered_gray.width()
-                        && binary.height() == rendered_gray.height()
-                });
-                let (binary, despeckle_fallback) = if let Some(binary) = reusable {
-                    postprocess_binary_with_diagnostics_and_raw(
-                        binary,
-                        Some(&rendered_gray),
-                        Some(&rendered_source_gray),
-                        options,
-                        calibration,
+                let routing_diagnostics =
+                    resolve_binarization_diagnostics(&routing_sample, options);
+                let mode = routing_diagnostics.route;
+                let complete_trusted_foreground =
+                    rendered_trusted_foreground_mask.as_ref().filter(|_| {
+                        options.source_has_bilevel_layer && !options.trusted_selection_incomplete
+                    });
+                if let Some(trusted_foreground) = complete_trusted_foreground {
+                    (
+                        CleanupRaster::Bilevel(trusted_foreground.clone()),
+                        None,
+                        Some(mode),
+                        Some(routing_diagnostics),
+                        false,
+                        None,
                     )
                 } else {
-                    (fresh_binary, fresh_despeckle_fallback)
-                };
-                let binary = restore_genuine_horizontal_rules(
-                    &binary,
-                    &rendered_source_gray,
-                    rendered_picture_mask.as_ref(),
-                    rendered_text_mask.as_ref(),
-                    rendered_text_vicinity_mask.as_ref(),
-                    options.dpi,
-                );
-                let binary = filter_soft_shallow_bleed_components(
-                    &binary,
-                    &rendered_source_gray,
-                    rendered_picture_mask.as_ref(),
-                    rendered_text_mask.as_ref(),
-                    rendered_text_vicinity_mask.as_ref(),
-                    options.dpi,
-                );
-                let binary = enforce_source_ink_support(
-                    binary,
-                    &rendered_source_gray,
-                    rendered_trusted_foreground_mask.as_ref(),
-                    options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
-                    options.dpi,
-                );
-                (
-                    CleanupRaster::Bilevel(binary),
-                    None,
-                    Some(mode),
-                    Some(diagnostics),
-                    despeckle_fallback,
-                    None,
-                )
+                    let global_threshold_source =
+                        (mode == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
+                    let binarization_started = Instant::now();
+                    let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
+                        binarize_normalized_with_diagnostics(
+                            &rendered_gray,
+                            &rendered_source_gray,
+                            &routing_sample,
+                            global_threshold_source,
+                            options,
+                            calibration,
+                            rendered_picture_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
+                        );
+                    timings.threshold_preparation_ms += stage_timings.preparation_ms;
+                    timings.thresholding_ms += stage_timings.thresholding_ms;
+                    timings.binary_postprocess_ms += stage_timings.postprocess_ms;
+                    timings.binarization_ms +=
+                        binarization_started.elapsed().as_secs_f64() * 1_000.0;
+                    let reusable = split.reusable_binary.as_ref().filter(|binary| {
+                        mode == crate::BinarizationMode::Otsu
+                            && options.thickness == 0
+                            && !deskew.accepted
+                            && effective_dewarp.is_none()
+                            && !crop_enabled
+                            && region.x == 0.0
+                            && region.y == 0.0
+                            && region.width == normalized.width() as f64
+                            && region.height == normalized.height() as f64
+                            && binary.width() == rendered_gray.width()
+                            && binary.height() == rendered_gray.height()
+                    });
+                    let (binary, despeckle_fallback) = if let Some(binary) = reusable {
+                        postprocess_binary_with_diagnostics_and_raw(
+                            binary,
+                            Some(&rendered_gray),
+                            Some(&rendered_source_gray),
+                            options,
+                            calibration,
+                        )
+                    } else {
+                        (fresh_binary, fresh_despeckle_fallback)
+                    };
+                    let binary = restore_genuine_horizontal_rules(
+                        &binary,
+                        &rendered_source_gray,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = filter_soft_shallow_bleed_components(
+                        &binary,
+                        &rendered_source_gray,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = enforce_source_ink_support(
+                        binary,
+                        &rendered_source_gray,
+                        rendered_trusted_foreground_mask.as_ref(),
+                        options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
+                        options.dpi,
+                    );
+                    (
+                        CleanupRaster::Bilevel(binary),
+                        None,
+                        Some(mode),
+                        Some(diagnostics),
+                        despeckle_fallback,
+                        None,
+                    )
+                }
             }
             OutputMode::Mixed => {
                 let picture_mask = rendered_picture_mask
@@ -4641,6 +4603,50 @@ fn render_binary_mask(
             && source_y < source.height() as isize
             && source.get(source_x as usize, source_y as usize)
     })
+}
+
+fn render_binary_mask_preserve_ink(
+    source: &BinaryImage,
+    width: usize,
+    height: usize,
+    footprint_width: f64,
+    footprint_height: f64,
+    map: impl Fn(Point) -> Option<Point> + Sync,
+) -> BinaryImage {
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        let Some(mapped) = map(Point::new(x as f64, y as f64)) else {
+            return false;
+        };
+        let Some((left, right)) = binary_coverage_bounds(mapped.x, footprint_width, source.width())
+        else {
+            return false;
+        };
+        let Some((top, bottom)) =
+            binary_coverage_bounds(mapped.y, footprint_height, source.height())
+        else {
+            return false;
+        };
+        (top..bottom).any(|source_y| (left..right).any(|source_x| source.get(source_x, source_y)))
+    })
+}
+
+fn binary_coverage_bounds(coordinate: f64, footprint: f64, limit: usize) -> Option<(usize, usize)> {
+    if !coordinate.is_finite() || !footprint.is_finite() {
+        return None;
+    }
+    let (start, end) = if footprint > 1.0 {
+        (
+            (coordinate - footprint * 0.5).ceil() as isize,
+            (coordinate + footprint * 0.5).ceil() as isize,
+        )
+    } else {
+        let index = coordinate.round() as isize;
+        (index, index.saturating_add(1))
+    };
+    let limit = limit as isize;
+    let start = start.clamp(0, limit) as usize;
+    let end = end.clamp(0, limit) as usize;
+    (start < end).then_some((start, end))
 }
 
 fn render_gray_field(

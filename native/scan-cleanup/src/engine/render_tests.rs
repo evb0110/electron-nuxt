@@ -899,9 +899,6 @@ mod tests {
             &source,
             None,
             Some(&trusted_foreground),
-            None,
-            None,
-            None,
             &options,
             0,
             CalibrationConfig::default(),
@@ -3571,13 +3568,6 @@ mod tests {
         let mut trusted_foreground = BinaryImage::new(160, 100);
         gray.set(5, 5, 18);
         trusted_foreground.set(5, 5, true);
-        let mut trusted_tone = BinaryImage::new(160, 100);
-        for y in 0..100 {
-            for x in 0..160 {
-                trusted_tone.set(x, y, true);
-            }
-        }
-        let trusted_background = GrayImage::new(160, 100, 0);
         let options = CleanupOptions {
             dpi: 300.0,
             source_has_bilevel_layer: true,
@@ -3600,9 +3590,6 @@ mod tests {
             &gray,
             None,
             Some(&trusted_foreground),
-            Some(&trusted_tone),
-            Some(&trusted_background),
-            None,
             &options,
             0,
             CalibrationConfig::default(),
@@ -3660,9 +3647,6 @@ mod tests {
             &gray,
             None,
             Some(&trusted_foreground),
-            None,
-            None,
-            None,
             &options,
             0,
             CalibrationConfig::default(),
@@ -3681,6 +3665,15 @@ mod tests {
         assert!(output.metadata.trusted_selection_applied);
         assert!((0..100).all(|y| (0..24).all(|x| !binary.get(x, y))));
         assert!((40..60).all(|y| (80..84).all(|x| binary.get(x, y))));
+        assert_eq!(
+            (
+                timings.threshold_preparation_ms,
+                timings.thresholding_ms,
+                timings.binary_postprocess_ms,
+                timings.binarization_ms,
+            ),
+            (0.0, 0.0, 0.0, 0.0),
+        );
     }
 
     #[test]
@@ -3714,9 +3707,6 @@ mod tests {
         let mut timings = PageStageTimings::default();
         let output = clean_page_with_color_and_calibration_config(
             &gray,
-            None,
-            None,
-            None,
             None,
             None,
             &options,
@@ -4609,9 +4599,6 @@ mod tests {
             &source,
             None,
             None,
-            None,
-            None,
-            None,
             &options,
             CalibrationConfig::default(),
             None,
@@ -4648,9 +4635,6 @@ mod tests {
 
             let prepared = prepare_page(
                 &source,
-                None,
-                None,
-                None,
                 None,
                 None,
                 &options,
@@ -4887,6 +4871,31 @@ mod tests {
             sample.row(128).iter().all(|&value| value > 0),
             "area sampling must not turn a narrow stem into an arbitrary full-black column"
         );
+    }
+
+    #[test]
+    fn trusted_mask_downsampling_preserves_connected_hairlines() {
+        let mut source = BinaryImage::new(9, 9);
+        for y in 0..source.height() {
+            source.set(3, y, true);
+        }
+        for x in 0..source.width() {
+            source.set(x, 5, true);
+        }
+
+        let downsampled = render_binary_mask_preserve_ink(
+            &source,
+            5,
+            5,
+            2.0,
+            2.0,
+            |point| Some(Point::new(point.x * 2.0, point.y * 2.0)),
+        );
+
+        assert!((0..downsampled.width())
+            .any(|x| (0..downsampled.height()).all(|y| downsampled.get(x, y))));
+        assert!((0..downsampled.height())
+            .any(|y| (0..downsampled.width()).all(|x| downsampled.get(x, y))));
     }
 
     #[test]

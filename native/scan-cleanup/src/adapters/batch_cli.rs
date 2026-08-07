@@ -5,7 +5,6 @@ use crate::engine::render::{
     CleanupResult, DetailRenderSources, LayeredForegroundKind,
 };
 use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
-use crate::mrc::{derive_picture_zones, derive_tone_mask_excluding_foreground};
 use crate::{
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
     io::{
@@ -62,49 +61,6 @@ fn layered_foreground_dpi(options: &CleanupOptions) -> f64 {
         .source_dpi()
         .min(options.dpi)
         .min(SOFT_FOREGROUND_MAX_DPI)
-}
-
-fn box_downsample_gray(source: &GrayImage, factor: usize) -> GrayImage {
-    let width = (source.width() / factor).max(1);
-    let height = (source.height() / factor).max(1);
-    let mut output = GrayImage::new(width, height, 0);
-    for y in 0..height {
-        for x in 0..width {
-            let mut sum = 0usize;
-            let mut count = 0usize;
-            for sy in y * factor..((y + 1) * factor).min(source.height()) {
-                for sx in x * factor..((x + 1) * factor).min(source.width()) {
-                    sum += usize::from(source.get(sx, sy));
-                    count += 1;
-                }
-            }
-            output.set(x, y, (sum / count.max(1)) as u8);
-        }
-    }
-    output
-}
-
-fn box_downsample_rgb(source: &RgbImage, factor: usize) -> RgbImage {
-    let width = (source.width() / factor).max(1);
-    let height = (source.height() / factor).max(1);
-    let mut output = RgbImage::new(width, height, [0; 3]);
-    for y in 0..height {
-        for x in 0..width {
-            let mut sums = [0usize; 3];
-            let mut count = 0usize;
-            for sy in y * factor..((y + 1) * factor).min(source.height()) {
-                for sx in x * factor..((x + 1) * factor).min(source.width()) {
-                    let pixel = source.get(sx, sy);
-                    for channel in 0..3 {
-                        sums[channel] += usize::from(pixel[channel]);
-                    }
-                    count += 1;
-                }
-            }
-            output.set(x, y, sums.map(|sum| (sum / count.max(1)) as u8));
-        }
-    }
-    output
 }
 
 /// A PDF soft mask describes opacity, not semantic ink ownership. Some compact
@@ -1720,71 +1676,41 @@ fn run_page(
             ))
         })
         .transpose()?;
-    let mut background_factor = 1;
-    let trusted_mrc_background = page
+    let trusted_mrc_background_dimensions = page
         .trusted_mrc_background_path
         .as_ref()
         .map(|path| {
-            let mut background = raster::read_image(path, options.max_pixels, options.max_dimension)
-                .map_err(map_image_error)?;
+            let (background_width, background_height) =
+                raster::read_dimensions(path, options.max_pixels, options.max_dimension)
+                    .map_err(map_image_error)?;
             let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
-            let background_aspect =
-                background.gray.width() as f64 / background.gray.height().max(1) as f64;
+            let background_aspect = background_width as f64 / background_height.max(1) as f64;
             if (input_aspect / background_aspect - 1.0).abs() > 0.02 {
                 return Err(invalid(format!(
                     "Trusted MRC background aspect ratio does not match page input: {}x{} versus {}x{}",
-                    background.gray.width(),
-                    background.gray.height(),
+                    background_width,
+                    background_height,
                     input_gray.width(),
                     input_gray.height(),
                 )));
             }
-            // A genuine low-resolution MRC background layer is roughly one third of
-            // the page resolution. A background authored at (near-)full resolution
-            // still carries only the low-frequency layer semantically, but the tuned
-            // mm-based tone thresholds assume the compact regime, so bring it there.
-            background_factor = if background.gray.width().saturating_mul(2)
-                > input_gray.width()
-            {
-                (background.gray.width() * 3 / input_gray.width().max(1)).clamp(2, 4)
-            } else {
-                1
-            };
-            if background_factor > 1 {
-                background.gray = box_downsample_gray(&background.gray, background_factor);
-                background.rgb = box_downsample_rgb(&background.rgb, background_factor);
-            }
-            Ok(background)
+            Ok((background_width, background_height))
         })
         .transpose()?;
-    let effective_background_dpi = options.source_background_dpi() / background_factor as f64;
+    let background_factor = trusted_mrc_background_dimensions.map_or(1, |(width, _)| {
+        if width.saturating_mul(2) > input_gray.width() {
+            (width * 3 / input_gray.width().max(1)).clamp(2, 4)
+        } else {
+            1
+        }
+    });
     // A full-resolution background marks producer pages whose selection mask
     // is not a complete ink carrier. Keep the compatibility hint available to
     // late output-mode resolution. The renderer rebuilds the background while
     // retaining selected ink and raw-supported additions in the foreground.
     let mut options = options;
     options.trusted_selection_incomplete = background_factor > 1;
-    let trusted_tone_mask = trusted_mrc_background
-        .as_ref()
-        .zip(trusted_foreground_mask.as_ref())
-        .map(|(background, foreground)| {
-            derive_tone_mask_excluding_foreground(
-                &background.gray,
-                effective_background_dpi,
-                foreground,
-            )
-        });
-    let trusted_tone_mask = trusted_tone_mask.map(|tone| {
-        derive_picture_zones(
-            &tone,
-            &trusted_mrc_background
-                .as_ref()
-                .expect("zip guarantees background")
-                .gray,
-            effective_background_dpi,
-        )
-    });
-    if trusted_mrc_background.is_some() != trusted_foreground_mask.is_some() {
+    if trusted_mrc_background_dimensions.is_some() != trusted_foreground_mask.is_some() {
         return Err(Box::new(invalid(
             "Trusted MRC evidence must provide both background and foreground selection layers",
         )));
@@ -1842,13 +1768,6 @@ fn run_page(
             input_gray,
             color_input.as_ref().map(|input| &input.rgb),
             trusted_foreground_mask.as_ref(),
-            trusted_tone_mask.as_ref(),
-            trusted_mrc_background
-                .as_ref()
-                .map(|background| &background.gray),
-            trusted_mrc_background
-                .as_ref()
-                .map(|background| &background.rgb),
             &options,
             page.source_page_index,
             page.document_prior,
@@ -3330,14 +3249,13 @@ fn map_image_error(message: String) -> NativeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_thread_count, box_downsample_gray, estimate_peak_page_bytes, manifest_cache,
-        manifest_worker_threads, map_image_error, materialize_stream_page,
-        normalize_trusted_foreground_selection, page_worker_threads, parse_cli_args,
-        place_on_white_canvas, plan_canvas_placement_for, preflight_manifest_paths,
-        preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
-        robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs,
-        PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, Tier1Provenance,
-        FALLBACK_SYSTEM_MEMORY_BYTES,
+        adaptive_thread_count, estimate_peak_page_bytes, manifest_cache, manifest_worker_threads,
+        map_image_error, materialize_stream_page, normalize_trusted_foreground_selection,
+        page_worker_threads, parse_cli_args, place_on_white_canvas, plan_canvas_placement_for,
+        preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
+        reconcile_classification_batch, robust_quantile_dimension, run_manifest_transaction,
+        run_stream_page_jobs, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
+        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -3563,17 +3481,6 @@ mod tests {
         assert_eq!(
             map_image_error("Derived content geometry must be finite".into()).code,
             NativeErrorCode::InvalidRequest,
-        );
-    }
-
-    #[test]
-    fn box_downsample_gray_uses_box_means() {
-        let source =
-            GrayImage::from_vec(6, 6, 6, (0..36).map(|value| value as u8).collect()).unwrap();
-
-        assert_eq!(
-            box_downsample_gray(&source, 3),
-            GrayImage::from_vec(2, 2, 2, vec![7, 10, 25, 28]).unwrap(),
         );
     }
 
