@@ -67,6 +67,12 @@ const SOURCE_SUPPORT_PAPER_DELTA = 0;
 const SOURCE_SUPPORT_PERCENTILE = 0.75;
 const INVENTED_UNSUPPORTED_AREA_FACTOR = 1;
 const INVENTED_MIN_COMPONENT_FILL_RATIO = 0.7;
+// A mostly preserved component can acquire a connected unsupported fringe
+// when a thin source rule is rotated or resampled onto a much finer output
+// grid. Treat a component as invented only when the unsupported region is
+// both physically material (the area gate below) and a material share of the
+// component; standalone invented shapes remain 100% unsupported.
+const INVENTED_MIN_UNSUPPORTED_FRACTION = 0.25;
 const SILHOUETTE_MIN_SIZE_MM = 3;
 const SILHOUETTE_COARSE_DOWNSAMPLE = 24;
 const SILHOUETTE_COARSE_MAX_BBOX_PX = 600;
@@ -1213,14 +1219,24 @@ function alignAtScale(
     const cleanedBroad = downsampleBitmap(cleanedQuarter, BROAD_DOWNSAMPLE / QUARTER_DOWNSAMPLE);
     const usesUniformFitAlignment = typeof scale === 'object'
         && scale.label.startsWith('uniform-fit(');
+    const preferredFullDx = typeof scale === 'object' && Number.isFinite(scale.preferredDx)
+        ? scale.preferredDx
+        : null;
+    const preferredFullDy = typeof scale === 'object' && Number.isFinite(scale.preferredDy)
+        ? scale.preferredDy
+        : null;
     const sourceBounds = usesUniformFitAlignment ? bitmapBounds(sourceBroad) : null;
     const cleanedBounds = usesUniformFitAlignment ? bitmapBounds(cleanedBroad) : null;
-    const preferredBroadDx = sourceBounds && cleanedBounds
-        ? Math.round(cleanedBounds.minX - sourceBounds.minX)
-        : 0;
-    const preferredBroadDy = sourceBounds && cleanedBounds
-        ? Math.round(cleanedBounds.minY - sourceBounds.minY)
-        : 0;
+    const preferredBroadDx = preferredFullDx === null
+        ? sourceBounds && cleanedBounds
+            ? Math.round(cleanedBounds.minX - sourceBounds.minX)
+            : 0
+        : Math.round(preferredFullDx / BROAD_DOWNSAMPLE);
+    const preferredBroadDy = preferredFullDy === null
+        ? sourceBounds && cleanedBounds
+            ? Math.round(cleanedBounds.minY - sourceBounds.minY)
+            : 0
+        : Math.round(preferredFullDy / BROAD_DOWNSAMPLE);
     const broadRows = collectBlackRows(cleanedBroad, MAX_BROAD_ALIGNMENT_SAMPLES);
     const broadRadius = Math.ceil(ALIGNMENT_RADIUS_FULL_PX / BROAD_DOWNSAMPLE);
     const broad = searchReverseRows({
@@ -1259,12 +1275,16 @@ function alignAtScale(
     );
     const sourceFullBounds = usesUniformFitAlignment ? bitmapBounds(source) : null;
     const cleanedFullBounds = usesUniformFitAlignment ? bitmapBounds(cleaned) : null;
-    const fullCenterDx = sourceFullBounds && cleanedFullBounds
-        ? Math.round(cleanedFullBounds.minX - Math.floor((sourceFullBounds.minX + 0.5) * scaleX))
-        : quarter.dx * QUARTER_DOWNSAMPLE;
-    const fullCenterDy = sourceFullBounds && cleanedFullBounds
-        ? Math.round(cleanedFullBounds.minY - Math.floor((sourceFullBounds.minY + 0.5) * scaleY))
-        : quarter.dy * QUARTER_DOWNSAMPLE;
+    const fullCenterDx = preferredFullDx === null
+        ? sourceFullBounds && cleanedFullBounds
+            ? Math.round(cleanedFullBounds.minX - Math.floor((sourceFullBounds.minX + 0.5) * scaleX))
+            : quarter.dx * QUARTER_DOWNSAMPLE
+        : Math.round(preferredFullDx);
+    const fullCenterDy = preferredFullDy === null
+        ? sourceFullBounds && cleanedFullBounds
+            ? Math.round(cleanedFullBounds.minY - Math.floor((sourceFullBounds.minY + 0.5) * scaleY))
+            : quarter.dy * QUARTER_DOWNSAMPLE
+        : Math.round(preferredFullDy);
     const full = searchInverseMappedPoints({
         maxDx: fullCenterDx + (usesUniformFitAlignment ? 8 : 4),
         maxDy: fullCenterDy + (usesUniformFitAlignment ? 8 : 4),
@@ -1359,7 +1379,7 @@ function resolveOutputGridTolerances(alignment) {
 }
 
 function resolveAuditDilationRadius(cleanedRow, mappingActive, alignment) {
-    if (!mappingActive || cleanedRow.type !== 'stencil') {
+    if (!mappingActive || cleanedRow.bpc !== 1) {
         return 1;
     }
     const scale = Math.max(alignment.scaleX ?? alignment.scale, alignment.scaleY ?? alignment.scale);
@@ -1370,6 +1390,92 @@ function resolveAuditDilationRadius(cleanedRow, mappingActive, alignment) {
         MAPPED_STENCIL_MAX_DILATION_RADIUS,
         Math.max(1, Math.ceil(scale)),
     );
+}
+
+function finitePositive(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function resolveCanonicalGeometryScale(geometry, source, cleaned) {
+    const crop = geometry?.cropRect;
+    const matrix = geometry?.forwardTransform?.matrix;
+    if (
+        geometry?.dewarped !== false
+        || !crop
+        || !Array.isArray(matrix)
+        || matrix.length < 2
+        || !Array.isArray(matrix[0])
+        || !Array.isArray(matrix[1])
+        || matrix[0].length < 3
+        || matrix[1].length < 3
+        || ![
+            geometry.canvasWidthPx,
+            geometry.canvasHeightPx,
+            geometry.inputWidthPx,
+            geometry.inputHeightPx,
+            geometry.matchedCanvasContentWidthPx,
+            geometry.matchedCanvasContentHeightPx,
+            geometry.placementOffsetXPx,
+            geometry.placementOffsetYPx,
+            crop.widthPx,
+            crop.heightPx,
+            ...matrix[0].slice(0, 3),
+            ...matrix[1].slice(0, 3),
+        ].every(Number.isFinite)
+        || ![
+            geometry.canvasWidthPx,
+            geometry.canvasHeightPx,
+            geometry.inputWidthPx,
+            geometry.inputHeightPx,
+            geometry.matchedCanvasContentWidthPx,
+            geometry.matchedCanvasContentHeightPx,
+            crop.widthPx,
+            crop.heightPx,
+        ].every(finitePositive)
+    ) {
+        return null;
+    }
+    const [
+        a,
+        b,
+        c,
+    ] = matrix[0];
+    const [
+        d,
+        e,
+        f,
+    ] = matrix[1];
+    const inputScaleX = geometry.inputWidthPx / source.width;
+    const inputScaleY = geometry.inputHeightPx / source.height;
+    const matchScaleX = geometry.matchedCanvasContentWidthPx / crop.widthPx;
+    const matchScaleY = geometry.matchedCanvasContentHeightPx / crop.heightPx;
+    const canvasScaleX = cleaned.width / geometry.canvasWidthPx;
+    const canvasScaleY = cleaned.height / geometry.canvasHeightPx;
+    const scaleX = Math.abs(a) * inputScaleX * matchScaleX * canvasScaleX;
+    const scaleY = Math.abs(e) * inputScaleY * matchScaleY * canvasScaleY;
+    if (!finitePositive(scaleX) || !finitePositive(scaleY)) {
+        return null;
+    }
+    const crossX = b * inputScaleY * matchScaleX * canvasScaleX;
+    const crossY = d * inputScaleX * matchScaleY * canvasScaleY;
+    const preferredDx = (
+        geometry.placementOffsetXPx
+        + matchScaleX * c
+    ) * canvasScaleX + crossX * (source.height - 1) / 2;
+    const preferredDy = (
+        geometry.placementOffsetYPx
+        + matchScaleY * f
+    ) * canvasScaleY + crossY * (source.width - 1) / 2;
+    if (!Number.isFinite(preferredDx) || !Number.isFinite(preferredDy)) {
+        return null;
+    }
+    return {
+        label: `canonical-geometry(${scaleX.toFixed(6)}x${scaleY.toFixed(6)})`,
+        preferredDx,
+        preferredDy,
+        x: scaleX,
+        y: scaleY,
+    };
 }
 
 function ensureComponentPixels(component, componentLabels, sourceWidth) {
@@ -2208,9 +2314,11 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
         } = metrics;
         const isDust = component.area < dustArea;
         const inventedPixels = inventedUnsupportedPixels[componentIndex];
+        const materiallyUnsupported = inventedPixels / component.area
+            >= INVENTED_MIN_UNSUPPORTED_FRACTION;
         const classification = isDust
             ? 'ignored-dust'
-            : inventedPixels > 0
+            : materiallyUnsupported
                 ? 'invented'
                 : 'preserved';
         if (isDust) {
@@ -2265,6 +2373,7 @@ function analyzeInventedInk(cleaned, sourceGray, alignment, minArea) {
             minimumComponentArea,
             minimumComponentFillRatio: INVENTED_MIN_COMPONENT_FILL_RATIO,
             minimumUnsupportedComponentArea: inventedUnsupportedArea,
+            minimumUnsupportedComponentFraction: INVENTED_MIN_UNSUPPORTED_FRACTION,
         },
     };
 }
@@ -2380,6 +2489,7 @@ async function analyzePage({
     outputPageNumber,
     outputPageNumbers,
     pageNumber,
+    renderGeometry,
     splitIndex,
     sourceRowsByPage,
     sourcePdf,
@@ -2446,15 +2556,33 @@ async function analyzePage({
         const alignmentCleaned = cleanedAlignment.bitmap;
         const alignmentSourceTop = alignmentSource;
         const alignmentCleanedTop = alignmentCleaned;
-        const alignmentOne = alignAtScale(
+        const canonicalGeometryScale = resolveCanonicalGeometryScale(
+            renderGeometry,
             sourceForAudit,
             cleaned,
-            1,
-            alignmentSourceTop,
-            alignmentCleanedTop,
         );
-        const alignments = [alignmentOne];
-        if (alignmentOne.overlapScore < 0.4) {
+        const canonicalGeometryAlignment = canonicalGeometryScale === null
+            ? null
+            : alignAtScale(
+                sourceForAudit,
+                cleaned,
+                canonicalGeometryScale,
+                alignmentSourceTop,
+                alignmentCleanedTop,
+            );
+        const alignmentOne = canonicalGeometryAlignment === null
+            ? alignAtScale(
+                sourceForAudit,
+                cleaned,
+                1,
+                alignmentSourceTop,
+                alignmentCleanedTop,
+            )
+            : null;
+        const alignments = canonicalGeometryAlignment === null
+            ? [alignmentOne]
+            : [canonicalGeometryAlignment];
+        if (alignmentOne !== null && alignmentOne.overlapScore < 0.4) {
             alignments.push(alignAtScale(
                 sourceForAudit,
                 cleaned,
@@ -2463,7 +2591,10 @@ async function analyzePage({
                 alignmentCleanedTop,
             ));
         }
-        if (Math.max(...alignments.map(candidate => candidate.fullOverlapScore)) < 0.7) {
+        if (
+            canonicalGeometryAlignment === null
+            && Math.max(...alignments.map(candidate => candidate.fullOverlapScore)) < 0.7
+        ) {
             const dimensionScaleX = cleaned.width / sourceForAudit.width;
             const dimensionScaleY = cleaned.height / sourceForAudit.height;
             const dimensionScale = {
@@ -2485,7 +2616,11 @@ async function analyzePage({
             }
         }
         const uniformScaleValue = cleaned.height / sourceForAudit.height;
-        if (mappingActive && Math.abs(uniformScaleValue - 1) > 1e-6) {
+        if (
+            canonicalGeometryAlignment === null
+            && mappingActive
+            && Math.abs(uniformScaleValue - 1) > 1e-6
+        ) {
             alignments.push(alignAtScale(
                 sourceForAudit,
                 cleaned,
@@ -2498,7 +2633,11 @@ async function analyzePage({
                 alignmentCleanedTop,
             ));
         }
-        const alignment = alignments.reduce((best, candidate) =>
+        // Canonical V3 geometry is the conversion contract. Empirical fitting
+        // remains a fallback for old summaries, dewarped pages, and fixtures,
+        // but must not override known page placement with a visually plausible
+        // transform that compares different source lines.
+        const alignment = canonicalGeometryAlignment ?? alignments.reduce((best, candidate) =>
             candidate.fullOverlapScore > best.fullOverlapScore ? candidate : best,
         );
         const alignmentReliable = alignment.overlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP;
@@ -2768,6 +2907,7 @@ async function analyzeMappedPage({
     minArea,
     outputPageNumbers,
     pageNumber,
+    renderGeometryByOutput,
     sourceRowsByPage,
     sourcePdf,
     cleanedPdf,
@@ -2794,6 +2934,7 @@ async function analyzeMappedPage({
             outputPageNumber,
             outputPageNumbers,
             pageNumber,
+            renderGeometry: renderGeometryByOutput.get(outputPageNumber) ?? null,
             splitIndex,
             sourceRowsByPage,
             sourcePdf,
@@ -3019,6 +3160,27 @@ function readSummaryPageMapping(summary) {
     return parsedPerPageMapping;
 }
 
+function readSummaryRenderGeometry(summary) {
+    const rows = summary.perPageStreamSizes
+        ?? summary.representation?.pages;
+    const geometryByOutput = new Map();
+    if (!Array.isArray(rows)) {
+        return geometryByOutput;
+    }
+    for (const row of rows) {
+        const outputPage = row?.outputPageNumber ?? row?.outputPage;
+        if (
+            Number.isSafeInteger(outputPage)
+            && outputPage > 0
+            && row.renderGeometry
+            && typeof row.renderGeometry === 'object'
+        ) {
+            geometryByOutput.set(outputPage, row.renderGeometry);
+        }
+    }
+    return geometryByOutput;
+}
+
 async function loadPageMapping(options) {
     const automaticPath = `${options.cleaned}.summary.json`;
     const mappingPath = options.mapping ?? automaticPath;
@@ -3048,6 +3210,7 @@ async function loadPageMapping(options) {
     return {
         pages,
         path: mappingPath,
+        renderGeometryByOutput: readSummaryRenderGeometry(summary),
     };
 }
 
@@ -3262,6 +3425,7 @@ async function main() {
                 minArea: options.minArea,
                 outputPageNumbers: pagePlan.outputPageNumbers,
                 pageNumber: pagePlan.pageNumber,
+                renderGeometryByOutput: pageMapping?.renderGeometryByOutput ?? new Map(),
                 sourcePdf: options.source,
                 sourceRowsByPage,
                 workDirectory: join(temporaryRoot, `worker-${String(workerIndex)}`),
@@ -3351,6 +3515,7 @@ async function main() {
                 name: 'scan-cleanup-word-loss-audit',
                 inventedInk: {
                     minimumComponentFillRatio: INVENTED_MIN_COMPONENT_FILL_RATIO,
+                    minimumUnsupportedComponentFraction: INVENTED_MIN_UNSUPPORTED_FRACTION,
                     minimumUnsupportedComponentAreaFactor: INVENTED_UNSUPPORTED_AREA_FACTOR,
                     paperDelta: SOURCE_SUPPORT_PAPER_DELTA,
                     paperPercentile: SOURCE_SUPPORT_PERCENTILE,

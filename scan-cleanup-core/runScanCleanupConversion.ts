@@ -1565,6 +1565,34 @@ export async function runScanCleanupConversion(
                     rotationDegrees: output.metadata.rotationDegrees ?? 0,
                     excluded: false,
                     blank: false,
+                    renderGeometry: {
+                        canvasHeightPx: output.metadata.canvasHeightPx,
+                        canvasWidthPx: output.metadata.canvasWidthPx,
+                        ...(output.metadata.cropRect === undefined
+                            ? {}
+                            : {cropRect: output.metadata.cropRect}),
+                        dewarped: output.metadata.dewarpMapping != null,
+                        forwardTransform: output.metadata.forwardTransform,
+                        ...(output.metadata.inputHeightPx === undefined
+                            ? {}
+                            : {inputHeightPx: output.metadata.inputHeightPx}),
+                        ...(output.metadata.inputWidthPx === undefined
+                            ? {}
+                            : {inputWidthPx: output.metadata.inputWidthPx}),
+                        ...(output.metadata.matchedCanvasContentHeightPx === undefined
+                            ? {}
+                            : {matchedCanvasContentHeightPx: output.metadata.matchedCanvasContentHeightPx}),
+                        ...(output.metadata.matchedCanvasContentWidthPx === undefined
+                            ? {}
+                            : {matchedCanvasContentWidthPx: output.metadata.matchedCanvasContentWidthPx}),
+                        outputHeightPx: output.metadata.outputHeightPx,
+                        outputWidthPx: output.metadata.outputWidthPx,
+                        placementOffsetXPx: output.metadata.placementOffsetXPx,
+                        placementOffsetYPx: output.metadata.placementOffsetYPx,
+                        ...(output.metadata.sourceRegion === undefined
+                            ? {}
+                            : {sourceRegion: output.metadata.sourceRegion}),
+                    },
                     ...(streamBytesByOutput.get(output) === undefined
                         ? {}
                         : {streamBytes: streamBytesByOutput.get(output)!}),

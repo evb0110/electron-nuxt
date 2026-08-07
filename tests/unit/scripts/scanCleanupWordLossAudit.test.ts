@@ -65,7 +65,13 @@ interface ISyntheticRaster {
     width: number;
 }
 
-type TSyntheticCleanedVariant = 'equal' | 'invented' | 'scaled-islands' | 'scaled-local-shift' | 'thick';
+type TSyntheticCleanedVariant =
+    | 'attached-fringe'
+    | 'equal'
+    | 'invented'
+    | 'scaled-islands'
+    | 'scaled-local-shift'
+    | 'thick';
 
 function buildRasterPdf({
     bitsPerComponent,
@@ -144,18 +150,29 @@ function packBilevelRaster(width: number, height: number, isBlack: (x: number, y
     return packed;
 }
 
-function buildSyntheticSourceRaster(bitsPerComponent = 8): ISyntheticRaster {
+function buildSyntheticSourceRaster(
+    bitsPerComponent = 8,
+    variant: TSyntheticCleanedVariant = 'equal',
+): ISyntheticRaster {
     const width = 160;
     const height = 160;
     const pixels = new Uint8Array(width * height).fill(255);
-    for (const left of [
-        24,
-        76,
-        128,
-    ]) {
-        for (let y = 32; y < 56; y += 1) {
-            for (let x = left; x < left + 10; x += 1) {
+    if (variant === 'attached-fringe') {
+        for (let y = 30; y < 130; y += 1) {
+            for (let x = 20; x < 140; x += 1) {
                 pixels[y * width + x] = 40;
+            }
+        }
+    } else {
+        for (const left of [
+            24,
+            76,
+            128,
+        ]) {
+            for (let y = 32; y < 56; y += 1) {
+                for (let x = left; x < left + 10; x += 1) {
+                    pixels[y * width + x] = 40;
+                }
             }
         }
     }
@@ -173,6 +190,7 @@ function buildSyntheticCleanedRaster(
     source: ISyntheticRaster,
     variant: TSyntheticCleanedVariant,
     scale = 1,
+    imageMask = true,
 ) {
     const width = source.width * scale;
     const height = source.height * scale;
@@ -187,19 +205,27 @@ function buildSyntheticCleanedRaster(
         76,
         128,
     ];
-    for (const [
-        index,
-        sourceLeft,
-    ] of sourceLefts.entries()) {
-        const thickness = variant === 'thick' ? 2 : 0;
-        const localShift = variant === 'scaled-local-shift' && index === 0 ? 14 : 0;
-        const left = sourceLeft * scale - thickness + localShift;
-        const top = 32 * scale - thickness;
-        const right = (sourceLeft + 10) * scale + thickness + localShift;
-        const bottom = 56 * scale + thickness;
-        for (let y = top; y < bottom; y += 1) {
-            for (let x = left; x < right; x += 1) {
+    if (variant === 'attached-fringe') {
+        for (let y = 30 * scale; y < 130 * scale; y += 1) {
+            for (let x = 20 * scale; x < 160 * scale; x += 1) {
                 setPixel(x, y);
+            }
+        }
+    } else {
+        for (const [
+            index,
+            sourceLeft,
+        ] of sourceLefts.entries()) {
+            const thickness = variant === 'thick' ? 2 : 0;
+            const localShift = variant === 'scaled-local-shift' && index === 0 ? 14 : 0;
+            const left = sourceLeft * scale - thickness + localShift;
+            const top = 32 * scale - thickness;
+            const right = (sourceLeft + 10) * scale + thickness + localShift;
+            const bottom = 56 * scale + thickness;
+            for (let y = top; y < bottom; y += 1) {
+                for (let x = left; x < right; x += 1) {
+                    setPixel(x, y);
+                }
             }
         }
     }
@@ -241,7 +267,7 @@ function buildSyntheticCleanedRaster(
     return {
         bitsPerComponent: 1,
         height,
-        imageMask: true,
+        imageMask,
         pixels: packBilevelRaster(width, height, (x, y) => pixels[y * width + x] === 1),
         width,
     };
@@ -414,6 +440,8 @@ describe('scan-cleanup invented-ink audit', () => {
     async function runSyntheticCase(
         variant: TSyntheticCleanedVariant,
         {
+            canonicalGeometry = false,
+            cleanedImageMask = true,
             mapped = false,
             scale = 1,
             sourceBitsPerComponent = 8,
@@ -423,11 +451,62 @@ describe('scan-cleanup invented-ink audit', () => {
         const source = join(temporaryDirectory, 'source.pdf');
         const cleaned = join(temporaryDirectory, 'cleaned.pdf');
         const reportPath = join(temporaryDirectory, 'report.json');
-        const sourceRaster = buildSyntheticSourceRaster(sourceBitsPerComponent);
+        const sourceRaster = buildSyntheticSourceRaster(sourceBitsPerComponent, variant);
         await writeFile(source, buildRasterPdf(sourceRaster));
-        await writeFile(cleaned, buildRasterPdf(buildSyntheticCleanedRaster(sourceRaster, variant, scale)));
+        await writeFile(
+            cleaned,
+            buildRasterPdf(buildSyntheticCleanedRaster(
+                sourceRaster,
+                variant,
+                scale,
+                cleanedImageMask,
+            )),
+        );
         if (mapped) {
-            const mapping = {sourcePageToOutputPages: {'1': [1]}};
+            const mapping = {
+                sourcePageToOutputPages: {'1': [1]},
+                ...(canonicalGeometry
+                    ? {perPageStreamSizes: [{
+                        outputPageNumber: 1,
+                        renderGeometry: {
+                            canvasHeightPx: sourceRaster.height * scale,
+                            canvasWidthPx: sourceRaster.width * scale,
+                            cropRect: {
+                                heightPx: sourceRaster.height,
+                                widthPx: sourceRaster.width,
+                                xPx: 0,
+                                yPx: 0,
+                            },
+                            dewarped: false,
+                            forwardTransform: {matrix: [
+                                [
+                                    1,
+                                    0,
+                                    0,
+                                ],
+                                [
+                                    0,
+                                    1,
+                                    0,
+                                ],
+                                [
+                                    0,
+                                    0,
+                                    1,
+                                ],
+                            ]},
+                            inputHeightPx: sourceRaster.height,
+                            inputWidthPx: sourceRaster.width,
+                            matchedCanvasContentHeightPx: sourceRaster.height * scale,
+                            matchedCanvasContentWidthPx: sourceRaster.width * scale,
+                            outputHeightPx: sourceRaster.height * scale,
+                            outputWidthPx: sourceRaster.width * scale,
+                            placementOffsetXPx: 0,
+                            placementOffsetYPx: 0,
+                        },
+                    }]}
+                    : {}),
+            };
             await writeFile(`${cleaned}.summary.json`, JSON.stringify(mapping));
         }
         const exitCode = await runAudit(source, cleaned, reportPath, {
@@ -514,6 +593,18 @@ describe('scan-cleanup invented-ink audit', () => {
         });
     }, 30_000);
 
+    it('does not call a mostly supported component with a resampled fringe invented', async () => {
+        const result = await runSyntheticCase('attached-fringe', {mapped: true});
+
+        expect(result.exitCode).toBe(0);
+        expect(result.page).toMatchObject({
+            flagged: false,
+            inventedCount: 0,
+            inventedFlagged: false,
+        });
+        expect(result.page.components).toBeUndefined();
+    }, 30_000);
+
     it('keeps a cleaned page equal to source clean', async () => {
         const result = await runSyntheticCase('equal');
 
@@ -575,6 +666,29 @@ describe('scan-cleanup invented-ink audit', () => {
             }),
             classification: 'invented',
         })]));
+    }, 30_000);
+
+    it('uses canonical geometry and bit depth for a mapped 1-bit image', async () => {
+        const result = await runSyntheticCase('equal', {
+            canonicalGeometry: true,
+            cleanedImageMask: false,
+            mapped: true,
+            scale: 2,
+            sourceBitsPerComponent: 1,
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.page).toMatchObject({
+            alignment: {
+                attemptedScales: ['canonical-geometry(2.000000x2.000000)'],
+                scaleX: 2,
+                scaleY: 2,
+            },
+            auditDilationRadius: 2,
+            flagged: false,
+            inventedCount: 0,
+            lostCount: 0,
+        });
     }, 30_000);
 
     it('uses output-grid areas so only the larger unsupported 2x island flags', async () => {

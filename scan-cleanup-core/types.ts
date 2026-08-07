@@ -1,4 +1,5 @@
 import type {
+    INativeScanCleanupOutputMetadataV3,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
@@ -349,6 +350,22 @@ export interface IScanCleanupOutputPageForSummary {
         foregroundMask?: number;
         foregroundAlpha?: number;
     };
+    /** Canonical affine geometry used by diagnostics to compare source and output grids. */
+    renderGeometry?: Pick<INativeScanCleanupOutputMetadataV3,
+        | 'canvasHeightPx'
+        | 'canvasWidthPx'
+        | 'cropRect'
+        | 'forwardTransform'
+        | 'inputHeightPx'
+        | 'inputWidthPx'
+        | 'matchedCanvasContentHeightPx'
+        | 'matchedCanvasContentWidthPx'
+        | 'outputHeightPx'
+        | 'outputWidthPx'
+        | 'placementOffsetXPx'
+        | 'placementOffsetYPx'
+        | 'sourceRegion'
+    > & {dewarped: boolean;};
 }
 
 export interface IScanCleanupOutputMapping {
