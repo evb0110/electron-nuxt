@@ -765,6 +765,7 @@ export async function runScanCleanupConversion(
                         pdftoppmBinary: paths.pdftoppmBinary,
                         runCommand: dependencies.runCommand,
                         log,
+                        rasterConcurrency: policy.rasterConcurrency,
                         signal,
                         onProgress: (completedPages, totalPages) =>
                             emitProgress('extracting', completedPages, totalPages),

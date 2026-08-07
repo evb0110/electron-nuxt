@@ -265,6 +265,7 @@ export type TScanCleanupExtractMrcLayersBatch = (input: {
     pdftoppmBinary: string;
     runCommand: TScanCleanupRunCommand;
     log: TScanCleanupLog;
+    rasterConcurrency: number;
     signal?: AbortSignal;
     onProgress?: (completedPages: number, totalPages: number) => void;
 }) => Promise<Map<number, IPdfMrcLayers>>;

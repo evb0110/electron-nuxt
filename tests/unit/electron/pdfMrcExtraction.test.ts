@@ -37,6 +37,8 @@ describe('batched PDF MRC extraction', () => {
     it('preserves compact layers and inspects the qpdf object table once across chunks', async () => {
         const scratch = await createScratch();
         const progress: Array<[number, number]> = [];
+        let activeListings = 0;
+        let peakListings = 0;
         const runCommand = vi.fn<typeof runNativeToolCommand>(async (command, args) => {
             if (command === '/qpdf') {
                 return {
@@ -64,6 +66,10 @@ describe('batched PDF MRC extraction', () => {
                 };
             }
             if (args.includes('-list')) {
+                activeListings += 1;
+                peakListings = Math.max(peakListings, activeListings);
+                await Promise.resolve();
+                activeListings -= 1;
                 return {
                     exitCode: 0,
                     stderr: '',
@@ -130,18 +136,20 @@ describe('batched PDF MRC extraction', () => {
             pdftoppmBinary: '/pdftoppm',
             runCommand,
             log: vi.fn(),
+            rasterConcurrency: 2,
             onProgress: (completed, total) => progress.push([
                 completed,
                 total,
             ]),
         });
 
-        expect([...result.keys()]).toEqual([
+        expect([...result.keys()].sort((left, right) => left - right)).toEqual([
             11,
             35,
         ]);
         expect(runCommand).toHaveBeenCalledTimes(9);
         expect(runCommand.mock.calls.filter(([command]) => command === '/qpdf')).toHaveLength(1);
+        expect(peakListings).toBe(2);
         expect(runCommand.mock.calls.some(([
             ,
             args,
@@ -204,6 +212,7 @@ describe('batched PDF MRC extraction', () => {
             pdftoppmBinary: '/pdftoppm',
             runCommand,
             log,
+            rasterConcurrency: 2,
             signal: controller.signal,
         });
 

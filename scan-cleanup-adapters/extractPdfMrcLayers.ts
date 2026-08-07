@@ -17,6 +17,7 @@ import type {
     TScanCleanupRunCommand,
     IScanCleanupRunCommandOptions,
 } from '@scan-cleanup-core/types';
+import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
 import {
     decode as decodePng,
     encode as encodePng,
@@ -348,6 +349,7 @@ export async function extractPdfMrcLayersBatch(input: {
     pdftoppmBinary: string;
     runCommand: TScanCleanupRunCommand;
     log: TScanCleanupLog;
+    rasterConcurrency: number;
     signal?: AbortSignal;
     onProgress?: (completedPages: number, totalPages: number) => void;
 }) {
@@ -355,230 +357,242 @@ export async function extractPdfMrcLayersBatch(input: {
     if (input.pdfimagesBinary === undefined || input.targets.length === 0) {
         return extracted;
     }
+    const pdfimagesBinary = input.pdfimagesBinary;
     const commandOptions = {
         log: input.log,
         ...(input.signal === undefined ? {} : {signal: input.signal}),
     };
     let completedPages = 0;
-    let mrcObjects: Record<string, unknown> | null | undefined;
-    for (const [
-        chunkIndex,
-        targets,
-    ] of chunkMrcTargets(input.targets).entries()) {
-        input.signal?.throwIfAborted();
-        const firstPage = targets[0]!.pageNumber;
-        const lastPage = targets.at(-1)!.pageNumber;
-        const outputDirectory = dirname(targets[0]!.selectionMaskOutputPath);
-        if (targets.some(target =>
-            dirname(target.backgroundOutputPath) !== outputDirectory
+    const failures: unknown[] = [];
+    let mrcObjectsPromise: Promise<Record<string, unknown> | null> | null = null;
+    const completePages = (count: number) => {
+        completedPages += count;
+        input.onProgress?.(completedPages, input.targets.length);
+    };
+    await mapScanCleanupRasterPages(
+        chunkMrcTargets(input.targets),
+        input.rasterConcurrency,
+        async (targets, chunkIndex) => {
+            try {
+                input.signal?.throwIfAborted();
+                const firstPage = targets[0]!.pageNumber;
+                const lastPage = targets.at(-1)!.pageNumber;
+                const outputDirectory = dirname(targets[0]!.selectionMaskOutputPath);
+                if (targets.some(target =>
+                    dirname(target.backgroundOutputPath) !== outputDirectory
             || dirname(target.foregroundOutputPath) !== outputDirectory
             || dirname(target.selectionMaskOutputPath) !== outputDirectory,
-        )) {
-            throw new Error('PDF MRC batch outputs must share one scratch directory');
-        }
-        const batchName = `.mrc-batch-${String(chunkIndex)}-${String(firstPage)}-${String(lastPage)}`;
-        const rawPrefix = join(outputDirectory, `${batchName}-raw`);
-        const backgroundPdfPath = join(outputDirectory, `${batchName}-backgrounds.pdf`);
-        const decodedPrefixName = `${batchName}-background`;
-        const decodedPrefix = join(outputDirectory, decodedPrefixName);
-        try {
-            const listing = await input.runCommand(
-                input.pdfimagesBinary,
-                [
-                    '-f',
-                    String(firstPage),
-                    '-l',
-                    String(lastPage),
-                    '-list',
-                    input.pdfPath,
-                ],
-                {
-                    ...commandOptions,
-                    commandLabel: `pdfimages(MRC-batch-list,pages=${String(firstPage)}-${String(lastPage)})`,
-                },
-            );
-            const rows = parsePdfImagesRows(listing.stdout);
-            const selectedCandidates = targets.flatMap(target => {
-                const selection = selectPdfMrcRows(
-                    rows.filter(row => row.pageNumber === target.pageNumber),
-                );
-                // Compact passthrough is intentionally conservative. Unknown
-                // encodings keep the ordinary raster reconstruction path.
-                return selection !== null
+                )) {
+                    throw new Error('PDF MRC batch outputs must share one scratch directory');
+                }
+                const batchName = `.mrc-batch-${String(chunkIndex)}-${String(firstPage)}-${String(lastPage)}`;
+                const rawPrefix = join(outputDirectory, `${batchName}-raw`);
+                const backgroundPdfPath = join(outputDirectory, `${batchName}-backgrounds.pdf`);
+                const decodedPrefixName = `${batchName}-background`;
+                const decodedPrefix = join(outputDirectory, decodedPrefixName);
+                try {
+                    const listing = await input.runCommand(
+                        pdfimagesBinary,
+                        [
+                            '-f',
+                            String(firstPage),
+                            '-l',
+                            String(lastPage),
+                            '-list',
+                            input.pdfPath,
+                        ],
+                        {
+                            ...commandOptions,
+                            commandLabel: `pdfimages(MRC-batch-list,pages=${String(firstPage)}-${String(lastPage)})`,
+                        },
+                    );
+                    const rows = parsePdfImagesRows(listing.stdout);
+                    const selectedCandidates = targets.flatMap(target => {
+                        const selection = selectPdfMrcRows(
+                            rows.filter(row => row.pageNumber === target.pageNumber),
+                        );
+                        // Compact passthrough is intentionally conservative. Unknown
+                        // encodings keep the ordinary raster reconstruction path.
+                        return selection !== null
                     && selection.background.encoding === 'jpx'
                     && selection.foreground.encoding === 'jpx'
                     && selection.selection.encoding === 'jbig2'
-                    ? [{
-                        target,
-                        selection,
-                    }]
-                    : [];
-            });
-            if (selectedCandidates.length === 0) {
-                completedPages += targets.length;
-                input.onProgress?.(completedPages, input.targets.length);
-                continue;
-            }
-            if (mrcObjects === undefined) {
-                mrcObjects = await inspectMrcObjectTable({
-                    pdfPath: input.pdfPath,
-                    qpdfBinary: input.qpdfBinary,
-                    runCommand: input.runCommand,
-                    commandOptions,
-                    log: input.log,
-                });
-            }
-            const inspectedMrcObjects = mrcObjects;
-            const selected = selectedCandidates.flatMap(candidate => {
-                const foreground = candidate.selection.foreground;
-                const selectionMaskDecode = inspectedMrcObjects === null
-                    ? null
-                    : resolveMrcMaskDecode(inspectedMrcObjects, foreground);
-                return selectionMaskDecode === null
-                    ? []
-                    : [{
-                        ...candidate,
-                        selectionMaskDecode,
-                    }];
-            });
-            if (selected.length === 0) {
-                completedPages += targets.length;
-                input.onProgress?.(completedPages, input.targets.length);
-                continue;
-            }
-            await input.runCommand(
-                input.pdfimagesBinary,
-                [
-                    '-f',
-                    String(firstPage),
-                    '-l',
-                    String(lastPage),
-                    '-all',
-                    input.pdfPath,
-                    rawPrefix,
-                ],
-                {
-                    ...commandOptions,
-                    commandLabel: `pdfimages(MRC-batch-raw,pages=${String(firstPage)}-${String(lastPage)})`,
-                },
-            );
-            const available = [];
-            for (const candidate of selected) {
-                const backgroundPath = numberedOutputPath(
-                    rawPrefix,
-                    candidate.selection.background.imageNumber,
-                    'jp2',
-                );
-                const foregroundPath = numberedOutputPath(
-                    rawPrefix,
-                    candidate.selection.foreground.imageNumber,
-                    'jp2',
-                );
-                const selectionPath = numberedOutputPath(
-                    rawPrefix,
-                    candidate.selection.selection.imageNumber,
-                    'jb2e',
-                );
-                if (
-                    await readableFile(backgroundPath)
+                            ? [{
+                                target,
+                                selection,
+                            }]
+                            : [];
+                    });
+                    if (selectedCandidates.length === 0) {
+                        completePages(targets.length);
+                        return;
+                    }
+                    mrcObjectsPromise ??= inspectMrcObjectTable({
+                        pdfPath: input.pdfPath,
+                        qpdfBinary: input.qpdfBinary,
+                        runCommand: input.runCommand,
+                        commandOptions,
+                        log: input.log,
+                    });
+                    const inspectedMrcObjects = await mrcObjectsPromise;
+                    const selected = selectedCandidates.flatMap(candidate => {
+                        const foreground = candidate.selection.foreground;
+                        const selectionMaskDecode = inspectedMrcObjects === null
+                            ? null
+                            : resolveMrcMaskDecode(inspectedMrcObjects, foreground);
+                        return selectionMaskDecode === null
+                            ? []
+                            : [{
+                                ...candidate,
+                                selectionMaskDecode,
+                            }];
+                    });
+                    if (selected.length === 0) {
+                        completePages(targets.length);
+                        return;
+                    }
+                    await input.runCommand(
+                        pdfimagesBinary,
+                        [
+                            '-f',
+                            String(firstPage),
+                            '-l',
+                            String(lastPage),
+                            '-all',
+                            input.pdfPath,
+                            rawPrefix,
+                        ],
+                        {
+                            ...commandOptions,
+                            commandLabel: `pdfimages(MRC-batch-raw,pages=${String(firstPage)}-${String(lastPage)})`,
+                        },
+                    );
+                    const available = [];
+                    for (const candidate of selected) {
+                        const backgroundPath = numberedOutputPath(
+                            rawPrefix,
+                            candidate.selection.background.imageNumber,
+                            'jp2',
+                        );
+                        const foregroundPath = numberedOutputPath(
+                            rawPrefix,
+                            candidate.selection.foreground.imageNumber,
+                            'jp2',
+                        );
+                        const selectionPath = numberedOutputPath(
+                            rawPrefix,
+                            candidate.selection.selection.imageNumber,
+                            'jb2e',
+                        );
+                        if (
+                            await readableFile(backgroundPath)
                     && await readableFile(foregroundPath)
                     && await readableFile(selectionPath)
-                ) {
-                    available.push({
-                        ...candidate,
-                        backgroundPath,
-                        foregroundPath,
-                        selectionPath,
-                    });
-                }
-            }
-            if (available.length > 0) {
-                await input.runCommand(
-                    input.pdfImageCombineBinary,
-                    [
-                        '--output',
-                        backgroundPdfPath,
-                        '--dpi',
-                        '72',
-                        '--',
-                        ...available.map(candidate => candidate.backgroundPath),
-                    ],
-                    {
-                        ...commandOptions,
-                        commandLabel: `evb-pdf-image-combine(MRC-backgrounds,pages=${String(firstPage)}-${String(lastPage)})`,
-                    },
-                );
-                await input.runCommand(
-                    input.pdftoppmBinary,
-                    [
-                        '-f',
-                        '1',
-                        '-l',
-                        String(available.length),
-                        '-r',
-                        '72',
-                        backgroundPdfPath,
-                        decodedPrefix,
-                    ],
-                    {
-                        ...commandOptions,
-                        commandLabel: `pdftoppm(MRC-backgrounds,pages=${String(firstPage)}-${String(lastPage)})`,
-                    },
-                );
-                const siblings = await readdir(outputDirectory);
-                const decodedBackgrounds = siblings
-                    .filter(name =>
-                        name.startsWith(`${decodedPrefixName}-`)
+                        ) {
+                            available.push({
+                                ...candidate,
+                                backgroundPath,
+                                foregroundPath,
+                                selectionPath,
+                            });
+                        }
+                    }
+                    if (available.length > 0) {
+                        await input.runCommand(
+                            input.pdfImageCombineBinary,
+                            [
+                                '--output',
+                                backgroundPdfPath,
+                                '--dpi',
+                                '72',
+                                '--',
+                                ...available.map(candidate => candidate.backgroundPath),
+                            ],
+                            {
+                                ...commandOptions,
+                                commandLabel: `evb-pdf-image-combine(MRC-backgrounds,pages=${String(firstPage)}-${String(lastPage)})`,
+                            },
+                        );
+                        await input.runCommand(
+                            input.pdftoppmBinary,
+                            [
+                                '-f',
+                                '1',
+                                '-l',
+                                String(available.length),
+                                '-r',
+                                '72',
+                                backgroundPdfPath,
+                                decodedPrefix,
+                            ],
+                            {
+                                ...commandOptions,
+                                commandLabel: `pdftoppm(MRC-backgrounds,pages=${String(firstPage)}-${String(lastPage)})`,
+                            },
+                        );
+                        const siblings = await readdir(outputDirectory);
+                        const decodedBackgrounds = siblings
+                            .filter(name =>
+                                name.startsWith(`${decodedPrefixName}-`)
                         && name.endsWith('.ppm'),
-                    )
-                    .map(name => join(outputDirectory, name))
-                    .sort((left, right) => numberedPageOutput(left) - numberedPageOutput(right));
-                if (decodedBackgrounds.length !== available.length) {
-                    throw new Error(
-                        `MRC decoder published ${String(decodedBackgrounds.length)} background(s) `
+                            )
+                            .map(name => join(outputDirectory, name))
+                            .sort((left, right) => numberedPageOutput(left) - numberedPageOutput(right));
+                        if (decodedBackgrounds.length !== available.length) {
+                            throw new Error(
+                                `MRC decoder published ${String(decodedBackgrounds.length)} background(s) `
                         + `for ${String(available.length)} page(s)`,
-                    );
-                }
-                for (const [
-                    index,
-                    candidate,
-                ] of available.entries()) {
+                            );
+                        }
+                        for (const [
+                            index,
+                            candidate,
+                        ] of available.entries()) {
+                            await Promise.all([
+                                rename(decodedBackgrounds[index]!, candidate.target.backgroundOutputPath),
+                                // The high-resolution JPX foreground is already the
+                                // source's compact, quality-bearing layer. Re-encoding
+                                // it as DCT adds no information and expands compact MRC
+                                // books by several times. Keep it byte-for-byte and
+                                // clean only the low-resolution paper layer.
+                                rename(candidate.foregroundPath, candidate.target.foregroundOutputPath),
+                                rename(candidate.selectionPath, candidate.target.selectionMaskOutputPath),
+                            ]);
+                            extracted.set(candidate.target.pageNumber, {
+                                backgroundDpi: candidate.selection.background.dpi,
+                                backgroundPath: candidate.target.backgroundOutputPath,
+                                foregroundDpi: candidate.selection.foreground.dpi,
+                                foregroundHeight: candidate.selection.foreground.height,
+                                foregroundPath: candidate.target.foregroundOutputPath,
+                                foregroundWidth: candidate.selection.foreground.width,
+                                selectionMaskDecode: candidate.selectionMaskDecode,
+                                selectionMaskPath: candidate.target.selectionMaskOutputPath,
+                            });
+                        }
+                    }
+                    completePages(targets.length);
+                } finally {
+                    const siblings = await readdir(outputDirectory).catch(() => []);
                     await Promise.all([
-                        rename(decodedBackgrounds[index]!, candidate.target.backgroundOutputPath),
-                        // The high-resolution JPX foreground is already the
-                        // source's compact, quality-bearing layer. Re-encoding
-                        // it as DCT adds no information and expands compact MRC
-                        // books by several times. Keep it byte-for-byte and
-                        // clean only the low-resolution paper layer.
-                        rename(candidate.foregroundPath, candidate.target.foregroundOutputPath),
-                        rename(candidate.selectionPath, candidate.target.selectionMaskOutputPath),
-                    ]);
-                    extracted.set(candidate.target.pageNumber, {
-                        backgroundDpi: candidate.selection.background.dpi,
-                        backgroundPath: candidate.target.backgroundOutputPath,
-                        foregroundDpi: candidate.selection.foreground.dpi,
-                        foregroundHeight: candidate.selection.foreground.height,
-                        foregroundPath: candidate.target.foregroundOutputPath,
-                        foregroundWidth: candidate.selection.foreground.width,
-                        selectionMaskDecode: candidate.selectionMaskDecode,
-                        selectionMaskPath: candidate.target.selectionMaskOutputPath,
-                    });
-                }
-            }
-            completedPages += targets.length;
-            input.onProgress?.(completedPages, input.targets.length);
-        } finally {
-            const siblings = await readdir(outputDirectory).catch(() => []);
-            await Promise.all([
-                rm(backgroundPdfPath, {force: true}),
-                ...siblings
-                    .filter(name =>
-                        name.startsWith(`${batchName}-raw-`)
+                        rm(backgroundPdfPath, {force: true}),
+                        ...siblings
+                            .filter(name =>
+                                name.startsWith(`${batchName}-raw-`)
                         || name.startsWith(`${decodedPrefixName}-`),
-                    )
-                    .map(name => rm(join(outputDirectory, name), {force: true})),
-            ]);
-        }
+                            )
+                            .map(name => rm(join(outputDirectory, name), {force: true})),
+                    ]);
+                }
+            } catch (error) {
+                // Do not let the mapper reject while sibling native commands
+                // are still running. Every chunk first completes its own
+                // cleanup; the caller then falls back as one batch.
+                failures.push(error);
+            }
+        },
+    );
+    if (failures.length > 0) {
+        throw failures[0];
     }
     return extracted;
 }
