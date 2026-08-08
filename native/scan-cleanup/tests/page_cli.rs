@@ -666,6 +666,118 @@ fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foregr
 }
 
 #[test]
+fn normalized_mixed_picture_does_not_pull_the_paper_surface_through_a_dark_photo() {
+    let scratch = Scratch::new("normalized-picture-surface");
+    let input = scratch.path("input.png");
+    let output = scratch.path("output.png");
+    let output_metadata = scratch.path("output.json");
+    let page_metadata = scratch.path("page.json");
+    let background_output = scratch.path("background.ppm");
+    let foreground_mask_output = scratch.path("foreground.pbm");
+    let manifest = scratch.path("manifest.json");
+    let mut image = RgbImage::new(180, 120, [214; 3]);
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            let paper = 214 + x * 16 / (image.width() - 1);
+            image.set(x, y, [paper as u8, paper as u8, paper as u8]);
+        }
+    }
+    for y in 30..90 {
+        for x in 64..116 {
+            let tone = if y < 60 {
+                36 + ((x * 7 + y * 11) % 24) as u8
+            } else {
+                190 + ((x * 5 + y * 3) % 18) as u8
+            };
+            image.set(x, y, [tone, tone, tone]);
+        }
+    }
+    fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        layout: LayoutMode::Single,
+        normalize_illumination: true,
+        crop_content: false,
+        match_page_size: false,
+        dpi: 300.0,
+        source_dpi: Some(300.0),
+        manual_zones: ManualZones {
+            picture: vec![PictureZone {
+                polygon: NormalizedZonePolygon {
+                    points: vec![
+                        NormalizedZonePoint { x: 0.35, y: 0.25 },
+                        NormalizedZonePoint { x: 0.65, y: 0.25 },
+                        NormalizedZonePoint { x: 0.65, y: 0.75 },
+                        NormalizedZonePoint { x: 0.35, y: 0.75 },
+                    ],
+                    rotation: OrthogonalRotation::None,
+                },
+                layer: PictureZoneLayer::Painter2,
+            }],
+            fill: vec![],
+        },
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+                "backgroundOutputPath": background_output,
+                "foregroundMaskOutputPath": foreground_mask_output,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let background = decode_ppm(
+        fs::read(&background_output).unwrap().as_slice(),
+        DecodeLimits {
+            max_pixels: 180 * 120,
+            max_dimension: 200,
+            max_compressed_bytes: 180 * 120 * 3 + 64,
+        },
+    )
+    .unwrap();
+    let dark_photo = background.gray.get(43, 24);
+    let light_photo = background.gray.get(43, 36);
+    let paper = background.gray.get(20, 30);
+    let outside_picture = background.gray.get(39, 30);
+    assert!(
+        dark_photo < 120,
+        "dark photo tone was brightened: {dark_photo}"
+    );
+    assert!(
+        light_photo <= 250,
+        "light photo tone was driven to white: {light_photo}"
+    );
+    assert!(paper >= 245, "paper was not normalized: {paper}");
+    assert!(
+        outside_picture.abs_diff(paper) <= 8,
+        "paper endpoint changed beside the picture: outside={outside_picture}, paper={paper}"
+    );
+}
+
+#[test]
 fn matched_canvas_repads_the_published_pbm_without_a_composite() {
     let scratch = Scratch::new("matched");
     let small_input = scratch.path("matched-bilevel-small-input.png");

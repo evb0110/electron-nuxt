@@ -111,10 +111,7 @@ pub(crate) fn normalize_illumination_with_masks(
     semantic_preservation_alpha: Option<&GrayImage>,
     photo_preservation_alpha: Option<&GrayImage>,
 ) -> GrayImage {
-    let paper_model = paper_background_model(
-        prepare_illumination(source),
-        model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0),
-    );
+    let paper_model = paper_background_model(prepare_illumination(source), model_exclusion_mask);
     let paper_corrected = normalize_with_model(source, &paper_model);
     let semantic_corrected =
         semantic_preservation_alpha.map(|_| normalize_semantic_luminance(source));
@@ -176,10 +173,7 @@ pub(crate) fn normalize_illumination_rgb_with_masks(
     semantic_preservation_alpha: Option<&GrayImage>,
     photo_preservation_alpha: Option<&GrayImage>,
 ) -> RgbImage {
-    let paper_model = paper_background_model(
-        prepare_illumination(luminance),
-        model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0),
-    );
+    let paper_model = paper_background_model(prepare_illumination(luminance), model_exclusion_mask);
     let source_median = median_luminance(luminance);
     let paper_is_plausible = source_median >= MIN_PAPER_BACKGROUND_LUMINANCE as u8
         && paper_background_plausible(luminance, &paper_model);
@@ -268,10 +262,7 @@ pub(crate) fn normalize_illumination_pair_with_masks(
     semantic_preservation_alpha: Option<&GrayImage>,
     photo_preservation_alpha: Option<&GrayImage>,
 ) -> (GrayImage, RgbImage) {
-    let paper_model = paper_background_model(
-        prepare_illumination(luminance),
-        model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0),
-    );
+    let paper_model = paper_background_model(prepare_illumination(luminance), model_exclusion_mask);
     let color_page_has_paper = model_exclusion_mask.is_some()
         || median_luminance(luminance) >= MIN_PAPER_BACKGROUND_LUMINANCE as u8;
     let use_background_for_color =
@@ -398,12 +389,41 @@ fn background_model_from_preparation(
 /// narrow remainder around a large map is underconstrained.
 fn paper_background_model(
     preparation: IlluminationPreparation,
-    protect_content_structure: bool,
+    model_exclusion_mask: Option<&BinaryImage>,
 ) -> BackgroundModel {
+    let protect_content_structure = model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0);
+    let surface_model_exclusion = model_exclusion_mask.filter(|mask| {
+        mask.count_black() as f64 / (mask.width().saturating_mul(mask.height()).max(1) as f64)
+            < 0.60
+    });
+    let paper_reference =
+        robust_image_percentile(&preparation.candidate, 0.95).max(MIN_PAPER_BACKGROUND_LUMINANCE);
+    let surface_exclusion = surface_model_exclusion.and_then(|picture_mask| {
+        let exclusion = BinaryImage::from_fn_parallel(
+            preparation.small.width(),
+            preparation.small.height(),
+            |x, y| {
+                let picture_x = if preparation.small.width() <= 1 {
+                    0
+                } else {
+                    x * picture_mask.width().saturating_sub(1) / (preparation.small.width() - 1)
+                };
+                let picture_y = if preparation.small.height() <= 1 {
+                    0
+                } else {
+                    y * picture_mask.height().saturating_sub(1) / (preparation.small.height() - 1)
+                };
+                picture_mask.get(picture_x, picture_y)
+                    && f64::from(preparation.small.get(x, y)) + 18.0
+                        < paper_reference.max(f64::from(preparation.candidate.get(x, y)))
+            },
+        );
+        (exclusion.count_black() > 0).then_some(exclusion)
+    });
     let paper_fit = fit_masked_surface_with_basis(
         &preparation.small,
         &preparation.candidate,
-        None,
+        surface_exclusion.as_ref(),
         &preparation.surface_basis,
     );
     match paper_fit {
@@ -603,10 +623,7 @@ pub(crate) fn normalize_illumination_prepared_with_masks(
     paper_shoulder_protection_mask: Option<&BinaryImage>,
     preparation: IlluminationPreparation,
 ) -> GrayImage {
-    let paper_model = paper_background_model(
-        preparation,
-        model_exclusion_mask.is_some_and(|mask| mask.count_black() > 0),
-    );
+    let paper_model = paper_background_model(preparation, model_exclusion_mask);
     let paper_corrected = normalize_with_model(source, &paper_model);
     let semantic_corrected =
         semantic_preservation_alpha.map(|_| normalize_semantic_luminance(source));
@@ -2074,6 +2091,54 @@ mod tests {
         assert!(
             normalized.data().iter().all(|&value| value >= 254),
             "a smooth paper field remained visibly shaded: minimum={minimum}"
+        );
+    }
+
+    #[test]
+    fn paper_surface_excludes_a_dark_picture_and_avoids_a_bright_boundary_ring() {
+        let mut source = GrayImage::new(240, 180, 230);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source.set(x, y, (214 + x * 16 / (source.width() - 1)) as u8);
+            }
+        }
+        let mut picture_mask = BinaryImage::new(source.width(), source.height());
+        for y in 42..138 {
+            for x in 66..174 {
+                picture_mask.set(x, y, true);
+                source.set(
+                    x,
+                    y,
+                    if y < 90 {
+                        36 + ((x * 13 + y * 7) % 28) as u8
+                    } else {
+                        190 + ((x * 5 + y * 3) % 20) as u8
+                    },
+                );
+            }
+        }
+
+        let normalized =
+            normalize_illumination_with_masks(&source, 300.0, Some(&picture_mask), None, None);
+        let paper_reference = normalized.get(40, 90);
+        let left_boundary = normalized.get(65, 90);
+        let right_boundary = normalized.get(174, 90);
+        let light_picture = normalized.get(120, 110);
+
+        assert!(
+            paper_reference >= 250
+                && left_boundary.abs_diff(paper_reference) <= 4
+                && right_boundary.abs_diff(paper_reference) <= 4,
+            "picture boundary changed the paper endpoint: reference={paper_reference}, left={left_boundary}, right={right_boundary}"
+        );
+        assert!(
+            normalized.get(120, 60) < 120,
+            "dark picture tone was brightened by the paper surface: {}",
+            normalized.get(120, 60)
+        );
+        assert!(
+            light_picture <= 250,
+            "the paper fit brightened a light picture tone to white: {light_picture}"
         );
     }
 
