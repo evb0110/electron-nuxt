@@ -140,6 +140,11 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             }),
         ]);
 
+        await page.waitForFunction(
+            () => document.querySelector('#evb-startup-overlay') === null,
+            {timeout: 30_000},
+        );
+
         const startupState = await readWorkspaceStateValues<{originalPath?: string | null;}>(page, ['originalPath']);
         const readinessState = await page.evaluate(() => ({
             appReady: (window as Window & {__appReady?: boolean}).__appReady ?? false,
