@@ -1334,6 +1334,49 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('keeps run-owned detection alive when its cleanup tab becomes inactive', async () => {
+        const harness = capabilityHarness();
+        const active = ref(true);
+        capability.value = harness.value;
+        const mounted = mountSession(`hidden-run-detection-${Date.now()}`, {active: () => active.value});
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await nextTick();
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: 'cleanup-after-hidden-detection',
+            outputPdfPath: '/managed/cleanup-after-hidden-detection.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: 'cleanup-after-hidden-detection',
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: Date.now() + 1,
+        });
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        active.value = false;
+        await nextTick();
+
+        expect(harness.value.cancelDetection).not.toHaveBeenCalled();
+        expect(harness.value.start).not.toHaveBeenCalled();
+
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await run;
+
+        expect(harness.value.cancelDetection).not.toHaveBeenCalled();
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        expect(getScanCleanupRunError(mounted.session.run.ownerId)).toBe('');
+        mounted.unmount();
+    });
+
     it('starts and waits for scheduled replacement detection when Run lands in the empty-state turn', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

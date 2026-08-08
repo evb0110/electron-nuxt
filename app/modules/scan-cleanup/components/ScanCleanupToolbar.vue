@@ -92,7 +92,23 @@
                     />
                 </AppTooltip>
                 <div class="scan-cleanup-toolbar-status-slot">
-                    <template v-if="isDetecting">
+                    <template v-if="runError">
+                        <span class="scan-cleanup-toolbar-error" role="alert">
+                            {{ runError }}
+                        </span>
+                        <UButton
+                            class="scan-cleanup-toolbar-dismiss-error"
+                            type="button"
+                            color="neutral"
+                            variant="ghost"
+                            size="xs"
+                            square
+                            icon="i-ph-x"
+                            :aria-label="t('common.close')"
+                            @click="emit('dismiss-run-error')"
+                        />
+                    </template>
+                    <template v-else-if="isDetecting">
                         <ScanCleanupStableWidthText
                             class="scan-cleanup-toolbar-count"
                             role="status"
@@ -115,22 +131,6 @@
                                 @click="emit('cancel-detection')"
                             />
                         </AppTooltip>
-                    </template>
-                    <template v-else-if="runError">
-                        <span class="scan-cleanup-toolbar-error" role="alert">
-                            {{ runError }}
-                        </span>
-                        <UButton
-                            class="scan-cleanup-toolbar-dismiss-error"
-                            type="button"
-                            color="neutral"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            icon="i-ph-x"
-                            :aria-label="t('common.close')"
-                            @click="emit('dismiss-run-error')"
-                        />
                     </template>
                     <span v-else-if="detectionError" class="scan-cleanup-toolbar-error" role="alert">
                         {{ detectionError }}

@@ -1827,7 +1827,7 @@ describe('Scan cleanup components', () => {
         rectSpy.mockRestore();
     });
 
-    it('surfaces and dismisses a persisted cleanup failure from the toolbar', () => {
+    it('prioritizes and dismisses a persisted cleanup failure while detection restarts', () => {
         const dismiss = vi.fn();
         const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
             canDetectAll: true,
@@ -1835,9 +1835,9 @@ describe('Scan cleanup components', () => {
             cancelRequested: false,
             detectionCancelRequested: false,
             detectionError: '',
-            detectionProgressText: '',
-            detectionProgressWidestText: '',
-            isDetecting: false,
+            detectionProgressText: 'Pre-analyzing pages — 1 / 392',
+            detectionProgressWidestText: 'Pre-analyzing pages — 392 / 392',
+            isDetecting: true,
             isRunning: false,
             outputEstimate: '',
             percent: 0,
@@ -1853,6 +1853,8 @@ describe('Scan cleanup components', () => {
         })));
 
         expect(harness.host.querySelector('[role="alert"]')?.textContent).toContain('Native cleanup failed');
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-count')).toBeNull();
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-cancel-detection')).toBeNull();
         harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-dismiss-error')?.click();
         expect(dismiss).toHaveBeenCalledOnce();
     });

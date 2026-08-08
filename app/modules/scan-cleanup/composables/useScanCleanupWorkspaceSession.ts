@@ -69,23 +69,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourcePath,
         totalPages,
     });
-    // Preview has its own immediate activity watcher. Detection is a main-side
-    // job, so explicitly cancel it and wait for its terminal snapshot when the
-    // tab becomes inactive. If the tab returns while cancellation is crossing
-    // the bridge, resume only after that old job has settled; no lifecycle key,
-    // owner id, or source hash changes as part of this pause.
-    watch(options.active, active => {
-        if (active) {
-            return;
-        }
-        void detection.cancelAndWaitForTerminal()
-            .catch(() => undefined)
-            .then(() => {
-                if (options.active()) {
-                    void detection.maybeAutoDetect();
-                }
-            });
-    });
     previewResult = useScanCleanupPreviewSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
@@ -171,6 +154,25 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourcePath,
         totalPages,
         waitForDetectionBeforeRun: detection.waitForTerminal,
+    });
+    // Preview has its own immediate activity watcher. Detection is a main-side
+    // job, so ordinarily cancel it and wait for its terminal snapshot when the
+    // tab becomes inactive. Once Clean Up owns that pass, however, detection is
+    // part of the user's engaged run: keep it alive across tab switches so the
+    // run can start instead of misreporting its deliberate cancellation as
+    // missing evidence. If an ordinary hidden tab returns while cancellation
+    // is crossing the bridge, resume only after that old job has settled.
+    watch(options.active, active => {
+        if (active || run.waitingForDetection.value) {
+            return;
+        }
+        void detection.cancelAndWaitForTerminal()
+            .catch(() => undefined)
+            .then(() => {
+                if (options.active()) {
+                    void detection.maybeAutoDetect();
+                }
+            });
     });
 
     return {
