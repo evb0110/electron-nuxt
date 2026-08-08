@@ -190,6 +190,7 @@ export function createScanCleanupProgressReporter(
     let lastSampleAt = 0;
     let lastCompletedUnits = 0;
     let smoothedMsPerUnit: number | null = null;
+    let lastEtaSeconds: number | undefined;
     return (stage, completedUnits, totalUnits, completedPageNumbers) => {
         const reportedAt = now();
         const bands = isLossless()
@@ -229,7 +230,11 @@ export function createScanCleanupProgressReporter(
             const remainingStageMs = Math.max(0, totalUnits - completedUnits) * smoothedMsPerUnit;
             const futurePercent = Math.max(0, 100 - band.start - band.span);
             const futureMs = totalUnits * smoothedMsPerUnit / band.span * futurePercent;
-            etaSeconds = Math.max(0, Math.ceil((remainingStageMs + futureMs) / 1000));
+            const estimatedSeconds = Math.max(0, Math.ceil((remainingStageMs + futureMs) / 1000));
+            etaSeconds = lastEtaSeconds === undefined
+                ? estimatedSeconds
+                : Math.min(lastEtaSeconds, estimatedSeconds);
+            lastEtaSeconds = etaSeconds;
         }
         callback({
             stage,

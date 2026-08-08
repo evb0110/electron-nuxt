@@ -60,6 +60,29 @@ describe('scan cleanup progress reporter', () => {
         expect(reports.at(-1)?.etaSeconds).toBeLessThanOrEqual(900);
     });
 
+    it('never raises a displayed ETA when a slower sample changes the rate estimate', () => {
+        const reports: TScanCleanupProgress[] = [];
+        let now = 0;
+        const emit = createScanCleanupProgressReporter(
+            progress => reports.push(progress),
+            () => false,
+            {
+                isRasterStreaming: () => true,
+                now: () => now,
+            },
+        );
+
+        emit('rendering', 0, 392);
+        now = 10_000;
+        emit('rendering', 5, 392);
+        const initialEta = reports.at(-1)?.etaSeconds;
+        now = 18_000;
+        emit('rendering', 6, 392);
+
+        expect(initialEta).toBeTypeOf('number');
+        expect(reports.at(-1)?.etaSeconds).toBe(initialEta);
+    });
+
     it('never rewinds when a matched lossless run switches to raster rendering', () => {
         const reports: TScanCleanupProgress[] = [];
         let lossless = true;

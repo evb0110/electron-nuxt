@@ -130,6 +130,8 @@ mod tests {
             None,
             Some(&zone),
             Some(&text_vicinity),
+            25.4,
+            0,
         );
 
         let picture_mask = picture_mask.expect("zone must create a Mixed ownership mask");
@@ -145,11 +147,330 @@ mod tests {
         zone.set(2, 0, true);
         let mut picture_mask = None;
 
-        partition_mixed_picture_mask(&mut picture_mask, None, None, None, Some(&zone), None);
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            None,
+            None,
+            None,
+            Some(&zone),
+            None,
+            25.4,
+            0,
+        );
 
         let picture_mask = picture_mask.expect("an exact zone is a Mixed ownership mask");
         assert_eq!(picture_mask.count_black(), 1);
         assert!(picture_mask.get(2, 0));
+    }
+
+    #[test]
+    fn mixed_partition_joins_interline_paper_but_keeps_tone_owned() {
+        let mut picture = BinaryImage::new(5, 5);
+        for y in 0..5 {
+            for x in 0..5 {
+                picture.set(x, y, true);
+            }
+        }
+        let mut text_vicinity = BinaryImage::new(5, 5);
+        for x in 1..=3 {
+            text_vicinity.set(x, 1, true);
+            text_vicinity.set(x, 3, true);
+        }
+        let mut tone = BinaryImage::new(5, 5);
+        tone.set(2, 2, true);
+        let mut picture_mask = Some(picture);
+
+        // 25.4 DPI makes the one-millimetre interline radius exactly one
+        // pixel for this compact geometry fixture.
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            None,
+            None,
+            Some(&tone),
+            None,
+            Some(&text_vicinity),
+            25.4,
+            0,
+        );
+
+        let picture_mask = picture_mask.expect("the surrounding picture field remains");
+        assert!(
+            !picture_mask.get(1, 2),
+            "paper between aligned text lines becomes foreground-owned"
+        );
+        assert!(
+            picture_mask.get(2, 2),
+            "calibrated tone remains continuous-tone-owned"
+        );
+        assert!(
+            picture_mask.get(4, 2),
+            "vertical joining cannot grow sideways into a neighboring picture"
+        );
+        assert!(
+            picture_mask.get(1, 0) && picture_mask.get(1, 4),
+            "closing must not expand beyond the outer text-line boundaries"
+        );
+    }
+
+    #[test]
+    fn mixed_partition_scales_interline_joining_at_realistic_dpi() {
+        let mut picture = BinaryImage::new(3, 36);
+        for y in 0..36 {
+            for x in 0..3 {
+                picture.set(x, y, true);
+            }
+        }
+        let mut text_vicinity = BinaryImage::new(3, 36);
+        text_vicinity.set(1, 5, true);
+        text_vicinity.set(1, 28, true);
+        let mut picture_mask = Some(picture);
+
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            None,
+            None,
+            None,
+            None,
+            Some(&text_vicinity),
+            300.0,
+            0,
+        );
+
+        let picture_mask = picture_mask.expect("the surrounding picture field remains");
+        assert!(
+            !picture_mask.get(1, 16),
+            "a sub-two-millimetre interline gap joins at 300 DPI"
+        );
+        assert!(
+            picture_mask.get(1, 4) && picture_mask.get(1, 29),
+            "the physical close still preserves outer ownership boundaries"
+        );
+    }
+
+    #[test]
+    fn mixed_partition_bridges_only_the_global_intersection_of_a_row_chain() {
+        let mut picture = BinaryImage::new(210, 18);
+        for y in 0..18 {
+            for x in 0..210 {
+                picture.set(x, y, true);
+            }
+        }
+        let mut text_vicinity = BinaryImage::new(210, 18);
+        for x in 0..=100 {
+            for y in 1..=2 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for x in 0..=200 {
+            for y in 8..=9 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for x in 100..=200 {
+            for y in 15..=16 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        let mut picture_mask = Some(picture);
+
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            None,
+            None,
+            None,
+            None,
+            Some(&text_vicinity),
+            25.4,
+            0,
+        );
+
+        let picture_mask = picture_mask.expect("the surrounding picture field remains");
+        assert!(
+            picture_mask.get(50, 5) && picture_mask.get(150, 12),
+            "a wide hub cannot bridge two columns without a shared thirty-millimetre intersection"
+        );
+    }
+
+    #[test]
+    fn mixed_partition_bridges_three_aligned_component_rows() {
+        let mut picture = BinaryImage::new(50, 18);
+        for y in 0..18 {
+            for x in 0..50 {
+                picture.set(x, y, true);
+            }
+        }
+        let mut text_vicinity = BinaryImage::new(50, 18);
+        for x in 5..45 {
+            for y in 1..=2 {
+                text_vicinity.set(x, y, true);
+            }
+            for y in 8..=9 {
+                text_vicinity.set(x, y, true);
+            }
+            for y in 15..=16 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        let mut picture_mask = Some(picture);
+
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            None,
+            None,
+            None,
+            None,
+            Some(&text_vicinity),
+            25.4,
+            0,
+        );
+
+        let picture_mask = picture_mask.expect("the surrounding picture field remains");
+        assert!(
+            !picture_mask.get(10, 5) && !picture_mask.get(10, 12),
+            "three aligned wide rows own their shared interline paper"
+        );
+        assert!(
+            picture_mask.get(4, 5) && picture_mask.get(45, 12),
+            "the bridge cannot grow outside the chain-global intersection"
+        );
+    }
+
+    #[test]
+    fn mixed_partition_allows_larger_gaps_only_for_dense_extra_wide_chains() {
+        fn partition(text_line_count: usize, field_right: usize) -> BinaryImage {
+            let mut picture = BinaryImage::new(150, 34);
+            for y in 0..34 {
+                for x in 0..150 {
+                    picture.set(x, y, true);
+                }
+            }
+            let mut text_vicinity = BinaryImage::new(150, 34);
+            for x in 5..field_right {
+                for y in 1..=2 {
+                    text_vicinity.set(x, y, true);
+                }
+                for y in 15..=16 {
+                    text_vicinity.set(x, y, true);
+                }
+                for y in 29..=30 {
+                    text_vicinity.set(x, y, true);
+                }
+            }
+            for x in 80..145 {
+                for y in 18..=20 {
+                    text_vicinity.set(x, y, true);
+                }
+            }
+            let mut zone = BinaryImage::new(150, 34);
+            let mut chroma = BinaryImage::new(150, 34);
+            for x in 10..16 {
+                zone.set(x, 8, true);
+            }
+            for x in 16..21 {
+                chroma.set(x, 8, true);
+            }
+            let mut picture_mask = Some(picture);
+            partition_mixed_picture_mask(
+                &mut picture_mask,
+                None,
+                Some(&chroma),
+                None,
+                Some(&zone),
+                Some(&text_vicinity),
+                25.4,
+                text_line_count,
+            );
+            picture_mask.expect("the surrounding picture field remains")
+        }
+
+        let dense_extra_wide = partition(20, 70);
+        assert!(
+            dense_extra_wide.get(10, 8) && !dense_extra_wide.get(10, 23),
+            "a dense 65 mm chain bridges measured gaps but preserves an exact halftone zone"
+        );
+        assert!(
+            dense_extra_wide.get(18, 8),
+            "chroma remains exact inside a scanline-bridged column"
+        );
+        assert!(
+            dense_extra_wide.get(100, 23),
+            "an intervening right-side run cannot widen the chain intersection into a portrait"
+        );
+        assert!(
+            partition(19, 70).get(10, 23),
+            "the dense bridge remains disabled below twenty detected lines"
+        );
+        assert!(
+            partition(20, 34).get(10, 23),
+            "sub-thirty-millimetre fields remain below both bridge tiers"
+        );
+    }
+
+    #[test]
+    fn mixed_partition_does_not_bridge_an_isolated_wide_pair() {
+        let mut picture = BinaryImage::new(150, 16);
+        for y in 0..16 {
+            for x in 0..150 {
+                picture.set(x, y, true);
+            }
+        }
+        let mut text_vicinity = BinaryImage::new(150, 16);
+        for x in 5..70 {
+            for y in 2..=3 {
+                text_vicinity.set(x, y, true);
+            }
+            for y in 12..=13 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        let mut picture_mask = Some(picture);
+
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            None,
+            None,
+            None,
+            None,
+            Some(&text_vicinity),
+            25.4,
+            20,
+        );
+
+        assert!(
+            picture_mask.unwrap().get(10, 8),
+            "an isolated aligned pair is insufficient column evidence"
+        );
+    }
+
+    #[test]
+    fn mixed_partition_does_not_join_distant_text_lines() {
+        let mut picture = BinaryImage::new(3, 7);
+        for y in 0..7 {
+            for x in 0..3 {
+                picture.set(x, y, true);
+            }
+        }
+        let mut text_vicinity = BinaryImage::new(3, 7);
+        text_vicinity.set(1, 1, true);
+        text_vicinity.set(1, 5, true);
+        let mut picture_mask = Some(picture);
+
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            None,
+            None,
+            None,
+            None,
+            Some(&text_vicinity),
+            25.4,
+            0,
+        );
+
+        let picture_mask = picture_mask.expect("the surrounding picture field remains");
+        assert!(
+            picture_mask.get(1, 3),
+            "a gap wider than twice the interline radius remains picture-owned"
+        );
     }
 
     #[test]
@@ -3616,6 +3937,70 @@ mod tests {
             layers.foreground_mask.get(30, 43),
             "dark flattened source ink was not preserved"
         );
+    }
+
+    #[test]
+    fn trusted_mixed_foreground_never_overpaints_picture_ownership() {
+        let mut gray = GrayImage::new(9, 3, 255);
+        gray.set(2, 1, 18);
+        gray.set(4, 1, 72);
+        gray.set(6, 1, 18);
+        let mut trusted = BinaryImage::new(9, 3);
+        trusted.set(2, 1, true);
+        trusted.set(4, 1, true);
+        let mut picture = BinaryImage::new(9, 3);
+        picture.set(4, 1, true);
+        let clipped = trusted_mixed_foreground(Some(&trusted), &picture)
+            .expect("trusted source selection remains available");
+
+        assert!(clipped.get(2, 1), "trusted text remains foreground-owned");
+        assert!(
+            !clipped.get(4, 1),
+            "trusted picture detail is removed from the stencil candidate"
+        );
+
+        for trusted_selection_complete in [false, true] {
+            let mut fresh = BinaryImage::new(9, 3);
+            fresh.set(6, 1, true);
+            let stencil = enforce_source_ink_support(
+                fresh,
+                &gray,
+                Some(&clipped),
+                trusted_selection_complete,
+                300.0,
+            );
+            let (_, _, layers) = compose_mixed(
+                &gray,
+                Some(&gray),
+                None,
+                &stencil,
+                &picture,
+                None,
+                None,
+                None,
+                None,
+                300.0,
+                false,
+                true,
+                true,
+            );
+            let layers = layers.expect("Mixed composition retains separate layers");
+
+            assert!(layers.foreground_mask.get(2, 1));
+            assert!(!layers.foreground_mask.get(4, 1));
+            assert!(layers.background.get(4, 1) < 255);
+            if !trusted_selection_complete {
+                assert!(
+                    layers.foreground_mask.get(6, 1),
+                    "raw-supported fresh text survives an incomplete trusted mask"
+                );
+            } else {
+                assert!(
+                    !layers.foreground_mask.get(6, 1),
+                    "a complete trusted selection remains the exact foreground authority"
+                );
+            }
+        }
     }
 
     #[test]

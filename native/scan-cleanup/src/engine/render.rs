@@ -3084,6 +3084,13 @@ fn enforce_source_ink_support(
     }
 }
 
+fn trusted_mixed_foreground(
+    trusted_foreground: Option<&BinaryImage>,
+    picture_mask: &BinaryImage,
+) -> Option<BinaryImage> {
+    trusted_foreground.map(|trusted| trusted.subtract(picture_mask))
+}
+
 fn filter_soft_shallow_bleed_components(
     binary: &BinaryImage,
     raw: &GrayImage,
@@ -3412,6 +3419,8 @@ fn partition_mixed_picture_mask(
     tone_picture_mask: Option<&BinaryImage>,
     halftone_zone_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
+    dpi: f64,
+    text_line_count: usize,
 ) {
     if let Some(spatial_tone) = spatial_tone_mask {
         *picture_mask = Some(match picture_mask.take() {
@@ -3434,17 +3443,344 @@ fn partition_mixed_picture_mask(
     // high-resolution foreground even when a coarse picture mask surrounds
     // it. Coherent tone and the exact classifier zone are exceptions: both
     // retain ownership in the continuous-tone layer.
-    let mut text_owned = chroma_picture_mask.map_or_else(
-        || text_vicinity.clone(),
-        |chroma| text_vicinity.subtract(chroma),
-    );
+    // A line detector deliberately publishes tight per-line rectangles. If a
+    // coarse picture component also surrounds those lines, carving only the
+    // rectangles leaves alternating gray and white bands between baselines.
+    // Close vertically by one physical millimetre so neighboring lines form
+    // one paper field without changing the outer line boundaries or growing
+    // sideways into an adjacent photograph. The larger guarded bridge is
+    // applied after the initial ownership exceptions so it sees the actual
+    // surviving row fields, not candidates that a tone mask later removes.
+    let interline_radius = (dpi.max(1.0) / 25.4).round().clamp(1.0, 32.0) as usize;
+    let text_field = erode(
+        &dilate(text_vicinity, 0, interline_radius),
+        0,
+        interline_radius,
+    )
+    .or(text_vicinity);
+    let mut text_owned = chroma_picture_mask
+        .map_or_else(|| text_field.clone(), |chroma| text_field.subtract(chroma));
     if let Some(tone) = tone_picture_mask {
         text_owned = text_owned.subtract(tone);
     }
     if let Some(zone) = halftone_zone_mask {
         text_owned = text_owned.subtract(zone);
     }
+    // A repeated chain of surviving extra-wide row fields is stronger
+    // text-column evidence than a narrow generic gray-paper band between
+    // them. Chroma and completed halftone zones remain exact ownership
+    // exceptions.
+    bridge_aligned_text_rows(&mut text_owned, dpi);
+    bridge_scanline_text_rows(&mut text_owned, dpi, text_line_count);
+    if let Some(chroma) = chroma_picture_mask {
+        text_owned = text_owned.subtract(chroma);
+    }
+    if let Some(zone) = halftone_zone_mask {
+        text_owned = text_owned.subtract(zone);
+    }
     *picture_mask = picture_mask.subtract(&text_owned);
+}
+
+/// Joins only a repeated chain of wide, vertically separated row fields.
+///
+/// The content detector can miss one or two low-contrast lines inside an
+/// otherwise coherent text column. Requiring three aligned fields with
+/// near-total horizontal overlap identifies a column pattern. A chain-global
+/// intersection prevents a wide hub from joining two unrelated columns.
+fn bridge_aligned_text_rows(text_field: &mut BinaryImage, dpi: f64) {
+    #[derive(Clone, Copy)]
+    struct RowField {
+        left: usize,
+        top: usize,
+        right: usize,
+        bottom: usize,
+    }
+
+    fn root(parents: &mut [usize], mut index: usize) -> usize {
+        while parents[index] != index {
+            parents[index] = parents[parents[index]];
+            index = parents[index];
+        }
+        index
+    }
+
+    fn union(parents: &mut [usize], left: usize, right: usize) {
+        let left_root = root(parents, left);
+        let right_root = root(parents, right);
+        if left_root != right_root {
+            parents[right_root] = left_root;
+        }
+    }
+
+    let dpi = dpi.max(1.0);
+    let minimum_width = (dpi * 30.0 / 25.4).round().max(1.0) as usize;
+    let maximum_gap = (dpi * 9.0 / 25.4).round().max(1.0) as usize;
+    let components = ComponentMap::from_binary(text_field);
+    let mut rows = components
+        .components()
+        .iter()
+        .filter_map(|component| {
+            let width = component.right - component.left + 1;
+            (width >= minimum_width).then_some(RowField {
+                left: component.left,
+                top: component.top,
+                right: component.right,
+                bottom: component.bottom,
+            })
+        })
+        .collect::<Vec<_>>();
+    rows.sort_unstable_by_key(|row| row.top);
+    if rows.len() < 3 {
+        return;
+    }
+
+    let mut parents = (0..rows.len()).collect::<Vec<_>>();
+    for (upper_index, upper) in rows.iter().enumerate() {
+        for (lower_index, lower) in rows.iter().enumerate().skip(upper_index + 1) {
+            if lower.top <= upper.bottom {
+                continue;
+            }
+            let gap = lower.top - upper.bottom - 1;
+            if gap > maximum_gap {
+                break;
+            }
+            let left = upper.left.max(lower.left);
+            let right = upper.right.min(lower.right);
+            if right < left {
+                continue;
+            }
+            let overlap = right - left + 1;
+            let smaller_width = (upper.right - upper.left + 1).min(lower.right - lower.left + 1);
+            if overlap.saturating_mul(5) >= smaller_width.saturating_mul(4) {
+                union(&mut parents, upper_index, lower_index);
+            }
+        }
+    }
+
+    let mut chain_sizes = vec![0usize; rows.len()];
+    let mut chain_left = vec![0usize; rows.len()];
+    let mut chain_right = vec![usize::MAX; rows.len()];
+    let mut chain_top = vec![usize::MAX; rows.len()];
+    let mut chain_bottom = vec![0usize; rows.len()];
+    for (index, row) in rows.iter().enumerate() {
+        let chain_root = root(&mut parents, index);
+        chain_sizes[chain_root] += 1;
+        chain_left[chain_root] = chain_left[chain_root].max(row.left);
+        chain_right[chain_root] = chain_right[chain_root].min(row.right);
+        chain_top[chain_root] = chain_top[chain_root].min(row.top);
+        chain_bottom[chain_root] = chain_bottom[chain_root].max(row.bottom);
+    }
+    for chain_root in 0..rows.len() {
+        if chain_sizes[chain_root] < 3
+            || chain_right[chain_root] < chain_left[chain_root]
+            || chain_right[chain_root] - chain_left[chain_root] + 1 < minimum_width
+        {
+            continue;
+        }
+        for y in chain_top[chain_root]..=chain_bottom[chain_root] {
+            for x in chain_left[chain_root]..=chain_right[chain_root] {
+                text_field.set(x, y, true);
+            }
+        }
+    }
+}
+
+/// Finds text-column chains that narrow vertical connectors hide from 2-D
+/// connected-component analysis.
+///
+/// On dense pages, a preparatory tier repairs shorter row fragments using the
+/// established 30 mm / 9 mm limits. A strict second tier permits the larger
+/// measured gaps only when every field is at least 60 mm wide and shares 90%
+/// of its span. Both fill one chain-global horizontal intersection, so a run
+/// that drifts around an adjacent portrait cannot widen the text owner.
+fn bridge_scanline_text_rows(text_field: &mut BinaryImage, dpi: f64, text_line_count: usize) {
+    if text_line_count >= 20 {
+        bridge_scanline_text_row_tier(text_field, dpi, 30.0, 0.35, 9.0, 4, 5);
+        bridge_scanline_text_row_tier(text_field, dpi, 60.0, 1.0, 13.0, 9, 10);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn bridge_scanline_text_row_tier(
+    text_field: &mut BinaryImage,
+    dpi: f64,
+    minimum_width_mm: f64,
+    minimum_height_mm: f64,
+    maximum_gap_mm: f64,
+    overlap_numerator: usize,
+    overlap_denominator: usize,
+) {
+    #[derive(Clone, Copy)]
+    struct RunBand {
+        left: usize,
+        top: usize,
+        right: usize,
+        bottom: usize,
+    }
+
+    fn root(parents: &mut [usize], mut index: usize) -> usize {
+        while parents[index] != index {
+            parents[index] = parents[parents[index]];
+            index = parents[index];
+        }
+        index
+    }
+
+    fn union(parents: &mut [usize], left: usize, right: usize) {
+        let left_root = root(parents, left);
+        let right_root = root(parents, right);
+        if left_root != right_root {
+            parents[right_root] = left_root;
+        }
+    }
+
+    let dpi = dpi.max(1.0);
+    let minimum_width = (dpi * minimum_width_mm / 25.4).round().max(1.0) as usize;
+    let minimum_height = (dpi * minimum_height_mm / 25.4).round().max(1.0) as usize;
+    let maximum_gap = (dpi * maximum_gap_mm / 25.4).round().max(1.0) as usize;
+    let width = text_field.width();
+    let height = text_field.height();
+    if width < minimum_width || height < minimum_height {
+        return;
+    }
+
+    // Track every simultaneous run independently. Matching against the
+    // band's running intersection prevents a right-side portrait run from
+    // being unioned into a left-side text column merely because their outer
+    // bounding box overlaps.
+    let mut active = Vec::<RunBand>::new();
+    let mut finished = Vec::<RunBand>::new();
+    for y in 0..height {
+        let mut runs = Vec::<(usize, usize)>::new();
+        let mut x = 0;
+        while x < width {
+            while x < width && !text_field.get(x, y) {
+                x += 1;
+            }
+            let left = x;
+            while x < width && text_field.get(x, y) {
+                x += 1;
+            }
+            if x > left && x - left >= minimum_width {
+                runs.push((left, x - 1));
+            }
+        }
+
+        let mut used = vec![false; active.len()];
+        let mut next = Vec::with_capacity(runs.len());
+        for (left, right) in runs {
+            let run_width = right - left + 1;
+            let mut best = None;
+            for (index, band) in active.iter().enumerate() {
+                if used[index] || band.bottom + 1 != y {
+                    continue;
+                }
+                let overlap_left = left.max(band.left);
+                let overlap_right = right.min(band.right);
+                if overlap_right < overlap_left {
+                    continue;
+                }
+                let overlap = overlap_right - overlap_left + 1;
+                let band_width = band.right - band.left + 1;
+                let smaller_width = run_width.min(band_width);
+                if overlap < minimum_width
+                    || overlap.saturating_mul(overlap_denominator)
+                        < smaller_width.saturating_mul(overlap_numerator)
+                {
+                    continue;
+                }
+                if best.is_none_or(|(_, best_overlap)| overlap > best_overlap) {
+                    best = Some((index, overlap));
+                }
+            }
+            if let Some((index, _)) = best {
+                used[index] = true;
+                let band = active[index];
+                next.push(RunBand {
+                    left: band.left.max(left),
+                    top: band.top,
+                    right: band.right.min(right),
+                    bottom: y,
+                });
+            } else {
+                next.push(RunBand {
+                    left,
+                    top: y,
+                    right,
+                    bottom: y,
+                });
+            }
+        }
+        finished.extend(
+            active
+                .into_iter()
+                .zip(used)
+                .filter_map(|(band, used)| (!used).then_some(band)),
+        );
+        active = next;
+    }
+    finished.extend(active);
+    let mut bands = finished
+        .into_iter()
+        .filter(|band| band.bottom - band.top + 1 >= minimum_height)
+        .collect::<Vec<_>>();
+    bands.sort_unstable_by_key(|band| band.top);
+    if bands.len() < 3 {
+        return;
+    }
+
+    let mut parents = (0..bands.len()).collect::<Vec<_>>();
+    for (upper_index, upper) in bands.iter().enumerate() {
+        for (lower_index, lower) in bands.iter().enumerate().skip(upper_index + 1) {
+            if lower.top <= upper.bottom {
+                continue;
+            }
+            let gap = lower.top - upper.bottom - 1;
+            if gap > maximum_gap {
+                break;
+            }
+            let left = upper.left.max(lower.left);
+            let right = upper.right.min(lower.right);
+            if right < left {
+                continue;
+            }
+            let overlap = right - left + 1;
+            let smaller_width = (upper.right - upper.left + 1).min(lower.right - lower.left + 1);
+            if overlap >= minimum_width
+                && overlap.saturating_mul(overlap_denominator)
+                    >= smaller_width.saturating_mul(overlap_numerator)
+            {
+                union(&mut parents, upper_index, lower_index);
+            }
+        }
+    }
+
+    let mut chain_sizes = vec![0usize; bands.len()];
+    let mut chain_left = vec![0usize; bands.len()];
+    let mut chain_right = vec![usize::MAX; bands.len()];
+    let mut chain_top = vec![usize::MAX; bands.len()];
+    let mut chain_bottom = vec![0usize; bands.len()];
+    for (index, band) in bands.iter().enumerate() {
+        let chain_root = root(&mut parents, index);
+        chain_sizes[chain_root] += 1;
+        chain_left[chain_root] = chain_left[chain_root].max(band.left);
+        chain_right[chain_root] = chain_right[chain_root].min(band.right);
+        chain_top[chain_root] = chain_top[chain_root].min(band.top);
+        chain_bottom[chain_root] = chain_bottom[chain_root].max(band.bottom);
+    }
+    for chain_root in 0..bands.len() {
+        if chain_sizes[chain_root] < 3
+            || chain_right[chain_root] < chain_left[chain_root]
+            || chain_right[chain_root] - chain_left[chain_root] + 1 < minimum_width
+        {
+            continue;
+        }
+        for y in chain_top[chain_root]..=chain_bottom[chain_root] {
+            for x in chain_left[chain_root]..=chain_right[chain_root] {
+                text_field.set(x, y, true);
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4117,6 +4453,8 @@ fn clean_region(
             rendered_tone_picture_mask.as_ref(),
             rendered_halftone_zone_mask.as_ref(),
             rendered_text_vicinity_mask.as_ref(),
+            options.dpi,
+            text_tone_diagnostics.map_or(0, |diagnostics| diagnostics.text_line_count),
         );
     }
     timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
@@ -4382,10 +4720,19 @@ fn clean_region(
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
+                    // Producer MRC selections are excellent glyph evidence,
+                    // but they can also contain dark samples from photographs
+                    // and reliefs. The Mixed partition is authoritative: a
+                    // trusted selection may restore text only outside the
+                    // calibrated continuous-tone ownership mask.
+                    let trusted_text_foreground = trusted_mixed_foreground(
+                        rendered_trusted_foreground_mask.as_ref(),
+                        picture_mask,
+                    );
                     let binary = enforce_source_ink_support(
                         binary,
                         &rendered_source_gray,
-                        rendered_trusted_foreground_mask.as_ref(),
+                        trusted_text_foreground.as_ref(),
                         options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
                         options.dpi,
                     );

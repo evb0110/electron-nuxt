@@ -981,6 +981,7 @@ watch(isRunning, running => {
     flex: 1;
     min-width: 0;
     overflow: hidden;
+    padding-block: 0.125em;
     color: var(--ui-text-muted);
     font-variant-numeric: tabular-nums;
     text-overflow: ellipsis;
