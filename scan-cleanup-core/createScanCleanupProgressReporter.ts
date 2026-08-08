@@ -193,11 +193,22 @@ export function createScanCleanupProgressReporter(
     let lastEtaSeconds: number | undefined;
     return (stage, completedUnits, totalUnits, completedPageNumbers) => {
         const reportedAt = now();
-        const bands = isLossless()
-            ? LOSSLESS_BANDS
+        const profile = isLossless()
+            ? {
+                bands: LOSSLESS_BANDS,
+                weights: LOSSLESS_STAGE_WEIGHTS,
+            }
             : options.isRasterStreaming?.() === true
-                ? STREAMING_RASTER_BANDS
-                : RASTER_BANDS;
+                ? {
+                    bands: STREAMING_RASTER_BANDS,
+                    weights: STREAMING_RASTER_STAGE_WEIGHTS,
+                }
+                : {
+                    bands: RASTER_BANDS,
+                    weights: RASTER_STAGE_WEIGHTS,
+                };
+        const stageIndex = profile.weights.findIndex(([profileStage]) => profileStage === stage) + 1;
+        const bands = profile.bands;
         const band = bands.get(stage);
         const fraction = totalUnits > 0 ? Math.min(1, completedUnits / totalUnits) : 0;
         const percent = band === undefined ? lastPercent : band.start + (band.span * fraction);
@@ -241,6 +252,10 @@ export function createScanCleanupProgressReporter(
             completedUnits,
             totalUnits,
             percent: lastPercent,
+            ...(stageIndex === 0 ? {} : {
+                stageIndex,
+                stageCount: profile.weights.length,
+            }),
             ...(etaSeconds === undefined ? {} : {etaSeconds}),
             ...(completedPageNumbers ? {completedPageNumbers: [...completedPageNumbers]} : {}),
         });

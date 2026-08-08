@@ -190,6 +190,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             progressCountText: session.progressCountText ?? ref(''),
             progressCountWidestText: session.progressCountWidestText ?? ref('392 / 392'),
             progressEtaText: session.progressEtaText ?? ref(''),
+            progressEtaWidestText: session.progressEtaWidestText ?? ref(''),
             progressPercentText: session.progressPercentText ?? ref(''),
             progressPercentWidestText: session.progressPercentWidestText ?? ref('100%'),
             progressPhaseText: session.progressPhaseText ?? session.progressText,
@@ -294,6 +295,7 @@ const translations: Record<string, string> = {
     'scanCleanup.settings.applyScopes.everyOther': 'Every other page',
     'scanCleanup.groups.pageSettings': 'Page settings',
     'scanCleanup.groups.documentSettings': 'Document settings',
+    'scanCleanup.crop.blankDetected': '{count} pages look blank',
     'scanCleanup.layout.label': 'Page layout',
     'scanCleanup.margins.title': 'Margins',
     'scanCleanup.margins.left': 'Left (mm)',
@@ -322,6 +324,8 @@ const translations: Record<string, string> = {
     'scanCleanup.pages.resetConfirmBody': 'Clear overrides',
     'scanCleanup.pages.resetAction': 'Reset',
     'scanCleanup.runStatusLabel': 'Cleanup progress',
+    'scanCleanup.runStep': 'Step {index} of {count}',
+    'scanCleanup.etaPending': 'Estimating time left…',
     'scanCleanup.cancelingDetection': 'Stopping background analysis…',
     'scanCleanup.runProgress.rasterizing': 'Preparing cleanup pages',
     'scanCleanup.firstRun.title': 'How scan cleanup works',
@@ -329,8 +333,6 @@ const translations: Record<string, string> = {
     'scanCleanup.firstRun.review': 'Review pages — drag the cutter or boxes, and adjust per-page settings.',
     'scanCleanup.firstRun.cleanUp': 'Clean up creates a new PDF; the original is untouched.',
     'scanCleanup.firstRun.dismiss': 'Got it',
-    'scanCleanup.blankHint.message': '{count} pages look blank — enable Skip blank pages?',
-    'scanCleanup.blankHint.enable': 'Enable',
     'scanCleanup.zones.toggle': 'Edit picture and fill zones',
     'scanCleanup.zones.useMixedOutput': 'Use mixed output',
     'common.close': 'Close',
@@ -815,6 +817,7 @@ function settingsPanelProps(
     return {
         alignmentItems: [],
         applyScopeItems: [],
+        blankPageCount: 0,
         contentBoxes: single({}),
         customizedCounts: {
             all: 0,
@@ -1295,7 +1298,7 @@ describe('Scan cleanup components', () => {
         expect(updateSelectionOutputModeOverride).toHaveBeenCalledWith('mixed', [2]);
     });
 
-    it('offers to enable blank-page skipping after detection and remains dismissible', async () => {
+    it('shows detected blank pages under the sidebar setting without changing the default', async () => {
         const blankPageCount = ref(2);
         const settings = reactive({
             preserveOriginalQuality: false,
@@ -1330,33 +1333,16 @@ describe('Scan cleanup components', () => {
         })));
         await nextTick();
 
-        const hint = harness.host.querySelector('.scan-cleanup-blank-hint');
+        const hint = harness.host.querySelector('.scan-cleanup-blank-detected-hint');
         expect(hint?.textContent).toContain('2 pages look blank');
-        Array.from(hint?.querySelectorAll('button') ?? [])
-            .find(button => button.textContent === 'Enable')
-            ?.click();
+        expect(harness.host.querySelector('.scan-cleanup-blank-hint')).toBeNull();
+        expect(settings.skipBlankPages).toBe(false);
+
+        settings.skipBlankPages = true;
         await nextTick();
         expect(settings.skipBlankPages).toBe(true);
-        expect(harness.host.querySelector('.scan-cleanup-blank-hint')).toBeNull();
-
-        harness.unmount();
-        settings.skipBlankPages = false;
-        workspaceSession.value = createWorkspaceEntrySession({
-            blankPageCount,
-            detectionPending: ref(false),
-            settings,
-        });
-        const dismissHarness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: '/docs/scanned.pdf',
-            documentKey: 'document-a',
-            currentPage: 1,
-            totalPages: 2,
-        })));
-        await nextTick();
-        dismissHarness.host.querySelector<HTMLButtonElement>('[aria-label="Close"]')?.click();
-        await nextTick();
-        expect(settings.skipBlankPages).toBe(false);
-        expect(dismissHarness.host.querySelector('.scan-cleanup-blank-hint')).toBeNull();
+        expect(harness.host.querySelector('.scan-cleanup-blank-detected-hint')?.textContent)
+            .toContain('2 pages look blank');
     });
 
     it('keeps a native page frame visible through the real workspace debounce state while metrics resolve', async () => {
@@ -1747,6 +1733,7 @@ describe('Scan cleanup components', () => {
             detecting: false,
             running: false,
         });
+        const etaText = ref('Estimating time left…');
         const zoneWidths = {
             'scan-cleanup-toolbar-zone-left': 160,
             'scan-cleanup-toolbar-zone-center': 680,
@@ -1781,11 +1768,12 @@ describe('Scan cleanup components', () => {
             percent: 42,
             progressCountText: '51 / 120',
             progressCountWidestText: '120 / 120',
-            progressEtaText: 'Estimated time left: 3:42',
+            progressEtaText: etaText.value,
+            progressEtaWidestText: 'Estimated time left: 999:59',
             progressPercentText: '42%',
             progressPercentWidestText: '100%',
-            progressPhaseText: 'Cleaning pages',
-            progressText: 'Cleaning pages — 51 / 120',
+            progressPhaseText: 'Step 5 of 8 · Cleaning pages',
+            progressText: `Step 5 of 8 · Cleaning pages — 51 / 120. ${etaText.value}`,
             runLabel: 'Clean up',
             runDisabledReason: '',
             transitionText: '',
@@ -1809,10 +1797,15 @@ describe('Scan cleanup components', () => {
         expect(widths()).toEqual(reviewWidths);
         const meter = harness.host.querySelector('.scan-cleanup-run-meter');
         expect(meter?.textContent).toContain('Cleaning pages');
+        expect(meter?.textContent).toContain('Step 5 of 8');
         expect(meter?.textContent).toContain('51 / 120');
         expect(meter?.textContent).toContain('42%');
-        expect(meter?.textContent).toContain('Estimated time left: 3:42');
+        expect(meter?.textContent).toContain('Estimating time left…');
+        expect(meter?.querySelector('.scan-cleanup-run-meter-eta .scan-cleanup-stable-width-sizer')?.textContent)
+            .toBe('Estimated time left: 999:59');
         expect(meter?.getAttribute('aria-valuenow')).toBe('42');
+        expect(meter?.getAttribute('aria-valuetext'))
+            .toContain('Step 5 of 8 · Cleaning pages');
         expect(meter?.querySelector('.scan-cleanup-run-meter-count .scan-cleanup-stable-width-sizer')?.textContent)
             .toBe('120 / 120');
         expect(meter?.querySelector('.scan-cleanup-run-meter-percent .scan-cleanup-stable-width-sizer')?.textContent)
@@ -1821,9 +1814,12 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelectorAll('.scan-cleanup-toolbar-primary-action')).toHaveLength(1);
         expect(scanCleanupToolbarSource).toContain('minmax(0, 1fr)');
         expect(scanCleanupToolbarSource).toContain('minmax(0, var(--app-scan-toolbar-meter-width))');
-        expect(scanCleanupToolbarSource).toContain('grid-template-columns: minmax(0, 1fr) auto auto');
+        expect(scanCleanupToolbarSource).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 2fr)');
         expect(scanCleanupToolbarSource).toContain('width: 100%;');
         expect(scanCleanupToolbarSource).not.toContain('minmax(var(--app-scan-toolbar-right-zone-width), auto)');
+        etaText.value = 'Estimated time left: 3:42';
+        await nextTick();
+        expect(meter?.textContent).toContain('Estimated time left: 3:42');
         rectSpy.mockRestore();
     });
 
@@ -4679,6 +4675,7 @@ describe('Scan cleanup components', () => {
         const meter = harness.host.querySelector('.scan-cleanup-run-meter');
 
         expect(meter?.textContent).toContain(transitionText);
+        expect(meter?.textContent).toContain('Estimating time left…');
         expect(meter?.textContent).not.toContain('0 / 392');
         expect(meter?.textContent).not.toContain('0%');
         expect(meter?.getAttribute('aria-valuenow')).toBeNull();
@@ -4714,6 +4711,7 @@ describe('Scan cleanup components', () => {
 
         expect(meter?.textContent).toContain('Pre-analyzing pages');
         expect(meter?.textContent).toContain('98 / 392');
+        expect(meter?.textContent).toContain('Estimating time left…');
         expect(fill?.style.width).toBe('25%');
         expect(meter?.getAttribute('aria-valuenow')).toBe('25');
         // The workspace feeds this state: while the run waits for detection it

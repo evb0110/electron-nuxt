@@ -148,6 +148,7 @@
     --app-scan-reset-confirmation-width: 17rem;
     --app-scan-details-width: 22rem;
     --app-scan-toolbar-progress-height: var(--app-search-progress-height);
+    --app-scan-toolbar-progress-min-width: 4rem;
     --app-scan-toolbar-right-zone-width: 21rem;
     --app-scan-toolbar-meter-width: 26rem;
     --app-scan-toolbar-redetect-width: 6.5rem;

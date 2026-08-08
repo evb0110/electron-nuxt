@@ -197,6 +197,15 @@ function ownerActor(sender: WebContents, owner: IScanCleanupOwnerContext) {
     };
 }
 
+function omitStageMetadata(progress: TScanCleanupProgress): TScanCleanupProgress {
+    const {
+        stageIndex: _stageIndex,
+        stageCount: _stageCount,
+        ...rest
+    } = progress;
+    return rest;
+}
+
 function completedProgress(
     latest: TScanCleanupJobState,
     result: IScanCleanupJobResult,
@@ -208,11 +217,15 @@ function completedProgress(
         summary: result.summary,
         partial: result.partial,
         progress: {
-            ...latest.progress,
+            ...omitStageMetadata(latest.progress),
             stage: 'handoff',
             completedUnits: result.summary.inputPages,
             totalUnits: result.summary.inputPages,
             percent: 100,
+            ...(latest.progress.stageCount === undefined ? {} : {
+                stageIndex: latest.progress.stageCount,
+                stageCount: latest.progress.stageCount,
+            }),
             completedPageNumbers: result.completedPageNumbers,
         },
         updatedAtMs: Date.now(),

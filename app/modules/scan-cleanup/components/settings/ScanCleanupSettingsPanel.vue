@@ -494,6 +494,10 @@
                 :disabled="settings.preserveOriginalQuality === true"
                 @update:model-value="updateDocument('skipBlankPages', $event === true)"
             />
+            <p
+                v-if="blankPageCount > 0"
+                class="scan-cleanup-blank-detected-hint"
+            >{{ t('scanCleanup.crop.blankDetected', {count: blankPageCount}) }}</p>
             <UCollapsible
                 v-model:open="advancedOpen"
                 :unmount-on-hide="false"
@@ -661,6 +665,7 @@ const props = defineProps<{
             onSelect: () => void;
         }
     >;
+    blankPageCount: number;
     contentBoxes: IScanCleanupMixedValue<Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>>;
     customizedCounts: Record<TScanCleanupSettingsScope, number>;
     detectedSkewDegrees: number | undefined;
@@ -922,6 +927,12 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
 .scan-cleanup-apply-page {
     width: 100%;
     justify-content: center;
+}
+
+.scan-cleanup-blank-detected-hint {
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-body);
 }
 
 .scan-cleanup-control-label,

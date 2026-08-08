@@ -197,13 +197,10 @@ export default {
         'crop': {
             'label': 'Snijd elke uitvoerpagina bij tot de inhoud ervan',
             'skipBlank': 'Sla lege pagina\'s over',
-        },
-        'blankHint': {
-            'message': plural({
-                one: '{count} pagina lijkt leeg — ‘Sla lege pagina’s over’ inschakelen?',
-                other: '{count} pagina’s lijken leeg — ‘Sla lege pagina’s over’ inschakelen?',
+            'blankDetected': plural({
+                one: '{count} pagina lijkt leeg',
+                other: '{count} pagina\'s lijken leeg',
             }),
-            'enable': 'Inschakelen',
         },
         'margins': {
             'title': 'Marges',
@@ -445,7 +442,9 @@ export default {
             'handoff': 'Resultaat openen',
             'detecting': 'Pagina\'s detecteren',
         },
+        'runStep': 'Stap {index} van {count}',
         'runCount': '{completed} / {total}',
+        'etaPending': 'Resterende tijd wordt geschat…',
         'runPercent': '{percent} %',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Voortgang van de opschoning',

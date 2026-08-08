@@ -197,13 +197,10 @@ export default {
         'crop': {
             'label': 'Recadrer chaque page de sortie selon son contenu',
             'skipBlank': 'Ignorer les pages blanches',
-        },
-        'blankHint': {
-            'message': plural({
-                one: '{count} page semble blanche — activer « Ignorer les pages blanches » ?',
-                other: '{count} pages semblent blanches — activer « Ignorer les pages blanches » ?',
+            'blankDetected': plural({
+                one: '{count} page semble blanche',
+                other: '{count} pages semblent blanches',
             }),
-            'enable': 'Activer',
         },
         'margins': {
             'title': 'Marges',
@@ -445,7 +442,9 @@ export default {
             'handoff': 'Ouverture du résultat',
             'detecting': 'Détection des pages',
         },
+        'runStep': 'Étape {index} sur {count}',
         'runCount': '{completed} / {total}',
+        'etaPending': 'Estimation du temps restant…',
         'runPercent': '{percent} %',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Progression du nettoyage',

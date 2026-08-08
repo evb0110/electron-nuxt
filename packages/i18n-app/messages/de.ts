@@ -197,13 +197,10 @@ export default {
         'crop': {
             'label': 'Jede Ausgabeseite auf ihren Inhalt zuschneiden',
             'skipBlank': 'Leere Seiten überspringen',
-        },
-        'blankHint': {
-            'message': plural({
-                one: '{count} Seite scheint leer zu sein — „Leere Seiten überspringen“ aktivieren?',
-                other: '{count} Seiten scheinen leer zu sein — „Leere Seiten überspringen“ aktivieren?',
+            'blankDetected': plural({
+                one: '{count} Seite scheint leer zu sein',
+                other: '{count} Seiten scheinen leer zu sein',
             }),
-            'enable': 'Aktivieren',
         },
         'margins': {
             'title': 'Ränder',
@@ -445,7 +442,9 @@ export default {
             'handoff': 'Ergebnis wird geöffnet',
             'detecting': 'Seiten werden erkannt',
         },
+        'runStep': 'Schritt {index} von {count}',
         'runCount': '{completed} / {total}',
+        'etaPending': 'Verbleibende Zeit wird geschätzt…',
         'runPercent': '{percent} %',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Bereinigungsfortschritt',

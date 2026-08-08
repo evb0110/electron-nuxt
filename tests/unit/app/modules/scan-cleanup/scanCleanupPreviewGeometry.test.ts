@@ -708,8 +708,8 @@ describe('scan cleanup preview geometry', () => {
         expect(previewFiles).toContain('transformPreviewContentBox(metadata)');
         expect(previewFiles.match(/<ScanCleanupSegmented/gu)).toHaveLength(1);
         expect(workspace).toContain('<ScanCleanupSettingsPanel');
-        expect(workspace).toMatch(/\.scan-cleanup-blank-hint \{[\s\S]*?pointer-events: none;/u);
-        expect(workspace).toMatch(/\.scan-cleanup-blank-hint-actions \{[\s\S]*?pointer-events: auto;/u);
+        expect(workspace).not.toContain('scan-cleanup-blank-hint');
+        expect(settingsPanel).toContain('scanCleanup.crop.blankDetected');
         expect(workspace).not.toContain('<DocumentSettings');
         expect(workspace).not.toContain('<SelectionSettings');
         expect(settingsPanel).toContain('class="scan-cleanup-details-trigger"');

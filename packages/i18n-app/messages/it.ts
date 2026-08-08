@@ -197,13 +197,10 @@ export default {
         'crop': {
             'label': 'Ritaglia ogni pagina di output in base al suo contenuto',
             'skipBlank': 'Salta le pagine vuote',
-        },
-        'blankHint': {
-            'message': plural({
-                one: '{count} pagina sembra vuota — attivare «Salta le pagine vuote»?',
-                other: '{count} pagine sembrano vuote — attivare «Salta le pagine vuote»?',
+            'blankDetected': plural({
+                one: '{count} pagina sembra vuota',
+                other: '{count} pagine sembrano vuote',
             }),
-            'enable': 'Attiva',
         },
         'margins': {
             'title': 'Margini',
@@ -445,7 +442,9 @@ export default {
             'handoff': 'Apertura del risultato',
             'detecting': 'Rilevamento delle pagine',
         },
+        'runStep': 'Passaggio {index} di {count}',
         'runCount': '{completed} / {total}',
+        'etaPending': 'Stima del tempo rimanente…',
         'runPercent': '{percent} %',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Avanzamento della pulizia',

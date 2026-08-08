@@ -154,15 +154,19 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         completed: progress.value.totalUnits,
         total: progress.value.totalUnits,
     }));
+    const progressEtaPendingText = computed(() => t('scanCleanup.etaPending'));
     const progressEtaText = computed(() => {
         const eta = formatEtaDuration(progress.value.etaSeconds === undefined
             ? null
             : progress.value.etaSeconds * 1000);
-        return eta === null ? '' : t('emptyState.preparingBatchEta', {eta});
+        return eta === null ? progressEtaPendingText.value : t('emptyState.preparingBatchEta', {eta});
     });
-    const progressText = computed(() => progressEtaText.value === ''
-        ? progressParts.value.text
-        : `${progressParts.value.text}. ${progressEtaText.value}`);
+    const progressEtaWidestText = computed(() => {
+        const pending = progressEtaPendingText.value;
+        const estimated = t('emptyState.preparingBatchEta', {eta: '999:59'});
+        return pending.length >= estimated.length ? pending : estimated;
+    });
+    const progressText = computed(() => `${progressParts.value.text}. ${progressEtaText.value}`);
     const progressPercentText = computed(() => t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, progress.value.percent)))}));
     const progressPercentWidestText = computed(() => t('scanCleanup.runPercent', {percent: 100}));
     const runLabel = computed(() => options.sourcePageNumbers.value === null
@@ -371,6 +375,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         progressCountText,
         progressCountWidestText,
         progressEtaText,
+        progressEtaWidestText,
         progressPercentText,
         progressPercentWidestText,
         progressPhaseText,

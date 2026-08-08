@@ -602,13 +602,10 @@ export default {
         'crop': {
             'label': 'Crop each output page to its content',
             'skipBlank': 'Skip blank pages',
-        },
-        'blankHint': {
-            'message': plural({
-                one: '{count} page looks blank — enable Skip blank pages?',
-                other: '{count} pages look blank — enable Skip blank pages?',
+            'blankDetected': plural({
+                one: '{count} page looks blank',
+                other: '{count} pages look blank',
             }),
-            'enable': 'Enable',
         },
         'margins': {
             'title': 'Margins',
@@ -850,7 +847,9 @@ export default {
             'handoff': 'Opening result',
             'detecting': 'Detecting pages',
         },
+        'runStep': 'Step {index} of {count}',
         'runCount': '{completed} / {total}',
+        'etaPending': 'Estimating time left…',
         'runPercent': '{percent}%',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Cleanup progress',

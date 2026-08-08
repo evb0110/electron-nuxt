@@ -197,13 +197,10 @@ export default {
         'crop': {
             'label': 'Corte cada página de saída de acordo com seu conteúdo',
             'skipBlank': 'Pular páginas em branco',
-        },
-        'blankHint': {
-            'message': plural({
-                one: '{count} página parece estar em branco — ativar “Pular páginas em branco”?',
-                other: '{count} páginas parecem estar em branco — ativar “Pular páginas em branco”?',
+            'blankDetected': plural({
+                one: '{count} página parece estar em branco',
+                other: '{count} páginas parecem estar em branco',
             }),
-            'enable': 'Ativar',
         },
         'margins': {
             'title': 'Margens',
@@ -445,7 +442,9 @@ export default {
             'handoff': 'Abrindo o resultado',
             'detecting': 'Detectando as páginas',
         },
+        'runStep': 'Etapa {index} de {count}',
         'runCount': '{completed} / {total}',
+        'etaPending': 'Estimando o tempo restante…',
         'runPercent': '{percent} %',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Progresso da limpeza',

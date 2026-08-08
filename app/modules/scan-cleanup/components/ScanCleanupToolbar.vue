@@ -30,37 +30,42 @@
                 :aria-valuenow="transitionText ? undefined : normalizedPercent"
                 :aria-valuetext="transitionText || progressText"
             >
-                <p class="scan-cleanup-run-meter-head">
-                    <span
-                        class="scan-cleanup-run-meter-phase"
-                        role="status"
-                        aria-live="polite"
-                    >
-                        <span class="scan-cleanup-run-meter-phase-label">
-                            {{ transitionText || progressPhaseText }}
-                        </span>
+                <div class="scan-cleanup-run-meter-head">
+                    <div class="scan-cleanup-run-meter-left">
                         <span
-                            v-if="!transitionText && progressEtaText"
+                            class="scan-cleanup-run-meter-phase"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <span class="scan-cleanup-run-meter-phase-label">
+                                {{ transitionText || progressPhaseText }}
+                            </span>
+                        </span>
+                        <ScanCleanupStableWidthText
+                            class="scan-cleanup-run-meter-count"
+                            :text="transitionText ? '' : progressCountText"
+                            :widest="transitionText ? '' : progressCountWidestText"
+                        />
+                    </div>
+                    <div class="scan-cleanup-run-meter-right">
+                        <span class="scan-cleanup-run-meter-track">
+                            <span
+                                class="scan-cleanup-run-meter-fill"
+                                :style="{width: `${normalizedPercent}%`}"
+                            />
+                        </span>
+                        <ScanCleanupStableWidthText
+                            class="scan-cleanup-run-meter-percent"
+                            :text="transitionText ? '' : progressPercentText"
+                            :widest="transitionText ? '' : resolvedProgressPercentWidestText"
+                        />
+                        <ScanCleanupStableWidthText
                             class="scan-cleanup-run-meter-eta"
-                        >{{ progressEtaText }}</span>
-                    </span>
-                    <ScanCleanupStableWidthText
-                        class="scan-cleanup-run-meter-count"
-                        :text="transitionText ? '' : progressCountText"
-                        :widest="transitionText ? '' : progressCountWidestText"
-                    />
-                    <ScanCleanupStableWidthText
-                        class="scan-cleanup-run-meter-percent"
-                        :text="transitionText ? '' : progressPercentText"
-                        :widest="transitionText ? '' : resolvedProgressPercentWidestText"
-                    />
-                </p>
-                <span class="scan-cleanup-run-meter-track">
-                    <span
-                        class="scan-cleanup-run-meter-fill"
-                        :style="{width: `${normalizedPercent}%`}"
-                    />
-                </span>
+                            :text="resolvedProgressEtaText"
+                            :widest="resolvedProgressEtaWidestText"
+                        />
+                    </div>
+                </div>
             </div>
             <template v-else>
                 <AppTooltip :text="t('scanCleanup.zones.toggleHint')">
@@ -230,6 +235,7 @@ const {
     progressCountText,
     progressCountWidestText = '',
     progressEtaText = '',
+    progressEtaWidestText = '',
     progressPercentText,
     progressPercentWidestText = '',
     progressPhaseText,
@@ -255,6 +261,7 @@ const {
     progressCountText: string;
     progressCountWidestText?: string;
     progressEtaText?: string;
+    progressEtaWidestText?: string;
     progressPercentText: string;
     progressPercentWidestText?: string;
     progressPhaseText: string;
@@ -285,6 +292,12 @@ const normalizedPercent = computed(() => Math.min(100, Math.max(0, Math.round(pe
 const resolvedProgressPercentWidestText = computed(() =>
     progressPercentWidestText || progressPercentText,
 );
+const resolvedProgressEtaText = computed(() => progressEtaText === ''
+    ? t('scanCleanup.etaPending')
+    : progressEtaText);
+const resolvedProgressEtaWidestText = computed(() => progressEtaWidestText === ''
+    ? resolvedProgressEtaText.value
+    : progressEtaWidestText);
 // Cancelling detection is not destructive: pages already detected keep their
 // results, so the control names that outcome instead of a bare “Cancel”.
 const detectionCancelLabel = computed(() => t(detectionCancelRequested
@@ -345,16 +358,30 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     display: flex;
     width: 100%;
     flex-direction: column;
-    gap: var(--app-space-sm);
 }
 
 .scan-cleanup-run-meter-head {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: baseline;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
     gap: var(--app-space-3xl);
     font-size: var(--app-text-size-body-sm);
     white-space: nowrap;
+}
+
+.scan-cleanup-run-meter-left,
+.scan-cleanup-run-meter-right {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--app-space-3xl);
+}
+
+.scan-cleanup-run-meter-left {
+    overflow: hidden;
+}
+
+.scan-cleanup-run-meter-right {
+    justify-content: flex-end;
 }
 
 .scan-cleanup-run-meter-phase {
@@ -374,13 +401,14 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 .scan-cleanup-run-meter-phase-label {
-    flex: none;
+    min-width: 0;
+    flex: 1;
 }
 
 .scan-cleanup-run-meter-eta {
     min-width: 0;
     color: var(--ui-text-muted);
-    flex: 1;
+    flex: none;
     font-weight: var(--app-font-weight-medium);
 }
 
@@ -396,8 +424,10 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-run-meter-track {
     display: block;
+    min-width: var(--app-scan-toolbar-progress-min-width);
     overflow: hidden;
     width: 100%;
+    flex: 1;
     height: var(--app-scan-toolbar-progress-height);
     border-radius: var(--app-radius-full);
     background: var(--ui-bg-muted);

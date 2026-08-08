@@ -33,6 +33,16 @@ const progress = s.refine(s.object({
         max: 100,
         message: 'invalid scan-cleanup progress',
     }),
+    stageIndex: s.optional(s.number({
+        integer: true,
+        min: 1,
+        message: 'invalid scan-cleanup progress stage index',
+    })),
+    stageCount: s.optional(s.number({
+        integer: true,
+        min: 1,
+        message: 'invalid scan-cleanup progress stage count',
+    })),
     etaSeconds: s.optional(s.number({
         integer: true,
         min: 0,
@@ -45,6 +55,11 @@ const progress = s.refine(s.object({
     }))),
 }), value =>
     value.completedUnits <= value.totalUnits
+    && (
+        value.stageIndex === undefined
+        || value.stageCount === undefined
+        || value.stageIndex <= value.stageCount
+    )
     && (
         value.completedPageNumbers === undefined
         || (

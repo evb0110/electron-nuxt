@@ -33,6 +33,35 @@ describe('scan cleanup progress reporter', () => {
             .toBe(10);
         expect(reports.find(report => report.stage === 'rendering' && report.completedUnits === 392)?.percent)
             .toBe(88);
+        expect(reports.map(report => [
+            report.stageIndex,
+            report.stageCount,
+        ])).toEqual([
+            [
+                2,
+                7,
+            ],
+            [
+                3,
+                7,
+            ],
+            [
+                4,
+                7,
+            ],
+            [
+                4,
+                7,
+            ],
+            [
+                4,
+                7,
+            ],
+            [
+                6,
+                7,
+            ],
+        ]);
     });
 
     it('withholds ETA until sampled and estimates the weighted work still ahead', () => {
@@ -97,5 +126,13 @@ describe('scan cleanup progress reporter', () => {
         emit('rendering', 1, 10);
 
         expect(reports[1]!.percent).toBeGreaterThanOrEqual(reports[0]!.percent);
+        expect(reports[0]).toMatchObject({
+            stageIndex: 4,
+            stageCount: 8,
+        });
+        expect(reports[1]).toMatchObject({
+            stageIndex: 5,
+            stageCount: 8,
+        });
     });
 });
