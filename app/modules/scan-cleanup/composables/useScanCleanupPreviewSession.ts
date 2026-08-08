@@ -823,7 +823,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     watch(options.active, active => {
         if (active) schedule();
-        else cancel();
+        // An inactive tab still owns its document. Stop only renderer-visible
+        // preview work here: detection and a Run waiting on it share the raw
+        // raster document in the main process, so invalidating that document
+        // would abort the run with “Scan cleanup document was closed”. A real
+        // document lifecycle change and unmount still call cancel() below and
+        // invalidate the retained document.
+        else cancel(false);
     }, {immediate: true});
     watch(options.lifecycleDocumentKey, () => {
         cancel();

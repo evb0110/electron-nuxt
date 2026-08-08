@@ -1337,8 +1337,9 @@ describe('scan cleanup workspace session detection guidance', () => {
     it('keeps run-owned detection alive when its cleanup tab becomes inactive', async () => {
         const harness = capabilityHarness();
         const active = ref(true);
+        const documentKey = `hidden-run-detection-${Date.now()}`;
         capability.value = harness.value;
-        const mounted = mountSession(`hidden-run-detection-${Date.now()}`, {active: () => active.value});
+        const mounted = mountSession(documentKey, {active: () => active.value});
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
@@ -1362,10 +1363,17 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         const run = mounted.session.run.run();
         await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        vi.mocked(harness.value.cancelPreview).mockClear();
         active.value = false;
         await nextTick();
 
         expect(harness.value.cancelDetection).not.toHaveBeenCalled();
+        expect(harness.value.cancelPreview).toHaveBeenCalledWith(expect.objectContaining({
+            documentRevision: documentKey,
+            invalidateRawCache: false,
+            ownerId: mounted.session.run.ownerId,
+            sourcePdfPath: expect.stringContaining('hidden-run-detection'),
+        }));
         expect(harness.value.start).not.toHaveBeenCalled();
 
         harness.emitDetection(detectionState('detect-1', 'completed'));
@@ -2089,6 +2097,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         ));
         expect(harness.value.cancelPreview).toHaveBeenCalledWith(expect.objectContaining({
             documentRevision: 'stable-revision',
+            invalidateRawCache: false,
             ownerId,
             sourcePdfPath: expect.stringContaining('hidden-tab'),
         }));

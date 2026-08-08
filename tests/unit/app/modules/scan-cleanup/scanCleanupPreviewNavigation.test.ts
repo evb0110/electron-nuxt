@@ -637,6 +637,7 @@ describe('scan cleanup preview navigation', () => {
             sourcePdfPath: '/docs/reference.pdf',
             ownerId: 'owner-1',
             documentRevision: 'revision-1',
+            invalidateRawCache: true,
         }));
         const retiredResult = previewResult(100);
         if (retiredResult.canceled === true) throw new Error('fixture unexpectedly canceled');
