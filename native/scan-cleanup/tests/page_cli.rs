@@ -778,6 +778,156 @@ fn normalized_mixed_picture_does_not_pull_the_paper_surface_through_a_dark_photo
 }
 
 #[test]
+fn confirmed_mixed_photo_keeps_pale_interior_tone_near_a_caption() {
+    let scratch = Scratch::new("confirmed-photo-tone");
+    let input = scratch.path("input.png");
+    let output = scratch.path("output.png");
+    let output_metadata = scratch.path("output.json");
+    let page_metadata = scratch.path("page.json");
+    let background_output = scratch.path("background.ppm");
+    let foreground_mask_output = scratch.path("foreground.pbm");
+    let picture_mask_output = scratch.path("picture-mask.pbm");
+    let manifest = scratch.path("manifest.json");
+    let mut image = RgbImage::new(180, 120, [245; 3]);
+    for y in 24..94 {
+        for x in 96..168 {
+            let tone = 150 + ((x * 7 + y * 11) % 40) as u8;
+            image.set(
+                x,
+                y,
+                [tone, tone.saturating_add(20), tone.saturating_add(40)],
+            );
+        }
+    }
+    // A nearby caption used to trigger the broad stencil-adjacency ramp and
+    // wash pale picture pixels even though the caption is outside the photo.
+    for y in 60..63 {
+        for x in 20..56 {
+            image.set(x, y, [18; 3]);
+        }
+    }
+    fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: false,
+        match_page_size: false,
+        dpi: 600.0,
+        source_dpi: Some(300.0),
+        manual_zones: ManualZones {
+            picture: vec![PictureZone {
+                polygon: NormalizedZonePolygon {
+                    points: vec![
+                        NormalizedZonePoint { x: 0.5, y: 0.15 },
+                        NormalizedZonePoint { x: 0.96, y: 0.15 },
+                        NormalizedZonePoint { x: 0.96, y: 0.85 },
+                        NormalizedZonePoint { x: 0.5, y: 0.85 },
+                    ],
+                    rotation: OrthogonalRotation::None,
+                },
+                layer: PictureZoneLayer::Painter2,
+            }],
+            fill: vec![],
+        },
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+                "backgroundOutputPath": background_output,
+                "foregroundMaskOutputPath": foreground_mask_output,
+                "pictureMaskOutputPath": picture_mask_output,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let picture_mask = decode_p4(&fs::read(&picture_mask_output).unwrap(), 180 * 120, 200)
+        .expect("the confirmed photo test must publish its picture mask");
+    let picture_pixels = picture_mask
+        .data()
+        .iter()
+        .filter(|&&value| value == 0)
+        .count();
+    assert!(
+        picture_pixels > 1_000,
+        "manual confirmed photo zone was not retained: {picture_pixels} pixels"
+    );
+    let owned_photo_pixels = (24..94)
+        .flat_map(|y| (96..168).map(move |x| (x, y)))
+        .filter(|&(x, y)| picture_mask.get(x, y) == 0)
+        .count();
+    assert!(
+        owned_photo_pixels > 1_000,
+        "the sampled photo interior must be owned by the picture mask: {owned_photo_pixels}"
+    );
+    assert_eq!(
+        picture_mask.get(132, 60),
+        0,
+        "the sampled photo interior must be owned by the picture mask"
+    );
+    assert!(
+        background_output.exists(),
+        "mixed layer background was not published; metadata={} page_metadata={}",
+        String::from_utf8_lossy(&fs::read(&output_metadata).unwrap()),
+        String::from_utf8_lossy(&fs::read(&page_metadata).unwrap())
+    );
+    let background = decode_ppm(
+        fs::read(&background_output).unwrap().as_slice(),
+        DecodeLimits {
+            max_pixels: 180 * 120,
+            max_dimension: 200,
+            max_compressed_bytes: 180 * 120 * 3 + 64,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        (background.gray.width(), background.gray.height()),
+        (60, 40)
+    );
+    let photo_interior = background.gray.get(44, 20);
+    let mut expected_photo_sum = 0u64;
+    for y in 60..63 {
+        for x in 132..135 {
+            let pixel = image.get(x, y);
+            expected_photo_sum += ((u32::from(pixel[0]) * 77
+                + u32::from(pixel[1]) * 150
+                + u32::from(pixel[2]) * 29
+                + 128)
+                >> 8) as u64;
+        }
+    }
+    let expected_photo_interior = expected_photo_sum / 9;
+    assert!(
+        u64::from(photo_interior).abs_diff(expected_photo_interior) <= 1,
+        "caption-adjacent photo interior was whitened: {photo_interior}, source average={expected_photo_interior}; page_metadata={}",
+        String::from_utf8_lossy(&fs::read(&page_metadata).unwrap())
+    );
+}
+
+#[test]
 fn matched_canvas_repads_the_published_pbm_without_a_composite() {
     let scratch = Scratch::new("matched");
     let small_input = scratch.path("matched-bilevel-small-input.png");

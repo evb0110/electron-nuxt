@@ -3141,7 +3141,8 @@ mod tests {
         }
 
         let (mixed, _, layers) = compose_mixed(
-            &gray, None, None, &binary, &mask, None, None, None, None, 300.0, false, true, true,
+            &gray, None, None, &binary, &mask, None, None, None, None, 300.0, false, false, true,
+            true,
         );
         let layers = layers.expect("final mixed render retains separable layers");
 
@@ -3162,6 +3163,74 @@ mod tests {
             255,
             "text pixels are filled from the normalized background instead of leaking into JPEG"
         );
+    }
+
+    #[test]
+    fn confirmed_photo_composition_preserves_interior_tones_with_a_thin_boundary_feather() {
+        let mut gray = GrayImage::new(160, 100, 255);
+        let mut picture_mask = BinaryImage::new(160, 100);
+        for y in 20..80 {
+            for x in 40..120 {
+                picture_mask.set(x, y, true);
+                gray.set(x, y, 170);
+            }
+        }
+        // Keep stencil ink close enough to exercise the old luminance-based
+        // whitening path without letting it own any picture pixel.
+        let mut binary = BinaryImage::new(160, 100);
+        for y in 50..53 {
+            for x in 34..38 {
+                binary.set(x, y, true);
+            }
+        }
+
+        let (mixed, _, layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &binary,
+            &picture_mask,
+            None,
+            None,
+            None,
+            None,
+            300.0,
+            true,
+            false,
+            true,
+            true,
+        );
+        assert_eq!(mixed.get(80, 50), 170);
+        assert_eq!(
+            mixed.get(46, 50),
+            170,
+            "confirmed photo interiors must not be whitened near stencil ink"
+        );
+        assert!(
+            (170..255).contains(&mixed.get(41, 50)),
+            "the picture boundary should use a narrow paper feather"
+        );
+        assert_eq!(layers.unwrap().background.get(80, 50), 170);
+
+        let (soft_composite, _, soft_layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &binary,
+            &picture_mask,
+            None,
+            None,
+            None,
+            None,
+            300.0,
+            true,
+            true,
+            true,
+            true,
+        );
+        let soft_layers = soft_layers.expect("soft Mixed output retains its plate");
+        assert_eq!(soft_layers.background.get(80, 50), 170);
+        assert_eq!(soft_composite.get(80, 50), 170);
     }
 
     #[test]
@@ -3195,6 +3264,7 @@ mod tests {
             Some(&detected_text),
             Some(&text_vicinity),
             300.0,
+            false,
             true,
             true,
             true,
@@ -3239,6 +3309,7 @@ mod tests {
             None,
             Some(&text_vicinity),
             300.0,
+            false,
             true,
             true,
             true,
@@ -3271,6 +3342,7 @@ mod tests {
             None,
             None,
             200.0,
+            false,
             true,
             true,
             true,
@@ -3334,6 +3406,7 @@ mod tests {
             Some(&text_mask),
             Some(&text_mask),
             300.0,
+            false,
             true,
             true,
             true,
@@ -3376,6 +3449,7 @@ mod tests {
             Some(&text_mask),
             Some(&text_mask),
             300.0,
+            false,
             true,
             true,
             true,
@@ -3416,6 +3490,7 @@ mod tests {
             None,
             None,
             300.0,
+            false,
             false,
             false,
             true,
@@ -3460,6 +3535,7 @@ mod tests {
             None,
             None,
             100.0,
+            false,
             false,
             true,
             true,
@@ -3717,6 +3793,7 @@ mod tests {
             None,
             300.0,
             false,
+            false,
             true,
             true,
         );
@@ -3771,6 +3848,7 @@ mod tests {
                     None,
                     None,
                     DPI,
+                    false,
                     false,
                     true,
                     true,
@@ -3853,6 +3931,7 @@ mod tests {
             None,
             None,
             options.dpi,
+            false,
             false,
             true,
             true,
@@ -3980,6 +4059,7 @@ mod tests {
                 None,
                 None,
                 300.0,
+                false,
                 false,
                 true,
                 true,

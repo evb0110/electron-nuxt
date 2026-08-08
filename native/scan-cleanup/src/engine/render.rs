@@ -3799,7 +3799,7 @@ fn clean_region(
     spatial_tone_mask: Option<&BinaryImage>,
     chroma_picture_mask: Option<&BinaryImage>,
     tone_picture_mask: Option<&BinaryImage>,
-    _protect_tonal_text_vicinity: bool,
+    preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
     tone_preservation_alpha: Option<&GrayImage>,
     text_mask: Option<&BinaryImage>,
@@ -4747,6 +4747,7 @@ fn clean_region(
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
+                        preserve_confirmed_photo_tones,
                         use_soft_alpha_foreground,
                         create_mixed_layers,
                         create_mixed_composite,
@@ -5037,6 +5038,7 @@ fn compose_mixed(
     text_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
+    preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
     create_layers: bool,
     create_composite: bool,
@@ -5053,6 +5055,7 @@ fn compose_mixed(
             text_mask,
             text_vicinity_mask,
             dpi,
+            preserve_confirmed_photo_tones,
             create_layers,
             create_composite,
         );
@@ -5072,7 +5075,12 @@ fn compose_mixed(
     let mut mixed_color = color
         .filter(|_| chroma_picture_mask.is_some())
         .map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
-    let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
+    let photo_feather_radius = (dpi * 0.5 / 25.4).floor() as usize;
+    let feather_radius = if preserve_confirmed_photo_tones {
+        photo_feather_radius
+    } else {
+        (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize
+    };
     let protection_radius = picture_protection_radius(dpi);
     let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
     let picture_exterior = picture_mask.invert();
@@ -5083,7 +5091,13 @@ fn compose_mixed(
     let stencil_adjacency_squared = (feather_radius * feather_radius) as u32;
     let alpha_at = |x: usize, y: usize, source_gray: u8| {
         let index = y * gray.width() + x;
-        if distance_to_stencil[index] <= stencil_adjacency_squared {
+        if preserve_confirmed_photo_tones {
+            if photo_feather_radius == 0 {
+                return 1.0;
+            }
+            (f64::from(distance_to_picture_exterior[index]).sqrt() / photo_feather_radius as f64)
+                .clamp(0.0, 1.0)
+        } else if distance_to_stencil[index] <= stencil_adjacency_squared {
             let spatial_alpha = (f64::from(distance_to_picture_exterior[index]).sqrt()
                 / feather_radius as f64)
                 .clamp(0.0, 1.0);
@@ -5239,6 +5253,7 @@ fn compose_soft_alpha_mixed(
     text_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
+    preserve_confirmed_photo_tones: bool,
     create_layers: bool,
     create_composite: bool,
 ) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
@@ -5322,6 +5337,7 @@ fn compose_soft_alpha_mixed(
         text_mask,
         text_vicinity_mask,
         dpi,
+        preserve_confirmed_photo_tones,
         false,
         true,
         false,
