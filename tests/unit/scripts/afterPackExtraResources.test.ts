@@ -299,6 +299,13 @@ describe('afterPack extraResources preflight', () => {
                 type: 'file',
             }),
             expect.objectContaining({
+                label: 'third-party license notices',
+                sourcePath: path.join('/repo', 'resources', 'third-party-notices'),
+                stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'third-party-notices'),
+                tag: 'darwin-arm64',
+                type: 'directory',
+            }),
+            expect.objectContaining({
                 label: 'Tesseract native tools (darwin-arm64)',
                 sourcePath: path.join('/repo', 'resources', 'tesseract', 'darwin-arm64'),
                 stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'tesseract', 'darwin-arm64'),
