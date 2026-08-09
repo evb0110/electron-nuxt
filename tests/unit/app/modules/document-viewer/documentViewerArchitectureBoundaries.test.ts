@@ -58,6 +58,8 @@ describe('document viewer architecture boundaries', () => {
         const sharedSkeletonPath = 'app/components/document-viewer/DocumentPageSkeleton.vue';
         const sharedSkeleton = read(sharedSkeletonPath);
         const chassis = read('app/modules/workspace-shell/components/DocumentViewerChassis.vue');
+        const nativeViewer = read('app/modules/native-pdf-viewer/components/NativePdfViewer.vue');
+        const nativeViewerStyles = read('app/modules/native-pdf-viewer/components/NativePdfViewer.css');
 
         expect(sharedSkeleton).toContain('class="document-page-skeleton"');
         expect(sharedSkeleton).toContain('<USkeleton');
@@ -90,6 +92,13 @@ describe('document viewer architecture boundaries', () => {
             '.document-viewer-chassis[data-open-surface-presentation=\'page-shell\'] :deep(.document-source-viewer__page)',
         );
         expect(chassis).not.toContain('<Transition name="document-opening-page">');
+        expect(nativeViewer).toContain('class="native-pdf-viewer relative h-full w-full"');
+        expect(nativeViewerStyles).toMatch(
+            /\.native-pdf-viewer-container--initial-visual-pending\s*>\s*\.native-pdf-viewer\s*\{/u,
+        );
+        expect(nativeViewerStyles).not.toMatch(
+            /\.native-pdf-viewer-container--initial-visual-pending\s*>\s*(?:div|\*)\s*\{/u,
+        );
         for (const path of [
             'app/modules/pdf-viewer/components/PdfViewerPage.vue',
             'app/modules/native-pdf-viewer/components/NativePdfPageContent.vue',

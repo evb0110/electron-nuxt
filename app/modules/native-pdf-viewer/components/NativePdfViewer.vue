@@ -1,5 +1,5 @@
 <template>
-    <div class="relative h-full w-full">
+    <div class="native-pdf-viewer relative h-full w-full">
         <div
             v-if="viewerError"
             class="absolute inset-0 flex items-center justify-center bg-muted/30"

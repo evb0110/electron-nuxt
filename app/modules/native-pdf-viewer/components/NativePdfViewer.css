@@ -13,7 +13,7 @@
     pointer-events: none;
 }
 
-.native-pdf-viewer-container--initial-visual-pending > div {
+.native-pdf-viewer-container--initial-visual-pending > .native-pdf-viewer {
     visibility: hidden;
 }
 
