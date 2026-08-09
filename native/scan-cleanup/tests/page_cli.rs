@@ -1749,6 +1749,156 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
 }
 
 #[test]
+fn auto_small_picture_uses_mixed_but_explicit_bw_stays_bilevel() {
+    let scratch = Scratch::new("auto-small-picture");
+    let input = scratch.path("small-picture-input.png");
+    let manifest = scratch.path("small-picture-manifest.json");
+    let auto_output = scratch.path("small-picture-auto-output.png");
+    let auto_metadata = scratch.path("small-picture-auto-output.json");
+    let auto_page_metadata = scratch.path("small-picture-auto-page.json");
+    let auto_background = scratch.path("small-picture-auto-background.ppm");
+    let auto_foreground = scratch.path("small-picture-auto-foreground.pbm");
+    let auto_picture = scratch.path("small-picture-auto-picture.pbm");
+    let forced_output = scratch.path("small-picture-forced-output.png");
+    let forced_metadata = scratch.path("small-picture-forced-output.json");
+    let forced_page_metadata = scratch.path("small-picture-forced-page.json");
+    let forced_bilevel = scratch.path("small-picture-forced-output.pbm");
+
+    let mut image = GrayImage::new(1_000, 1_400, 245);
+    for row in 0..18 {
+        let top = 80 + row * 64;
+        for column in 0..30 {
+            let left = 70 + column * 29;
+            for y in top..top + 18 {
+                for x in left..left + 14 {
+                    if x < left + 2 || y < top + 2 || y >= top + 16 {
+                        image.set(x, y, 28);
+                    }
+                }
+            }
+        }
+    }
+    for y in 600..700 {
+        for x in 780..880 {
+            image.set(x, y, 80 + ((x * 17 + y * 29) % 130) as u8);
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+
+    let picture_zone = PictureZone {
+        polygon: NormalizedZonePolygon {
+            points: vec![
+                NormalizedZonePoint {
+                    x: 0.78,
+                    y: 600.0 / 1_400.0,
+                },
+                NormalizedZonePoint {
+                    x: 0.88,
+                    y: 600.0 / 1_400.0,
+                },
+                NormalizedZonePoint {
+                    x: 0.88,
+                    y: 700.0 / 1_400.0,
+                },
+                NormalizedZonePoint {
+                    x: 0.78,
+                    y: 700.0 / 1_400.0,
+                },
+            ],
+            rotation: OrthogonalRotation::None,
+        },
+        layer: PictureZoneLayer::Painter2,
+    };
+    let auto_options = CleanupOptions {
+        output_mode: OutputMode::Auto,
+        dpi: 150.0,
+        normalize_illumination: false,
+        crop_content: false,
+        layout: LayoutMode::Single,
+        manual_zones: ManualZones {
+            picture: vec![picture_zone.clone()],
+            fill: Vec::new(),
+        },
+        ..unmatched_options()
+    };
+    let forced_options = CleanupOptions {
+        output_mode: OutputMode::Bw,
+        ..auto_options.clone()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [
+            {
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": auto_page_metadata,
+                "options": auto_options,
+                "outputs": [{
+                    "outputPath": auto_output,
+                    "metadataPath": auto_metadata,
+                    "backgroundOutputPath": auto_background,
+                    "foregroundMaskOutputPath": auto_foreground,
+                    "pictureMaskOutputPath": auto_picture,
+                }],
+            },
+            {
+                "inputPath": input,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": forced_page_metadata,
+                "options": forced_options,
+                "outputs": [{
+                    "outputPath": forced_output,
+                    "metadataPath": forced_metadata,
+                    "bilevelOutputPath": forced_bilevel,
+                }],
+            },
+        ],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let auto_page: Value = serde_json::from_slice(&fs::read(&auto_page_metadata).unwrap()).unwrap();
+    assert_eq!(auto_page["recommendedOutputMode"], "mixed");
+    assert_eq!(
+        auto_page["recommendedOutputModeReason"],
+        "text-with-pictures"
+    );
+    let auto_output_metadata: Value =
+        serde_json::from_slice(&fs::read(&auto_metadata).unwrap()).unwrap();
+    assert_eq!(auto_output_metadata["outputMode"], "mixed");
+    assert!(auto_background.exists());
+    assert!(auto_foreground.exists());
+    assert!(auto_picture.exists());
+
+    let forced_page: Value =
+        serde_json::from_slice(&fs::read(&forced_page_metadata).unwrap()).unwrap();
+    assert!(
+        forced_page["recommendedOutputMode"].is_null(),
+        "explicit B&W must not run automatic mode selection: {forced_page}"
+    );
+    let forced_output_metadata: Value =
+        serde_json::from_slice(&fs::read(&forced_metadata).unwrap()).unwrap();
+    assert_eq!(forced_output_metadata["outputMode"], "bw");
+    assert!(forced_bilevel.exists());
+    assert!(!forced_output_metadata["pictureMaskWritten"]
+        .as_bool()
+        .unwrap_or(false));
+}
+
+#[test]
 fn analyze_keeps_colored_recommendations_mode_independent() {
     let scratch = Scratch::new("auto-analyze");
     let input = scratch.path("auto-analyze-input.png");

@@ -22,6 +22,13 @@ const SIGNIFICANT_CHROMA_COMPONENT_PIXELS: usize = 500;
 const CHROMA_COMPONENT_HYSTERESIS_PIXELS: usize = 80;
 const MIN_PICTURE_COMPONENT_PIXELS: usize = 1_024;
 const PICTURE_NOISE_FLOOR: f64 = 0.012;
+// `picture_mask` is produced after picture candidates have been corroborated
+// by distributed continuous-tone evidence (and may also contain an explicit
+// user-owned picture zone). Keep that evidence from falling through the
+// generic 1.2% noise gate: the detector's own minimum retained tone component
+// is 0.5% of a page, so this lower floor is still evidence-backed rather than
+// a promotion for isolated dark pixels.
+const CORROBORATED_PICTURE_NOISE_FLOOR: f64 = 0.005;
 const PICTURE_HYSTERESIS: f64 = 0.003;
 const PICTURE_BALANCE_FRACTION: f64 = 0.14;
 const BORDER_INK_LUMINANCE_CUTOFF: u8 = 160;
@@ -681,6 +688,7 @@ pub(crate) fn recommend_output_mode(
         .sum::<usize>();
     let picture_fraction = picture_pixels as f64 / pixel_count as f64;
     let significant_picture = picture_fraction >= PICTURE_NOISE_FLOOR;
+    let corroborated_picture = picture_fraction >= CORROBORATED_PICTURE_NOISE_FLOOR;
     let has_text = evidence.text_line_count >= MIN_TEXT_LINES;
 
     if significant_color
@@ -736,7 +744,7 @@ pub(crate) fn recommend_output_mode(
     // text-with-picture pages in the calibrated book measure picture
     // fractions of 0.1-0.45, while a full-bleed tonal sheet measures 0.59
     // even when only its darker half seeds zones.
-    if significant_picture && has_text && picture_fraction < 0.55 {
+    if corroborated_picture && has_text && picture_fraction < 0.55 {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 8.0).clamp(0.0, 1.0);
         return recommendation(
@@ -2249,6 +2257,50 @@ mod tests {
         }
         let recommendation = classify(&gray, None);
         report("ten-percent-photo", recommendation);
+        assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
+        assert_eq!(
+            recommendation.reason,
+            OutputModeRecommendationReason::TextWithPictures
+        );
+    }
+
+    #[test]
+    fn small_corroborated_picture_on_text_page_uses_mixed() {
+        let mut gray = GrayImage::new(1_000, 1_400, 245);
+        for row in 0..18 {
+            let top = 80 + row * 64;
+            for column in 0..30 {
+                let left = 70 + column * 29;
+                for y in top..top + 18 {
+                    for x in left..left + 14 {
+                        if x < left + 2 || y < top + 2 || y >= top + 16 {
+                            gray.set(x, y, 28);
+                        }
+                    }
+                }
+            }
+        }
+        let mut picture_mask = BinaryImage::new(gray.width(), gray.height());
+        for y in 600..700 {
+            for x in 780..880 {
+                picture_mask.set(x, y, true);
+                gray.set(x, y, 80 + ((x * 17 + y * 29) % 130) as u8);
+            }
+        }
+
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 18,
+        });
+        report("small-corroborated-picture", recommendation);
+        assert!(recommendation.diagnostics.picture_fraction >= CORROBORATED_PICTURE_NOISE_FLOOR);
+        assert!(
+            recommendation.diagnostics.picture_fraction < PICTURE_NOISE_FLOOR,
+            "fixture must stay below the ordinary picture gate: {recommendation:?}"
+        );
+        assert!(!recommendation.diagnostics.significant_picture);
         assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
         assert_eq!(
             recommendation.reason,
