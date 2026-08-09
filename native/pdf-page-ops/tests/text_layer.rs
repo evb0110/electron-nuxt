@@ -137,10 +137,11 @@ fn overlay_text_copies_only_invisible_text_and_renames_colliding_fonts() {
     let source_resources = dictionary! {
         "Font" => dictionary! { "F1" => source_font },
     };
+    let repeated_ocr = "0 0 Td (Searchable OCR) Tj ".repeat(64);
     let mut source_page = save_single_page(
         &source,
-        b"q 2 0 0 2 1 2 cm BT /F1 12 Tf 0 Tr 5 8 Td (Searchable OCR) Tj ET Q 0 0 100 100 re f"
-            .to_vec(),
+        format!("q 2 0 0 2 1 2 cm BT /F1 12 Tf 0 Tr 5 8 Td {repeated_ocr}ET Q 0 0 100 100 re f")
+            .into_bytes(),
         source_resources,
     );
     // Replace the direct fixture resource with an indirect object so the test
@@ -224,6 +225,31 @@ fn overlay_text_copies_only_invisible_text_and_renames_colliding_fonts() {
         .extract_text(&[1])
         .unwrap()
         .contains("Searchable OCR"));
+
+    let content_ids = page
+        .get(b"Contents")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|object| object.as_reference().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(content_ids.len(), 2);
+    let overlay_stream = overlaid
+        .objects
+        .get(content_ids.last().unwrap())
+        .unwrap()
+        .as_stream()
+        .unwrap();
+    assert_eq!(
+        overlay_stream
+            .dict
+            .get(b"Filter")
+            .and_then(Object::as_name)
+            .unwrap(),
+        b"FlateDecode",
+        "the decoded OCR operator stream must be recompressed before save"
+    );
 
     for path in [source, input, output, instructions] {
         let _ = remove_file(path);

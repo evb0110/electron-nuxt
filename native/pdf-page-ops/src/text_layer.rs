@@ -1091,5 +1091,11 @@ pub(crate) fn overlay_text_layers(
         }
     }
     target.prune_objects();
+    // `add_to_page_content` stores the decoded OCR operators in a new stream.
+    // A full-book OCR layer is large enough that leaving those streams raw can
+    // add tens of megabytes even though the source streams were compressed.
+    // Lopdf only compresses eligible, currently unfiltered streams here, so
+    // existing image/JBIG2/JPX payloads remain byte-for-byte untouched.
+    target.compress();
     Ok(())
 }
