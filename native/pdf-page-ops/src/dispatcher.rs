@@ -32,6 +32,26 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             split_pages(document, &instructions, &config.output_path)?;
             return Ok(());
         }
+        Operation::OverlayText {
+            source_path,
+            instructions_file,
+        } => {
+            let source = Document::load(&source_path).map_err(|error| {
+                domain_error(
+                    NativeErrorCode::CorruptXref,
+                    format!("Failed to parse source PDF structure: {error}"),
+                )
+            })?;
+            if source.is_encrypted() {
+                return Err(domain_error(
+                    NativeErrorCode::Encrypted,
+                    "Encrypted source PDFs are not supported by native page ops",
+                ));
+            }
+            let instructions = read_text_layer_file(&instructions_file)
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            overlay_text_layers(&mut document, &source, &instructions)?;
+        }
         Operation::Crop {
             pages_file,
             margins,

@@ -22,10 +22,73 @@ import {
     type IScanCleanupDetectionRetention,
 } from '@scan-cleanup-core/detection';
 import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
+import type {INativeScanCleanupSplitDiagnosticsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
+import {decodeNativeScanCleanupPageMetadata} from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
+import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
 
 const dirs: string[] = [];
 const MIB = 1024 * 1024;
 const execFileAsync = promisify(execFile);
+
+function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
+    return {
+        analysisDpi: 150,
+        deskewAngleDegrees: 0,
+        deskewConfidence: 1,
+        cutterSlope: 0,
+        leftDeskewAngleDegrees: 0,
+        rightDeskewAngleDegrees: 0,
+        leftDeskewConfidence: 1,
+        rightDeskewConfidence: 1,
+        whitespaceX: 1075,
+        foldX: 1142,
+        decisionX: 1198,
+        whitespaceScore: 0.98,
+        bilateralScore: 1,
+        leftPageScore: 1,
+        rightPageScore: 1,
+        leftContentScore: 1,
+        rightContentScore: 1,
+        leftSurfaceScore: 1,
+        rightSurfaceScore: 1,
+        leftInkPixels: 31_717,
+        rightInkPixels: 20_784,
+        outerMarginScore: 1,
+        gutterScore: 1,
+        agreementScore: 1,
+        foldScore: 0.086,
+        gutterDarknessScore: 0,
+        softGutterScore: 0,
+        softGutterCoverage: 0,
+        softGutterContinuity: 0,
+        softGutterMeanDepression: 0,
+        sparseGutterScore: 1,
+        sparseGutterCoverage: 1,
+        sparseGutterContinuity: 1,
+        sparseGutterMeanDepression: 24.64,
+        aspectRatio: 1.4,
+        aspectSpreadScore: 1,
+        aspectSingleScore: 0,
+        independentSpreadCues: 3,
+        offcutBoundaryScore: 0,
+        offcutEmptyScore: 0,
+        offcutWidthScore: 0,
+        offcutNoTextRowsScore: 0,
+        alternativeProduct: 0,
+        evidenceProduct: 0.699,
+        whitespaceGatePassed: true,
+        centralPositionGatePassed: true,
+        bilateralGatePassed: true,
+        outerMarginGatePassed: true,
+        gutterGatePassed: true,
+        independentGutterGatePassed: true,
+        aspectSupportGatePassed: true,
+        evidenceAgreementGatePassed: true,
+        sparseSpreadRecovered: true,
+        abstained: false,
+    };
+}
 
 function createRequest(): IScanCleanupDetectionRequest {
     return {
@@ -354,6 +417,162 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         });
 
         expect(retention.release).toHaveBeenCalledOnce();
+    });
+
+    it('retains native split diagnostics through detection, IPC decoding, and compact evidence', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-test-'));
+        dirs.push(tempDir);
+        const diagnostics = splitDiagnostics();
+        const nativeMetadata = {
+            layoutClassification: 'two-page-spread' as const,
+            layoutConfidence: 0.71,
+            cutterXPx: 100,
+            rotationDegrees: 0 as const,
+            canvasScope: 'page' as const,
+            excluded: false,
+            blankOutputsSkipped: 0,
+            outputCount: 2,
+            outputs: [
+                {
+                    half: 'left' as const,
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 100,
+                        heightPx: 120,
+                    },
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 100,
+                        heightPx: 120,
+                    },
+                    inputWidthPx: 200,
+                    inputHeightPx: 120,
+                },
+                {
+                    half: 'right' as const,
+                    sourceRegion: {
+                        xPx: 100,
+                        yPx: 0,
+                        widthPx: 100,
+                        heightPx: 120,
+                    },
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 100,
+                        heightPx: 120,
+                    },
+                    inputWidthPx: 200,
+                    inputHeightPx: 120,
+                },
+            ],
+            splitDiagnostics: diagnostics,
+        };
+        expect(decodeNativeScanCleanupPageMetadata(nativeMetadata).splitDiagnostics)
+            .toEqual(diagnostics);
+        expect(() => decodeNativeScanCleanupPageMetadata({
+            ...nativeMetadata,
+            splitDiagnostics: {
+                ...diagnostics,
+                sparseGutterCoverage: 'complete',
+            },
+        })).toThrow('splitDiagnostics.sparseGutterCoverage must be finite');
+
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'document'})),
+            pageCount: vi.fn(async () => 1),
+            pageSizes: vi.fn(async () => [{
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 200,
+                heightPoints: 120,
+                rotation: 0,
+            }]),
+            rasterPages: vi.fn(async () => ({
+                detected: true,
+                pages: new Set([1]),
+            })),
+            retainedPaths: vi.fn(async () => new Map([[
+                1,
+                {
+                    dpi: 150,
+                    height: 120,
+                    pageNumber: 1,
+                    path: join(tempDir, 'retained.png'),
+                    sizeBytes: 100,
+                    width: 200,
+                },
+            ]])),
+            rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
+            retain: vi.fn(),
+            release: vi.fn(async () => undefined),
+        };
+        const detection = await runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            retention,
+            {
+                getTempDir: () => tempDir,
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage: vi.fn(),
+                renderPagePpm: vi.fn(),
+                runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>;};
+                    await writeFile(
+                        manifest.pages[0]!.pageMetadataPath,
+                        JSON.stringify(nativeMetadata),
+                    );
+                    onProgress({
+                        stage: 'detecting',
+                        completedUnits: 1,
+                        totalUnits: 1,
+                        percent: 100,
+                        completedPageNumbers: [1],
+                    }, {
+                        stage: 'page-complete',
+                        completedPages: 1,
+                        totalPages: 1,
+                        pageNumber: 1,
+                        classification: 'two-page-spread',
+                        confidence: 0.71,
+                        cutterXPx: 100,
+                        tier1Verdict: 'single-uncut-page',
+                        reconciled: true,
+                        clusterAgreement: 0.94,
+                    });
+                }),
+            },
+            {rasterConcurrency: 1},
+            () => undefined,
+        );
+        expect(detection.results[0]!.splitDiagnostics).toEqual(diagnostics);
+
+        const state = {
+            jobId: 'split-diagnostics',
+            status: 'completed' as const,
+            progress: {
+                stage: 'detecting' as const,
+                completedUnits: 1,
+                totalUnits: 1,
+                percent: 100,
+                completedPageNumbers: [1],
+            },
+            results: detection.results,
+            updatedAtMs: 1,
+        };
+        const decoded = decodeScanCleanupDetectionJobState(state);
+        expect(decoded?.results[0]!.splitDiagnostics).toEqual(diagnostics);
+        expect(compactScanCleanupDetectionVerdicts(decoded!.results)[0]!.splitDiagnostics)
+            .toEqual(diagnostics);
+
+        const malformedState = structuredClone(state);
+        malformedState.results[0]!.splitDiagnostics!.gutterGatePassed = 'yes' as never;
+        expect(() => decodeScanCleanupDetectionJobState(malformedState))
+            .toThrow('invalid scan-cleanup split diagnostics');
     });
 
     it('rejects a Windows-style whole-document staging footprint before rendering', async () => {

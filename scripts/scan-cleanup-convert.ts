@@ -61,12 +61,16 @@ import type {
 import {isScanCleanupCliFallbackSentinel} from '@scan-cleanup-core/compactManifest';
 import {
     createCliRenderers,
+    buildCliRawMaskEvidenceManifest,
+    compactScanCleanupDetectionVerdicts,
     requireCliPublishedRaster,
     resolveCliNativeToolPath,
     runCliNativeToolCommand,
     runCliScanCleanupSidecar,
+    snapshotCliDiagnosticMasks,
     writeCliWasmPdfPage,
     type ICliPdfCombineWasmPage,
+    type ICliRawMaskEvidence,
 } from '@scripts/scanCleanupCliAdapters';
 
 const PAGE_OPS_FALLBACK = '__scan_cleanup_cli_page_ops_fallback__';
@@ -77,6 +81,8 @@ interface IScanCleanupCliArguments {
     outputPdfPath: string;
     pages?: number[];
     parity: boolean;
+    diagnosticEvidenceDirectory?: string;
+    diagnosticMaskPages?: number[];
     options: IScanCleanupOptions;
 }
 
@@ -132,6 +138,8 @@ function printUsage() {
         '  --auto-dewarp [--auto-dewarp-depth <number>]',
         '  --skip-blank-pages',
         '  --parity',
+        '  --diagnostic-evidence-dir <directory>',
+        '  --diagnostic-mask-pages <output-page-list-or-ranges>',
     ].join('\n') + '\n');
 }
 
@@ -220,6 +228,8 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
     let outputPdfPath: string | undefined;
     let pages: number[] | undefined;
     let parity = false;
+    let diagnosticEvidenceDirectory: string | undefined;
+    let diagnosticMaskPages: number[] | undefined;
     const valueFor = (index: number, flag: string) => {
         const value = argv[index + 1];
         if (value === undefined || value.startsWith('--')) {
@@ -351,6 +361,14 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
             case '--parity':
                 parity = true;
                 break;
+            case '--diagnostic-evidence-dir':
+                diagnosticEvidenceDirectory = resolve(valueFor(index, argument));
+                index += 1;
+                break;
+            case '--diagnostic-mask-pages':
+                diagnosticMaskPages = parsePageList(valueFor(index, argument));
+                index += 1;
+                break;
             case '--help':
             case '-h':
                 printUsage();
@@ -365,11 +383,16 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
         throw new Error('--source and --out are required');
     }
     if (sourcePdfPath === outputPdfPath) throw new Error('--source and --out must differ');
+    if ((diagnosticEvidenceDirectory === undefined) !== (diagnosticMaskPages === undefined)) {
+        throw new Error('--diagnostic-evidence-dir and --diagnostic-mask-pages must be used together');
+    }
     return {
         sourcePdfPath,
         outputPdfPath,
         ...(pages === undefined ? {} : {pages}),
         parity,
+        ...(diagnosticEvidenceDirectory === undefined ? {} : {diagnosticEvidenceDirectory}),
+        ...(diagnosticMaskPages === undefined ? {} : {diagnosticMaskPages}),
         options,
     };
 }
@@ -796,6 +819,7 @@ async function main() {
     await mkdir(detectionEvidenceDirectory, {recursive: true});
     await mkdir(conversionEvidenceDirectory, {recursive: true});
     const log = cliLog satisfies TScanCleanupLog;
+    let rawMaskEvidence: ICliRawMaskEvidence[] = [];
     const runCommand: TScanCleanupRunCommand = async (command, args, options) => {
         if (command === IMAGE_COMBINE_FALLBACK) {
             return runImageCombineFallback(
@@ -809,6 +833,22 @@ async function main() {
         }
         if (command === PAGE_OPS_FALLBACK) {
             return runPageOpsFallback(args, qpdfBinary, nativeOptions(options, log));
+        }
+        if (
+            argumentsValue.diagnosticEvidenceDirectory !== undefined
+            && argumentsValue.diagnosticMaskPages !== undefined
+            && command === imageCombineBinary
+        ) {
+            const manifestIndex = args.indexOf('--compact-manifest');
+            const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];
+            if (manifestPath === undefined) {
+                throw new Error('Diagnostic mask capture requires a compact combiner manifest');
+            }
+            rawMaskEvidence = await snapshotCliDiagnosticMasks(
+                manifestPath,
+                argumentsValue.diagnosticMaskPages,
+                argumentsValue.diagnosticEvidenceDirectory,
+            );
         }
         return runCliNativeToolCommand(command, args, nativeOptions(options, log));
     };
@@ -1104,7 +1144,10 @@ async function main() {
                 conversionMs: conversionDurationMs,
                 totalMs: performance.now() - startedAt,
             },
-            detection: {pages: detection.results.length},
+            detection: {
+                pages: detection.results.length,
+                results: compactScanCleanupDetectionVerdicts(detection.results),
+            },
             conversionSummary: summary,
             sourcePageToOutputPages: buildSourcePageToOutputPages(report),
             perPageStreamSizes: report.pages,
@@ -1118,6 +1161,17 @@ async function main() {
             },
         };
         await writeFile(summaryPath, JSON.stringify(machineSummary, null, 2) + '\n');
+        if (argumentsValue.diagnosticEvidenceDirectory !== undefined) {
+            const evidenceManifest = buildCliRawMaskEvidenceManifest(
+                argumentsValue.outputPdfPath,
+                rawMaskEvidence,
+                report.pages,
+            );
+            await writeFile(
+                join(argumentsValue.diagnosticEvidenceDirectory, 'raw-mask-manifest.json'),
+                JSON.stringify(evidenceManifest, null, 2) + '\n',
+            );
+        }
         process.stderr.write(`[scan-cleanup] wrote ${summaryPath}\n`);
     } finally {
         delete process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;

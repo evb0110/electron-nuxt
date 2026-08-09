@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import {
     access,
+    mkdir,
     readFile,
     stat,
     writeFile,
@@ -29,7 +30,9 @@ import {
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import {NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
+import {parseScanCleanupCompactManifest} from '@scan-cleanup-core/compactManifest';
 import type {
     TScanCleanupLog,
     IScanCleanupProcessResult,
@@ -37,6 +40,125 @@ import type {
     IScanCleanupRunCommandOptions,
     TScanCleanupSidecarProgress,
 } from '@scan-cleanup-core/types';
+
+export interface IScanCleanupCompactDetectionVerdict {
+    pageNumber: number;
+    classification: IScanCleanupDetectionResult['classification'];
+    confidence: number;
+    cutterXPx: number | null;
+    tier1Verdict: IScanCleanupDetectionResult['tier1Verdict'];
+    reconciled: boolean;
+    clusterAgreement: number;
+    documentPrior: IScanCleanupDetectionResult['documentPrior'];
+    splitDiagnostics?: IScanCleanupDetectionResult['splitDiagnostics'];
+}
+
+export function compactScanCleanupDetectionVerdicts(
+    results: readonly IScanCleanupDetectionResult[],
+): IScanCleanupCompactDetectionVerdict[] {
+    return results.map(result => ({
+        pageNumber: result.pageNumber,
+        classification: result.classification,
+        confidence: result.confidence,
+        cutterXPx: result.cutterXPx,
+        tier1Verdict: result.tier1Verdict,
+        reconciled: result.reconciled,
+        clusterAgreement: result.clusterAgreement,
+        documentPrior: result.documentPrior,
+        ...(result.splitDiagnostics === undefined
+            ? {}
+            : {splitDiagnostics: result.splitDiagnostics}),
+    }));
+}
+
+/** Returns only raw PBM planes that the combiner may symbol-code. */
+export function compactScanCleanupBilevelMaskPath(pageSpec: string) {
+    const fields = pageSpec.split('\t');
+    switch (fields[0]) {
+        case 'image-bilevel':
+        case 'mask':
+            return fields.length === 4 ? fields[3] : undefined;
+        case 'layered-jpeg':
+            return fields.length === 6 ? fields[5] : undefined;
+        case 'affine-masked-layered-jpeg':
+            return fields.length === 13 || fields.length === 14 ? fields[6] : undefined;
+        default:
+            return undefined;
+    }
+}
+
+export interface ICliRawMaskEvidence {
+    outputOrdinal: number;
+    relativePath: string;
+}
+
+export async function snapshotCliDiagnosticMasks(
+    manifestPath: string,
+    outputPages: readonly number[],
+    evidenceDirectory: string,
+) {
+    const selected = new Set(outputPages);
+    const pageSpecs = parseScanCleanupCompactManifest(await readFile(manifestPath, 'utf8'));
+    await mkdir(join(evidenceDirectory, 'raw-masks'), {recursive: true});
+    const evidence: ICliRawMaskEvidence[] = [];
+    for (const [
+        index,
+        pageSpec,
+    ] of pageSpecs.entries()) {
+        const outputOrdinal = index + 1;
+        if (!selected.has(outputOrdinal)) continue;
+        const maskPath = compactScanCleanupBilevelMaskPath(pageSpec);
+        if (maskPath === undefined) continue;
+        const payload = await readFile(maskPath);
+        if (payload[0] !== 0x50 || payload[1] !== 0x34) continue;
+        const relativePath = join(
+            'raw-masks',
+            `output-${String(outputOrdinal).padStart(4, '0')}.pbm`,
+        );
+        await writeFile(join(evidenceDirectory, relativePath), payload);
+        evidence.push({
+            outputOrdinal,
+            relativePath,
+        });
+    }
+    const missing = outputPages.filter(page => !evidence.some(item => item.outputOrdinal === page));
+    if (missing.length > 0) {
+        throw new Error(`Diagnostic mask pages have no raw PBM plane: ${missing.join(', ')}`);
+    }
+    return evidence;
+}
+
+export function buildCliRawMaskEvidenceManifest(
+    outputPdf: string,
+    evidence: readonly ICliRawMaskEvidence[],
+    reportPages: ReadonlyArray<{
+        outputOrdinal: number;
+        outputPageNumber: number;
+        sourcePageNumber: number;
+        half: string;
+    }>,
+) {
+    const reportPageByOrdinal = new Map(reportPages.map(page => [
+        page.outputOrdinal,
+        page,
+    ]));
+    return {
+        schemaVersion: 1,
+        outputPdf,
+        pages: evidence.map(item => {
+            const page = reportPageByOrdinal.get(item.outputOrdinal);
+            if (page === undefined) {
+                throw new Error(`Diagnostic evidence cannot resolve output ordinal ${String(item.outputOrdinal)}`);
+            }
+            return {
+                outputPage: page.outputPageNumber,
+                sourcePage: page.sourcePageNumber,
+                half: page.half,
+                rawMaskPath: item.relativePath,
+            };
+        }),
+    };
+}
 
 interface ICliPdfCombineWasmExports {
     memory: WebAssembly.Memory;

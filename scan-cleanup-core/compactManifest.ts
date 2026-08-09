@@ -92,6 +92,29 @@ export function serializeLegacyScanCleanupPageOpsInstructions(
     return JSON.stringify({pages: instructions.pages});
 }
 
+export interface IScanCleanupTextLayerInstruction {
+    sourcePageIndex: number;
+    outputPageIndex: number;
+    /** PDF `cm` operands mapping source-page user space to output-page user space. */
+    matrix: [number, number, number, number, number, number];
+    /**
+     * Drop source text whose positioned origin maps outside the output page.
+     * Split outputs need this because PDF extractors do not honor page-content
+     * clipping consistently and would otherwise expose both source halves.
+     */
+    filterToOutputPage?: boolean;
+}
+
+export interface IScanCleanupTextLayerInstructionEnvelope {
+    pages: IScanCleanupTextLayerInstruction[];
+}
+
+export function serializeScanCleanupTextLayerInstructions(
+    pages: readonly IScanCleanupTextLayerInstruction[],
+) {
+    return JSON.stringify({pages});
+}
+
 export function isScanCleanupCliFallbackSentinel(value: string | undefined) {
     return value !== undefined && /^__scan_cleanup_cli_[a-z_]+__$/u.test(value);
 }

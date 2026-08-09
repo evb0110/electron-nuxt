@@ -262,6 +262,64 @@ export interface INativeScanCleanupOutputModeDiagnosticsV3 {
     bilevelFidelityVeto: boolean;
 }
 
+/** Gate-level evidence behind the native spread/single decision. */
+export interface INativeScanCleanupSplitDiagnosticsV3 {
+    analysisDpi: number;
+    deskewAngleDegrees: number;
+    deskewConfidence: number;
+    cutterSlope: number;
+    leftDeskewAngleDegrees: number;
+    rightDeskewAngleDegrees: number;
+    leftDeskewConfidence: number;
+    rightDeskewConfidence: number;
+    whitespaceX: number;
+    foldX: number;
+    decisionX: number;
+    whitespaceScore: number;
+    bilateralScore: number;
+    leftPageScore: number;
+    rightPageScore: number;
+    leftContentScore: number;
+    rightContentScore: number;
+    leftSurfaceScore: number;
+    rightSurfaceScore: number;
+    leftInkPixels: number;
+    rightInkPixels: number;
+    outerMarginScore: number;
+    gutterScore: number;
+    agreementScore: number;
+    foldScore: number;
+    gutterDarknessScore: number;
+    softGutterScore: number;
+    softGutterCoverage: number;
+    softGutterContinuity: number;
+    softGutterMeanDepression: number;
+    sparseGutterScore: number;
+    sparseGutterCoverage: number;
+    sparseGutterContinuity: number;
+    sparseGutterMeanDepression: number;
+    aspectRatio: number;
+    aspectSpreadScore: number;
+    aspectSingleScore: number;
+    independentSpreadCues: number;
+    offcutBoundaryScore: number;
+    offcutEmptyScore: number;
+    offcutWidthScore: number;
+    offcutNoTextRowsScore: number;
+    alternativeProduct: number;
+    evidenceProduct: number;
+    whitespaceGatePassed: boolean;
+    centralPositionGatePassed: boolean;
+    bilateralGatePassed: boolean;
+    outerMarginGatePassed: boolean;
+    gutterGatePassed: boolean;
+    independentGutterGatePassed: boolean;
+    aspectSupportGatePassed: boolean;
+    evidenceAgreementGatePassed: boolean;
+    sparseSpreadRecovered: boolean;
+    abstained: boolean;
+}
+
 /** Metadata written once for every page in a protocol-v3 batch. */
 export interface INativeScanCleanupPageMetadataV3 {
     layoutClassification: TScanCleanupLayoutClassification;
@@ -280,6 +338,7 @@ export interface INativeScanCleanupPageMetadataV3 {
     recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
     softAlphaForegroundRecommendation?: boolean;
     outputModeDiagnostics?: INativeScanCleanupOutputModeDiagnosticsV3;
+    splitDiagnostics?: INativeScanCleanupSplitDiagnosticsV3;
 }
 
 /** Additive geometry returned in page/output metadata by protocol-v3 sidecars. */

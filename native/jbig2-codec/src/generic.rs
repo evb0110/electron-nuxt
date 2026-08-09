@@ -7,21 +7,39 @@ use fax::{
     Color,
 };
 
-const CONTEXT_COUNT: usize = 1 << 16;
+pub(crate) const CONTEXT_COUNT: usize = 1 << 16;
 const TPGD_CONTEXT: usize = 0x9b25;
 
 pub(crate) fn encode(width: u32, height: u32, rows: &[u8], stride: usize) -> Vec<u8> {
     let mut coder = Encoder::new();
     let mut contexts = vec![0; CONTEXT_COUNT];
+    encode_with_coder(&mut coder, &mut contexts, width, height, rows, stride, true);
+    coder.finish()
+}
+
+/// Encodes a bitmap into an existing arithmetic coding stream. Symbol
+/// dictionaries use this form because all directly-coded symbol bitmaps in a
+/// dictionary share one arithmetic coder and one generic-region context.
+pub(crate) fn encode_with_coder(
+    coder: &mut Encoder,
+    contexts: &mut [u8],
+    width: u32,
+    height: u32,
+    rows: &[u8],
+    stride: usize,
+    typical_prediction: bool,
+) {
     let mut ltp = false;
     let width = width as usize;
 
     for y in 0..height as usize {
         let duplicate =
             y > 0 && rows[y * stride..(y + 1) * stride] == rows[(y - 1) * stride..y * stride];
-        let sltp = if duplicate { !ltp } else { ltp };
-        ltp = duplicate;
-        coder.encode(&mut contexts, TPGD_CONTEXT, u8::from(sltp));
+        if typical_prediction {
+            let sltp = if duplicate { !ltp } else { ltp };
+            ltp = duplicate;
+            coder.encode(contexts, TPGD_CONTEXT, u8::from(sltp));
+        }
         if ltp {
             continue;
         }
@@ -33,14 +51,12 @@ pub(crate) fn encode(width: u32, height: u32, rows: &[u8], stride: usize) -> Vec
         for x in 0..width {
             let context = usize::from((c1 << 11) | (c2 << 4) | c3);
             let bit = current[x >> 3] >> (7 - (x & 7)) & 1;
-            coder.encode(&mut contexts, context, bit);
+            coder.encode(contexts, context, bit);
             c1 = ((c1 << 1) | u16::from(bit_at(above.0, x + 3, width))) & 0x1f;
             c2 = ((c2 << 1) | u16::from(bit_at(above.1, x + 4, width))) & 0x7f;
             c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
         }
     }
-
-    coder.finish()
 }
 
 pub(crate) fn decode(
@@ -57,12 +73,43 @@ pub(crate) fn decode(
     let mut coder = Decoder::new(data).ok_or(Jbig2Error::InvalidArithmeticData)?;
     let mut contexts = vec![0; CONTEXT_COUNT];
     let mut rows = allocate_zeroed(stride, height)?;
+    decode_with_coder(
+        &mut coder,
+        &mut contexts,
+        width,
+        height,
+        stride,
+        &mut rows,
+        typical_prediction,
+    );
+
+    if require_canonical_arithmetic && encode(width, height, &rows, stride) != data {
+        return Err(Jbig2Error::InvalidArithmeticData);
+    }
+
+    Ok(OwnedBilevel {
+        width,
+        height,
+        rows,
+    })
+}
+
+/// Decodes one directly-coded bitmap from an existing arithmetic stream.
+pub(crate) fn decode_with_coder(
+    coder: &mut Decoder<'_>,
+    contexts: &mut [u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    rows: &mut [u8],
+    typical_prediction: bool,
+) {
     let mut ltp = false;
     let pixel_width = width as usize;
 
     for y in 0..height as usize {
         if typical_prediction {
-            ltp ^= coder.decode(&mut contexts, TPGD_CONTEXT) != 0;
+            ltp ^= coder.decode(contexts, TPGD_CONTEXT) != 0;
         }
         let (before, current_and_after) = rows.split_at_mut(y * stride);
         if ltp {
@@ -78,23 +125,13 @@ pub(crate) fn decode(
 
         for x in 0..pixel_width {
             let context = usize::from((c1 << 11) | (c2 << 4) | c3);
-            let bit = coder.decode(&mut contexts, context);
+            let bit = coder.decode(contexts, context);
             current[x >> 3] |= bit << (7 - (x & 7));
             c1 = ((c1 << 1) | u16::from(bit_at(above.0, x + 3, pixel_width))) & 0x1f;
             c2 = ((c2 << 1) | u16::from(bit_at(above.1, x + 4, pixel_width))) & 0x7f;
             c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
         }
     }
-
-    if require_canonical_arithmetic && encode(width, height, &rows, stride) != data {
-        return Err(Jbig2Error::InvalidArithmeticData);
-    }
-
-    Ok(OwnedBilevel {
-        width,
-        height,
-        rows,
-    })
 }
 
 pub(crate) fn decode_mmr(

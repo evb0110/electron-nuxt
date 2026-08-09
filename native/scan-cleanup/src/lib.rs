@@ -12,6 +12,7 @@ pub mod deskew;
 pub mod dewarp;
 pub mod domain;
 pub mod engine;
+pub mod ink_consistency;
 pub mod io;
 pub mod mode_select;
 mod mrc;

@@ -103,15 +103,15 @@ const messages: Record<string, string> = {
     'scanCleanup.pages.includeInOutput': 'Include in output',
     'scanCleanup.pages.excludedFromOutput': 'Excluded from output',
     'scanCleanup.pages.excludedBadge': 'Excluded',
-    'scanCleanup.pages.lowConfidenceHint': 'Detected as "{classification}" with low confidence — check this page and set its layout manually if wrong.',
+    'scanCleanup.pages.lowConfidenceHint': 'Detected as "{classification}" with low layout confidence — check this page and set its layout manually if wrong.',
     'scanCleanup.pages.textAxisHint': 'Text appears sideways — set rotation (90° or 270°).',
     'scanCleanup.pages.outputModeFor': 'Output mode for page {page}',
     'scanCleanup.pages.outputModeFollowDocument': 'Follow document setting',
     'scanCleanup.layout.label': 'Page layout',
     'scanCleanup.settings.rotation': 'Rotation',
     'scanCleanup.output.pageLabel': 'Output mode',
-    'scanCleanup.pages.outputModeRecommendationHintKnown': 'Recommended: {mode} — {confidence} confidence. Choose a mode to override it.',
-    'scanCleanup.pages.outputModeRecommendationHintUnknown': 'Recommended: {mode}. Choose a mode to override it.',
+    'scanCleanup.pages.outputModeRecommendationHintKnown': 'Recommended output mode: {mode} — {confidence} output-mode confidence. Choose a mode to override it.',
+    'scanCleanup.pages.outputModeRecommendationHintUnknown': 'Recommended output mode: {mode}. Choose a mode to override it.',
     'scanCleanup.pages.outputModeRecommendationPending': 'Automatic output-mode recommendation is pending.',
     'scanCleanup.pages.outputModeOverrideHint': 'Page override: {mode}. Choose Follow document setting to use the document setting.',
     'scanCleanup.pages.outputModeDocumentHint': 'Effective mode: {mode} — follows the document setting.',
@@ -125,12 +125,12 @@ const messages: Record<string, string> = {
     'scanCleanup.pages.diagnostics.modeDecision': 'Mode decision',
     'scanCleanup.pages.diagnostics.contentTrim': 'Content trim',
     'scanCleanup.pages.diagnostics.geometry': 'Geometry',
-    'scanCleanup.pages.diagnostics.recommendedMode': 'Recommended mode',
-    'scanCleanup.pages.diagnostics.recommendedModeValue': '{mode} · {confidence}',
+    'scanCleanup.pages.diagnostics.recommendedMode': 'Recommended output mode',
+    'scanCleanup.pages.diagnostics.recommendedModeValue': '{mode} · {confidence} output-mode confidence',
     'scanCleanup.pages.diagnostics.reason': 'Reason',
     'scanCleanup.pages.diagnostics.modeReason.text-with-pictures': 'Text with picture regions',
     'scanCleanup.pages.diagnostics.layout': 'Layout',
-    'scanCleanup.pages.diagnostics.layoutValue': '{layout} · {confidence}',
+    'scanCleanup.pages.diagnostics.layoutValue': '{layout} · {confidence} layout confidence',
     'scanCleanup.pages.diagnostics.reconciled': 'Reconciled by document-level evidence',
     'scanCleanup.pages.diagnostics.splitAbstained': 'The split detector abstained',
     'scanCleanup.pages.diagnostics.deskew': 'Deskew',
@@ -852,7 +852,9 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(popover.textContent).toContain('Page layout');
         expect(popover.textContent).toContain('Rotation');
         expect(popover.textContent).toContain('Output mode');
-        expect(popover.textContent).toContain('Recommended: Black and white — 93% confidence.');
+        expect(popover.textContent).toContain(
+            'Recommended output mode: Black and white — 93% output-mode confidence.',
+        );
         expect(harness.leader.value).toBe(1);
 
         const layout = popover.querySelector<HTMLSelectElement>('[aria-label="Layout override for page 2"]')!;
@@ -1067,7 +1069,7 @@ describe('ScanCleanupThumbnailRail', () => {
         const popover = document.body.querySelector<HTMLElement>('.scan-thumbnail-technical')!;
         expect(popover.querySelector('summary')?.textContent).toBe('Technical details');
         expect(popover.textContent).toContain('Mode decision');
-        expect(popover.textContent).toContain('Text + pictures · 94%');
+        expect(popover.textContent).toContain('Text + pictures · 94% output-mode confidence');
         expect(popover.textContent).toContain('Text with picture regions');
         expect(popover.textContent).toContain('Contrast / light');
         expect(popover.textContent).toContain('Content trim');
@@ -1100,7 +1102,7 @@ describe('ScanCleanupThumbnailRail', () => {
         const technical = document.body.querySelector<HTMLElement>('.scan-thumbnail-technical')!;
 
         expect(technical.textContent).toContain('Geometry');
-        expect(technical.textContent).toContain('Single · 88%');
+        expect(technical.textContent).toContain('Single · 88% layout confidence');
         expect(technical.textContent).not.toContain('Unavailable');
         expect(technical.textContent).not.toContain('Not applicable');
         expect(technical.textContent).not.toContain('Content trim');
@@ -1118,6 +1120,14 @@ describe('ScanCleanupThumbnailRail', () => {
                 2,
                 0.4,
             ]]),
+            recommendedOutputModes: new Map([[
+                2,
+                'mixed',
+            ]]),
+            recommendedOutputModeConfidences: new Map([[
+                2,
+                0.83,
+            ]]),
             textAxes: new Map([[
                 2,
                 {
@@ -1134,9 +1144,12 @@ describe('ScanCleanupThumbnailRail', () => {
         await openOptions(harness.host, 2);
         const notices = Array.from(document.body.querySelectorAll<HTMLElement>('.scan-thumbnail-options-notice'));
         expect(notices.map(notice => notice.textContent?.trim())).toEqual([
-            'Detected as "Spread" with low confidence — check this page and set its layout manually if wrong.',
+            'Detected as "Spread · 40%" with low layout confidence — check this page and set its layout manually if wrong.',
             'Text appears sideways — set rotation (90° or 270°).',
         ]);
+        expect(document.body.querySelector<HTMLElement>('.scan-thumbnail-options')?.textContent).toContain(
+            'Recommended output mode: Text + pictures — 83% output-mode confidence.',
+        );
         expect(harness.leader.value).toBe(1);
     });
 

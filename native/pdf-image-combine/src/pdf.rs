@@ -1,7 +1,7 @@
 use fax::{encoder::Encoder as FaxEncoder, slice_bits, Color, VecWriter};
 use flate2::{write::ZlibEncoder, Compression};
 use jbig2_codec::Bilevel;
-use std::{fmt::Write as FmtWrite, io::Write as IoWrite};
+use std::{collections::HashMap, fmt::Write as FmtWrite, io::Write as IoWrite, sync::Arc};
 
 use crate::{flate::deflate_up_filtered_slices, netpbm::PbmP4Image, PdfBilevelDecode, Result};
 
@@ -124,15 +124,23 @@ pub struct BilevelStream {
     width: u32,
     height: u32,
     payload: BilevelPayload,
+    /// Retained only until a bounded writer chunk has evaluated shared symbol
+    /// coding. Source-authored JBIG2 streams never populate this field.
+    raw_mask: Option<PbmP4Image>,
 }
 
 impl BilevelStream {
+    pub(crate) fn supports_symbol_encoding(&self) -> bool {
+        self.raw_mask.is_some()
+    }
+
     pub(crate) fn encode(mask: &PbmP4Image) -> Result<Self> {
         validate_image_mask(mask)?;
         Ok(Self {
             width: mask.width,
             height: mask.height,
             payload: encode_mask_payload(mask)?,
+            raw_mask: Some(mask.clone()),
         })
     }
 
@@ -149,8 +157,175 @@ impl BilevelStream {
             width,
             height,
             payload: BilevelPayload::PdfJbig2 { data, decode },
+            raw_mask: None,
         })
     }
+}
+
+/// Evaluates one bounded cross-page symbol dictionary against the already
+/// selected lossless per-page payloads. Any classifier, encoder, decoder, or
+/// strict verification failure leaves every page on its existing generic/G4/
+/// Flate payload and emits a structured fallback record.
+const SHARED_SYMBOL_GLOBAL_OBJECT_OVERHEAD: usize = 128;
+const SHARED_SYMBOL_PAGE_REFERENCE_OVERHEAD: usize = 64;
+
+fn shared_symbol_encoding_saves_pdf_bytes(
+    fallback_bytes: usize,
+    symbol_bytes: usize,
+    selected_pages: usize,
+) -> bool {
+    let pdf_overhead = SHARED_SYMBOL_GLOBAL_OBJECT_OVERHEAD
+        .saturating_add(selected_pages.saturating_mul(SHARED_SYMBOL_PAGE_REFERENCE_OVERHEAD));
+    symbol_bytes.saturating_add(pdf_overhead) < fallback_bytes
+}
+
+pub(crate) fn apply_shared_symbol_encoding(streams: &mut [&mut BilevelStream]) {
+    if streams.is_empty() || streams.iter().any(|stream| stream.raw_mask.is_none()) {
+        return;
+    }
+    let encoded = {
+        let pages = streams
+            .iter()
+            .filter_map(|stream| stream.raw_mask.as_ref())
+            .map(|mask| Bilevel {
+                width: mask.width,
+                height: mask.height,
+                rows: &mask.bitmap,
+            })
+            .collect::<Vec<_>>();
+        jbig2_codec::encode_pdf_symbol_pages_verified(
+            &pages,
+            jbig2_codec::SymbolEncodeLimits::default(),
+        )
+    };
+    let encoded = match encoded {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            eprintln!(
+                "{}",
+                symbol_fallback_record(streams.len(), &error.to_string())
+            );
+            return;
+        }
+    };
+    if encoded.pages.len() != streams.len() {
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        eprintln!(
+            "{}",
+            symbol_fallback_record(
+                streams.len(),
+                "verified symbol encoder returned the wrong page count",
+            )
+        );
+        return;
+    }
+
+    let fallback_bytes = streams
+        .iter()
+        .map(|stream| stream.payload.data().len())
+        .sum::<usize>();
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    for fallback in &encoded.fallback_pages {
+        eprintln!(
+            "{}",
+            symbol_page_fallback_record(fallback.page_index, &fallback.reason.to_string())
+        );
+    }
+    let symbol_bytes = encoded.globals.len()
+        + encoded
+            .pages
+            .iter()
+            .zip(streams.iter())
+            .map(|(page, stream)| {
+                page.as_ref()
+                    .map_or_else(|| stream.payload.data().len(), |page| page.data.len())
+            })
+            .sum::<usize>();
+    let selected_pages = encoded.pages.iter().filter(|page| page.is_some()).count();
+    if !shared_symbol_encoding_saves_pdf_bytes(fallback_bytes, symbol_bytes, selected_pages) {
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        eprintln!(
+            "{}",
+            symbol_size_record(
+                "jbig2-symbol-not-selected",
+                encoded.pages.iter().filter(|page| page.is_some()).count(),
+                streams.len() - encoded.pages.iter().filter(|page| page.is_some()).count(),
+                encoded.symbol_count,
+                encoded.component_count,
+                encoded.class_comparison_count,
+                fallback_bytes,
+                symbol_bytes,
+            )
+        );
+        return;
+    }
+
+    let globals = Arc::new(encoded.globals);
+    let symbol_count = encoded.symbol_count;
+    let component_count = encoded.component_count;
+    let class_comparison_count = encoded.class_comparison_count;
+    for (stream, page) in streams.iter_mut().zip(encoded.pages) {
+        if let Some(page) = page {
+            stream.payload = BilevelPayload::Jbig2Symbol {
+                data: page.data,
+                globals: Arc::clone(&globals),
+            };
+            stream.raw_mask = None;
+        }
+    }
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    eprintln!(
+        "{}",
+        symbol_size_record(
+            "jbig2-symbol-selected",
+            selected_pages,
+            streams.len() - selected_pages,
+            symbol_count,
+            component_count,
+            class_comparison_count,
+            fallback_bytes,
+            symbol_bytes,
+        )
+    );
+}
+
+fn symbol_fallback_record(pages: usize, reason: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "jbig2-symbol-fallback",
+        "pages": pages,
+        "reason": reason,
+    })
+}
+
+fn symbol_page_fallback_record(page: usize, reason: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "jbig2-symbol-page-fallback",
+        "pageInChunk": page,
+        "reason": reason,
+    })
+}
+
+fn symbol_size_record(
+    record_type: &str,
+    pages: usize,
+    fallback_pages: usize,
+    symbols: usize,
+    components: usize,
+    class_comparisons: usize,
+    fallback_bytes: usize,
+    symbol_bytes: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "type": record_type,
+        "pages": pages,
+        "fallbackPages": fallback_pages,
+        "symbols": symbols,
+        "components": components,
+        "classComparisons": class_comparisons,
+        "fallbackBytes": fallback_bytes,
+        "symbolBytes": symbol_bytes,
+    })
 }
 
 #[cfg(test)]
@@ -209,6 +384,12 @@ pub(crate) struct PdfWriter<W: IoWrite> {
     next_object: usize,
     bytes_written: usize,
     provenance_stamp_hex: Option<String>,
+    // Key by the dictionary bytes, not an allocation address. Writer chunks
+    // release their page-owned `Arc`s after serialization, so a later chunk
+    // may otherwise reuse the same address for different globals and point at
+    // the wrong PDF object. Retaining the `Arc` keys also keeps lookup cheap
+    // for every page that shares one dictionary.
+    jbig2_globals_objects: HashMap<Arc<Vec<u8>>, usize>,
 }
 
 impl<W: IoWrite> PdfWriter<W> {
@@ -223,6 +404,7 @@ impl<W: IoWrite> PdfWriter<W> {
             next_object: 3,
             bytes_written: 0,
             provenance_stamp_hex: provenance_stamp_hex.map(str::to_owned),
+            jbig2_globals_objects: HashMap::new(),
         };
 
         writer.write_all(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")?;
@@ -255,6 +437,9 @@ impl<W: IoWrite> PdfWriter<W> {
         if let Some(placement) = placement {
             let page_size = page_size.ok_or("Image placement requires an explicit page size")?;
             validate_image_placement(placement, page_size)?;
+        }
+        if let ImagePayload::Bilevel(stream) = &page.payload {
+            self.ensure_jbig2_globals(stream)?;
         }
         let page_object = self.next_object;
         let image_object = page_object + 1;
@@ -317,6 +502,7 @@ impl<W: IoWrite> PdfWriter<W> {
 
     pub(crate) fn add_layered_page(&mut self, page: &LayeredPdfPage) -> Result<()> {
         validate_page_size(&page.page_size)?;
+        self.ensure_jbig2_globals(&page.foreground_mask)?;
         let page_object = self.next_object;
         let background_object = page_object + 1;
         let mask_object = page_object + 2;
@@ -433,6 +619,7 @@ impl<W: IoWrite> PdfWriter<W> {
         {
             return Err("Masked foreground matrix contains a non-finite value".into());
         }
+        self.ensure_jbig2_globals(&page.foreground_mask)?;
 
         let page_object = self.next_object;
         let background_object = page_object + 1;
@@ -485,6 +672,7 @@ impl<W: IoWrite> PdfWriter<W> {
 
     pub(crate) fn add_mask_page(&mut self, page: &MaskPdfPage) -> Result<()> {
         validate_page_size(&page.page_size)?;
+        self.ensure_jbig2_globals(&page.foreground_mask)?;
         let page_object = self.next_object;
         let mask_object = page_object + 1;
         let content_object = page_object + 2;
@@ -570,6 +758,29 @@ impl<W: IoWrite> PdfWriter<W> {
         Ok(self.inner)
     }
 
+    fn ensure_jbig2_globals(&mut self, stream: &BilevelStream) -> Result<Option<usize>> {
+        let BilevelPayload::Jbig2Symbol { globals, .. } = &stream.payload else {
+            return Ok(None);
+        };
+        if let Some(&object) = self.jbig2_globals_objects.get(globals) {
+            return Ok(Some(object));
+        }
+        let object = self.next_object;
+        self.next_object += 1;
+        let dictionary = format!("<< /Length {} >>", globals.len());
+        self.push_stream_object(object, dictionary.as_bytes(), globals)?;
+        self.jbig2_globals_objects
+            .insert(Arc::clone(globals), object);
+        Ok(Some(object))
+    }
+
+    fn jbig2_globals_object(&self, payload: &BilevelPayload) -> Option<usize> {
+        let BilevelPayload::Jbig2Symbol { globals, .. } = payload else {
+            return None;
+        };
+        self.jbig2_globals_objects.get(globals).copied()
+    }
+
     fn push_image_object(
         &mut self,
         object_number: usize,
@@ -578,7 +789,12 @@ impl<W: IoWrite> PdfWriter<W> {
     ) -> Result<()> {
         let payload = match &page.payload {
             ImagePayload::Bilevel(stream) => {
-                let dict = bilevel_image_dictionary(stream.width, stream.height, &stream.payload);
+                let dict = bilevel_image_dictionary(
+                    stream.width,
+                    stream.height,
+                    &stream.payload,
+                    self.jbig2_globals_object(&stream.payload),
+                );
                 return self.push_stream_object(
                     object_number,
                     dict.as_bytes(),
@@ -702,7 +918,12 @@ impl<W: IoWrite> PdfWriter<W> {
     }
 
     fn push_image_mask_object(&mut self, object_number: usize, mask: &BilevelStream) -> Result<()> {
-        let dict = image_mask_dictionary(mask.width, mask.height, &mask.payload);
+        let dict = image_mask_dictionary(
+            mask.width,
+            mask.height,
+            &mask.payload,
+            self.jbig2_globals_object(&mask.payload),
+        );
         self.push_stream_object(object_number, dict.as_bytes(), mask.payload.data())
     }
 
@@ -711,7 +932,12 @@ impl<W: IoWrite> PdfWriter<W> {
         object_number: usize,
         mask: &BilevelStream,
     ) -> Result<()> {
-        let dict = bilevel_soft_mask_dictionary(mask.width, mask.height, &mask.payload);
+        let dict = bilevel_soft_mask_dictionary(
+            mask.width,
+            mask.height,
+            &mask.payload,
+            self.jbig2_globals_object(&mask.payload),
+        );
         self.push_stream_object(object_number, dict.as_bytes(), mask.payload.data())
     }
 
@@ -905,6 +1131,12 @@ enum BilevelPayload {
     },
     /// A JBIG2 stream encoded from PBM black/selected pixels by this crate.
     Jbig2(Vec<u8>),
+    /// A verified symbol-coded page and its shared PDF `/JBIG2Globals`
+    /// dictionary. Every page in a bounded chunk shares the same `Arc`.
+    Jbig2Symbol {
+        data: Vec<u8>,
+        globals: Arc<Vec<u8>>,
+    },
     CcittG4(Vec<u8>),
     Flate(Vec<u8>),
 }
@@ -914,6 +1146,7 @@ impl BilevelPayload {
         match self {
             Self::PdfJbig2 { data, .. }
             | Self::Jbig2(data)
+            | Self::Jbig2Symbol { data, .. }
             | Self::CcittG4(data)
             | Self::Flate(data) => data,
         }
@@ -938,15 +1171,20 @@ fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
         );
     }
 
+    // Strict comparisons give equal-length candidates a stable priority:
+    // Flate, then Group 4, then JBIG2.
+    let fallback = encode_fallback_bilevel_payload(mask)?;
     match jbig2 {
-        Ok(data) => Ok(BilevelPayload::Jbig2(data)),
+        Ok(data) if data.len() < fallback.data().len() => Ok(BilevelPayload::Jbig2(data)),
+        Ok(_) => Ok(fallback),
         Err(error) => {
-            // Keep the verified source stencil and select a lossless CCITT/Flate
-            // payload; a JBIG2 failure is not a reason to discard valid MRC layers.
+            // Keep the verified source stencil and select the smallest remaining
+            // lossless payload; a JBIG2 failure is not a reason to discard valid
+            // MRC layers.
             eprintln!(
                 "warning: verified JBIG2 encoding failed for {width}x{height} bilevel image; falling back: {error}"
             );
-            encode_fallback_bilevel_payload(mask)
+            Ok(fallback)
         }
     }
 }
@@ -969,11 +1207,20 @@ fn encode_fallback_bilevel_payload(mask: &PbmP4Image) -> Result<BilevelPayload> 
     })
 }
 
-fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
+fn bilevel_image_dictionary(
+    width: u32,
+    height: u32,
+    payload: &BilevelPayload,
+    globals_object: Option<usize>,
+) -> String {
     let filter = match payload {
         BilevelPayload::PdfJbig2 { .. } | BilevelPayload::Jbig2(_) => {
             "/Filter /JBIG2Decode".to_string()
         }
+        BilevelPayload::Jbig2Symbol { .. } => format!(
+            "/Filter /JBIG2Decode /DecodeParms << /JBIG2Globals {} 0 R >>",
+            globals_object.expect("registered symbol dictionary")
+        ),
         BilevelPayload::CcittG4(_) => format!(
             "/Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
         ),
@@ -992,7 +1239,12 @@ fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelPayload) -
 /// so every generated payload maps selected foreground to opacity one. A raw
 /// soft mask copied from a PDF already has PDF sample polarity and must retain
 /// the source dictionary's default decode mapping.
-fn bilevel_soft_mask_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
+fn bilevel_soft_mask_dictionary(
+    width: u32,
+    height: u32,
+    payload: &BilevelPayload,
+    globals_object: Option<usize>,
+) -> String {
     let filter = match payload {
         BilevelPayload::PdfJbig2 {
             decode: PdfBilevelDecode::Default,
@@ -1003,6 +1255,10 @@ fn bilevel_soft_mask_dictionary(width: u32, height: u32, payload: &BilevelPayloa
             ..
         } => "/Decode [1 0] /Filter /JBIG2Decode".to_string(),
         BilevelPayload::Jbig2(_) => "/Decode [1 0] /Filter /JBIG2Decode".to_string(),
+        BilevelPayload::Jbig2Symbol { .. } => format!(
+            "/Decode [1 0] /Filter /JBIG2Decode /DecodeParms << /JBIG2Globals {} 0 R >>",
+            globals_object.expect("registered symbol dictionary")
+        ),
         BilevelPayload::CcittG4(_) => format!(
             "/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
         ),
@@ -1014,11 +1270,20 @@ fn bilevel_soft_mask_dictionary(width: u32, height: u32, payload: &BilevelPayloa
     )
 }
 
-fn image_mask_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
+fn image_mask_dictionary(
+    width: u32,
+    height: u32,
+    payload: &BilevelPayload,
+    globals_object: Option<usize>,
+) -> String {
     let filter = match payload {
         BilevelPayload::PdfJbig2 { .. } | BilevelPayload::Jbig2(_) => {
             "/Filter /JBIG2Decode".to_string()
         }
+        BilevelPayload::Jbig2Symbol { .. } => format!(
+            "/Filter /JBIG2Decode /DecodeParms << /JBIG2Globals {} 0 R >>",
+            globals_object.expect("registered symbol dictionary")
+        ),
         BilevelPayload::CcittG4(_) => format!(
             "/Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
         ),
@@ -1170,6 +1435,12 @@ mod tests {
 
     #[test]
     fn affine_masked_page_preserves_foreground_stream_and_uses_noninverted_opacity_mask() {
+        let foreground_mask = sample_mask();
+        let expected_mask_filter = match &foreground_mask.payload {
+            BilevelPayload::CcittG4(_) => "/Filter /CCITTFaxDecode",
+            BilevelPayload::Flate(_) => "/Filter /FlateDecode",
+            payload => panic!("the tiny fixture must select a fallback payload, got {payload:?}"),
+        };
         let page = AffineMaskedLayeredPdfPage {
             page_size: PdfPageSize {
                 width_points: 144.0,
@@ -1193,7 +1464,7 @@ mod tests {
                     data: vec![0, 1, 2, 3],
                 },
             },
-            foreground_mask: sample_mask(),
+            foreground_mask,
             foreground_matrix: [120.0, 0.0, 0.0, 60.0, 12.0, 6.0],
         };
 
@@ -1203,7 +1474,8 @@ mod tests {
         assert!(text.contains("/Filter /JPXDecode"));
         assert!(text.contains("/SMask "));
         assert!(!text.contains("/ImageMask true"));
-        assert!(text.contains("/Decode [1 0]"));
+        assert!(text.contains(expected_mask_filter));
+        assert!(!text.contains("/Decode [1 0]"));
         assert!(text.contains(
             "120.00000000 0.00000000 0.00000000 60.00000000 12.00000000 6.00000000 cm /FgMrc1 Do"
         ));
@@ -1671,7 +1943,7 @@ mod tests {
     }
 
     #[test]
-    fn a_verified_jbig2_stream_ends_the_search_even_when_deflate_would_be_smaller() {
+    fn the_smallest_verified_mask_encoding_wins() {
         let mask = PbmP4Image {
             width: 8,
             height: 2,
@@ -1685,15 +1957,19 @@ mod tests {
             rows: &mask.bitmap,
         })
         .unwrap();
+        let group4 = encode_mask_ccitt_g4(&mask).unwrap().unwrap();
+        let flate = deflate_bytes(&mask.bitmap).unwrap();
         assert!(
-            deflate_bytes(&mask.bitmap).unwrap().len() < jbig2.len(),
-            "the fixture must be one where the discarded candidates would have won"
+            flate.len() < jbig2.len(),
+            "the fixture must be one where a non-JBIG2 candidate wins"
         );
 
-        assert!(matches!(
-            encode_mask_payload(&mask).unwrap(),
-            BilevelPayload::Jbig2(_)
-        ));
+        let expected = if group4.len() < flate.len() {
+            BilevelPayload::CcittG4(group4)
+        } else {
+            BilevelPayload::Flate(flate)
+        };
+        assert_eq!(encode_mask_payload(&mask).unwrap(), expected);
     }
 
     #[test]
@@ -1726,7 +2002,7 @@ mod tests {
             ),
             (BilevelPayload::Flate(vec![1, 2]), "/Filter /FlateDecode"),
         ] {
-            let dictionary = bilevel_image_dictionary(13, 7, &payload);
+            let dictionary = bilevel_image_dictionary(13, 7, &payload, None);
             assert!(dictionary.contains("/ColorSpace /DeviceGray"));
             assert!(dictionary.contains("/BitsPerComponent 1"));
             assert_eq!(
@@ -1764,7 +2040,7 @@ mod tests {
             ),
             (BilevelPayload::Flate(vec![1, 2]), "/Filter /FlateDecode"),
         ] {
-            let dictionary = image_mask_dictionary(13, 7, &payload);
+            let dictionary = image_mask_dictionary(13, 7, &payload, None);
             assert!(dictionary.contains("/ImageMask true"));
             assert!(dictionary.contains("/BitsPerComponent 1"));
             assert!(!dictionary.contains("/ColorSpace"));
@@ -2013,6 +2289,204 @@ mod tests {
         }
     }
 
+    #[test]
+    fn repeated_text_masks_share_one_verified_symbol_dictionary() {
+        let mask = crate::netpbm::parse_pbm_p4(include_bytes!(
+            "../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm"
+        ))
+        .unwrap();
+        let mut first = BilevelStream::encode(&mask).unwrap();
+        let mut second = BilevelStream::encode(&mask).unwrap();
+        let fallback_bytes = first.payload.data().len() + second.payload.data().len();
+        apply_shared_symbol_encoding(&mut [&mut first, &mut second]);
+
+        let (first_globals, second_globals) = match (&first.payload, &second.payload) {
+            (
+                BilevelPayload::Jbig2Symbol {
+                    globals: first_globals,
+                    ..
+                },
+                BilevelPayload::Jbig2Symbol {
+                    globals: second_globals,
+                    ..
+                },
+            ) => (first_globals, second_globals),
+            payloads => panic!("expected shared symbol payloads, got {payloads:?}"),
+        };
+        assert!(Arc::ptr_eq(first_globals, second_globals));
+        assert!(
+            first_globals.len() + first.payload.data().len() + second.payload.data().len()
+                < fallback_bytes
+        );
+
+        let pages = [first, second].map(|stream| ImagePage {
+            width: stream.width,
+            height: stream.height,
+            dpi: 300,
+            color_space: "DeviceGray",
+            icc_profile: None,
+            payload: ImagePayload::Bilevel(stream),
+        });
+        let pdf = build_pdf(&pages).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("/JBIG2Globals").count(), 2);
+        assert_eq!(text.matches("/Filter /JBIG2Decode").count(), 2);
+        assert_eq!(text.matches("/DecodeParms << /JBIG2Globals").count(), 2);
+    }
+
+    #[test]
+    fn later_symbol_chunk_keeps_its_distinct_globals_reference() {
+        let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
+        let first_globals = Arc::new(b"first verified globals".to_vec());
+        let mut first_object = None;
+
+        // Match the production 50-page chunk boundary, then release every
+        // page-owned Arc before constructing the next chunk. The writer must
+        // not identify dictionaries by a recyclable allocation address.
+        for page_index in 0..50 {
+            let page = ImagePage {
+                width: 8,
+                height: 8,
+                dpi: 300,
+                color_space: "DeviceGray",
+                icc_profile: None,
+                payload: ImagePayload::Bilevel(BilevelStream {
+                    width: 8,
+                    height: 8,
+                    payload: BilevelPayload::Jbig2Symbol {
+                        data: vec![page_index],
+                        globals: Arc::clone(&first_globals),
+                    },
+                    raw_mask: None,
+                }),
+            };
+            writer.add_page(&page).unwrap();
+            let ImagePayload::Bilevel(stream) = &page.payload else {
+                unreachable!();
+            };
+            let object = writer.jbig2_globals_object(&stream.payload).unwrap();
+            assert_eq!(*first_object.get_or_insert(object), object);
+        }
+        drop(first_globals);
+
+        let second_globals = Arc::new(b"second, different verified globals".to_vec());
+        let last_page = ImagePage {
+            width: 8,
+            height: 8,
+            dpi: 300,
+            color_space: "DeviceGray",
+            icc_profile: None,
+            payload: ImagePayload::Bilevel(BilevelStream {
+                width: 8,
+                height: 8,
+                payload: BilevelPayload::Jbig2Symbol {
+                    data: vec![50],
+                    globals: second_globals,
+                },
+                raw_mask: None,
+            }),
+        };
+        writer.add_page(&last_page).unwrap();
+        let ImagePayload::Bilevel(last_stream) = &last_page.payload else {
+            unreachable!();
+        };
+        let second_object = writer.jbig2_globals_object(&last_stream.payload).unwrap();
+        let first_object = first_object.unwrap();
+
+        assert_ne!(first_object, second_object);
+        assert_eq!(writer.jbig2_globals_objects.len(), 2);
+
+        let pdf = writer.finish().unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(
+            text.matches(&format!("/JBIG2Globals {first_object} 0 R"))
+                .count(),
+            50
+        );
+        assert_eq!(
+            text.matches(&format!("/JBIG2Globals {second_object} 0 R"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn symbol_encoder_failure_keeps_the_existing_smallest_payload() {
+        let mask = PbmP4Image {
+            width: 8,
+            height: 8,
+            row_stride: 1,
+            bitmap: vec![0; 8],
+        };
+        let mut stream = BilevelStream::encode(&mask).unwrap();
+        let before = stream.payload.data().to_vec();
+
+        apply_shared_symbol_encoding(&mut [&mut stream]);
+
+        assert_eq!(stream.payload.data(), before);
+        assert!(!matches!(
+            stream.payload,
+            BilevelPayload::Jbig2Symbol { .. }
+        ));
+    }
+
+    #[test]
+    fn shared_symbols_must_save_their_pdf_container_overhead() {
+        assert!(!shared_symbol_encoding_saves_pdf_bytes(10_000, 9_999, 2));
+        assert!(!shared_symbol_encoding_saves_pdf_bytes(
+            10_000,
+            10_000
+                - SHARED_SYMBOL_GLOBAL_OBJECT_OVERHEAD
+                - 2 * SHARED_SYMBOL_PAGE_REFERENCE_OVERHEAD,
+            2,
+        ));
+        assert!(shared_symbol_encoding_saves_pdf_bytes(10_000, 9_000, 2));
+    }
+
+    #[test]
+    fn symbol_safety_records_keep_stable_machine_readable_fields() {
+        assert_eq!(
+            symbol_fallback_record(3, "dictionary rejected"),
+            serde_json::json!({
+                "type": "jbig2-symbol-fallback",
+                "pages": 3,
+                "reason": "dictionary rejected",
+            })
+        );
+        assert_eq!(
+            symbol_fallback_record(
+                50,
+                "unsupported JBIG2 feature: symbol classifier comparison budget exceeded",
+            ),
+            serde_json::json!({
+                "type": "jbig2-symbol-fallback",
+                "pages": 50,
+                "reason": "unsupported JBIG2 feature: symbol classifier comparison budget exceeded",
+            })
+        );
+        assert_eq!(
+            symbol_page_fallback_record(2, "whole-page verification failed"),
+            serde_json::json!({
+                "type": "jbig2-symbol-page-fallback",
+                "pageInChunk": 2,
+                "reason": "whole-page verification failed",
+            })
+        );
+        assert_eq!(
+            symbol_size_record("jbig2-symbol-selected", 2, 1, 17, 91, 123, 400, 220),
+            serde_json::json!({
+                "type": "jbig2-symbol-selected",
+                "pages": 2,
+                "fallbackPages": 1,
+                "symbols": 17,
+                "components": 91,
+                "classComparisons": 123,
+                "fallbackBytes": 400,
+                "symbolBytes": 220,
+            })
+        );
+    }
+
     fn build_test_mask_pdf(mask: &PbmP4Image, payload: &BilevelPayload) -> Vec<u8> {
         let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
         writer.page_objects.push(3);
@@ -2027,7 +2501,7 @@ mod tests {
                 .as_bytes(),
             )
             .unwrap();
-        let dictionary = image_mask_dictionary(mask.width, mask.height, payload);
+        let dictionary = image_mask_dictionary(mask.width, mask.height, payload, None);
         writer
             .push_stream_object(4, dictionary.as_bytes(), payload.data())
             .unwrap();

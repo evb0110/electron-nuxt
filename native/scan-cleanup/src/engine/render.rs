@@ -34,13 +34,15 @@ use crate::{
     dewarp::{
         rasterize_inverse_area_rgb_with, rasterize_inverse_area_with, DewarpModel, DEWARP_GRID_SIZE,
     },
+    ink_consistency::{stabilize_trusted_stroke_mass, InkConsistencyDiagnostics},
     mrc::derive_halftone_zones,
     picture::{
         apply_manual_zones, detect_continuous_tone_mask, detect_picture_mask_with_continuous_tone,
         extend_picture_mask_for_content, extend_tone_mask_for_content,
         flat_graphic_tone_preservation_alpha, photo_tone_preservation_alpha,
-        refine_line_art_preservation_alpha, refine_tone_preservation_alpha,
-        semantic_tone_preservation_alpha,
+        rectangularize_corroborated_photos, refine_line_art_preservation_alpha,
+        refine_tone_preservation_alpha, resample_binary_mask_nearest,
+        semantic_tone_preservation_alpha, veto_text_like_regions,
     },
     png::RgbImage,
     protocol::{
@@ -49,7 +51,7 @@ use crate::{
     },
     split::{
         detect_split_at_analysis_level_with_threshold, DocumentPrior, LayoutClassification,
-        ReconciliationMetadata, SplitResult, SPLIT_ANALYSIS_DPI,
+        ReconciliationMetadata, SplitDiagnostics, SplitResult, SPLIT_ANALYSIS_DPI,
     },
     text_tone::{
         apply_text_tone, apply_text_tone_excluding, derive_text_tone_diagnostics,
@@ -168,6 +170,8 @@ pub struct CleanupMetadata {
     pub binarization_mode: Option<crate::BinarizationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binarization_diagnostics: Option<BinarizationDiagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ink_consistency_diagnostics: Option<InkConsistencyDiagnostics>,
     #[serde(default)]
     pub despeckle_fallback: bool,
     pub forward_transform: Option<Affine>,
@@ -326,6 +330,7 @@ pub struct PageCleanupResult {
     pub cutter_x: Option<f64>,
     pub split_seam: Option<crate::protocol::manifest_v3::SplitSeamPolyline>,
     pub reconciliation: ReconciliationMetadata,
+    pub split_diagnostics: SplitDiagnostics,
     pub blank_outputs_skipped: usize,
     pub excluded: bool,
     pub rotation: OrthogonalRotation,
@@ -482,6 +487,7 @@ pub(crate) fn clean_detail_page_with_color(
         &mapped_gray,
         mapped_color.as_ref(),
         None,
+        None,
         &tile_options,
         source_page_index,
         CalibrationConfig::default(),
@@ -565,6 +571,7 @@ pub(crate) fn clean_detail_page_with_color(
             reconciled: false,
             cluster_agreement: 0.0,
         },
+        split_diagnostics: SplitDiagnostics::default(),
         blank_outputs_skipped: 0,
         excluded: false,
         rotation: base_metadata.rotation,
@@ -911,6 +918,7 @@ pub struct PageClassificationResult {
     pub excluded: bool,
     pub rotation: OrthogonalRotation,
     pub reconciliation: ReconciliationMetadata,
+    pub split_diagnostics: SplitDiagnostics,
     pub rotated_width: usize,
     pub rotated_height: usize,
     pub candidate_cutter_ratio: Option<f64>,
@@ -1029,6 +1037,7 @@ pub struct PageAnalysisResult {
     pub excluded: bool,
     pub rotation: OrthogonalRotation,
     pub reconciliation: ReconciliationMetadata,
+    pub split_diagnostics: SplitDiagnostics,
     pub rotated_width: usize,
     pub rotated_height: usize,
     pub candidate_cutter_ratio: Option<f64>,
@@ -1060,7 +1069,7 @@ struct PreparedPage<'a> {
     split_cache_key: Option<StageCacheKey>,
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
-    protect_tonal_text_vicinity: bool,
+    preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
     resolved_output_mode: OutputMode,
 }
@@ -1090,7 +1099,7 @@ struct PreparedAnalysis {
     split_cache_key: Option<StageCacheKey>,
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
-    protect_tonal_text_vicinity: bool,
+    preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
     resolved_output_mode: OutputMode,
 }
@@ -1117,7 +1126,7 @@ struct AnalysisArtifact {
     content_picture_mask: Option<Arc<BinaryImage>>,
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
-    protect_tonal_text_vicinity: bool,
+    preserve_confirmed_photo_tones: bool,
     use_soft_alpha_foreground: bool,
     resolved_output_mode: OutputMode,
     analysis_threshold: Option<u8>,
@@ -1133,6 +1142,38 @@ fn union_optional_masks(
         (Some(mask), None) | (None, Some(mask)) => Some(Arc::clone(mask)),
         (None, None) => None,
     }
+}
+
+fn retain_trusted_mrc_tone_components(mask: BinaryImage, effective_dpi: f64) -> BinaryImage {
+    let page_pixels = mask.width().saturating_mul(mask.height()).max(1);
+    let minimum_area = (page_pixels as f64 * 0.005).round().max(1.0) as usize;
+    let minimum_span = (effective_dpi * 0.20).round().max(12.0) as usize;
+    ComponentMap::from_binary(&mask).retain(|component| {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        component.area >= minimum_area && width >= minimum_span && height >= minimum_span
+    })
+}
+
+fn carve_trusted_mrc_tone_owner(
+    source: &GrayImage,
+    trusted_tone: BinaryImage,
+    text_vicinity_mask: Option<&BinaryImage>,
+    effective_dpi: f64,
+    calibration: PageCalibration,
+) -> BinaryImage {
+    let component_vetoed = veto_text_like_regions(source, trusted_tone, effective_dpi, calibration);
+    // Component rejection and the pixel-level text carve are cumulative
+    // safeguards. A genuine photo component can contain a caption or an
+    // antialiased producer-text ghost without being text-like as a whole;
+    // conversely, subtracting from the original producer mask here would
+    // silently revive components that the stricter veto already rejected.
+    let carved = if let Some(text) = text_vicinity_mask {
+        component_vetoed.subtract(text)
+    } else {
+        component_vetoed
+    };
+    retain_trusted_mrc_tone_components(carved, effective_dpi)
 }
 
 fn union_optional_gray_fields(
@@ -1283,6 +1324,7 @@ fn classify_page_with_document_prior_impl(
         document_prior,
         CalibrationConfig::default(),
         cache,
+        None,
         timings,
     );
     Ok(PageClassificationResult {
@@ -1293,6 +1335,7 @@ fn classify_page_with_document_prior_impl(
         excluded: options.excluded,
         rotation: options.rotation,
         reconciliation: prepared.split.reconciliation,
+        split_diagnostics: prepared.split.diagnostics,
         rotated_width: prepared.full_width,
         rotated_height: prepared.full_height,
         candidate_cutter_ratio: prepared.candidate_cutter_ratio,
@@ -1403,6 +1446,7 @@ fn analyze_page_with_color_and_document_prior_impl(
                 reconciled: false,
                 cluster_agreement: 0.0,
             },
+            split_diagnostics: SplitDiagnostics::default(),
             rotated_width: source.width(),
             rotated_height: source.height(),
             candidate_cutter_ratio: None,
@@ -1425,6 +1469,7 @@ fn analyze_page_with_color_and_document_prior_impl(
         document_prior,
         CalibrationConfig::default(),
         cache,
+        None,
         timings,
     );
     if !plan_content {
@@ -1437,6 +1482,7 @@ fn analyze_page_with_color_and_document_prior_impl(
             excluded: false,
             rotation: options.rotation,
             reconciliation: prepared.split.reconciliation,
+            split_diagnostics: prepared.split.diagnostics,
             rotated_width: prepared.full_width,
             rotated_height: prepared.full_height,
             candidate_cutter_ratio: prepared.candidate_cutter_ratio,
@@ -1585,6 +1631,7 @@ fn analyze_page_with_color_and_document_prior_impl(
         excluded: false,
         rotation: options.rotation,
         reconciliation: prepared.split.reconciliation,
+        split_diagnostics: prepared.split.diagnostics,
         rotated_width: prepared.full_width,
         rotated_height: prepared.full_height,
         candidate_cutter_ratio: prepared.candidate_cutter_ratio,
@@ -1632,6 +1679,7 @@ pub fn clean_page(
         source,
         None,
         None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1652,6 +1700,7 @@ pub fn clean_page_with_calibration_config(
     let mut timings = PageStageTimings::default();
     clean_page_with_color_and_calibration_config(
         source,
+        None,
         None,
         None,
         options,
@@ -1675,6 +1724,7 @@ pub fn clean_page_with_color(
         source,
         color_source,
         None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1697,6 +1747,7 @@ pub fn clean_page_with_color_and_document_prior(
         source,
         color_source,
         None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1712,6 +1763,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
     trusted_foreground_mask: Option<&BinaryImage>,
+    trusted_mrc_background: Option<&GrayImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     document_prior: Option<DocumentPrior>,
@@ -1724,6 +1776,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
         source,
         color_source,
         trusted_foreground_mask,
+        trusted_mrc_background,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1747,6 +1800,7 @@ fn clean_page_with_color_and_calibration_config(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
     trusted_foreground_mask: Option<&BinaryImage>,
+    trusted_mrc_background: Option<&GrayImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     calibration_config: CalibrationConfig,
@@ -1768,6 +1822,7 @@ fn clean_page_with_color_and_calibration_config(
                 reconciled: false,
                 cluster_agreement: 0.0,
             },
+            split_diagnostics: SplitDiagnostics::default(),
             blank_outputs_skipped: 0,
             excluded: true,
             rotation: options.rotation,
@@ -1778,6 +1833,7 @@ fn clean_page_with_color_and_calibration_config(
         source,
         color_source,
         trusted_foreground_mask,
+        trusted_mrc_background,
         options,
         calibration_config,
         document_prior,
@@ -1820,7 +1876,7 @@ fn clean_page_with_color_and_calibration_config(
         split_cache_key,
         source_effectively_blank,
         output_mode_recommendation,
-        protect_tonal_text_vicinity,
+        preserve_confirmed_photo_tones,
         use_soft_alpha_foreground,
         resolved_output_mode: _,
     } = prepared;
@@ -1847,7 +1903,7 @@ fn clean_page_with_color_and_calibration_config(
             spatial_tone_mask.as_deref(),
             chroma_picture_mask.as_deref(),
             tone_picture_mask.as_deref(),
-            protect_tonal_text_vicinity,
+            preserve_confirmed_photo_tones,
             use_soft_alpha_foreground,
             tone_preservation_alpha.as_deref(),
             text_mask.as_deref(),
@@ -1878,6 +1934,7 @@ fn clean_page_with_color_and_calibration_config(
         cutter_x: split.cutter_x,
         split_seam: split.split_seam.clone(),
         reconciliation: split.reconciliation,
+        split_diagnostics: split.diagnostics,
         blank_outputs_skipped,
         excluded: false,
         rotation: options.rotation,
@@ -1890,6 +1947,7 @@ fn prepare_page<'a>(
     source: &'a GrayImage,
     color_source: Option<&RgbImage>,
     trusted_foreground_mask: Option<&BinaryImage>,
+    trusted_mrc_background: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
@@ -1919,7 +1977,7 @@ fn prepare_page<'a>(
         split_cache_key,
         source_effectively_blank,
         output_mode_recommendation,
-        protect_tonal_text_vicinity,
+        preserve_confirmed_photo_tones,
         use_soft_alpha_foreground,
         resolved_output_mode,
         ..
@@ -1932,6 +1990,7 @@ fn prepare_page<'a>(
         document_prior,
         calibration_config,
         cache,
+        trusted_mrc_background,
         timings,
     );
     // Auto Color is an explicit semantic abstention from paper cleanup: the
@@ -2104,12 +2163,13 @@ fn prepare_page<'a>(
         split_cache_key,
         source_effectively_blank,
         output_mode_recommendation,
-        protect_tonal_text_vicinity,
+        preserve_confirmed_photo_tones,
         use_soft_alpha_foreground,
         resolved_output_mode,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare_analysis_page(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
@@ -2119,6 +2179,7 @@ fn prepare_analysis_page(
     document_prior: Option<DocumentPrior>,
     calibration_config: CalibrationConfig,
     cache: Option<&PageCache>,
+    trusted_mrc_background: Option<&GrayImage>,
     timings: &mut PageStageTimings,
 ) -> PreparedAnalysis {
     debug_assert!(
@@ -2212,25 +2273,69 @@ fn prepare_analysis_page(
                 derive_halftone_zones(&rotated, effective_dpi)
             })
         });
-        let picture_mask = render_policy.analyze_layout.then(|| {
-            let mut mask = if blank_scan_candidate {
+        let detected_picture_mask = render_policy.analyze_layout.then(|| {
+            Arc::new(if blank_scan_candidate {
                 BinaryImage::new(rotated.width(), rotated.height())
             } else {
-                let detected = detect_picture_mask_with_continuous_tone(
+                detect_picture_mask_with_continuous_tone(
                     &rotated,
                     effective_dpi,
                     calibration,
                     continuous_tone_mask
                         .as_deref()
                         .expect("layout analysis must prepare continuous-tone evidence"),
-                );
-                detected.or(continuous_tone_mask
+                )
+            })
+        });
+        let automatic_picture_mask = render_policy.analyze_layout.then(|| {
+            Arc::new(if blank_scan_candidate {
+                BinaryImage::new(rotated.width(), rotated.height())
+            } else {
+                detected_picture_mask
                     .as_deref()
-                    .expect("layout analysis must prepare continuous-tone evidence"))
-            };
+                    .expect("layout analysis must prepare detected picture evidence")
+                    .or(continuous_tone_mask
+                        .as_deref()
+                        .expect("layout analysis must prepare continuous-tone evidence"))
+            })
+        });
+        let mut picture_mask = automatic_picture_mask.as_deref().map(|automatic| {
+            let mut mask = automatic.clone();
             apply_manual_zones(&mut mask, options);
             Arc::new(mask)
         });
+        // Keep producer evidence separate until real text-vicinity geometry is
+        // available. A low-resolution MRC background can contain antialiased
+        // text ghosts joined to a genuine photo; treating that whole joined
+        // component as an owner either swallows text or makes the component
+        // veto discard the photo with it.
+        // The producer-authored continuous-tone layer is independent evidence
+        // of photo ownership. Keep it separate until text geometry is known;
+        // the existing flattened-page detector may cover only the darkest
+        // lobe of the same photograph.
+        let corroborated_picture_owner_pixels = detected_picture_mask
+            .as_deref()
+            .map_or(0, BinaryImage::count_black);
+        let trusted_mrc_tone_mask = picture_mask
+            .as_deref()
+            .filter(|_| options.trusted_mrc_source_available)
+            .and(trusted_mrc_background)
+            .map(|background| {
+                let native_tone =
+                    detect_continuous_tone_mask(background, options.source_background_dpi());
+                let rotated_tone = rotate_binary_orthogonal(&native_tone, options.rotation);
+                Arc::new(resample_binary_mask_nearest(
+                    &rotated_tone,
+                    rotated.width(),
+                    rotated.height(),
+                ))
+            })
+            .filter(|mask| mask.count_black() > 0)
+            // Producer tone is a recall fallback, not a second classifier.
+            // Once the flattened source already has a corroborated owner,
+            // letting the lower-resolution background enlarge it changes
+            // otherwise-correct photos and can join paper texture to them.
+            .filter(|_| corroborated_picture_owner_pixels == 0);
         let content_evidence_complete = match options.layout {
             crate::LayoutMode::Single => options
                 .resolved_content_for(PageHalf::Full, full_width, full_height)
@@ -2310,6 +2415,62 @@ fn prepare_analysis_page(
                 Some(Arc::new(evidence.text_vicinity_mask)),
             )
         });
+        let mut trusted_mrc_owned_tone_mask = None;
+        if let Some(trusted_tone) = trusted_mrc_tone_mask.as_deref() {
+            let carved = carve_trusted_mrc_tone_owner(
+                &rotated,
+                trusted_tone.clone(),
+                text_vicinity_mask.as_deref(),
+                effective_dpi,
+                calibration,
+            );
+            if carved.count_black() > 0 {
+                trusted_mrc_owned_tone_mask = Some(Arc::new(carved));
+            }
+        }
+        // Rectangular photo ownership is inferred only from automatic,
+        // corroborated evidence. Explicit painter/eraser zones stay outside
+        // the inference and are applied once, last, so an operator override
+        // cannot be enlarged and a final eraser cannot be silently undone.
+        let automatic_picture_owner = union_optional_masks(
+            automatic_picture_mask.as_ref(),
+            trusted_mrc_owned_tone_mask.as_ref(),
+        );
+        // `automatic_picture_owner` contains only detector-corroborated tone or
+        // trusted producer tone that survived the text/component veto above.
+        // Rectangularization may still decline to enlarge it; that decision
+        // must not revoke exact source appearance inside the original owner.
+        let confirmed_automatic_photo_owner = automatic_picture_owner
+            .as_deref()
+            .is_some_and(|owner| owner.count_black() > 0);
+        let mut exact_photo_owner = None;
+        if let Some(automatic) = automatic_picture_owner.as_deref() {
+            let empty_text = BinaryImage::new(rotated.width(), rotated.height());
+            let rectangular = rectangularize_corroborated_photos(
+                &rotated,
+                automatic,
+                text_mask.as_deref().unwrap_or(&empty_text),
+                text_vicinity_mask.as_deref().unwrap_or(&empty_text),
+                effective_dpi,
+            );
+            let rectangle_added = rectangular.count_black() > automatic.count_black();
+            let mut final_owner = rectangular;
+            apply_manual_zones(&mut final_owner, options);
+            let final_owner = Arc::new(final_owner);
+            if rectangle_added || trusted_mrc_owned_tone_mask.is_some() {
+                // Once a component has passed the text and tone safeguards,
+                // its whole rectangle is one source-preserved owner. Keeping
+                // the final manual-zone result here prevents later text-field
+                // partitioning from recreating detector-shaped holes.
+                exact_photo_owner = Some(Arc::clone(&final_owner));
+            }
+            picture_mask = Some(final_owner);
+        }
+        if options.crop_content && !content_evidence_complete {
+            content_picture_mask = picture_mask
+                .as_deref()
+                .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)));
+        }
         let (outside_tone, tonal_seed_mask) = text_vicinity_mask
             .as_deref()
             .map(|mask| outside_tonal_evidence_with_mask(&layout_normalized, mask))
@@ -2387,9 +2548,23 @@ fn prepare_analysis_page(
         // sheet has no stencil to protect and no show-through/text
         // ambiguity; its broad tone evidence (a full-page plate or wash)
         // keeps the wider protection.
-        let tonal_protection_mask = union_optional_masks(
+        let ordinary_tonal_protection_mask = union_optional_masks(
             destructive_tone_mask.as_ref(),
             continuous_tone_mask.as_ref(),
+        );
+        // The trusted fallback has already passed the component-level text
+        // veto and the real text-vicinity carve above. Keep those surviving
+        // pixels as an exact tone owner during the final Mixed partition;
+        // applying the broader text-vicinity carve a second time otherwise
+        // collapses the recovered photograph back to the same sparse
+        // halftone islands that A7 is intended to replace.
+        let trusted_tonal_protection_mask = union_optional_masks(
+            ordinary_tonal_protection_mask.as_ref(),
+            trusted_mrc_owned_tone_mask.as_ref(),
+        );
+        let tonal_protection_mask = union_optional_masks(
+            trusted_tonal_protection_mask.as_ref(),
+            exact_photo_owner.as_ref(),
         );
         // A textless illustration may legitimately use smooth tone across its
         // full vetted enclosure. On document-like pages, isolate semantic tone
@@ -2542,6 +2717,17 @@ fn prepare_analysis_page(
             recommendation.diagnostics.bilevel_fidelity_veto |= mixed_foreground_fidelity_veto;
         }
         let protect_tonal_text_vicinity = significant_picture && !refine_picture_ownership;
+        // Keep confirmed ownership distinct from the broader policy that
+        // suppresses semantic tone around text. A small (0.5--1.2% of page)
+        // corroborated photo is intentionally below `significant_picture`, but
+        // whitening it locally beside stencil ink would recreate the patchwork
+        // boundary that rectangular ownership exists to remove. A rejected
+        // rectangle retains exact appearance inside its original vetted mask.
+        let preserve_confirmed_photo_tones = confirmed_photo_preservation_policy(
+            significant_picture,
+            confirmed_automatic_photo_owner,
+            refine_picture_ownership,
+        );
         let mut output_picture_mask = if resolved_output_mode == OutputMode::Mixed {
             // A directly detected photograph needs one coherent owner across
             // all of its continuous-tone enclosure. The permissive picture
@@ -2606,17 +2792,22 @@ fn prepare_analysis_page(
         } else {
             detected_photo_preservation_alpha
         };
-        let coherent_photo_mask = (matches!(
-            resolved_output_mode,
-            OutputMode::Mixed | OutputMode::Grayscale
-        ) && significant_picture
-            && !refine_picture_ownership)
-            .then(|| {
-                expanded_photo_preservation_alpha
-                    .as_deref()
-                    .and_then(|alpha| coherent_photo_field(alpha, &rotated))
-            })
-            .flatten();
+        let coherent_photo_mask = exact_photo_owner
+            .clone()
+            .or_else(|| trusted_mrc_owned_tone_mask.clone())
+            .or_else(|| {
+                (matches!(
+                    resolved_output_mode,
+                    OutputMode::Mixed | OutputMode::Grayscale
+                ) && significant_picture
+                    && !refine_picture_ownership)
+                    .then(|| {
+                        expanded_photo_preservation_alpha
+                            .as_deref()
+                            .and_then(|alpha| coherent_photo_field(alpha, &rotated))
+                    })
+                    .flatten()
+            });
         let photo_preservation_alpha = if let Some(field) = coherent_photo_mask.as_ref() {
             // The high-confidence continuous field is the representation
             // boundary. Detector fragments attached to a scanner shadow or a
@@ -2726,7 +2917,7 @@ fn prepare_analysis_page(
             content_picture_mask,
             source_effectively_blank,
             output_mode_recommendation,
-            protect_tonal_text_vicinity,
+            preserve_confirmed_photo_tones,
             use_soft_alpha_foreground,
             resolved_output_mode,
             analysis_threshold,
@@ -2854,7 +3045,7 @@ fn prepare_analysis_page(
         split_cache_key: split_key,
         source_effectively_blank: analysis.source_effectively_blank,
         output_mode_recommendation: analysis.output_mode_recommendation,
-        protect_tonal_text_vicinity: analysis.protect_tonal_text_vicinity,
+        preserve_confirmed_photo_tones: analysis.preserve_confirmed_photo_tones,
         use_soft_alpha_foreground: analysis.use_soft_alpha_foreground,
         resolved_output_mode: analysis.resolved_output_mode,
     }
@@ -2970,6 +3161,14 @@ fn scale_split_result(
 
 fn should_refine_line_art_picture_ownership(diagnostics: &OutputModeDiagnostics) -> bool {
     is_line_art_picture(diagnostics)
+}
+
+fn confirmed_photo_preservation_policy(
+    significant_picture: bool,
+    confirmed_automatic_photo_owner: bool,
+    refine_picture_ownership: bool,
+) -> bool {
+    (significant_picture || confirmed_automatic_photo_owner) && !refine_picture_ownership
 }
 
 /// Illumination fitting can occasionally model a small isolated mark as part
@@ -4503,6 +4702,7 @@ fn clean_region(
     // remain protocol-compatible markers; fresh output never sets them.
     let trusted_selection_applied = rendered_trusted_foreground_mask.is_some();
     let trusted_mrc_background_preserved = false;
+    let mut ink_consistency_diagnostics = None;
     let (
         mut image,
         mut color_image,
@@ -4539,8 +4739,24 @@ fn clean_region(
                         options.source_has_bilevel_layer && !options.trusted_selection_incomplete
                     });
                 if let Some(trusted_foreground) = complete_trusted_foreground {
+                    let trusted_foreground = options.page_ink_consistency.map_or_else(
+                        || trusted_foreground.clone(),
+                        |context| {
+                            let (stabilized, diagnostics) = stabilize_trusted_stroke_mass(
+                                trusted_foreground,
+                                &rendered_source_gray,
+                                rendered_picture_mask.as_ref(),
+                                context,
+                                normalized.width(),
+                                normalized.height(),
+                                options.dpi,
+                            );
+                            ink_consistency_diagnostics = Some(diagnostics);
+                            stabilized
+                        },
+                    );
                     (
-                        CleanupRaster::Bilevel(trusted_foreground.clone()),
+                        CleanupRaster::Bilevel(trusted_foreground),
                         None,
                         Some(mode),
                         Some(routing_diagnostics),
@@ -4950,6 +5166,7 @@ fn clean_region(
             text_tone_diagnostics,
             binarization_mode,
             binarization_diagnostics,
+            ink_consistency_diagnostics,
             despeckle_fallback,
             forward_transform,
             inverse_transform,
@@ -5245,12 +5462,7 @@ fn compose_mixed(
     let mut mixed_color = color
         .filter(|_| chroma_picture_mask.is_some())
         .map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
-    let photo_feather_radius = (dpi * 0.5 / 25.4).floor() as usize;
-    let feather_radius = if preserve_confirmed_photo_tones {
-        photo_feather_radius
-    } else {
-        (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize
-    };
+    let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
     let picture_exterior = picture_mask.invert();
     let (distance_to_picture_exterior, distance_to_stencil) = rayon::join(
         || squared_euclidean_distance(&picture_exterior),
@@ -5260,11 +5472,11 @@ fn compose_mixed(
     let alpha_at = |x: usize, y: usize, source_gray: u8| {
         let index = y * gray.width() + x;
         if preserve_confirmed_photo_tones {
-            if photo_feather_radius == 0 {
-                return 1.0;
-            }
-            (f64::from(distance_to_picture_exterior[index]).sqrt() / photo_feather_radius as f64)
-                .clamp(0.0, 1.0)
+            // Every pixel inside a corroborated owner is source appearance, including
+            // the rectangular crop's paper-toned boundary. Any protective transition
+            // belongs to the exterior ring below; fading owner pixels toward white
+            // recreates the tile-shaped halo this path exists to remove.
+            1.0
         } else if distance_to_stencil[index] <= stencil_adjacency_squared {
             let spatial_alpha = (f64::from(distance_to_picture_exterior[index]).sqrt()
                 / feather_radius as f64)
@@ -5298,13 +5510,17 @@ fn compose_mixed(
                         continue;
                     }
                     let source_gray = gray.get(x, y);
-                    let alpha = if picture_mask.get(x, y) {
+                    let inside_picture = picture_mask.get(x, y);
+                    let alpha = if inside_picture {
                         alpha_at(x, y, source_gray)
                     } else {
                         ((200.0 - f64::from(source_gray)) / 80.0).clamp(0.0, 1.0)
                     };
-                    let paper_ring = !picture_mask.get(x, y) && alpha <= f64::EPSILON;
-                    *gray_target = if paper_ring {
+                    let exact_owned_tone = preserve_confirmed_photo_tones && inside_picture;
+                    let paper_ring = !inside_picture && alpha <= f64::EPSILON;
+                    *gray_target = if exact_owned_tone {
+                        source_gray
+                    } else if paper_ring {
                         255
                     } else {
                         reserve_gray_endpoint(
@@ -5313,7 +5529,9 @@ fn compose_mixed(
                                 .clamp(0.0, 255.0) as u8,
                         )
                     };
-                    let rgb = if paper_ring {
+                    let rgb = if exact_owned_tone {
+                        source_color.get(x, y)
+                    } else if paper_ring {
                         [255; 3]
                     } else {
                         reserve_rgb_endpoints(source_color.get(x, y).map(|channel| {
@@ -5340,12 +5558,15 @@ fn compose_mixed(
                         *target = if create_composite { 0 } else { 255 };
                     } else if protected_picture_mask.get(x, y) {
                         let source_gray = gray.get(x, y);
-                        let alpha = if picture_mask.get(x, y) {
+                        let inside_picture = picture_mask.get(x, y);
+                        let alpha = if inside_picture {
                             alpha_at(x, y, source_gray)
                         } else {
                             ((200.0 - f64::from(source_gray)) / 80.0).clamp(0.0, 1.0)
                         };
-                        *target = if !picture_mask.get(x, y) && alpha <= f64::EPSILON {
+                        *target = if preserve_confirmed_photo_tones && inside_picture {
+                            source_gray
+                        } else if !inside_picture && alpha <= f64::EPSILON {
                             255
                         } else {
                             reserve_gray_endpoint(

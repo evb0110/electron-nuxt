@@ -136,6 +136,10 @@ pub(crate) enum Operation {
     SplitPages {
         instructions_file: PathBuf,
     },
+    OverlayText {
+        source_path: PathBuf,
+        instructions_file: PathBuf,
+    },
     Crop {
         pages_file: PathBuf,
         margins: CropMargins,
@@ -183,6 +187,25 @@ pub(crate) struct SplitPageOutput {
     pub(crate) crop_rect: SplitCropRect,
     #[serde(default)]
     pub(crate) content_transform: Option<SplitContentTransform>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct TextLayerFile {
+    pub(crate) pages: Vec<TextLayerInstruction>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct TextLayerInstruction {
+    pub(crate) source_page_index: usize,
+    pub(crate) output_page_index: usize,
+    /// PDF `cm` operands mapping source-page user space into output-page user space.
+    pub(crate) matrix: [f64; 6],
+    /// PDF text extraction commonly ignores clipping. Split pages therefore
+    /// filter show operators by their positioned origin in target-page space.
+    #[serde(default)]
+    pub(crate) filter_to_output_page: bool,
 }
 
 /// Scales the source page's own content into the output page box, so a page

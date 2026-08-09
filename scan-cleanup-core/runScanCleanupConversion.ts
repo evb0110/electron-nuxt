@@ -55,9 +55,11 @@ import {createPdfCombineProgressHandler} from '@scan-cleanup-core/createPdfCombi
 import {
     buildScanCleanupCompactManifest,
     isScanCleanupCliFallbackSentinel,
+    serializeScanCleanupTextLayerInstructions,
     serializeLegacyScanCleanupCompactManifest,
     serializeScanCleanupCompactManifest,
 } from '@scan-cleanup-core/compactManifest';
+import {buildScanCleanupTextLayerPlan} from '@scan-cleanup-core/sourceTextLayer';
 import {buildScanCleanupStampBuildIds} from '@scan-cleanup-core/buildManifest';
 import {
     buildScanCleanupPagePlanDigest,
@@ -1516,6 +1518,57 @@ export async function runScanCleanupConversion(
             dependencies,
             provenanceStampHex,
         );
+        // Source OCR is positioned in PDF user space. Native cleanup publishes
+        // the exact affine from the rendered source raster into each output,
+        // so affine pages can retain that searchable layer without retaining
+        // any source image or paint operators. Cylindrically dewarped pages do
+        // not have one PDF matrix and intentionally remain raster-only.
+        const textLayerPlan = buildScanCleanupTextLayerPlan(outputPages, pageSizes);
+        if (
+            textLayerPlan.pages.length > 0
+            && paths.pdfPageOpsBinary !== undefined
+            && !isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
+        ) {
+            const textLayerInstructionsPath = join(scratch, 'source-text-layer.json');
+            const textLayerPdfPath = join(scratch, 'text-layer-cleaned.pdf');
+            await writeFile(
+                textLayerInstructionsPath,
+                serializeScanCleanupTextLayerInstructions(textLayerPlan.pages),
+            );
+            await dependencies.runCommand(paths.pdfPageOpsBinary, [
+                'overlay-text',
+                '--input',
+                stagedPdfPath,
+                '--source',
+                prepared.pdfPath,
+                '--output',
+                textLayerPdfPath,
+                '--instructions-file',
+                textLayerInstructionsPath,
+            ], {
+                signal,
+                commandLabel: 'evb-pdf-page-ops(overlay-text:scan-cleanup)',
+                timeoutMs: 10 * 60 * 1000,
+                log,
+            });
+            await rename(textLayerPdfPath, stagedPdfPath);
+            log(
+                'debug',
+                `Scan cleanup retained source text on ${String(textLayerPlan.pages.length)} output page(s)`,
+            );
+        } else if (textLayerPlan.pages.length > 0) {
+            log(
+                'debug',
+                'Scan cleanup could not retain source text because native PDF page ops is unavailable',
+            );
+        }
+        if (textLayerPlan.skippedNonAffine.length > 0) {
+            log(
+                'debug',
+                'Scan cleanup skipped source text on pages without safe affine geometry: '
+                + describePageNumbers(textLayerPlan.skippedNonAffine),
+            );
+        }
         const [
             sourceFile,
             outputFile,

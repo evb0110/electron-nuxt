@@ -1027,6 +1027,9 @@ export async function runScanCleanupDetection<TDocument>(
                 metadata,
                 request.options.autoDewarp !== true,
             );
+            if (metadata.splitDiagnostics !== undefined) {
+                result.splitDiagnostics = metadata.splitDiagnostics;
+            }
         }
         if (results.size !== totalPages) {
             throw new Error(`evb-scan-cleanup returned ${results.size} classifications for ${totalPages} pages`);

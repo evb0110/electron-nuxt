@@ -2,8 +2,9 @@ use evb_raster_io::{decode_ppm, DecodeLimits};
 use evb_scan_cleanup::{
     io::pbm::decode_p4,
     png::{decode_gray, encode_gray, encode_rgb, RgbImage},
-    BinarizationMode, CleanupOptions, LayoutMode, ManualZones, NormalizedZonePoint,
-    NormalizedZonePolygon, OrthogonalRotation, OutputMode, PictureZone, PictureZoneLayer,
+    BinarizationMode, CleanupOptions, LayoutMode, ManualContentBoxes, ManualZones, MarginsMm,
+    NormalizedRect, NormalizedZonePoint, NormalizedZonePolygon, OrthogonalRotation, OutputMode,
+    PictureZone, PictureZoneLayer,
 };
 use scan_primitives::GrayImage;
 use serde_json::Value;
@@ -1080,26 +1081,20 @@ fn mixed_cli_reuses_source_mrc_layer_for_affine_confirmed_photo() {
     let page_metadata = scratch.path("page.json");
     let background_output = scratch.path("background.ppm");
     let foreground_mask_output = scratch.path("foreground.pbm");
+    let picture_mask_output = scratch.path("picture-mask.pbm");
+    let flat_source_background = scratch.path("flat-source-background.png");
+    let flat_output = scratch.path("flat-output.png");
+    let flat_output_metadata = scratch.path("flat-output.json");
+    let flat_page_metadata = scratch.path("flat-page.json");
+    let flat_background_output = scratch.path("flat-background.ppm");
+    let flat_foreground_mask_output = scratch.path("flat-foreground.pbm");
+    let flat_picture_mask_output = scratch.path("flat-picture-mask.pbm");
     let manifest = scratch.path("manifest.json");
 
     let mut image = RgbImage::new(260, 360, [245; 3]);
-    for y in 130..320 {
-        for x in 100..245 {
-            let tone = if (x / 24 + y / 24) % 2 == 0 {
-                30 + ((x * 37 + y * 61) % 24) as u8
-            } else {
-                120 + ((x * 13 + y * 41) % 48) as u8
-            };
-            image.set(
-                x,
-                y,
-                [tone, tone.saturating_sub(20), tone.saturating_add(35)],
-            );
-        }
-    }
     for row in 0..8 {
         let top = 18 + row * 36;
-        for column in 0..4 {
+        for column in 0..3 {
             let left = 18 + column * 22;
             for y in top..top + 11 {
                 for x in left..left + 12 {
@@ -1112,9 +1107,14 @@ fn mixed_cli_reuses_source_mrc_layer_for_affine_confirmed_photo() {
     }
     fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
     let mut source_background_image = RgbImage::new(130, 180, [245; 3]);
-    for y in 0..source_background_image.height() {
-        for x in 0..source_background_image.width() {
-            source_background_image.set(x, y, image.get((x * 2).min(259), (y * 2).min(359)));
+    for y in 30..175 {
+        for x in 45..129 {
+            let tone = 32 + ((x * 17 + y * 29) % 181) as u8;
+            source_background_image.set(
+                x,
+                y,
+                [tone, tone.saturating_sub(20), tone.saturating_add(35)],
+            );
         }
     }
     fs::write(
@@ -1122,19 +1122,24 @@ fn mixed_cli_reuses_source_mrc_layer_for_affine_confirmed_photo() {
         encode_rgb(&source_background_image).unwrap(),
     )
     .unwrap();
+    fs::write(
+        &flat_source_background,
+        encode_rgb(&RgbImage::new(130, 180, [245; 3])).unwrap(),
+    )
+    .unwrap();
 
     // The extracted MRC smask is mostly white paper with black source-owned
     // detail. The native adapter normalizes either encoded polarity before it
     // hands the mask to the affine source-layer contract.
     let mut selection = GrayImage::new(260, 360, 255);
-    for y in 130..320 {
-        for x in 100..245 {
+    for y in 60..350 {
+        for x in 90..258 {
             selection.set(x, y, 0);
         }
     }
     for row in 0..8 {
         let top = 18 + row * 36;
-        for column in 0..4 {
+        for column in 0..3 {
             let left = 18 + column * 22;
             for y in top..top + 11 {
                 for x in left..left + 12 {
@@ -1156,7 +1161,7 @@ fn mixed_cli_reuses_source_mrc_layer_for_affine_confirmed_photo() {
         dpi: 150.0,
         source_dpi: Some(150.0),
         source_has_bilevel_layer: true,
-        source_background_dpi: Some(300.0),
+        source_background_dpi: Some(75.0),
         ..CleanupOptions::default()
     };
     let payload = serde_json::json!({
@@ -1176,6 +1181,21 @@ fn mixed_cli_reuses_source_mrc_layer_for_affine_confirmed_photo() {
                 "metadataPath": output_metadata,
                 "backgroundOutputPath": background_output,
                 "foregroundMaskOutputPath": foreground_mask_output,
+                "pictureMaskOutputPath": picture_mask_output,
+            }],
+        }, {
+            "inputPath": input,
+            "trustedForegroundMaskPath": source_selection,
+            "trustedMrcBackgroundPath": flat_source_background,
+            "sourcePageIndex": 1,
+            "pageMetadataPath": flat_page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": flat_output,
+                "metadataPath": flat_output_metadata,
+                "backgroundOutputPath": flat_background_output,
+                "foregroundMaskOutputPath": flat_foreground_mask_output,
+                "pictureMaskOutputPath": flat_picture_mask_output,
             }],
         }],
     });
@@ -1200,14 +1220,225 @@ fn mixed_cli_reuses_source_mrc_layer_for_affine_confirmed_photo() {
         metadata,
         String::from_utf8_lossy(&fs::read(&page_metadata).unwrap())
     );
-    assert_eq!(metadata["layeredBackgroundDpi"], 150.0);
+    assert_eq!(metadata["layeredBackgroundDpi"], 75.0);
     assert_eq!(metadata["layeredForegroundDpi"], 150.0);
+    let picture_mask = decode_p4(&fs::read(&picture_mask_output).unwrap(), 260 * 360, 400)
+        .expect("trusted background tone publishes a picture owner");
+    assert!(
+        picture_mask
+            .data()
+            .iter()
+            .filter(|&&value| value == 0)
+            .count()
+            > 20_000,
+        "producer-authored background tone did not recover photo ownership"
+    );
     assert!(background_output.exists());
     assert!(foreground_mask_output.exists());
     assert!(
         !output.exists(),
         "source-MRC affine layers must not be shadowed by a flattened composite"
     );
+
+    let flat_metadata: Value =
+        serde_json::from_slice(&fs::read(&flat_output_metadata).unwrap()).unwrap();
+    assert_ne!(
+        flat_metadata["layeredForegroundKind"], "source-mrc",
+        "flat producer paper must not enable source-MRC photo reuse"
+    );
+    let flat_picture = decode_p4(
+        &fs::read(&flat_picture_mask_output).unwrap(),
+        260 * 360,
+        400,
+    )
+    .expect("flat Mixed page publishes an empty ownership mask");
+    assert_eq!(
+        flat_picture
+            .data()
+            .iter()
+            .filter(|&&value| value == 0)
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn mixed_cli_rectangularizes_trusted_photo_tone_without_swallowing_a_caption() {
+    fn source_page(with_caption: bool) -> RgbImage {
+        let mut source = RgbImage::new(480, 600, [244; 3]);
+        for line in 0..15 {
+            let top = 28 + line * 30;
+            for glyph in 0..7 {
+                let left = 16 + glyph * 9;
+                for y in top..top + 9 {
+                    for x in left..left + 6 {
+                        if x < left + 2 || y < top + 2 || y >= top + 7 {
+                            source.set(x, y, [24; 3]);
+                        }
+                    }
+                }
+            }
+        }
+        for y in 48..552 {
+            for x in 96..480 {
+                let tone = 158 + ((x + y) % 7) as u8;
+                source.set(x, y, [tone; 3]);
+            }
+        }
+        if with_caption {
+            for glyph in 0..11 {
+                let left = 302 + glyph * 11;
+                for y in 338..350 {
+                    for x in left..left + 7 {
+                        if x < left + 2 || !(340..348).contains(&y) {
+                            source.set(x, y, [24; 3]);
+                        }
+                    }
+                }
+            }
+        }
+        source
+    }
+
+    fn selection_for(source: &RgbImage) -> GrayImage {
+        let mut selection = GrayImage::new(source.width(), source.height(), 255);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                if source.get(x, y)[0] <= 40 {
+                    selection.set(x, y, 0);
+                }
+            }
+        }
+        selection
+    }
+
+    let scratch = Scratch::new("rectangular-photo-owner");
+    let plain_input = scratch.path("plain-input.png");
+    let captioned_input = scratch.path("captioned-input.png");
+    let plain_selection = scratch.path("plain-selection.png");
+    let captioned_selection = scratch.path("captioned-selection.png");
+    let trusted_background = scratch.path("trusted-background.png");
+    let plain_picture = scratch.path("plain-picture.pbm");
+    let captioned_picture = scratch.path("captioned-picture.pbm");
+    let plain_output = scratch.path("plain-output.png");
+    let captioned_output = scratch.path("captioned-output.png");
+    let plain_foreground = scratch.path("plain-foreground.pbm");
+    let captioned_foreground = scratch.path("captioned-foreground.pbm");
+    let plain_background = scratch.path("plain-background.ppm");
+    let captioned_background = scratch.path("captioned-background.ppm");
+    let plain_metadata = scratch.path("plain-output.json");
+    let captioned_metadata = scratch.path("captioned-output.json");
+    let plain_page_metadata = scratch.path("plain-page.json");
+    let captioned_page_metadata = scratch.path("captioned-page.json");
+    let manifest = scratch.path("manifest.json");
+
+    let plain = source_page(false);
+    let captioned = source_page(true);
+    fs::write(&plain_input, encode_rgb(&plain).unwrap()).unwrap();
+    fs::write(&captioned_input, encode_rgb(&captioned).unwrap()).unwrap();
+    fs::write(
+        &plain_selection,
+        encode_gray(&selection_for(&plain)).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        &captioned_selection,
+        encode_gray(&selection_for(&captioned)).unwrap(),
+    )
+    .unwrap();
+    let mut producer_tone = RgbImage::new(240, 300, [244; 3]);
+    for y in 48..252 {
+        for x in 72..216 {
+            if x < 120 || y < 96 {
+                let tone = 32 + ((x * 17 + y * 29) % 181) as u8;
+                producer_tone.set(x, y, [tone; 3]);
+            }
+        }
+    }
+    fs::write(&trusted_background, encode_rgb(&producer_tone).unwrap()).unwrap();
+
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: false,
+        match_page_size: false,
+        dpi: 240.0,
+        source_dpi: Some(240.0),
+        source_background_dpi: Some(120.0),
+        source_has_bilevel_layer: true,
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": plain_input,
+            "trustedForegroundMaskPath": plain_selection,
+            "trustedMrcBackgroundPath": trusted_background,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": plain_page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": plain_output,
+                "metadataPath": plain_metadata,
+                "backgroundOutputPath": plain_background,
+                "foregroundMaskOutputPath": plain_foreground,
+                "pictureMaskOutputPath": plain_picture,
+            }],
+        }, {
+            "inputPath": captioned_input,
+            "trustedForegroundMaskPath": captioned_selection,
+            "trustedMrcBackgroundPath": trusted_background,
+            "sourcePageIndex": 1,
+            "pageMetadataPath": captioned_page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": captioned_output,
+                "metadataPath": captioned_metadata,
+                "backgroundOutputPath": captioned_background,
+                "foregroundMaskOutputPath": captioned_foreground,
+                "pictureMaskOutputPath": captioned_picture,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let plain_picture = decode_p4(&fs::read(&plain_picture).unwrap(), 480 * 600, 700).unwrap();
+    let captioned_picture =
+        decode_p4(&fs::read(&captioned_picture).unwrap(), 480 * 600, 700).unwrap();
+    let captioned_foreground =
+        decode_p4(&fs::read(&captioned_foreground).unwrap(), 480 * 600, 700).unwrap();
+    assert_eq!(
+        plain_picture.get(390, 430),
+        0,
+        "the tone-compatible missing corner must become picture-owned"
+    );
+    assert_ne!(
+        captioned_picture.get(390, 430),
+        0,
+        "caption evidence must keep the irregular ownership boundary"
+    );
+    assert_eq!(
+        captioned_foreground.get(336, 342),
+        0,
+        "caption ink must remain in the high-resolution foreground"
+    );
+    assert!(plain_background.exists());
+    assert!(captioned_background.exists());
 }
 
 #[test]
@@ -2244,6 +2475,22 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
         serde_json::from_slice(&fs::read(&single_page_metadata).unwrap()).unwrap();
     assert_eq!(spread_metadata["layoutClassification"], "two-page-spread");
     assert_eq!(single_metadata["layoutClassification"], "single-uncut-page");
+    let split_diagnostics = &spread_metadata["splitDiagnostics"];
+    assert!(split_diagnostics["aspectRatio"].as_f64().is_some());
+    assert!(split_diagnostics["whitespaceScore"].as_f64().is_some());
+    assert!(split_diagnostics["bilateralScore"].as_f64().is_some());
+    assert!(split_diagnostics["outerMarginScore"].as_f64().is_some());
+    assert!(split_diagnostics["foldScore"].as_f64().is_some());
+    assert!(split_diagnostics["gutterDarknessScore"].as_f64().is_some());
+    assert!(split_diagnostics["softGutterCoverage"].as_f64().is_some());
+    assert!(split_diagnostics["softGutterContinuity"].as_f64().is_some());
+    assert!(split_diagnostics["gutterGatePassed"].as_bool().is_some());
+    assert!(split_diagnostics["evidenceAgreementGatePassed"]
+        .as_bool()
+        .is_some());
+    assert!(split_diagnostics["sparseSpreadRecovered"]
+        .as_bool()
+        .is_some());
     assert_eq!(
         single_metadata["textAxis"],
         lines[1]["progress"]["textAxis"]
@@ -4104,4 +4351,345 @@ fn matched_canvas_preview_reserves_padding_inside_the_physical_page() {
     assert!(
         (0..published.width()).all(|x| (0..published.height()).all(|y| published.get(x, y) < 128))
     );
+}
+
+#[test]
+fn luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_picture() {
+    fn draw_glyph_line(
+        image: &mut GrayImage,
+        left: usize,
+        top: usize,
+        glyphs: usize,
+        glyph_width: usize,
+        glyph_height: usize,
+        spacing: usize,
+    ) {
+        for glyph in 0..glyphs {
+            let glyph_left = left + glyph * spacing;
+            for y in top..top + glyph_height {
+                for x in glyph_left..glyph_left + glyph_width {
+                    if x < glyph_left + 4 || y < top + 4 || y + 4 >= top + glyph_height {
+                        image.set(x, y, 22);
+                    }
+                }
+            }
+        }
+    }
+
+    let scratch = Scratch::new("luther-gutter-crop");
+    let input = scratch.path("input.png");
+    let selection_path = scratch.path("selection.png");
+    let trusted_background_path = scratch.path("trusted-background.png");
+    let output = scratch.path("output.png");
+    let metadata_path = scratch.path("output.json");
+    let page_metadata_path = scratch.path("page.json");
+    let picture_mask_path = scratch.path("picture-mask.pbm");
+    let control_output = scratch.path("control-output.png");
+    let control_metadata_path = scratch.path("control-output.json");
+    let control_page_metadata_path = scratch.path("control-page.json");
+    let control_picture_mask_path = scratch.path("control-picture-mask.pbm");
+    let manifest = scratch.path("manifest.json");
+
+    let mut image = GrayImage::new(600, 800, 244);
+    draw_glyph_line(&mut image, 150, 95, 15, 12, 38, 16);
+    for row in 0..8 {
+        draw_glyph_line(&mut image, 145, 165 + row * 55, 15, 12, 38, 16);
+    }
+    // A central library stamp and the low footer are sparse but authored. They
+    // must survive even though neither is part of the dominant body block.
+    for y in 510..590 {
+        for x in 260..340 {
+            if x == 260 || x == 339 || y == 510 || y == 589 {
+                image.set(x, y, 22);
+            }
+        }
+    }
+    draw_glyph_line(&mut image, 205, 720, 10, 12, 38, 16);
+
+    // A faint gutter becomes many thresholded fragments at the page-frame
+    // ends. Twenty-five-pixel fragments are intentionally below the calibrated glyph
+    // area, matching the broken shadow/dirt seen on the Luther title spread.
+    for top in (0..215).step_by(8) {
+        let left = 34 + (top / 8 % 7) * 4;
+        for y in top..(top + 5).min(image.height()) {
+            for x in left..left + 5 {
+                image.set(x, y, 18);
+            }
+        }
+    }
+    for top in (742..800).step_by(8) {
+        let left = 32 + (top / 8 % 7) * 4;
+        for y in top..(top + 5).min(image.height()) {
+            for x in left..left + 5 {
+                image.set(x, y, 18);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+
+    let mut selection = GrayImage::new(image.width(), image.height(), 255);
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            if image.get(x, y) < 80 {
+                selection.set(x, y, 0);
+            }
+        }
+    }
+    fs::write(&selection_path, encode_gray(&selection).unwrap()).unwrap();
+
+    // Producer MRC tone calls the gutter a coherent picture owner. The crop
+    // path must let independent fragmented-frame evidence overrule that false
+    // ownership without weakening picture ownership anywhere else.
+    let mut trusted_background = GrayImage::new(image.width(), image.height(), 244);
+    for y in 0..trusted_background.height() {
+        for x in 14..68 {
+            trusted_background.set(x, y, 32 + ((x * 17 + y * 29) % 181) as u8);
+        }
+    }
+    fs::write(
+        &trusted_background_path,
+        encode_gray(&trusted_background).unwrap(),
+    )
+    .unwrap();
+
+    let options = CleanupOptions {
+        dpi: 150.0,
+        source_dpi: Some(150.0),
+        source_background_dpi: Some(150.0),
+        source_has_bilevel_layer: true,
+        output_mode: OutputMode::Mixed,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: true,
+        match_page_size: false,
+        manual_skew_degrees: Some(0.0),
+        margins_mm: Some(MarginsMm {
+            left_mm: 0.0,
+            top_mm: 0.0,
+            right_mm: 0.0,
+            bottom_mm: 0.0,
+        }),
+        ..CleanupOptions::default()
+    };
+    let control_options = CleanupOptions {
+        crop_content: false,
+        ..options.clone()
+    };
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "pages": [{
+                "inputPath": input,
+                "trustedForegroundMaskPath": selection_path,
+                "trustedMrcBackgroundPath": trusted_background_path,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": control_page_metadata_path,
+                "options": control_options,
+                "outputs": [{
+                    "outputPath": control_output,
+                    "metadataPath": control_metadata_path,
+                    "pictureMaskOutputPath": control_picture_mask_path,
+                }],
+            }, {
+                "inputPath": input,
+                "trustedForegroundMaskPath": selection_path,
+                "trustedMrcBackgroundPath": trusted_background_path,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": page_metadata_path,
+                "options": options,
+                "outputs": [{
+                    "outputPath": output,
+                    "metadataPath": metadata_path,
+                    "pictureMaskOutputPath": picture_mask_path,
+                }],
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let picture_mask = decode_p4(
+        &fs::read(&control_picture_mask_path).unwrap(),
+        600 * 800,
+        900,
+    )
+    .expect("Mixed output publishes its automatic picture owner");
+    assert_eq!(
+        picture_mask.get(40, 400),
+        0,
+        "fixture did not reproduce false tonal ownership of the gutter; ownerPixels={}",
+        picture_mask
+            .data()
+            .iter()
+            .filter(|&&sample| sample == 0)
+            .count()
+    );
+    let metadata: Value = serde_json::from_slice(&fs::read(&metadata_path).unwrap()).unwrap();
+    let content = &metadata["contentBox"];
+    let left = content["xPx"].as_f64().expect("content left");
+    let top = content["yPx"].as_f64().expect("content top");
+    let right = left + content["widthPx"].as_f64().expect("content width");
+    let bottom = top + content["heightPx"].as_f64().expect("content height");
+    assert!(left >= 130.0, "false picture gutter pinned crop: {content}");
+    assert!(top <= 100.0, "title line was cropped: {content}");
+    assert!(bottom >= 730.0, "footer was cropped: {content}");
+    assert!(
+        left <= 260.0 && right >= 340.0,
+        "central stamp was cropped: {content}"
+    );
+}
+
+#[test]
+fn batch_prior_stabilizes_a_cropped_thin_complete_source_mask_without_removing_ink() {
+    fn text_page(glyph_width: usize, glyph_height: usize) -> (GrayImage, GrayImage) {
+        let mut raw = GrayImage::new(120, 100, 250);
+        let mut selection = GrayImage::new(120, 100, 255);
+        for row in 0usize..4 {
+            for column in 0usize..6 {
+                let left = 5 + column * 18;
+                let top = 5 + row * 23;
+                for y in top.saturating_sub(1)..(top + glyph_height + 1).min(raw.height()) {
+                    for x in left.saturating_sub(1)..(left + glyph_width + 1).min(raw.width()) {
+                        raw.set(x, y, 180);
+                    }
+                }
+                for y in top..top + glyph_height {
+                    for x in left..left + glyph_width {
+                        raw.set(x, y, 32);
+                        selection.set(x, y, 0);
+                    }
+                }
+            }
+        }
+        (raw, selection)
+    }
+
+    let scratch = Scratch::new("document-ink-prior");
+    let (thin_raw, thin_selection) = text_page(4, 20);
+    let (median_raw, median_selection) = text_page(5, 16);
+    let thin_input = scratch.path("thin-input.png");
+    let thin_mask = scratch.path("thin-selection.png");
+    let median_input = scratch.path("median-input.png");
+    let median_mask = scratch.path("median-selection.png");
+    let background = scratch.path("producer-background.png");
+    fs::write(&thin_input, encode_gray(&thin_raw).unwrap()).unwrap();
+    fs::write(&thin_mask, encode_gray(&thin_selection).unwrap()).unwrap();
+    fs::write(&median_input, encode_gray(&median_raw).unwrap()).unwrap();
+    fs::write(&median_mask, encode_gray(&median_selection).unwrap()).unwrap();
+    fs::write(
+        &background,
+        encode_gray(&GrayImage::new(60, 50, 250)).unwrap(),
+    )
+    .unwrap();
+
+    let options = CleanupOptions {
+        dpi: 150.0,
+        source_dpi: Some(150.0),
+        source_has_bilevel_layer: true,
+        source_background_dpi: Some(75.0),
+        output_mode: OutputMode::Bw,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: true,
+        match_page_size: false,
+        margins_mm: Some(MarginsMm {
+            left_mm: 0.0,
+            top_mm: 0.0,
+            right_mm: 0.0,
+            bottom_mm: 0.0,
+        }),
+        automatic_content_boxes: ManualContentBoxes {
+            full: Some(NormalizedRect {
+                x: 0.04,
+                y: 0.04,
+                width: 0.90,
+                height: 0.92,
+                rotation: OrthogonalRotation::None,
+            }),
+            ..ManualContentBoxes::default()
+        },
+        ..CleanupOptions::default()
+    };
+    let pages = (0..12)
+        .map(|index| {
+            let thin = index == 0;
+            serde_json::json!({
+                "inputPath": if thin { &thin_input } else { &median_input },
+                "trustedForegroundMaskPath": if thin { &thin_mask } else { &median_mask },
+                "trustedMrcBackgroundPath": background,
+                "sourcePageIndex": index,
+                "pageMetadataPath": scratch.path(&format!("page-{index}.json")),
+                "options": options,
+                "outputs": [{
+                    "outputPath": scratch.path(&format!("output-{index}.png")),
+                    "metadataPath": scratch.path(&format!("output-{index}.json")),
+                    "bilevelOutputPath": scratch.path(&format!("output-{index}.pbm")),
+                }],
+            })
+        })
+        .collect::<Vec<_>>();
+    let manifest = scratch.path("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "pages": pages,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let metadata: Value =
+        serde_json::from_slice(&fs::read(scratch.path("output-0.json")).unwrap()).unwrap();
+    let diagnostics = &metadata["inkConsistencyDiagnostics"];
+    assert_eq!(diagnostics["priorSampleCount"], 12);
+    assert_eq!(diagnostics["applied"], true);
+    assert!(
+        diagnostics["survivalAfter"].as_f64().unwrap()
+            > diagnostics["survivalBefore"].as_f64().unwrap()
+    );
+    assert!(diagnostics["addedInkPixels"].as_u64().unwrap() > 0);
+    assert!(metadata["outputWidthPx"].as_u64().unwrap() < 120);
+
+    let output = decode_p4(
+        &fs::read(scratch.path("output-0.pbm")).unwrap(),
+        120 * 100,
+        200,
+    )
+    .unwrap();
+    let output_ink = output.data().iter().filter(|&&sample| sample == 0).count();
+    let source_ink = thin_selection
+        .data()
+        .iter()
+        .filter(|&&sample| sample == 0)
+        .count();
+    assert!(output_ink > source_ink);
 }

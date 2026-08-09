@@ -9,6 +9,7 @@ pub(crate) fn run(args: Vec<String>) -> Result<()> {
 pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Config> {
     let command = args.next().ok_or("Missing command")?;
     let mut input_path = None;
+    let mut source_path = None;
     let mut output_path = None;
     let mut pages_file = None;
     let mut updates_file = None;
@@ -26,6 +27,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         match arg.as_str() {
             "--input" => {
                 input_path = Some(PathBuf::from(args.next().ok_or("Missing --input value")?))
+            }
+            "--source" => {
+                source_path = Some(PathBuf::from(args.next().ok_or("Missing --source value")?))
             }
             "--output" => {
                 output_path = Some(PathBuf::from(args.next().ok_or("Missing --output value")?))
@@ -91,6 +95,10 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
 
     let operation = match command.as_str() {
         "split-pages" => Operation::SplitPages {
+            instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
+        },
+        "overlay-text" => Operation::OverlayText {
+            source_path: source_path.ok_or("Missing --source value")?,
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
         },
         "crop" => Operation::Crop {

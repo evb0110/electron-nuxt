@@ -368,6 +368,70 @@ function outputModeDiagnostics(value: unknown, artifact: TArtifact, label: strin
     ] as const) finite(source[key], artifact, `${label}.${key}`);
 }
 
+function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
+    const source = record(value, artifact, label);
+    for (const key of [
+        'leftInkPixels',
+        'rightInkPixels',
+        'independentSpreadCues',
+    ] as const) integer(source[key], artifact, `${label}.${key}`);
+    for (const key of [
+        'analysisDpi',
+        'deskewAngleDegrees',
+        'deskewConfidence',
+        'cutterSlope',
+        'leftDeskewAngleDegrees',
+        'rightDeskewAngleDegrees',
+        'leftDeskewConfidence',
+        'rightDeskewConfidence',
+        'whitespaceX',
+        'foldX',
+        'decisionX',
+        'whitespaceScore',
+        'bilateralScore',
+        'leftPageScore',
+        'rightPageScore',
+        'leftContentScore',
+        'rightContentScore',
+        'leftSurfaceScore',
+        'rightSurfaceScore',
+        'outerMarginScore',
+        'gutterScore',
+        'agreementScore',
+        'foldScore',
+        'gutterDarknessScore',
+        'softGutterScore',
+        'softGutterCoverage',
+        'softGutterContinuity',
+        'softGutterMeanDepression',
+        'sparseGutterScore',
+        'sparseGutterCoverage',
+        'sparseGutterContinuity',
+        'sparseGutterMeanDepression',
+        'aspectRatio',
+        'aspectSpreadScore',
+        'aspectSingleScore',
+        'offcutBoundaryScore',
+        'offcutEmptyScore',
+        'offcutWidthScore',
+        'offcutNoTextRowsScore',
+        'alternativeProduct',
+        'evidenceProduct',
+    ] as const) finite(source[key], artifact, `${label}.${key}`);
+    for (const key of [
+        'whitespaceGatePassed',
+        'centralPositionGatePassed',
+        'bilateralGatePassed',
+        'outerMarginGatePassed',
+        'gutterGatePassed',
+        'independentGutterGatePassed',
+        'aspectSupportGatePassed',
+        'evidenceAgreementGatePassed',
+        'sparseSpreadRecovered',
+        'abstained',
+    ] as const) if (typeof source[key] !== 'boolean') fail(artifact, `${label}.${key} must be boolean`);
+}
+
 function documentPrior(value: unknown, artifact: TArtifact, label: string) {
     const source = record(value, artifact, label);
     oneOf(source.dominantLayout, LAYOUTS, artifact, `${label}.dominantLayout`);
@@ -457,6 +521,7 @@ export function decodeNativeScanCleanupPageMetadata(
     ] as const, artifact, 'recommendedOutputModeReason');
     optionalBoolean(source, 'softAlphaForegroundRecommendation', artifact);
     if (source.outputModeDiagnostics !== undefined) outputModeDiagnostics(source.outputModeDiagnostics, artifact, 'outputModeDiagnostics');
+    if (source.splitDiagnostics !== undefined) splitDiagnostics(source.splitDiagnostics, artifact, 'splitDiagnostics');
     if (source.tier1Verdict !== undefined) oneOf(source.tier1Verdict, LAYOUTS, artifact, 'tier1Verdict');
     optionalBoolean(source, 'reconciled', artifact);
     if (source.clusterAgreement !== undefined) {

@@ -40,11 +40,24 @@ fn timing_env_emits_one_jbig2_record_for_a_bilevel_page() {
     );
 
     let stderr = String::from_utf8(output.stderr).unwrap();
-    let timing: serde_json::Value = serde_json::from_str(stderr.trim()).unwrap();
+    let records = stderr
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let timing = records
+        .iter()
+        .find(|record| record["type"] == "jbig2-encode-timing")
+        .expect("timing mode must retain its per-mask record beside symbol-selection logs");
     assert_eq!(timing["type"], "jbig2-encode-timing");
     assert_eq!(timing["width"], 512);
     assert_eq!(timing["height"], 512);
     assert!(timing["elapsedMs"].as_f64().unwrap() >= 0.0);
+    assert!(records.iter().any(|record| {
+        matches!(
+            record["type"].as_str(),
+            Some("jbig2-symbol-selected" | "jbig2-symbol-not-selected")
+        )
+    }));
 
     let _ = fs::remove_file(manifest_path);
     let _ = fs::remove_file(output_path);

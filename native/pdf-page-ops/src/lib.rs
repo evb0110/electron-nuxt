@@ -30,6 +30,7 @@ mod placed_images;
 mod postconditions;
 mod shapes;
 mod split_pages;
+mod text_layer;
 mod types;
 
 pub(crate) use annotations::*;
@@ -47,6 +48,7 @@ pub(crate) use placed_images::*;
 pub(crate) use postconditions::*;
 pub(crate) use shapes::*;
 pub(crate) use split_pages::*;
+pub(crate) use text_layer::*;
 pub(crate) use types::*;
 
 pub use incremental::{fuzz_parse_incremental_xref_stream, fuzz_parse_incremental_xref_table};

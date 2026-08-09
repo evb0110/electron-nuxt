@@ -135,9 +135,15 @@ mod tests {
         );
 
         let picture_mask = picture_mask.expect("zone must create a Mixed ownership mask");
-        assert!(!picture_mask.get(1, 0), "ordinary text vicinity stays foreground-owned");
+        assert!(
+            !picture_mask.get(1, 0),
+            "ordinary text vicinity stays foreground-owned"
+        );
         assert!(picture_mask.get(4, 0), "zone pixel remains tone-owned");
-        assert!(picture_mask.get(6, 0), "completed zone pixel remains tone-owned");
+        assert!(
+            picture_mask.get(6, 0),
+            "completed zone pixel remains tone-owned"
+        );
         assert_eq!(picture_mask.count_black(), 2);
     }
 
@@ -598,8 +604,7 @@ mod tests {
             }
         }
 
-        let filtered =
-            filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 360.0);
+        let filtered = filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 360.0);
 
         assert_eq!(
             (12..168)
@@ -872,14 +877,8 @@ mod tests {
             }
         }
 
-        let filtered = restore_genuine_horizontal_rules(
-            &binary,
-            &raw,
-            None,
-            Some(&text_mask),
-            None,
-            360.0,
-        );
+        let filtered =
+            restore_genuine_horizontal_rules(&binary, &raw, None, Some(&text_mask), None, 360.0);
         let filtered = filter_soft_shallow_bleed_components(
             &filtered,
             &raw,
@@ -988,6 +987,7 @@ mod tests {
             PageRenderPolicy::COMPLETE,
             None,
             CalibrationConfig::default(),
+            None,
             None,
             &mut timings,
         );
@@ -1220,6 +1220,7 @@ mod tests {
             &source,
             None,
             Some(&trusted_foreground),
+            None,
             &options,
             0,
             CalibrationConfig::default(),
@@ -1253,8 +1254,7 @@ mod tests {
         let diagnostics = output.metadata.content_diagnostics.as_ref().unwrap();
         assert!(
             diagnostics.protected_blocks.iter().any(|block| {
-                block.bounds.y_px <= 44
-                    && (block.heading_evidence || block.text_evidence)
+                block.bounds.y_px <= 44 && (block.heading_evidence || block.text_evidence)
             }),
             "top furniture lacks content evidence: {diagnostics:?}"
         );
@@ -3166,7 +3166,7 @@ mod tests {
     }
 
     #[test]
-    fn confirmed_photo_composition_preserves_interior_tones_with_a_thin_boundary_feather() {
+    fn confirmed_photo_composition_preserves_every_owned_tone_through_the_boundary() {
         let mut gray = GrayImage::new(160, 100, 255);
         let mut picture_mask = BinaryImage::new(160, 100);
         for y in 20..80 {
@@ -3175,6 +3175,8 @@ mod tests {
                 gray.set(x, y, 170);
             }
         }
+        gray.set(40, 50, 0);
+        gray.set(119, 50, 255);
         // Keep stencil ink close enough to exercise the old luminance-based
         // whitening path without letting it own any picture pixel.
         let mut binary = BinaryImage::new(160, 100);
@@ -3206,11 +3208,16 @@ mod tests {
             170,
             "confirmed photo interiors must not be whitened near stencil ink"
         );
-        assert!(
-            (170..255).contains(&mixed.get(41, 50)),
-            "the picture boundary should use a narrow paper feather"
+        assert_eq!(
+            mixed.get(40, 50),
+            0,
+            "the first owned boundary pixel must retain exact source tone"
         );
-        assert_eq!(layers.unwrap().background.get(80, 50), 170);
+        assert_eq!(mixed.get(119, 50), 255);
+        let layers = layers.unwrap();
+        assert_eq!(layers.background.get(40, 50), 0);
+        assert_eq!(layers.background.get(119, 50), 255);
+        assert_eq!(layers.background.get(80, 50), 170);
 
         let (soft_composite, _, soft_layers) = compose_mixed(
             &gray,
@@ -4044,6 +4051,414 @@ mod tests {
     }
 
     #[test]
+    fn trusted_mrc_tone_recovers_missing_ownership_without_broadening_a_complete_owner() {
+        let mut source = GrayImage::new(480, 600, 244);
+        for line in 0..16 {
+            let top = 28 + line * 28;
+            for y in top..top + 7 {
+                for x in 24..218 {
+                    if (x + y) % 8 < 5 {
+                        source.set(x, y, 24);
+                    }
+                }
+            }
+        }
+        let mut tonal_background = GrayImage::new(240, 300, 244);
+        for y in 60..252 {
+            for x in 126..228 {
+                tonal_background.set(x, y, 32 + ((x * 17 + y * 29) % 181) as u8);
+            }
+        }
+        let flat_background = GrayImage::new(240, 300, 244);
+        let options = CleanupOptions {
+            dpi: 240.0,
+            source_dpi: Some(240.0),
+            source_background_dpi: Some(120.0),
+            trusted_mrc_source_available: true,
+            output_mode: OutputMode::Mixed,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let prepare = |background: &GrayImage| {
+            prepare_analysis_page(
+                &source,
+                None,
+                &options,
+                true,
+                PageRenderPolicy::COMPLETE,
+                None,
+                CalibrationConfig::default(),
+                None,
+                Some(background),
+                &mut PageStageTimings::default(),
+            )
+        };
+
+        let flat = prepare(&flat_background);
+        assert_eq!(
+            flat.picture_mask
+                .as_deref()
+                .map_or(0, BinaryImage::count_black),
+            0,
+            "flat producer paper must not create photo ownership"
+        );
+
+        let tonal = prepare(&tonal_background);
+        let owner = tonal
+            .picture_mask
+            .as_deref()
+            .expect("trusted producer tone creates a picture owner");
+        assert!(
+            owner.count_black() > 20_000,
+            "trusted tonal evidence was not mapped onto the analysis grid"
+        );
+        assert!(owner.get(220, 195));
+        assert!(!owner.get(60, 195), "text-side paper became photo-owned");
+        let owned_tone = tonal
+            .tonal_protection_mask
+            .as_deref()
+            .expect("trusted photo ownership remains authoritative after text carving");
+        assert_eq!(
+            owner.and(owned_tone).count_black(),
+            owner.count_black(),
+            "the final Mixed partition would carve the recovered photo a second time"
+        );
+
+        let mut source_with_photo = source.clone();
+        // Cover the authored background's mapped 252..456 x 120..504
+        // rectangle with a margin, so the ordinary detector already owns
+        // the complete producer region.
+        for y in 105..520 {
+            for x in 240..468 {
+                source_with_photo.set(x, y, 32 + ((x * 17 + y * 29) % 181) as u8);
+            }
+        }
+        let prepare_existing = |background: Option<&GrayImage>| {
+            prepare_analysis_page(
+                &source_with_photo,
+                None,
+                &options,
+                true,
+                PageRenderPolicy::COMPLETE,
+                None,
+                CalibrationConfig::default(),
+                None,
+                background,
+                &mut PageStageTimings::default(),
+            )
+        };
+        assert_eq!(
+            prepare_existing(None).picture_mask,
+            prepare_existing(Some(&tonal_background)).picture_mask,
+            "trusted fallback must not broaden an ordinary owner"
+        );
+    }
+
+    #[test]
+    fn trusted_mrc_owner_carves_caption_text_without_reviving_rejected_text_components() {
+        let mut source = GrayImage::new(480, 600, 244);
+        let draw_glyph_line = |source: &mut GrayImage, left: usize, top: usize, glyphs: usize| {
+            for glyph in 0..glyphs {
+                let glyph_left = left + glyph * 11;
+                for y in top..top + 10 {
+                    for x in glyph_left..glyph_left + 7 {
+                        if x < glyph_left + 2 || y < top + 2 || y >= top + 8 {
+                            source.set(x, y, 24);
+                        }
+                    }
+                }
+            }
+        };
+        // A text-only producer-tone component must be rejected as a whole.
+        for line in 0..15 {
+            draw_glyph_line(&mut source, 18, 28 + line * 30, 15);
+        }
+        // This caption lies inside a much larger photo owner. Non-glyph marks
+        // model ordinary image texture so the component itself is not text-like;
+        // the real text-vicinity carve still has to remove the caption pixels.
+        draw_glyph_line(&mut source, 300, 338, 11);
+        for mark in 0..30 {
+            let left = 268 + (mark % 10) * 18;
+            let top = 128 + (mark / 10) * 70;
+            for y in top..top + 2 {
+                for x in left..left + 2 {
+                    source.set(x, y, 24);
+                }
+            }
+        }
+
+        let mut trusted_tone = BinaryImage::new(source.width(), source.height());
+        for y in 10..500 {
+            for x in 10..220 {
+                trusted_tone.set(x, y, true);
+            }
+        }
+        for y in 100..520 {
+            for x in 250..470 {
+                trusted_tone.set(x, y, true);
+            }
+        }
+        let mut text_vicinity = BinaryImage::new(source.width(), source.height());
+        for y in 330..358 {
+            for x in 292..430 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        let calibration =
+            PageCalibration::estimate(&source, 240.0, CalibrationConfig::default());
+        assert!(calibration.valid, "caption fixture did not calibrate");
+
+        let owner = carve_trusted_mrc_tone_owner(
+            &source,
+            trusted_tone,
+            Some(&text_vicinity),
+            240.0,
+            calibration,
+        );
+
+        assert!(owner.get(275, 180), "the genuine photo owner was rejected");
+        assert!(
+            !owner.get(305, 342),
+            "caption pixels inside the original owner were not carved"
+        );
+        assert!(
+            !owner.get(80, 180),
+            "the text-only component was revived after component rejection"
+        );
+    }
+
+    #[test]
+    fn trusted_irregular_photo_owner_rectangularizes_unless_a_caption_occupies_the_gap() {
+        fn source_page(with_caption: bool) -> GrayImage {
+            let mut source = GrayImage::new(480, 600, 244);
+            for line in 0..15 {
+                let top = 28 + line * 30;
+                for glyph in 0..7 {
+                    let left = 16 + glyph * 9;
+                    for y in top..top + 9 {
+                        for x in left..left + 6 {
+                            if x < left + 2 || y < top + 2 || y >= top + 7 {
+                                source.set(x, y, 24);
+                            }
+                        }
+                    }
+                }
+            }
+            for y in 48..552 {
+                for x in 96..480 {
+                    source.set(x, y, 158 + ((x + y) % 7) as u8);
+                }
+            }
+            if with_caption {
+                for glyph in 0..11 {
+                    let left = 302 + glyph * 11;
+                    for y in 338..350 {
+                        for x in left..left + 7 {
+                            if x < left + 2 || !(340..348).contains(&y) {
+                                source.set(x, y, 24);
+                            }
+                        }
+                    }
+                }
+            }
+            source
+        }
+
+        let mut trusted_background = GrayImage::new(240, 300, 244);
+        for y in 48..252 {
+            for x in 72..216 {
+                if x < 120 || y < 96 {
+                    trusted_background.set(x, y, 32 + ((x * 17 + y * 29) % 181) as u8);
+                }
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 240.0,
+            source_dpi: Some(240.0),
+            source_background_dpi: Some(120.0),
+            trusted_mrc_source_available: true,
+            output_mode: OutputMode::Mixed,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let prepare = |source: &GrayImage| {
+            prepare_analysis_page(
+                source,
+                None,
+                &options,
+                true,
+                PageRenderPolicy::COMPLETE,
+                None,
+                CalibrationConfig::default(),
+                None,
+                Some(&trusted_background),
+                &mut PageStageTimings::default(),
+            )
+        };
+
+        let rectangular = prepare(&source_page(false));
+        let rectangular_owner = rectangular
+            .picture_mask
+            .as_deref()
+            .expect("trusted tone must publish ownership");
+        let gap_x = 390 * rectangular_owner.width() / 480;
+        let gap_y = 430 * rectangular_owner.height() / 600;
+        assert!(
+            rectangular_owner.get(gap_x, gap_y),
+            "the tone-compatible missing corner was not rectangularized"
+        );
+        assert!(
+            rectangular
+                .tonal_protection_mask
+                .as_deref()
+                .is_some_and(|mask| mask.get(gap_x, gap_y)),
+            "an approved rectangle must survive the final Mixed text partition"
+        );
+
+        let captioned = prepare(&source_page(true));
+        let captioned_owner = captioned
+            .picture_mask
+            .as_deref()
+            .expect("the original trusted owner remains after a rectangle veto");
+        assert!(
+            !captioned_owner.get(gap_x, gap_y),
+            "a real caption line must veto whole-rectangle ownership"
+        );
+        assert!(
+            captioned.text_mask.as_deref().is_some_and(|mask| {
+                mask.get(336 * mask.width() / 480, 342 * mask.height() / 600)
+            }),
+            "the caption fixture did not produce real text evidence"
+        );
+    }
+
+    #[test]
+    fn approved_small_photo_owner_preserves_tone_near_stencil() {
+        assert!(
+            confirmed_photo_preservation_policy(false, true, false),
+            "a corroborated automatic owner stays exact when rectangular expansion is vetoed"
+        );
+        assert!(
+            !confirmed_photo_preservation_policy(false, false, false),
+            "unowned tone must not gain exact photo preservation"
+        );
+        assert!(
+            !confirmed_photo_preservation_policy(true, true, true),
+            "line-art refinement must retain its material-pixel policy"
+        );
+        // Keep the approved owner between the corroborated (0.5%) and legacy
+        // significant-picture (1.2%) floors. This is the interval in which an
+        // exact rectangular owner used to reach composition with the generic
+        // local-whitening policy.
+        let mut source = GrayImage::new(2_000, 4_000, 244);
+        for line in 0..18 {
+            let top = 80 + line * 52;
+            for y in top..top + 9 {
+                for x in 90..950 {
+                    if (x + y) % 10 < 6 {
+                        source.set(x, y, 24);
+                    }
+                }
+            }
+        }
+        for y in 3_000..3_240 {
+            for x in 1_500..1_740 {
+                source.set(x, y, 154 + ((x * 3 + y * 5) % 19) as u8);
+            }
+        }
+        let mut trusted_background = GrayImage::new(1_000, 2_000, 244);
+        for y in 1_500..1_620 {
+            for x in 750..870 {
+                trusted_background.set(x, y, 32 + ((x * 17 + y * 29) % 181) as u8);
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 150.0,
+            source_dpi: Some(150.0),
+            source_background_dpi: Some(75.0),
+            trusted_mrc_source_available: true,
+            output_mode: OutputMode::Mixed,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let prepared = prepare_analysis_page(
+            &source,
+            None,
+            &options,
+            true,
+            PageRenderPolicy::COMPLETE,
+            None,
+            CalibrationConfig::default(),
+            None,
+            Some(&trusted_background),
+            &mut PageStageTimings::default(),
+        );
+        let owner = prepared
+            .picture_mask
+            .as_deref()
+            .expect("trusted tone must publish the approved photo owner");
+        let owner_fraction = owner.count_black() as f64
+            / owner.width().saturating_mul(owner.height()).max(1) as f64;
+        assert!(
+            (0.005..0.012).contains(&owner_fraction),
+            "fixture owner fraction escaped the regression band: {owner_fraction:.6}"
+        );
+        assert!(
+            prepared.preserve_confirmed_photo_tones,
+            "approved exact ownership was not propagated to composition"
+        );
+        let components = ComponentMap::from_binary(owner);
+        let component = components
+            .components()
+            .iter()
+            .max_by_key(|component| component.area)
+            .expect("approved owner has a component");
+        let sample_y = (component.top + component.bottom) / 2;
+        let sample_x = component.left + 6;
+        let mut plate = GrayImage::new(owner.width(), owner.height(), 255);
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if owner.get(x, y) {
+                    plate.set(x, y, 170);
+                }
+            }
+        }
+        let mut stencil = BinaryImage::new(owner.width(), owner.height());
+        for y in sample_y.saturating_sub(2)..=(sample_y + 2).min(owner.height() - 1) {
+            for x in component.left.saturating_sub(5)..component.left {
+                stencil.set(x, y, true);
+            }
+        }
+        let (mixed, _, _) = compose_mixed(
+            &plate,
+            None,
+            None,
+            &stencil,
+            owner,
+            None,
+            None,
+            None,
+            None,
+            150.0,
+            prepared.preserve_confirmed_photo_tones,
+            false,
+            true,
+            true,
+        );
+        assert_eq!(
+            mixed.get(sample_x, sample_y),
+            170,
+            "approved photo tone was locally whitened beside stencil ink"
+        );
+    }
+
+    #[test]
     fn trusted_source_foreground_bounds_fresh_mixed_composition() {
         let mut gray = GrayImage::new(160, 100, 232);
         for y in 20..80 {
@@ -4081,6 +4496,7 @@ mod tests {
             &gray,
             None,
             Some(&trusted_foreground),
+            None,
             &options,
             0,
             CalibrationConfig::default(),
@@ -4193,11 +4609,7 @@ mod tests {
         leaked_binary.set(5, 20, true);
 
         let protection_radius = picture_protection_radius(300.0);
-        let protected_picture = dilate(
-            &picture_mask,
-            protection_radius,
-            protection_radius,
-        );
+        let protected_picture = dilate(&picture_mask, protection_radius, protection_radius);
         let (mixed, _, layers) = compose_mixed(
             &gray,
             None,
@@ -4217,10 +4629,7 @@ mod tests {
         let layers = layers.expect("Mixed composition retains separate layers");
 
         assert_eq!(
-            layers
-                .foreground_mask
-                .and(&protected_picture)
-                .count_black(),
+            layers.foreground_mask.and(&protected_picture).count_black(),
             0,
             "the leaked binary blob must not own protected picture pixels"
         );
@@ -4290,6 +4699,7 @@ mod tests {
             &gray,
             None,
             Some(&trusted_foreground),
+            None,
             &options,
             0,
             CalibrationConfig::default(),
@@ -4350,6 +4760,7 @@ mod tests {
         let mut timings = PageStageTimings::default();
         let output = clean_page_with_color_and_calibration_config(
             &gray,
+            None,
             None,
             None,
             &options,
@@ -4930,6 +5341,7 @@ mod tests {
                 None,
                 CalibrationConfig::default(),
                 None,
+                None,
                 &mut timings,
             );
             (prepared, timings)
@@ -5242,6 +5654,7 @@ mod tests {
             &source,
             None,
             None,
+            None,
             &options,
             CalibrationConfig::default(),
             None,
@@ -5278,6 +5691,7 @@ mod tests {
 
             let prepared = prepare_page(
                 &source,
+                None,
                 None,
                 None,
                 &options,
@@ -5526,14 +5940,9 @@ mod tests {
             source.set(x, 5, true);
         }
 
-        let downsampled = render_binary_mask_preserve_ink(
-            &source,
-            5,
-            5,
-            2.0,
-            2.0,
-            |point| Some(Point::new(point.x * 2.0, point.y * 2.0)),
-        );
+        let downsampled = render_binary_mask_preserve_ink(&source, 5, 5, 2.0, 2.0, |point| {
+            Some(Point::new(point.x * 2.0, point.y * 2.0))
+        });
 
         assert!((0..downsampled.width())
             .any(|x| (0..downsampled.height()).all(|y| downsampled.get(x, y))));
@@ -5607,7 +6016,10 @@ mod tests {
         let enforced =
             enforce_source_ink_support(binary.clone(), &raw, Some(&trusted), true, 300.0);
 
-        assert!(enforced.get(22, 12), "missing source glyph was not restored");
+        assert!(
+            enforced.get(22, 12),
+            "missing source glyph was not restored"
+        );
         assert!(enforced.get(34, 12), "existing source glyph was changed");
         assert!(enforced.get(10, 1), "source-supported edge ink was removed");
         assert!(!enforced.get(50, 25), "unsupported output ink survived");

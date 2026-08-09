@@ -24,6 +24,7 @@ import type {
 import type {
     INativeScanCleanupBinarizationDiagnosticsV3,
     INativeScanCleanupOutputModeDiagnosticsV3,
+    INativeScanCleanupSplitDiagnosticsV3,
     INativeScanCleanupTextToneDiagnosticsV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
@@ -372,6 +373,7 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
     recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
     softAlphaForegroundRecommendation?: boolean;
     outputModeDiagnostics?: INativeScanCleanupOutputModeDiagnosticsV3;
+    splitDiagnostics?: INativeScanCleanupSplitDiagnosticsV3;
     sourcePageMetadata?: IScanCleanupSourcePageMetadata;
     /**
      * Resolution-independent geometry and text-tone decisions measured by the

@@ -916,9 +916,14 @@ function showsSidewaysHint(page: number) {
 // The two conditions that used to sit on the thumbnail as separate mystery
 // chips; both are now one marked button that opens the control that fixes them.
 function attentionHints(page: number) {
+    const layoutConfidence = props.confidences.get(page);
+    const classification = [
+        layoutLabel(page) ?? classificationValueLabel(undefined),
+        formatConfidence(layoutConfidence),
+    ].join(' · ');
     return [
         isLowConfidence(page)
-            ? t('scanCleanup.pages.lowConfidenceHint', {classification: layoutLabel(page) ?? classificationValueLabel(undefined)})
+            ? t('scanCleanup.pages.lowConfidenceHint', {classification})
             : '',
         showsSidewaysHint(page) ? t('scanCleanup.pages.textAxisHint') : '',
     ].filter(Boolean);

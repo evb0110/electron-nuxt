@@ -177,7 +177,8 @@ fn detect_content_at_analysis_scale(
             picture_mask_overlap_pixels,
         });
     }
-    let retained = cluster_content_blocks(&map, &candidates, picture_mask, calibration);
+    let clustered = cluster_content_blocks(&map, &candidates, picture_mask, calibration);
+    let retained = clustered.retained;
     let candidate_image = map.retain(|component| retained[component.label as usize]);
     let (mut blocks, component_blocks) =
         retained_content_blocks(&map, &candidates, &retained, picture_mask, calibration);
@@ -197,7 +198,9 @@ fn detect_content_at_analysis_scale(
         garbage,
         calibration,
     );
-    if let Some(picture_bounds) = picture_mask.and_then(binary_bounds) {
+    if let Some(picture_bounds) = picture_mask.and_then(|mask| {
+        crop_qualified_picture_bounds(mask, clustered.crop_artifact_sides, calibration)
+    }) {
         bounds = Some(match bounds {
             Some(content_bounds) => PixelBounds {
                 left: content_bounds.left.min(picture_bounds.left),
@@ -423,7 +426,7 @@ fn cluster_content_blocks(
     candidates: &[ContentCandidate<'_>],
     picture_mask: Option<&BinaryImage>,
     calibration: PageCalibration,
-) -> Vec<bool> {
+) -> ClusteredContent {
     let mut candidate_labels = vec![false; map.components().len() + 1];
     for candidate in candidates {
         candidate_labels[candidate.component.label as usize] = true;
@@ -461,17 +464,38 @@ fn cluster_content_blocks(
         block.picture_mask_overlap_pixels += candidate.picture_mask_overlap_pixels;
     }
     annotate_picture_overlap(&mut blocks, picture_mask);
-    let maximum_area = blocks.iter().map(|block| block.ink_area).max().unwrap_or(0);
+    let fragmented_edge_continuations = blocks
+        .iter()
+        .map(|block| {
+            fragmented_edge_continuation_sides(
+                block,
+                block_map.width(),
+                block_map.height(),
+                calibration,
+            )
+        })
+        .collect::<Vec<_>>();
+    let maximum_area = blocks
+        .iter()
+        .zip(&fragmented_edge_continuations)
+        .filter(|(_, &edge_continuation)| edge_continuation == 0)
+        .map(|(block, _)| block.ink_area)
+        .max()
+        .unwrap_or(0);
     let maximum_count = blocks
         .iter()
-        .map(|block| block.component_count)
+        .zip(&fragmented_edge_continuations)
+        .filter(|(_, &edge_continuation)| edge_continuation == 0)
+        .map(|(block, _)| block.component_count)
         .max()
         .unwrap_or(0);
     let minimum_block_area = calibration.content_min_block_area();
     let dominant = blocks
         .iter()
-        .map(|block| {
+        .zip(&fragmented_edge_continuations)
+        .map(|(block, &edge_continuation)| {
             block.initialized
+                && edge_continuation == 0
                 && (block.protected()
                     || block.ink_area >= (maximum_area / 12).max(minimum_block_area)
                     || block.component_count >= (maximum_count / 8).max(3))
@@ -513,8 +537,11 @@ fn cluster_content_blocks(
                 && axis_gap(block.left, block.right, primary.left, primary.right) == 0
                 && block.width().saturating_mul(2) >= primary.width()
         });
-        retained[component.label as usize] =
-            dominant[block_label] || block.protected() || supported_marginalia || top_furniture;
+        retained[component.label as usize] = fragmented_edge_continuations[block_label] == 0
+            && (dominant[block_label]
+                || block.protected()
+                || supported_marginalia
+                || top_furniture);
         if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some()
             && !retained[component.label as usize]
         {
@@ -525,7 +552,148 @@ fn cluster_content_blocks(
             );
         }
     }
-    retained
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
+        for (label, block) in blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| block.initialized)
+        {
+            eprintln!(
+                "{{\"event\":\"content-block\",\"label\":{label},\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"ink\":{},\"components\":{},\"dominant\":{},\"protected\":{},\"edgeContinuation\":{}}}",
+                block.left,
+                block.top,
+                block.right,
+                block.bottom,
+                block.ink_area,
+                block.component_count,
+                dominant[label],
+                block.protected(),
+                fragmented_edge_continuations[label] != 0,
+            );
+        }
+    }
+    let crop_artifact_sides = fragmented_edge_continuations
+        .iter()
+        .copied()
+        .fold(0, |sides, block_sides| sides | block_sides);
+    ClusteredContent {
+        retained,
+        crop_artifact_sides,
+    }
+}
+
+struct ClusteredContent {
+    retained: Vec<bool>,
+    crop_artifact_sides: u8,
+}
+
+const CROP_ARTIFACT_LEFT: u8 = 1;
+const CROP_ARTIFACT_TOP: u8 = 2;
+const CROP_ARTIFACT_RIGHT: u8 = 4;
+const CROP_ARTIFACT_BOTTOM: u8 = 8;
+
+/// After the outer 1/40 border mask is subtracted, a broad gutter shadow can
+/// survive as hundreds of tiny fragments just inside that clipped zone. The
+/// fragments cluster into a "dominant" block despite carrying no authored
+/// structure, and its end pieces pin the crop to the top and bottom edges.
+///
+/// Reject only a fragmented block that is wholly inside an outer 1/8 corridor
+/// and attached to the orthogonal page frame. Real marginalia does not usually
+/// touch that frame, while clipped running furniture spans beyond the narrow
+/// corridor. The calibrated per-component area guard preserves glyph-bearing
+/// edge blocks even when their geometry is unusual.
+fn fragmented_edge_continuation_sides(
+    block: &BlockStats,
+    page_width: usize,
+    page_height: usize,
+    calibration: PageCalibration,
+) -> u8 {
+    if !block.initialized || block.component_count < 3 {
+        return 0;
+    }
+    let horizontal_corridor = page_width.div_ceil(8).max(1);
+    let vertical_corridor = page_height.div_ceil(8).max(1);
+    let attached_to_horizontal_frame = block.top == 0 || block.bottom + 1 == page_height;
+    let attached_to_vertical_frame = block.left == 0 || block.right + 1 == page_width;
+    let nominal_height = if calibration.valid {
+        calibration.x_height_px.max(1.0)
+    } else {
+        (8.0 * calibration.effective_dpi / 150.0).max(4.0)
+    };
+    let maximum_fragment_area = (0.025 * nominal_height * nominal_height).round().max(4.0) as usize;
+    if block.ink_area > block.component_count.saturating_mul(maximum_fragment_area) {
+        return 0;
+    }
+    let mut sides = 0;
+    if attached_to_horizontal_frame && block.right < horizontal_corridor {
+        sides |= CROP_ARTIFACT_LEFT;
+    }
+    if attached_to_vertical_frame && block.bottom < vertical_corridor {
+        sides |= CROP_ARTIFACT_TOP;
+    }
+    if attached_to_horizontal_frame && block.left.saturating_add(horizontal_corridor) >= page_width
+    {
+        sides |= CROP_ARTIFACT_RIGHT;
+    }
+    if attached_to_vertical_frame && block.top.saturating_add(vertical_corridor) >= page_height {
+        sides |= CROP_ARTIFACT_BOTTOM;
+    }
+    sides
+}
+
+fn crop_qualified_picture_bounds(
+    picture_mask: &BinaryImage,
+    crop_artifact_sides: u8,
+    calibration: PageCalibration,
+) -> Option<PixelBounds> {
+    if crop_artifact_sides == 0 {
+        return binary_bounds(picture_mask);
+    }
+    let nominal_height = if calibration.valid {
+        calibration.x_height_px.max(1.0)
+    } else {
+        (8.0 * calibration.effective_dpi / 150.0).max(4.0)
+    };
+    // Picture masks deliberately grow around tonal regions. Once independent
+    // fragmented-frame evidence has identified a contaminated side, qualify
+    // crop bounds against a corridor widened by three x-heights so the grown
+    // gutter component cannot escape the stricter 1/8 block gate by a few
+    // pixels. Components reaching farther into the page (including full-bleed
+    // photos and maps) remain authoritative.
+    let picture_growth = (3.0 * nominal_height).round() as usize;
+    let horizontal_corridor = picture_mask
+        .width()
+        .div_ceil(8)
+        .saturating_add(picture_growth)
+        .max(1);
+    let vertical_corridor = picture_mask
+        .height()
+        .div_ceil(8)
+        .saturating_add(picture_growth)
+        .max(1);
+    let map = ComponentMap::from_binary(picture_mask);
+    let qualified = map.retain(|component| {
+        let excluded = (crop_artifact_sides & CROP_ARTIFACT_LEFT != 0
+            && component.right < horizontal_corridor)
+            || (crop_artifact_sides & CROP_ARTIFACT_TOP != 0
+                && component.bottom < vertical_corridor)
+            || (crop_artifact_sides & CROP_ARTIFACT_RIGHT != 0
+                && component.left.saturating_add(horizontal_corridor) >= picture_mask.width())
+            || (crop_artifact_sides & CROP_ARTIFACT_BOTTOM != 0
+                && component.top.saturating_add(vertical_corridor) >= picture_mask.height());
+        if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
+            eprintln!(
+                "{{\"event\":\"crop-picture-component\",\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"area\":{},\"excluded\":{excluded}}}",
+                component.left,
+                component.top,
+                component.right,
+                component.bottom,
+                component.area,
+            );
+        }
+        !excluded
+    });
+    binary_bounds(&qualified)
 }
 
 fn retained_content_blocks(
@@ -2180,6 +2348,248 @@ mod tests {
         assert!(
             bounds.y <= 92.0,
             "running head was trimmed with the band: {bounds:?}"
+        );
+    }
+
+    #[test]
+    fn fragmented_gutter_ends_do_not_expand_the_content_box() {
+        let mut image = GrayImage::new(600, 800, 242);
+        draw_glyph_line(&mut image, 150, 95, 22, 7, 12, 5);
+        for row in 0..18 {
+            draw_glyph_line(&mut image, 145, 165 + row * 25, 24, 6, 11, 4);
+        }
+        draw_glyph_line(&mut image, 205, 720, 12, 7, 12, 5);
+
+        // Thresholded gutter texture is not one solid border component. The
+        // clipped border mask leaves small fragments that dilation clusters
+        // into tall blocks at the two page-frame ends.
+        for top in (0..210).step_by(11) {
+            let left = 35 + (top / 11 % 5) * 5;
+            for y in top..(top + 8).min(image.height()) {
+                for x in left..left + 4 {
+                    image.set(x, y, 18);
+                }
+            }
+        }
+        for top in (748..800).step_by(10) {
+            let left = 32 + (top / 10 % 6) * 5;
+            for y in top..(top + 8).min(image.height()) {
+                for x in left..left + 4 {
+                    image.set(x, y, 18);
+                }
+            }
+        }
+
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 40.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let bounds = detect_content_and_margins_calibrated(
+            &image,
+            None,
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .content
+        .expect("authored text is content");
+        assert!(bounds.x >= 140.0, "gutter fragments survived: {bounds:?}");
+        assert!(
+            bounds.y >= 90.0,
+            "top gutter fragments survived: {bounds:?}"
+        );
+        assert!(
+            bounds.bottom() <= 735.0,
+            "bottom gutter fragments survived: {bounds:?}"
+        );
+    }
+
+    #[test]
+    fn edge_continuation_filter_preserves_glyphs_and_running_furniture() {
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 28.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let dust = BlockStats {
+            component_count: 162,
+            ink_area: 2_008,
+            left: 81,
+            top: 0,
+            right: 130,
+            bottom: 436,
+            initialized: true,
+            ..BlockStats::default()
+        };
+        assert_eq!(
+            fragmented_edge_continuation_sides(&dust, 1_102, 1_573, calibration,),
+            CROP_ARTIFACT_LEFT
+        );
+
+        let marginal_text = BlockStats {
+            component_count: 18,
+            ink_area: 1_440,
+            left: 70,
+            top: 0,
+            right: 128,
+            bottom: 210,
+            initialized: true,
+            ..BlockStats::default()
+        };
+        assert_eq!(
+            fragmented_edge_continuation_sides(&marginal_text, 1_102, 1_573, calibration,),
+            0
+        );
+
+        let running_furniture = BlockStats {
+            component_count: 30,
+            ink_area: 600,
+            left: 70,
+            top: 0,
+            right: 850,
+            bottom: 28,
+            initialized: true,
+            ..BlockStats::default()
+        };
+        assert_eq!(
+            fragmented_edge_continuation_sides(&running_furniture, 1_102, 1_573, calibration,),
+            0
+        );
+    }
+
+    #[test]
+    fn crop_picture_bounds_ignore_only_the_contaminated_edge_corridor() {
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 12.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let mut picture = BinaryImage::new(400, 600);
+        for (top, bottom) in [(0, 110), (190, 320), (540, 600)] {
+            for y in top..bottom {
+                for x in 12..38 {
+                    picture.set(x, y, true);
+                }
+            }
+        }
+        for y in 180..280 {
+            for x in 145..255 {
+                picture.set(x, y, true);
+            }
+        }
+        assert_eq!(
+            crop_qualified_picture_bounds(&picture, CROP_ARTIFACT_LEFT, calibration),
+            Some(PixelBounds {
+                left: 145,
+                top: 180,
+                right: 254,
+                bottom: 279,
+            })
+        );
+
+        // A genuine marginal photo that reaches beyond the calibrated gutter
+        // corridor remains crop-authoritative even on a contaminated edge.
+        let mut edge_photo = BinaryImage::new(400, 600);
+        for y in 330..470 {
+            for x in 18..125 {
+                edge_photo.set(x, y, true);
+            }
+        }
+        assert_eq!(
+            crop_qualified_picture_bounds(&edge_photo, CROP_ARTIFACT_LEFT, calibration),
+            Some(PixelBounds {
+                left: 18,
+                top: 330,
+                right: 124,
+                bottom: 469,
+            })
+        );
+
+        let full_bleed = BinaryImage::from_fn_parallel(400, 600, |_, _| true);
+        assert_eq!(
+            crop_qualified_picture_bounds(&full_bleed, CROP_ARTIFACT_LEFT, calibration),
+            Some(PixelBounds {
+                left: 0,
+                top: 0,
+                right: 399,
+                bottom: 599,
+            })
+        );
+    }
+
+    #[test]
+    fn crop_only_edge_filter_overrides_false_picture_ownership() {
+        let mut image = GrayImage::new(600, 800, 242);
+        draw_glyph_line(&mut image, 150, 95, 22, 7, 12, 5);
+        for row in 0..18 {
+            draw_glyph_line(&mut image, 145, 165 + row * 25, 24, 6, 11, 4);
+        }
+        draw_glyph_line(&mut image, 205, 720, 12, 7, 12, 5);
+        let mut picture = BinaryImage::new(image.width(), image.height());
+        for top in (0..210).step_by(11) {
+            let left = 35 + (top / 11 % 5) * 5;
+            for y in top..(top + 8).min(image.height()) {
+                for x in left..left + 4 {
+                    image.set(x, y, 18);
+                    picture.set(x, y, true);
+                }
+            }
+        }
+        for top in (748..800).step_by(10) {
+            let left = 32 + (top / 10 % 6) * 5;
+            for y in top..(top + 8).min(image.height()) {
+                for x in left..left + 4 {
+                    image.set(x, y, 18);
+                    picture.set(x, y, true);
+                }
+            }
+        }
+        // A central stamp remains semantic picture content. The crop-only
+        // override must not alter or discard its ownership.
+        for y in 510..590 {
+            for x in 260..340 {
+                if x == 260 || x == 339 || y == 510 || y == 589 {
+                    picture.set(x, y, true);
+                }
+            }
+        }
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 40.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let bounds = detect_content_and_margins_calibrated(
+            &image,
+            Some(&picture),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .content
+        .expect("authored text and stamp are content");
+        assert!(
+            bounds.x >= 140.0,
+            "false picture gutter survived: {bounds:?}"
+        );
+        assert!(bounds.y >= 90.0, "top picture gutter survived: {bounds:?}");
+        assert!(
+            bounds.bottom() <= 735.0,
+            "bottom picture gutter survived: {bounds:?}"
+        );
+        assert!(
+            bounds.x <= 260.0 && bounds.right() >= 340.0,
+            "central stamp was excluded: {bounds:?}"
         );
     }
 

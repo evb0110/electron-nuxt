@@ -817,6 +817,98 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
     throw new Error('invalid scan-cleanup job status');
 }
 
+function decodeSplitDiagnostics(
+    value: unknown,
+): NonNullable<TScanCleanupDetectionJobState['results'][number]['splitDiagnostics']> {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup split diagnostics');
+    const integerKeys = [
+        'leftInkPixels',
+        'rightInkPixels',
+        'independentSpreadCues',
+    ] as const;
+    const numberKeys = [
+        'analysisDpi',
+        'deskewAngleDegrees',
+        'deskewConfidence',
+        'cutterSlope',
+        'leftDeskewAngleDegrees',
+        'rightDeskewAngleDegrees',
+        'leftDeskewConfidence',
+        'rightDeskewConfidence',
+        'whitespaceX',
+        'foldX',
+        'decisionX',
+        'whitespaceScore',
+        'bilateralScore',
+        'leftPageScore',
+        'rightPageScore',
+        'leftContentScore',
+        'rightContentScore',
+        'leftSurfaceScore',
+        'rightSurfaceScore',
+        'outerMarginScore',
+        'gutterScore',
+        'agreementScore',
+        'foldScore',
+        'gutterDarknessScore',
+        'softGutterScore',
+        'softGutterCoverage',
+        'softGutterContinuity',
+        'softGutterMeanDepression',
+        'sparseGutterScore',
+        'sparseGutterCoverage',
+        'sparseGutterContinuity',
+        'sparseGutterMeanDepression',
+        'aspectRatio',
+        'aspectSpreadScore',
+        'aspectSingleScore',
+        'offcutBoundaryScore',
+        'offcutEmptyScore',
+        'offcutWidthScore',
+        'offcutNoTextRowsScore',
+        'alternativeProduct',
+        'evidenceProduct',
+    ] as const;
+    const booleanKeys = [
+        'whitespaceGatePassed',
+        'centralPositionGatePassed',
+        'bilateralGatePassed',
+        'outerMarginGatePassed',
+        'gutterGatePassed',
+        'independentGutterGatePassed',
+        'aspectSupportGatePassed',
+        'evidenceAgreementGatePassed',
+        'sparseSpreadRecovered',
+        'abstained',
+    ] as const;
+    const allowed = new Set<string>([
+        ...integerKeys,
+        ...numberKeys,
+        ...booleanKeys,
+    ]);
+    type TSplitDiagnostics = NonNullable<
+        TScanCleanupDetectionJobState['results'][number]['splitDiagnostics']
+    >;
+    const isValid = (
+        candidate: Record<string, unknown>,
+    ): candidate is Record<string, unknown> & TSplitDiagnostics =>
+        !Object.keys(candidate).some(key => !allowed.has(key))
+        && integerKeys.every(key => (
+            typeof candidate[key] === 'number'
+            && Number.isSafeInteger(candidate[key])
+            && candidate[key] >= 0
+        ))
+        && numberKeys.every(key => (
+            typeof candidate[key] === 'number'
+            && Number.isFinite(candidate[key])
+        ))
+        && booleanKeys.every(key => typeof candidate[key] === 'boolean');
+    if (!isValid(value)) {
+        throw new Error('invalid scan-cleanup split diagnostics');
+    }
+    return value;
+}
+
 export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanupDetectionJobState | null {
     if (value === null) {
         return null;
@@ -889,6 +981,9 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         const pagePlanEvidence = result.pagePlanEvidence === undefined
             ? undefined
             : decodeScanCleanupPagePlanEvidence(result.pagePlanEvidence, pageNumber);
+        const splitDiagnostics = result.splitDiagnostics === undefined
+            ? undefined
+            : decodeSplitDiagnostics(result.splitDiagnostics);
         return {
             pageNumber,
             ...(result.revision === undefined ? {} : {revision: result.revision}),
@@ -927,6 +1022,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 : {}),
             ...(sourcePageMetadata === undefined ? {} : {sourcePageMetadata}),
             ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
+            ...(splitDiagnostics === undefined ? {} : {splitDiagnostics}),
         };
     });
     if (

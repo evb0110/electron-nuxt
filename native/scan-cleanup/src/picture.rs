@@ -31,6 +31,8 @@ const SCREENED_TONE_MINIMUM_COMPONENT_TILES: usize = 4;
 const TONE_PRESERVATION_MINIMUM_COMPONENT_PAGE_FRACTION: f64 = 0.0005;
 const TONE_PRESERVATION_MINIMUM_COMPONENT_SPAN_FRACTION: f64 = 0.01;
 const TONE_PRESERVATION_FEATHER_RADIUS: usize = 4;
+const PHOTO_RECTANGLE_MINIMUM_TONE_MATCH_FRACTION: f64 = 0.85;
+const PHOTO_RECTANGLE_MINIMUM_BOUNDARY_MATCH_FRACTION: f64 = 0.70;
 // The raw darkness and texture fields are already normalized against the
 // page's measured paper center and noise. Their shallow tail represents paper
 // shoulders and fit residuals, not material picture evidence. Removing that
@@ -731,7 +733,13 @@ pub(crate) fn photo_tone_preservation_alpha(picture: &BinaryImage) -> Option<Gra
     ))
 }
 
-fn resample_binary_mask_nearest(mask: &BinaryImage, width: usize, height: usize) -> BinaryImage {
+/// Resamples producer-owned evidence onto the bounded analysis grid without
+/// interpolation-generated ownership halos.
+pub(crate) fn resample_binary_mask_nearest(
+    mask: &BinaryImage,
+    width: usize,
+    height: usize,
+) -> BinaryImage {
     BinaryImage::from_fn_parallel(width, height, |x, y| {
         let source_x = x.saturating_mul(mask.width()) / width.max(1);
         let source_y = y.saturating_mul(mask.height()) / height.max(1);
@@ -976,6 +984,230 @@ fn corroborate_picture_components(
     })
 }
 
+/// Expands an already-corroborated, irregular photo owner to the rectangular
+/// crop that authored book photographs conventionally occupy.
+///
+/// This is deliberately downstream of picture corroboration: it must never
+/// create a photo from tone alone. Expansion is all-or-nothing per connected
+/// component so composition cannot expose a new patchwork boundary inside the
+/// photograph. A component keeps its original geometry when the missing part
+/// of its bounds looks unlike the owned source tone or contains a convincing
+/// line of real text.
+pub(crate) fn rectangularize_corroborated_photos(
+    source: &GrayImage,
+    automatic: &BinaryImage,
+    text: &BinaryImage,
+    text_vicinity: &BinaryImage,
+    effective_dpi: f64,
+) -> BinaryImage {
+    debug_assert_eq!(
+        (source.width(), source.height()),
+        (automatic.width(), automatic.height())
+    );
+    debug_assert_eq!(
+        (source.width(), source.height()),
+        (text.width(), text.height())
+    );
+    debug_assert_eq!(
+        (source.width(), source.height()),
+        (text_vicinity.width(), text_vicinity.height())
+    );
+    if automatic.count_black() == 0 {
+        return automatic.clone();
+    }
+
+    let components = ComponentMap::from_binary(automatic);
+    let mut rectangular = automatic.clone();
+    for component in components.components() {
+        let bounds_area = (component.right - component.left + 1)
+            .saturating_mul(component.bottom - component.top + 1);
+        if component.area == bounds_area {
+            continue;
+        }
+        if rectangle_addition_contains_text_line(
+            automatic,
+            text,
+            text_vicinity,
+            component.left,
+            component.top,
+            component.right,
+            component.bottom,
+            effective_dpi,
+        ) || !rectangle_addition_matches_tone(
+            source,
+            &components,
+            component.label,
+            component.left,
+            component.top,
+            component.right,
+            component.bottom,
+        ) {
+            continue;
+        }
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                rectangular.set(x, y, true);
+            }
+        }
+    }
+    rectangular
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rectangle_addition_matches_tone(
+    source: &GrayImage,
+    components: &ComponentMap,
+    label: u32,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+) -> bool {
+    let mut owned_histogram = [0usize; 256];
+    let mut added_histogram = [0usize; 256];
+    let mut owned_count = 0usize;
+    let mut added_count = 0usize;
+    for y in top..=bottom {
+        for x in left..=right {
+            let value = usize::from(source.get(x, y));
+            if components.label_at(x, y) == label {
+                owned_histogram[value] += 1;
+                owned_count += 1;
+            } else {
+                added_histogram[value] += 1;
+                added_count += 1;
+            }
+        }
+    }
+    if owned_count == 0 || added_count == 0 {
+        return false;
+    }
+
+    let owned_p05 = percentile_from_histogram(&owned_histogram, owned_count / 20);
+    let owned_p25 = percentile_from_histogram(&owned_histogram, owned_count / 4);
+    let owned_p75 = percentile_from_histogram(
+        &owned_histogram,
+        owned_count.saturating_mul(3).saturating_sub(1) / 4,
+    );
+    let owned_p95 = percentile_from_histogram(
+        &owned_histogram,
+        owned_count.saturating_mul(19).saturating_sub(1) / 20,
+    );
+    let owned_iqr = owned_p75.saturating_sub(owned_p25);
+    let tone_tolerance = (owned_iqr / 2).clamp(10, 36);
+    let compatible_low = owned_p05.saturating_sub(tone_tolerance);
+    let compatible_high = owned_p95.saturating_add(tone_tolerance);
+    let compatible_added = added_histogram
+        [usize::from(compatible_low)..=usize::from(compatible_high)]
+        .iter()
+        .sum::<usize>();
+    if compatible_added as f64 / (added_count as f64) < PHOTO_RECTANGLE_MINIMUM_TONE_MATCH_FRACTION
+    {
+        return false;
+    }
+
+    // The ownership edge should disappear into the same source field. This
+    // catches a detector component whose bounding box reaches across a sharp
+    // photo-to-paper boundary even when a few photo highlights happen to make
+    // the two global histograms overlap.
+    let boundary_tolerance = tone_tolerance.saturating_add(12);
+    let mut boundary_edges = 0usize;
+    let mut matching_boundary_edges = 0usize;
+    for y in top..=bottom {
+        for x in left..=right {
+            if components.label_at(x, y) != label {
+                continue;
+            }
+            for (neighbor_x, neighbor_y) in [
+                (x.saturating_sub(1), y),
+                ((x + 1).min(source.width() - 1), y),
+                (x, y.saturating_sub(1)),
+                (x, (y + 1).min(source.height() - 1)),
+            ] {
+                if neighbor_x < left
+                    || neighbor_x > right
+                    || neighbor_y < top
+                    || neighbor_y > bottom
+                    || components.label_at(neighbor_x, neighbor_y) == label
+                {
+                    continue;
+                }
+                boundary_edges += 1;
+                matching_boundary_edges += usize::from(
+                    source
+                        .get(x, y)
+                        .abs_diff(source.get(neighbor_x, neighbor_y))
+                        <= boundary_tolerance,
+                );
+            }
+        }
+    }
+    boundary_edges > 0
+        && matching_boundary_edges as f64 / boundary_edges as f64
+            >= PHOTO_RECTANGLE_MINIMUM_BOUNDARY_MATCH_FRACTION
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rectangle_addition_contains_text_line(
+    automatic: &BinaryImage,
+    text: &BinaryImage,
+    text_vicinity: &BinaryImage,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+    effective_dpi: f64,
+) -> bool {
+    let width = right - left + 1;
+    let height = bottom - top + 1;
+    let mut added_text_vicinity = BinaryImage::new(width, height);
+    for y in top..=bottom {
+        for x in left..=right {
+            if !automatic.get(x, y) && text_vicinity.get(x, y) {
+                added_text_vicinity.set(x - left, y - top, true);
+            }
+        }
+    }
+    if added_text_vicinity.count_black() == 0 {
+        return false;
+    }
+
+    let minimum_line_width = ((effective_dpi.max(1.0) * 0.18).round() as usize)
+        .max(width.div_ceil(4))
+        .min(width);
+    let maximum_line_height = ((effective_dpi.max(1.0) * 0.35).round() as usize)
+        .max(3)
+        .min(height);
+    let vicinity_components = ComponentMap::from_binary(&added_text_vicinity);
+    vicinity_components.components().iter().any(|component| {
+        let component_width = component.right - component.left + 1;
+        let component_height = component.bottom - component.top + 1;
+        if component_width < minimum_line_width
+            || component_height > maximum_line_height
+            || component_width < component_height.saturating_mul(2)
+        {
+            return false;
+        }
+        let mut actual_text = 0usize;
+        let mut first_text_x = width;
+        let mut last_text_x = 0usize;
+        for local_y in component.top..=component.bottom {
+            for local_x in component.left..=component.right {
+                let x = left + local_x;
+                let y = top + local_y;
+                if !automatic.get(x, y) && text.get(x, y) {
+                    actual_text += 1;
+                    first_text_x = first_text_x.min(local_x);
+                    last_text_x = last_text_x.max(local_x);
+                }
+            }
+        }
+        actual_text >= component_width.div_ceil(12).max(6)
+            && first_text_x <= last_text_x
+            && last_text_x - first_text_x + 1 >= minimum_line_width
+    })
+}
+
 pub(crate) fn extend_picture_mask_for_content(
     source: &GrayImage,
     picture_mask: &BinaryImage,
@@ -1204,7 +1436,7 @@ fn percentile_from_histogram(histogram: &[usize; 256], rank: usize) -> u8 {
     255
 }
 
-fn veto_text_like_regions(
+pub(crate) fn veto_text_like_regions(
     source: &GrayImage,
     candidate: BinaryImage,
     raster_dpi: f64,
@@ -1800,6 +2032,90 @@ mod tests {
 
         assert!(!completed.get(100, 80));
         assert_eq!(completed.count_black(), expected_pixels);
+    }
+
+    fn irregular_photo_fixture(fill_missing_with_paper: bool) -> (GrayImage, BinaryImage) {
+        let mut source = GrayImage::new(120, 100, 246);
+        let mut automatic = BinaryImage::new(120, 100);
+        for y in 20..80 {
+            for x in 25..95 {
+                let owned = x < 37 || y < 32;
+                if owned {
+                    automatic.set(x, y, true);
+                }
+                if owned || !fill_missing_with_paper {
+                    source.set(x, y, 142 + ((x * 3 + y * 5) % 25) as u8);
+                }
+            }
+        }
+        (source, automatic)
+    }
+
+    #[test]
+    fn irregular_gray_photo_owner_fills_its_tone_continuous_rectangle() {
+        let (source, automatic) = irregular_photo_fixture(false);
+        let empty_text = BinaryImage::new(source.width(), source.height());
+
+        let rectangular = rectangularize_corroborated_photos(
+            &source,
+            &automatic,
+            &empty_text,
+            &empty_text,
+            150.0,
+        );
+
+        assert!(
+            rectangular.get(70, 55),
+            "the photo's gray field stayed a hole"
+        );
+        assert_eq!(rectangular.count_black(), 70 * 60);
+        assert!(!rectangular.get(20, 50));
+    }
+
+    #[test]
+    fn photo_rectangle_does_not_overshoot_onto_clean_paper() {
+        let (source, automatic) = irregular_photo_fixture(true);
+        let expected_pixels = automatic.count_black();
+        let empty_text = BinaryImage::new(source.width(), source.height());
+
+        let rectangular = rectangularize_corroborated_photos(
+            &source,
+            &automatic,
+            &empty_text,
+            &empty_text,
+            150.0,
+        );
+
+        assert!(!rectangular.get(70, 55));
+        assert_eq!(rectangular.count_black(), expected_pixels);
+    }
+
+    #[test]
+    fn photo_rectangle_does_not_swallow_a_caption_line() {
+        let (mut source, automatic) = irregular_photo_fixture(false);
+        let expected_pixels = automatic.count_black();
+        let mut text = BinaryImage::new(source.width(), source.height());
+        let mut text_vicinity = BinaryImage::new(source.width(), source.height());
+        for y in 58..72 {
+            for x in 43..89 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for glyph in 0..8 {
+            let left = 45 + glyph * 5;
+            for y in 61..68 {
+                for x in left..left + 3 {
+                    text.set(x, y, true);
+                    source.set(x, y, 28);
+                }
+            }
+        }
+
+        let rectangular =
+            rectangularize_corroborated_photos(&source, &automatic, &text, &text_vicinity, 150.0);
+
+        assert!(!rectangular.get(70, 55));
+        assert_eq!(rectangular.count_black(), expected_pixels);
     }
 
     #[test]

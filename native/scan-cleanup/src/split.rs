@@ -106,7 +106,8 @@ pub struct LayoutDecision {
     pub reconciliation: ReconciliationMetadata,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SplitDiagnostics {
     pub analysis_dpi: f64,
     pub deskew_angle_degrees: f64,
@@ -127,6 +128,8 @@ pub struct SplitDiagnostics {
     pub right_content_score: f64,
     pub left_surface_score: f64,
     pub right_surface_score: f64,
+    pub left_ink_pixels: usize,
+    pub right_ink_pixels: usize,
     pub outer_margin_score: f64,
     pub gutter_score: f64,
     pub agreement_score: f64,
@@ -134,6 +137,12 @@ pub struct SplitDiagnostics {
     pub gutter_darkness_score: f64,
     pub soft_gutter_score: f64,
     pub soft_gutter_coverage: f64,
+    pub soft_gutter_continuity: f64,
+    pub soft_gutter_mean_depression: f64,
+    pub sparse_gutter_score: f64,
+    pub sparse_gutter_coverage: f64,
+    pub sparse_gutter_continuity: f64,
+    pub sparse_gutter_mean_depression: f64,
     pub aspect_ratio: f64,
     pub aspect_spread_score: f64,
     pub aspect_single_score: f64,
@@ -144,6 +153,15 @@ pub struct SplitDiagnostics {
     pub offcut_no_text_rows_score: f64,
     pub alternative_product: f64,
     pub evidence_product: f64,
+    pub whitespace_gate_passed: bool,
+    pub central_position_gate_passed: bool,
+    pub bilateral_gate_passed: bool,
+    pub outer_margin_gate_passed: bool,
+    pub gutter_gate_passed: bool,
+    pub independent_gutter_gate_passed: bool,
+    pub aspect_support_gate_passed: bool,
+    pub evidence_agreement_gate_passed: bool,
+    pub sparse_spread_recovered: bool,
     pub abstained: bool,
 }
 
@@ -253,6 +271,8 @@ struct SoftGutterCandidate {
     x: f64,
     score: f64,
     vertical_coverage: f64,
+    continuity: f64,
+    mean_depression: f64,
 }
 
 struct AnalysisImage<'a> {
@@ -385,9 +405,14 @@ fn detect_split_impl(
     };
 
     if aspect_ratio >= 1.0 {
-        if let Some(mut result) =
-            spread_decision(gray, &analysis, whitespace, fold, &mut diagnostics)
-        {
+        if let Some(mut result) = spread_decision(
+            gray,
+            &analysis,
+            whitespace,
+            fold,
+            document_prior,
+            &mut diagnostics,
+        ) {
             if analysis.deskew_angle_degrees == 0.0 {
                 result.reusable_binary = Some(analysis.binary);
             }
@@ -461,11 +486,17 @@ fn spread_decision(
     analysis: &AnalysisImage<'_>,
     whitespace: Option<Candidate>,
     fold: Option<FoldCandidate>,
+    document_prior: Option<DocumentPrior>,
     diagnostics: &mut SplitDiagnostics,
 ) -> Option<SplitResult> {
     let whitespace = whitespace?;
+    diagnostics.whitespace_score = whitespace.score;
+    diagnostics.whitespace_x = whitespace.x;
+    diagnostics.whitespace_gate_passed = whitespace.score >= 0.20;
     let position = whitespace.x / analysis.gray.width().max(1) as f64;
-    if !(0.28..=0.72).contains(&position) {
+    diagnostics.central_position_gate_passed = (0.28..=0.72).contains(&position);
+    if !diagnostics.central_position_gate_passed {
+        diagnostics.abstained = true;
         return None;
     }
 
@@ -490,6 +521,7 @@ fn spread_decision(
     let fold_darkness = gutter_darkness_score(&analysis.gray, fold_x);
     let (shadow_x, shadow_score) = darkest_gutter_position(&analysis.gray, whitespace);
     let soft_gutter = soft_gutter_candidate(&analysis.gray, whitespace);
+    let sparse_gutter = sparse_gutter_candidate(&analysis.gray, whitespace);
     let (line_decision_x, gutter_darkness) = if shadow_score > fold_darkness {
         (shadow_x, shadow_score)
     } else {
@@ -513,9 +545,8 @@ fn spread_decision(
         diagnostics.aspect_spread_score,
     );
 
-    diagnostics.whitespace_score = whitespace.score;
-    diagnostics.whitespace_x = whitespace.x;
     diagnostics.fold_x = selected_fold.map_or(diagnostics.fold_x, |candidate| candidate.x);
+    diagnostics.fold_score = fold_score;
     diagnostics.decision_x = decision_x;
     diagnostics.cutter_slope = decision_slope;
     if let Some(candidate) = selected_fold {
@@ -531,32 +562,130 @@ fn spread_decision(
     diagnostics.right_content_score = bilateral.right.content_score;
     diagnostics.left_surface_score = bilateral.left.surface_score;
     diagnostics.right_surface_score = bilateral.right.surface_score;
+    diagnostics.left_ink_pixels = bilateral.left.ink;
+    diagnostics.right_ink_pixels = bilateral.right.ink;
     diagnostics.outer_margin_score = outer_margins;
     diagnostics.gutter_darkness_score = gutter_darkness;
     diagnostics.soft_gutter_score = soft_gutter_score;
     diagnostics.soft_gutter_coverage =
         soft_gutter.map_or(0.0, |candidate| candidate.vertical_coverage);
+    diagnostics.soft_gutter_continuity = soft_gutter.map_or(0.0, |candidate| candidate.continuity);
+    diagnostics.soft_gutter_mean_depression =
+        soft_gutter.map_or(0.0, |candidate| candidate.mean_depression);
+    diagnostics.sparse_gutter_score = sparse_gutter.map_or(0.0, |candidate| candidate.score);
+    diagnostics.sparse_gutter_coverage =
+        sparse_gutter.map_or(0.0, |candidate| candidate.vertical_coverage);
+    diagnostics.sparse_gutter_continuity =
+        sparse_gutter.map_or(0.0, |candidate| candidate.continuity);
+    diagnostics.sparse_gutter_mean_depression =
+        sparse_gutter.map_or(0.0, |candidate| candidate.mean_depression);
     diagnostics.gutter_score = gutter_score;
     diagnostics.agreement_score = agreement_score;
     diagnostics.independent_spread_cues = independent_spread_cues;
     diagnostics.evidence_product = diagnostics.evidence_product.max(confidence);
 
+    diagnostics.bilateral_gate_passed = bilateral.score >= 0.08;
+    diagnostics.outer_margin_gate_passed = outer_margins >= 0.02;
+    diagnostics.gutter_gate_passed = gutter_score >= 0.25;
+    diagnostics.independent_gutter_gate_passed =
+        fold_score >= 0.25 || soft_gutter_score >= 0.25 || gutter_darkness >= 0.25;
+    diagnostics.aspect_support_gate_passed =
+        fold_score >= 0.25 || gutter_darkness >= 0.25 || diagnostics.aspect_spread_score >= 0.15;
+    diagnostics.evidence_agreement_gate_passed = fold.is_none()
+        || agrees
+        || local_fold.is_some()
+        || gutter_darkness.max(soft_gutter_score) >= 0.25;
+
+    let standard_spread = diagnostics.whitespace_gate_passed
+        && diagnostics.bilateral_gate_passed
+        && diagnostics.outer_margin_gate_passed
+        && diagnostics.gutter_gate_passed
+        && diagnostics.independent_gutter_gate_passed
+        && diagnostics.aspect_support_gate_passed
+        && diagnostics.evidence_agreement_gate_passed;
+
+    // Sparse title and half-title pages can make the best binary whitespace
+    // midpoint miss their physical gutter, even when both leaves have enough
+    // ink. Recover them only when spread geometry is saturated and a faint,
+    // symmetric, vertically coherent surface valley independently corroborates
+    // the central gap. The local path remains deliberately strict; a strong
+    // document prior may widen its position window, but can never substitute
+    // for an actually observed valley or two page bodies.
+    let sparse_position =
+        sparse_gutter.map(|candidate| candidate.x / analysis.gray.width().max(1) as f64);
+    let strong_spread_prior = document_prior.filter(|prior| {
+        prior.validate().is_ok()
+            && prior.dominant_layout == LayoutClassification::TwoPageSpread
+            && prior.agreement_strength >= 0.80
+    });
+    let sparse_position_matches = sparse_position.is_some_and(|ratio| {
+        strong_spread_prior.map_or_else(
+            || (0.38..=0.62).contains(&ratio),
+            |prior| {
+                prior
+                    .cutter_ratio_median
+                    .is_some_and(|median| (ratio - median).abs() <= 0.10)
+            },
+        )
+    });
+    let sparse_x = sparse_gutter.map_or(decision_x, |candidate| candidate.x);
+    let sparse_bilateral = bilateral_page_score(&analysis.cleaned, &analysis.gray, sparse_x);
+    let sparse_outer_margins = outer_margin_score(&analysis.cleaned, &analysis.binary, sparse_x);
+    let sparse_agreement = fold.is_none()
+        || agrees
+        || local_fold.is_some()
+        || fold.is_some_and(|candidate| candidate.score < 0.25);
+    let sparse_spread = !standard_spread
+        && diagnostics.aspect_ratio >= 1.40
+        && diagnostics.whitespace_gate_passed
+        && sparse_position_matches
+        && sparse_outer_margins >= 0.20
+        && sparse_bilateral.left.page_score >= 0.01
+        && sparse_bilateral.right.page_score >= 0.01
+        && sparse_gutter.is_some_and(|candidate| {
+            candidate.score >= 0.35
+                && candidate.mean_depression >= 0.80
+                && candidate.vertical_coverage >= 0.62
+                && candidate.continuity >= 0.50
+        })
+        && sparse_agreement;
+
     // These are policy gates, not compensating weights. A very strong cue may
     // never make up for a missing independent cue.
-    if whitespace.score < 0.20
-        || bilateral.score < 0.08
-        || outer_margins < 0.02
-        || gutter_score < 0.25
-        || fold_score < 0.25 && soft_gutter_score < 0.25 && gutter_darkness < 0.25
-        || fold_score < 0.25 && gutter_darkness < 0.25 && diagnostics.aspect_spread_score < 0.15
-        || fold.is_some()
-            && !agrees
-            && local_fold.is_none()
-            && gutter_darkness.max(soft_gutter_score) < 0.25
-    {
+    if !standard_spread && !sparse_spread {
         diagnostics.abstained = true;
         return None;
     }
+
+    let (decision_x, confidence) = if sparse_spread {
+        diagnostics.sparse_spread_recovered = true;
+        diagnostics.decision_x = sparse_x;
+        diagnostics.bilateral_score = sparse_bilateral.score;
+        diagnostics.left_page_score = sparse_bilateral.left.page_score;
+        diagnostics.right_page_score = sparse_bilateral.right.page_score;
+        diagnostics.left_content_score = sparse_bilateral.left.content_score;
+        diagnostics.right_content_score = sparse_bilateral.right.content_score;
+        diagnostics.left_surface_score = sparse_bilateral.left.surface_score;
+        diagnostics.right_surface_score = sparse_bilateral.right.surface_score;
+        diagnostics.left_ink_pixels = sparse_bilateral.left.ink;
+        diagnostics.right_ink_pixels = sparse_bilateral.right.ink;
+        diagnostics.outer_margin_score = sparse_outer_margins;
+        let sparse = sparse_gutter.expect("sparse spread requires a gutter candidate");
+        let mean_strength = (diagnostics.aspect_spread_score
+            + whitespace.score
+            + sparse_outer_margins
+            + sparse.score
+            + sparse_bilateral
+                .left
+                .page_score
+                .min(sparse_bilateral.right.page_score))
+            / 5.0;
+        let sparse_confidence = (0.52 + 0.18 * mean_strength).min(0.72);
+        diagnostics.evidence_product = sparse_confidence;
+        (sparse_x, sparse_confidence)
+    } else {
+        (decision_x, confidence)
+    };
 
     let cutter = scale_x(decision_x, analysis.gray.width(), original.width());
     let mut result = split_at(
@@ -1099,6 +1228,106 @@ fn soft_gutter_candidate(gray: &GrayImage, whitespace: Candidate) -> Option<Soft
             x: x as f64,
             score,
             vertical_coverage: coverage,
+            continuity,
+            mean_depression,
+        };
+        if best.is_none_or(|current| candidate.score > current.score) {
+            best = Some(candidate);
+        }
+    }
+    best.filter(|candidate| candidate.score >= 0.04)
+}
+
+/// Finds a faint, broad valley in the illumination-normalized page surface.
+///
+/// Unlike `soft_gutter_candidate`, this intentionally ignores high-frequency
+/// edges and measures a symmetric low-frequency depression independently on
+/// many rows. It is only allowed to recover spread-shaped, sparse pages in
+/// `spread_decision`; keeping the permissive measurement separate from that
+/// strict policy prevents landscape artwork from becoming a spread merely
+/// because it contains a dark vertical feature.
+fn sparse_gutter_candidate(gray: &GrayImage, whitespace: Candidate) -> Option<SoftGutterCandidate> {
+    if gray.width() < 48 || gray.height() < 32 || whitespace.start >= whitespace.end {
+        return None;
+    }
+    let core_radius = (gray.width() as f64 * 0.008).round().max(2.0) as usize;
+    let inner_radius = (gray.width() as f64 * 0.018).round().max(4.0) as usize;
+    let shoulder_radius = (gray.width() as f64 * 0.055).round().max(10.0) as usize;
+    let y_start = gray.height() / 20;
+    let y_end = gray.height() - y_start;
+    let y_step = ((y_end - y_start) / 180).max(1);
+    // Sparse pages often have several broad binary-white runs. Their best
+    // midpoint is useful proof of a central gap but is not a reliable gutter
+    // coordinate. Search a bounded neighborhood around that midpoint so the
+    // grayscale page surface, rather than an arbitrary quiet-run edge, chooses
+    // the physical seam.
+    let neighborhood = (gray.width() as f64 * 0.12).round() as usize;
+    let search_start = (whitespace.x.round() as usize)
+        .saturating_sub(neighborhood)
+        .max((gray.width() as f64 * 0.28).round() as usize);
+    let search_end = (whitespace.x.round() as usize + neighborhood)
+        .min((gray.width() as f64 * 0.72).round() as usize)
+        .min(gray.width());
+    let x_step = ((search_end.saturating_sub(search_start)) / 160).max(1);
+    let sample_rows = (y_start..y_end)
+        .step_by(y_step)
+        .map(|y| {
+            let mut prefix = Vec::with_capacity(gray.width() + 1);
+            prefix.push(0_u32);
+            for x in 0..gray.width() {
+                prefix.push(prefix[x] + u32::from(gray.get(x, y)));
+            }
+            prefix
+        })
+        .collect::<Vec<_>>();
+    let mut best: Option<SoftGutterCandidate> = None;
+
+    for x in (search_start..search_end).step_by(x_step) {
+        if x <= shoulder_radius || x + shoulder_radius >= gray.width() {
+            continue;
+        }
+        let mut samples = 0usize;
+        let mut depressed = 0usize;
+        let mut longest_run = 0usize;
+        let mut current_run = 0usize;
+        let mut depression_sum = 0.0;
+        for prefix in &sample_rows {
+            samples += 1;
+            let core = prefixed_mean_luminance(
+                prefix,
+                x - core_radius,
+                (x + core_radius + 1).min(gray.width()),
+            );
+            let left = prefixed_mean_luminance(prefix, x - shoulder_radius, x - inner_radius);
+            let right = prefixed_mean_luminance(
+                prefix,
+                x + inner_radius,
+                (x + shoulder_radius).min(gray.width()),
+            );
+            // Subtracting the local shoulders removes slow page illumination.
+            // Requiring both shoulders to be brighter rejects ordinary ramps.
+            let depression = left.min(right) - core;
+            if core <= 253.5 && depression >= 0.65 {
+                depressed += 1;
+                current_run += 1;
+                longest_run = longest_run.max(current_run);
+                depression_sum += depression;
+            } else {
+                current_run = 0;
+            }
+        }
+        let coverage = depressed as f64 / samples.max(1) as f64;
+        let continuity = longest_run as f64 / samples.max(1) as f64;
+        let mean_depression = depression_sum / depressed.max(1) as f64;
+        let score = ramp(mean_depression, 0.65, 5.0)
+            * ramp(coverage, 0.50, 0.82)
+            * ramp(continuity, 0.35, 0.70);
+        let candidate = SoftGutterCandidate {
+            x: x as f64,
+            score,
+            vertical_coverage: coverage,
+            continuity,
+            mean_depression,
         };
         if best.is_none_or(|current| candidate.score > current.score) {
             best = Some(candidate);
@@ -1770,13 +1999,23 @@ pub fn reconcile_layout_decision(
             let median = prior
                 .cutter_ratio_median
                 .expect("validated spread prior has a cutter");
-            candidate_cutter_ratio
-                .filter(|ratio| {
-                    whitespace_score >= 0.15
-                        && (0.28..=0.72).contains(ratio)
-                        && (*ratio - median).abs() <= 0.035
-                })
-                .map(|ratio| ratio * width as f64)
+            candidate_cutter_ratio.and_then(|ratio| {
+                let has_plausible_valley =
+                    whitespace_score >= 0.15 && (0.28..=0.72).contains(&ratio);
+                if !has_plausible_valley {
+                    return None;
+                }
+                if (ratio - median).abs() <= 0.035 {
+                    return Some(ratio * width as f64);
+                }
+                // A strong cluster prior already incorporates both dominant
+                // layout support and cutter consistency. On sparse pages the
+                // broadest quiet run can sit away from a faint physical seam;
+                // accept any still-nearby observed valley, but use the stable
+                // document median rather than the ambiguous local midpoint.
+                (agreement >= 0.80 && (ratio - median).abs() <= 0.10)
+                    .then_some(median * width as f64)
+            })
         }
         LayoutClassification::SingleUncutPage => None,
         LayoutClassification::PageWithOffcut => {
@@ -1916,6 +2155,27 @@ mod tests {
         }
     }
 
+    fn add_sparse_title(gray: &mut GrayImage, left: usize, right: usize) {
+        let center = (left + right) / 2;
+        let half_width = (right - left) / 9;
+        for y in (gray.height() * 2 / 5..gray.height() * 3 / 5).step_by(14) {
+            for x in center.saturating_sub(half_width)..(center + half_width).min(gray.width()) {
+                gray.set(x, y, 35);
+                if y + 1 < gray.height() {
+                    gray.set(x, y + 1, 35);
+                }
+            }
+        }
+    }
+
+    fn add_faint_surface_valley(gray: &mut GrayImage, x: usize) {
+        for y in 5..gray.height().saturating_sub(5) {
+            for sample_x in x.saturating_sub(8)..=(x + 8).min(gray.width() - 1) {
+                gray.set(sample_x, y, gray.get(sample_x, y).saturating_sub(3));
+            }
+        }
+    }
+
     fn add_sloped_fold(gray: &mut GrayImage, center_x: f64, angle_degrees: f64, value: u8) {
         let slope = angle_degrees.to_radians().tan();
         let center_y = gray.height() as f64 * 0.5;
@@ -1962,6 +2222,23 @@ mod tests {
             "{result:?}"
         );
         assert!(result.confidence > 0.0);
+        assert!(result.diagnostics.whitespace_gate_passed, "{result:?}");
+        assert!(
+            result.diagnostics.central_position_gate_passed,
+            "{result:?}"
+        );
+        assert!(result.diagnostics.bilateral_gate_passed, "{result:?}");
+        assert!(result.diagnostics.outer_margin_gate_passed, "{result:?}");
+        assert!(result.diagnostics.gutter_gate_passed, "{result:?}");
+        assert!(
+            result.diagnostics.independent_gutter_gate_passed,
+            "{result:?}"
+        );
+        assert!(result.diagnostics.aspect_support_gate_passed, "{result:?}");
+        assert!(
+            result.diagnostics.evidence_agreement_gate_passed,
+            "{result:?}"
+        );
         let seam = result.split_seam.as_ref().unwrap();
         assert!(seam.points.len() >= gray.height() / 3);
         assert!(seam.points.last().unwrap().y >= gray.height() as f64 - 3.0);
@@ -2142,6 +2419,56 @@ mod tests {
     }
 
     #[test]
+    fn coherent_faint_valley_recovers_a_sparse_title_spread() {
+        let mut gray = GrayImage::new(660, 420, 245);
+        add_sparse_title(&mut gray, 24, 310);
+        add_sparse_title(&mut gray, 350, 636);
+        add_faint_surface_valley(&mut gray, 330);
+
+        let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+        assert_eq!(
+            result.classification,
+            LayoutClassification::TwoPageSpread,
+            "{result:#?}"
+        );
+        assert!(result.diagnostics.sparse_spread_recovered, "{result:#?}");
+        assert!(!result.diagnostics.gutter_gate_passed, "{result:#?}");
+        assert!(
+            !result.diagnostics.independent_gutter_gate_passed,
+            "{result:#?}"
+        );
+        assert_eq!(result.diagnostics.gutter_darkness_score, 0.0, "{result:#?}");
+        assert_eq!(result.diagnostics.soft_gutter_score, 0.0, "{result:#?}");
+        assert!(
+            result.diagnostics.sparse_gutter_score >= 0.35,
+            "{result:#?}"
+        );
+        assert!(
+            result.diagnostics.sparse_gutter_mean_depression >= 0.80,
+            "{result:#?}"
+        );
+        assert!((result.cutter_x.unwrap() - 330.0).abs() <= 12.0);
+    }
+
+    #[test]
+    fn landscape_single_without_a_central_valley_is_not_sparse_recovered() {
+        let mut gray = GrayImage::new(660, 420, 245);
+        for y in (30..390).step_by(16) {
+            for x in 28..632 {
+                gray.set(x, y, 35);
+                gray.set(x, y + 1, 35);
+            }
+        }
+        let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+        assert_eq!(
+            result.classification,
+            LayoutClassification::SingleUncutPage,
+            "{result:#?}"
+        );
+        assert!(!result.diagnostics.sparse_spread_recovered);
+    }
+
+    #[test]
     fn disagreeing_fold_and_whitespace_abstain() {
         let mut gray = GrayImage::new(660, 420, 245);
         add_text_lines(&mut gray, 35, 300);
@@ -2306,11 +2633,28 @@ mod tests {
         assert_eq!(promoted.cutter_x, Some(642.0));
         assert!(promoted.confidence >= 0.85, "{promoted:?}");
 
-        let rejected = reconcile_layout_decision(
+        let median_recovered = reconcile_layout_decision(
             LayoutClassification::SingleUncutPage,
             0.2,
             None,
             Some(0.44),
+            0.5,
+            1200,
+            870,
+            prior,
+        );
+        assert_eq!(
+            median_recovered.classification,
+            LayoutClassification::TwoPageSpread
+        );
+        assert!(median_recovered.reconciliation.reconciled);
+        assert_eq!(median_recovered.cutter_x, Some(636.0));
+
+        let rejected = reconcile_layout_decision(
+            LayoutClassification::SingleUncutPage,
+            0.2,
+            None,
+            None,
             0.5,
             1200,
             870,
@@ -2323,5 +2667,35 @@ mod tests {
         assert!(!rejected.reconciliation.reconciled);
         assert_eq!(rejected.reconciliation.cluster_agreement, -0.85);
         assert!(rejected.confidence < 0.2);
+    }
+
+    #[test]
+    fn strong_spread_consensus_does_not_force_a_landscape_single_without_a_valley() {
+        let prior = DocumentPrior {
+            dominant_layout: LayoutClassification::TwoPageSpread,
+            cutter_ratio_median: Some(0.47),
+            cluster_dims: ClusterDimensions {
+                width: 1400.0,
+                height: 900.0,
+            },
+            agreement_strength: 0.94,
+        };
+        let decision = reconcile_layout_decision(
+            LayoutClassification::SingleUncutPage,
+            0.58,
+            None,
+            None,
+            0.0,
+            1400,
+            900,
+            prior,
+        );
+        assert_eq!(
+            decision.classification,
+            LayoutClassification::SingleUncutPage
+        );
+        assert_eq!(decision.cutter_x, None);
+        assert!(!decision.reconciliation.reconciled);
+        assert_eq!(decision.reconciliation.cluster_agreement, -0.94);
     }
 }

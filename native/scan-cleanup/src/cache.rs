@@ -98,8 +98,12 @@ impl StageCacheKey {
             source: source.clone(),
             stage: CacheStage::Analysis,
             options: serialized(&(
-                options.dpi.to_bits(),
-                options.source_dpi().to_bits(),
+                (
+                    options.dpi.to_bits(),
+                    options.source_dpi().to_bits(),
+                    options.source_background_dpi.map(f64::to_bits),
+                    options.trusted_mrc_source_available,
+                ),
                 options.rotation,
                 options.normalize_illumination,
                 options.output_mode,
@@ -470,6 +474,36 @@ mod tests {
             StageCacheKey::analysis(
                 &source,
                 &source_dpi_options,
+                true,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            ),
+        );
+
+        let mut source_background_dpi_options = baseline_options.clone();
+        source_background_dpi_options.source_background_dpi = Some(120.0);
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &source_background_dpi_options,
+                true,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            ),
+        );
+
+        let mut trusted_mrc_options = baseline_options.clone();
+        trusted_mrc_options.trusted_mrc_source_available = true;
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &trusted_mrc_options,
                 true,
                 true,
                 true,

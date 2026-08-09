@@ -7,6 +7,10 @@ use crate::engine::render::{
 use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
 use crate::{
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
+    ink_consistency::{
+        minority_selection_mask, stroke_mass_metrics, DocumentInkPrior, DocumentInkSample,
+        PageInkConsistencyContext,
+    },
     io::{
         copy_bounded_cancelable, pbm, raster, BoundedIoError, StagedFileBackup,
         MAX_STREAM_INPUT_BYTES,
@@ -167,6 +171,7 @@ struct PageResultMetadata {
     tier1_verdict: crate::split::LayoutClassification,
     reconciled: bool,
     cluster_agreement: f64,
+    split_diagnostics: crate::split::SplitDiagnostics,
     #[serde(skip_serializing_if = "Option::is_none")]
     document_prior: Option<crate::split::DocumentPrior>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -398,6 +403,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         false,
         None,
         Some((&output, &metadata)),
+        None,
         &page_cache,
     )
     .map(|_| ())
@@ -595,6 +601,60 @@ fn run_manifest_transaction(
     }
 }
 
+fn trusted_selection_is_incomplete(selection_width: usize, background_width: usize) -> bool {
+    background_width.saturating_mul(2) > selection_width
+}
+
+fn derive_page_ink_sample(page: &Page) -> Option<DocumentInkSample> {
+    if page.options.output_mode != OutputMode::Bw
+        || !page.options.source_has_bilevel_layer
+        || page.options.thickness != 0
+    {
+        return None;
+    }
+    let selection = raster::read_foreground_selection(
+        page.trusted_foreground_mask_path.as_ref()?,
+        page.options.max_pixels,
+        page.options.max_dimension,
+    )
+    .ok()?;
+    let (background_width, _) = raster::read_dimensions(
+        page.trusted_mrc_background_path.as_ref()?,
+        page.options.max_pixels,
+        page.options.max_dimension,
+    )
+    .ok()?;
+    if trusted_selection_is_incomplete(selection.width(), background_width) {
+        return None;
+    }
+    let ink = minority_selection_mask(&selection)?;
+    Some(DocumentInkSample {
+        metrics: stroke_mass_metrics(&ink)?,
+        width: ink.width(),
+        height: ink.height(),
+    })
+}
+
+fn derive_page_ink_contexts(manifest: &ManifestV3) -> Vec<Option<PageInkConsistencyContext>> {
+    let samples = manifest
+        .pages
+        .par_iter()
+        .map(derive_page_ink_sample)
+        .collect::<Vec<_>>();
+    let Some(prior) = DocumentInkPrior::from_page_samples(samples.iter().flatten().copied()) else {
+        return vec![None; samples.len()];
+    };
+    samples
+        .into_iter()
+        .map(|source_sample| {
+            source_sample.map(|source_sample| PageInkConsistencyContext {
+                prior,
+                source_sample,
+            })
+        })
+        .collect()
+}
+
 fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     write_progress(Progress {
         stage: ProgressStage::Started,
@@ -650,6 +710,11 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         Ok(())
     };
     let analyzing = manifest.operation == Operation::Analyze;
+    let page_ink_contexts = if analyzing {
+        vec![None; manifest.pages.len()]
+    } else {
+        derive_page_ink_contexts(manifest)
+    };
     let plan_content = manifest.analysis_purpose == AnalysisPurpose::PagePlan;
     let run_analysis = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
         let page_cache = page_cache_for(page, &cache)?;
@@ -684,6 +749,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
             manifest.render_mode == RenderMode::Final,
             manifest.document_canvas,
             None,
+            page_ink_contexts[index],
             &page_cache,
         )
         .map_err(|error| {
@@ -1594,6 +1660,7 @@ fn run_page(
     final_render: bool,
     document_canvas: Option<DocumentCanvas>,
     fallback_destination: Option<(&Path, &Path)>,
+    page_ink_consistency: Option<PageInkConsistencyContext>,
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = page.options.clone();
@@ -1659,7 +1726,7 @@ fn run_page(
         .map(|input| &input.gray)
         .or(gray_input.as_deref())
         .expect("cleanup input is initialized");
-    let trusted_foreground_mask = page
+    let trusted_foreground = page
         .trusted_foreground_mask_path
         .as_ref()
         .map(|path| {
@@ -1677,19 +1744,26 @@ fn run_page(
                     input_gray.height(),
                 )));
             }
-            Ok(normalize_trusted_foreground_selection(
-                &selection,
-                input_gray,
+            let selection_width = selection.width();
+            Ok((
+                normalize_trusted_foreground_selection(&selection, input_gray),
+                selection_width,
             ))
         })
         .transpose()?;
-    let trusted_mrc_background_dimensions = page
+    let trusted_foreground_source_width = trusted_foreground
+        .as_ref()
+        .map(|(_, selection_width)| *selection_width);
+    let trusted_foreground_mask = trusted_foreground.map(|(mask, _)| mask);
+    let trusted_mrc_background = page
         .trusted_mrc_background_path
         .as_ref()
         .map(|path| {
-            let (background_width, background_height) =
-                raster::read_dimensions(path, options.max_pixels, options.max_dimension)
+            let background =
+                raster::read_gray(path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?;
+            let (background_width, background_height) =
+                (background.width(), background.height());
             let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
             let background_aspect = background_width as f64 / background_height.max(1) as f64;
             if (input_aspect / background_aspect - 1.0).abs() > 0.02 {
@@ -1701,24 +1775,29 @@ fn run_page(
                     input_gray.height(),
                 )));
             }
-            Ok((background_width, background_height))
+            Ok(background)
         })
         .transpose()?;
-    let background_factor = trusted_mrc_background_dimensions.map_or(1, |(width, _)| {
-        if width.saturating_mul(2) > input_gray.width() {
-            (width * 3 / input_gray.width().max(1)).clamp(2, 4)
-        } else {
-            1
-        }
-    });
+    let trusted_selection_incomplete = trusted_mrc_background
+        .as_ref()
+        .zip(trusted_foreground_source_width)
+        .is_some_and(|(background, selection_width)| {
+            trusted_selection_is_incomplete(selection_width, background.width())
+        });
     // A full-resolution background marks producer pages whose selection mask
     // is not a complete ink carrier. Keep the compatibility hint available to
     // late output-mode resolution. The renderer rebuilds the background while
     // retaining selected ink and raw-supported additions in the foreground.
     let mut options = options;
-    options.trusted_selection_incomplete = background_factor > 1;
-    options.trusted_mrc_source_available = trusted_mrc_background_dimensions.is_some();
-    if trusted_mrc_background_dimensions.is_some() != trusted_foreground_mask.is_some() {
+    options.trusted_selection_incomplete = trusted_selection_incomplete;
+    options.trusted_mrc_source_available = trusted_mrc_background.is_some();
+    options.page_ink_consistency = (options.output_mode == OutputMode::Bw
+        && options.thickness == 0
+        && !options.trusted_selection_incomplete
+        && trusted_foreground_mask.is_some())
+    .then_some(page_ink_consistency)
+    .flatten();
+    if trusted_mrc_background.is_some() != trusted_foreground_mask.is_some() {
         return Err(Box::new(invalid(
             "Trusted MRC evidence must provide both background and foreground selection layers",
         )));
@@ -1776,6 +1855,7 @@ fn run_page(
             input_gray,
             color_input.as_ref().map(|input| &input.rgb),
             trusted_foreground_mask.as_ref(),
+            trusted_mrc_background.as_ref(),
             &options,
             page.source_page_index,
             page.document_prior,
@@ -1815,6 +1895,7 @@ fn run_page(
         tier1_verdict: result.reconciliation.tier1_verdict,
         reconciled: result.reconciliation.reconciled,
         cluster_agreement: result.reconciliation.cluster_agreement,
+        split_diagnostics: result.split_diagnostics,
         document_prior: page.document_prior,
         text_axis: None,
         recommended_output_mode: result
@@ -2306,6 +2387,7 @@ fn run_classification(
         tier1_verdict: result.reconciliation.tier1_verdict,
         reconciled: result.reconciliation.reconciled,
         cluster_agreement: result.reconciliation.cluster_agreement,
+        split_diagnostics: result.split_diagnostics,
         document_prior,
         text_axis: result.text_axis,
         recommended_output_mode: result
@@ -4393,6 +4475,7 @@ mod tests {
                 tier1_verdict: verdict,
                 reconciled: false,
                 cluster_agreement: 0.0,
+                split_diagnostics: crate::split::SplitDiagnostics::default(),
                 document_prior: None,
                 text_axis: None,
                 recommended_output_mode: None,
@@ -4461,6 +4544,7 @@ mod tests {
             tier1_verdict: LayoutClassification::TwoPageSpread,
             reconciled: false,
             cluster_agreement: 0.9,
+            split_diagnostics: crate::split::SplitDiagnostics::default(),
             document_prior: None,
             text_axis: None,
             recommended_output_mode: None,

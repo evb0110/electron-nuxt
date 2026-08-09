@@ -40,9 +40,9 @@ use crate::{
         OwnedNetpbm,
     },
     pdf::{
-        write_pdf_to_writer, AffineMaskedLayeredPdfPage, BilevelStream, ImagePage, ImagePayload,
-        LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfWriter,
-        SoftLayeredPdfPage, SoftMaskStream,
+        apply_shared_symbol_encoding, write_pdf_to_writer, AffineMaskedLayeredPdfPage,
+        BilevelStream, ImagePage, ImagePayload, LayeredImagePayload, LayeredPdfImage,
+        LayeredPdfPage, MaskPdfPage, PdfWriter, SoftLayeredPdfPage, SoftMaskStream,
     },
     tiff_io::combine_tiff_pages,
 };
@@ -264,6 +264,7 @@ impl Default for PdfBuildOptions {
 /// with the scan-cleanup sidecar's own pool, so the fan-out stays bounded
 /// instead of tracking the core count without a ceiling.
 pub const MAX_WORKER_THREADS: usize = 8;
+const JBIG2_SYMBOL_CHUNK_PAGES: usize = 50;
 
 #[must_use]
 pub fn default_worker_threads() -> usize {
@@ -294,28 +295,46 @@ where
     let output = OutputLimitWriter::new(output, options.max_output_bytes);
     let mut page_count = 0usize;
     let mut processed = 0usize;
-    let output = write_pdf_to_writer(
-        output,
-        options.provenance_stamp_hex.as_deref(),
-        |pdf| loop {
+    let output = write_pdf_to_writer(output, options.provenance_stamp_hex.as_deref(), |pdf| {
+        let mut symbol_chunk = Vec::with_capacity(JBIG2_SYMBOL_CHUNK_PAGES);
+        loop {
             let batch = page_specs
                 .by_ref()
                 .take(batch_size)
                 .collect::<Vec<PdfPageSpec<'a>>>();
             if batch.is_empty() {
+                write_symbol_chunk(pdf, &mut symbol_chunk)?;
                 return Ok(());
             }
             for prepared in encoders.prepare(batch, options) {
                 for page in prepared? {
                     page_count = next_page_count_with_limit(page_count, options.max_pages)?;
-                    write_prepared_page(pdf, page)?;
+                    symbol_chunk.push(page);
+                    if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
+                        write_symbol_chunk(pdf, &mut symbol_chunk)?;
+                    }
                 }
                 processed += 1;
                 on_processed(processed);
             }
-        },
-    )?;
+        }
+    })?;
     Ok(output.into_inner())
+}
+
+fn write_symbol_chunk<W: Write>(
+    pdf: &mut PdfWriter<W>,
+    pages: &mut Vec<PreparedPage>,
+) -> Result<()> {
+    let mut masks = pages
+        .iter_mut()
+        .filter_map(PreparedPage::generated_bilevel_stream_mut)
+        .collect::<Vec<_>>();
+    apply_shared_symbol_encoding(&mut masks);
+    for page in pages.drain(..) {
+        write_prepared_page(pdf, page)?;
+    }
+    Ok(())
 }
 
 enum PreparedPage {
@@ -328,6 +347,30 @@ enum PreparedPage {
     SoftLayered(Box<SoftLayeredPdfPage>),
     AffineMaskedLayered(Box<AffineMaskedLayeredPdfPage>),
     Mask(MaskPdfPage),
+}
+
+impl PreparedPage {
+    fn generated_bilevel_stream_mut(&mut self) -> Option<&mut BilevelStream> {
+        match self {
+            Self::Image { page, .. } => match &mut page.payload {
+                ImagePayload::Bilevel(stream) if stream.supports_symbol_encoding() => Some(stream),
+                _ => None,
+            },
+            Self::Layered(page) if page.foreground_mask.supports_symbol_encoding() => {
+                Some(&mut page.foreground_mask)
+            }
+            Self::AffineMaskedLayered(page) if page.foreground_mask.supports_symbol_encoding() => {
+                Some(&mut page.foreground_mask)
+            }
+            Self::Mask(page) if page.foreground_mask.supports_symbol_encoding() => {
+                Some(&mut page.foreground_mask)
+            }
+            Self::SoftLayered(_)
+            | Self::Layered(_)
+            | Self::AffineMaskedLayered(_)
+            | Self::Mask(_) => None,
+        }
+    }
 }
 
 fn write_prepared_page<W: Write>(pdf: &mut PdfWriter<W>, page: PreparedPage) -> Result<()> {

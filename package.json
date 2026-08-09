@@ -88,6 +88,7 @@
     "diag:pdf-tabs": "pnpm exec tsx scripts/diagnostics/pdfTabPressure.ts",
     "diag:arnold-pdf-open": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runArnoldPdfOpenDiagnostics.ts",
     "diag:scan-cleanup-corpus-verify": "node scripts/diagnostics/scan-cleanup-corpus-verify.mjs",
+    "diag:scan-cleanup-rendered-metrics": "python3 scripts/diagnostics/scan-cleanup-rendered-metrics.py",
     "diag:verify-generated-pdf": "python3 scripts/diagnostics/verify-generated-pdf.py",
     "diag:pdf-tabs:ci": "sh -c 'pnpm electron:run stop --session=pdf-tabs-ci >/dev/null 2>&1 || true; pnpm run build:electron && pnpm electron:run startd --session=pdf-tabs-ci && pnpm diag:pdf-tabs --session pdf-tabs-ci --tabs 4 --cycles 3 --gc --sample-heap --max-inactive-canvases 0 --max-inactive-rendered-pages 0 --max-inactive-djvu-images 0 --max-inactive-canvas-pixels 0; status=$?; pnpm electron:run stop --session=pdf-tabs-ci >/dev/null 2>&1 || true; exit $status'",
     "benchmark:save-pipeline": "node scripts/benchmark-save-pipeline.mjs",

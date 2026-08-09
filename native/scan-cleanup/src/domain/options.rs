@@ -1,4 +1,5 @@
 use crate::domain::geometry::PageHalf;
+use crate::ink_consistency::PageInkConsistencyContext;
 use crate::text_tone::TextToneDiagnostics;
 use scan_primitives::Rect;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -429,6 +430,10 @@ pub struct CleanupOptions {
     /// useful as analysis evidence, but cannot authorize publishing the JPX.
     #[serde(skip)]
     pub trusted_mrc_source_available: bool,
+    /// Batch-derived stroke prior and this page's uncropped producer-mask
+    /// sample. This is runtime state, never caller-authored manifest input.
+    #[serde(skip)]
+    pub page_ink_consistency: Option<PageInkConsistencyContext>,
     pub requested_render_dpi: Option<f64>,
     /// Optional preview tile in normalized final intrinsic-output space.
     pub render_crop: Option<NormalizedRect>,
@@ -488,6 +493,7 @@ impl Default for CleanupOptions {
             source_background_dpi: None,
             trusted_selection_incomplete: false,
             trusted_mrc_source_available: false,
+            page_ink_consistency: None,
             requested_render_dpi: None,
             render_crop: None,
             classify_only: None,

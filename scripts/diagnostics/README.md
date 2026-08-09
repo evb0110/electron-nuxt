@@ -161,6 +161,73 @@ Rome page 49 now carries a 720-DPI stencil over its unchanged 360-DPI background
 the standalone page changed from 287,787 B to 941,353 B because the full-resolution
 stencil and non-stencil source tones are retained.
 
+## Scan-cleanup rendered acceptance metrics
+
+Photo fidelity is measured from rendered pages, not extracted MRC image layers.
+Supply photo bounding boxes on a known coordinate grid (the Rome acceptance ledger
+uses 120 dpi); the diagnostic renders every requested PDF page at 360 dpi, maps the
+source box through that conversion's recorded affine deskew/crop transform and
+matched-canvas placement, and rectifies the candidate pixels back onto the source
+box grid. It records near-white fraction, mean luminance, and per-16-pixel-tile
+near-white deltas. An optional reference PDF adds reference columns and labeled
+`source | reference | output` crops:
+
+```bash
+pnpm run diag:scan-cleanup-rendered-metrics -- photos \
+  --source /absolute/path/to/source.pdf \
+  --reference /absolute/path/to/previous-cleaned.pdf \
+  --reference-summary /absolute/path/to/reference-conversion-summary.json \
+  --output /absolute/path/to/candidate-cleaned.pdf \
+  --output-summary /absolute/path/to/candidate-conversion-summary.json \
+  --boxes /absolute/path/to/photo-boxes.csv \
+  --csv .devkit/analysis/photo-metrics.csv \
+  --crops .devkit/analysis/photo-crops
+```
+
+The boxes CSV requires `page` and either `bbox` or `bbox_at_box_dpi`, with the
+box encoded as `left,top,right,bottom`. Defaults are `--box-dpi 120`,
+`--render-dpi 360`, `--tile-size 16`, and `--tile-limit 0.05`. Summary arguments
+default to `<pdf>.summary.json`; an explicit summary is useful when a reference PDF
+was renamed after conversion. Non-affinely dewarped pages are rejected because a
+rectangular affine crop cannot identify the same physical pixels on those pages.
+
+Stroke consistency is measured from the exact embedded full-resolution text mask.
+For each page, the diagnostic parses a page-scoped `pdfimages -list`, selects the
+unique `bpc=1`/`jbig2` row at the highest mask DPI, extracts that row by its local
+stream index, decodes it with `jbig2dec` (including `/JBIG2Globals` when present),
+and reports black coverage and one-pixel MaxFilter erosion survival:
+
+```bash
+pnpm run diag:scan-cleanup-rendered-metrics -- strokes \
+  --pdf /absolute/path/to/candidate-cleaned.pdf \
+  --pages 60-80 --exclude 67,71 \
+  --csv .devkit/analysis/stroke-metrics.csv
+```
+
+The photo command requires Poppler and Pillow. The stroke command additionally
+requires `jbig2dec`. Ambiguous same-resolution JBIG2 masks are an error instead of
+being resolved with a largest-image heuristic.
+
+For a substitution-safety audit, ask the conversion CLI to retain only a bounded
+set of raw foreground masks immediately before the PDF combiner symbol-codes them:
+
+```bash
+pnpm scan-cleanup:convert -- --source /absolute/source.pdf --out /absolute/output.pdf \
+  --parity --diagnostic-evidence-dir .devkit/analysis/symbol-evidence \
+  --diagnostic-mask-pages 12,18,24,30
+pnpm run diag:scan-cleanup-rendered-metrics -- symbol-safety \
+  --pdf /absolute/output.pdf \
+  --manifest .devkit/analysis/symbol-evidence/raw-mask-manifest.json \
+  --csv .devkit/analysis/symbol-safety.csv
+```
+
+The checker extracts each exact final image stream, supplies `/JBIG2Globals` to
+`jbig2dec`, normalizes only mask polarity, and requires pixel-exact equality with
+the retained PBM. Exact equality is stricter than the encoder's component-level
+substitution policy. The conversion summary also retains every page's final and
+tier-1 layout verdict so a page-limited conversion can audit the full detection
+pass without keeping its raster workspace.
+
 ## Navigation blink trace
 
 Use the blink trace for blank frames, delayed skeletons, or canvas/skeleton flicker:
