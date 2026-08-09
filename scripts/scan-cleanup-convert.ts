@@ -841,14 +841,16 @@ async function main() {
         ) {
             const manifestIndex = args.indexOf('--compact-manifest');
             const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];
-            if (manifestPath === undefined) {
-                throw new Error('Diagnostic mask capture requires a compact combiner manifest');
+            // The same sidecar also serves source-MRC extraction operations.
+            // Evidence capture must observe the final compact combine without
+            // changing or rejecting those earlier extraction calls.
+            if (manifestPath !== undefined) {
+                rawMaskEvidence = await snapshotCliDiagnosticMasks(
+                    manifestPath,
+                    argumentsValue.diagnosticMaskPages,
+                    argumentsValue.diagnosticEvidenceDirectory,
+                );
             }
-            rawMaskEvidence = await snapshotCliDiagnosticMasks(
-                manifestPath,
-                argumentsValue.diagnosticMaskPages,
-                argumentsValue.diagnosticEvidenceDirectory,
-            );
         }
         return runCliNativeToolCommand(command, args, nativeOptions(options, log));
     };
