@@ -340,3 +340,119 @@ Stop and reassess instead of forcing the ledger if any of these occur:
 - FIFO look-ahead reproduces a cancellation/deadline hang;
 - exact margins require changing the matched PDF page rectangle;
 - output size improves only by weakening image-quality checks.
+
+## Continuation audit and corrective changes (2026-08-09)
+
+This continuation records a second-machine audit of two independent problems discovered on a 158-page homogeneous spread book. The fixture is `.devkit/fixtures/scan-cleanup/003319_luther_syr_chronik_josua_styllites.pdf`: 158 pages, 134,054,411 bytes, SHA-256 `0530412cf665130b799960c17173c272b203f016350be66198775be3ba86857b`. Every source page is a wide two-page scan; page 1 is a sparse title spread and page 2 is the dense control. The original 2026-08-09 audit handoff is retained at `.devkit/docs/scan-cleanup-fix-ledger-2026-08-09.md`, and exact native gate evidence is retained at `.devkit/tmp/ledger-runs/bug-b/gate-diagnostics-before.txt`.
+
+### Preview invalidation loop
+
+The visible preview was re-cleaned after each incremental spread classification because its cache key contained the growing set of detected spread pages. On this fixture that meant up to 158 same-page cancellations and redraws even though the shared matched-canvas rectangle stayed at the provisional full-sheet size until the last unknown page settled. During each restart, the stale-result presentation also replaced the existing cleaned raster with the raw scan, producing the recorded oscillation.
+
+The correction keys preview validity on the geometry the existing document-canvas planner actually resolved:
+
+- `scanCleanupDocumentCanvasSignature` derives a canonical `[widthPoints, heightPoints, widthPx, heightPx]` identity from the existing plan; it does not introduce a second canvas model;
+- detection publishes that identity over the existing job-state channel, normalizing a plan identical to the pre-detection canvas to the empty baseline signature;
+- the renderer cache key consumes the canvas identity, whole-document canvas overrides, and the visible page's unresolved classification. Incremental results whose plan is unchanged therefore keep the same key, while a genuine full-sheet-to-half-sheet plan change and a newly reclassified visible page still revalidate it;
+- the spread-set signature remains a compact planner/request input, but no longer owns renderer invalidation;
+- while a same-page render is being refreshed, the previous cleaned raster remains visible. A result is presented as stale only when it belongs to a different page, so a legitimate re-render cannot flash back to the raw scan.
+
+Unit coverage models a homogeneous four-spread sequence: the first three incremental classifications retain one provisional key, the final classification changes the resolved plan and rekeys once. Separate assertions pin canvas changes, visible-page reclassification, unmatched pages, navigation, and the same-page stale-result presentation. This proves the cache and lifecycle invariants; the headless VPS cannot supply the requested real Electron screen-recording proof.
+
+### Sparse-spread gate audit and detector correction
+
+Pages 1 and 2 were rendered from the real PDF at 150 DPI (`2203 x 1573`) and passed through the production split detector. The audit corrected the initial hypothesis: page 1 did not fail bilateral evidence. It failed only the two gutter gates because the best binary whitespace midpoint did not coincide with the physical low-frequency seam.
+
+| Gate/evidence | Page 1 before recovery | Page 2 control |
+| --- | ---: | ---: |
+| Tier-1 classification | `single-uncut-page` | `two-page-spread` |
+| Confidence | `0.000000` | `0.864128` |
+| Aspect ratio / spread score | `1.400509 / 1.000000` | `1.400509 / 1.000000` |
+| Whitespace score / x | `0.980511 / 1075` | `0.980651 / 1138` |
+| Bilateral / left ink / right ink | `1.000000 / 31717 / 20784` | `1.000000 / 53697 / 168315` |
+| Outer-margin score | `1.000000` | `0.124698` |
+| Selected local fold / x | `0.086365 / 1142` | `0.581527 / 1268` |
+| Dark gutter / soft gutter | `0.000000 / 0.000000` | `0.000000 / 0.000000` |
+| Final gutter score | `0.086365` — fail | `0.581527` — pass |
+| Standard gate result | gutter and independent-gutter fail; all other gates pass | all gates pass |
+
+The page-1 low-frequency surface profile peaks near `x=1203` (ratio `0.546074`) with `26.525463` mean luminance depression, full sampled-row coverage, and full continuity. The new recovery path searches only a bounded central neighborhood around the already-valid whitespace evidence and requires saturated spread geometry, consistent outer margins, two independently present page bodies, a symmetric local depression, row coverage, continuity, and non-conflicting fold/prior evidence. It does not lower the ordinary dark-, soft-, or fold-gutter thresholds globally.
+
+On the same page-1 raster, the recovery selects `x=1198` (ratio `0.543804`) at confidence `0.699298`; its low-frequency score is `1.000000`, mean depression `24.641827`, coverage `1.000000`, and continuity `1.000000`. Page 2 remains `two-page-spread` at `x=1268`, confidence `0.864128`, and does not enter the recovery path.
+
+Document reconciliation was strengthened separately. When the existing dimension cluster yields agreement of at least `0.80`—which already incorporates dominant-layout support and cutter consistency—a low-confidence dissenter may use an observed whitespace valley within `0.10` of the median. The reconciled cutter is the stable document median, not the ambiguous local midpoint. The original narrow `0.035` path remains for ordinary agreement. A page with no plausible valley is not force-split, and manual layout/split evidence remains authoritative.
+
+### Persistent diagnostics and confidence-label clarity
+
+`SplitDiagnostics` is now serialized as `splitDiagnostics` in every page metadata JSON. It retains aspect evidence, whitespace and selected cutter coordinates, per-half ink/content/surface scores, bilateral and outer-margin scores, the actual selected local fold score, dark/soft/sparse gutter strength, depression, coverage and continuity, every hard-gate boolean, the recovery flag, and abstention. Existing `tier1Verdict`, final `layoutClassification`, `documentPrior`, `reconciled`, and `clusterAgreement` fields preserve the document-level decision trail. The classify-only CLI pin verifies that these fields remain observable rather than becoming temporary debug logging.
+
+The thumbnail warning now displays the layout classification together with layout confidence and labels it explicitly as layout confidence. Output recommendations and technical details explicitly say output-mode confidence. English and Russian strings were updated together, removing the previous ambiguity in which an `83%` output-mode score appeared directly beneath a low-layout-confidence warning.
+
+### Verification and remaining proof boundary
+
+- 20 focused native split unit tests passed, including faint-valley recovery, landscape-single rejection, strong-consensus median recovery, and a no-valley negative control.
+- The complete compact real split-fixture test passed all 33 entries: ten hard cases, nineteen spread controls, and four Luther soft-gutter pages.
+- The classify-only page CLI metadata pin passed and verifies persisted gate diagnostics.
+- Debug `cargo clippy -p evb-scan-cleanup --lib --tests -- -D warnings`, split-file `rustfmt --check`, and `git diff --check` passed for this change boundary.
+- Four focused Vitest files passed 50 tests covering detection publication, preview cache/navigation semantics, same-page presentation, and confidence-label copy.
+
+The VPS is headless, so no Electron E2E or replacement screen recording was produced locally. The direct real-PDF native evidence proves page 1's local verdict is now Spread and page 2 is unchanged; because the local verdict already agrees with a spread-majority prior, post-reconciliation should retain it, but a complete 158-page graphical run is still the honest final proof for both “no visible oscillation” and the final thumbnail label. This limitation is not reported as automated visual verification.
+
+## Completion result (2026-08-09)
+
+This section supersedes projections above with the final continuation measurements. Implementation landed incrementally on `main`; every pushed implementation boundary ran the repository's applicable lint, typecheck, native release, focused regression, and CI gates. A concurrent packaging-resource pin was also corrected after its first main run exposed the stale exact-array expectation.
+
+### Fixture methodology
+
+Both large documents were fully analyzed once. All subsequent implementation iteration used fixed, preselected representative subsets rather than repeatedly converting 392 and 158 pages:
+
+- Rome: pages `16, 46, 49, 56, 57, 60, 71, 94, 96, 100, 119, 154, 300, 308, 351, 352, 361, 373, 385`;
+- Luther: pages `1, 2, 3, 10, 80`.
+
+The Rome set covers ordinary and median text, the seven mixed-photo cases, both plate controls, three OCR bbox checks, and bleak/median stroke pages. The Luther set covers the sparse title spread, dense control, adjacent and interior spreads, and the gutter/content-box regression. Only one replacement full Rome conversion was authorized after the three-page OCR-compression slice passed.
+
+### Preview, manual reframe, split, and crop outcomes
+
+- Preview invalidation now follows the resolved canvas plan rather than the growing spread set, and a same-page refresh keeps the last cleaned raster visible.
+- Manual content boxes are render/final overrides, not detection-evidence inputs. Releasing a handle refreshes only that page; explicit Re-detect measures automatic geometry beneath the still-authoritative manual override.
+- The one-time Luther detection result contains 158/158 final `two-page-spread` classifications. Page 1 recovers x=1198 (ratio `0.543804`); page 2 remains the conventional dense control at x=1268.
+- The independently reported gutter/frame dirt was traced to crop authority, not semantic photo ownership. Crop-only frame-rail qualification and seed-local structural extension give page 1 a left content box `145,117,876,1407` and right-local box `212,114,607,1405`, while retaining the title, stamp, publisher, and year.
+
+The headless VPS proves these ownership and geometry invariants through native/core/app tests and real-PDF native plans. It does not claim the unavailable graphical replacement screen recording.
+
+### Photo fidelity
+
+The earlier acceptance CSV rows were broad context crops containing headers and captions, not photograph rectangles. A deterministic audit derived true interiors from each source's authored MRC background using the engine-equivalent 24-pixel continuous-tone tiles, coherent-component selection, text-line veto trimming, and a fixed one-tile inset.
+
+On all seven actual mixed-photo pages (46, 49, 56, 57, 71, 94, 96), final versus source near-white delta is exactly `0.000000`, maximum 16-pixel tile delta is `0.000000`, and zero tiles violate the `0.05` limit. Pages 49 and 56 therefore close the detector-recall gap; page 57 closes the irregular patchwork gap. The owned rectangle is copied uniformly, including its boundary, with no internal feather-to-white. Trusted-MRC ownership is always carved by real text vicinity before foreground subtraction.
+
+Pages 308 and 351 are not mixed photographs: they are a line-art map and a grayscale plate. They retain Phase-A policy rather than source-gray paper: page 308's near-white fraction improves slightly from `0.036914` to `0.035393`, and page 351 remains `0.002758`. Their source-relative tile check is intentionally reported as an inapplicable plate guard, not relabeled as a mixed-photo pass.
+
+### OCR, size, and encoding safety
+
+Source-relative OCR coverage is 389/389 pages (`100%`). Aggregate non-space character retention is `99.9982%`; every source-text page retains at least `99.635%`. Sampled words on pages 49, 100, and 300 preserve bbox width and height within `0.001pt` and overlap the corresponding printed ink.
+
+The first full output exposed 388 uncompressed appended OCR streams totaling 12,141,743 bytes. The late overlay now compresses eligible unfiltered streams before save; a three-page representative run is qpdf-clean, retains exact extracted-text lengths, and stores the OCR streams with Flate. Existing image/JBIG2/JPX streams are not recompressed.
+
+| Layer | Pre-ledger | Phase A | Final |
+| --- | ---: | ---: | ---: |
+| Bilevel masks | 25.34 MiB | 25.83 MiB | 25.99 MiB |
+| JPEG | 4.21 MiB | 4.18 MiB | 4.71 MiB |
+| JPX | 0.85 MiB | 1.16 MiB | 1.18 MiB |
+| Flate bilevel | — | — | 0.01 MiB |
+| Preserved OCR page streams | effectively absent | effectively absent | 2.70 MiB |
+| Whole PDF | 31.70 MiB | 32.48 MiB | 35.90 MiB (37,646,723 bytes) |
+
+B1 always compares round-trip-verified JBIG2, G4, and Flate and retains the smallest. B3's standards-compliant shared symbol/text region path remains pixel-exact through per-instance refinement, in-house verification, and `jbig2dec` interoperability. The final 30-page substitution sample is 30/30 exact with zero differing pixels. Its exact 50-page benchmark is nevertheless 3,153,408 versus 3,542,648 generic bytes and about 80 seconds, projecting roughly 24 MiB for the book's masks. It therefore misses both the 12 MiB mask target and acceptable default latency. Shared symbols are retained behind the developer-only `--shared-jbig2-symbols` switch; production/default/WASM paths stay on the safe B1 result. No lossy classifier was enabled to force the size target.
+
+### Stroke consistency
+
+The C1 audit showed that complete producer-authored MRC foregrounds bypass fresh thresholding; route metadata was hypothetical and route flapping was not the fixture's cause. C2 therefore applies an additive, topology-guarded document prior only to complete trusted BW masks with zero requested thickness. Fresh grayscale binarization is deliberately unchanged.
+
+On the fixed 208 dense-page cohort, Phase A's p10/p50/p90 erosion survival was `48.640069 / 51.448616 / 53.886249` (band `5.246180`). Final is `51.963878 / 53.211627 / 53.886249` (band `1.922371`), passing the `<=3` target. Minimum relative ink is `0.999744`; no dense page loses 5%. Pages 60–80, excluding 67 and 71, all remain within one percentage point. Eight sparse/image-heavy pages outside the dense cohort fail a literal all-positive-page relative-ink comparison; that separate limitation is retained in the acceptance CSV rather than hidden.
+
+### Final limitations
+
+- `<=20 MiB` whole-file and `<=12 MiB` mask targets remain unmet: the final image payload alone is 31.88 MiB. The safe exact symbol implementation cannot close that gap.
+- The local generated-PDF Electron compatibility harness cannot run on this headless VPS; qpdf, Poppler, native tests, external JBIG2 decoding, and CI provide the available compatibility evidence.
+- The plate controls preserve their established cleaned-paper policy and are not counted as mixed-photo source-tone matches.
