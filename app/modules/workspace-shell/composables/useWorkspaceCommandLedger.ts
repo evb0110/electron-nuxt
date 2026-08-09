@@ -44,7 +44,10 @@ export const useWorkspaceCommandLedger = () => {
         const nextCommands = commands.value.slice(0, commandIndex.value + 1);
         nextCommands.push(command);
         let retainedBytes = nextCommands.reduce((total, entry) => total + entry.estimatedBytes, 0);
-        while (nextCommands.length > MAX_WORKSPACE_COMMAND_DEPTH || retainedBytes > MAX_WORKSPACE_COMMAND_BYTES) {
+        while (
+            nextCommands.length > 1
+            && (nextCommands.length > MAX_WORKSPACE_COMMAND_DEPTH || retainedBytes > MAX_WORKSPACE_COMMAND_BYTES)
+        ) {
             const removed = nextCommands.shift();
             retainedBytes -= removed?.estimatedBytes ?? 0;
         }

@@ -1,6 +1,5 @@
 <template>
     <UProgress
-        v-if="hasValue"
         class="app-progress-bar"
         color="primary"
         size="md"
@@ -20,10 +19,9 @@ const progressUi = {
     indicator: 'duration-200',
 } as const;
 
-const hasValue = computed(() => typeof value === 'number' && Number.isFinite(value));
 const normalizedValue = computed(() => {
-    if (!hasValue.value || typeof value !== 'number') {
-        return 0;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
     }
     return clamp(Math.round(value), 0, 100);
 });

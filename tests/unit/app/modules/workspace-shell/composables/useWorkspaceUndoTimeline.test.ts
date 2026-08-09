@@ -98,4 +98,20 @@ describe('useWorkspaceCommandLedger', () => {
         expect(ledger.canUndoTimeline.value).toBe(false);
         expect(undo).toHaveBeenCalledOnce();
     });
+
+    it('keeps the newest command undoable when it alone exceeds the byte budget', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const undo = vi.fn(() => true);
+        ledger.registerCommand({
+            source: 'file',
+            undo,
+            cmd: () => true,
+            estimatedBytes: 64 * 1024 * 1024,
+        });
+
+        expect(ledger.canUndoTimeline.value).toBe(true);
+        expect(ledger.nextUndoSource.value).toBe('file');
+        await expect(ledger.undoTimeline()).resolves.toBe(true);
+        expect(undo).toHaveBeenCalledOnce();
+    });
 });

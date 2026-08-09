@@ -10,12 +10,27 @@
             <div class="app-progress-overlay-title">
                 {{ title }}
             </div>
+            <div
+                v-if="detail"
+                class="app-progress-overlay-detail"
+            >
+                {{ detail }}
+            </div>
             <AppProgressBar
                 :value="value"
                 class="app-progress-overlay-bar"
             />
-            <div class="app-progress-overlay-percent">
+            <div
+                v-if="formattedPercent"
+                class="app-progress-overlay-percent"
+            >
                 {{ formattedPercent }}
+            </div>
+            <div
+                v-if="subDetail"
+                class="app-progress-overlay-sub-detail"
+            >
+                {{ subDetail }}
             </div>
             <UButton
                 v-if="cancelLabel"
@@ -37,18 +52,24 @@ import AppSpinner from '@app/components/AppSpinner.vue';
 interface IAppProgressOverlayProps {
     open: boolean;
     title: string;
-    value: number;
+    value: number | null;
+    detail?: string;
+    subDetail?: string;
     cancelLabel?: string;
 }
 
 const {
     cancelLabel = '',
+    detail = '',
+    subDetail = '',
     value,
 } = defineProps<IAppProgressOverlayProps>();
 
 const emit = defineEmits<{cancel: [];}>();
 
-const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
+const formattedPercent = computed(() => typeof value === 'number' && Number.isFinite(value)
+    ? `${clamp(Math.round(value), 0, 100)}%`
+    : '');
 </script>
 
 <style scoped>
@@ -73,7 +94,10 @@ const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
     background: var(--ui-bg);
     border: 1px solid var(--ui-border);
     box-shadow: var(--ui-shadow-lg);
-    inline-size: min-content;
+    inline-size: min(
+        var(--app-content-width-xs),
+        calc(100% - (2 * var(--app-space-9xl)))
+    );
     max-inline-size: calc(100% - (2 * var(--app-space-9xl)));
     box-sizing: border-box;
 }
@@ -82,6 +106,19 @@ const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
     font-size: var(--app-text-size-body);
     color: var(--ui-text);
     font-weight: 500;
+    text-align: center;
+}
+
+.app-progress-overlay-detail,
+.app-progress-overlay-sub-detail {
+    max-inline-size: var(--app-progress-bar-width);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+    text-align: center;
+}
+
+.app-progress-overlay-sub-detail {
+    color: var(--ui-text-dimmed);
 }
 
 .app-progress-overlay-bar {

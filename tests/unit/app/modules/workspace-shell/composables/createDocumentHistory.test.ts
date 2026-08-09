@@ -288,6 +288,7 @@ describe('createDocumentHistory', () => {
             },
         }));
         const applyLoadedPdfState = vi.fn(async () => true);
+        const register = vi.fn();
         const history = createDocumentHistory(state, {
             applyLoadedPdfState,
             clearPdfConformanceProfile: vi.fn(),
@@ -321,10 +322,17 @@ describe('createDocumentHistory', () => {
             readPdfStateFromPath,
             toPdfBlob: vi.fn(() => new Blob()),
         });
+        history.setWorkspaceCommandSink({
+            register,
+            reset: vi.fn(),
+        });
 
         await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(true);
         await expect(history.reloadWorkingCopyIntoHistory({markDirty: true})).resolves.toBe(true);
 
+        expect(register).toHaveBeenCalledOnce();
+        expect(register.mock.calls[0]?.[0]).toMatchObject({source: 'file'});
+        expect(register.mock.calls[0]?.[0]).not.toHaveProperty('estimatedBytes');
         expect(history.canUndo.value).toBe(true);
         expect(state.isDirty.value).toBe(true);
         expect(history.getHistoryDebugState()).toMatchObject({

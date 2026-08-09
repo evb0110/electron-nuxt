@@ -4,7 +4,6 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
@@ -651,7 +650,13 @@ export const usePdfThumbnailRenderRuntime = (
             }
         }
         if (clearLayout) {
-            layout.thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
+            // A source replacement does not resize the rail, so ResizeObserver
+            // may not run again. Keep the raster width ready for the existing
+            // measured layout instead of falling back to the under-resolved
+            // 150px seed and waiting for user interaction to wake rendering.
+            layout.thumbnailRenderWidth.value = resolveThumbnailRasterWidth(
+                layout.thumbnailLayoutWidth.value,
+            );
             layout.clearThumbnailAspectRatios();
         }
         effects.resetMeasurementState();

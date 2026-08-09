@@ -1,16 +1,15 @@
 <template>
-    <AppProgressChip
-        :visible="progress !== null && isPageOperationInProgress"
-        :title="t('emptyState.preparingBatch')"
+    <AppProgressOverlay
+        :open="isPageOperationInProgress"
+        :title="progress === null ? t('pageOps.operationInProgress') : t('emptyState.preparingBatch')"
         :detail="detailText"
         :sub-detail="subDetailText"
         :value="progress?.percent ?? null"
-        offset-bottom="high"
     />
 </template>
 
 <script setup lang="ts">
-import AppProgressChip from '@app/components/AppProgressChip.vue';
+import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
 import { displayProcessedCount } from '@app/utils/progressFormatting';
 
 const {

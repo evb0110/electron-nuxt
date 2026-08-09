@@ -516,11 +516,12 @@ export function createDocumentHistory(
             return false;
         }
 
+        let didAppendHistory = false;
         if (nextState.pdfData) {
             state.pdfData.value = nextState.pdfData;
             state.pdfSrc.value = nextState.pdfSrc;
             state.pdfReloadSrc.value = nextState.pdfSrc;
-            await pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
+            didAppendHistory = await pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
         } else {
             const snapshotEntry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
             if (!state.isActiveWorkingCopy(path)) {
@@ -530,7 +531,20 @@ export function createDocumentHistory(
             state.pdfData.value = nextState.pdfData;
             state.pdfSrc.value = nextState.pdfSrc;
             state.pdfReloadSrc.value = nextState.pdfSrc;
-            pushHistoryEntry(snapshotEntry);
+            didAppendHistory = pushHistoryEntry(snapshotEntry);
+            if (!didAppendHistory) {
+                scheduleHistoryEntryCleanup([snapshotEntry]);
+            }
+        }
+
+        if (!didAppendHistory || !canUndo.value) {
+            BrowserLogger.warn('pdf-file', 'Reloaded working copy without an undoable history transition', {
+                path,
+                didAppendHistory,
+                historyLength: history.value.length,
+                historyIndex: historyIndex.value,
+            });
+            return false;
         }
 
         state.isDirty.value = !!opts?.markDirty;
@@ -559,6 +573,13 @@ export function createDocumentHistory(
             maxPathBytes: MAX_FILE_HISTORY_PATH_BYTES,
         });
 
+        // A post-mutation checkpoint without its baseline cannot be undone.
+        // Reject it before publishing a command that would be disabled from
+        // birth, and let the caller surface the missing history transition.
+        if (nextState.historyIndex <= 0) {
+            return false;
+        }
+
         replaceHistory(nextState.history, nextState.historyIndex, nextState.historyCleanIndex);
         fileHistoryMutationVersion.value += 1;
         workspaceCommandSink?.register({
@@ -567,7 +588,7 @@ export function createDocumentHistory(
             cmd: redo,
             canUndo: () => canUndo.value,
             canRedo: () => canRedo.value,
-            estimatedBytes: entry.kind === 'bytes' ? entry.snapshot.byteLength : entry.size,
+            ...(entry.kind === 'bytes' ? { estimatedBytes: entry.snapshot.byteLength } : {}),
         });
         syncDirtyFromHistory();
         return true;
