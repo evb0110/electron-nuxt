@@ -2,8 +2,8 @@ use evb_raster_io::{decode_ppm, DecodeLimits};
 use evb_scan_cleanup::{
     io::pbm::decode_p4,
     png::{decode_gray, encode_gray, encode_rgb, RgbImage},
-    CleanupOptions, LayoutMode, ManualZones, NormalizedZonePoint, NormalizedZonePolygon,
-    OrthogonalRotation, OutputMode, PictureZone, PictureZoneLayer,
+    BinarizationMode, CleanupOptions, LayoutMode, ManualZones, NormalizedZonePoint,
+    NormalizedZonePolygon, OrthogonalRotation, OutputMode, PictureZone, PictureZoneLayer,
 };
 use scan_primitives::GrayImage;
 use serde_json::Value;
@@ -924,6 +924,120 @@ fn confirmed_mixed_photo_keeps_pale_interior_tone_near_a_caption() {
         u64::from(photo_interior).abs_diff(expected_photo_interior) <= 1,
         "caption-adjacent photo interior was whitened: {photo_interior}, source average={expected_photo_interior}; page_metadata={}",
         String::from_utf8_lossy(&fs::read(&page_metadata).unwrap())
+    );
+}
+
+#[test]
+fn mixed_cli_preserves_dark_picture_tone_before_background_downscale() {
+    let scratch = Scratch::new("picture-stencil-fill");
+    let input = scratch.path("input.png");
+    let output = scratch.path("output.png");
+    let output_metadata = scratch.path("output.json");
+    let page_metadata = scratch.path("page.json");
+    let background_output = scratch.path("background.ppm");
+    let foreground_mask_output = scratch.path("foreground.pbm");
+    let picture_mask_output = scratch.path("picture-mask.pbm");
+    let manifest = scratch.path("manifest.json");
+    let mut image = RgbImage::new(180, 120, [245; 3]);
+    for y in 20..100 {
+        for x in 60..168 {
+            image.set(x, y, [82, 126, 174]);
+        }
+    }
+    // A deliberately broad dark mark makes picture ownership measurable
+    // after the 600 -> 200 DPI background reduction.
+    for y in 48..60 {
+        for x in 100..112 {
+            image.set(x, y, [18; 3]);
+        }
+    }
+    fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        binarization: BinarizationMode::Otsu,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: false,
+        match_page_size: false,
+        dpi: 600.0,
+        source_dpi: Some(300.0),
+        manual_zones: ManualZones {
+            picture: vec![PictureZone {
+                polygon: NormalizedZonePolygon {
+                    points: vec![
+                        NormalizedZonePoint { x: 0.33, y: 0.16 },
+                        NormalizedZonePoint { x: 0.94, y: 0.16 },
+                        NormalizedZonePoint { x: 0.94, y: 0.84 },
+                        NormalizedZonePoint { x: 0.33, y: 0.84 },
+                    ],
+                    rotation: OrthogonalRotation::None,
+                },
+                layer: PictureZoneLayer::Painter2,
+            }],
+            fill: vec![],
+        },
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+                "backgroundOutputPath": background_output,
+                "foregroundMaskOutputPath": foreground_mask_output,
+                "pictureMaskOutputPath": picture_mask_output,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let picture_mask = decode_p4(&fs::read(&picture_mask_output).unwrap(), 180 * 120, 200)
+        .expect("the Mixed test must publish its picture mask");
+    let picture_stencil_pixels = (48..60)
+        .flat_map(|y| (100..112).map(move |x| (x, y)))
+        .filter(|&(x, y)| picture_mask.get(x, y) == 0)
+        .count();
+    assert!(
+        picture_stencil_pixels > 20,
+        "the synthetic dark mark was not retained in the confirmed picture: {picture_stencil_pixels}"
+    );
+
+    let background = decode_ppm(
+        fs::read(&background_output).unwrap().as_slice(),
+        DecodeLimits {
+            max_pixels: 180 * 120,
+            max_dimension: 200,
+            max_compressed_bytes: 180 * 120 * 3 + 64,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        (background.gray.width(), background.gray.height()),
+        (60, 40)
+    );
+    assert!(
+        background.gray.get(35, 18) < 180,
+        "the downscaled plate retained a white stencil knockout: {}",
+        background.gray.get(35, 18)
     );
 }
 

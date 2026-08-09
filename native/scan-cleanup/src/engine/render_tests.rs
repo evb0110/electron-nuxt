@@ -3234,6 +3234,93 @@ mod tests {
     }
 
     #[test]
+    fn mixed_background_fills_stencil_holes_from_picture_neighbors() {
+        let mut gray = GrayImage::new(48, 32, 245);
+        let mut color = RgbImage::new(48, 32, [245; 3]);
+        let mut picture_mask = BinaryImage::new(48, 32);
+        for y in 6..26 {
+            for x in 12..36 {
+                picture_mask.set(x, y, true);
+                gray.set(x, y, 132);
+                color.set(x, y, [82, 126, 174]);
+            }
+        }
+        let mut binary = BinaryImage::new(48, 32);
+        for y in 13..20 {
+            for x in 20..25 {
+                binary.set(x, y, true);
+            }
+        }
+        // An ordinary paper glyph must keep its white knockout.
+        for y in 2..5 {
+            for x in 3..8 {
+                binary.set(x, y, true);
+            }
+        }
+
+        let (composite, composite_color, layers) = compose_mixed(
+            &gray,
+            None,
+            Some(&color),
+            &binary,
+            &picture_mask,
+            Some(&picture_mask),
+            None,
+            None,
+            None,
+            600.0,
+            false,
+            false,
+            true,
+            true,
+        );
+        let layers = layers.expect("Mixed output retains its separable layers");
+        assert_eq!(composite.get(22, 16), 0);
+        assert_eq!(layers.background.get(22, 16), 132);
+        assert_eq!(
+            layers
+                .color_background
+                .as_ref()
+                .expect("picture chroma retains a color plate")
+                .get(22, 16),
+            [82, 126, 174]
+        );
+        assert_eq!(layers.background.get(5, 3), 255);
+        assert_eq!(composite_color.unwrap().get(22, 16), [0, 0, 0]);
+
+        let (_, _, soft_layers) = compose_mixed(
+            &gray,
+            None,
+            Some(&color),
+            &binary,
+            &picture_mask,
+            Some(&picture_mask),
+            None,
+            None,
+            None,
+            600.0,
+            false,
+            true,
+            true,
+            true,
+        );
+        assert_eq!(
+            soft_layers
+                .expect("soft Mixed output retains its separable layers")
+                .background
+                .get(22, 16),
+            132
+        );
+
+        let downscaled = layers.background.downscale_to_dimensions(16, 11);
+        assert_eq!(
+            downscaled.get(7, 5),
+            132,
+            "box downscaling must not spread a white stencil knockout"
+        );
+    }
+
+    #[test]
     fn soft_mixed_foreground_preserves_antialiased_coverage_and_leaves_photos_on_the_plate() {
         let mut gray = GrayImage::new(24, 12, 255);
         let mut picture_mask = BinaryImage::new(24, 12);
