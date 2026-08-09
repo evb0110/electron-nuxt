@@ -4551,6 +4551,86 @@ fn luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_p
         left <= 260.0 && right >= 340.0,
         "central stamp was cropped: {content}"
     );
+
+    // Pin the production pre-analysis lane too: a lower gutter owner at the
+    // outer edge of the left spread half must not turn that half into a
+    // full-sheet content box, while its sparse title, stamp, and footer remain.
+    let spread_input = scratch.path("page-plan-spread.png");
+    let spread_manifest = scratch.path("page-plan-spread-manifest.json");
+    let spread_metadata = scratch.path("page-plan-spread-metadata.json");
+    let mut spread = GrayImage::new(1_200, 800, 244);
+    for y in 0..800 {
+        for x in 0..600 {
+            spread.set(x, y, image.get(x, y));
+        }
+    }
+    draw_glyph_line(&mut spread, 750, 95, 15, 12, 38, 16);
+    for row in 0..8 {
+        draw_glyph_line(&mut spread, 745, 165 + row * 55, 15, 12, 38, 16);
+    }
+    draw_glyph_line(&mut spread, 805, 720, 10, 12, 38, 16);
+    for y in 590..800 {
+        for x in 564..600 {
+            spread.set(x, y, 32 + ((x * 17 + y * 29) % 181) as u8);
+        }
+    }
+    fs::write(&spread_input, encode_gray(&spread).unwrap()).unwrap();
+    fs::write(
+        &spread_manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "analyze",
+            "analysisPurpose": "page-plan",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": spread_input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": spread_metadata,
+                "outputs": [],
+                "options": {
+                    "dpi": 150,
+                    "layout": "force-two-page",
+                    "normalizeIllumination": false,
+                    "cropContent": true,
+                    "outputMode": "mixed",
+                    "matchPageSize": false,
+                    "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+                }
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", spread_manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let page_plan: Value = serde_json::from_slice(&fs::read(&spread_metadata).unwrap()).unwrap();
+    assert_eq!(page_plan["layoutClassification"], "two-page-spread");
+    assert_eq!(page_plan["outputs"].as_array().unwrap().len(), 2);
+    let left_plan = &page_plan["outputs"][0]["contentBox"];
+    let plan_left = left_plan["xPx"].as_f64().expect("left content x");
+    let plan_top = left_plan["yPx"].as_f64().expect("left content y");
+    let plan_right = plan_left + left_plan["widthPx"].as_f64().expect("left content width");
+    let plan_bottom = plan_top + left_plan["heightPx"].as_f64().expect("left content height");
+    assert!(plan_left >= 130.0, "page-plan kept gutter: {left_plan}");
+    assert!(plan_top <= 100.0, "page-plan cropped title: {left_plan}");
+    assert!(plan_right >= 340.0, "page-plan cropped stamp: {left_plan}");
+    assert!(
+        plan_right < 560.0,
+        "page-plan kept lower gutter owner: {left_plan}"
+    );
+    assert!(
+        plan_bottom >= 730.0,
+        "page-plan cropped footer: {left_plan}"
+    );
 }
 
 #[test]

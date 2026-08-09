@@ -29,7 +29,10 @@ use crate::{
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
-    content::{analyze_content_evidence_calibrated, detect_content_and_margins_calibrated},
+    content::{
+        analyze_content_evidence_calibrated,
+        detect_content_and_margins_calibrated_with_crop_authority,
+    },
     deskew::{detect_skew, DeskewResult},
     dewarp::{
         rasterize_inverse_area_rgb_with, rasterize_inverse_area_with, DewarpModel, DEWARP_GRID_SIZE,
@@ -1144,6 +1147,24 @@ fn union_optional_masks(
     }
 }
 
+fn manual_picture_crop_authority(
+    options: &CleanupOptions,
+    width: usize,
+    height: usize,
+) -> Option<BinaryImage> {
+    if !options
+        .manual_zones
+        .picture
+        .iter()
+        .any(|zone| zone.layer == crate::PictureZoneLayer::Painter2)
+    {
+        return None;
+    }
+    let mut mask = BinaryImage::new(width, height);
+    apply_manual_zones(&mut mask, options);
+    (mask.count_black() > 0).then_some(mask)
+}
+
 fn retain_trusted_mrc_tone_components(mask: BinaryImage, effective_dpi: f64) -> BinaryImage {
     let page_pixels = mask.width().saturating_mul(mask.height()).max(1);
     let minimum_area = (page_pixels as f64 * 0.005).round().max(1.0) as usize;
@@ -1492,6 +1513,11 @@ fn analyze_page_with_color_and_document_prior_impl(
         });
     }
     let content_started = Instant::now();
+    let manual_picture_crop_authority = manual_picture_crop_authority(
+        options,
+        prepared.normalized.width(),
+        prepared.normalized.height(),
+    );
     let outputs = output_regions(
         prepared.full_width,
         prepared.full_height,
@@ -1532,6 +1558,9 @@ fn analyze_page_with_color_and_document_prior_impl(
             .content_picture_mask
             .as_ref()
             .map(|mask| crop_binary(mask, analysis_region));
+        let manual_picture_crop_authority = manual_picture_crop_authority
+            .as_ref()
+            .map(|mask| crop_binary(mask, analysis_region));
         let (detected_content, content_diagnostics) = if let Some(manual) =
             options.resolved_content_for(half, prepared.full_width, prepared.full_height)
         {
@@ -1541,9 +1570,10 @@ fn analyze_page_with_color_and_document_prior_impl(
             let bottom = manual.bottom().clamp(top + 1.0, region.height);
             (Some(Rect::new(left, top, right - left, bottom - top)), None)
         } else {
-            let detected = detect_content_and_margins_calibrated(
+            let detected = detect_content_and_margins_calibrated_with_crop_authority(
                 &working,
                 content_picture_mask.as_ref(),
+                manual_picture_crop_authority.as_ref(),
                 prepared.calibration.effective_dpi,
                 None,
                 Some([0.0; 4]),
@@ -4057,6 +4087,12 @@ fn clean_region(
     let analysis_working = crop_gray(analysis_normalized, analysis_region);
     let analysis_picture_working =
         analysis_picture_mask.map(|mask| crop_binary(mask, analysis_region));
+    let manual_picture_crop_authority = manual_picture_crop_authority(
+        options,
+        analysis_normalized.width(),
+        analysis_normalized.height(),
+    )
+    .map(|mask| crop_binary(&mask, analysis_region));
     let tone_picture_working = tone_picture_mask.map(|mask| crop_binary(mask, analysis_region));
     let text_working = text_mask.map(|mask| crop_binary(mask, analysis_region));
     let text_vicinity_working = text_vicinity_mask.map(|mask| crop_binary(mask, analysis_region));
@@ -4183,6 +4219,15 @@ fn clean_region(
             mask
         }
     });
+    let deskewed_manual_picture_crop_authority = manual_picture_crop_authority.map(|mask| {
+        if deskew.accepted {
+            render_binary_mask(&mask, mask.width(), mask.height(), |point| {
+                Some(analysis_deskew_inverse.apply(point))
+            })
+        } else {
+            mask
+        }
+    });
     let source_rotated_to_deskewed =
         Affine::translation(-region.x, -region.y).then(local_deskew_forward);
     let candidate_dewarp = options.dewarp.clone().or_else(|| {
@@ -4225,10 +4270,24 @@ fn clean_region(
             })
         })
     });
+    let dewarped_manual_picture_crop_authority = dewarp_model.as_ref().and_then(|model| {
+        deskewed_manual_picture_crop_authority.as_ref().map(|mask| {
+            let width = mask.width();
+            let height = mask.height();
+            render_binary_mask(mask, width, height, |point| {
+                model
+                    .map_unit_to_source(point.x / width as f64, point.y / height as f64)
+                    .map(|mapped| Point::new(mapped.x * local_scale_x, mapped.y * local_scale_y))
+            })
+        })
+    });
     let content_analysis = dewarped_analysis.as_ref().unwrap_or(&deskewed_analysis);
     let content_picture_mask = dewarped_picture_mask
         .as_ref()
         .or(deskewed_picture_mask.as_ref());
+    let manual_picture_crop_authority = dewarped_manual_picture_crop_authority
+        .as_ref()
+        .or(deskewed_manual_picture_crop_authority.as_ref());
     let content_key = cache.zip(deskew_key.as_ref()).map(|(cache, deskew_key)| {
         StageCacheKey::content(&cache.source, options, deskew_key, half)
     });
@@ -4286,9 +4345,10 @@ fn clean_region(
                     .join(format!("content-input-{source_page_index}.pgm"));
                 let _ = crate::io::raster::write_gray_pgm_atomic(&path, content_analysis);
             }
-            let detected_result = detect_content_and_margins_calibrated(
+            let detected_result = detect_content_and_margins_calibrated_with_crop_authority(
                 content_analysis,
                 content_picture_mask,
+                manual_picture_crop_authority,
                 calibration.effective_dpi,
                 None,
                 Some([0.0; 4]),

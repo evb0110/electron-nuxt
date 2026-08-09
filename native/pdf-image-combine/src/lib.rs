@@ -243,6 +243,11 @@ pub struct PdfBuildOptions {
     /// Pages whose payloads may be encoded concurrently. The written bytes are
     /// identical for every value; only wall-clock and peak memory change.
     pub worker_threads: usize,
+    /// Enables the experimental cross-page JBIG2 symbol pass. This remains
+    /// opt-in because its conservative, lossless verification can add
+    /// substantial wall-clock time without reliably beating the generic
+    /// per-page payloads on scanned books.
+    pub enable_shared_symbol_encoding: bool,
 }
 
 impl Default for PdfBuildOptions {
@@ -256,6 +261,7 @@ impl Default for PdfBuildOptions {
             max_tiff_frames: 250,
             provenance_stamp_hex: None,
             worker_threads: 1,
+            enable_shared_symbol_encoding: false,
         }
     }
 }
@@ -303,7 +309,11 @@ where
                 .take(batch_size)
                 .collect::<Vec<PdfPageSpec<'a>>>();
             if batch.is_empty() {
-                write_symbol_chunk(pdf, &mut symbol_chunk)?;
+                write_symbol_chunk(
+                    pdf,
+                    &mut symbol_chunk,
+                    options.enable_shared_symbol_encoding,
+                )?;
                 return Ok(());
             }
             for prepared in encoders.prepare(batch, options) {
@@ -311,7 +321,11 @@ where
                     page_count = next_page_count_with_limit(page_count, options.max_pages)?;
                     symbol_chunk.push(page);
                     if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
-                        write_symbol_chunk(pdf, &mut symbol_chunk)?;
+                        write_symbol_chunk(
+                            pdf,
+                            &mut symbol_chunk,
+                            options.enable_shared_symbol_encoding,
+                        )?;
                     }
                 }
                 processed += 1;
@@ -325,12 +339,15 @@ where
 fn write_symbol_chunk<W: Write>(
     pdf: &mut PdfWriter<W>,
     pages: &mut Vec<PreparedPage>,
+    enable_shared_symbol_encoding: bool,
 ) -> Result<()> {
-    let mut masks = pages
-        .iter_mut()
-        .filter_map(PreparedPage::generated_bilevel_stream_mut)
-        .collect::<Vec<_>>();
-    apply_shared_symbol_encoding(&mut masks);
+    if enable_shared_symbol_encoding {
+        let mut masks = pages
+            .iter_mut()
+            .filter_map(PreparedPage::generated_bilevel_stream_mut)
+            .collect::<Vec<_>>();
+        apply_shared_symbol_encoding(&mut masks);
+    }
     for page in pages.drain(..) {
         write_prepared_page(pdf, page)?;
     }
@@ -1304,6 +1321,38 @@ mod tests {
         assert!(text.contains("0.5020 0.0627 0.0627 rg"));
         assert!(text.contains("/MediaBox [0 0 144.0000 72.0000]"));
         assert!(text.contains("1 g\n0 0 144.0000 72.0000 re f\n0 g\n"));
+    }
+
+    #[test]
+    fn shared_symbol_encoding_is_explicitly_opt_in() {
+        let mask = include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm");
+        let pages = || {
+            [
+                image_page("first.pbm", mask, Some(PAGE), FramePolicy::ExactlyOne),
+                image_page("second.pbm", mask, Some(PAGE), FramePolicy::ExactlyOne),
+            ]
+        };
+
+        let default_pdf =
+            write_pdf(Vec::new(), pages(), &PdfBuildOptions::default(), |_| {}).unwrap();
+        assert!(!String::from_utf8_lossy(&default_pdf).contains("/JBIG2Globals"));
+
+        let symbol_pdf = write_pdf(
+            Vec::new(),
+            pages(),
+            &PdfBuildOptions {
+                enable_shared_symbol_encoding: true,
+                ..PdfBuildOptions::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&symbol_pdf)
+                .matches("/JBIG2Globals")
+                .count(),
+            2
+        );
     }
 
     #[test]

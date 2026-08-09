@@ -233,7 +233,7 @@ function parsePageGeometry(pdfInfoOutput: string, pageNumber: number): IPdfPageG
     }
 }
 
-export function parseSingletonFullPageRasterCeiling(
+function parseSingletonFullPageRasterCeiling(
     pdfImagesOutput: string,
     pageNumber: number,
     pageGeometry: IPdfPageGeometry,

@@ -2111,6 +2111,50 @@ mod tests {
     }
 
     #[test]
+    fn manual_picture_corner_remains_crop_authoritative() {
+        let mut source = GrayImage::new(400, 600, 245);
+        for y in 440..600 {
+            for x in 364..400 {
+                source.set(x, y, 156);
+            }
+        }
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                output_mode: OutputMode::Mixed,
+                normalize_illumination: false,
+                crop_content: true,
+                match_page_size: false,
+                margins_mm: None,
+                margins_pixels: Some([0.0; 4]),
+                layout: crate::LayoutMode::Single,
+                manual_zones: crate::ManualZones {
+                    picture: vec![crate::PictureZone {
+                        polygon: normalized_box_polygon(0.91, 440.0 / 600.0, 1.0, 1.0),
+                        layer: crate::PictureZoneLayer::Painter2,
+                    }],
+                    fill: vec![],
+                },
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let content = output
+            .metadata
+            .content_box
+            .expect("manual corner photo is authored content");
+
+        assert!(content.x <= 364.0, "manual photo left was cropped: {content:?}");
+        assert!(content.y <= 440.0, "manual photo top was cropped: {content:?}");
+        assert!(content.right() >= 400.0, "manual photo right was cropped: {content:?}");
+        assert!(content.bottom() >= 600.0, "manual photo bottom was cropped: {content:?}");
+    }
+
+    #[test]
     fn normalized_manual_content_has_the_same_physical_rect_at_150_and_600_dpi() {
         let clean_at_dpi = |dpi: f64, width: usize, height: usize| {
             let source = GrayImage::new(width, height, 245);

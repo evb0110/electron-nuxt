@@ -55,7 +55,7 @@ pub fn detect_content_and_margins_with_calibration_config(
     let calibration =
         PageCalibration::estimate(&level.image, level.effective_dpi, calibration_config);
     let (detected, diagnostics, _, _) =
-        detect_content_at_analysis_scale(&level.image, None, calibration);
+        detect_content_at_analysis_scale(&level.image, None, None, calibration);
     let content = detected.map(|content| {
         Rect::new(
             content.x / level.scale_x,
@@ -69,6 +69,7 @@ pub fn detect_content_and_margins_with_calibration_config(
     result
 }
 
+#[cfg(test)]
 pub(crate) fn detect_content_and_margins_calibrated(
     source: &GrayImage,
     picture_mask: Option<&BinaryImage>,
@@ -77,8 +78,32 @@ pub(crate) fn detect_content_and_margins_calibrated(
     margins_pixels: Option<[f64; 4]>,
     calibration: PageCalibration,
 ) -> ContentResult {
-    let (content, diagnostics, _, _) =
-        detect_content_at_analysis_scale(source, picture_mask, calibration);
+    detect_content_and_margins_calibrated_with_crop_authority(
+        source,
+        picture_mask,
+        None,
+        dpi,
+        margins_mm,
+        margins_pixels,
+        calibration,
+    )
+}
+
+pub(crate) fn detect_content_and_margins_calibrated_with_crop_authority(
+    source: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    crop_authoritative_picture_mask: Option<&BinaryImage>,
+    dpi: f64,
+    margins_mm: Option<[f64; 4]>,
+    margins_pixels: Option<[f64; 4]>,
+    calibration: PageCalibration,
+) -> ContentResult {
+    let (content, diagnostics, _, _) = detect_content_at_analysis_scale(
+        source,
+        picture_mask,
+        crop_authoritative_picture_mask,
+        calibration,
+    );
     let mut result = content_with_margins(source, dpi, content, margins_mm, margins_pixels);
     result.diagnostics = Some(diagnostics);
     result
@@ -90,7 +115,7 @@ pub(crate) fn analyze_content_evidence_calibrated(
     calibration: PageCalibration,
 ) -> ContentAnalysisEvidence {
     let (_, diagnostics, text_mask, text_vicinity_mask) =
-        detect_content_at_analysis_scale(source, picture_mask, calibration);
+        detect_content_at_analysis_scale(source, picture_mask, None, calibration);
     ContentAnalysisEvidence {
         diagnostics,
         text_mask,
@@ -101,9 +126,16 @@ pub(crate) fn analyze_content_evidence_calibrated(
 fn detect_content_at_analysis_scale(
     working: &GrayImage,
     picture_mask: Option<&BinaryImage>,
+    crop_authoritative_picture_mask: Option<&BinaryImage>,
     calibration: PageCalibration,
 ) -> (Option<Rect>, ContentDiagnostics, BinaryImage, BinaryImage) {
     if let Some(mask) = picture_mask {
+        assert_eq!(
+            (working.width(), working.height()),
+            (mask.width(), mask.height())
+        );
+    }
+    if let Some(mask) = crop_authoritative_picture_mask {
         assert_eq!(
             (working.width(), working.height()),
             (mask.width(), mask.height())
@@ -199,7 +231,12 @@ fn detect_content_at_analysis_scale(
         calibration,
     );
     if let Some(picture_bounds) = picture_mask.and_then(|mask| {
-        crop_qualified_picture_bounds(mask, clustered.crop_artifact_sides, calibration)
+        crop_qualified_picture_bounds_with_authority(
+            mask,
+            crop_authoritative_picture_mask,
+            clustered.crop_artifact_sides,
+            calibration,
+        )
     }) {
         bounds = Some(match bounds {
             Some(content_bounds) => PixelBounds {
@@ -641,14 +678,26 @@ fn fragmented_edge_continuation_sides(
     sides
 }
 
+#[cfg(test)]
 fn crop_qualified_picture_bounds(
     picture_mask: &BinaryImage,
     crop_artifact_sides: u8,
     calibration: PageCalibration,
 ) -> Option<PixelBounds> {
-    if crop_artifact_sides == 0 {
-        return binary_bounds(picture_mask);
-    }
+    crop_qualified_picture_bounds_with_authority(
+        picture_mask,
+        None,
+        crop_artifact_sides,
+        calibration,
+    )
+}
+
+fn crop_qualified_picture_bounds_with_authority(
+    picture_mask: &BinaryImage,
+    crop_authoritative_picture_mask: Option<&BinaryImage>,
+    crop_artifact_sides: u8,
+    calibration: PageCalibration,
+) -> Option<PixelBounds> {
     let nominal_height = if calibration.valid {
         calibration.x_height_px.max(1.0)
     } else {
@@ -671,9 +720,52 @@ fn crop_qualified_picture_bounds(
         .div_ceil(8)
         .saturating_add(picture_growth)
         .max(1);
+    let frame_horizontal_corridor = picture_mask.width().div_ceil(8).max(1);
+    let frame_vertical_corridor = picture_mask.height().div_ceil(8).max(1);
     let map = ComponentMap::from_binary(picture_mask);
+    let corridor_sides = |component: &Component| {
+        let mut sides = 0;
+        if component.right < frame_horizontal_corridor {
+            sides |= CROP_ARTIFACT_LEFT;
+        }
+        if component.bottom < frame_vertical_corridor {
+            sides |= CROP_ARTIFACT_TOP;
+        }
+        if component.left.saturating_add(frame_horizontal_corridor) >= picture_mask.width() {
+            sides |= CROP_ARTIFACT_RIGHT;
+        }
+        if component.top.saturating_add(frame_vertical_corridor) >= picture_mask.height() {
+            sides |= CROP_ARTIFACT_BOTTOM;
+        }
+        sides
+    };
+    // One attached owner fragment establishes that the narrow side corridor
+    // is a scanner rail. Qualify its detached tiles the same way: the Luther
+    // gutter is interrupted vertically, but all tiles belong to one visual
+    // frame and otherwise the detached pieces still pin the crop.
+    let picture_frame_sides = map.components().iter().fold(0, |sides, component| {
+        let attached = component.left == 0
+            || component.top == 0
+            || component.right + 1 == picture_mask.width()
+            || component.bottom + 1 == picture_mask.height();
+        if attached {
+            sides | corridor_sides(component)
+        } else {
+            sides
+        }
+    });
     let qualified = map.retain(|component| {
-        let excluded = (crop_artifact_sides & CROP_ARTIFACT_LEFT != 0
+        // Picture ownership is semantic/render state and remains untouched.
+        // Crop geometry applies one additional trust check: a component wholly
+        // inside an outer 1/8 corridor whose picture fragments reach the page
+        // frame is scanner gutter/frame tone, even when the grayscale content
+        // pass found no fragmented-ink corroboration. A genuine marginal photo
+        // floats clear of that frame or leaves the corridor; a full-bleed photo
+        // necessarily leaves every corridor.
+        let frame_attached_rail = picture_frame_sides & corridor_sides(component) != 0;
+        let manually_authoritative = crop_authoritative_picture_mask
+            .is_some_and(|mask| component_mask_overlap(&map, component, Some(mask)) > 0);
+        let contaminated_side = (crop_artifact_sides & CROP_ARTIFACT_LEFT != 0
             && component.right < horizontal_corridor)
             || (crop_artifact_sides & CROP_ARTIFACT_TOP != 0
                 && component.bottom < vertical_corridor)
@@ -681,9 +773,10 @@ fn crop_qualified_picture_bounds(
                 && component.left.saturating_add(horizontal_corridor) >= picture_mask.width())
             || (crop_artifact_sides & CROP_ARTIFACT_BOTTOM != 0
                 && component.top.saturating_add(vertical_corridor) >= picture_mask.height());
+        let excluded = !manually_authoritative && (frame_attached_rail || contaminated_side);
         if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
             eprintln!(
-                "{{\"event\":\"crop-picture-component\",\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"area\":{},\"excluded\":{excluded}}}",
+                "{{\"event\":\"crop-picture-component\",\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"area\":{},\"frameRail\":{frame_attached_rail},\"manual\":{manually_authoritative},\"excluded\":{excluded}}}",
                 component.left,
                 component.top,
                 component.right,
@@ -2464,6 +2557,64 @@ mod tests {
     }
 
     #[test]
+    fn crop_picture_bounds_reject_frame_rail_without_grayscale_artifact_signal() {
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 12.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let mut picture = BinaryImage::new(400, 600);
+        // The residual Luther gutter owner is coherent only at the lower
+        // right frame, so the gray candidate pass publishes no fragmented
+        // crop-artifact side at all.
+        for y in 440..600 {
+            for x in 364..400 {
+                picture.set(x, y, true);
+            }
+        }
+        // Authored central stamp remains crop-authoritative.
+        for y in 220..300 {
+            for x in 155..245 {
+                picture.set(x, y, true);
+            }
+        }
+        let owner_pixels = picture.count_black();
+        assert_eq!(
+            crop_qualified_picture_bounds(&picture, 0, calibration),
+            Some(PixelBounds {
+                left: 155,
+                top: 220,
+                right: 244,
+                bottom: 299,
+            })
+        );
+        assert_eq!(
+            picture.count_black(),
+            owner_pixels,
+            "crop-only qualification mutated semantic picture ownership"
+        );
+
+        let mut manual = BinaryImage::new(400, 600);
+        for y in 440..600 {
+            for x in 364..400 {
+                manual.set(x, y, true);
+            }
+        }
+        assert_eq!(
+            crop_qualified_picture_bounds_with_authority(&picture, Some(&manual), 0, calibration,),
+            Some(PixelBounds {
+                left: 155,
+                top: 220,
+                right: 399,
+                bottom: 599,
+            }),
+            "an explicit Painter2 corner photo must remain crop-authoritative"
+        );
+    }
+
+    #[test]
     fn crop_picture_bounds_ignore_only_the_contaminated_edge_corridor() {
         let calibration = PageCalibration {
             effective_dpi: 150.0,
@@ -2512,6 +2663,16 @@ mod tests {
                 bottom: 469,
             })
         );
+        assert_eq!(
+            crop_qualified_picture_bounds(&edge_photo, 0, calibration),
+            Some(PixelBounds {
+                left: 18,
+                top: 330,
+                right: 124,
+                bottom: 469,
+            }),
+            "a genuine edge photo floating clear of the frame was rejected"
+        );
 
         let full_bleed = BinaryImage::from_fn_parallel(400, 600, |_, _| true);
         assert_eq!(
@@ -2522,6 +2683,16 @@ mod tests {
                 right: 399,
                 bottom: 599,
             })
+        );
+        assert_eq!(
+            crop_qualified_picture_bounds(&full_bleed, 0, calibration),
+            Some(PixelBounds {
+                left: 0,
+                top: 0,
+                right: 399,
+                bottom: 599,
+            }),
+            "full-bleed picture ownership must remain crop-authoritative"
         );
     }
 

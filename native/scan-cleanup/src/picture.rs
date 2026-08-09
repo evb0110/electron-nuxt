@@ -1213,16 +1213,16 @@ pub(crate) fn extend_picture_mask_for_content(
     picture_mask: &BinaryImage,
     calibration: PageCalibration,
 ) -> BinaryImage {
-    extend_mask_for_content(source, picture_mask, calibration, false)
+    extend_mask_for_content(source, picture_mask, calibration, true)
 }
 
 /// Extends tonal seed pixels to the enclosing illustration/map structure
 /// without adopting unrelated document structures elsewhere on the page.
 ///
-/// The general content extender is intentionally allowed to collect every
-/// large structural cluster because it is used for crop/layout ownership.
-/// Semantic-tone routing is narrower: a retained cluster must overlap the
-/// tonal evidence that caused the extension request.
+/// When tonal evidence exists, both crop/layout and semantic-tone extension
+/// stay local to the seed that caused the request. An empty automatic mask
+/// keeps the established line-art recovery path; once there is a seed, it may
+/// not adopt an unrelated gutter, frame, or text structure elsewhere.
 pub(crate) fn extend_tone_mask_for_content(
     source: &GrayImage,
     tone_mask: &BinaryImage,
@@ -1255,6 +1255,7 @@ fn extend_mask_for_content(
     let cluster_map = ComponentMap::from_binary(&dilate(&anchors, cluster_radius, cluster_radius));
     let minimum_width = (12.0 * nominal_height).round().max(48.0) as usize;
     let minimum_height = (8.0 * nominal_height).round().max(32.0) as usize;
+    let has_seed = seed_mask.count_black() > 0;
     let mut structural = BinaryImage::new(source.width(), source.height());
     for cluster in cluster_map.components() {
         let width = cluster.right - cluster.left + 1;
@@ -1279,7 +1280,7 @@ fn extend_mask_for_content(
         if supporting_components < 8 {
             continue;
         }
-        if require_seed_overlap {
+        if require_seed_overlap && has_seed {
             let mut overlap = 0usize;
             for y in cluster.top..=cluster.bottom {
                 for x in cluster.left..=cluster.right {
@@ -2187,6 +2188,46 @@ mod tests {
             "line-art picture mask covered only {line_art_pixels} pixels"
         );
         assert!(!content.get(20, 20), "unrelated body text was protected");
+    }
+
+    #[test]
+    fn content_picture_extension_does_not_adopt_a_remote_frame_cluster() {
+        let mut image = GrayImage::new(440, 280, 242);
+        for row in 0..11 {
+            let y = 45 + row * 16;
+            for x in 36..176 {
+                image.set(x, y, 24);
+                image.set(x, y + 1, 24);
+            }
+            for x in 264..404 {
+                image.set(x, y, 24);
+                image.set(x, y + 1, 24);
+            }
+        }
+        let mut seed = BinaryImage::new(image.width(), image.height());
+        for y in 80..88 {
+            for x in 72..80 {
+                seed.set(x, y, true);
+            }
+        }
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 2.0,
+            x_height_px: 6.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+
+        let content = extend_picture_mask_for_content(&image, &seed, calibration);
+
+        assert!(
+            content.get(100, 120),
+            "the structure surrounding the tonal seed was not extended"
+        );
+        assert!(
+            !content.get(330, 120),
+            "a remote frame cluster became picture-owned crop geometry"
+        );
     }
 
     #[test]
