@@ -34,6 +34,8 @@ interface INativePdfPaneAnchorHarness {
     readonly viewport: HTMLElement;
 }
 
+interface INativePdfRestoreReadiness {readonly initialVisualReady: Ref<boolean>;}
+
 const NATIVE_PDF_TEST_PAGE_COUNT = 12;
 const NATIVE_PDF_TEST_PAGE_HEIGHT = 800;
 const NATIVE_PDF_TEST_PAGE_GAP = 20;
@@ -48,6 +50,14 @@ function createTestPageLayouts(scale: number): INativePdfTestPageLayout[] {
         height: pageHeight,
         top: NATIVE_PDF_TEST_PAGE_GAP + index * (pageHeight + NATIVE_PDF_TEST_PAGE_GAP),
         width: 600 * scale,
+    }));
+}
+
+function createOpeningPageLayouts(pageHeight: number): INativePdfTestPageLayout[] {
+    return Array.from({length: 882}, (_, index) => ({
+        height: pageHeight,
+        top: NATIVE_PDF_TEST_PAGE_GAP + index * (pageHeight + NATIVE_PDF_TEST_PAGE_GAP),
+        width: 600,
     }));
 }
 
@@ -101,6 +111,7 @@ function createPaneAnchorHarness(
     pageNumber: number,
     yRatio: number,
     scale: number,
+    readiness: INativePdfRestoreReadiness = {initialVisualReady: ref(true)},
 ): INativePdfPaneAnchorHarness {
     const viewport = createTestViewport(resolvePageAnchorScrollTop(pageNumber, yRatio, scale));
     const pageLayouts = ref(createTestPageLayouts(scale));
@@ -111,6 +122,7 @@ function createPaneAnchorHarness(
         canRestore: epoch => canRestoreNativePdfViewportLayout(epoch, {
             currentLoadGeneration: 1,
             hasDocumentIdentity: true,
+            initialVisualReady: readiness.initialVisualReady.value,
         }),
         applyRestoredScroll: restored => {
             viewport.scrollLeft = restored.left;
@@ -153,6 +165,19 @@ function bruteForceVisiblePages(options: {
 }
 
 describe('Native PDF viewer viewport primitive parity', () => {
+    it('requires the current initial visual before restoring native viewport geometry', () => {
+        expect(canRestoreNativePdfViewportLayout(1, {
+            currentLoadGeneration: 1,
+            hasDocumentIdentity: true,
+            initialVisualReady: false,
+        })).toBe(false);
+        expect(canRestoreNativePdfViewportLayout(1, {
+            currentLoadGeneration: 1,
+            hasDocumentIdentity: true,
+            initialVisualReady: true,
+        })).toBe(true);
+    });
+
     it.each([
         {
             heights: [
@@ -292,5 +317,54 @@ describe('Native PDF viewer viewport primitive parity', () => {
             resolvePageAnchorScrollTop(5, 0.65, NATIVE_PDF_TEST_CHANGED_SCALE),
             5,
         );
+    });
+
+    it('does not restore a provisional page-three anchor before the initial visual is ready', async () => {
+        const animationFrames: FrameRequestCallback[] = [];
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            animationFrames.push(callback);
+            return animationFrames.length;
+        });
+        const scope = effectScope();
+        activeNativePdfAnchorScopes.add(scope);
+        const initialVisualReady = ref(false);
+        const viewport = createTestViewport(0);
+        const pageLayouts = ref(createOpeningPageLayouts(100));
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts,
+            captureRestoreEpoch: () => 1,
+            canRestore: epoch => canRestoreNativePdfViewportLayout(epoch, {
+                currentLoadGeneration: 1,
+                hasDocumentIdentity: true,
+                initialVisualReady: initialVisualReady.value,
+            }),
+            applyRestoredScroll: restored => {
+                viewport.scrollLeft = restored.left;
+                viewport.scrollTop = restored.top;
+            },
+        }));
+        if (!lifecycle) {
+            throw new Error('Native PDF opening anchor fixture did not initialize');
+        }
+
+        // At scrollTop 0, the 600px viewport centre falls inside provisional
+        // page 3. Replaying that anchor against 3000px pages lands near 6960px.
+        pageLayouts.value = createOpeningPageLayouts(3_000);
+        await nextTick();
+        await nextTick();
+
+        expect(animationFrames).toHaveLength(0);
+        expect(viewport.scrollTop).toBe(0);
+
+        initialVisualReady.value = true;
+        pageLayouts.value = createOpeningPageLayouts(2_800);
+        await nextTick();
+        await nextTick();
+        expect(animationFrames).toHaveLength(1);
+
+        initialVisualReady.value = false;
+        animationFrames.shift()?.(0);
+        expect(viewport.scrollTop).toBe(0);
     });
 });

@@ -277,7 +277,10 @@ describe('useAppShellTabLifecycle', () => {
 
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
-        expect(workspace.handleCloseFileFromUi).toHaveBeenCalledWith({persist: true});
+        expect(workspace.handleCloseFileFromUi).toHaveBeenCalledWith({
+            persist: true,
+            onCloseCommit: expect.any(Function),
+        });
         expect(session.snapshot.value.activeTransaction).toBeNull();
         expect(session.snapshot.value.phase).toBe('empty');
     });

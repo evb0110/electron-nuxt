@@ -7,6 +7,7 @@ import {
 import { shallowRef } from 'vue';
 import {
     canBeginDocumentOpenSynchronously,
+    createWorkspaceDocumentOpenTransactions,
     resolveDocumentOpenRunResult,
     resolveOpenSurfaceDocumentId,
     resolvePreparedPdfOpeningGeometry,
@@ -137,7 +138,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         }, sourceOpen)).resolves.toBe(true);
 
         expect(sourceOpen).toHaveBeenCalledOnce();
-        expect(waitForDocumentOpenSettled).toHaveBeenCalledWith();
+        expect(waitForDocumentOpenSettled).toHaveBeenCalledWith({signal: expect.any(AbortSignal)});
         expect(controller.snapshot.value.activeTransaction).toBeNull();
         expect(controller.snapshot.value.identity.originalPath).toBe('/documents/generated.pdf');
         expect(workspaceSessionHasOpenedDocument(controller.snapshot.value)).toBe(true);
@@ -199,8 +200,63 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
 
         expect(controller.snapshot.value.activeTransaction).toBeNull();
         expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();
-        expect(waitForDocumentOpenSettled).toHaveBeenCalledWith();
+        expect(waitForDocumentOpenSettled).toHaveBeenCalledWith({signal: expect.any(AbortSignal)});
         expect(toolbarSnapshot.initialVisualReady).toBe(true);
+    });
+
+    it('does not let a stale failed open clear a newer transaction presentation', async () => {
+        const documentOpenSurface = createDocumentOpenSurfaceSession();
+        const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
+        const workspace = cast<IWorkspaceExpose>({
+            getToolbarSnapshot: () => toolbarSnapshot,
+            waitForDocumentOpenSettled: vi.fn(async () => {}),
+        });
+        let activeTransactionId = 'transaction-a';
+        const publishDocumentRecord = vi.fn();
+        const transactions = createWorkspaceDocumentOpenTransactions({
+            tabId: 'tab-1',
+            mountedWorkspace: shallowRef(workspace),
+        });
+        transactions.attachHost({
+            documentOpenSurface,
+            openingPageFrameAuthority: shallowRef(null),
+            ensureWorkspaceLoaded: async () => workspace,
+            getActiveTransactionId: () => activeTransactionId,
+            getInitialViewState: () => null,
+            getSeedToolbarSnapshot: () => toolbarSnapshot,
+            hasDocumentOrOpenError: () => false,
+            hasOpenedDocument: () => false,
+            hasSessionOpenedDocument: () => false,
+            isHostUnmounted: () => false,
+            isViewerOwnerMounted: () => true,
+            publishDocumentRecord,
+            requestWorkspaceMount: vi.fn(),
+        });
+
+        await expect(transactions.run({
+            action: 'handleOpenFileWithResultFromUi',
+            target: {
+                fileName: 'a.pdf',
+                originalPath: '/documents/a.pdf',
+                isDjvu: false,
+            },
+        }, 'transaction-a', '/documents/a.pdf', async () => {
+            activeTransactionId = 'transaction-b';
+            documentOpenSurface.begin({
+                documentId: '/documents/b.pdf',
+                documentRevision: 'open-intent:transaction-b',
+            });
+            return false;
+        }, new AbortController().signal)).resolves.toBe(false);
+
+        expect(documentOpenSurface.snapshot.value.identity).toEqual({
+            documentId: '/documents/b.pdf',
+            documentRevision: 'open-intent:transaction-b',
+        });
+        expect(publishDocumentRecord).toHaveBeenCalledOnce();
+        expect(publishDocumentRecord).toHaveBeenCalledWith(expect.objectContaining(
+            {tab: expect.objectContaining({originalPath: '/documents/a.pdf'})},
+        ));
     });
 
     it('claims an early startup Recent command before queueing for its viewer owner', async () => {

@@ -260,6 +260,23 @@ describe('useDocumentOpenVisualSettle', () => {
         await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
     });
 
+    it('cancels the pending visual wait without waiting for its timeout', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness({
+            showNativePdfViewer: true,
+            isLoading: true,
+            totalPages: 1,
+        });
+        const abortController = new AbortController();
+        const wait = harness.settle.waitForDocumentOpenSettled({signal: abortController.signal});
+
+        await nextTick();
+        abortController.abort(new DOMException('Tab closed', 'AbortError'));
+
+        await expect(wait).rejects.toThrow('Tab closed');
+        expect(mocks.browserWarn).not.toHaveBeenCalled();
+    });
+
     it('rejects timeout waits without resolving the pending visual waiter', async () => {
         vi.useFakeTimers();
         const harness = createHarness({

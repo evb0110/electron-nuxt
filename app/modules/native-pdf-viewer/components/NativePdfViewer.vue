@@ -60,10 +60,12 @@ import {
     createNativePdfRasterIdentity,
     type INativePdfRasterIdentity,
     nativePdfRasterIdentityMatches,
+    resolveNativePdfRasterTargetWidth,
     shouldInvalidateNativePdfRaster,
     shouldPresentNativePdfPageSkeleton,
 } from '@app/modules/native-pdf-viewer/runtime/nativePdfRasterPresentation';
 import { canRestoreNativePdfViewportLayout } from '@app/modules/native-pdf-viewer/runtime/canRestoreNativePdfViewportLayout';
+import { resolveNativePdfRenderQueue } from '@app/modules/native-pdf-viewer/runtime/resolveNativePdfRenderQueue';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
@@ -193,9 +195,9 @@ const pageInvalidationCleanup = new Map<number, () => void>();
 const pageVisualErrorAttempts = new Map<number, number>();
 const requestedRasterIdentities = new Map<number, INativePdfRasterIdentity>();
 const committedRasterIdentities = new Map<number, INativePdfRasterIdentity>();
+const pageRasterWidthCeilings = new Map<number, number>();
 const pageRenderGenerations = new Map<number, number>();
 const NATIVE_PDF_VISUAL_ERROR_MAX_RETRIES = 2;
-
 const manualZoom = computed(() => {
     return clampDocumentManualZoom(zoom ?? 1);
 });
@@ -478,7 +480,10 @@ function getNeededDeviceWidth(pageNumber: number) {
 }
 
 function getPageRenderTargetWidth(pageNumber: number) {
-    return getNeededDeviceWidth(pageNumber);
+    return resolveNativePdfRasterTargetWidth(
+        getNeededDeviceWidth(pageNumber),
+        pageRasterWidthCeilings.get(pageNumber),
+    );
 }
 
 function getPageRasterIdentity(pageNumber: number) {
@@ -572,6 +577,7 @@ function cleanupRenderedPages() {
     pageVisualErrorAttempts.clear();
     requestedRasterIdentities.clear();
     committedRasterIdentities.clear();
+    pageRasterWidthCeilings.clear();
     pageRenderGenerations.clear();
 }
 
@@ -780,6 +786,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
         const {
             objectUrl,
             renderedPx,
+            rasterWidthCeilingPx,
             onInvalidated,
         } = await source.renderPageObjectUrl(pageNumber, { targetWidthPx });
         pendingObjectUrl = objectUrl;
@@ -803,6 +810,12 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
             }
             return;
         }
+        let canonicalRasterIdentity = rasterIdentity;
+        if (rasterWidthCeilingPx !== undefined) {
+            pageRasterWidthCeilings.set(pageNumber, rasterWidthCeilingPx);
+            canonicalRasterIdentity = getPageRasterIdentity(pageNumber) ?? rasterIdentity;
+            requestedRasterIdentities.set(pageNumber, canonicalRasterIdentity);
+        }
         await preloadPageObjectUrl(objectUrl);
         const decodedState = pageStates.value[pageNumber - 1];
         if (
@@ -810,7 +823,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
             || source !== activeSource
             || !decodedState
             || decodedState.token !== token
-            || !nativePdfRasterIdentityMatches(getPageRasterIdentity(pageNumber), rasterIdentity)
+            || !nativePdfRasterIdentityMatches(getPageRasterIdentity(pageNumber), canonicalRasterIdentity)
         ) {
             source.revokeObjectURL(objectUrl);
             pendingObjectUrl = null;
@@ -830,7 +843,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
         decodedState.renderedPx = renderedPx;
         decodedState.failedRenderPx = 0;
         decodedState.status = 'loaded';
-        committedRasterIdentities.set(pageNumber, rasterIdentity);
+        committedRasterIdentities.set(pageNumber, canonicalRasterIdentity);
         committedObjectUrl = true;
         pageInvalidationCleanup.get(pageNumber)?.();
         if (onInvalidated) {
@@ -890,9 +903,13 @@ function syncLoadedPages() {
     const activePages = getActivePageSet();
     invalidateNonCanonicalRasters(activePages);
     releaseInactivePages(activePages);
-    const renderQueue = [...activePages].sort((left, right) => (
-        Math.abs(left - activePage.value) - Math.abs(right - activePage.value)
-    ));
+    const deferAdjacentPages = pendingInitialVisualGeneration === loadGeneration
+        && !isPageVisualCommitted(activePage.value);
+    const renderQueue = resolveNativePdfRenderQueue({
+        activePage: activePage.value,
+        activePages,
+        deferAdjacentPages,
+    });
     for (const pageNumber of renderQueue) {
         if (activeRenderPageNumbers.size >= NATIVE_PDF_RENDER_CONCURRENCY) {
             break;
@@ -1004,6 +1021,7 @@ function handlePageVisualReady(payload: {
     pageVisualErrorAttempts.delete(payload.pageNumber);
     commitPageVisualToViewportSession(loadGeneration, payload.pageNumber);
     finishInitialLoadIfSettled();
+    syncLoadedPages();
 }
 
 function handlePageVisualError(payload: {
@@ -1097,6 +1115,7 @@ useDocumentViewportLayoutLifecycle({
     canRestore: epoch => canRestoreNativePdfViewportLayout(epoch, {
         currentLoadGeneration: loadGeneration,
         hasDocumentIdentity: chassisAuthority?.openSurface.viewportSession.value.identity !== null,
+        initialVisualReady: readyInitialVisualGeneration === loadGeneration,
     }),
     applyRestoredScroll: restored => {
         const container = viewerContainer.value;
@@ -1111,7 +1130,6 @@ useDocumentViewportLayoutLifecycle({
         scrollTop.value = Math.max(0, container.scrollTop);
     },
 });
-
 watch(pageLayouts, () => {
     if (activeSource && pageStates.value.length > 0) {
         invalidateNonCanonicalRasters(getActivePageSet());

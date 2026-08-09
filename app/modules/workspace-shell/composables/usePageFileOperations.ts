@@ -379,6 +379,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             }
         }
 
+        options.onCloseCommit?.();
         await closeFile();
         closeAllDropdowns();
         return true;

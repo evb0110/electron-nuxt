@@ -349,6 +349,7 @@ export interface IPdfNativePagePreview {
     bytes: Uint8Array;
     width: number;
     height: number;
+    rasterWidthCeilingPx?: number;
 }
 
 export interface IPdfNoteTextUpdate {

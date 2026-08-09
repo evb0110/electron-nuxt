@@ -77,6 +77,29 @@ export function resolveDocumentOpenRunResult<T>(result: T | false, reachedTermin
         : false;
 }
 
+const DOCUMENT_OPEN_ABORTED = Symbol('document-open-aborted');
+
+async function waitForDocumentOpenTask<T>(task: Promise<T>, signal: AbortSignal) {
+    if (signal.aborted) {
+        return DOCUMENT_OPEN_ABORTED;
+    }
+    let handleAbort: (() => void) | null = null;
+    const aborted = new Promise<typeof DOCUMENT_OPEN_ABORTED>((resolve) => {
+        handleAbort = () => resolve(DOCUMENT_OPEN_ABORTED);
+        signal.addEventListener('abort', handleAbort, {once: true});
+    });
+    try {
+        return await Promise.race([
+            task,
+            aborted,
+        ]);
+    } finally {
+        if (handleAbort) {
+            signal.removeEventListener('abort', handleAbort);
+        }
+    }
+}
+
 export function createWorkspaceDocumentOpenTransactions(options: {
     tabId: string;
     mountedWorkspace: ShallowRef<IWorkspaceExpose | null>;
@@ -211,14 +234,15 @@ export function createWorkspaceDocumentOpenTransactions(options: {
     }
 
     async function waitForDocumentOpenTerminalState(openHost: IWorkspaceDocumentOpenHost,
-        transaction: IDocumentOpenTransactionRun, opened: boolean) {
+        transaction: IDocumentOpenTransactionRun, opened: boolean, signal: AbortSignal) {
         await nextTick();
-        if (!opened) {
+        if (!opened || signal.aborted) {
             return false;
         }
         const deadline = Date.now() + DEFERRED_WORKSPACE_HOST_POLICY.DOCUMENT_OPEN_SETTLE_TIMEOUT_MS;
         while (
             !openHost.isHostUnmounted()
+            && !signal.aborted
             && openHost.getActiveTransactionId() === transaction.transactionId
             && Date.now() < deadline
         ) {
@@ -228,12 +252,15 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 if (remainingMs > 0) {
                     try {
                         await Promise.race([
-                            workspace.waitForDocumentOpenSettled(),
+                            workspace.waitForDocumentOpenSettled({signal}),
                             delay(remainingMs).then(() => {
                                 throw new Error('Document open settle timed out');
                             }),
                         ]);
                     } catch (error) {
+                        if (signal.aborted) {
+                            return false;
+                        }
                         BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open settle wait failed', {
                             tabId: options.tabId,
                             transactionId: transaction.transactionId,
@@ -254,6 +281,9 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
             }
         }
+        if (signal.aborted) {
+            return false;
+        }
         if (!workspaceHasSuccessfulInitialVisual()) {
             BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open did not reach a terminal visible state before settle timeout', {
                 tabId: options.tabId,
@@ -273,13 +303,15 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         if (
             !opened
             && transaction.seededTabHint
+            && openHost.getActiveTransactionId() === transaction.transactionId
             && !openHost.hasDocumentOrOpenError()
         ) {
             openHost.publishDocumentRecord(createWorkspaceDocumentRecord());
         }
         if (
             !opened
-            && openHost.documentOpenSurface.snapshot.value.identity?.documentRevision.startsWith('open-intent:')
+            && openHost.documentOpenSurface.snapshot.value.identity?.documentRevision
+                === `open-intent:${transaction.transactionId}`
         ) {
             openHost.documentOpenSurface.reset();
         }
@@ -298,7 +330,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
     }
 
     async function ensurePreparedOpeningOwnerReady(openHost: IWorkspaceDocumentOpenHost, intent: IDocumentOpenIntent,
-        preparedOpeningGeometryAvailable: boolean) {
+        preparedOpeningGeometryAvailable: boolean, signal: AbortSignal) {
         if (!shouldWaitForPreparedOpeningOwner(
             preparedOpeningGeometryAvailable,
             openHost.isViewerOwnerMounted(),
@@ -306,12 +338,15 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             return true;
         }
         openHost.requestWorkspaceMount(`prepared-opening-owner:${intent.action}`);
-        const workspace = await openHost.ensureWorkspaceLoaded(`prepared-opening-owner:${intent.action}`);
-        if (!workspace) {
+        const workspace = await waitForDocumentOpenTask(
+            openHost.ensureWorkspaceLoaded(`prepared-opening-owner:${intent.action}`),
+            signal,
+        );
+        if (workspace === DOCUMENT_OPEN_ABORTED || !workspace) {
             return false;
         }
         const deadline = Date.now() + DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_TIMEOUT_MS;
-        while (!openHost.isHostUnmounted() && Date.now() < deadline) {
+        while (!openHost.isHostUnmounted() && !signal.aborted && Date.now() < deadline) {
             if (openHost.isViewerOwnerMounted()) {
                 return true;
             }
@@ -325,16 +360,20 @@ export function createWorkspaceDocumentOpenTransactions(options: {
     }
 
     async function run<T>(intent: IDocumentOpenIntent, transactionId: string,
-        transactionDocumentRef: TDocumentRef | null, sourceOpen: () => Promise<T>): Promise<T | false> {
+        transactionDocumentRef: TDocumentRef | null, sourceOpen: () => Promise<T>, signal: AbortSignal): Promise<T | false> {
         const openHost = host;
         if (!openHost) {
             // A detached presentation host refuses opens, preserving the
             // pre-consolidation unmounted-host contract for stale expose
             // proxies and transactions queued behind an unmount. Only a
             // controller that never had a host runs source opens bare.
-            return hostEverAttached ? false : sourceOpen();
+            if (hostEverAttached) {
+                return false;
+            }
+            const result = await waitForDocumentOpenTask(sourceOpen(), signal);
+            return result === DOCUMENT_OPEN_ABORTED ? false : result;
         }
-        if (openHost.isHostUnmounted()) {
+        if (openHost.isHostUnmounted() || signal.aborted) {
             return false;
         }
         // Keep the mounted path in the click call stack so rapid page commands cannot overtake the open transaction.
@@ -358,6 +397,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                     openHost,
                     intent,
                     preparedOpeningGeometryAvailable,
+                    signal,
                 )
             ) {
                 pendingPreOwnerGoToPage = null;
@@ -370,10 +410,13 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                     return false;
                 }
             }
-            const result = await sourceOpen();
+            const sourceResult = await waitForDocumentOpenTask(sourceOpen(), signal);
+            if (sourceResult === DOCUMENT_OPEN_ABORTED) {
+                return false;
+            }
             const settledResult = resolveDocumentOpenRunResult(
-                result,
-                await waitForDocumentOpenTerminalState(openHost, transaction, result !== false),
+                sourceResult,
+                await waitForDocumentOpenTerminalState(openHost, transaction, sourceResult !== false, signal),
             );
             if (settledResult === false) {
                 return false;
@@ -381,7 +424,10 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             opened = true;
             return settledResult;
         } finally {
-            finishDocumentOpenPresentation(openHost, transaction, opened);
+            pendingPreOwnerGoToPage = null;
+            if (!signal.aborted) {
+                finishDocumentOpenPresentation(openHost, transaction, opened);
+            }
         }
     }
 

@@ -27,6 +27,7 @@ export interface IPagePreviewSourceInfo {
 export interface IPagePreviewRenderedObjectUrl {
     objectUrl: string;
     renderedPx: number;
+    rasterWidthCeilingPx?: number;
     onInvalidated?: (listener: () => void) => () => void;
     promotePriority?: (priority: number) => void;
 }

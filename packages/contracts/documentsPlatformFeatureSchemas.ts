@@ -511,10 +511,14 @@ function decodePagePreviewResult(value: unknown): IPdfNativePagePreview {
     if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height)) {
         fail('invalid native page preview result');
     }
+    const rasterWidthCeilingPx = value.rasterWidthCeilingPx === undefined
+        ? undefined
+        : decodeSafeIntegerValue(value.rasterWidthCeilingPx, 'rasterWidthCeilingPx', 1);
     return {
         bytes: decodeUint8ArrayValue(value.bytes, 'bytes'),
         width: value.width,
         height: value.height,
+        ...(rasterWidthCeilingPx === undefined ? {} : {rasterWidthCeilingPx}),
     };
 }
 

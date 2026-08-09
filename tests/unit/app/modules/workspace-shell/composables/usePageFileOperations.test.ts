@@ -118,6 +118,30 @@ describe('usePageFileOperations', () => {
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 
+    it('commits close after persistence succeeds and immediately before closing', async () => {
+        const events: string[] = [];
+        const isDirty = ref(true);
+        const deps = createDeps({
+            isDirty,
+            handleSave: vi.fn(async () => {
+                events.push('save');
+                isDirty.value = false;
+            }),
+            closeFile: vi.fn(async () => {
+                events.push('close');
+            }),
+        });
+        const { handleCloseFileFromUi } = usePageFileOperations(deps);
+
+        await handleCloseFileFromUi({onCloseCommit: () => events.push('commit')});
+
+        expect(events).toEqual([
+            'save',
+            'commit',
+            'close',
+        ]);
+    });
+
     it('uses the supplied pending change predicate for persistence gating', async () => {
         const hasPendingUnsavedChanges = ref(true);
         const deps = createDeps({
@@ -469,6 +493,7 @@ describe('usePageFileOperations', () => {
 
     it('blocks close when save throws instead of bubbling an uncaught rejection', async () => {
         const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+        const onCloseCommit = vi.fn();
         const deps = createDeps({
             isDirty: ref(true),
             handleSave: vi.fn(async () => {
@@ -477,8 +502,9 @@ describe('usePageFileOperations', () => {
         });
         const { handleCloseFileFromUi } = usePageFileOperations(deps);
 
-        await expect(handleCloseFileFromUi()).resolves.toBe(false);
+        await expect(handleCloseFileFromUi({onCloseCommit})).resolves.toBe(false);
 
+        expect(onCloseCommit).not.toHaveBeenCalled();
         expect(deps.closeFile).not.toHaveBeenCalled();
         expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
         expect(errorSpy).toHaveBeenCalledWith(

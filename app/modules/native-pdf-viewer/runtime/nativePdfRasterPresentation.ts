@@ -18,6 +18,22 @@ export function createNativePdfRasterIdentity(options: INativePdfRasterIdentity)
     };
 }
 
+export function resolveNativePdfRasterTargetWidth(
+    neededWidthPx: number,
+    rasterWidthCeilingPx: number | null | undefined,
+) {
+    const normalizedNeededWidth = Math.max(1, Math.ceil(neededWidthPx));
+    if (
+        rasterWidthCeilingPx === null
+        || rasterWidthCeilingPx === undefined
+        || !Number.isFinite(rasterWidthCeilingPx)
+        || rasterWidthCeilingPx < 1
+    ) {
+        return normalizedNeededWidth;
+    }
+    return Math.min(normalizedNeededWidth, Math.max(1, Math.trunc(rasterWidthCeilingPx)));
+}
+
 export function nativePdfRasterIdentityMatches(
     left: INativePdfRasterIdentity | null | undefined,
     right: INativePdfRasterIdentity | null | undefined,

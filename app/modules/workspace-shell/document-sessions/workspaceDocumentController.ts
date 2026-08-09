@@ -512,6 +512,9 @@ export function createWorkspaceDocumentController(
         tabId: options.tabId,
         mountedWorkspace,
     });
+    let openTransactionEpoch = 0;
+    let activeOpenAbortController: AbortController | null = null;
+    let activeClosePromise: Promise<boolean> | null = null;
     const waiters = new Set<IWorkspaceWaiter>();
     let nextTransactionIndex = 0;
     let closeRecordFenceActive = false;
@@ -620,7 +623,11 @@ export function createWorkspaceDocumentController(
             return;
         }
 
-        const closedDocument = snapshot.value.activeTransaction.kind === 'close' && result === 'committed';
+        const finishingClose = snapshot.value.activeTransaction.kind === 'close';
+        const closedDocument = finishingClose && result === 'committed';
+        if (finishingClose && !closedDocument) {
+            closeRecordFenceActive = false;
+        }
         updateSnapshot((current) => {
             if (closedDocument) {
                 // The close call's own verdict is the only untainted signal that
@@ -1028,8 +1035,20 @@ export function createWorkspaceDocumentController(
         intent: IDocumentOpenIntent,
         run: () => Promise<T>,
     ) {
+        const requestedOpenEpoch = openTransactionEpoch;
         return enqueueTransaction(async () => {
+            const closeInFlight = activeClosePromise;
+            if (closeInFlight) {
+                await closeInFlight.catch(() => undefined);
+            }
+            if (requestedOpenEpoch !== openTransactionEpoch) {
+                return false;
+            }
+
+            const abortController = new AbortController();
+            activeOpenAbortController = abortController;
             if (intent.commandTarget && !validateCommandTarget(intent.commandTarget).ok) {
+                activeOpenAbortController = null;
                 return false;
             }
 
@@ -1044,11 +1063,20 @@ export function createWorkspaceDocumentController(
                     transaction.id,
                     transaction.documentRef,
                     run,
+                    abortController.signal,
                 );
+                if (abortController.signal.aborted || requestedOpenEpoch !== openTransactionEpoch) {
+                    return false;
+                }
                 committed = result !== false;
                 return result;
             } finally {
-                finishTransaction(transaction.id, committed ? 'committed' : 'failed');
+                if (activeOpenAbortController === abortController) {
+                    activeOpenAbortController = null;
+                }
+                finishTransaction(transaction.id, committed
+                    ? 'committed'
+                    : abortController.signal.aborted ? 'cancelled' : 'failed');
             }
         });
     }
@@ -1078,25 +1106,59 @@ export function createWorkspaceDocumentController(
         return runOpenTransaction('reload', intent, run);
     }
 
-    async function close(request: {persist: boolean}) {
-        return enqueueTransaction(async () => {
+    function close(request: {persist: boolean}) {
+        if (activeClosePromise) {
+            return activeClosePromise;
+        }
+
+        let transactionId: string | null = null;
+        const commitClose = () => {
+            if (transactionId) {
+                return;
+            }
+            openTransactionEpoch += 1;
             const transaction = beginTransaction({
                 kind: 'close',
                 documentRef: snapshot.value.identity.documentRef,
                 persist: request.persist,
             });
+            transactionId = transaction.id;
+            activeOpenAbortController?.abort(new DOMException('Document open canceled by close', 'AbortError'));
+        };
+        const closePromise = (async () => {
             let closed = false;
             try {
                 const workspace = mountedWorkspace.value;
                 if (!workspace) {
                     return false;
                 }
-                closed = await workspace.handleCloseFileFromUi(request);
+                closed = await workspace.handleCloseFileFromUi({
+                    ...request,
+                    onCloseCommit: commitClose,
+                });
+                if (closed) {
+                    // Keep compatibility with workspace adapters that predate
+                    // the commit hook while the canonical UI path invokes it
+                    // immediately before closing the document.
+                    commitClose();
+                }
                 return closed;
             } finally {
-                finishTransaction(transaction.id, closed ? 'committed' : 'cancelled');
+                if (transactionId) {
+                    finishTransaction(transactionId, closed ? 'committed' : 'cancelled');
+                }
             }
-        });
+        })();
+        activeClosePromise = closePromise;
+        void closePromise.then(
+            () => {
+                if (activeClosePromise === closePromise) activeClosePromise = null;
+            },
+            () => {
+                if (activeClosePromise === closePromise) activeClosePromise = null;
+            },
+        );
+        return closePromise;
     }
 
     return {

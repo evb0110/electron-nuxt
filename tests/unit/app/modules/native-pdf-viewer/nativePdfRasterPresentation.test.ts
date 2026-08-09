@@ -6,11 +6,37 @@ import {
 import {
     createNativePdfRasterIdentity,
     nativePdfRasterIdentityMatches,
+    resolveNativePdfRasterTargetWidth,
     shouldInvalidateNativePdfRaster,
     shouldPresentNativePdfPageSkeleton,
 } from '@app/modules/native-pdf-viewer/runtime/nativePdfRasterPresentation';
 
 describe('native PDF raster presentation', () => {
+    it('canonicalizes targets at a learned raster ceiling without raising smaller requests', () => {
+        expect(resolveNativePdfRasterTargetWidth(3_598, 2_008)).toBe(2_008);
+        expect(resolveNativePdfRasterTargetWidth(1_600, 2_008)).toBe(1_600);
+        expect(resolveNativePdfRasterTargetWidth(3_598, undefined)).toBe(3_598);
+
+        const firstZoom = createNativePdfRasterIdentity({
+            generation: 2,
+            pageNumber: 1,
+            pageWidth: 481.92,
+            pageHeight: 765.36,
+            targetWidthPx: resolveNativePdfRasterTargetWidth(3_598, 2_008),
+        });
+        const higherZoom = createNativePdfRasterIdentity({
+            ...firstZoom,
+            targetWidthPx: resolveNativePdfRasterTargetWidth(4_096, 2_008),
+        });
+        const lowerZoom = createNativePdfRasterIdentity({
+            ...firstZoom,
+            targetWidthPx: resolveNativePdfRasterTargetWidth(1_600, 2_008),
+        });
+
+        expect(nativePdfRasterIdentityMatches(firstZoom, higherZoom)).toBe(true);
+        expect(nativePdfRasterIdentityMatches(firstZoom, lowerZoom)).toBe(false);
+    });
+
     it('treats target pixel width as part of the canonical raster identity', () => {
         const committed = createNativePdfRasterIdentity({
             generation: 7,

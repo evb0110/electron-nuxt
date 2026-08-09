@@ -96,7 +96,9 @@ describe('native PDF preview lifecycle', () => {
 
     afterEach(async () => {
         const { resetMainOperationLifecycleForTests } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const { resetNativePdfRasterCeilingCacheForTests } = await import('@electron/features/documents/main/nativePdfPreview');
         resetMainOperationLifecycleForTests();
+        resetNativePdfRasterCeilingCacheForTests();
     });
 
     it('admits the first native page through the interactive lane', async () => {
@@ -649,6 +651,135 @@ describe('native PDF preview lifecycle', () => {
         const scaleToXIndex = args?.indexOf('-scale-to-x') ?? -1;
         expect(scaleToXIndex).toBeGreaterThanOrEqual(0);
         expect(args?.[scaleToXIndex + 1]).toBe('4096');
+    });
+
+    it('lazily clamps a singleton full-page raster and caches its revision-scoped ceiling', async () => {
+        const sender = new FakeSender();
+        mocks.getPdfNativeToolPaths.mockReturnValue({
+            pdfimages: '/mock/pdfimages',
+            pdfinfo: '/mock/pdfinfo',
+            pdftoppm: '/mock/pdftoppm',
+        });
+        mocks.runNativeToolCommand.mockImplementation((command: string) => {
+            if (command === '/mock/pdfinfo') {
+                return Promise.resolve({
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: 'Page 1 size: 481.92 x 765.36 pts\nPage 1 rot: 0\n',
+                });
+            }
+            if (command === '/mock/pdfimages') {
+                return Promise.resolve({
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: [
+                        'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
+                        '1 0 image 2008 3189 rgb 3 8 jpeg no 7903 0 300 300 183K 0.9%',
+                    ].join('\n'),
+                });
+            }
+            return Promise.resolve({
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            });
+        });
+        const { handlePdfNativePagePreview } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, {targetWidthPx: 3_598})).resolves.toMatchObject({rasterWidthCeilingPx: 2_008});
+        await expect(handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, {targetWidthPx: 4_000})).resolves.toMatchObject({rasterWidthCeilingPx: 2_008});
+        mocks.stat
+            .mockResolvedValueOnce({
+                size: 28_000_000,
+                mtimeMs: 1_720_000_000_001,
+            })
+            .mockResolvedValueOnce({size: 28_000_000});
+        await expect(handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, {targetWidthPx: 3_800})).resolves.toMatchObject({rasterWidthCeilingPx: 2_008});
+
+        const callsByCommand = (command: string) => mocks.runNativeToolCommand.mock.calls
+            .filter(([calledCommand]) => calledCommand === command);
+        expect(callsByCommand('/mock/pdfinfo')).toHaveLength(2);
+        expect(callsByCommand('/mock/pdfimages')).toHaveLength(2);
+        expect(callsByCommand('/mock/pdftoppm')).toHaveLength(3);
+        for (const [
+            , args,
+        ] of callsByCommand('/mock/pdftoppm')) {
+            const scaleToXIndex = (args as string[]).indexOf('-scale-to-x');
+            expect((args as string[])[scaleToXIndex + 1]).toBe('2008');
+        }
+    });
+
+    it('fails open when page image geometry is ambiguous', async () => {
+        const sender = new FakeSender();
+        mocks.getPdfNativeToolPaths.mockReturnValue({
+            pdfimages: '/mock/pdfimages',
+            pdfinfo: '/mock/pdfinfo',
+            pdftoppm: '/mock/pdftoppm',
+        });
+        mocks.runNativeToolCommand
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: 'Page 1 size: 481.92 x 765.36 pts\nPage 1 rot: 0\n',
+            })
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: [
+                    '1 0 image 2008 3189 rgb 3 8 jpeg no 7903 0 300 300 183K 0.9%',
+                    '1 1 image 32 32 rgb 3 8 image no 7904 0 72 72 1K 1%',
+                ].join('\n'),
+            })
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            });
+        const { handlePdfNativePagePreview } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        const preview = await handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, {targetWidthPx: 3_598});
+
+        expect(preview.rasterWidthCeilingPx).toBeUndefined();
+        const args = mocks.runNativeToolCommand.mock.calls[2]?.[1] as string[];
+        expect(args[args.indexOf('-scale-to-x') + 1]).toBe('3598');
+    });
+
+    it('fails open when the raster-ceiling probe errors', async () => {
+        const sender = new FakeSender();
+        mocks.getPdfNativeToolPaths.mockReturnValue({
+            pdfimages: '/mock/pdfimages',
+            pdfinfo: '/mock/pdfinfo',
+            pdftoppm: '/mock/pdftoppm',
+        });
+        mocks.runNativeToolCommand
+            .mockRejectedValueOnce(new Error('pdfinfo probe failed'))
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            });
+        const { handlePdfNativePagePreview } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        const preview = await handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, {targetWidthPx: 3_598});
+
+        expect(preview.rasterWidthCeilingPx).toBeUndefined();
+        const args = mocks.runNativeToolCommand.mock.calls[1]?.[1] as string[];
+        expect(args[args.indexOf('-scale-to-x') + 1]).toBe('3598');
     });
 
     it('coalesces identical in-flight native preview requests', async () => {

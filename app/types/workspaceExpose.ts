@@ -138,7 +138,10 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
     };
 }
 
-export interface ICloseFileFromUiOptions {persist?: boolean;}
+export interface ICloseFileFromUiOptions {
+    persist?: boolean;
+    onCloseCommit?: () => void;
+}
 
 export interface IWorkspaceFilePort {
     handleSave: () => Promise<boolean>;
@@ -202,7 +205,10 @@ export interface IWorkspaceSplitTransferPort {
 export interface IWorkspaceUiPort {
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
-    waitForDocumentOpenSettled: (options?: { acceptDocumentWithoutVisual?: boolean }) => Promise<void>;
+    waitForDocumentOpenSettled: (options?: {
+        acceptDocumentWithoutVisual?: boolean;
+        signal?: AbortSignal;
+    }) => Promise<void>;
 }
 
 export interface IWorkspaceAgentCommandContext {

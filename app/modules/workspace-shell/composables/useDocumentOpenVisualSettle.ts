@@ -135,9 +135,23 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         };
     }
 
-    async function waitForDocumentOpenSettled(waitOptions?: { acceptDocumentWithoutVisual?: boolean }) {
+    async function waitForDocumentOpenSettled(waitOptions?: {
+        acceptDocumentWithoutVisual?: boolean;
+        signal?: AbortSignal;
+    }) {
+        const signal = waitOptions?.signal;
+        if (signal?.aborted) {
+            throw signal.reason instanceof Error
+                ? signal.reason
+                : new DOMException('Document open canceled', 'AbortError');
+        }
         await nextTick();
         resolveDocumentOpenVisualSettleIfReady();
+        if (signal?.aborted) {
+            throw signal.reason instanceof Error
+                ? signal.reason
+                : new DOMException('Document open canceled', 'AbortError');
+        }
         const acceptDocumentWithoutVisual = waitOptions?.acceptDocumentWithoutVisual === true;
         const hasRequiredState = () => acceptDocumentWithoutVisual
             ? hasAcceptedDocumentOpenState()
@@ -147,6 +161,11 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         }
 
         const timeout = createDocumentOpenVisualSettleTimeout();
+        let resolveAbort: (() => void) | null = null;
+        const abortPromise = new Promise<'aborted'>((resolve) => {
+            resolveAbort = () => resolve('aborted');
+            signal?.addEventListener('abort', resolveAbort, {once: true});
+        });
         const settleResult = await Promise.race([
             (
                 acceptDocumentWithoutVisual
@@ -154,10 +173,20 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
                     : ensureDocumentOpenVisualSettlePromise()
             ).then(() => 'settled' as const),
             timeout.promise,
+            abortPromise,
         ]).finally(() => {
             timeout.cancel();
+            if (resolveAbort) {
+                signal?.removeEventListener('abort', resolveAbort);
+            }
         });
         await nextTick();
+
+        if (settleResult === 'aborted') {
+            throw signal?.reason instanceof Error
+                ? signal.reason
+                : new DOMException('Document open canceled', 'AbortError');
+        }
 
         if (hasRequiredState()) {
             return;

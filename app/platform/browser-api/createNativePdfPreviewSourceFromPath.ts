@@ -11,6 +11,7 @@ import {
 interface INativePdfRenderedPageObjectUrl {
     objectUrl: string;
     renderedPx: number;
+    rasterWidthCeilingPx?: number;
     onInvalidated?: (listener: () => void) => () => void;
     promotePriority?: (priority: number) => void;
 }
@@ -129,6 +130,9 @@ export function createNativePdfPreviewSourceFromPath(
             return {
                 objectUrl,
                 renderedPx: preview.width,
+                ...(preview.rasterWidthCeilingPx === undefined
+                    ? {}
+                    : {rasterWidthCeilingPx: preview.rasterWidthCeilingPx}),
                 promotePriority(priority) {
                     leaseEntry.lease?.promotePriority?.(priority);
                 },

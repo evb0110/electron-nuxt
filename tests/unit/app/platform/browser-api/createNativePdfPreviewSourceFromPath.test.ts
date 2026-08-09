@@ -181,6 +181,34 @@ describe('createNativePdfPreviewSourceFromPath', () => {
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:leased-preview');
     });
 
+    it('forwards a learned raster width ceiling with the rendered object URL', async () => {
+        const documentFiles: Pick<
+            IDocumentsFileIoCapability,
+            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
+        > = {
+            cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
+            getPdfNativePageSizes: vi.fn(async () => []),
+            renderPdfNativePagePreview: vi.fn(async () => ({
+                bytes: new Uint8Array([1]),
+                width: 2_008,
+                height: 3_189,
+                rasterWidthCeilingPx: 2_008,
+            })),
+        };
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => 'blob:raster-preview'),
+            revokeObjectURL: vi.fn(),
+        });
+        const source = createNativePdfPreviewSourceFromPath('/tmp/raster-preview.pdf', documentFiles);
+
+        await expect(source.renderPageObjectUrl(1)).resolves.toMatchObject({
+            objectUrl: 'blob:raster-preview',
+            renderedPx: 2_008,
+            rasterWidthCeilingPx: 2_008,
+        });
+        source.terminate();
+    });
+
     it('notifies the viewer when later pressure revokes a native preview URL', async () => {
         const documentFiles: Pick<
             IDocumentsFileIoCapability,
