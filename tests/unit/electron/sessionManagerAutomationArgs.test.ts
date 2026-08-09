@@ -101,6 +101,22 @@ describe('sessionManager automation launch args', () => {
         ]);
     });
 
+    it('can force a neutral reduced-motion baseline for profile E2E sessions', () => {
+        expect(buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            env: {EVB_E2E_FORCE_NO_REDUCED_MOTION: '1'},
+            platform: 'darwin',
+        })).toEqual([
+            '--force-prefers-no-reduced-motion',
+            '--remote-debugging-port=9222',
+            '--user-data-dir=/tmp/evb-user-data',
+            '--disable-http-cache',
+            '/tmp/main.js',
+        ]);
+    });
+
     it('allows an explicit opt-in override on any platform', () => {
         expect(shouldDisableAutomationSandbox({ EVB_AUTOMATION_DISABLE_SANDBOX: 'true' }, 'darwin')).toBe(true);
     });

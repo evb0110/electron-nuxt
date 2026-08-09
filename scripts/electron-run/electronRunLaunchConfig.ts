@@ -73,6 +73,7 @@ export function buildElectronAutomationArgs(options: {
     platform?: NodeJS.Platform;
 }) {
     const initialOpenPaths = options.initialOpenPaths ?? [];
+    const forceNoReducedMotion = options.env?.EVB_E2E_FORCE_NO_REDUCED_MOTION === '1';
     const args = [
         `--remote-debugging-port=${options.cdpPort}`,
         `--user-data-dir=${options.automationUserDataDir}`,
@@ -91,6 +92,9 @@ export function buildElectronAutomationArgs(options: {
             '--disable-setuid-sandbox',
             '--no-sandbox',
         );
+    }
+    if (forceNoReducedMotion) {
+        args.unshift('--force-prefers-no-reduced-motion');
     }
 
     return args;

@@ -26,7 +26,10 @@ export async function startConfiguredElectronE2ESession(
     // no host-profile launch argument.
     const session = await startElectronE2ESession(baseName, {
         clean: true,
-        extraEnv: {EVB_TEST_PERFORMANCE_MODE: performanceMode},
+        extraEnv: {
+            EVB_E2E_FORCE_NO_REDUCED_MOTION: '1',
+            EVB_TEST_PERFORMANCE_MODE: performanceMode,
+        },
     });
     await session.page.evaluate((payload: {
         cookieKey: string;
