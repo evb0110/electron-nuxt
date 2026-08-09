@@ -618,7 +618,7 @@ fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foregr
     // alpha plane would defeat the JBIG2 foreground representation. Soft
     // alpha remains a preview/composite feature.
     assert_eq!(metadata["layeredForegroundKind"], "stencil");
-    assert_eq!(metadata["layeredBackgroundDpi"], 200.0);
+    assert_eq!(metadata["layeredBackgroundDpi"], 300.0);
     // A fresh stencil lives on the rendered page grid; it carries no
     // separate foreground DPI (that was soft-alpha metadata).
     assert!(metadata["layeredForegroundDpi"].is_null());
@@ -652,13 +652,13 @@ fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foregr
     .unwrap();
     assert_eq!(
         (background.gray.width(), background.gray.height()),
-        (60, 40)
+        (90, 60)
     );
     assert!(
         background.gray.get(10, 7) >= 240,
         "foreground ink leaked into the downsampled JPEG background source"
     );
-    let picture = background.rgb.get(43, 20);
+    let picture = background.rgb.get(64, 30);
     assert!(
         picture[0] != picture[1] || picture[1] != picture[2],
         "color plate chroma was lost from the mixed background: {picture:?}"
@@ -758,10 +758,10 @@ fn normalized_mixed_picture_does_not_pull_the_paper_surface_through_a_dark_photo
         },
     )
     .unwrap();
-    let dark_photo = background.gray.get(43, 24);
-    let light_photo = background.gray.get(43, 36);
+    let dark_photo = background.gray.get(80, 45);
+    let light_photo = background.gray.get(80, 75);
     let paper = background.gray.get(20, 30);
-    let outside_picture = background.gray.get(39, 30);
+    let outside_picture = background.gray.get(55, 60);
     assert!(
         dark_photo < 120,
         "dark photo tone was brightened: {dark_photo}"
@@ -905,12 +905,12 @@ fn confirmed_mixed_photo_keeps_pale_interior_tone_near_a_caption() {
     .unwrap();
     assert_eq!(
         (background.gray.width(), background.gray.height()),
-        (60, 40)
+        (90, 60)
     );
-    let photo_interior = background.gray.get(44, 20);
+    let photo_interior = background.gray.get(66, 30);
     let mut expected_photo_sum = 0u64;
-    for y in 60..63 {
-        for x in 132..135 {
+    for y in 60..62 {
+        for x in 132..134 {
             let pixel = image.get(x, y);
             expected_photo_sum += ((u32::from(pixel[0]) * 77
                 + u32::from(pixel[1]) * 150
@@ -919,7 +919,7 @@ fn confirmed_mixed_photo_keeps_pale_interior_tone_near_a_caption() {
                 >> 8) as u64;
         }
     }
-    let expected_photo_interior = expected_photo_sum / 9;
+    let expected_photo_interior = expected_photo_sum / 4;
     assert!(
         u64::from(photo_interior).abs_diff(expected_photo_interior) <= 1,
         "caption-adjacent photo interior was whitened: {photo_interior}, source average={expected_photo_interior}; page_metadata={}",
@@ -1032,12 +1032,153 @@ fn mixed_cli_preserves_dark_picture_tone_before_background_downscale() {
     .unwrap();
     assert_eq!(
         (background.gray.width(), background.gray.height()),
-        (60, 40)
+        (90, 60)
     );
     assert!(
-        background.gray.get(35, 18) < 180,
+        background.gray.get(53, 27) < 180,
         "the downscaled plate retained a white stencil knockout: {}",
-        background.gray.get(35, 18)
+        background.gray.get(53, 27)
+    );
+}
+
+#[test]
+fn mixed_cli_reuses_source_mrc_layer_for_affine_confirmed_photo() {
+    let scratch = Scratch::new("source-mrc-photo");
+    let input = scratch.path("input.png");
+    let source_background = scratch.path("source-background.png");
+    let source_selection = scratch.path("source-selection.png");
+    let output = scratch.path("output.png");
+    let output_metadata = scratch.path("output.json");
+    let page_metadata = scratch.path("page.json");
+    let background_output = scratch.path("background.ppm");
+    let foreground_mask_output = scratch.path("foreground.pbm");
+    let manifest = scratch.path("manifest.json");
+
+    let mut image = RgbImage::new(260, 360, [245; 3]);
+    for y in 130..320 {
+        for x in 100..245 {
+            let tone = if (x / 24 + y / 24) % 2 == 0 {
+                30 + ((x * 37 + y * 61) % 24) as u8
+            } else {
+                120 + ((x * 13 + y * 41) % 48) as u8
+            };
+            image.set(
+                x,
+                y,
+                [tone, tone.saturating_sub(20), tone.saturating_add(35)],
+            );
+        }
+    }
+    for row in 0..8 {
+        let top = 18 + row * 36;
+        for column in 0..4 {
+            let left = 18 + column * 22;
+            for y in top..top + 11 {
+                for x in left..left + 12 {
+                    if x < left + 2 || y < top + 2 || y >= top + 10 {
+                        image.set(x, y, [24; 3]);
+                    }
+                }
+            }
+        }
+    }
+    fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
+    let mut source_background_image = RgbImage::new(130, 180, [245; 3]);
+    for y in 0..source_background_image.height() {
+        for x in 0..source_background_image.width() {
+            source_background_image.set(x, y, image.get((x * 2).min(259), (y * 2).min(359)));
+        }
+    }
+    fs::write(
+        &source_background,
+        encode_rgb(&source_background_image).unwrap(),
+    )
+    .unwrap();
+
+    // The extracted MRC smask is mostly white paper with black source-owned
+    // detail. The native adapter normalizes either encoded polarity before it
+    // hands the mask to the affine source-layer contract.
+    let mut selection = GrayImage::new(260, 360, 255);
+    for y in 130..320 {
+        for x in 100..245 {
+            selection.set(x, y, 0);
+        }
+    }
+    for row in 0..8 {
+        let top = 18 + row * 36;
+        for column in 0..4 {
+            let left = 18 + column * 22;
+            for y in top..top + 11 {
+                for x in left..left + 12 {
+                    if x < left + 2 || y < top + 2 || y >= top + 10 {
+                        selection.set(x, y, 0);
+                    }
+                }
+            }
+        }
+    }
+    fs::write(&source_selection, encode_gray(&selection).unwrap()).unwrap();
+
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: false,
+        match_page_size: false,
+        dpi: 150.0,
+        source_dpi: Some(150.0),
+        source_has_bilevel_layer: true,
+        source_background_dpi: Some(300.0),
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "trustedForegroundMaskPath": source_selection,
+            "trustedMrcBackgroundPath": source_background,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+                "backgroundOutputPath": background_output,
+                "foregroundMaskOutputPath": foreground_mask_output,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let metadata: Value = serde_json::from_slice(&fs::read(&output_metadata).unwrap()).unwrap();
+    assert_eq!(
+        metadata["layeredForegroundKind"],
+        "source-mrc",
+        "output metadata={}; page metadata={}",
+        metadata,
+        String::from_utf8_lossy(&fs::read(&page_metadata).unwrap())
+    );
+    assert_eq!(metadata["layeredBackgroundDpi"], 150.0);
+    assert_eq!(metadata["layeredForegroundDpi"], 150.0);
+    assert!(background_output.exists());
+    assert!(foreground_mask_output.exists());
+    assert!(
+        !output.exists(),
+        "source-MRC affine layers must not be shadowed by a flattened composite"
     );
 }
 

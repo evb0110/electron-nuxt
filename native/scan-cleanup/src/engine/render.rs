@@ -313,8 +313,9 @@ pub(crate) struct MixedLayers {
     pub foreground_alpha: Option<GrayImage>,
     pub background: GrayImage,
     pub color_background: Option<RgbImage>,
-    /// Legacy marker for a source-owned layer. Fresh Mixed composition always
-    /// publishes a cleaned-raster foreground and sets this to false.
+    /// The assembler may replace this fresh foreground with the extracted
+    /// source JPX through its authored smask. It is set only for confirmed
+    /// photos whose page geometry remains affine and source-aligned.
     pub source_mrc: bool,
 }
 
@@ -3783,6 +3784,35 @@ fn bridge_scanline_text_row_tier(
     }
 }
 
+fn can_reuse_source_mrc_foreground(
+    options: &CleanupOptions,
+    trusted_foreground_mask: Option<&BinaryImage>,
+    picture_mask: &BinaryImage,
+    split: &SplitResult,
+    half: PageHalf,
+    deskew_applied: bool,
+    dewarp_applied: bool,
+    create_layers: bool,
+) -> bool {
+    options.trusted_mrc_source_available
+        && trusted_foreground_mask.is_some()
+        && picture_mask.count_black() > 0
+        && create_layers
+        && options.source_has_bilevel_layer
+        && !options.trusted_selection_incomplete
+        && options.manual_zones.picture.is_empty()
+        && options.manual_zones.fill.is_empty()
+        && options.thickness == 0
+        && options.rotation == OrthogonalRotation::None
+        && options
+            .manual_skew_degrees
+            .is_none_or(|degrees| degrees.abs() <= f64::EPSILON)
+        && !deskew_applied
+        && !dewarp_applied
+        && split.classification == LayoutClassification::SingleUncutPage
+        && half == PageHalf::Full
+}
+
 #[allow(clippy::too_many_arguments)]
 fn clean_region(
     source: &GrayImage,
@@ -4736,6 +4766,16 @@ fn clean_region(
                         options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
                         options.dpi,
                     );
+                    let reuse_source_mrc_foreground = can_reuse_source_mrc_foreground(
+                        options,
+                        rendered_trusted_foreground_mask.as_ref(),
+                        picture_mask,
+                        split,
+                        half,
+                        deskew.accepted && deskew.angle_degrees.abs() > f64::EPSILON,
+                        effective_dewarp.is_some(),
+                        create_mixed_layers,
+                    );
                     let (mixed_gray, mixed_color, layers) = compose_mixed(
                         &rendered_gray,
                         Some(&rendered_source_gray),
@@ -4752,6 +4792,10 @@ fn clean_region(
                         create_mixed_layers,
                         create_mixed_composite,
                     );
+                    let layers = layers.map(|mut layers| {
+                        layers.source_mrc = reuse_source_mrc_foreground;
+                        layers
+                    });
                     timings.mixed_composition_ms +=
                         composition_started.elapsed().as_secs_f64() * 1_000.0;
                     (

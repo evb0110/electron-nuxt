@@ -44,16 +44,23 @@ use std::{
 };
 
 // Mixed pages use a high-resolution bilevel foreground for text. Their
-// continuous-tone plate should remain coarse: raising it to the mask grid adds
-// no detail and turns compact MRC scans into hundreds of megabytes of JPEGs.
+// continuous-tone plate stays coarse unless a confirmed picture has no
+// reusable source-MRC JPX; that fallback gets enough resolution to avoid
+// turning a photograph into a 120-DPI thumbnail.
 const LAYERED_BACKGROUND_MAX_DPI: f64 = 200.0;
+const PHOTO_BACKGROUND_MAX_DPI: f64 = 300.0;
 const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
 
-fn layered_background_dpi(options: &CleanupOptions) -> f64 {
+fn layered_background_dpi(options: &CleanupOptions, confirmed_picture: bool) -> f64 {
+    let max_dpi = if confirmed_picture {
+        PHOTO_BACKGROUND_MAX_DPI
+    } else {
+        LAYERED_BACKGROUND_MAX_DPI
+    };
     options
         .source_background_dpi()
         .min(options.dpi)
-        .min(LAYERED_BACKGROUND_MAX_DPI)
+        .min(max_dpi)
 }
 
 fn layered_foreground_dpi(options: &CleanupOptions) -> f64 {
@@ -1710,6 +1717,7 @@ fn run_page(
     // retaining selected ink and raw-supported additions in the foreground.
     let mut options = options;
     options.trusted_selection_incomplete = background_factor > 1;
+    options.trusted_mrc_source_available = trusted_mrc_background_dimensions.is_some();
     if trusted_mrc_background_dimensions.is_some() != trusted_foreground_mask.is_some() {
         return Err(Box::new(invalid(
             "Trusted MRC evidence must provide both background and foreground selection layers",
@@ -1940,8 +1948,17 @@ fn run_page(
                     let foreground_path = foreground_path.ok_or_else(|| {
                         invalid("Layered cleanup output is missing its foreground destination")
                     })?;
+                    // Source-MRC pages already carry the authored high-DPI
+                    // photo detail through their JPX+smask pair. Only pages
+                    // without that safe affine reuse need the larger fresh
+                    // continuous-tone plate.
+                    let confirmed_picture = output
+                        .picture_mask
+                        .as_ref()
+                        .is_some_and(|mask| mask.count_black() > 0)
+                        && !layers.source_mrc;
+                    let background_dpi = layered_background_dpi(&options, confirmed_picture);
                     let layer_result = (|| -> Result<(), String> {
-                        let background_dpi = layered_background_dpi(&options);
                         let matched_background_width =
                             ((layers.foreground_mask.width() as f64 * background_dpi / options.dpi)
                                 .round() as usize)
@@ -2034,8 +2051,7 @@ fn run_page(
                         } else {
                             LayeredForegroundKind::Stencil
                         });
-                        output.metadata.layered_background_dpi =
-                            Some(layered_background_dpi(&options));
+                        output.metadata.layered_background_dpi = Some(background_dpi);
                         output.metadata.layered_foreground_dpi = if layers.source_mrc {
                             // The published selection mask remains on the
                             // rendered page grid. The original JP2's own
@@ -2754,6 +2770,14 @@ fn match_layers_in_memory(
     placement: CanvasPlacement,
     canvas: &DocumentCanvas,
 ) {
+    let confirmed_picture = output
+        .picture_mask
+        .as_ref()
+        .is_some_and(|mask| mask.count_black() > 0)
+        && !output
+            .mixed_layers
+            .as_ref()
+            .is_some_and(|layers| layers.source_mrc);
     let Some(layers) = output.mixed_layers.as_mut() else {
         return;
     };
@@ -2783,7 +2807,7 @@ fn match_layers_in_memory(
             0,
         ));
     }
-    let background_dpi = layered_background_dpi(options);
+    let background_dpi = layered_background_dpi(options, confirmed_picture);
     // The matched canvas is intentionally the high-resolution bilevel grid.
     // Deriving the JPEG plate from `background_dpi / options.dpi` therefore
     // upscaled it whenever the document canvas used a finer B&W DPI than the
@@ -2996,7 +3020,7 @@ fn match_page_sizes(
                     // mask's: the pair keeps the ratio the assembler expects.
                     let background_dpi = metadata
                         .layered_background_dpi
-                        .unwrap_or_else(|| layered_background_dpi(&output.options));
+                        .unwrap_or_else(|| layered_background_dpi(&output.options, false));
                     let background_ratio = background_dpi / output.options.dpi;
                     let on_background_grid =
                         |value: usize| ((value as f64 * background_ratio).round() as usize).max(1);

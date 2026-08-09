@@ -424,6 +424,11 @@ pub struct CleanupOptions {
     /// stays safe; bilevel output must not adopt the selection as its ink.
     #[serde(default)]
     pub trusted_selection_incomplete: bool,
+    /// Set by the batch adapter only after both extracted source-MRC layers
+    /// pass their aspect-ratio and format checks. A bare trusted selection is
+    /// useful as analysis evidence, but cannot authorize publishing the JPX.
+    #[serde(skip)]
+    pub trusted_mrc_source_available: bool,
     pub requested_render_dpi: Option<f64>,
     /// Optional preview tile in normalized final intrinsic-output space.
     pub render_crop: Option<NormalizedRect>,
@@ -482,6 +487,7 @@ impl Default for CleanupOptions {
             source_has_bilevel_layer: false,
             source_background_dpi: None,
             trusted_selection_incomplete: false,
+            trusted_mrc_source_available: false,
             requested_render_dpi: None,
             render_crop: None,
             classify_only: None,
