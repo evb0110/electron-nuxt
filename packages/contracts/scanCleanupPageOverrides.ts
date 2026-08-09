@@ -167,16 +167,16 @@ export function toScanCleanupLayoutByPage(
 }
 
 /**
- * What a cached preview has to be revalidated against when detection lands: the
- * spread pages, run-length encoded.
+ * Compact main-process request identity for the spread classifications a
+ * matched render was asked to use.
  *
  * That is the whole of it, because a spread is the only classification the
  * matched canvas reads — every other page is measured as the whole sheet it is,
  * classified or not (see resolveScanCleanupDocumentCanvas). Classifying another
- * page as anything but a spread therefore cannot move the rectangle a preview
- * was drawn on, and keying on the number of classifications would throw away
- * every cached page, cancel the render in flight and redraw it, for each of the
- * hundreds of pages a detection pass settles.
+ * page as anything but a spread therefore cannot move the rectangle. Renderer
+ * invalidation is deliberately keyed on the resolved canvas plan instead: on
+ * a spread-majority book this set can grow hundreds of times while the actual
+ * rectangle remains unchanged.
  */
 export function scanCleanupLayoutSignature(layouts: TScanCleanupLayoutByPage) {
     const spreads = Object.entries(layouts)

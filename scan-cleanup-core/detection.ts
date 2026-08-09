@@ -40,6 +40,10 @@ import {
     readAvailableScratchBytes,
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
+import {
+    resolveScanCleanupDocumentCanvas,
+    scanCleanupDocumentCanvasSignature,
+} from '@scan-cleanup-core/policy/documentCanvas';
 
 export const PREVIEW_DPI = 150;
 // Native mode selection and final rendering share a 150-DPI analysis ceiling.
@@ -565,7 +569,11 @@ export async function runScanCleanupDetection<TDocument>(
     retention: IScanCleanupDetectionRetention<TDocument>,
     dependencies: IScanCleanupDetectionDependencies,
     policy: Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency'>,
-    publish: (results: IScanCleanupDetectionResult[], progress: TScanCleanupProgress) => void,
+    publish: (
+        results: IScanCleanupDetectionResult[],
+        progress: TScanCleanupProgress,
+        documentCanvasSignature: string,
+    ) => void,
     log: TScanCleanupLog = () => undefined,
 ) {
     // The document opens first: a scratch directory created before it has
@@ -590,12 +598,48 @@ export async function runScanCleanupDetection<TDocument>(
             pageSizes,
             sourceRasterStructure.sourceDpiByPage,
         );
+        const matchedPreviewDpis = [...previewRasterPlan.renderDpiByPageNumber.values()];
+        const matchedPreviewDpi = matchedPreviewDpis.length > 0
+            ? Math.min(...matchedPreviewDpis)
+            : previewRasterPlan.dpi;
+        const baselineCanvasSignature = scanCleanupDocumentCanvasSignature(
+            request.options.matchPageSize
+                ? resolveScanCleanupDocumentCanvas(
+                    pageSizes,
+                    matchedPreviewDpi,
+                    request.options,
+                )
+                : null,
+        );
         const detectionDpiForPage = (pageNumber: number) =>
             previewRasterPlan.detectionDpiByPageNumber.get(pageNumber)
             ?? Math.min(DETECTION_DPI, previewRasterPlan.dpi);
         const results = new Map<number, IScanCleanupDetectionResult>();
         const publishedResults = () => [...results.values()]
             .sort((left, right) => left.pageNumber - right.pageNumber);
+        const documentCanvasSignature = () => {
+            if (!request.options.matchPageSize) {
+                return '';
+            }
+            const layoutByPage = Object.fromEntries([...results].map(([
+                pageNumber,
+                result,
+            ]) => [
+                String(pageNumber),
+                result.classification,
+            ]));
+            const signature = scanCleanupDocumentCanvasSignature(resolveScanCleanupDocumentCanvas(
+                pageSizes,
+                matchedPreviewDpi,
+                request.options,
+                layoutByPage,
+            ));
+            // The first preview is already measured against the unclassified
+            // document. Preserve that identity until the resolved plan truly
+            // moves, instead of restarting it when detection merely announces
+            // the same full-sheet rectangle.
+            return signature === baselineCanvasSignature ? '' : signature;
+        };
         let analyzedPages = 0;
         // Detection and visible previews use the native classifier's 150-DPI
         // ceiling without upsampling a proven lower-resolution page. On POSIX,
@@ -699,7 +743,7 @@ export async function runScanCleanupDetection<TDocument>(
             totalUnits: totalPages,
             percent: totalPages === 0 ? 100 : rasterizedPageNumbers.size / totalPages * 100,
             completedPageNumbers: [...rasterizedPageNumbers],
-        });
+        }, documentCanvasSignature());
         publishRasterizing();
         const renderedPaths = new Map<number, string>();
         const rasterScratchPaths = new Map<number, string>();
@@ -924,7 +968,7 @@ export async function runScanCleanupDetection<TDocument>(
                         stage: 'detecting',
                         completedUnits: analyzedPages,
                         percent: progress.totalUnits === 0 ? 100 : analyzedPages / progress.totalUnits * 100,
-                    });
+                    }, documentCanvasSignature());
                     return;
                 }
                 if (nativeProgress.stage !== 'page-complete' || !recordResult(nativeProgress)) {
@@ -936,7 +980,7 @@ export async function runScanCleanupDetection<TDocument>(
                     stage: 'detecting',
                     completedUnits,
                     percent: progress.totalUnits === 0 ? 100 : completedUnits / progress.totalUnits * 100,
-                });
+                }, documentCanvasSignature());
             },
             {priority: 'background'},
         );

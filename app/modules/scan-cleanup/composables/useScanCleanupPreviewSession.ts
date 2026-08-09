@@ -12,7 +12,6 @@ import type {TDocumentRef} from '@contracts/documentRef';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
-    scanCleanupLayoutSignature,
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
 } from '@contracts/scanCleanupPageOverrides';
@@ -47,6 +46,7 @@ const PREVIEW_CANCELLATION_RETRY_LIMIT = 2;
 interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
+    documentCanvasSignature: Ref<string>;
     documentRevision: ComputedRef<string>;
     documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
     initialViewMode?: 'original' | 'cleaned' | undefined;
@@ -68,11 +68,10 @@ export function createScanCleanupPreviewCacheKey(
     previewSourcePath: TDocumentRef | null,
     documentRevision: string | null = null,
     documentPrior: IScanCleanupDocumentPrior | null = null,
-    // Already reduced by scanCleanupLayoutSignature: a cache key is asked for
-    // once per page on every schedule and every prefetch candidate, and
-    // reducing the whole document's layouts inside each of those turns one
-    // navigation into a pass over every page of the document, repeatedly.
-    layoutSignature = '',
+    // Already reduced from the shared document-canvas plan in the main
+    // process. A cache key is asked for once per schedule and prefetch, so it
+    // consumes the plan identity rather than re-planning the document here.
+    documentCanvasSignature = '',
     // Likewise already reduced, by scanCleanupMatchedCanvasOverridesSignature.
     // This one cannot be derived here at all: `previewOptions` carries only the
     // keyed page's override, and the canvas is measured from every page's.
@@ -81,22 +80,20 @@ export function createScanCleanupPreviewCacheKey(
     // started. It revalidates the one cached entry owned by this page.
     outputModeRecommendation: TScanCleanupOutputMode | null = null,
     softAlphaForegroundRecommendation: boolean | null = null,
+    pageLayoutClassification: TScanCleanupLayoutClassification | null = null,
 ) {
     const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
-    // Detection's contribution is keyed separately from the page's identity: it
-    // lands for the whole document at once, and the cache revalidates an entry
-    // against it instead of orphaning it. The matched canvas belongs here too:
-    // the main process measures it from the document's geometry, from these
-    // layouts and from every page's own overrides, so a detection pass that
-    // changes which pages are spreads — or an exclusion, a layout choice, a
-    // manual split or an output mode set on some other page — changes the
-    // rectangle every page was drawn on.
+    // The visible page's classification decides its own output count, while
+    // the main process's canvas signature changes only when the shared
+    // rectangle actually moves. Document-wide overrides remain separate
+    // because they can move that rectangle before another preview is run.
     const validity = JSON.stringify({
         documentPrior,
         outputModeRecommendation,
         softAlphaForegroundRecommendation,
-        layouts: previewOptions.matchPageSize ? layoutSignature : '',
+        canvas: previewOptions.matchPageSize ? documentCanvasSignature : '',
         canvasOverrides: previewOptions.matchPageSize ? matchedCanvasOverridesSignature : '',
+        pageLayoutClassification,
     });
     const identity = JSON.stringify({
         sourcePath: previewSourcePath,
@@ -312,6 +309,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         previewSourcePath = options.sourcePath.value,
     ) {
         const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
+        const authoritativeLayout = options.authoritativeLayoutByPage.value.get(pageNumber);
+        const renderedLayout = metadataByPage.get(pageNumber)?.layoutClassification;
+        const unresolvedPageLayout = authoritativeLayout === renderedLayout
+            ? null
+            : authoritativeLayout ?? null;
         return createScanCleanupPreviewCacheKey(
             pageNumber,
             {
@@ -324,10 +326,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             previewSourcePath,
             options.documentRevision.value,
             options.documentPriorByPage.get(pageNumber) ?? null,
-            layoutSignature.value,
+            options.documentCanvasSignature.value,
             matchedCanvasOverridesSignature.value,
             resolveOutputModeRecommendation(pageNumber) ?? null,
             resolveSoftAlphaForegroundRecommendation(pageNumber) ?? null,
+            unresolvedPageLayout,
         ) + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`;
     }
 
@@ -336,11 +339,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     // run, plus their manual layout choices — so the preview it draws and the
     // run it starts are measured against the same document.
     //
-    // Both are derived once per change of that view rather than once per
-    // request: every preview, prefetch candidate and cache key of a burst reads
-    // the same record and the same signature.
+    // Derived once per change of that view rather than once per request: every
+    // preview and prefetch candidate in a burst reads the same record.
     const layoutByPage = computed(() => toScanCleanupLayoutByPage(options.authoritativeLayoutByPage.value));
-    const layoutSignature = computed(() => scanCleanupLayoutSignature(layoutByPage.value));
     // The other half of what the canvas is measured from: the page overrides of
     // the whole document, which a single page's cache key cannot see. Derived
     // once per settings change for the same reason — a burst reads it, it does

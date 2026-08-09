@@ -2530,6 +2530,7 @@ export function createScanCleanupPreviewService(
             completed: (latest, result) => ({
                 jobId: latest.jobId,
                 status: 'completed',
+                documentCanvasSignature: latest.documentCanvasSignature ?? '',
                 progress: {
                     stage: 'detecting',
                     completedUnits: result.results.length,
@@ -2963,6 +2964,7 @@ export function createScanCleanupPreviewService(
                 initialProgress: {
                     jobId,
                     status: 'queued',
+                    documentCanvasSignature: '',
                     progress: {
                         stage: 'queued',
                         completedUnits: 0,
@@ -3014,9 +3016,10 @@ export function createScanCleanupPreviewService(
                             detectionRetention,
                             detectionDependencies,
                             {rasterConcurrency: rasterPolicy.rasterConcurrency},
-                            (nextResults, progress) => job.publish({
+                            (nextResults, progress, documentCanvasSignature) => job.publish({
                                 jobId,
                                 status: 'running',
+                                documentCanvasSignature,
                                 progress,
                                 results: nextResults,
                                 updatedAtMs: Date.now(),

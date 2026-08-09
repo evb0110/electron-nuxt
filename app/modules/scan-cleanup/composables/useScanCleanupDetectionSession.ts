@@ -88,6 +88,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const starting = ref(false);
     const autoPending = ref(false);
     const jobState = shallowRef<TScanCleanupDetectionJobState | null>(null);
+    const documentCanvasSignature = shallowRef('');
     const detectionResultsByPage = new Map<number, IScanCleanupDetectionResult>();
     const error = ref('');
     const errorCode = ref<TScanCleanupErrorCode | null>(null);
@@ -299,7 +300,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // geometry, so toggling it no longer changes anything detection reports and
     // must not throw a whole document's evidence away. So is excluded: it only
     // decides whether the analyzed page reaches the output, so toggling it must
-    // not drop the page back to a pending spinner.
+    // not drop the page back to a pending spinner. Manual content boxes are
+    // render overrides over the retained automatic page-plan evidence; editing
+    // one must redraw that page, not restart document reconciliation.
     const documentSignature = computed(() => {
         const lossless = options.settings.preserveOriginalQuality === true;
         return JSON.stringify({
@@ -324,7 +327,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     rotationDegrees: pageOverride.rotationDegrees,
                     manualSplit: pageOverride.manualSplit,
                     manualSkewDegrees: pageOverride.manualSkewDegrees,
-                    manualContentBoxes: pageOverride.manualContentBoxes ?? {},
                     manualZones: pageOverride.manualZones ?? {
                         picture: [],
                         fill: [],
@@ -421,6 +423,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 .sort((left, right) => left.pageNumber - right.pageNumber),
         };
         jobState.value = accumulatedState;
+        documentCanvasSignature.value = accumulatedState.documentCanvasSignature ?? '';
         for (const pageNumber of state.progress.completedPageNumbers ?? []) settledPages.add(pageNumber);
         const completedWithCurrentEvidence = state.status === 'completed' && evidenceIsCurrent();
         applyScanCleanupDetectionResults(
@@ -456,6 +459,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         if (!disposed && state.status === 'completed' && !completedWithCurrentEvidence) {
             jobState.value = null;
+            documentCanvasSignature.value = '';
             scheduleAutoDetect();
         }
     }
@@ -488,6 +492,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobDocumentRevision = requestDocumentRevision;
         jobId = null;
         jobState.value = null;
+        documentCanvasSignature.value = '';
         starting.value = true;
         let result;
         try {
@@ -579,6 +584,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (!isStale() && result.jobId === jobId) {
                 jobId = null;
                 jobState.value = null;
+                documentCanvasSignature.value = '';
                 error.value = caught instanceof Error && caught.message
                     ? `Scan cleanup detection could not be observed after subscription failed (${caught.message})`
                     : 'Scan cleanup detection could not be observed after subscription failed';
@@ -809,6 +815,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobDocumentKey = key;
         jobDocumentRevision = options.documentRevision.value;
         jobState.value = structuredClone(cached.state);
+        documentCanvasSignature.value = cached.state.documentCanvasSignature ?? '';
         detectionResultsByPage.clear();
         for (const result of cached.results) detectionResultsByPage.set(result.pageNumber, result);
         signatures.clear();
@@ -897,6 +904,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobDocumentRevision = null;
         jobDocumentKey = options.lifecycleDocumentKey.value;
         jobState.value = null;
+        documentCanvasSignature.value = '';
         error.value = '';
         errorCode.value = null;
         signatures.clear();
@@ -966,6 +974,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             if (!isDetecting.value) {
                 jobState.value = null;
+                documentCanvasSignature.value = '';
                 scheduleAutoDetect();
             }
         },
@@ -994,6 +1003,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         cancelRequested,
         confidenceByPage,
         detectAllPages,
+        documentCanvasSignature,
         documentPriorByPage,
         error,
         errorCode,

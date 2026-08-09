@@ -142,7 +142,7 @@
                     :alignment="settings.pageAlignment"
                     :page-number="previewPage"
                     :total-pages="previewTotalPages"
-                    :stale-page="previewResult !== null && !previewResultCurrent"
+                    :stale-page="previewResult !== null && previewResult.pageNumber !== previewPage"
                     :show-margin-boundary="marginBoundaryVisible"
                     :manual-split="currentPageOverride.manualSplit"
                     :reading-order="settings.readingOrder"

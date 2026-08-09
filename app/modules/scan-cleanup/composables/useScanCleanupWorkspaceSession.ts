@@ -72,6 +72,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     previewResult = useScanCleanupPreviewSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
+        documentCanvasSignature: detection.documentCanvasSignature,
         documentRevision,
         documentPriorByPage: detection.documentPriorByPage,
         initialViewMode: options.initialPreviewViewMode?.(),

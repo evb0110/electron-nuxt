@@ -824,6 +824,8 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
     if (
         !isRecord(value)
         || typeof value.jobId !== 'string'
+        || (value.documentCanvasSignature !== undefined
+            && typeof value.documentCanvasSignature !== 'string')
         || typeof value.updatedAtMs !== 'number'
         || !Number.isFinite(value.updatedAtMs)
         || !isRecord(value.progress)
@@ -933,6 +935,9 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
     ) throw new Error('invalid scan-cleanup detection result count');
     const base = {
         jobId: value.jobId,
+        ...(typeof value.documentCanvasSignature === 'string'
+            ? {documentCanvasSignature: value.documentCanvasSignature}
+            : {}),
         progress,
         results,
         updatedAtMs: value.updatedAtMs,

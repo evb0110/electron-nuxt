@@ -321,6 +321,7 @@ function mountPreviewSession(
         session = useScanCleanupPreviewSession({
             active: () => true,
             authoritativeLayoutByPage: computed(() => new Map()),
+            documentCanvasSignature: computed(() => ''),
             documentRevision: computed(() => 'revision-1'),
             documentPriorByPage,
             ...(initialViewMode === undefined ? {} : {initialViewMode}),

@@ -88,6 +88,58 @@ const cases: IGoldenCase[] = [
 ];
 
 describe('native scan-cleanup manifest builder', () => {
+    it('keeps manual crops out of automatic page-plan evidence but retains them for rendering', () => {
+        const manualContentBoxes = {right: {
+            xNormalized: 0.55,
+            yNormalized: 0.1,
+            widthNormalized: 0.35,
+            heightNormalized: 0.8,
+            rotationDegrees: 0 as const,
+        }};
+        const optionsWithManualCrop: IScanCleanupOptions = {
+            ...options,
+            pageOverrides: {'1': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                manualContentBoxes,
+            }},
+        };
+        const page = {
+            inputPath: '/fixtures/input/page-1.png',
+            pageNumber: 1,
+            dpi: 150,
+            pageMetadataPath: '/fixtures/output/page-1.json',
+        };
+        const pagePlan = buildNativeScanCleanupManifest({
+            operation: 'analyze',
+            analysisPurpose: 'page-plan',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            qualityPath: 'raster',
+            options: optionsWithManualCrop,
+            pages: [page],
+        });
+        const preview = buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            qualityPath: 'raster',
+            options: optionsWithManualCrop,
+            pages: [{
+                ...page,
+                outputs: [{
+                    outputPath: '/fixtures/output/page-1.png',
+                    metadataPath: '/fixtures/output/page-1-output.json',
+                }],
+            }],
+        });
+
+        expect(pagePlan.pages[0]?.options.manualContentBoxes).toEqual({});
+        expect(preview.pages[0]?.options.manualContentBoxes).toEqual(manualContentBoxes);
+    });
+
     it('preflights a heterogeneous 392-page geometry ledger and names the exact bad page', () => {
         const rotations = [
             0,

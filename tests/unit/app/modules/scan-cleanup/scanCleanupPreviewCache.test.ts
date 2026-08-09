@@ -7,13 +7,13 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     IScanCleanupPreviewResult,
-    TScanCleanupLayoutByPage,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
+import {scanCleanupMatchedCanvasOverridesSignature} from '@contracts/scanCleanupPageOverrides';
 import {
-    scanCleanupLayoutSignature,
-    scanCleanupMatchedCanvasOverridesSignature,
-} from '@contracts/scanCleanupPageOverrides';
+    resolveScanCleanupDocumentCanvas,
+    scanCleanupDocumentCanvasSignature,
+} from '@scan-cleanup-core/policy/documentCanvas';
 import {
     createScanCleanupDetailTileCacheKey,
     createScanCleanupPreviewCacheKey,
@@ -335,13 +335,22 @@ describe('scan cleanup renderer preview cache', () => {
         }
     });
 
-    it('revalidates a matched preview against the layouts its canvas was measured from', () => {
-        const spreads = {
-            '1': 'two-page-spread',
-            '2': 'two-page-spread',
-        } as const;
+    it('revalidates a matched preview only when its resolved canvas plan moves', () => {
+        const changedCanvas = scanCleanupDocumentCanvasSignature({
+            widthPoints: 600,
+            heightPoints: 800,
+            widthPx: 1250,
+            heightPx: 1667,
+        });
         const unclassified = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null);
-        const classified = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null, scanCleanupLayoutSignature(spreads));
+        const classified = createScanCleanupPreviewCacheKey(
+            1,
+            previewOptions,
+            '/tmp/source.pdf',
+            'rev',
+            null,
+            changedCanvas,
+        );
         const separator = SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR;
 
         // Learning that the document is spreads halves the sheet every page is
@@ -349,48 +358,92 @@ describe('scan cleanup renderer preview cache', () => {
         // but it is the same page, so it is revalidated rather than orphaned.
         expect(classified).not.toBe(unclassified);
         expect(classified.split(separator)[0]).toBe(unclassified.split(separator)[0]);
-        // The same layouts answer the same key, whatever order they arrived in.
-        expect(createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null, scanCleanupLayoutSignature({
-            '2': 'two-page-spread',
-            '1': 'two-page-spread',
-        }))).toBe(classified);
-        // Without matching there is no canvas for a layout to move.
-        const unmatched = {
-            ...previewOptions,
-            matchPageSize: false,
-        };
-        expect(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null, scanCleanupLayoutSignature(spreads)))
-            .toBe(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null));
-    });
-
-    it('keeps a matched preview across the classifications that cannot move its canvas', () => {
-        const keyFor = (layouts: TScanCleanupLayoutByPage) => createScanCleanupPreviewCacheKey(
+        expect(createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
             '/tmp/source.pdf',
             'rev',
             null,
-            scanCleanupLayoutSignature(layouts),
+            changedCanvas,
+        )).toBe(classified);
+        // Without matching there is no canvas for a layout to move.
+        const unmatched = {
+            ...previewOptions,
+            matchPageSize: false,
+        };
+        expect(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null, changedCanvas))
+            .toBe(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null));
+    });
+
+    it('keeps a homogeneous-spread preview stable until the computed canvas actually changes', () => {
+        const pages = Array.from({length: 4}, (_, index) => ({
+            pageNumber: index + 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 1_200,
+            heightPoints: 800,
+            rotation: 0,
+        }));
+        const baselinePlanSignature = scanCleanupDocumentCanvasSignature(
+            resolveScanCleanupDocumentCanvas(pages, 150, previewOptions),
+        );
+        const signatureFor = (spreadPages: readonly number[]) => {
+            const layouts = Object.fromEntries(spreadPages.map(pageNumber => [
+                String(pageNumber),
+                'two-page-spread' as const,
+            ]));
+            const signature = scanCleanupDocumentCanvasSignature(
+                resolveScanCleanupDocumentCanvas(pages, 150, previewOptions, layouts),
+            );
+            return signature === baselinePlanSignature ? '' : signature;
+        };
+        const keyFor = (spreadPages: readonly number[]) => createScanCleanupPreviewCacheKey(
+            1,
+            previewOptions,
+            '/tmp/source.pdf',
+            'rev',
+            null,
+            signatureFor(spreadPages),
+            '',
+            null,
+            null,
+            'two-page-spread',
         );
 
-        // A detection pass settles one page at a time, for hundreds of pages.
-        // Every page it finds is measured as the whole sheet it is — the same
-        // measurement an unclassified page gets — so none of these move the
-        // rectangle any page was drawn on, and re-keying on them would cancel
-        // and redraw the whole document once per page.
-        const single = keyFor({'1': 'single-uncut-page'});
-        expect(single).toBe(keyFor({}));
-        expect(keyFor({
-            '1': 'single-uncut-page',
-            '2': 'page-with-offcut',
-            '3': 'single-uncut-page',
-        })).toBe(single);
-        // A page that turns out to be a spread does move it: the document is
-        // measured by the half sheets that page produces.
-        expect(keyFor({
-            '1': 'single-uncut-page',
-            '2': 'two-page-spread',
-        })).not.toBe(single);
+        // Unknown pages remain full sheets. Incremental spread results do not
+        // move the largest output rectangle until the last unknown page lands.
+        const provisional = keyFor([1]);
+        expect(keyFor([
+            1,
+            2,
+        ])).toBe(provisional);
+        expect(keyFor([
+            1,
+            2,
+            3,
+        ])).toBe(provisional);
+        expect(keyFor([
+            1,
+            2,
+            3,
+            4,
+        ])).not.toBe(provisional);
+    });
+
+    it('revalidates when the visible page itself is newly reclassified', () => {
+        const keyFor = (classification: 'two-page-spread' | null) => createScanCleanupPreviewCacheKey(
+            1,
+            previewOptions,
+            '/tmp/source.pdf',
+            'rev',
+            null,
+            '',
+            '',
+            null,
+            null,
+            classification,
+        );
+        expect(keyFor('two-page-spread')).not.toBe(keyFor(null));
     });
 
     it('revalidates a matched preview against every page\'s canvas inputs, not just its own', () => {

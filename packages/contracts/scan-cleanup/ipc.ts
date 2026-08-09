@@ -383,6 +383,12 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
 
 interface IScanCleanupDetectionJobBase {
     jobId: string;
+    /**
+     * Canonical matched-canvas plan identity for the classifications settled
+     * so far. The pre-detection plan is represented by the empty string, so
+     * merely beginning detection cannot invalidate an identical preview.
+     */
+    documentCanvasSignature?: string;
     progress: TScanCleanupProgress;
     results: IScanCleanupDetectionResult[];
     updatedAtMs: number;

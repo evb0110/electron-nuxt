@@ -2228,7 +2228,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('reschedules completed recommendations whenever page evidence changes', async () => {
+    it('reschedules completed recommendations only when detection evidence changes', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`evidence-invalidation-${Date.now()}`);
@@ -2268,17 +2268,100 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.session.settings.values.pageOverrides['1'] = {
             ...mounted.session.settings.values.pageOverrides['1']!,
             excluded: false,
-            manualContentBoxes: {full: {
-                xNormalized: 0.1,
+            manualContentBoxes: {right: {
+                xNormalized: 0.55,
                 yNormalized: 0.1,
-                widthNormalized: 0.8,
+                widthNormalized: 0.35,
                 heightNormalized: 0.8,
                 rotationDegrees: 90,
             }},
         };
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(5));
+        await nextTick();
         await new Promise(resolve => setTimeout(resolve, 0));
-        expect(harness.value.detectAll).toHaveBeenCalledTimes(5);
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(4);
+        expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1))
+            .toBe('single-uncut-page');
+        mounted.unmount();
+    });
+
+    it('keeps a right-half manual crop through preview refresh and later detection results', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => (
+            previewResult(request.pageNumber, 'two-page-spread')
+        ));
+        capability.value = harness.value;
+        const mounted = mountSession(`manual-crop-detection-${Date.now()}`);
+        const automaticRight = (xNormalized: number): IScanCleanupPagePlanEvidence => ({
+            pageNumber: 1,
+            rotationDegrees: 0,
+            layoutClassification: 'two-page-spread',
+            automaticSplit: {
+                xNormalized: 0.5,
+                rotationDegrees: 0,
+            },
+            outputs: {right: {contentBox: {
+                xNormalized,
+                yNormalized: 0.05,
+                widthNormalized: 0.4,
+                heightNormalized: 0.9,
+                rotationDegrees: 0,
+            }}},
+        });
+        const completedSpread = (jobId: string, xNormalized: number): TScanCleanupDetectionJobState => {
+            const state = detectionState(jobId, 'completed');
+            state.results[0] = {
+                ...state.results[0]!,
+                classification: 'two-page-spread',
+                cutterXPx: 500,
+                tier1Verdict: 'two-page-spread',
+                pagePlanEvidence: automaticRight(xNormalized),
+            };
+            return state;
+        };
+        const visiblePageOneRequests = () => vi.mocked(harness.value.preview).mock.calls
+            .flatMap(([request]) => request?.pageNumber === 1 && request.visible === true
+                ? [request]
+                : []);
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(completedSpread('detect-1', 0.52));
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+        await vi.waitFor(() => expect(visiblePageOneRequests().length).toBeGreaterThan(0));
+        const previewRequestsBeforeManualCrop = visiblePageOneRequests().length;
+        const retainedEvidence = mounted.session.detection.pagePlanEvidenceByPage.get(1);
+        const manualRight = {
+            xNormalized: 0.6,
+            yNormalized: 0.12,
+            widthNormalized: 0.3,
+            heightNormalized: 0.75,
+            rotationDegrees: 0 as const,
+        };
+
+        mounted.session.selection.updateCurrentManualContentBox('right', manualRight);
+
+        await vi.waitFor(() => expect(visiblePageOneRequests().length)
+            .toBeGreaterThan(previewRequestsBeforeManualCrop));
+        expect(harness.value.detectAll).toHaveBeenCalledOnce();
+        expect(mounted.session.detection.pending.value).toBe(false);
+        expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1))
+            .toBe('two-page-spread');
+        expect(mounted.session.detection.pagePlanEvidenceByPage.get(1)).toBe(retainedEvidence);
+        expect(mounted.session.settings.values.pageOverrides['1']?.manualContentBoxes)
+            .toEqual({right: manualRight});
+        expect(visiblePageOneRequests().at(-1)?.options.pageOverrides['1']?.manualContentBoxes)
+            .toEqual({right: manualRight});
+
+        await mounted.session.detection.detectAllPages();
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
+        harness.emitDetection(completedSpread('detect-2', 0.54));
+
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+        expect(mounted.session.detection.pagePlanEvidenceByPage.get(1))
+            .toEqual(automaticRight(0.54));
+        expect(mounted.session.settings.values.pageOverrides['1']?.manualContentBoxes)
+            .toEqual({right: manualRight});
+        await vi.waitFor(() => expect(visiblePageOneRequests().at(-1)
+            ?.options.pageOverrides['1']?.manualContentBoxes).toEqual({right: manualRight}));
         mounted.unmount();
     });
 

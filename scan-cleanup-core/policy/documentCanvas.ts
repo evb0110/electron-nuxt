@@ -34,6 +34,24 @@ export interface IScanCleanupInsets {
     bottom: number;
 }
 
+/**
+ * Stable bridge/cache identity for the document canvas the shared planner
+ * already owns. Keep this beside the planner so callers never invent a second
+ * representation of matched-page geometry.
+ */
+export function scanCleanupDocumentCanvasSignature(
+    canvas: IScanCleanupDocumentCanvasPlan | null,
+) {
+    return JSON.stringify(canvas === null
+        ? null
+        : [
+            canvas.widthPoints,
+            canvas.heightPoints,
+            canvas.widthPx,
+            canvas.heightPx,
+        ]);
+}
+
 function normalizeScanCleanupQuarterTurns(rotationDegrees: number) {
     return ((Math.round(rotationDegrees / 90) % 4) + 4) % 4;
 }
