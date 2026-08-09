@@ -5198,6 +5198,21 @@ fn compose_mixed(
     create_layers: bool,
     create_composite: bool,
 ) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
+    // Mixed has two mutually exclusive owners: the binary foreground owns
+    // text, while the protected picture mask owns continuous-tone detail.
+    // Binarization already excludes this area, but later text-recall and
+    // source-ink-support passes can add pixels back. Enforce the ownership
+    // boundary at the composition boundary so every Mixed path, including
+    // soft-alpha composition, has the same protection against leaked ink.
+    let protection_radius = picture_protection_radius(dpi);
+    let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
+    let owned_binary = binary.subtract(&protected_picture_mask);
+    debug_assert_eq!(
+        owned_binary.and(&protected_picture_mask).count_black(),
+        0,
+        "Mixed foreground must not overlap protected picture ownership"
+    );
+    let binary = &owned_binary;
     if use_soft_alpha_foreground {
         return compose_soft_alpha_mixed(
             gray,
@@ -5236,8 +5251,6 @@ fn compose_mixed(
     } else {
         (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize
     };
-    let protection_radius = picture_protection_radius(dpi);
-    let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
     let picture_exterior = picture_mask.invert();
     let (distance_to_picture_exterior, distance_to_stencil) = rayon::join(
         || squared_euclidean_distance(&picture_exterior),

@@ -3275,7 +3275,11 @@ mod tests {
             true,
         );
         let layers = layers.expect("Mixed output retains its separable layers");
-        assert_eq!(composite.get(22, 16), 0);
+        assert_eq!(
+            composite.get(22, 16),
+            132,
+            "a leaked binary blob inside a picture must remain picture-owned"
+        );
         assert_eq!(layers.background.get(22, 16), 132);
         assert_eq!(
             layers
@@ -3286,7 +3290,7 @@ mod tests {
             [82, 126, 174]
         );
         assert_eq!(layers.background.get(5, 3), 255);
-        assert_eq!(composite_color.unwrap().get(22, 16), [0, 0, 0]);
+        assert_eq!(composite_color.unwrap().get(22, 16), [82, 126, 174]);
 
         let (_, _, soft_layers) = compose_mixed(
             &gray,
@@ -4107,27 +4111,27 @@ mod tests {
 
     #[test]
     fn trusted_mixed_foreground_never_overpaints_picture_ownership() {
-        let mut gray = GrayImage::new(9, 3, 255);
-        gray.set(2, 1, 18);
+        let mut gray = GrayImage::new(24, 3, 255);
         gray.set(4, 1, 72);
-        gray.set(6, 1, 18);
-        let mut trusted = BinaryImage::new(9, 3);
-        trusted.set(2, 1, true);
+        gray.set(12, 1, 18);
+        gray.set(18, 1, 18);
+        let mut trusted = BinaryImage::new(24, 3);
+        trusted.set(12, 1, true);
         trusted.set(4, 1, true);
-        let mut picture = BinaryImage::new(9, 3);
+        let mut picture = BinaryImage::new(24, 3);
         picture.set(4, 1, true);
         let clipped = trusted_mixed_foreground(Some(&trusted), &picture)
             .expect("trusted source selection remains available");
 
-        assert!(clipped.get(2, 1), "trusted text remains foreground-owned");
+        assert!(clipped.get(12, 1), "trusted text remains foreground-owned");
         assert!(
             !clipped.get(4, 1),
             "trusted picture detail is removed from the stencil candidate"
         );
 
         for trusted_selection_complete in [false, true] {
-            let mut fresh = BinaryImage::new(9, 3);
-            fresh.set(6, 1, true);
+            let mut fresh = BinaryImage::new(24, 3);
+            fresh.set(18, 1, true);
             let stencil = enforce_source_ink_support(
                 fresh,
                 &gray,
@@ -4153,21 +4157,108 @@ mod tests {
             );
             let layers = layers.expect("Mixed composition retains separate layers");
 
-            assert!(layers.foreground_mask.get(2, 1));
+            assert!(layers.foreground_mask.get(12, 1));
             assert!(!layers.foreground_mask.get(4, 1));
             assert!(layers.background.get(4, 1) < 255);
             if !trusted_selection_complete {
                 assert!(
-                    layers.foreground_mask.get(6, 1),
+                    layers.foreground_mask.get(18, 1),
                     "raw-supported fresh text survives an incomplete trusted mask"
                 );
             } else {
                 assert!(
-                    !layers.foreground_mask.get(6, 1),
+                    !layers.foreground_mask.get(18, 1),
                     "a complete trusted selection remains the exact foreground authority"
                 );
             }
         }
+    }
+
+    #[test]
+    fn mixed_composition_removes_a_leaked_binary_blob_inside_picture_ownership() {
+        let mut gray = GrayImage::new(64, 40, 255);
+        let mut picture_mask = BinaryImage::new(64, 40);
+        for y in 8..32 {
+            for x in 18..46 {
+                picture_mask.set(x, y, true);
+                gray.set(x, y, 96);
+            }
+        }
+        let mut leaked_binary = BinaryImage::new(64, 40);
+        for y in 17..21 {
+            for x in 29..34 {
+                leaked_binary.set(x, y, true);
+            }
+        }
+        leaked_binary.set(5, 20, true);
+
+        let protection_radius = picture_protection_radius(300.0);
+        let protected_picture = dilate(
+            &picture_mask,
+            protection_radius,
+            protection_radius,
+        );
+        let (mixed, _, layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &leaked_binary,
+            &picture_mask,
+            None,
+            None,
+            None,
+            None,
+            300.0,
+            false,
+            false,
+            true,
+            true,
+        );
+        let layers = layers.expect("Mixed composition retains separate layers");
+
+        assert_eq!(
+            layers
+                .foreground_mask
+                .and(&protected_picture)
+                .count_black(),
+            0,
+            "the leaked binary blob must not own protected picture pixels"
+        );
+        assert!(
+            layers.foreground_mask.get(5, 20),
+            "ordinary foreground outside the picture remains owned by the stencil"
+        );
+        assert!(
+            (0..150).contains(&mixed.get(31, 19)),
+            "picture tone was replaced by a binary knockout: {}",
+            mixed.get(31, 19)
+        );
+
+        let (_, _, soft_layers) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &leaked_binary,
+            &picture_mask,
+            None,
+            None,
+            None,
+            None,
+            300.0,
+            false,
+            true,
+            true,
+            true,
+        );
+        let soft_layers = soft_layers.expect("soft Mixed composition retains separate layers");
+        assert_eq!(
+            soft_layers
+                .foreground_mask
+                .and(&protected_picture)
+                .count_black(),
+            0,
+            "soft-alpha Mixed must share the binary/picture ownership boundary"
+        );
     }
 
     #[test]

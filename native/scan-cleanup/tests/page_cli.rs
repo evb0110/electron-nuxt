@@ -1012,6 +1012,34 @@ fn mixed_cli_preserves_dark_picture_tone_before_background_downscale() {
 
     let picture_mask = decode_p4(&fs::read(&picture_mask_output).unwrap(), 180 * 120, 200)
         .expect("the Mixed test must publish its picture mask");
+    let foreground_mask = decode_p4(&fs::read(&foreground_mask_output).unwrap(), 180 * 120, 200)
+        .expect("the Mixed test must publish its foreground mask");
+    assert_eq!(
+        (foreground_mask.width(), foreground_mask.height()),
+        (picture_mask.width(), picture_mask.height())
+    );
+    let protection_radius = (options.dpi * 0.35 / 25.4).round().clamp(1.0, 12.0) as usize;
+    let mut protected_foreground_pixels = 0usize;
+    for y in 0..foreground_mask.height() {
+        for x in 0..foreground_mask.width() {
+            if foreground_mask.get(x, y) != 0 {
+                continue;
+            }
+            let x_start = x.saturating_sub(protection_radius);
+            let x_end = (x + protection_radius).min(picture_mask.width() - 1);
+            let y_start = y.saturating_sub(protection_radius);
+            let y_end = (y + protection_radius).min(picture_mask.height() - 1);
+            if (y_start..=y_end).any(|picture_y| {
+                (x_start..=x_end).any(|picture_x| picture_mask.get(picture_x, picture_y) == 0)
+            }) {
+                protected_foreground_pixels += 1;
+            }
+        }
+    }
+    assert_eq!(
+        protected_foreground_pixels, 0,
+        "published Mixed foreground overlaps the dilated picture mask"
+    );
     let picture_stencil_pixels = (48..60)
         .flat_map(|y| (100..112).map(move |x| (x, y)))
         .filter(|&(x, y)| picture_mask.get(x, y) == 0)
