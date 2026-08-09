@@ -187,6 +187,8 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
         const transitionSkeletonIsTopSurface = openSurfaceClaimed
             && transitionSkeletons.some(isElementVisible)
             && elementIntersectsCanonicalViewport(transitionPageShell, viewportHost);
+        const transitionSurfaceIsTopSurface = openSurfaceClaimed
+            && elementIntersectsCanonicalViewport(transitionPageShell, viewportHost);
         const nativeSkeletonIsTopSurface = firstVisiblePageShell
             ? pageSkeletons.some(skeleton => firstVisiblePageShell.contains(skeleton))
                 && openSurfaceClaimed
@@ -195,7 +197,9 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
             : false;
         const topPendingSurface = transitionSkeletonIsTopSurface
             ? 'transition'
-            : (nativeSkeletonIsTopSurface ? 'native' : 'none');
+            : (transitionSurfaceIsTopSurface
+                ? 'transition'
+                : (nativeSkeletonIsTopSurface ? 'native' : 'none'));
 
         return {
             emptyStateVisible: isElementVisible(emptyState),
@@ -208,6 +212,7 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
                 hasOpeningGeometry: chassis?.dataset.openSurfaceHasOpeningGeometry === 'true',
                 phase: openSurfacePhase,
                 presentation: openSurfacePresentation,
+                visualPresentation: chassis?.dataset.viewportVisualPresentation ?? '',
             },
             transitionSurfaceVisible: isElementVisible(transitionSurface),
             transitionSurfaceRect: toRect(transitionSurface),

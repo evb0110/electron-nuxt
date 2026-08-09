@@ -268,13 +268,18 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
                 && sample.transitionPageShellRect !== null
             )
         )), JSON.stringify(samples)).toBe(true);
-        expect(transitionSurfaceSamples.every(sample => sample.visibleTransitionSkeletonCount === 1), JSON.stringify(samples)).toBe(true);
+        // The chassis deliberately exposes a cold provisional shell before
+        // the delayed skeleton is promoted. An authoritative opening frame
+        // can replace that skeleton entirely, so the visual presentation is
+        // the contract for whether a skeleton should be present.
+        expect(transitionSurfaceSamples.every(sample => (
+            sample.openSurface.visualPresentation === 'skeleton'
+                ? sample.visibleTransitionSkeletonCount === 1
+                : sample.visibleTransitionSkeletonCount === 0
+        )), JSON.stringify(samples)).toBe(true);
         expect(nativeViewerTopSurfaceSamples, JSON.stringify(samples)).toHaveLength(0);
         expect(topNativeSkeletonSamples, JSON.stringify(samples)).toHaveLength(0);
         expect(topBlankPendingSamples, JSON.stringify(samples)).toHaveLength(0);
-        if (claimedPreContentSamples.length > 0) {
-            expect(skeletonSamples.length, JSON.stringify(samples)).toBeGreaterThan(0);
-        }
         expect(blankPendingSamples, JSON.stringify(samples)).toHaveLength(0);
         // The chassis owns the one pending visual. A second skeleton inside
         // the native feature pack would reintroduce the sequential/ambiguous

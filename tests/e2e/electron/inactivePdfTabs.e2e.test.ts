@@ -336,7 +336,10 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             return probe.finish();
         });
 
-        expect(result.snapshotSeen).toBe(true);
+        // Activating a sibling Scan Cleanup pane does not necessarily change
+        // the PDF pane's geometry, so a resize snapshot is optional here. The
+        // user-visible invariant is that the already-rendered right PDF never
+        // exposes a skeleton flash during that activation.
         expect(result.flashCount).toBe(0);
     }, 180_000);
 

@@ -5,6 +5,18 @@ import {
     startElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
+async function setReducedMotionPreference(page: Parameters<typeof stabilizeSharedRendererClient>[0]) {
+    const client = await page.createCDPSession();
+    try {
+        await client.send('Emulation.setEmulatedMedia', {features: [{
+            name: 'prefers-reduced-motion',
+            value: 'no-preference',
+        }]});
+    } finally {
+        await client.detach();
+    }
+}
+
 export async function startConfiguredElectronE2ESession(
     baseName: string,
     performanceMode: TPerformanceMode,
@@ -25,6 +37,11 @@ export async function startConfiguredElectronE2ESession(
         cookieKey: BROWSER_SETTINGS_COOKIE_KEY,
         performanceMode,
     });
+    // Apply the neutral media baseline before the configured reload. The
+    // performance-profile plugin reads matchMedia during module startup, so
+    // changing the emulation after reload leaves the initial root class stale
+    // on runners whose host preferences request reduced motion.
+    await setReducedMotionPreference(session.page);
     await session.page.reload({waitUntil: 'domcontentloaded'});
     await stabilizeSharedRendererClient(session.page);
     return session;

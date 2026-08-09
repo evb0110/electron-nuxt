@@ -49,6 +49,13 @@ const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
         '.i-ph-arrow-u-up-right',
         '.iconify.i-ph-arrow-u-up-right',
     ],
+    // The scan-cleanup tooltip changes to live progress text while a previous
+    // run is handing its output back to the viewer. Match its stable icon as
+    // well as the idle label so a new document can still enter the workspace.
+    'Scan cleanup': [
+        '.scan-cleanup-trigger > svg',
+        '.overflow-menu-scan-cleanup-icon',
+    ],
 };
 
 interface IAutomationFileOpenGrantApi {

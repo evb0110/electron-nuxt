@@ -97,6 +97,7 @@ interface IRecentOpenTransitionResult {
         activeTabTitle: string;
         openSurfacePhase: string | null;
         openSurfacePresentation: string | null;
+        viewportVisualPresentation: string | null;
         recentRowVisible: boolean;
         shellVisible: boolean;
         skeletonVisible: boolean;
@@ -390,6 +391,7 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                     '[data-document-viewer-chassis-viewport]',
                 )?.dataset.openSurfacePhase ?? null,
                 openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
+                viewportVisualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
                 recentRowVisible: isVisible(getRecentRow()),
                 shellVisible: exactPageShell !== null,
                 skeletonVisible: Boolean(
@@ -724,8 +726,21 @@ describe('Electron E2E - Recent Files', () => {
             activeTabTitle: basename(fixturePath),
             recentRowVisible: false,
             shellVisible: true,
-            skeletonVisible: false,
         });
+        const initialOpenSurfaceFrame = immediateOpen.firstOpenSurfaceFrame;
+        expect(
+            [
+                'cold-shell',
+                'prepared-shell',
+                'skeleton',
+                'canvas',
+            ],
+            JSON.stringify(immediateOpen),
+        ).toContain(initialOpenSurfaceFrame?.viewportVisualPresentation);
+        expect(
+            initialOpenSurfaceFrame?.skeletonVisible,
+            JSON.stringify(immediateOpen),
+        ).toBe(initialOpenSurfaceFrame?.viewportVisualPresentation === 'skeleton');
         expect([
             'pending',
             'geometry-committed',
