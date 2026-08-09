@@ -15,8 +15,10 @@ import {
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarning,
+    resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupOutputPageRect,
     resolveScanCleanupPageCanvasBox,
+    resolveScanCleanupProvisionalDocumentCanvas,
     resolveScanCleanupUnclassifiedPages,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@electron/features/scan-cleanup/policy/documentCanvas';
@@ -538,6 +540,27 @@ describe('scan cleanup document canvas', () => {
     });
 
     describe('spreads', () => {
+        it('keeps logical paper size independent of an off-center cutter region', () => {
+            expect(resolveScanCleanupOutputPaperPixels({
+                half: 'left',
+                inputWidthPx: 2_203,
+                inputHeightPx: 1_573,
+                rotationDegrees: 0,
+            })).toEqual({
+                widthPx: 1_101.5,
+                heightPx: 1_573,
+            });
+            expect(resolveScanCleanupOutputPaperPixels({
+                half: 'right',
+                inputWidthPx: 2_203,
+                inputHeightPx: 1_573,
+                rotationDegrees: 90,
+            })).toEqual({
+                widthPx: 786.5,
+                heightPx: 2_203,
+            });
+        });
+
         it('measures the half sheet a split spread actually produces', () => {
             // Two book pages on one sheet become two pages of half its width.
             // Measuring the sheet would put each half on a canvas it fills
@@ -634,6 +657,51 @@ describe('scan cleanup document canvas', () => {
                 '1': 'two-page-spread',
                 '2': 'single-uncut-page',
             })).toEqual([]);
+        });
+
+        it('builds a provisional preview canvas only from pages whose layout is known', () => {
+            const pages = [
+                spread,
+                page({
+                    pageNumber: 2,
+                    widthPoints: 1_224,
+                    heightPoints: 792,
+                }),
+            ];
+
+            expect(resolveScanCleanupProvisionalDocumentCanvas(pages, 150, options, {}))
+                .toBeNull();
+            expect(resolveScanCleanupProvisionalDocumentCanvas(
+                pages,
+                150,
+                options,
+                {'1': 'two-page-spread'},
+            )).toMatchObject({
+                widthPoints: 612,
+                heightPoints: 792,
+            });
+            // A later single-page verdict is new evidence for a genuinely
+            // larger output and is allowed to grow the provisional canvas.
+            expect(resolveScanCleanupProvisionalDocumentCanvas(
+                pages,
+                150,
+                options,
+                {
+                    '1': 'two-page-spread',
+                    '2': 'single-uncut-page',
+                },
+            )).toMatchObject({
+                widthPoints: 1_224,
+                heightPoints: 792,
+            });
+            // Explicit layout is evidence before detection starts.
+            expect(resolveScanCleanupProvisionalDocumentCanvas(pages, 150, {
+                ...options,
+                layoutMode: 'force-two-page',
+            })).toMatchObject({
+                widthPoints: 612,
+                heightPoints: 792,
+            });
         });
 
         it('reports nothing for pages that never needed a classification', () => {

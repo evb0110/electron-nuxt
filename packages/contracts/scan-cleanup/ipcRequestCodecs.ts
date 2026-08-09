@@ -1029,6 +1029,9 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
                 return {softAlphaForegroundRecommendation: value.softAlphaForegroundRecommendation};
             })()),
         ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
+        ...(value.pagePlanEvidence === undefined
+            ? {}
+            : {pagePlanEvidence: decodeScanCleanupPagePlanEvidence(value.pagePlanEvidence, pageNumber)}),
         ...(detail === undefined ? {} : {detail}),
         ...(value.visible === undefined ? {} : {visible: value.visible}),
     };

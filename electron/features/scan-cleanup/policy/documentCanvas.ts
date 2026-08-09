@@ -6,9 +6,12 @@ export {
     resolveScanCleanupDocumentCanvasDpi,
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
+    resolveScanCleanupProvisionalDocumentCanvas,
     resolveScanCleanupDroppedMatchWarning,
     resolveScanCleanupPageCanvasBox,
     resolveScanCleanupOutputPageRect,
+    resolveScanCleanupOutputPageSpacePaperRect,
+    resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupUnclassifiedPages,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@scan-cleanup-core/policy/documentCanvas';

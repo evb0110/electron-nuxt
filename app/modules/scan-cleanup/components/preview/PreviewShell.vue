@@ -146,16 +146,16 @@
             @wheel="handlePreviewWheel"
         >
             <div
-                v-if="result || rawLayerVisible"
+                v-if="!requestedPageLoadingVisible && (result || rawLayerVisible)"
                 class="preview-result-layer"
                 :data-testid="result ? undefined : 'scan-cleanup-original-only'"
                 :class="{
-                    'is-cutter-source-dimmed': cutterSourceUnderlayVisible && !rawCleaningVisible,
-                    'is-source-underlay-dimmed': sourceUnderlayVisible && !rawCleaningVisible,
+                    'is-cutter-source-dimmed': cutterSourceUnderlayVisible,
+                    'is-source-underlay-dimmed': sourceUnderlayVisible,
                 }"
             >
                 <div
-                    v-if="result && result.outputs.length === 0 && effectiveViewMode === 'cleaned' && !rawCleaningVisible"
+                    v-if="result && result.outputs.length === 0 && effectiveViewMode === 'cleaned'"
                     class="preview-message"
                     :class="{'is-stale-content': staleContentVisible}"
                 >
@@ -175,9 +175,7 @@
                             class="preview-comparison-layer"
                             :class="{'is-visible': originalLayerVisible}"
                             :aria-hidden="!originalLayerVisible"
-                            :alt="rawCleaningVisible
-                                ? t('scanCleanup.preview.cleaningAlt', {page: pageNumber})
-                                : t('scanCleanup.preview.originalAlt', {page: result?.pageNumber ?? pageNumber})"
+                            :alt="t('scanCleanup.preview.originalAlt', {page: result?.pageNumber ?? pageNumber})"
                             :crop-overlay-styles="losslessCropOverlayStyles"
                             :inert="!originalLayerVisible"
                             :pixel-swap="rawPixelSwap"
@@ -235,15 +233,10 @@
                     </div>
                     <span
                         class="preview-viewport-caption"
-                        :class="{'is-cleaning': cleaningNoticeVisible}"
-                        :aria-hidden="!cleaningNoticeVisible && canvasNotice === ''"
+                        :aria-hidden="canvasNotice === ''"
                         :data-canvas-notice="canvasNoticeKind"
                     >
-                        <template v-if="cleaningNoticeVisible">
-                            <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
-                            {{ t('scanCleanup.preview.cleaningPage', {page: pageNumber}) }}
-                        </template>
-                        <template v-else-if="canvasNotice">
+                        <template v-if="canvasNotice">
                             {{ canvasNotice }}
                         </template>
                     </span>
@@ -252,7 +245,7 @@
                     <UIcon name="i-ph-circle-notch" class="size-6 is-spinning" />
                     <span>{{ t('scanCleanup.preview.loadingPage', {page: pageNumber}) }}</span>
                 </div>
-                <div v-else-if="loading && !rawCleaningVisible" class="refresh-indicator">
+                <div v-else-if="loading" class="refresh-indicator">
                     <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
                     <span class="sr-only">{{ t('scanCleanup.preview.refreshing') }}</span>
                 </div>
@@ -272,7 +265,10 @@
                     </details>
                 </div>
             </div>
-            <div v-if="!result && !rawLayerVisible" class="preview-empty-layer">
+            <div
+                v-if="requestedPageLoadingVisible || (!result && !rawLayerVisible)"
+                class="preview-empty-layer"
+            >
                 <div v-if="!error" class="preview-viewport-layout preview-loading" role="status">
                     <div ref="cutterStage" class="cutter-stage">
                         <div
@@ -295,13 +291,7 @@
                                         :data-frame-width="output.width"
                                         :data-frame-height="output.height"
                                     >
-                                        <div
-                                            v-if="sourcePlaceholderReady && output.half === loadingFrames[0]?.half"
-                                            :ref="element => setSourcePlaceholderHost(element)"
-                                            class="preview-source-placeholder"
-                                            data-testid="scan-cleanup-source-placeholder"
-                                        />
-                                        <USkeleton v-else class="preview-skeleton-fill" />
+                                        <USkeleton class="preview-skeleton-fill" />
                                     </div>
                                 </div>
                             </div>
@@ -327,7 +317,7 @@
                 </div>
             </div>
             <div
-                v-if="result && !disabled && !rawCleaningVisible"
+                v-if="result && !disabled && !requestedPageLoadingVisible"
                 class="drag-overlay-layer"
                 :style="[dragOverlayStyle, previewTransformStyle]"
             >
@@ -368,7 +358,7 @@
                 />
             </div>
             <ZoneEditorControls
-                v-if="result && zoneEditing && !disabled && !rawCleaningVisible && outputMode !== undefined"
+                v-if="result && zoneEditing && !disabled && !requestedPageLoadingVisible && outputMode !== undefined"
                 :output-mode="outputMode"
                 :selected-layer="selectedPictureLayer"
                 :zone-count="zoneCount"
@@ -418,10 +408,7 @@ import type {
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
 import type {CSSProperties} from 'vue';
-import type {
-    IDocumentPageSource,
-    IDocumentSurfaceLease,
-} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
@@ -671,48 +658,52 @@ const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSPr
 });
 const isStalePage = computed(() => props.stalePage
     ?? Boolean(props.result && props.result.pageNumber !== props.pageNumber));
-const rawCleaningVisible = computed(() => effectiveViewMode.value === 'cleaned'
+// A source sheet is not a cleaned output. Until this page's cleaned result
+// exists, Cleaned mode owns a topology-aware loading shell; the raw sheet is
+// available only through Original mode. This prevents an unsplit landscape
+// raster from ever masquerading as the first portrait output.
+const resultMatchesRequestedTopology = computed(() => props.layoutClassification === undefined
+    || props.result?.pageMetadata.layoutClassification === props.layoutClassification);
+const requestedPageLoadingVisible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.error === ''
-    && props.rawResult?.pageNumber === props.pageNumber
     && (
         props.result?.pageNumber !== props.pageNumber
-        || isStalePage.value
+        || !resultMatchesRequestedTopology.value
     ));
-// Keep both comparison canvases on the same grid only after the requested
-// page has both rasters. That permits a crossfade without leaking a stale raw
-// page into cleaned errors or the next page's loading state.
 const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pageNumber && (
     effectiveViewMode.value === 'original'
-    || rawCleaningVisible.value
     || (
         props.result?.pageNumber === props.pageNumber
         && props.rawResult?.pageNumber === props.pageNumber
     )
 ) || Boolean(props.lossless && props.result));
 const originalLayerVisible = computed(() => rawLayerVisible.value
-    && (effectiveViewMode.value === 'original' || rawCleaningVisible.value));
+    && effectiveViewMode.value === 'original');
 const cleanedLayerVisible = computed(() => Boolean(props.result) && !originalLayerVisible.value);
-const cleaningNoticeVisible = computed(() => rawCleaningVisible.value && props.loading);
 /**
  * Why the page the user is looking at may not be on the size they asked for.
  * Matched page size draws every page on one rectangle, measured from the
  * document's geometry and from the layouts detection has settled, so two things
  * can move it — and each is named here rather than left to be discovered as an
- * unexplained relayout. It shares the caption line the cleaning notice uses,
- * which is always laid out, so saying this costs no shift.
+ * unexplained relayout. The caption line is always laid out, so saying this
+ * costs no shift.
  */
 const canvasNoticeKind = computed(() => {
     if (!props.matchPageSize || !props.result) {
         return '';
+    }
+    // While layout is open, known pages determine an evidence-backed canvas
+    // and no-evidence pages remain intrinsic. Calling either state unavailable
+    // would misdescribe a provisional rectangle that may still grow.
+    if (props.layoutDetectionPending === true) {
+        return 'provisional';
     }
     // The main process could not measure this document, so it dropped matching
     // for the request and drew the page at its own size.
     if (props.result.outputs.some(output => output.metadata.canvasPolicy === 'intrinsic')) {
         return 'unavailable';
     }
-    // Nothing that turns a page into a spread has landed yet. A spread produces
-    // half sheets, so the rectangle every page is drawn on is still open.
-    return props.layoutDetectionPending === true ? 'provisional' : '';
+    return '';
 });
 const canvasNotice = computed(() => {
     if (canvasNoticeKind.value === 'unavailable') {
@@ -722,7 +713,7 @@ const canvasNotice = computed(() => {
         ? t('scanCleanup.preview.matchedCanvasProvisional')
         : '';
 });
-const staleContentVisible = computed(() => isStalePage.value && !rawCleaningVisible.value);
+const staleContentVisible = computed(() => isStalePage.value);
 const viewModes = computed(() => props.lossless ? [{
     value: 'original' as const,
     label: t('scanCleanup.preview.preview'),
@@ -766,7 +757,10 @@ const {
 });
 
 const loadingFrames = computed(() => {
-    const frames = placeholderHalves.value.map(half => ({
+    const orderedHalves = props.readingOrder === 'rtl' && placeholderHalves.value.length > 1
+        ? [...placeholderHalves.value].reverse()
+        : placeholderHalves.value;
+    const frames = orderedHalves.map(half => ({
         half,
         ...(frozenViewportFrame.value.outputs[half] ?? {
             width: 1,
@@ -807,87 +801,6 @@ const loadingFrames = computed(() => {
         };
     });
 });
-
-const sourcePlaceholderReady = ref(false);
-let sourcePlaceholderGeneration = 0;
-let sourcePlaceholderHost: HTMLElement | null = null;
-let sourcePlaceholderNode: HTMLElement | null = null;
-let sourcePlaceholderLease: IDocumentSurfaceLease | null = null;
-let sourcePlaceholderController: AbortController | null = null;
-
-function attachSourcePlaceholder() {
-    if (sourcePlaceholderHost && sourcePlaceholderNode) {
-        sourcePlaceholderHost.replaceChildren(sourcePlaceholderNode);
-    }
-}
-
-function setSourcePlaceholderHost(element: unknown) {
-    sourcePlaceholderHost = element instanceof HTMLElement ? element : null;
-    attachSourcePlaceholder();
-}
-
-function releaseSourcePlaceholder() {
-    sourcePlaceholderGeneration += 1;
-    sourcePlaceholderController?.abort();
-    sourcePlaceholderController = null;
-    sourcePlaceholderReady.value = false;
-    sourcePlaceholderNode?.remove();
-    sourcePlaceholderNode = null;
-    sourcePlaceholderHost = null;
-    sourcePlaceholderLease?.release();
-    sourcePlaceholderLease = null;
-}
-
-async function renderSourcePlaceholder() {
-    releaseSourcePlaceholder();
-    const source = props.source;
-    if (
-        !source
-        || props.rawResult?.pageNumber === props.pageNumber
-        || props.result?.pageNumber === props.pageNumber
-    ) {
-        return;
-    }
-    const generation = sourcePlaceholderGeneration;
-    const controller = new AbortController();
-    sourcePlaceholderController = controller;
-    try {
-        const lease = await source.renderPage({
-            pageNumber: props.pageNumber,
-            // This is only the immediate continuity surface while Poppler
-            // builds the authoritative raw preview. Thumbnail-scale work gets
-            // pixels on screen quickly without competing with that render.
-            widthPx: 640,
-            priority: 'visible',
-            signal: controller.signal,
-        });
-        if (generation !== sourcePlaceholderGeneration) {
-            lease.release();
-            return;
-        }
-        const node = typeof lease.surface === 'string'
-            ? Object.assign(globalThis.document.createElement('img'), {
-                alt: '',
-                draggable: false,
-                src: lease.surface,
-            })
-            : lease.surface;
-        node.classList.add('preview-source-placeholder-surface');
-        sourcePlaceholderLease = lease;
-        sourcePlaceholderController = null;
-        sourcePlaceholderNode = node;
-        sourcePlaceholderReady.value = true;
-        // The host may already have mounted while renderPage was pending. In
-        // that case the ref callback will not run again, so attach explicitly
-        // after the lease node becomes current.
-        if (generation === sourcePlaceholderGeneration) attachSourcePlaceholder();
-    } catch (error) {
-        if (sourcePlaceholderController === controller) sourcePlaceholderController = null;
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-            sourcePlaceholderReady.value = false;
-        }
-    }
-}
 
 const analysisWidth = computed(() => {
     const metadata = props.result?.pageMetadata;
@@ -1517,21 +1430,11 @@ onMounted(() => {
     watchDevicePixelScale();
 });
 onBeforeUnmount(() => {
-    releaseSourcePlaceholder();
     window.removeEventListener('resize', handleDevicePixelScaleChange);
     devicePixelMediaQuery?.removeEventListener('change', handleDevicePixelScaleChange);
     devicePixelMediaQuery = null;
     if (detailTimer !== null) clearTimeout(detailTimer);
 });
-
-watch([
-    () => props.source,
-    () => props.pageNumber,
-    () => props.rawResult?.pageNumber,
-    () => props.result?.pageNumber,
-], () => {
-    void renderSourcePlaceholder();
-}, {immediate: true});
 
 watch(() => dragTransaction.active.value, active => {
     if (!active) {

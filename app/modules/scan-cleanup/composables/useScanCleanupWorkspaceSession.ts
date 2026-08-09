@@ -78,6 +78,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         initialViewMode: options.initialPreviewViewMode?.(),
         lifecycleDocumentKey,
         ownerId,
+        pagePlanEvidenceByPage: detection.pagePlanEvidenceByPage,
         previewPage: selection.leader,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
         resolvedOptions,
@@ -127,7 +128,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     const run = useScanCleanupRunSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
-        beforeRun: () => previewResult?.cancel(false),
+        beforeRun: () => previewResult?.pauseForRun(),
         detectionError: detection.error,
         detectionErrorCode: detection.errorCode,
         detectionPending: detection.pending,
@@ -155,6 +156,34 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourcePath,
         totalPages,
         waitForDetectionBeforeRun: detection.waitForTerminal,
+    });
+    // The final renderer reports a source page only after every output leaf
+    // for that page has been published. Use that same durable boundary to
+    // refresh a preview whose provisional document plan changed during
+    // detection. The previous completed frame remains visible while this one
+    // is built, and the retained raw-raster cache makes the refresh a single
+    // preview sidecar pass rather than another PDF rasterization.
+    const runPreviewRefreshPages = new Set<number>();
+    watch([
+        run.isRunning,
+        selection.leader,
+        () => run.processedPages.value.has(selection.leader.value),
+    ], ([
+        running,
+        pageNumber,
+        pageCompleted,
+    ]) => {
+        if (!running) {
+            runPreviewRefreshPages.clear();
+            return;
+        }
+        if (!pageCompleted || runPreviewRefreshPages.has(pageNumber)) {
+            return;
+        }
+        runPreviewRefreshPages.add(pageNumber);
+        if (!previewResult?.resultCurrent.value) {
+            previewResult?.schedule();
+        }
     });
     // Preview has its own immediate activity watcher. Detection is a main-side
     // job, so ordinarily cancel it and wait for its terminal snapshot when the

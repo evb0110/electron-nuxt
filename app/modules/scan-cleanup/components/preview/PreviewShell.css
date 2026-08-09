@@ -607,21 +607,6 @@
     border-radius: inherit;
 }
 
-.preview-source-placeholder {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    border-radius: inherit;
-    background: var(--ui-bg);
-}
-
-.preview-source-placeholder .preview-source-placeholder-surface {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-}
-
 .preview-message.is-error,
 .preview-error-detail {
     color: var(--ui-error);

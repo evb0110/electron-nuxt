@@ -41,7 +41,7 @@ import {
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
 import {
-    resolveScanCleanupDocumentCanvas,
+    resolveScanCleanupProvisionalDocumentCanvas,
     scanCleanupDocumentCanvasSignature,
 } from '@scan-cleanup-core/policy/documentCanvas';
 
@@ -604,7 +604,7 @@ export async function runScanCleanupDetection<TDocument>(
             : previewRasterPlan.dpi;
         const baselineCanvasSignature = scanCleanupDocumentCanvasSignature(
             request.options.matchPageSize
-                ? resolveScanCleanupDocumentCanvas(
+                ? resolveScanCleanupProvisionalDocumentCanvas(
                     pageSizes,
                     matchedPreviewDpi,
                     request.options,
@@ -628,7 +628,7 @@ export async function runScanCleanupDetection<TDocument>(
                 String(pageNumber),
                 result.classification,
             ]));
-            const signature = scanCleanupDocumentCanvasSignature(resolveScanCleanupDocumentCanvas(
+            const signature = scanCleanupDocumentCanvasSignature(resolveScanCleanupProvisionalDocumentCanvas(
                 pageSizes,
                 matchedPreviewDpi,
                 request.options,

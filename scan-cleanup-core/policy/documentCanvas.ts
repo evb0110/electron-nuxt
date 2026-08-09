@@ -3,6 +3,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPixelRect,
     TScanCleanupLayoutByPage,
+    TScanCleanupOutputHalf,
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
 import {
@@ -25,6 +26,11 @@ export interface IScanCleanupRect {
 export interface IScanCleanupOrientedRect {
     widthPoints: number;
     heightPoints: number;
+}
+
+export interface IScanCleanupOutputPaperPixels {
+    widthPx: number;
+    heightPx: number;
 }
 
 export interface IScanCleanupInsets {
@@ -63,6 +69,30 @@ function orient(rect: IScanCleanupOrientedRect, quarterTurns: number): IScanClea
             widthPoints: rect.heightPoints,
             heightPoints: rect.widthPoints,
         };
+}
+
+/**
+ * The physical source-paper frame represented by one cleanup output.
+ *
+ * A split region is pixel-selection geometry: an automatic or manual cutter
+ * may be off centre because the gutter is wide, curved, or contaminated. It
+ * does not make the two leaves live at different source scales. Paper matching
+ * therefore divides the oriented source sheet by output count and lets the
+ * crop/cutter choose pixels inside that stable frame.
+ */
+export function resolveScanCleanupOutputPaperPixels(input: {
+    half: TScanCleanupOutputHalf;
+    inputWidthPx: number;
+    inputHeightPx: number;
+    rotationDegrees: TScanCleanupPageRotation;
+}): IScanCleanupOutputPaperPixels {
+    const swapsAxes = normalizeScanCleanupQuarterTurns(input.rotationDegrees) % 2 === 1;
+    const orientedWidth = swapsAxes ? input.inputHeightPx : input.inputWidthPx;
+    const orientedHeight = swapsAxes ? input.inputWidthPx : input.inputHeightPx;
+    return {
+        widthPx: orientedWidth / (input.half === 'full' ? 1 : 2),
+        heightPx: orientedHeight,
+    };
 }
 
 /**
@@ -179,6 +209,40 @@ export function resolveScanCleanupUnclassifiedPages(
 }
 
 /**
+ * The best matched-page rectangle a preview can honestly claim while automatic
+ * layout detection is still open.
+ *
+ * Unknown automatic sheets are omitted instead of being guessed as either a
+ * full page or a spread. Forced/manual pages are already facts and known
+ * automatic pages speak only for themselves. The provisional plan can grow
+ * when detection finds a larger real output page, and a revised classification
+ * can correct it, but one unknown landscape scan cannot make every known
+ * portrait half pretend to live on a landscape sheet.
+ *
+ * Final conversion deliberately does not use this helper. It waits for page
+ * plans and then calls `resolveScanCleanupDocumentCanvas` over the full
+ * document, whose conservative treatment of missing evidence remains the
+ * fail-safe contract for direct/core callers.
+ */
+export function resolveScanCleanupProvisionalDocumentCanvas(
+    pageSizes: readonly IPdfPageSize[],
+    renderDpi: number,
+    options: IScanCleanupOptions,
+    layoutByPage?: TScanCleanupLayoutByPage,
+): IScanCleanupDocumentCanvasPlan | null {
+    const evidencedPages = pageSizes.filter(pageSize => (
+        !isAutomaticLayout(options, pageSize.pageNumber)
+        || readObservedLayout(layoutByPage, pageSize.pageNumber) !== undefined
+    ));
+    return resolveScanCleanupDocumentCanvas(
+        evidencedPages,
+        renderDpi,
+        options,
+        layoutByPage,
+    );
+}
+
+/**
  * What a run tells the user when a document it *could* measure still answers no
  * canvas, or null when there is nothing to say.
  *
@@ -220,6 +284,32 @@ export function resolveScanCleanupOutputPageRect(
         widthPoints: rect.widthPoints / Math.max(1, shares),
         heightPoints: rect.heightPoints,
     };
+}
+
+/**
+ * The logical output paper expressed in the source PDF page's unrotated user
+ * space. Split-pages consumes this coordinate system, so a quarter-turned page
+ * divides its raw height: that is the axis presented horizontally when the
+ * cutter runs.
+ */
+export function resolveScanCleanupOutputPageSpacePaperRect(
+    pageSize: IPdfPageSize,
+    shares: number,
+    rotationDegreesOverride = 0,
+): IScanCleanupOrientedRect {
+    const divisor = Math.max(1, shares);
+    const swapsAxes = normalizeScanCleanupQuarterTurns(
+        pageSize.rotation + rotationDegreesOverride,
+    ) % 2 === 1;
+    return swapsAxes
+        ? {
+            widthPoints: pageSize.widthPoints,
+            heightPoints: pageSize.heightPoints / divisor,
+        }
+        : {
+            widthPoints: pageSize.widthPoints / divisor,
+            heightPoints: pageSize.heightPoints,
+        };
 }
 
 /**

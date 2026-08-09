@@ -58,12 +58,14 @@ import {
     type IScanCleanupDetectionRetention,
     type IScanCleanupDocumentRasterPages,
 } from '@scan-cleanup-core/detection';
+import {resolveReusablePagePlan} from '@scan-cleanup-core/policy/effectiveOptions';
 import {
     CANVAS_CONTENT_SCALE_EPSILON,
     resolveMatchedCanvasResamplePages,
     resolveScanCleanupCanvasFitScale,
-    resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDocumentCanvasDpi,
+    resolveScanCleanupOutputPaperPixels,
+    resolveScanCleanupProvisionalDocumentCanvas,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@electron/features/scan-cleanup/policy/documentCanvas';
 import {
@@ -1082,6 +1084,7 @@ function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>)
         // must neither share nor adopt the same in-flight render.
         outputModeRecommendation: request.outputModeRecommendation ?? null,
         softAlphaForegroundRecommendation: request.softAlphaForegroundRecommendation ?? null,
+        pagePlanEvidence: request.pagePlanEvidence ?? null,
         layouts: request.options.matchPageSize
             ? scanCleanupLayoutSignature(request.layoutByPage ?? {})
             : '',
@@ -1839,8 +1842,12 @@ async function runPreview(
         const matchedPreviewDpi = matchedPreviewDpis.length > 0
             ? Math.min(...matchedPreviewDpis)
             : previewRasterPlan.dpi;
+        // Preview canvas planning is evidence-backed: known output pages
+        // determine the provisional rectangle, while unresolved automatic
+        // sheets are omitted rather than guessed whole or split. Final runs
+        // retain the full-document conservative planner.
         const documentCanvas = pageSizes && request.options.matchPageSize
-            ? resolveScanCleanupDocumentCanvas(
+            ? resolveScanCleanupProvisionalDocumentCanvas(
                 pageSizes,
                 matchedPreviewDpi,
                 request.options,
@@ -2003,6 +2010,14 @@ async function runPreview(
         const manifestPath = join(scratch, 'manifest.json');
         const pageMetadataPath = join(scratch, 'page.json');
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+        const reusablePagePlan = resolveReusablePagePlan(
+            request.options,
+            request.layoutByPage,
+            request.pagePlanEvidence === undefined
+                ? undefined
+                : {[String(request.pageNumber)]: request.pagePlanEvidence},
+            request.pageNumber,
+        );
         // Matching a document onto one rectangle also means one pixel grid, and
         // the lossless assembler cannot give a page that carries its own raster
         // the document's grid without resampling it. Where the two collide the
@@ -2117,6 +2132,7 @@ async function runPreview(
                 ...(request.layoutByPage?.[String(request.pageNumber)] === undefined
                     ? {}
                     : {observedLayout: request.layoutByPage[String(request.pageNumber)]}),
+                ...reusablePagePlan,
                 pageMetadataPath,
                 outputs,
                 ...(request.documentPrior === undefined ? {} : {documentPrior: request.documentPrior}),
@@ -2226,14 +2242,20 @@ async function runPreview(
                     // presents it at the same scale. Measuring from the paper
                     // and not from the cropped content is what makes a spread
                     // half and a page scanned on its own land the same size.
+                    const outputPaper = resolveScanCleanupOutputPaperPixels({
+                        half: output.half,
+                        inputWidthPx: output.inputWidthPx,
+                        inputHeightPx: output.inputHeightPx,
+                        rotationDegrees: pageMetadata.rotationDegrees,
+                    });
                     const paperScale = canvasWidthPx === null || canvasHeightPx === null
                         ? 1
                         : resolveScanCleanupCanvasFitScale({
                             widthPoints: canvasWidthPx,
                             heightPoints: canvasHeightPx,
                         }, {
-                            widthPoints: Math.max(1, output.sourceRegion.widthPx),
-                            heightPoints: Math.max(1, output.sourceRegion.heightPx),
+                            widthPoints: Math.max(1, outputPaper.widthPx),
+                            heightPoints: Math.max(1, outputPaper.heightPx),
                         });
                     // Matched margins are final-canvas insets, so content is
                     // fitted into the remaining inner rectangle. Intrinsic

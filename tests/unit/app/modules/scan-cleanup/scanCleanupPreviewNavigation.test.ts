@@ -327,6 +327,7 @@ function mountPreviewSession(
             ...(initialViewMode === undefined ? {} : {initialViewMode}),
             lifecycleDocumentKey: computed(() => lifecycleKey?.value ?? 'reference.pdf'),
             ownerId: 'owner-1',
+            pagePlanEvidenceByPage: new Map(),
             previewPage,
             recommendedOutputModeByPage: new Map(),
             softAlphaForegroundRecommendationByPage: new Map(),
@@ -707,6 +708,40 @@ describe('scan cleanup preview navigation', () => {
         expect(mounted.session.loading.value).toBe(false);
         expect(mounted.session.result.value).toBeNull();
         expect(mounted.session.rawResult.value).toBeNull();
+        mounted.unmount();
+    });
+
+    it('keeps the last completed frame when a final run pauses a pending authoritative refresh', async () => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const documentPriorByPage = reactive(new Map<number, IScanCleanupDocumentPrior>());
+        const mounted = mountPreviewSession(previewPage, documentPriorByPage);
+
+        await backend.advanceBy(PREVIEW_MS + 500);
+        const completed = mounted.session.result.value;
+        const raw = mounted.session.rawResult.value;
+        expect(mounted.session.resultCurrent.value).toBe(true);
+
+        documentPriorByPage.set(100, {
+            dominantLayout: 'single-uncut-page',
+            cutterRatioMedian: null,
+            clusterDims: {
+                widthPx: 883,
+                heightPx: 1335,
+            },
+            agreementStrength: 0.74,
+        });
+        await nextTick();
+        expect(mounted.session.resultCurrent.value).toBe(false);
+
+        mounted.session.pauseForRun();
+
+        expect(mounted.session.loading.value).toBe(false);
+        expect(mounted.session.result.value).toBe(completed);
+        expect(mounted.session.rawResult.value).toBe(raw);
+        expect(mounted.session.resultCurrent.value).toBe(false);
+        expect(backend.capability.cancelPreview).toHaveBeenLastCalledWith(expect.objectContaining({invalidateRawCache: false}));
         mounted.unmount();
     });
 

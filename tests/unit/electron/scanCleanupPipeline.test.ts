@@ -4636,6 +4636,105 @@ describe('scan cleanup pipeline', () => {
         });
     });
 
+    it('does not turn an off-center lossless spread cutter into two paper scales', async () => {
+        const fixture = await setup();
+        const harness = losslessMatchedHarness([{
+            widthPoints: 400,
+            heightPoints: 200,
+        }]);
+        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        harness.pipelineDependencies.runSidecar = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'two-page-spread',
+                cutterXPx: 240,
+                rotationDegrees: 0,
+                canvasScope: 'document',
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 2,
+                outputs: [
+                    {
+                        half: 'left',
+                        sourceRegion: {
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: 240,
+                            heightPx: 200,
+                        },
+                        cropRect: {
+                            xPx: 10,
+                            yPx: 10,
+                            widthPx: 150,
+                            heightPx: 180,
+                        },
+                        contentBox: {
+                            xPx: 10,
+                            yPx: 10,
+                            widthPx: 150,
+                            heightPx: 180,
+                        },
+                        inputWidthPx: 400,
+                        inputHeightPx: 200,
+                    },
+                    {
+                        half: 'right',
+                        sourceRegion: {
+                            xPx: 240,
+                            yPx: 0,
+                            widthPx: 160,
+                            heightPx: 200,
+                        },
+                        cropRect: {
+                            xPx: 250,
+                            yPx: 11,
+                            widthPx: 100,
+                            heightPx: 178,
+                        },
+                        contentBox: {
+                            xPx: 250,
+                            yPx: 11,
+                            widthPx: 100,
+                            heightPx: 178,
+                        },
+                        inputWidthPx: 400,
+                        inputHeightPx: 200,
+                    },
+                ],
+            }));
+        });
+
+        const summary = await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                preserveOriginalQuality: true,
+                crop: true,
+                matchPageSize: true,
+                pageAlignment: 'center',
+                marginsMm: {
+                    leftMm: 0,
+                    topMm: 0,
+                    rightMm: 0,
+                    bottomMm: 0,
+                },
+            },
+            layoutByPage: {'1': 'two-page-spread'},
+        }, {
+            ...pipelinePaths(fixture.dir, true),
+            pdfimagesBinary: '/pdfimages',
+        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
+
+        const outputs = harness.readSplitInstructions()!.pages[0]!.outputs;
+        expect(outputs).toHaveLength(2);
+        expect(outputs.map(output => output.contentTransform)).toEqual([
+            undefined,
+            undefined,
+        ]);
+        expect(summary.warnings).toEqual([]);
+    });
+
     it('names the raster pages a layout it was told before analysis left it scaling', async () => {
         const fixture = await setup();
         const harness = losslessMatchedHarness([

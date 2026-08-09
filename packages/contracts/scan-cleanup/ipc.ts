@@ -70,6 +70,12 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
      * one rectangle only if they are told the same thing about the document.
      */
     layoutByPage?: TScanCleanupLayoutByPage;
+    /**
+     * Automatic geometry already established by document detection for this
+     * page. Preview replays it just like final conversion, so loading, base
+     * preview, detail tiles, and export do not run competing page planners.
+     */
+    pagePlanEvidence?: IScanCleanupPagePlanEvidence;
     detail?: {
         /** Renderer-visible regions keyed by final output half; drives crop rendering and tile identity. */
         viewports: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;

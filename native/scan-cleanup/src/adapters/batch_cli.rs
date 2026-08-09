@@ -135,12 +135,10 @@ struct WrittenOutput {
     half: crate::pipeline::PageHalf,
     width: usize,
     height: usize,
-    /// The paper this output is responsible for: the region of the rotated
-    /// sheet it was cut from, in the pixels the page was rendered at. Matching
-    /// scales by the paper rather than by the cropped raster, and a spread half
-    /// owns half a sheet — scaling both halves by the whole sheet leaves a
-    /// document where a page scanned alone is twice the size of the same page
-    /// scanned as half of a spread, on a sheet that is half empty.
+    /// The logical paper frame this output is responsible for, in the pixels
+    /// the source sheet was rendered at. This deliberately differs from the
+    /// source region: an off-centre cutter selects unequal pixel regions but
+    /// does not put the two leaves at different physical scales.
     paper_width: f64,
     paper_height: f64,
     /// Origin of the intrinsic crop within that paper. Matched-canvas
@@ -1963,13 +1961,14 @@ fn run_page(
                 // which it was actually cleaned.
                 canvas = canvas.at_dpi(options.dpi);
                 validate_canvas_for_options(canvas.width_px, canvas.height_px, &options)?;
+                let (paper_width, paper_height) = matched_output_paper_dimensions(&output.metadata);
                 let placement = plan_canvas_placement_for(
                     output.image.width(),
                     output.image.height(),
                     output.metadata.crop_rect.x,
                     output.metadata.crop_rect.y,
-                    output.metadata.source_region.width,
-                    output.metadata.source_region.height,
+                    paper_width,
+                    paper_height,
                     output.metadata.content_box.is_some(),
                     &options,
                     output.metadata.half,
@@ -2201,6 +2200,7 @@ fn run_page(
                 }
             }
             write_json_atomic(&destination.metadata_path, &output.metadata)?;
+            let (paper_width, paper_height) = matched_output_paper_dimensions(&output.metadata);
             written.push(WrittenOutput {
                 output_path: destination.output_path.clone(),
                 metadata_path: destination.metadata_path.clone(),
@@ -2215,8 +2215,8 @@ fn run_page(
                 half: output.metadata.half,
                 width: output.image.width(),
                 height: output.image.height(),
-                paper_width: output.metadata.source_region.width,
-                paper_height: output.metadata.source_region.height,
+                paper_width,
+                paper_height,
                 crop_x: output.metadata.crop_rect.x,
                 crop_y: output.metadata.crop_rect.y,
                 content_detected: output.metadata.content_box.is_some(),
@@ -2464,6 +2464,43 @@ struct CanvasPlacement {
 /// would resample a page that already matches the document, so the grid carries
 /// a one-pixel tolerance and only a real difference is fitted.
 const CANVAS_GRID_TOLERANCE_PX: f64 = 1.0;
+
+/// Physical paper geometry is independent of split-selection geometry. The
+/// source sheet supplies one pixel scale; each spread output owns half of its
+/// oriented paper frame even when gutter detection places the cutter away from
+/// the centre. Using `source_region.width` here would shrink the wider crop and
+/// enlarge the narrower crop, making equal-height leaves visibly unequal.
+fn matched_output_paper_dimensions(metadata: &CleanupMetadata) -> (f64, f64) {
+    matched_output_paper_dimensions_for(
+        metadata.input_width,
+        metadata.input_height,
+        metadata.rotation,
+        metadata.half,
+    )
+}
+
+fn matched_output_paper_dimensions_for(
+    input_width: usize,
+    input_height: usize,
+    rotation: OrthogonalRotation,
+    half: crate::pipeline::PageHalf,
+) -> (f64, f64) {
+    let swaps_axes = matches!(
+        rotation,
+        OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270
+    );
+    let (oriented_width, oriented_height) = if swaps_axes {
+        (input_height, input_width)
+    } else {
+        (input_width, input_height)
+    };
+    let shares = if half == crate::pipeline::PageHalf::Full {
+        1.0
+    } else {
+        2.0
+    };
+    (oriented_width as f64 / shares, oriented_height as f64)
+}
 
 /// Normalizes one output onto the canvas: the scale that takes the *paper* it
 /// was cut from to the canvas rectangle, expressed on the canvas pixel grid.
@@ -3356,12 +3393,13 @@ fn map_image_error(message: String) -> NativeError {
 mod tests {
     use super::{
         adaptive_thread_count, estimate_peak_page_bytes, manifest_cache, manifest_worker_threads,
-        map_image_error, materialize_stream_page, normalize_trusted_foreground_selection,
-        page_worker_threads, parse_cli_args, place_on_white_canvas, plan_canvas_placement_for,
-        preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
-        reconcile_classification_batch, robust_quantile_dimension, run_manifest_transaction,
-        run_stream_page_jobs, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
-        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        map_image_error, matched_output_paper_dimensions_for, materialize_stream_page,
+        normalize_trusted_foreground_selection, page_worker_threads, parse_cli_args,
+        place_on_white_canvas, plan_canvas_placement_for, preflight_manifest_paths,
+        preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
+        robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs,
+        PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, Tier1Provenance,
+        FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -3597,6 +3635,63 @@ mod tests {
             robust_quantile_dimension([80, 80, 80, 80, 80, 80, 80, 80, 80, 140].into_iter()),
             80
         );
+    }
+
+    #[test]
+    fn matched_canvas_uses_one_paper_scale_across_an_off_center_spread_cutter() {
+        let options = CleanupOptions {
+            dpi: 150.0,
+            margins_pixels: Some([30.0; 4]),
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 1_102.0 / 150.0 * 72.0,
+            height_points: 1_626.0 / 150.0 * 72.0,
+            width_px: 1_102,
+            height_px: 1_626,
+        };
+        let left_paper = matched_output_paper_dimensions_for(
+            2_203,
+            1_573,
+            OrthogonalRotation::None,
+            crate::pipeline::PageHalf::Left,
+        );
+        let right_paper = matched_output_paper_dimensions_for(
+            2_203,
+            1_573,
+            OrthogonalRotation::None,
+            crate::pipeline::PageHalf::Right,
+        );
+        assert_eq!(left_paper, (1_101.5, 1_573.0));
+        assert_eq!(right_paper, left_paper);
+
+        let left = plan_canvas_placement_for(
+            876,
+            1_407,
+            145.0,
+            115.0,
+            left_paper.0,
+            left_paper.1,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Left,
+            &canvas,
+        );
+        let right = plan_canvas_placement_for(
+            607,
+            1_405,
+            208.0,
+            113.0,
+            right_paper.0,
+            right_paper.1,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Right,
+            &canvas,
+        );
+
+        assert_eq!(left.paper_scale, right.paper_scale);
+        assert!(left.content_height.abs_diff(right.content_height) <= 2);
     }
 
     #[test]

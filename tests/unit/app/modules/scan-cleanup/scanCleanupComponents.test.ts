@@ -2233,6 +2233,7 @@ describe('Scan cleanup components', () => {
         // The document could not be measured at all: matching is off and the
         // page carries its own size.
         canvasPolicy.value = 'intrinsic';
+        detecting.value = false;
         await nextTick();
         expect(caption()?.dataset.canvasNotice).toBe('unavailable');
         expect(caption()?.textContent).toContain('scanCleanup.preview.matchedCanvasUnavailable');
@@ -2240,7 +2241,6 @@ describe('Scan cleanup components', () => {
         // Detection settled and the canvas held: nothing to explain, and the
         // caption line stays where it was.
         canvasPolicy.value = 'strict-maximum';
-        detecting.value = false;
         await nextTick();
         expect(caption()?.dataset.canvasNotice).toBe('');
         expect(caption()?.textContent?.trim()).toBe('');
@@ -2411,7 +2411,7 @@ describe('Scan cleanup components', () => {
         expect(dismiss).toHaveBeenCalledOnce();
     });
 
-    it('dims stale content and centers the requested page loading state while navigating', () => {
+    it('replaces a previous page with the requested page topology while navigating', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(1),
             loading: true,
@@ -2427,12 +2427,14 @@ describe('Scan cleanup components', () => {
         })}));
 
         expect(harness.host.querySelector('.preview-surface')?.classList.contains('is-stale-page')).toBe(true);
-        expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(true);
-        expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
+        expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(false);
+        expect(harness.host.querySelector('.page-loading-overlay')).toBeNull();
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
+            .toBe('Building cleanup preview…');
         expect(harness.host.querySelector('.refresh-indicator')).toBeNull();
     });
 
-    it('shows the requested page raw raster under a cleaning notice instead of hiding it', () => {
+    it('never presents the requested raw sheet as a cleaned output while its result is pending', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(1),
             rawResult: rawPreviewResult(2),
@@ -2444,26 +2446,24 @@ describe('Scan cleanup components', () => {
             pageNumber: 2,
             totalPages: 3,
             stalePage: true,
+            layoutClassification: 'two-page-spread',
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
 
-        expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
-        const previousCleaned = harness.host.querySelector('.cleaned-outputs');
-        expect(previousCleaned?.getAttribute('aria-hidden')).toBe('true');
-        expect(previousCleaned?.classList).not.toContain('is-visible');
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        const loadingOutputs = harness.host.querySelector('.preview-skeleton-outputs');
+        expect(loadingOutputs?.classList).toContain('is-spread');
+        expect(loadingOutputs?.querySelectorAll('.preview-skeleton-page')).toHaveLength(2);
         expect(harness.host.querySelector('.page-loading-overlay')).toBeNull();
-        expect(harness.host.querySelector('.preview-surface')?.classList.contains('is-stale-page')).toBe(false);
+        expect(harness.host.querySelector('.preview-surface')?.classList.contains('is-stale-page')).toBe(true);
         expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(false);
         const caption = harness.host.querySelector('.preview-viewport-caption');
-        expect(caption?.textContent).toContain('Cleaning page 2… showing the original scan');
-        expect(caption?.getAttribute('aria-hidden')).toBe('false');
-        expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt)
-            .toBe('Original scan of page 2, shown while cleanup is still running');
+        expect(caption?.textContent).toBe('Building cleanup preview…');
         expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
     });
 
-    it('keeps the previous page ghost until the requested page raster exists', () => {
+    it('does not keep the previous page ghost while the requested page is pending', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(1),
             rawResult: rawPreviewResult(1),
@@ -2480,9 +2480,10 @@ describe('Scan cleanup components', () => {
         })}));
 
         expect(harness.host.querySelector('.raw-preview')).toBeNull();
-        expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(true);
-        expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
-        expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
+        expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(false);
+        expect(harness.host.querySelector('.page-loading-overlay')).toBeNull();
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
+            .toBe('Building cleanup preview…');
     });
 
     it('never shows a previous page raw raster in Original view', () => {
@@ -2506,7 +2507,7 @@ describe('Scan cleanup components', () => {
         harness.unmount();
     });
 
-    it('replaces the raw raster with the cleaned result inside the same viewport stage', async () => {
+    it('replaces the topology-aware loading shell with the requested cleaned result', async () => {
         const result = shallowRef<IScanCleanupPreviewResult | null>(spreadPreviewResult(1));
         const loading = ref(true);
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
@@ -2524,16 +2525,15 @@ describe('Scan cleanup components', () => {
             readingOrder: 'ltr',
         })}));
 
-        const layout = harness.host.querySelector('.preview-viewport-layout');
-        const stage = harness.host.querySelector('.cutter-stage');
-        expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
+        const loadingStage = harness.host.querySelector('.cutter-stage');
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        expect(harness.host.querySelector('.preview-skeleton-outputs')).not.toBeNull();
 
         result.value = spreadPreviewResult(2);
         loading.value = false;
         await nextTick();
 
-        expect(harness.host.querySelector('.preview-viewport-layout')).toBe(layout);
-        expect(harness.host.querySelector('.cutter-stage')).toBe(stage);
+        expect(harness.host.querySelector('.cutter-stage')).not.toBe(loadingStage);
         const previousRaw = harness.host.querySelector('.raw-preview');
         expect(previousRaw?.getAttribute('aria-hidden')).toBe('true');
         expect(previousRaw?.classList).not.toContain('is-visible');
@@ -4113,8 +4113,7 @@ describe('Scan cleanup components', () => {
         harness.unmount();
     });
 
-    it('shows the document page while the cleanup raster is still being built', async () => {
-        const release = vi.fn();
+    it('never paints a reduced source raster as cleaned content while authoritative pixels are pending', async () => {
         const source: IDocumentPageSource = {
             ...previewPageSource(1000, 800),
             renderPage: vi.fn(async () => ({
@@ -4122,13 +4121,12 @@ describe('Scan cleanup components', () => {
                 heightPx: 800,
                 bytes: 3_200_000,
                 surface: 'data:image/png;base64,source-page',
-                release,
+                release: vi.fn(),
             })),
         };
-        const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
+        const result = shallowRef<IScanCleanupPreviewResult | null>(null);
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: null,
-            rawResult: rawResult.value,
+            result: result.value,
             loading: true,
             error: '',
             source,
@@ -4137,6 +4135,7 @@ describe('Scan cleanup components', () => {
             alignment: 'top-left',
             pageNumber: 1,
             totalPages: 3,
+            layoutClassification: 'two-page-spread',
             manualSplit: null,
             readingOrder: 'ltr',
         })}));
@@ -4144,18 +4143,39 @@ describe('Scan cleanup components', () => {
         await Promise.resolve();
         await nextTick();
 
-        expect(source.renderPage).toHaveBeenCalledWith(expect.objectContaining({
-            pageNumber: 1,
-            priority: 'visible',
-        }));
-        expect(harness.host.querySelector<HTMLImageElement>(
-            '[data-testid="scan-cleanup-source-placeholder"] img',
-        )?.src).toBe('data:image/png;base64,source-page');
+        expect(source.renderPage).not.toHaveBeenCalled();
+        expect(harness.host.querySelectorAll('.preview-skeleton-page')).toHaveLength(2);
+        expect(harness.host.querySelector('.preview-skeleton-page img, .preview-skeleton-page canvas'))
+            .toBeNull();
 
-        rawResult.value = rawPreviewResult(1);
+        result.value = spreadPreviewResult(1);
         await nextTick();
-        expect(harness.host.querySelector('[data-testid="scan-cleanup-source-placeholder"]')).toBeNull();
-        expect(release).toHaveBeenCalledOnce();
+        expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
+        expect(harness.host.querySelector('.preview-result-layer')).not.toBeNull();
+    });
+
+    it('does not retain a cleaned result after authoritative output topology changes', async () => {
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            loading: true,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: false,
+            alignment: 'top-left',
+            pageNumber: 1,
+            totalPages: 3,
+            layoutClassification: 'single-page',
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        await nextTick();
+
+        expect(harness.host.querySelector('.preview-result-layer')).toBeNull();
+        expect(harness.host.querySelectorAll('.preview-skeleton-page')).toHaveLength(1);
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
+            .toBe('Building cleanup preview…');
+        harness.unmount();
     });
 
     it('recomputes the viewport frame for container resize and layout-classification changes', async () => {
@@ -4513,12 +4533,9 @@ describe('Scan cleanup components', () => {
         );
     });
 
-    it('keeps every loading surface flush with the stable paper rectangle', () => {
+    it('keeps the loading skeleton flush with the stable paper rectangle', () => {
         expect(previewShellStyleSource).toMatch(
             /\.preview-skeleton-page \.preview-skeleton-fill\s*\{[^}]*inset: 0;/,
-        );
-        expect(previewShellStyleSource).toMatch(
-            /\.preview-source-placeholder\s*\{[^}]*inset: 0;/,
         );
     });
 

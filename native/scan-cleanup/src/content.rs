@@ -28,6 +28,14 @@ pub(crate) struct ContentAnalysisEvidence {
     pub text_vicinity_mask: BinaryImage,
 }
 
+#[derive(Clone, Copy)]
+enum ContentAnalysisPurpose<'a> {
+    Semantic,
+    Crop {
+        manual_picture_authority: Option<&'a BinaryImage>,
+    },
+}
+
 pub fn detect_content_and_margins(
     source: &GrayImage,
     dpi: f64,
@@ -54,8 +62,14 @@ pub fn detect_content_and_margins_with_calibration_config(
     let level = build_analysis_level(source, dpi, 150.0);
     let calibration =
         PageCalibration::estimate(&level.image, level.effective_dpi, calibration_config);
-    let (detected, diagnostics, _, _) =
-        detect_content_at_analysis_scale(&level.image, None, None, calibration);
+    let (detected, diagnostics, _, _) = detect_content_at_analysis_scale(
+        &level.image,
+        None,
+        ContentAnalysisPurpose::Crop {
+            manual_picture_authority: None,
+        },
+        calibration,
+    );
     let content = detected.map(|content| {
         Rect::new(
             content.x / level.scale_x,
@@ -101,7 +115,9 @@ pub(crate) fn detect_content_and_margins_calibrated_with_crop_authority(
     let (content, diagnostics, _, _) = detect_content_at_analysis_scale(
         source,
         picture_mask,
-        crop_authoritative_picture_mask,
+        ContentAnalysisPurpose::Crop {
+            manual_picture_authority: crop_authoritative_picture_mask,
+        },
         calibration,
     );
     let mut result = content_with_margins(source, dpi, content, margins_mm, margins_pixels);
@@ -114,8 +130,12 @@ pub(crate) fn analyze_content_evidence_calibrated(
     picture_mask: Option<&BinaryImage>,
     calibration: PageCalibration,
 ) -> ContentAnalysisEvidence {
-    let (_, diagnostics, text_mask, text_vicinity_mask) =
-        detect_content_at_analysis_scale(source, picture_mask, None, calibration);
+    let (_, diagnostics, text_mask, text_vicinity_mask) = detect_content_at_analysis_scale(
+        source,
+        picture_mask,
+        ContentAnalysisPurpose::Semantic,
+        calibration,
+    );
     ContentAnalysisEvidence {
         diagnostics,
         text_mask,
@@ -126,7 +146,7 @@ pub(crate) fn analyze_content_evidence_calibrated(
 fn detect_content_at_analysis_scale(
     working: &GrayImage,
     picture_mask: Option<&BinaryImage>,
-    crop_authoritative_picture_mask: Option<&BinaryImage>,
+    purpose: ContentAnalysisPurpose<'_>,
     calibration: PageCalibration,
 ) -> (Option<Rect>, ContentDiagnostics, BinaryImage, BinaryImage) {
     if let Some(mask) = picture_mask {
@@ -135,7 +155,13 @@ fn detect_content_at_analysis_scale(
             (mask.width(), mask.height())
         );
     }
-    if let Some(mask) = crop_authoritative_picture_mask {
+    let manual_picture_authority = match purpose {
+        ContentAnalysisPurpose::Semantic => None,
+        ContentAnalysisPurpose::Crop {
+            manual_picture_authority,
+        } => manual_picture_authority,
+    };
+    if let Some(mask) = manual_picture_authority {
         assert_eq!(
             (working.width(), working.height()),
             (mask.width(), mask.height())
@@ -153,8 +179,37 @@ fn detect_content_at_analysis_scale(
         },
     );
     let borders = border_artifact_mask_from_binary(working, &binary);
+    // Picture ownership is semantic/render state, but content bounds need a
+    // stricter authority. Qualify it after the spread has been split into
+    // local pages: a central gutter is not an outer-sheet rail, while each
+    // remnant it leaves at the inner edge of a half is. Removing rejected rail
+    // pixels before component and text-line construction is essential; if we
+    // only ignore their final picture bounds, the same ink can first become a
+    // picture-supported, text-protected block that trimming is forbidden to
+    // cross. Semantic analysis deliberately keeps the original mask.
+    let early_picture_qualification = match purpose {
+        ContentAnalysisPurpose::Semantic => None,
+        ContentAnalysisPurpose::Crop {
+            manual_picture_authority,
+        } => picture_mask.map(|mask| {
+            qualify_picture_mask_for_crop_with_authority(
+                mask,
+                manual_picture_authority,
+                0,
+                calibration,
+            )
+        }),
+    };
+    let analysis_picture_mask = early_picture_qualification
+        .as_ref()
+        .map(|qualification| &qualification.included)
+        .or(picture_mask);
+    let crop_artifacts = early_picture_qualification
+        .as_ref()
+        .map(|qualification| borders.or(&qualification.excluded));
+    let artifact_free_binary = binary.subtract(crop_artifacts.as_ref().unwrap_or(&borders));
     let cleaned = despeckle_connected_calibrated(
-        &binary.subtract(&borders),
+        &artifact_free_binary,
         calibration.content_despeckle_dpi(),
         calibration,
     );
@@ -188,7 +243,8 @@ fn detect_content_at_analysis_scale(
             && component.area < working.width().saturating_mul(working.height()) / 20;
         let border_shadow =
             border_attached && component.area > working.width().max(working.height()) / 3;
-        let picture_mask_overlap_pixels = component_mask_overlap(&map, component, picture_mask);
+        let picture_mask_overlap_pixels =
+            component_mask_overlap(&map, component, analysis_picture_mask);
         let grayscale_supported =
             (solid_rule || isolated_thick_dirt) && grayscale_structure_evidence(working, component);
         let picture_supported = picture_mask_overlap_pixels != 0;
@@ -209,16 +265,25 @@ fn detect_content_at_analysis_scale(
             picture_mask_overlap_pixels,
         });
     }
-    let clustered = cluster_content_blocks(&map, &candidates, picture_mask, calibration);
+    let clustered = cluster_content_blocks(&map, &candidates, analysis_picture_mask, calibration);
     let retained = clustered.retained;
     let candidate_image = map.retain(|component| retained[component.label as usize]);
-    let (mut blocks, component_blocks) =
-        retained_content_blocks(&map, &candidates, &retained, picture_mask, calibration);
+    let (mut blocks, component_blocks) = retained_content_blocks(
+        &map,
+        &candidates,
+        &retained,
+        analysis_picture_mask,
+        calibration,
+    );
     annotate_heading_evidence(&map, &mut blocks, calibration);
     let text = build_text_line_mask(&candidate_image, &blocks, &distance_to_white, calibration);
     annotate_text_evidence(&map, &component_blocks, &mut blocks, &text.mask);
-    let protected_mask =
-        build_protected_mask(working.width(), working.height(), picture_mask, &blocks);
+    let protected_mask = build_protected_mask(
+        working.width(),
+        working.height(),
+        analysis_picture_mask,
+        &blocks,
+    );
     let garbage = garbage_seed_labels(&borders, &cleaned, &protected_mask, calibration);
     let (mut bounds, side_confidence, accepted_trims) = trim_content_bounds(
         &candidate_image,
@@ -233,7 +298,7 @@ fn detect_content_at_analysis_scale(
     if let Some(picture_bounds) = picture_mask.and_then(|mask| {
         crop_qualified_picture_bounds_with_authority(
             mask,
-            crop_authoritative_picture_mask,
+            manual_picture_authority,
             clustered.crop_artifact_sides,
             calibration,
         )
@@ -698,6 +763,28 @@ fn crop_qualified_picture_bounds_with_authority(
     crop_artifact_sides: u8,
     calibration: PageCalibration,
 ) -> Option<PixelBounds> {
+    binary_bounds(
+        &qualify_picture_mask_for_crop_with_authority(
+            picture_mask,
+            crop_authoritative_picture_mask,
+            crop_artifact_sides,
+            calibration,
+        )
+        .included,
+    )
+}
+
+struct CropPictureQualification {
+    included: BinaryImage,
+    excluded: BinaryImage,
+}
+
+fn qualify_picture_mask_for_crop_with_authority(
+    picture_mask: &BinaryImage,
+    crop_authoritative_picture_mask: Option<&BinaryImage>,
+    crop_artifact_sides: u8,
+    calibration: PageCalibration,
+) -> CropPictureQualification {
     let nominal_height = if calibration.valid {
         calibration.x_height_px.max(1.0)
     } else {
@@ -754,7 +841,7 @@ fn crop_qualified_picture_bounds_with_authority(
             sides
         }
     });
-    let qualified = map.retain(|component| {
+    let included = map.retain(|component| {
         // Picture ownership is semantic/render state and remains untouched.
         // Crop geometry applies one additional trust check: a component wholly
         // inside an outer 1/8 corridor whose picture fragments reach the page
@@ -786,7 +873,8 @@ fn crop_qualified_picture_bounds_with_authority(
         }
         !excluded
     });
-    binary_bounds(&qualified)
+    let excluded = picture_mask.subtract(&included);
+    CropPictureQualification { included, excluded }
 }
 
 fn retained_content_blocks(
@@ -2612,6 +2700,76 @@ mod tests {
             }),
             "an explicit Painter2 corner photo must remain crop-authoritative"
         );
+    }
+
+    #[test]
+    fn rejected_picture_rails_cannot_protect_seam_ink_as_text_content() {
+        let mut image = GrayImage::new(600, 800, 244);
+        draw_glyph_line(&mut image, 150, 95, 15, 8, 24, 16);
+        for row in 0..16 {
+            draw_glyph_line(&mut image, 145, 165 + row * 35, 16, 7, 20, 15);
+        }
+        draw_glyph_line(&mut image, 205, 720, 10, 8, 24, 16);
+
+        // Deskew leaves short coherent ends of the inner gutter near opposite
+        // corners. Their row density is text-like enough to be protected if
+        // the automatic picture owner is allowed to establish crop authority
+        // before its frame-rail qualification is applied.
+        for segment in 0..14 {
+            let top = 31 + segment * 8;
+            for y in top..top + 5 {
+                for x in 590..600 {
+                    image.set(x, y, 18);
+                }
+            }
+        }
+        for segment in 0..4 {
+            let top = 760 + segment * 9;
+            for y in top..(top + 6).min(image.height()) {
+                for x in 3..27 {
+                    image.set(x, y, 18);
+                }
+            }
+        }
+
+        let mut picture = BinaryImage::new(image.width(), image.height());
+        for y in 0..260 {
+            for x in 570..600 {
+                picture.set(x, y, true);
+            }
+        }
+        for y in 600..800 {
+            for x in 0..35 {
+                picture.set(x, y, true);
+            }
+        }
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 27.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let bounds = detect_content_and_margins_calibrated(
+            &image,
+            Some(&picture),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .content
+        .expect("authored title text is content");
+        assert!(
+            bounds.x >= 140.0,
+            "lower seam end pinned left crop: {bounds:?}"
+        );
+        assert!(
+            bounds.right() <= 500.0,
+            "upper seam end pinned right crop: {bounds:?}"
+        );
+        assert!(bounds.y <= 100.0, "title was cropped: {bounds:?}");
+        assert!(bounds.bottom() >= 740.0, "footer was cropped: {bounds:?}");
     }
 
     #[test]

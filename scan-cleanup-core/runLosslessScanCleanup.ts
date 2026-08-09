@@ -49,6 +49,7 @@ import {
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarning,
+    resolveScanCleanupOutputPageSpacePaperRect,
     resolveScanCleanupPageCanvasBox,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@scan-cleanup-core/policy/documentCanvas';
@@ -221,24 +222,33 @@ export async function runLosslessScanCleanup(
         if (!pageSize) {
             throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(sourcePageNumber)}`);
         }
-        const outputs = (metadata.outputs ?? []).map(output => ({
-            half: output.half,
-            contentDetected: output.contentBox !== undefined,
-            cropRect: mapLosslessAnalysisRectToPdf(
-                output.cropRect,
-                output.inputWidthPx,
-                output.inputHeightPx,
-                metadata.rotationDegrees,
+        const outputs = (metadata.outputs ?? []).map(output => {
+            const paper = resolveScanCleanupOutputPageSpacePaperRect(
                 pageSize,
-            ),
-            paperRect: mapLosslessAnalysisRectToPdf(
-                output.sourceRegion,
-                output.inputWidthPx,
-                output.inputHeightPx,
-                metadata.rotationDegrees,
-                pageSize,
-            ),
-        }));
+                output.half === 'full' ? 1 : 2,
+                pageOverride.rotationDegrees,
+            );
+            return {
+                half: output.half,
+                contentDetected: output.contentBox !== undefined,
+                cropRect: mapLosslessAnalysisRectToPdf(
+                    output.cropRect,
+                    output.inputWidthPx,
+                    output.inputHeightPx,
+                    metadata.rotationDegrees,
+                    pageSize,
+                ),
+                // The cutter selects source pixels; it does not measure the
+                // paper. Both spread leaves inherit one half of the oriented
+                // source sheet even when their selected regions are unequal.
+                paperRect: {
+                    x: 0,
+                    y: 0,
+                    width: paper.widthPoints,
+                    height: paper.heightPoints,
+                },
+            };
+        });
         if (request.options.readingOrder === 'rtl' && metadata.layoutClassification === 'two-page-spread') {
             outputs.reverse();
         }

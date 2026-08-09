@@ -672,6 +672,61 @@ describe('scan cleanup workspace session detection guidance', () => {
         failed.unmount();
     });
 
+    it('uses final page completion to replace a run-paused preview instead of leaving it pending', async () => {
+        const harness = capabilityHarness();
+        const abandonedPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
+        let visibleRequests = 0;
+        vi.mocked(harness.value.preview).mockImplementation(async request => {
+            if (request.visible === true && request.pageNumber === 1) {
+                visibleRequests += 1;
+                if (visibleRequests === 1) {
+                    return abandonedPreview.promise;
+                }
+            }
+            return previewResult(request.pageNumber, 'single-uncut-page');
+        });
+        capability.value = harness.value;
+        const documentKey = `run-page-preview-handoff-${Date.now()}`;
+        const sourcePath = `/docs/${documentKey}.pdf`;
+        const mounted = mountSession(documentKey);
+
+        await vi.waitFor(() => expect(visibleRequests).toBe(1));
+        mounted.session.preview.pauseForRun();
+        expect(mounted.session.preview.loading.value).toBe(false);
+        expect(mounted.session.preview.result.value).toBeNull();
+
+        scanCleanupRun.activeJobId = 'cleanup-page-handoff';
+        scanCleanupRun.ownerDocumentRef = sourcePath;
+        scanCleanupRun.ownerDocumentRevision = documentKey;
+        scanCleanupRun.ownerId = mounted.session.run.ownerId;
+        scanCleanupRun.jobState = {
+            jobId: 'cleanup-page-handoff',
+            status: 'running',
+            progress: {
+                stage: 'rendering',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 33,
+                completedPageNumbers: [1],
+            },
+            updatedAtMs: Date.now(),
+        };
+
+        await vi.waitFor(() => expect(visibleRequests).toBe(2));
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+        expect(mounted.session.preview.result.value?.pageNumber).toBe(1);
+
+        // Coalesced progress for the same completed page cannot start another
+        // preview generation.
+        scanCleanupRun.jobState = {
+            ...scanCleanupRun.jobState,
+            updatedAtMs: Date.now() + 1,
+        } as TScanCleanupJobState;
+        await nextTick();
+        expect(visibleRequests).toBe(2);
+        mounted.unmount();
+    });
+
     it('derives the document\'s layouts once per change, not once per request', async () => {
         const harness = capabilityHarness();
         vi.mocked(harness.value.preview).mockImplementation(

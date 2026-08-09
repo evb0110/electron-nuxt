@@ -1,6 +1,7 @@
 import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
+    IScanCleanupPagePlanEvidence,
     IScanCleanupRawPreviewEvent,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
@@ -52,6 +53,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     initialViewMode?: 'original' | 'cleaned' | undefined;
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
+    pagePlanEvidenceByPage: ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
     previewPage: Ref<number>;
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
     recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
@@ -81,6 +83,7 @@ export function createScanCleanupPreviewCacheKey(
     outputModeRecommendation: TScanCleanupOutputMode | null = null,
     softAlphaForegroundRecommendation: boolean | null = null,
     pageLayoutClassification: TScanCleanupLayoutClassification | null = null,
+    pagePlanEvidence: IScanCleanupPagePlanEvidence | null = null,
 ) {
     const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
     // The visible page's classification decides its own output count, while
@@ -94,6 +97,7 @@ export function createScanCleanupPreviewCacheKey(
         canvas: previewOptions.matchPageSize ? documentCanvasSignature : '',
         canvasOverrides: previewOptions.matchPageSize ? matchedCanvasOverridesSignature : '',
         pageLayoutClassification,
+        pagePlanEvidence,
     });
     const identity = JSON.stringify({
         sourcePath: previewSourcePath,
@@ -337,6 +341,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             resolveOutputModeRecommendation(pageNumber) ?? null,
             resolveSoftAlphaForegroundRecommendation(pageNumber) ?? null,
             unresolvedPageLayout,
+            options.pagePlanEvidenceByPage.get(pageNumber) ?? null,
         ) + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`;
     }
 
@@ -416,17 +421,18 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         displayedDetailSourceKey = null;
     }
 
-    function cancel(invalidateRawCache = true) {
+    function cancel(invalidateRawCache = true, preserveDisplayedResult = false) {
         sequence += 1;
         prefetcher.supersede();
         clearTimer();
         invalidateDetailRequest();
-        // A final run can begin while a settings-driven preview is still
-        // debouncing. Do not leave the previous settings' cleaned raster (or
-        // its raw cleaning placeholder) looking authoritative after loading
-        // has been cleared. A result for the current key remains useful and
-        // may stay visible while the run owns the document.
-        if (!resultCurrent.value) {
+        // Normal cancellation cannot leave a previous settings generation
+        // looking authoritative after its replacement was retired. A final
+        // run is different: its click-time settings are frozen and the last
+        // completed frame is continuity, not mutable editing state. The run
+        // explicitly preserves it until its completed-page signal asks for an
+        // authoritative refresh under the final document plan.
+        if (!preserveDisplayedResult && !resultCurrent.value) {
             result.value = null;
             rawResult.value = null;
             resultKey.value = null;
@@ -453,6 +459,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         }).catch(() => undefined);
     }
 
+    function pauseForRun() {
+        cancel(false, true);
+    }
+
     function scheduleAdjacentPrefetch(
         previewResult: IScanCleanupPreviewResult,
         previewOptions: IScanCleanupOptions,
@@ -468,6 +478,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             const outputModeRecommendation = resolveOutputModeRecommendation(pageNumber);
             const softAlphaForegroundRecommendation =
                 resolveSoftAlphaForegroundRecommendation(pageNumber);
+            const pagePlanEvidence = options.pagePlanEvidenceByPage.get(pageNumber);
             const key = cacheKey(pageNumber, previewOptions, previewSourcePath);
             return {
                 key,
@@ -485,6 +496,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ...(softAlphaForegroundRecommendation === undefined
                         ? {}
                         : {softAlphaForegroundRecommendation}),
+                    ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
                     layoutByPage: layoutByPage.value,
                 },
             };
@@ -513,6 +525,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const outputModeRecommendation = resolveOutputModeRecommendation(requestPage);
         const softAlphaForegroundRecommendation =
             resolveSoftAlphaForegroundRecommendation(requestPage);
+        const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
         const requestId = nextRequestId();
         activeVisibleRequestId = requestId;
@@ -600,6 +613,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ...(softAlphaForegroundRecommendation === undefined
                         ? {}
                         : {softAlphaForegroundRecommendation}),
+                    ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
                     layoutByPage: layoutByPage.value,
                 })), requestId);
                 // A cancelled request has no result to keep or display. When the
@@ -755,6 +769,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             const documentPrior = options.documentPriorByPage.get(requestPage);
             const softAlphaForegroundRecommendation =
                 options.softAlphaForegroundRecommendationByPage.get(requestPage);
+            const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
             const requestId = nextRequestId();
             const next = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
                 requestId,
@@ -767,6 +782,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 ...(softAlphaForegroundRecommendation === undefined
                     ? {}
                     : {softAlphaForegroundRecommendation}),
+                ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
                 layoutByPage: layoutByPage.value,
                 detail: {
                     viewports,
@@ -872,6 +888,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         loading,
         metadataByPage,
         navigate,
+        pauseForRun,
         result,
         rawResult,
         resultCurrent,
