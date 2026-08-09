@@ -31,6 +31,21 @@ async function waitForAppReady(session: IElectronE2ESession) {
     );
 }
 
+async function resetReducedMotionPreference(session: IElectronE2ESession) {
+    // macOS runner preferences and a previous test's CDP emulation can both
+    // leave prefers-reduced-motion active. The tier assertions below exercise
+    // the host profile, so establish the neutral media baseline explicitly.
+    const client = await session.page.createCDPSession();
+    try {
+        await client.send('Emulation.setEmulatedMedia', {features: [{
+            name: 'prefers-reduced-motion',
+            value: 'no-preference',
+        }]});
+    } finally {
+        await client.detach();
+    }
+}
+
 async function readRootProfileSnapshot(session: IElectronE2ESession): Promise<IRootProfileSnapshot> {
     return session.page.evaluate(() => {
         let microtaskReached = false;
@@ -85,6 +100,7 @@ describe('Electron E2E - Performance Profile Visuals', () => {
             `e2e-performance-visuals-low-${Date.now()}`,
             'low',
         );
+        await resetReducedMotionPreference(session);
         await waitForAppReady(session);
 
         expect(await readRootProfileSnapshot(session)).toMatchObject({
@@ -100,6 +116,7 @@ describe('Electron E2E - Performance Profile Visuals', () => {
             `e2e-performance-visuals-medium-${Date.now()}`,
             'medium',
         );
+        await resetReducedMotionPreference(session);
         await waitForAppReady(session);
 
         expect(await readRootProfileSnapshot(session)).toMatchObject({
@@ -138,6 +155,7 @@ describe('Electron E2E - Performance Profile Visuals', () => {
             `e2e-performance-visuals-high-${Date.now()}`,
             'high',
         );
+        await resetReducedMotionPreference(session);
         await waitForAppReady(session);
 
         expect(await readRootProfileSnapshot(session)).toMatchObject({
