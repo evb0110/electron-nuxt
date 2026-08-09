@@ -12,6 +12,10 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    findSerializableErrorEnvelope,
+    type ISerializableErrorEnvelope,
+} from '@contracts/serializableError';
 
 /** Shared user-visible search limits. Keep every runtime on these values. */
 export const SEARCH_RESULT_LIMIT = 500;
@@ -166,9 +170,7 @@ export type TSearchErrorCode =
     | 'SEARCH_WORKER_ERROR'
     | 'SEARCH_INTERNAL';
 
-export interface ISearchErrorEnvelope {
-    code: TSearchErrorCode;
-    message: string;
+export interface ISearchErrorEnvelope extends ISerializableErrorEnvelope<TSearchErrorCode> {
     retryable: boolean;
     timestamp: number;
     details?: string;
@@ -195,13 +197,7 @@ export function isSearchErrorEnvelope(value: unknown): value is ISearchErrorEnve
 }
 
 export function findSearchErrorEnvelope(value: unknown): ISearchErrorEnvelope | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (isSearchErrorEnvelope(value.errorEnvelope)) {
-        return value.errorEnvelope;
-    }
-    return findSearchErrorEnvelope(value.cause);
+    return findSerializableErrorEnvelope(value, isSearchErrorEnvelope);
 }
 
 export interface ISearchMatchOptions {

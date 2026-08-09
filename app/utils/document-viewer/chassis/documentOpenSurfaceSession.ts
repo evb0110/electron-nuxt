@@ -164,6 +164,7 @@ export interface IDocumentOpenSurfaceSession {
     fail(generation: number, reason: string): boolean;
     reset(): void;
     metadataReady(pageCount: number): boolean;
+    invalidateResidentVisual(pageNumber: number): boolean;
     requestNavigation(pageNumber: number, skeletonDelayMs?: number): number;
     observeViewportPage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
 }
@@ -1059,6 +1060,22 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 generation: sessionState.value.viewport.generation,
                 pageCount,
             });
+        },
+        invalidateResidentVisual(pageNumber) {
+            const normalized = Math.max(1, Math.trunc(pageNumber));
+            const viewport = sessionState.value.viewport;
+            if (
+                !Number.isSafeInteger(normalized)
+                || viewport.lifecycle !== 'ready'
+                || viewport.requestedPage !== normalized
+                || viewport.committedPage !== normalized
+                || viewport.visual.kind !== 'page'
+                || viewport.visual.pageNumber !== normalized
+                || viewport.visual.presentation !== 'canvas'
+            ) {
+                return false;
+            }
+            return dispatchNavigation(normalized, 0);
         },
         requestNavigation(pageNumber, skeletonDelayMs = 120) {
             const normalized = Math.max(1, Math.trunc(pageNumber));

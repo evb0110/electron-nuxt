@@ -175,6 +175,84 @@ describe('browserPdfCombineWorkerClient', () => {
         )).rejects.toThrow('Browser worker returned an invalid result');
     });
 
+    it('reconstructs typed native errors from worker failure responses', async () => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id: request.id,
+                    ok: false,
+                    error: 'Image combine WASM request exceeds the admission ceiling',
+                    errorEnvelope: {
+                        code: 'too-large',
+                        message: 'Image combine WASM request exceeds the admission ceiling',
+                    },
+                });
+            });
+        };
+        const {runBrowserPdfCombineWorkerRequest} = await import(
+            '@app/platform/browser-api/browserPdfCombineWorkerClient'
+        );
+
+        await expect(runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: 'first.png',
+            data: new Uint8Array([1]),
+        }]})).rejects.toMatchObject({
+            code: 'too-large',
+            errorEnvelope: {
+                code: 'too-large',
+                message: 'Image combine WASM request exceeds the admission ceiling',
+            },
+        });
+    });
+
+    it('rejects malformed worker error envelopes as invalid responses', async () => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id: request.id,
+                    ok: false,
+                    error: 'malformed failure',
+                    errorEnvelope: {
+                        code: '',
+                        message: false,
+                    },
+                });
+            });
+        };
+        const {runBrowserPdfCombineWorkerRequest} = await import(
+            '@app/platform/browser-api/browserPdfCombineWorkerClient'
+        );
+
+        await expect(runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: 'first.png',
+            data: new Uint8Array([1]),
+        }]})).rejects.toThrow('Browser worker returned an invalid response');
+    });
+
+    it('rejects unknown native worker error codes as invalid responses', async () => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id: request.id,
+                    ok: false,
+                    error: 'unknown native failure',
+                    errorEnvelope: {
+                        code: 'future-native-code',
+                        message: 'unknown native failure',
+                    },
+                });
+            });
+        };
+        const {runBrowserPdfCombineWorkerRequest} = await import(
+            '@app/platform/browser-api/browserPdfCombineWorkerClient'
+        );
+
+        await expect(runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: 'first.png',
+            data: new Uint8Array([1]),
+        }]})).rejects.toThrow('Browser worker returned an invalid response');
+    });
+
     it('terminates the idle worker after the TTL elapses', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');

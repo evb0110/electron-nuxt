@@ -96,6 +96,7 @@ function createWasmExportsMock(options: {
     allocThrows?: boolean;
     buildResultCode?: number;
     output?: Uint8Array;
+    errorText?: string;
 } = {}) {
     const memory = new NativeWebAssembly.Memory({initial: 1});
     const output = options.output ?? new Uint8Array([
@@ -108,7 +109,7 @@ function createWasmExportsMock(options: {
     let capturedRequest = new Uint8Array();
     let outputPointer = 0;
     let errorPointer = 0;
-    const error = new TextEncoder().encode('wasm failed');
+    const error = new TextEncoder().encode(options.errorText ?? 'wasm failed');
     const free = vi.fn();
     const buildPdf = vi.fn((requestPointer: number, requestLength: number) => {
         capturedRequest = new Uint8Array(memory.buffer, requestPointer, requestLength).slice();
@@ -305,8 +306,14 @@ describe('tryCombineImageInputsWithWasm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('fails closed when the WASM export rejects the image payload', async () => {
-        const wasmMock = createWasmExportsMock({buildResultCode: -1});
+    it('fails closed with the native error code when the WASM export rejects the image payload', async () => {
+        const wasmMock = createWasmExportsMock({
+            buildResultCode: -1,
+            errorText: JSON.stringify({
+                code: 'corrupt-xref',
+                message: 'wasm failed',
+            }),
+        });
         vi.stubGlobal('fetch', createFetchMock());
         vi.stubGlobal('WebAssembly', {
             ...wasmGlobalMockBase,
@@ -321,7 +328,10 @@ describe('tryCombineImageInputsWithWasm', () => {
 
         expect(result).toMatchObject({
             status: 'fatal',
-            error: expect.any(Error),
+            error: {
+                code: 'corrupt-xref',
+                message: 'wasm failed',
+            },
         });
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
         expect(loggerWarn).toHaveBeenCalledWith(
@@ -350,7 +360,7 @@ describe('tryCombineImageInputsWithWasm', () => {
 
         expect(result).toMatchObject({
             status: 'fatal',
-            error: expect.any(Error),
+            error: {code: 'native-failure'},
         });
         expect(wasmMock.free).not.toHaveBeenCalled();
     });
@@ -371,8 +381,37 @@ describe('tryCombineImageInputsWithWasm', () => {
 
         expect(result).toMatchObject({
             status: 'fatal',
-            error: expect.any(Error),
+            error: {code: 'too-large'},
         });
         expect(wasmMock.free).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'not-json',
+        JSON.stringify({
+            code: 'future-native-code',
+            message: 'future failure',
+        }),
+    ])('falls back to native-failure for malformed or unknown WASM errors', async (errorText) => {
+        const wasmMock = createWasmExportsMock({
+            buildResultCode: -1,
+            errorText,
+        });
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryCombineImageInputsWithWasm} = await import(
+            '@app/platform/browser-api/tryCombineImageInputsWithWasm'
+        );
+
+        await expect(tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }])).resolves.toMatchObject({
+            status: 'fatal',
+            error: {code: 'native-failure'},
+        });
     });
 });

@@ -7,6 +7,12 @@ import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferab
 import type { ICropMargins } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
+import {
+    isNativeErrorEnvelope,
+    type INativeErrorEnvelope,
+    type TNativeErrorCode,
+} from '@contracts/nativeErrors';
+import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
 interface IPdfPageOpsWasmExports {
     memory: WebAssembly.Memory;
@@ -50,6 +56,33 @@ const RESPONSE_GEOMETRY = 2;
 const MAX_U32 = 0xffff_ffff;
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
+
+export interface IBrowserPageOpsWasmFailure {
+    status: 'failed';
+    error: INativeErrorEnvelope;
+}
+
+export function isBrowserPageOpsWasmFailure(value: unknown): value is IBrowserPageOpsWasmFailure {
+    return typeof value === 'object'
+        && value !== null
+        && 'status' in value
+        && value.status === 'failed'
+        && 'error' in value
+        && isNativeErrorEnvelope(value.error);
+}
+
+function createWasmFailure(
+    code: TNativeErrorCode,
+    message: string,
+): IBrowserPageOpsWasmFailure {
+    return {
+        status: 'failed',
+        error: {
+            code,
+            message,
+        },
+    };
+}
 
 function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value is (...args: number[]) => number {
     return typeof value === 'function';
@@ -293,16 +326,26 @@ function readWasmError(exports: IPdfPageOpsWasmExports) {
     return new TextDecoder().decode(copyWasmBytes(exports, pointer, len));
 }
 
-function logWasmFailure(
+function readWasmFailure(
     type: TBrowserPageOpsWasmRequestType,
     resultCode: number,
     exports: IPdfPageOpsWasmExports,
 ) {
+    const encodedError = readWasmError(exports);
+    const error = decodeSerializableErrorEnvelope(
+        encodedError,
+        isNativeErrorEnvelope,
+        {allowBareJsonString: true},
+    ) ?? {
+        code: 'native-failure' as const,
+        message: encodedError ?? `Page operation WASM failed with result code ${resultCode}`,
+    };
     BrowserLogger.warn('browser-wasm', 'PDF page operation WASM failed; falling back to pdf-lib', {
-        error: readWasmError(exports) ?? 'No WASM error detail returned',
+        error: error.message,
         resultCode,
         type,
     });
+    return createWasmFailure(error.code, error.message);
 }
 
 function readMutationResult(output: Uint8Array) {
@@ -380,7 +423,7 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
 export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasmRequestType>(
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
-): Promise<IBrowserPageOpsWorkerResultMap[K] | null> {
+): Promise<IBrowserPageOpsWorkerResultMap[K] | IBrowserPageOpsWasmFailure | null> {
     if (!canUsePdfPageOpsWasm()) {
         return null;
     }
@@ -400,29 +443,35 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
         } as TBrowserPageOpsWasmRequest);
         requestByteLength = request.byteLength;
         if (requestByteLength === 0 || requestByteLength > PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES) {
-            return null;
+            return createWasmFailure('too-large', 'Page operation WASM request exceeds the admission ceiling');
         }
         pointer = exports.evb_pdf_page_ops_alloc(requestByteLength);
         if (pointer === 0) {
             pointer = null;
-            return null;
+            return createWasmFailure('too-large', 'Page operation WASM could not allocate request memory');
         }
         new Uint8Array(exports.memory.buffer, pointer, request.byteLength).set(request);
         const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
         if (resultCode !== 0) {
-            logWasmFailure(type, resultCode, exports);
-            return null;
+            return readWasmFailure(type, resultCode, exports);
         }
 
         const outputPointer = exports.evb_pdf_page_ops_output_ptr();
         const outputLen = exports.evb_pdf_page_ops_output_len();
         if (outputLen === 0 || outputLen > PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES) {
-            return null;
+            return createWasmFailure(
+                outputLen > PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES ? 'too-large' : 'invalid-request',
+                'Page operation WASM returned an invalid output envelope',
+            );
         }
 
-        return parseWasmOutput(type, copyWasmBytes(exports, outputPointer, outputLen));
-    } catch {
-        return null;
+        return parseWasmOutput(type, copyWasmBytes(exports, outputPointer, outputLen))
+            ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+    } catch (error) {
+        return createWasmFailure(
+            'invalid-request',
+            error instanceof Error ? error.message : 'Page operation WASM request failed',
+        );
     } finally {
         if (pointer !== null) {
             exports.evb_pdf_page_ops_free(pointer, requestByteLength);

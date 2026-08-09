@@ -7,6 +7,11 @@ import {
 import type { IpcRenderer } from 'electron';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
+import {
+    findSearchErrorEnvelope,
+    type ISearchErrorEnvelope,
+} from '@contracts/search';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
 const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
 const SEARCH_EVENT_CHANNELS = SEARCH_PLATFORM_FEATURE.eventChannels;
@@ -55,13 +60,16 @@ describe('derived Search preload client', () => {
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
-    it('labels rejected search invokes with the IPC channel and original cause', async () => {
-        const cause = Object.assign(new Error('path denied'), {errorEnvelope: {
+    it('recovers a typed search error after Electron preserves only Error.message', async () => {
+        const envelope: ISearchErrorEnvelope = {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied',
             retryable: false,
             timestamp: 123,
-        }});
+        };
+        const cause = new Error(
+            `Error invoking remote method '${SEARCH_CHANNELS.run}': ${encodeSerializableErrorEnvelope(envelope)}`,
+        );
         const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
             invoke: vi.fn(async () => {
                 throw cause;
@@ -71,11 +79,26 @@ describe('derived Search preload client', () => {
         };
         const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
 
-        await expect(client.run('/tmp/work.pdf', 'needle')).rejects.toMatchObject({
+        const error = await client.run('/tmp/work.pdf', 'needle').catch((caught: unknown) => caught);
+
+        expect(error).toMatchObject({
             name: 'PlatformIpcInvokeError',
             channel: SEARCH_CHANNELS.run,
             cause,
         });
+        expect(findSearchErrorEnvelope(error)).toEqual(envelope);
+    });
+
+    it('decodes structured envelopes but ignores unmarked JSON error messages', () => {
+        const envelope: ISearchErrorEnvelope = {
+            code: 'SEARCH_PATH_DENIED',
+            message: 'Search path denied',
+            retryable: false,
+            timestamp: 123,
+        };
+
+        expect(findSearchErrorEnvelope({errorEnvelope: envelope})).toEqual(envelope);
+        expect(findSearchErrorEnvelope(new Error(JSON.stringify(envelope)))).toBeNull();
     });
 
     it('rejects malformed search results returned across IPC', async () => {

@@ -4,7 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { shallowRef } from 'vue';
+import {
+    ref,
+    shallowRef,
+} from 'vue';
 import {
     canBeginDocumentOpenSynchronously,
     createWorkspaceDocumentOpenTransactions,
@@ -14,10 +17,12 @@ import {
     shouldWaitForPreparedOpeningOwner,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createDeferredWorkspaceLoadGateway } from '@app/modules/workspace-shell/host/createDeferredWorkspaceLoadGateway';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
+    type ICloseFileFromUiOptions,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { workspaceSessionHasOpenedDocument } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
@@ -295,6 +300,45 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         ownerGate.resolve(undefined);
         await expect(opening).resolves.toBe(false);
         expect(run).not.toHaveBeenCalled();
+    });
+
+    it('does not dispatch a deferred source open after close aborts its mount wait', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
+        const requestWorkspaceMount = vi.fn();
+        const realOpen = vi.fn(async () => true);
+        const loadGateway = createDeferredWorkspaceLoadGateway({
+            tabId: 'tab-1',
+            mountedWorkspace,
+            workspaceChunkLoadError: ref<unknown>(null),
+            loadDocumentWorkspace: async () => undefined,
+            requestWorkspaceMount,
+            isHostUnmounted: () => false,
+        });
+        controller.attachWorkspace(cast<IWorkspaceExpose>({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
+            options?.onCloseCommit?.();
+            return true;
+        }}));
+
+        const opening = controller.open({
+            action: 'openRecentFromPlaceholder',
+            target: {originalPath: '/documents/scan.pdf'},
+        }, signal => loadGateway.withWorkspace(
+            'openRecentFromPlaceholder',
+            workspace => workspace.handleOpenFileDirectWithPersist('/documents/scan.pdf'),
+            signal,
+        ));
+
+        expect(requestWorkspaceMount).toHaveBeenCalledOnce();
+        await expect(controller.close({persist: false})).resolves.toBe(true);
+        await expect(opening).resolves.toBe(false);
+
+        mountedWorkspace.value = cast<IWorkspaceExpose>({handleOpenFileDirectWithPersist: realOpen});
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(realOpen).not.toHaveBeenCalled();
+        loadGateway.dispose();
     });
 
     it('refuses opens after the presentation host detaches instead of running them bare', async () => {

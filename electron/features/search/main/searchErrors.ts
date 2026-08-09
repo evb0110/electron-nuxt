@@ -5,6 +5,7 @@ import type {
 } from '@contracts/search';
 import { getErrorMessage } from '@electron/utils/error';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
 const SEARCH_ERROR_DETAILS_MAX_LENGTH = 1_000;
 
@@ -21,7 +22,7 @@ export class SearchIpcError extends Error implements ISearchErrorEnvelopeCarrier
     readonly code: TSearchErrorCode;
 
     constructor(envelope: ISearchErrorEnvelope) {
-        super(envelope.message);
+        super(encodeSerializableErrorEnvelope(envelope));
         this.name = 'SearchIpcError';
         this.errorEnvelope = envelope;
         this.code = envelope.code;

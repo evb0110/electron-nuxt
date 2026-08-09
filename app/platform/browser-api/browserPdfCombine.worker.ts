@@ -34,6 +34,11 @@ import {
     resolveBrowserRasterIccProfile,
 } from '@app/platform/browser-api/browserRasterImageMetadata';
 import {embedPdfImageIccProfile} from '@app/platform/browser-api/embedPdfImageIccProfile';
+import {
+    findSerializableErrorEnvelope,
+    SerializableError,
+} from '@contracts/serializableError';
+import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 
 const MAX_COMBINE_PAGES = 500;
 const MAX_IMAGE_PIXELS = 80_000_000;
@@ -243,7 +248,7 @@ async function handleCombinePdfsRequest(
         return {data: wasmResult.data};
     }
     if (wasmResult.status === 'fatal') {
-        throw wasmResult.error;
+        throw new SerializableError(wasmResult.error);
     }
     if (request.payload.wasmImagePreprocessing) {
         throw new Error('ERR_BROWSER_PDF_COMBINE_WORKER_WASM_PREPROCESSING_UNAVAILABLE');
@@ -312,10 +317,12 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
         } satisfies TBrowserPdfCombineWorkerResponse;
         self.postMessage(response, [data.data.buffer]);
     } catch (error) {
+        const errorEnvelope = findSerializableErrorEnvelope(error, isNativeErrorEnvelope);
         const response = {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
+            ...(errorEnvelope === null ? {} : {errorEnvelope}),
         } satisfies TBrowserPdfCombineWorkerResponse;
         self.postMessage(response);
     }

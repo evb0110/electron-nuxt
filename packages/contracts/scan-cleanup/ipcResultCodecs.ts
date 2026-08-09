@@ -1,6 +1,8 @@
 import { isRecord } from '@contracts/runtimeGuards';
-import {NATIVE_ERROR_CODES} from '@contracts/nativeErrors';
-import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
+import {
+    SCAN_CLEANUP_ERROR_CODES,
+    SCAN_CLEANUP_SUMMARY_SCHEMA,
+} from '@contracts/scan-cleanup/ipc';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import type {
     IScanCleanupPreviewMetadata,
@@ -755,10 +757,7 @@ export function decodeDetectionStartResult(value: unknown) {
 }
 
 function isScanCleanupErrorCode(value: unknown): value is TScanCleanupErrorCode {
-    return NATIVE_ERROR_CODES.includes(value as typeof NATIVE_ERROR_CODES[number])
-        || value === 'tools-unavailable'
-        || value === 'canceled'
-        || value === 'internal';
+    return SCAN_CLEANUP_ERROR_CODES.includes(value as TScanCleanupErrorCode);
 }
 
 function decodeNonNegativeInteger(value: unknown, fieldName: string) {

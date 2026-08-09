@@ -66,14 +66,17 @@ export function shouldInvalidateNativePdfRaster(options: {
 }
 
 export function shouldPresentNativePdfPageSkeleton(options: {
+    residentVisualInvalidated?: boolean;
     visual: TDocumentViewportVisualOwner | null | undefined;
     pageNumber: number;
     surfaceReady: boolean;
     visualCommitted: boolean;
 }) {
-    return options.surfaceReady
-        && options.visual?.kind === 'page'
-        && options.visual.pageNumber === options.pageNumber
-        && options.visual.presentation === 'skeleton'
-        && !options.visualCommitted;
+    return !options.visualCommitted && (
+        options.residentVisualInvalidated === true
+        || options.surfaceReady
+            && options.visual?.kind === 'page'
+            && options.visual.pageNumber === options.pageNumber
+            && options.visual.presentation === 'skeleton'
+    );
 }

@@ -450,10 +450,40 @@ describe('handleNativeNoteTextSave', () => {
         expect(result).toEqual({
             applied: false,
             validation: null,
+            error: {
+                code: 'native-failure',
+                message: 'sync failed',
+            },
         });
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
         expect(readFileSyncUtf8(originalPath)).toBe('original-before');
         expect(readFileSyncUtf8(requestedWorkingPath)).toBe('working-before');
+    });
+
+    it('preserves typed native error codes when the mutation falls back', async () => {
+        const {requestedWorkingPath} = createOriginalMutationFixture();
+        mocks.runNativeToolCommand.mockRejectedValue(Object.assign(
+            new Error('Native mutation input exceeds limits'),
+            {code: 'too-large'},
+        ));
+        const {handleNativeNoteTextSave} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        const result = await handleNativeNoteTextSave(context, requestedWorkingPath, [{
+            objectNumber: 42,
+            generationNumber: 0,
+            text: 'Updated note',
+        }], 'D:20260609133855+03\'00\'', revisionOptions);
+
+        expect(result).toEqual({
+            applied: false,
+            validation: null,
+            error: {
+                code: 'too-large',
+                message: 'Native mutation input exceeds limits',
+            },
+        });
     });
 
     it('runs the native note changes append command for FreeText note upserts', async () => {

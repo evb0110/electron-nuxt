@@ -288,6 +288,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             if (!result.applied || !result.validation?.isValid) {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation was not applied', {
                     pageNumber: payload.pageNumber,
+                    error: result.error,
                     validation: result.validation,
                 });
                 return null;

@@ -42,6 +42,7 @@ import {
     scanCleanupRun,
     setScanCleanupRunError,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 // Counts the real reduction rather than replacing it: the document's layouts
@@ -667,6 +668,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(failed.session.preview.loading.value).toBe(true);
         await vi.waitFor(() => expect(failed.session.preview.error.value).toBe('preview boundary failed'));
+        expect(failed.session.preview.errorCode.value).toBe('internal');
         expect(failed.session.preview.loading.value).toBe(false);
         expect(failed.session.preview.result.value).toBeNull();
         failed.unmount();
@@ -725,6 +727,32 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         expect(visibleRequests).toBe(2);
         mounted.unmount();
+    });
+
+    it('retains typed scan-preview codes from message-only IPC errors', async () => {
+        const typedHarness = capabilityHarness();
+        vi.mocked(typedHarness.value.preview).mockRejectedValue(new Error(encodeSerializableErrorEnvelope({
+            code: 'too-large',
+            message: 'Preview exceeds native limits',
+        })));
+        capability.value = typedHarness.value;
+        const typed = mountSession(`preview-typed-error-${Date.now()}`);
+
+        await vi.waitFor(() => expect(typed.session.preview.error.value).toBe('Preview exceeds native limits'));
+        expect(typed.session.preview.errorCode.value).toBe('too-large');
+        typed.unmount();
+
+        const unknownHarness = capabilityHarness();
+        vi.mocked(unknownHarness.value.preview).mockRejectedValue(new Error(encodeSerializableErrorEnvelope({
+            code: 'unknown-native-code',
+            message: 'Unknown preview failure',
+        })));
+        capability.value = unknownHarness.value;
+        const unknown = mountSession(`preview-unknown-error-${Date.now()}`);
+
+        await vi.waitFor(() => expect(unknown.session.preview.errorCode.value).toBe('internal'));
+        expect(unknown.session.preview.error.value).toBe('scanCleanup.preview.unavailable');
+        unknown.unmount();
     });
 
     it('derives the document\'s layouts once per change, not once per request', async () => {

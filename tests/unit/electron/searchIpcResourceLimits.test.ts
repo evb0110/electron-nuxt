@@ -1,3 +1,4 @@
+import type {TSearchErrorCode} from '@contracts/search';
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
     beforeEach,
@@ -118,6 +119,37 @@ function emitWorkerProgressWithResults(
         total: 2,
         results,
         truncated: false,
+    });
+}
+
+async function expectTypedSearchFailure(
+    searchPromise: Promise<unknown>,
+    expected: {
+        code: TSearchErrorCode;
+        message: string;
+        retryable: boolean;
+    },
+) {
+    await expect(searchPromise).rejects.toMatchObject({
+        name: 'SearchIpcError',
+        code: expected.code,
+        errorEnvelope: {
+            code: expected.code,
+            message: expected.message,
+            retryable: expected.retryable,
+            timestamp: expect.any(Number),
+        },
+    });
+}
+
+function expectSearchWorkerProtocolFailure(
+    searchPromise: Promise<unknown>,
+    requestId: string,
+) {
+    return expectTypedSearchFailure(searchPromise, {
+        code: 'SEARCH_WORKER_PROTOCOL',
+        message: `Search worker sent malformed message for request "${requestId}"`,
+        retryable: false,
     });
 }
 
@@ -390,7 +422,11 @@ describe('search IPC worker resource limits', () => {
             truncated: boolean 
         }>;
 
-        await expect(secondRequest).rejects.toThrow('Search worker limit reached (1 active senders)');
+        await expectTypedSearchFailure(secondRequest, {
+            code: 'SEARCH_WORKER_LIMIT',
+            message: 'Search worker limit reached (1 active senders). Please retry shortly.',
+            retryable: true,
+        });
         expect(mocks.workerRecords).toHaveLength(1);
 
         emitWorkerComplete(0, 'req-1');
@@ -431,14 +467,18 @@ describe('search IPC worker resource limits', () => {
             },
         });
 
-        await expect(searchHandler(
+        await expectTypedSearchFailure(searchHandler(
             createInvokeEvent(20),
             {
                 pdfPath: '/tmp/two.pdf',
                 query: 'second',
                 requestId: 'req-low-2',
             },
-        )).rejects.toThrow('Search worker limit reached (1 active senders)');
+        ) as Promise<unknown>, {
+            code: 'SEARCH_WORKER_LIMIT',
+            message: 'Search worker limit reached (1 active senders). Please retry shortly.',
+            retryable: true,
+        });
 
         emitWorkerComplete(0, 'req-low-1');
         await expect(firstRequest).resolves.toEqual({
@@ -565,8 +605,7 @@ describe('search IPC worker resource limits', () => {
         });
 
         emitWorkerCompleteWithResults(0, requestId, [buildSearchMatch({pageNumber})]);
-        await expect(searchPromise)
-            .rejects.toThrow(`Search worker sent malformed message for request "${requestId}"`);
+        await expectSearchWorkerProtocolFailure(searchPromise, requestId);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 170');
         expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
     });
@@ -595,8 +634,7 @@ describe('search IPC worker resource limits', () => {
         });
 
         emitWorkerCompleteWithResults(0, requestId, [buildSearchMatch({pageNumber: 999})]);
-        await expect(searchPromise)
-            .rejects.toThrow(`Search worker sent malformed message for request "${requestId}"`);
+        await expectSearchWorkerProtocolFailure(searchPromise, requestId);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 172');
         expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
     });
@@ -635,8 +673,7 @@ describe('search IPC worker resource limits', () => {
             })],
             truncated: false,
         });
-        await expect(searchPromise)
-            .rejects.toThrow(`Search worker sent malformed message for request "${requestId}"`);
+        await expectSearchWorkerProtocolFailure(searchPromise, requestId);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 171');
         expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
     });
@@ -672,8 +709,7 @@ describe('search IPC worker resource limits', () => {
             results: [buildSearchMatch({pageNumber: 999})],
             truncated: false,
         });
-        await expect(searchPromise)
-            .rejects.toThrow(`Search worker sent malformed message for request "${requestId}"`);
+        await expectSearchWorkerProtocolFailure(searchPromise, requestId);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 173');
         expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
     });
@@ -866,8 +902,11 @@ describe('search IPC worker resource limits', () => {
                 });
                 sender.send.mockClear();
             } else {
-                const timeoutRejection = expect(searchPromise)
-                    .rejects.toThrow('Search request timed out after 5000ms');
+                const timeoutRejection = expectTypedSearchFailure(searchPromise, {
+                    code: 'SEARCH_TIMEOUT',
+                    message: 'Search request timed out after 5000ms',
+                    retryable: true,
+                });
                 await vi.advanceTimersByTimeAsync(5_000);
                 await timeoutRejection;
                 expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
@@ -980,14 +1019,18 @@ describe('search IPC worker resource limits', () => {
             expect(mocks.workerRecords).toHaveLength(2);
         });
 
-        await expect(searchHandler(
+        await expectTypedSearchFailure(searchHandler(
             createInvokeEvent(103),
             {
                 pdfPath: '/tmp/three.pdf',
                 query: 'third',
                 requestId: 'req-c',
             },
-        )).rejects.toThrow('Search worker limit reached (2 active senders)');
+        ) as Promise<unknown>, {
+            code: 'SEARCH_WORKER_LIMIT',
+            message: 'Search worker limit reached (2 active senders). Please retry shortly.',
+            retryable: true,
+        });
 
         emitWorkerComplete(0, 'req-a');
         emitWorkerComplete(1, 'req-b');

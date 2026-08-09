@@ -2,6 +2,7 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 
 export const NATIVE_ERROR_CODES = [
     'encrypted',
@@ -16,10 +17,7 @@ export const NATIVE_ERROR_CODES = [
 
 export type TNativeErrorCode = typeof NATIVE_ERROR_CODES[number];
 
-export interface INativeErrorEnvelope {
-    code: TNativeErrorCode;
-    message: string;
-}
+export interface INativeErrorEnvelope extends ISerializableErrorEnvelope<TNativeErrorCode> {}
 
 export function isNativeErrorEnvelope(value: unknown): value is INativeErrorEnvelope {
     return isRecord(value)

@@ -141,5 +141,15 @@ describe('native PDF raster presentation', () => {
             surfaceReady: false,
             visualCommitted: false,
         })).toBe(false);
+        expect(shouldPresentNativePdfPageSkeleton({
+            residentVisualInvalidated: true,
+            visual: {
+                ...skeleton,
+                presentation: 'cold-shell',
+            },
+            pageNumber: 9,
+            surfaceReady: false,
+            visualCommitted: false,
+        })).toBe(true);
     });
 });

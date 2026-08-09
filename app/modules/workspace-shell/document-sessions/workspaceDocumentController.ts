@@ -119,9 +119,9 @@ export interface IWorkspaceDocumentController {
     readonly operationLease: IDocumentOperationLease;
     beginTransaction(input: Omit<IWorkspaceDocumentTransaction, 'id' | 'tabId' | 'startedAt'>): IWorkspaceDocumentTransaction;
     finishTransaction(id: string, result: 'committed' | 'cancelled' | 'failed'): void;
-    open<T>(intent: IDocumentOpenIntent, run: () => Promise<T>): Promise<T | false>;
-    restore<T>(intent: IDocumentOpenIntent, run: () => Promise<T>): Promise<T | false>;
-    reload<T>(intent: IDocumentOpenIntent, run: () => Promise<T>): Promise<T | false>;
+    open<T>(intent: IDocumentOpenIntent, run: (signal: AbortSignal) => Promise<T>): Promise<T | false>;
+    restore<T>(intent: IDocumentOpenIntent, run: (signal: AbortSignal) => Promise<T>): Promise<T | false>;
+    reload<T>(intent: IDocumentOpenIntent, run: (signal: AbortSignal) => Promise<T>): Promise<T | false>;
     attachOpenTransactionHost(host: IWorkspaceDocumentOpenHost): () => void;
     requestDocumentPage(page: number): void;
     close(request: {persist: boolean}): Promise<boolean>;
@@ -169,7 +169,7 @@ interface IWorkspaceWaiter {
 // Large documents can legitimately take well over four seconds to mount their
 // workspace host on production hardware. Keep this aligned with the document
 // visual-settle policies so routing does not manufacture a false open failure.
-const DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS = 30_000;
+const DEFAULT_DOCUMENT_OPEN_STAGE_TIMEOUT_MS = 30_000;
 let nextSessionIndex = 0;
 let nextGlobalDocumentSessionKeyIndex = 0;
 function createDefaultSessionId(tabId: string) {
@@ -478,7 +478,7 @@ export function createWorkspaceDocumentController(
 ): IWorkspaceDocumentController {
     const now = options.now ?? Date.now;
     const sessionId = options.sessionId ?? options.createSessionId?.(options.tabId) ?? createDefaultSessionId(options.tabId);
-    const workspaceWaitTimeoutMs = options.workspaceWaitTimeoutMs ?? DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS;
+    const workspaceWaitTimeoutMs = options.workspaceWaitTimeoutMs ?? DEFAULT_DOCUMENT_OPEN_STAGE_TIMEOUT_MS;
     const createDocumentInstanceId = options.createDocumentInstanceId ?? createDefaultDocumentInstanceId;
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const operationLease = createDocumentOperationLease();
@@ -1033,7 +1033,7 @@ export function createWorkspaceDocumentController(
     async function runOpenTransaction<T>(
         kind: Extract<TWorkspaceDocumentTransactionKind, 'open' | 'restore' | 'reload'>,
         intent: IDocumentOpenIntent,
-        run: () => Promise<T>,
+        run: (signal: AbortSignal) => Promise<T>,
     ) {
         const requestedOpenEpoch = openTransactionEpoch;
         return enqueueTransaction(async () => {
@@ -1057,12 +1057,22 @@ export function createWorkspaceDocumentController(
                 documentRef: intent.target?.originalPath ?? snapshot.value.identity.originalPath,
             });
             let committed = false;
+            let sourceDeadlineTimer: ReturnType<typeof setTimeout> | undefined;
+            const sourceOpen = () => {
+                if (abortController.signal.aborted) {
+                    return Promise.resolve(false as const);
+                }
+                sourceDeadlineTimer = setTimeout(() => {
+                    abortController.abort(new DOMException('Document open source stage timed out', 'TimeoutError'));
+                }, DEFAULT_DOCUMENT_OPEN_STAGE_TIMEOUT_MS);
+                return run(abortController.signal).finally(() => clearTimeout(sourceDeadlineTimer));
+            };
             try {
-                const result = await openTransactions.run(
+                const result = await openTransactions.run<T | false>(
                     intent,
                     transaction.id,
                     transaction.documentRef,
-                    run,
+                    sourceOpen,
                     abortController.signal,
                 );
                 if (abortController.signal.aborted || requestedOpenEpoch !== openTransactionEpoch) {
@@ -1071,6 +1081,7 @@ export function createWorkspaceDocumentController(
                 committed = result !== false;
                 return result;
             } finally {
+                clearTimeout(sourceDeadlineTimer);
                 if (activeOpenAbortController === abortController) {
                     activeOpenAbortController = null;
                 }
@@ -1083,7 +1094,7 @@ export function createWorkspaceDocumentController(
 
     function open<T>(
         intent: IDocumentOpenIntent,
-        run: () => Promise<T>,
+        run: (signal: AbortSignal) => Promise<T>,
     ) {
         return runOpenTransaction(
             intent.action.toLowerCase().includes('restore') ? 'restore' : 'open',
@@ -1094,14 +1105,14 @@ export function createWorkspaceDocumentController(
 
     function restore<T>(
         intent: IDocumentOpenIntent,
-        run: () => Promise<T>,
+        run: (signal: AbortSignal) => Promise<T>,
     ) {
         return runOpenTransaction('restore', intent, run);
     }
 
     function reload<T>(
         intent: IDocumentOpenIntent,
-        run: () => Promise<T>,
+        run: (signal: AbortSignal) => Promise<T>,
     ) {
         return runOpenTransaction('reload', intent, run);
     }

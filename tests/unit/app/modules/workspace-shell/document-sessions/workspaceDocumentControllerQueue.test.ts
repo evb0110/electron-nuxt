@@ -47,6 +47,47 @@ describe('WorkspaceDocumentController transaction queue', () => {
         ]);
     });
 
+    it('releases a later open when the active source stage exceeds its deadline', async () => {
+        vi.useFakeTimers();
+        try {
+            const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+            const firstSignals: AbortSignal[] = [];
+            const secondRun = vi.fn(async () => true);
+
+            const first = controller.open({
+                action: 'first-open',
+                target: null,
+            }, (signal) => {
+                firstSignals.push(signal);
+                return new Promise<boolean>(() => undefined);
+            });
+            const second = controller.open({
+                action: 'second-open',
+                target: null,
+            }, secondRun);
+
+            await vi.advanceTimersByTimeAsync(29_999);
+            expect(secondRun).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(1);
+            await expect(Promise.all([
+                first,
+                second,
+            ])).resolves.toEqual([
+                false,
+                true,
+            ]);
+            expect(secondRun).toHaveBeenCalledOnce();
+            expect(firstSignals.at(0)?.aborted).toBe(true);
+            expect(firstSignals.at(0)?.reason).toMatchObject({
+                name: 'TimeoutError',
+                message: 'Document open source stage timed out',
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('preempts an active open so close is never queued behind first paint', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const openGate = Promise.withResolvers<undefined>();

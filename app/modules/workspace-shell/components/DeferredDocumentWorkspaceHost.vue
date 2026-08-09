@@ -499,10 +499,11 @@ watch(
         void activeDocumentSession.value.open({
             action: 'restoreTabDocument',
             target: null,
-        }, async () => {
+        }, async signal => {
             return withWorkspace(
                 'restoreTabDocument',
                 workspace => workspace.handleOpenFileDirectWithPersist(path),
+                signal,
             );
         })
             .then(result => markWorkspaceRestoreAttemptFinished(snapshot, path, result))
@@ -535,9 +536,10 @@ watch([
     void activeDocumentSession.value.open({
         action: 'restoreColdDocument',
         target: buildPendingTabDocumentHint(restorePath),
-    }, async () => withWorkspace(
+    }, async signal => withWorkspace(
         'restoreColdDocument',
         workspace => workspace.handleOpenFileDirectWithPersist(restorePath),
+        signal,
     ))
         .then(result => markWorkspaceRestoreAttemptFinished(snapshot, restorePath, result))
         .catch(() => markWorkspaceRestoreAttemptFinished(snapshot, restorePath, false));
@@ -619,8 +621,12 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         preparedSourceModifiedAt: file.modifiedAt,
         preparedSourceSize: file.fileSize,
         target: buildPendingTabDocumentHint(file),
-    }, async () => {
-        const preloadedWorkspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload');
+    }, async (signal) => {
+        const preloadedWorkspace = mountedWorkspace.value
+            ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload', signal);
+        if (signal.aborted) {
+            return false;
+        }
         if (!preloadedWorkspace) {
             BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
                 tabId: tabId,
@@ -632,6 +638,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         return withWorkspace(
             'openRecentFromPlaceholder',
             workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath),
+            signal,
         );
     });
 }
@@ -656,9 +663,10 @@ async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
     return activeDocumentSession.value.open({
         action: 'openCombineResultFromPlaceholder',
         target: buildPendingTabDocumentHint(result),
-    }, async () => withWorkspace(
+    }, async signal => withWorkspace(
         'openCombineResultFromPlaceholder',
         workspace => workspace.handleOpenFileWithResult(result),
+        signal,
     ));
 }
 
@@ -672,9 +680,10 @@ async function handleOpenFileFromUi() {
         action: 'handleOpenFileWithResultFromUi',
         preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
         target: buildPendingTabDocumentHint(result),
-    }, async () => withWorkspace(
+    }, async signal => withWorkspace(
         'handleOpenFileWithResultFromUi',
         workspace => workspace.handleOpenFileWithResult(result),
+        signal,
     ));
 }
 

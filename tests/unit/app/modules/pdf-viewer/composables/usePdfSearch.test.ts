@@ -6,6 +6,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import type {ISearchErrorEnvelope} from '@contracts/search';
 import {
     ref,
     type Ref,
@@ -862,6 +864,40 @@ describe('usePdfSearch', () => {
         expect(search.searchError.value).toBe('errors.search.browserTooLarge');
         expect(search.results.value).toEqual([]);
         expect(search.isSearching.value).toBe(false);
+    });
+
+    it('surfaces a typed search message from message-only IPC serialization', async () => {
+        const envelope: ISearchErrorEnvelope = {
+            code: 'SEARCH_PATH_DENIED',
+            message: 'Search path denied',
+            retryable: false,
+            timestamp: 123,
+        };
+        mockSearch.run.mockRejectedValue(new Error(encodeSerializableErrorEnvelope(envelope)));
+        const search = await createPdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        await expect(promise).resolves.toBe(false);
+        expect(search.searchError.value).toBe('Search path denied');
+    });
+
+    it.each([
+        'EVB_SERIALIZABLE_ERROR:{malformed',
+        encodeSerializableErrorEnvelope({
+            code: 'SEARCH_UNKNOWN',
+            message: 'Untrusted search error',
+        }),
+    ])('falls back for malformed or unknown search envelopes', async (message) => {
+        mockSearch.run.mockRejectedValue(new Error(message));
+        const search = await createPdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        await expect(promise).resolves.toBe(false);
+        expect(search.searchError.value).toBe('errors.search.unavailable');
     });
 
     it('passes the current document revision and ignores stale progress and results', async () => {

@@ -156,7 +156,9 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
 
 function createDeferredWorkspaceExposeDeps(workspace: IWorkspaceExpose | null) {
     return cast<Parameters<typeof createDeferredWorkspaceExposeProxy>[0]>({
-        enqueueDocumentOpen: vi.fn(async (_intent, run: () => Promise<unknown>) => run()),
+        enqueueDocumentOpen: vi.fn(async (_intent, run: (signal: AbortSignal) => Promise<unknown>) => (
+            run(new AbortController().signal)
+        )),
         getMounted: () => workspace,
         log: vi.fn(),
         withLoadedWorkspace: vi.fn(async (_action, run) => (

@@ -26,7 +26,7 @@ interface ICreateDeferredWorkspaceExposeProxyDeps {
     documentSession?: IWorkspaceDocumentController | null | undefined;
     enqueueDocumentOpen: <T>(
         intent: IDocumentOpenIntent,
-        run: () => Promise<T>,
+        run: (signal: AbortSignal) => Promise<T>,
     ) => Promise<T | false>;
     getMounted: () => IWorkspaceExpose | null;
     log: (action: string, error: unknown) => void;
@@ -43,6 +43,7 @@ interface ICreateDeferredWorkspaceExposeProxyDeps {
     withWorkspace: (
         action: string,
         run: (workspace: IWorkspaceExpose) => Promise<boolean | undefined> | boolean | undefined,
+        signal?: AbortSignal,
     ) => Promise<boolean>;
 }
 
@@ -171,7 +172,7 @@ export function createDeferredWorkspaceExposeProxy(
 
     async function openQueued<T>(
         intent: IDocumentOpenIntent,
-        run: () => Promise<T>,
+        run: (signal: AbortSignal) => Promise<T>,
     ) {
         const commandTarget = createCommandTarget();
         return deps.enqueueDocumentOpen({
@@ -230,30 +231,36 @@ export function createDeferredWorkspaceExposeProxy(
         handleOpenFileDirectWithPersist: async (path: TDocumentRef) => openQueued({
             action: 'handleOpenFileDirectWithPersist',
             target: buildPendingTabDocumentHint(path),
-        }, async () => {
+        }, async (signal) => {
             if (deps.openPath) {
+                if (signal.aborted) {
+                    return false;
+                }
                 return deps.openPath(path, 'handleOpenFileDirectWithPersist');
             }
 
             return deps.withWorkspace(
                 'handleOpenFileDirectWithPersist',
                 workspace => workspace.handleOpenFileDirectWithPersist(path),
+                signal,
             );
         }),
         handleOpenFileDirectBatchWithPersist: async (paths: TDocumentRef[]) => openQueued({
             action: 'handleOpenFileDirectBatchWithPersist',
             target: null,
-        }, async () => deps.withWorkspace(
+        }, async signal => deps.withWorkspace(
             'handleOpenFileDirectBatchWithPersist',
             workspace => workspace.handleOpenFileDirectBatchWithPersist(paths),
+            signal,
         )),
         handleOpenFileWithResult: async (result: TOpenFileResult) => openQueued({
             action: 'handleOpenFileWithResult',
             preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
             target: buildPendingTabDocumentHint(result),
-        }, async () => deps.withWorkspace(
+        }, async signal => deps.withWorkspace(
             'handleOpenFileWithResult',
             workspace => workspace.handleOpenFileWithResult(result),
+            signal,
         )),
         handleCloseFileFromUi: async (options) => {
             const target = createCommandTarget();
@@ -270,11 +277,11 @@ export function createDeferredWorkspaceExposeProxy(
                 return;
             }
 
-            const restorePayload = async () => {
+            const restorePayload = async (signal?: AbortSignal) => {
                 await deps.withWorkspace('restoreSplitPayload', async (workspace) => {
                     await workspace.restoreSplitPayload(payload);
                     return true;
-                });
+                }, signal);
             };
 
             if (payload.kind === 'empty') {

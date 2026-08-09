@@ -1,4 +1,9 @@
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isSerializableErrorEnvelope,
+    SerializableError,
+    type ISerializableErrorEnvelope,
+} from '@contracts/serializableError';
 
 export interface IPendingBrowserWorkerRequest {
     requestType: string;
@@ -27,7 +32,12 @@ type TBrowserWorkerResult<TData = unknown> =
         id: number;
         ok: false;
         error: string;
+        errorEnvelope?: ISerializableErrorEnvelope;
     };
+
+type TSerializableErrorEnvelopeGuard = (
+    value: unknown,
+) => value is ISerializableErrorEnvelope;
 
 function getWorkerResponseId(response: unknown) {
     return isRecord(response) && typeof response.id === 'number'
@@ -38,6 +48,7 @@ function getWorkerResponseId(response: unknown) {
 function parseBrowserWorkerResult(
     response: unknown,
     expectedType: string,
+    isErrorEnvelope: TSerializableErrorEnvelopeGuard,
 ): TBrowserWorkerResult | null {
     if (!isRecord(response) || typeof response.id !== 'number') {
         return null;
@@ -54,11 +65,16 @@ function parseBrowserWorkerResult(
         };
     }
 
-    if (response.ok === false && typeof response.error === 'string') {
+    if (
+        response.ok === false
+        && typeof response.error === 'string'
+        && (response.errorEnvelope === undefined || isErrorEnvelope(response.errorEnvelope))
+    ) {
         return {
             id: response.id,
             ok: false,
             error: response.error,
+            ...(response.errorEnvelope === undefined ? {} : {errorEnvelope: response.errorEnvelope}),
         };
     }
 
@@ -73,6 +89,7 @@ export function settleBrowserWorkerResult<
     pendingRequests: Map<number, TPendingRequest>,
     response: unknown,
     onSettled: () => void,
+    isErrorEnvelope: TSerializableErrorEnvelopeGuard = isSerializableErrorEnvelope,
 ) {
     const responseId = getWorkerResponseId(response);
     if (responseId === null) {
@@ -84,7 +101,7 @@ export function settleBrowserWorkerResult<
         return;
     }
 
-    const result = parseBrowserWorkerResult(response, pending.requestType);
+    const result = parseBrowserWorkerResult(response, pending.requestType, isErrorEnvelope);
 
     pendingRequests.delete(responseId);
     if (pending.timeoutTimer) {
@@ -106,6 +123,8 @@ export function settleBrowserWorkerResult<
         return;
     }
 
-    pending.reject(new Error(result.error));
+    pending.reject(result.errorEnvelope
+        ? new SerializableError(result.errorEnvelope)
+        : new Error(result.error));
     onSettled();
 }

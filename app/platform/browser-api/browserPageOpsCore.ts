@@ -13,7 +13,10 @@ import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
 } from '@pdf-core/pdfPageBoxes';
-import { tryRunBrowserPageOpsWithWasm } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {
+    isBrowserPageOpsWasmFailure,
+    tryRunBrowserPageOpsWithWasm,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 
 function toSavedPdfResult(
     pdfDocument: PDFDocument,
@@ -184,7 +187,7 @@ export async function deletePdfPages(
         data,
         pages,
     });
-    if (wasmResult) {
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
         return wasmResult;
     }
 
@@ -212,7 +215,7 @@ export async function extractPdfPages(
         data,
         pages,
     });
-    if (wasmResult) {
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
         return wasmResult;
     }
 
@@ -237,7 +240,7 @@ export async function reorderPdfPages(
         data,
         newOrder,
     });
-    if (wasmResult) {
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
         return wasmResult;
     }
 
@@ -265,7 +268,7 @@ export async function insertPdfPages(
         insertionData,
         afterPage,
     });
-    if (wasmResult) {
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
         return wasmResult;
     }
 
@@ -307,7 +310,7 @@ export async function rotatePdfBytes(
         pages,
         angle,
     });
-    if (wasmResult) {
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
         return wasmResult;
     }
 
@@ -346,7 +349,7 @@ export async function cropPdfBytes(
         pages,
         margins: normalizedMargins,
     });
-    if (wasmResult) {
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
         return wasmResult;
     }
 
@@ -372,7 +375,7 @@ export async function removeCropPdfBytes(
         data,
         pages,
     });
-    if (wasmResult) {
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
         return wasmResult;
     }
 
@@ -395,7 +398,7 @@ export async function getPageGeometryFromPdfBytes(
         data,
         pageNumber,
     });
-    if (wasmResult) {
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
         return wasmResult;
     }
 

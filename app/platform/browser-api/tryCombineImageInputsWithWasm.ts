@@ -9,6 +9,11 @@ import { getBrowserFileExtension } from '@app/platform/browser-api/browserPlatfo
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
+import {
+    isNativeErrorEnvelope,
+    type INativeErrorEnvelope,
+} from '@contracts/nativeErrors';
+import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
 interface IPdfImageCombineWasmExports {
     memory: WebAssembly.Memory;
@@ -71,7 +76,7 @@ export type TBrowserPdfCombineWasmOutcome =
     | {status: 'unsupported' | 'unavailable'}
     | {
         status: 'fatal';
-        error: Error
+        error: INativeErrorEnvelope
     };
 
 function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value is (...args: number[]) => number {
@@ -477,11 +482,21 @@ function readWasmError(exports: IPdfImageCombineWasmExports) {
     return new TextDecoder().decode(copyWasmBytes(exports, pointer, len));
 }
 
-function logWasmFailure(resultCode: number, exports: IPdfImageCombineWasmExports) {
+function readWasmFailure(resultCode: number, exports: IPdfImageCombineWasmExports) {
+    const encodedError = readWasmError(exports);
+    const error = decodeSerializableErrorEnvelope(
+        encodedError,
+        isNativeErrorEnvelope,
+        {allowBareJsonString: true},
+    ) ?? {
+        code: 'native-failure' as const,
+        message: encodedError ?? `Image combine WASM failed with result code ${resultCode}`,
+    };
     BrowserLogger.warn('browser-wasm', 'PDF image combine WASM failed; falling back to pdf-lib', {
-        error: readWasmError(exports) ?? 'No WASM error detail returned',
+        error: error.message,
         resultCode,
     });
+    return error;
 }
 
 const PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
@@ -508,7 +523,10 @@ export async function tryCombineImageInputsWithWasm(
         if (requestLength === 0 || requestLength > PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES) {
             return {
                 status: 'fatal',
-                error: new Error('ERR_BROWSER_PDF_COMBINE_REQUEST_TOO_LARGE'),
+                error: {
+                    code: 'too-large',
+                    message: 'Image combine WASM request exceeds the admission ceiling',
+                },
             };
         }
         pointer = exports.evb_pdf_image_combine_alloc(requestLength);
@@ -516,16 +534,18 @@ export async function tryCombineImageInputsWithWasm(
             pointer = null;
             return {
                 status: 'fatal',
-                error: new Error('ERR_BROWSER_PDF_COMBINE_OUT_OF_MEMORY'),
+                error: {
+                    code: 'too-large',
+                    message: 'Image combine WASM could not allocate request memory',
+                },
             };
         }
         new Uint8Array(exports.memory.buffer, pointer, requestLength).set(request);
         const resultCode = exports.evb_pdf_image_combine_build_pdf(pointer, requestLength);
         if (resultCode !== 0) {
-            logWasmFailure(resultCode, exports);
             return {
                 status: 'fatal',
-                error: new Error(readWasmError(exports) ?? `ERR_BROWSER_PDF_COMBINE_WASM:${resultCode}`),
+                error: readWasmFailure(resultCode, exports),
             };
         }
 
@@ -534,7 +554,12 @@ export async function tryCombineImageInputsWithWasm(
         if (outputLen === 0 || outputLen > PDF_IMAGE_COMBINE_WASM_MAX_OUTPUT_BYTES) {
             return {
                 status: 'fatal',
-                error: new Error('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT'),
+                error: {
+                    code: outputLen > PDF_IMAGE_COMBINE_WASM_MAX_OUTPUT_BYTES
+                        ? 'too-large'
+                        : 'invalid-request',
+                    message: 'Image combine WASM returned an invalid output envelope',
+                },
             };
         }
 
@@ -545,7 +570,10 @@ export async function tryCombineImageInputsWithWasm(
     } catch (error) {
         return {
             status: 'fatal',
-            error: error instanceof Error ? error : new Error(String(error)),
+            error: {
+                code: 'native-failure',
+                message: error instanceof Error ? error.message : String(error),
+            },
         };
     } finally {
         if (pointer !== null) {

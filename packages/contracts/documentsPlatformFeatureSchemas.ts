@@ -1,24 +1,22 @@
-import type {
-    IApplicationMenuDocumentState,
-    IDocumentsFileCapability,
-    IPdfNativePagePreview,
-    IPdfNativePagePreviewOptions,
-    IPdfNativePageSize,
-    IPdfNativeSaveResult,
-    IPdfNativeStagedCommitOptions,
-    IPdfNativeWorkingCopyExpectation,
-    IPdfOptimizeOptions,
-    IPdfOptimizeResult,
-    TDocumentSaveResult,
-    TOpenFileResult,
-    TOpenFolderDialogResult,
-    TShowItemInFolderResult,
-} from '@contracts/electronApiDocuments';
 import {
     decodeManagedTempFileHandle,
     decodeOpenBatchProgress,
     decodeOptimizeProgress,
     isPdfOptimizePreset,
+    type IApplicationMenuDocumentState,
+    type IDocumentsFileCapability,
+    type IPdfNativePagePreview,
+    type IPdfNativePagePreviewOptions,
+    type IPdfNativePageSize,
+    type IPdfNativeSaveResult,
+    type IPdfNativeStagedCommitOptions,
+    type IPdfNativeWorkingCopyExpectation,
+    type IPdfOptimizeOptions,
+    type IPdfOptimizeResult,
+    type TDocumentSaveResult,
+    type TOpenFileResult,
+    type TOpenFolderDialogResult,
+    type TShowItemInFolderResult,
 } from '@contracts/electronApiDocuments';
 import {
     decodeDocumentRevisionChangedEvent,
@@ -49,6 +47,7 @@ import {
 } from '@contracts/runtimeGuards';
 import type { IRecentFile } from '@contracts/shared';
 import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 
 function fail(message: string): never {
     throw new Error(message);
@@ -447,6 +446,7 @@ function decodeNativeSaveResult(value: unknown): IPdfNativeSaveResult {
     if (
         !isRecord(value)
         || typeof value.applied !== 'boolean'
+        || (value.error !== undefined && !isNativeErrorEnvelope(value.error))
         || (value.syncError !== undefined && typeof value.syncError !== 'string')
     ) {
         fail('invalid native PDF save result');
@@ -460,6 +460,7 @@ function decodeNativeSaveResult(value: unknown): IPdfNativeSaveResult {
     return {
         applied: value.applied,
         validation: decodeNullablePdfValidation(value.validation),
+        ...(value.error === undefined ? {} : {error: value.error}),
         ...(value.syncError === undefined ? {} : {syncError: value.syncError}),
         ...(stagedOutput ? {stagedOutput} : {}),
     };

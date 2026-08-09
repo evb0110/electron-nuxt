@@ -7,6 +7,7 @@ import type {
     TBrowserPdfCombineWorkerRequestType,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import { isRecord } from '@contracts/runtimeGuards';
+import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -109,7 +110,12 @@ const browserPdfCombineWorkerClient = new BrowserWorkerClient<IPendingBrowserWor
     createError: event => new BrowserPdfCombineWorkerUnavailableError(
         event.error instanceof Error ? event.error.message : event.message,
     ),
-    handleMessage: settleBrowserWorkerResult,
+    handleMessage: (pendingRequests, response, onSettled) => settleBrowserWorkerResult(
+        pendingRequests,
+        response,
+        onSettled,
+        isNativeErrorEnvelope,
+    ),
 });
 
 export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCombineWorkerRequestType>(

@@ -51,6 +51,7 @@ import { useResizeObserver } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfNativePageSize } from '@contracts/electronApiDocuments';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
@@ -90,6 +91,7 @@ import { createDocumentWheelZoomHandler } from '@app/utils/document-viewer/input
 import * as documentPageDisplayLayout from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
 interface IProps {
     src: TDocumentRef | null;
+    documentRevisionToken?: TDocumentRevisionToken | null;
     zoom?: number;
     zoomMode?: 'custom' | 'fit-width' | 'fit-height';
     fitMode?: 'width' | 'height';
@@ -103,6 +105,7 @@ interface IProps {
 let nextNativePageSlotOwnerId = 0;
 
 const {
+    documentRevisionToken = null,
     dragMode: dragModeProp,
     fitMode = undefined,
     isActive: isActiveProp = true,
@@ -131,18 +134,15 @@ const emit = defineEmits<{
     'initial-visual-ready': [payload: {pageNumber: number;}];
     'load-error': [error: unknown];
 }>();
-
 interface IPageLayout {
     top: number;
     width: number;
     height: number;
 }
-
 const NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS = 2;
 const NATIVE_PDF_RENDER_MARGIN_PAGES = 3;
 const NATIVE_PDF_RENDER_CONCURRENCY = 2;
 const NATIVE_PDF_DEVICE_PIXEL_RATIO_CAP = 2;
-
 const viewerContainer = ref<HTMLElement | null>(null);
 function setPageElement(pageNumber: number, element: Element | ComponentPublicInstance | null) {
     if (element instanceof HTMLElement) {
@@ -204,15 +204,12 @@ const manualZoom = computed(() => {
 const zoomMode = computed(() => zoomModeProp ?? (
     fitMode === 'height' ? 'fit-height' : 'fit-width'
 ));
-
 function fitWidthAvailable() {
     return Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2);
 }
-
 function fitHeightAvailable() {
     return Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2);
 }
-
 function resolvePageDisplayScale(pageSize: IPdfNativePageSize | null | undefined) {
     return documentPageDisplayLayout.resolveDocumentPageDisplayScale({
         availableHeight: fitHeightAvailable(),
@@ -503,13 +500,14 @@ function getPageRasterIdentity(pageNumber: number) {
 function shouldShowPageSkeleton(pageNumber: number) {
     const openSurface = chassisAuthority?.openSurface;
     return shouldPresentNativePdfPageSkeleton({
+        residentVisualInvalidated: paintedPageObjectUrls.has(pageNumber)
+            && paintedPageObjectUrls.get(pageNumber) !== pageStates.value[pageNumber - 1]?.objectUrl,
         visual: openSurface?.viewportSession.value.visual,
         pageNumber,
         surfaceReady: openSurface?.snapshot.value.phase === 'ready',
         visualCommitted: isPageVisualCommitted(pageNumber),
     });
 }
-
 function isPageVisualCommitted(pageNumber: number) {
     const objectUrl = pageStates.value[pageNumber - 1]?.objectUrl;
     return Boolean(
@@ -766,7 +764,6 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
     if (!source || !isActive.value || !pageState || !shouldRenderPage(pageNumber)) {
         return;
     }
-
     pageState.status = 'loading';
     pageState.token += 1;
     const token = pageState.token;
@@ -838,7 +835,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
             return;
         }
         const previousObjectUrl = decodedState.objectUrl;
-        paintedPageObjectUrls.delete(pageNumber);
+        if (previousObjectUrl !== null || !paintedPageObjectUrls.has(pageNumber)) paintedPageObjectUrls.delete(pageNumber);
         decodedState.objectUrl = objectUrl;
         decodedState.renderedPx = renderedPx;
         decodedState.failedRenderPx = 0;
@@ -857,8 +854,8 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
                 ) {
                     return;
                 }
+                if (!chassisAuthority?.openSurface.invalidateResidentVisual(pageNumber)) paintedPageObjectUrls.delete(pageNumber);
                 pageInvalidationCleanup.delete(pageNumber);
-                paintedPageObjectUrls.delete(pageNumber);
                 invalidatedState.objectUrl = null;
                 invalidatedState.renderedPx = 0;
                 invalidatedState.status = 'idle';
@@ -1137,13 +1134,16 @@ watch(pageLayouts, () => {
 }, {flush: 'sync'});
 
 watch(
-    () => src,
-    async (nextSrc) => {
+    [
+        () => src,
+        () => documentRevisionToken,
+    ],
+    async ([nextSrc]) => {
         loadGeneration += 1;
         const generation = loadGeneration;
         cleanupViewerState();
 
-        if (!nextSrc || !import.meta.client || !isActive.value) {
+        if (!nextSrc || typeof window === 'undefined' || !isActive.value) {
             emitLoading(false, { force: true });
             return;
         }

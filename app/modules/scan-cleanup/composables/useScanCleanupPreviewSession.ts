@@ -1,16 +1,22 @@
-import type {
-    IScanCleanupOptions,
-    IScanCleanupDocumentPrior,
-    IScanCleanupPagePlanEvidence,
-    IScanCleanupRawPreviewEvent,
-    IScanCleanupRawPreviewResult,
-    IScanCleanupPreviewRequest,
-    IScanCleanupPreviewResult,
-    TScanCleanupOutputMode,
-    TScanCleanupPreviewWireResult,
+import {
+    isScanCleanupErrorEnvelope,
+    resolveScanCleanupEffectiveOutputMode,
+    type IScanCleanupOptions,
+    type IScanCleanupDocumentPrior,
+    type IScanCleanupPagePlanEvidence,
+    type IScanCleanupRawPreviewEvent,
+    type IScanCleanupRawPreviewResult,
+    type IScanCleanupPreviewRequest,
+    type IScanCleanupPreviewResult,
+    type TScanCleanupErrorCode,
+    type TScanCleanupOutputMode,
+    type TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
+import {
+    findSerializableErrorEnvelope,
+    SERIALIZABLE_ERROR_PREFIX,
+} from '@contracts/serializableError';
 import type {TDocumentRef} from '@contracts/documentRef';
-import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
     scanCleanupMatchedCanvasOverridesSignature,
@@ -170,6 +176,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const detailLoading = ref(false);
     const loading = ref(false);
     const error = ref('');
+    const errorCode = ref<TScanCleanupErrorCode | null>(null);
     const viewMode = ref<'original' | 'cleaned'>(options.initialViewMode ?? 'cleaned');
     const cache = createScanCleanupPreviewCache();
     const detailSourceCache = createScanCleanupPreviewCache({
@@ -514,6 +521,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const capability = getScanCleanupCapability();
         if (!capability) {
             error.value = t('scanCleanup.preview.unavailable');
+            errorCode.value = 'tools-unavailable';
             return;
         }
         const requestSequence = ++sequence;
@@ -586,11 +594,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             resultKey.value = key;
             loading.value = false;
             error.value = '';
+            errorCode.value = null;
             scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
             return;
         }
         loading.value = true;
         error.value = '';
+        errorCode.value = null;
         const runPreview = async () => {
             timer = null;
             try {
@@ -639,6 +649,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                         // surface carries a Retry — instead of leaving a blank
                         // frame that nothing will ever fill.
                         error.value = t('scanCleanup.preview.canceledRepeatedly');
+                        errorCode.value = 'canceled';
                     }
                     return;
                 }
@@ -659,7 +670,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 if (requestSequence !== sequence || (caught instanceof Error && caught.name === 'AbortError')) {
                     return;
                 }
-                error.value = caught instanceof Error ? caught.message : t('scanCleanup.preview.unavailable');
+                const envelope = findSerializableErrorEnvelope(caught, isScanCleanupErrorEnvelope);
+                error.value = envelope?.message
+                    ?? (caught instanceof Error && !caught.message.includes(SERIALIZABLE_ERROR_PREFIX)
+                        ? caught.message
+                        : t('scanCleanup.preview.unavailable'));
+                errorCode.value = envelope?.code ?? 'internal';
             } finally {
                 if (requestSequence === sequence) loading.value = false;
             }
@@ -860,6 +876,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cancellationRetryKey = null;
         cancellationRetries = 0;
         error.value = '';
+        errorCode.value = null;
         cache.clear();
         detailSourceCache.clear();
         metadataByPage.clear();
@@ -883,6 +900,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         classificationDiffersByPage,
         clearDetail,
         error,
+        errorCode,
         detailLoading,
         detailResult,
         loading,

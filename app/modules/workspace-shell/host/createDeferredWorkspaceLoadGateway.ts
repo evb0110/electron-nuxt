@@ -17,6 +17,32 @@ interface ICreateDeferredWorkspaceLoadGatewayOptions {
     readonly isHostUnmounted: () => boolean;
 }
 
+const WORKSPACE_LOAD_ABORTED = Symbol('workspace-load-aborted');
+
+async function waitForWorkspaceTask<T>(task: Promise<T>, signal?: AbortSignal) {
+    if (!signal) {
+        return task;
+    }
+    if (signal.aborted) {
+        return WORKSPACE_LOAD_ABORTED;
+    }
+    let handleAbort: (() => void) | null = null;
+    const aborted = new Promise<typeof WORKSPACE_LOAD_ABORTED>((resolve) => {
+        handleAbort = () => resolve(WORKSPACE_LOAD_ABORTED);
+        signal.addEventListener('abort', handleAbort, {once: true});
+    });
+    try {
+        return await Promise.race([
+            task,
+            aborted,
+        ]);
+    } finally {
+        if (handleAbort) {
+            signal.removeEventListener('abort', handleAbort);
+        }
+    }
+}
+
 export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorkspaceLoadGatewayOptions) {
     let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
     let workspacePreloadPromise: Promise<boolean> | null = null;
@@ -51,21 +77,28 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
 
     async function waitForWorkspaceMount(
         timeoutMs: number = DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_TIMEOUT_MS,
+        signal?: AbortSignal,
     ) {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
-            if (options.isHostUnmounted() || options.workspaceChunkLoadError.value) {
+            if (signal?.aborted || options.isHostUnmounted() || options.workspaceChunkLoadError.value) {
                 return null;
             }
             if (options.mountedWorkspace.value) {
                 return options.mountedWorkspace.value;
             }
             await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
+            if (signal?.aborted) {
+                return null;
+            }
         }
         return null;
     }
 
-    async function ensureWorkspaceLoaded(reason: string) {
+    async function ensureWorkspaceLoaded(reason: string, signal?: AbortSignal) {
+        if (signal?.aborted) {
+            return null;
+        }
         if (options.mountedWorkspace.value) {
             return options.mountedWorkspace.value;
         }
@@ -73,7 +106,13 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             return null;
         }
         options.requestWorkspaceMount(`ensureWorkspaceLoaded:${reason}`);
-        const preloaded = await preloadWorkspaceComponent(`ensureWorkspaceLoaded:${reason}`);
+        const preloaded = await waitForWorkspaceTask(
+            preloadWorkspaceComponent(`ensureWorkspaceLoaded:${reason}`),
+            signal,
+        );
+        if (signal?.aborted || preloaded === WORKSPACE_LOAD_ABORTED) {
+            return null;
+        }
         if (!preloaded) {
             BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Proceeding with workspace mount after preload failure', {
                 tabId: options.tabId,
@@ -81,7 +120,11 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             });
         }
         workspaceLoadPromise ??= waitForWorkspaceMount().finally(() => { workspaceLoadPromise = null; });
-        const workspace = await workspaceLoadPromise;
+        const workspaceResult = await waitForWorkspaceTask(workspaceLoadPromise, signal);
+        if (signal?.aborted || workspaceResult === WORKSPACE_LOAD_ABORTED) {
+            return null;
+        }
+        const workspace = workspaceResult;
         if (workspace) {
             BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Workspace mount ready', {
                 tabId: options.tabId,
@@ -99,10 +142,19 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
         return workspace;
     }
 
-    async function acquireWorkspace(action: string) {
-        let workspace = options.mountedWorkspace.value ?? await ensureWorkspaceLoaded(action);
+    async function acquireWorkspace(action: string, signal?: AbortSignal) {
+        let workspace = options.mountedWorkspace.value ?? await ensureWorkspaceLoaded(action, signal);
+        if (signal?.aborted) {
+            return null;
+        }
         if (!workspace && !options.workspaceChunkLoadError.value) {
-            workspace = await waitForWorkspaceMount(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
+            workspace = await waitForWorkspaceMount(
+                DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_RETRY_TIMEOUT_MS,
+                signal,
+            );
+            if (signal?.aborted) {
+                return null;
+            }
         }
         return workspace;
     }
@@ -159,13 +211,17 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
     async function withWorkspace(
         action: string,
         run: (workspace: IWorkspaceExpose) => Promise<boolean | undefined> | boolean | undefined,
+        signal?: AbortSignal,
     ) {
         BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'withWorkspace start', {
             tabId: options.tabId,
             action,
             hasMountedWorkspace: Boolean(options.mountedWorkspace.value),
         });
-        const workspace = await acquireWorkspace(action);
+        const workspace = await acquireWorkspace(action, signal);
+        if (signal?.aborted) {
+            return false;
+        }
         if (!workspace) {
             BrowserLogger.error('workspace-host', 'Workspace unavailable for action', {
                 tabId: options.tabId,
@@ -175,7 +231,13 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             return false;
         }
         try {
+            if (signal?.aborted) {
+                return false;
+            }
             const result = await run(workspace);
+            if (signal?.aborted) {
+                return false;
+            }
             BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'withWorkspace completed', {
                 tabId: options.tabId,
                 action,

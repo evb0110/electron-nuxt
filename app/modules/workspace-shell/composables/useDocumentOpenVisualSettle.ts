@@ -15,14 +15,16 @@ interface IUseDocumentOpenVisualSettleOptions {
     djvuError: Ref<unknown>;
     showDjvuSource: Ref<boolean>;
     showNativePdfViewer?: Ref<boolean>;
-    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot'>;
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     markAnnotationCommentsLoading: () => void;
 }
 
 export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettleOptions) => {
     const initialDocumentVisualReady = computed(() => {
         const surface = options.openSurface.snapshot.value;
-        return surface.phase === 'ready' && surface.presentation === 'committed';
+        return surface.phase === 'ready'
+            && surface.presentation === 'committed'
+            && options.openSurface.viewportSession.value.lifecycle === 'ready';
     });
     let documentOpenVisualSettlePromise: Promise<void> | null = null;
     let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;

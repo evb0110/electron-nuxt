@@ -101,6 +101,7 @@ import {
     resolveScanCleanupPath,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     createStableJobBrokerOwnerId,
     mainJobBroker,
@@ -2904,7 +2905,10 @@ export function createScanCleanupPreviewService(
                 if (controller.signal.aborted || isPreviewCancellation(error)) {
                     return {canceled: true} as const;
                 }
-                throw error;
+                throw new Error(encodeSerializableErrorEnvelope({
+                    code: classifyScanCleanupError(error, false),
+                    message: getErrorMessage(error) || 'Scan cleanup preview failed',
+                }));
             });
             active.set(activeKey, {
                 admission,

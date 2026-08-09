@@ -1,0 +1,471 @@
+// @vitest-environment happy-dom
+
+import {
+    afterEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import {
+    createApp,
+    defineComponent,
+    h,
+    nextTick,
+    provide,
+    ref,
+} from 'vue';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import type {
+    IPagePreviewRenderedObjectUrl,
+    IPagePreviewSource,
+} from '@app/utils/document-viewer/pagePreviewSource';
+import NativePdfViewer from '@app/modules/native-pdf-viewer/components/NativePdfViewer.vue';
+import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
+import {
+    createDocumentViewerChassisAuthority,
+    documentViewerChassisAuthorityKey,
+} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+
+const nativePdfMocks = vi.hoisted(() => ({createSource: vi.fn()}));
+
+vi.mock('@app/platform/browser-api/public', () => ({createNativePdfPreviewSourceFromPath: nativePdfMocks.createSource}));
+
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({})}));
+
+vi.mock('@vueuse/core', () => ({useResizeObserver: vi.fn()}));
+
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+
+interface IViewerExpose {waitForViewerLoadSettled(): Promise<void>;}
+
+interface ITestSource extends IPagePreviewSource {
+    renderPageObjectUrl: ReturnType<typeof vi.fn<IPagePreviewSource['renderPageObjectUrl']>>;
+    revokeObjectURL: ReturnType<typeof vi.fn<IPagePreviewSource['revokeObjectURL']>>;
+    terminate: ReturnType<typeof vi.fn<IPagePreviewSource['terminate']>>;
+}
+
+interface IEvictableTestSource extends ITestSource {
+    evictedObjectUrls: string[];
+    evictPage(pageNumber: number, beforeObjectUrlRevocation?: () => void): void;
+    resolveCurrentPageReplacement(): void;
+}
+
+const activeUnmounts = new Set<() => void>();
+
+function createSource(
+    revision: string,
+    pageSizes: Array<{
+        width: number;
+        height: number
+    }>,
+    rasterWidthCeilingPx?: number,
+): ITestSource {
+    return {
+        getPageSizes: vi.fn(async () => pageSizes),
+        renderPageObjectUrl: vi.fn<IPagePreviewSource['renderPageObjectUrl']>(async pageNumber => ({
+            objectUrl: `blob:${revision}:page-${String(pageNumber)}`,
+            renderedPx: 768,
+            ...(rasterWidthCeilingPx === undefined ? {} : {rasterWidthCeilingPx}),
+        })),
+        revokeObjectURL: vi.fn<IPagePreviewSource['revokeObjectURL']>(),
+        terminate: vi.fn<IPagePreviewSource['terminate']>(),
+    };
+}
+
+function createEvictableSource(): IEvictableTestSource {
+    const evictedObjectUrls: string[] = [];
+    const invalidationListeners = new Map<number, () => void>();
+    const renderCounts = new Map<number, number>();
+    const currentPageReplacement = Promise.withResolvers<IPagePreviewRenderedObjectUrl>();
+    const renderPageObjectUrl = vi.fn<IPagePreviewSource['renderPageObjectUrl']>(async pageNumber => {
+        const renderCount = (renderCounts.get(pageNumber) ?? 0) + 1;
+        renderCounts.set(pageNumber, renderCount);
+        if (pageNumber === 1 && renderCount === 2) {
+            return currentPageReplacement.promise;
+        }
+        const objectUrl = `blob:eviction:page-${String(pageNumber)}:render-${String(renderCount)}`;
+        return {
+            objectUrl,
+            renderedPx: 768,
+            onInvalidated(listener) {
+                invalidationListeners.set(pageNumber, listener);
+                return () => {
+                    if (invalidationListeners.get(pageNumber) === listener) {
+                        invalidationListeners.delete(pageNumber);
+                    }
+                };
+            },
+        };
+    });
+    return {
+        evictedObjectUrls,
+        getPageSizes: vi.fn(async () => [
+            {
+                width: 400,
+                height: 800,
+            },
+            {
+                width: 400,
+                height: 800,
+            },
+        ]),
+        renderPageObjectUrl,
+        revokeObjectURL: vi.fn<IPagePreviewSource['revokeObjectURL']>(),
+        terminate: vi.fn<IPagePreviewSource['terminate']>(),
+        evictPage(pageNumber, beforeObjectUrlRevocation) {
+            const evictedObjectUrl = `blob:eviction:page-${String(pageNumber)}:render-${String(renderCounts.get(pageNumber) ?? 0)}`;
+            const listener = invalidationListeners.get(pageNumber);
+            invalidationListeners.delete(pageNumber);
+            listener?.();
+            beforeObjectUrlRevocation?.();
+            evictedObjectUrls.push(evictedObjectUrl);
+        },
+        resolveCurrentPageReplacement() {
+            currentPageReplacement.resolve({
+                objectUrl: 'blob:eviction:page-1:render-2',
+                renderedPx: 768,
+                onInvalidated(listener) {
+                    invalidationListeners.set(1, listener);
+                    return () => {
+                        if (invalidationListeners.get(1) === listener) {
+                            invalidationListeners.delete(1);
+                        }
+                    };
+                },
+            });
+        },
+    };
+}
+
+async function settlePendingWork() {
+    for (let index = 0; index < 5; index += 1) {
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(0);
+    }
+}
+
+async function settleImagePaint(image: HTMLImageElement) {
+    image.dispatchEvent(new Event('load'));
+    await vi.advanceTimersByTimeAsync(0);
+    vi.advanceTimersToNextFrame();
+    await vi.advanceTimersByTimeAsync(0);
+    vi.advanceTimersToNextFrame();
+    await vi.advanceTimersByTimeAsync(0);
+}
+
+function requireElement<TElement extends Element>(host: Element, selector: string) {
+    const element = host.querySelector<TElement>(selector);
+    if (!element) {
+        throw new Error(`Expected element matching ${selector}`);
+    }
+    return element;
+}
+
+function requireViewer(viewer: IViewerExpose | null) {
+    if (!viewer) {
+        throw new Error('Expected the native PDF viewer expose');
+    }
+    return viewer;
+}
+
+afterEach(() => {
+    for (const unmount of activeUnmounts) unmount();
+    activeUnmounts.clear();
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+});
+
+describe('NativePdfViewer revision lifecycle', () => {
+    it('fully reloads a same-path document when its revision changes', async () => {
+        vi.useFakeTimers();
+        class PreloadImage {
+            onload: (() => void) | null = null;
+            onerror: (() => void) | null = null;
+
+            set src(_value: string) {
+                queueMicrotask(() => this.onload?.());
+            }
+        }
+        vi.stubGlobal('Image', PreloadImage);
+
+        const firstRevision = requireDocumentRevisionToken('drt1:test:native-r1');
+        const secondRevision = requireDocumentRevisionToken('drt1:test:native-r2');
+        const documentPath = '/managed/reloaded-in-place.pdf';
+        const firstSource = createSource('r1', [
+            {
+                width: 400,
+                height: 800,
+            },
+            {
+                width: 500,
+                height: 700,
+            },
+        ], 240);
+        const secondSource = createSource('r2', [
+            {
+                width: 800,
+                height: 400,
+            },
+            {
+                width: 600,
+                height: 600,
+            },
+            {
+                width: 400,
+                height: 800,
+            },
+        ]);
+        nativePdfMocks.createSource
+            .mockReturnValueOnce(firstSource)
+            .mockReturnValueOnce(secondSource);
+
+        const host = document.createElement('div');
+        const viewport = document.createElement('div');
+        document.body.append(host, viewport);
+        Object.defineProperties(viewport, {
+            clientHeight: {
+                configurable: true,
+                value: 600,
+            },
+            clientWidth: {
+                configurable: true,
+                value: 800,
+            },
+        });
+        const revision = ref(firstRevision);
+        const viewer = ref<IViewerExpose | null>(null);
+        const totalPageUpdates: number[] = [];
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        authority.bindViewportElement(viewport);
+        authority.openSurface.begin({
+            documentId: documentPath,
+            documentRevision: firstRevision,
+        });
+        const Root = defineComponent({setup() {
+            provide(documentViewerChassisAuthorityKey, authority);
+            return () => h(NativePdfViewer, {
+                ref: viewer,
+                src: documentPath,
+                documentRevisionToken: revision.value,
+                isActive: true,
+                currentPage: 1,
+                'onUpdate:totalPages': (pageCount: number) => totalPageUpdates.push(pageCount),
+            });
+        }});
+        const app = createApp(Root);
+        const ElementStub = defineComponent({setup: () => () => h('span')});
+        app.component('UButton', ElementStub);
+        app.component('UIcon', ElementStub);
+        app.component('USkeleton', ElementStub);
+        app.mount(host);
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            viewport.remove();
+            activeUnmounts.delete(unmount);
+        };
+        activeUnmounts.add(unmount);
+
+        await settlePendingWork();
+        const firstImage = requireElement<HTMLImageElement>(host, 'img[src="blob:r1:page-1"]');
+        const firstPageStyle = requireElement<HTMLElement>(host, '[data-page-number="1"]')
+            .getAttribute('style');
+        await settleImagePaint(firstImage);
+        await expect(requireViewer(viewer.value).waitForViewerLoadSettled()).resolves.toBeUndefined();
+        expect(totalPageUpdates.at(-1)).toBe(2);
+
+        authority.openSurface.begin({
+            documentId: documentPath,
+            documentRevision: secondRevision,
+        });
+        revision.value = secondRevision;
+        await settlePendingWork();
+
+        const secondSettle = requireViewer(viewer.value).waitForViewerLoadSettled();
+        let secondSettled = false;
+        void secondSettle.then(() => {
+            secondSettled = true;
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(secondSettled).toBe(false);
+        expect(firstSource.revokeObjectURL).toHaveBeenCalledWith('blob:r1:page-1');
+        expect(firstSource.terminate).toHaveBeenCalledOnce();
+        expect(totalPageUpdates).toContain(0);
+        expect(totalPageUpdates.at(-1)).toBe(3);
+        expect(requireElement(host, '[data-page-number="1"]').getAttribute('style')).not.toBe(firstPageStyle);
+
+        const secondImage = requireElement<HTMLImageElement>(host, 'img[src="blob:r2:page-1"]');
+        expect(secondSource.renderPageObjectUrl).toHaveBeenCalledWith(1, {targetWidthPx: 760});
+        await settleImagePaint(secondImage);
+        await secondSettle;
+        expect(secondSettled).toBe(true);
+        expect(host.querySelector('img[src^="blob:r1:"]')).toBeNull();
+        expect(host.querySelector('img[src="blob:r2:page-1"]')).not.toBeNull();
+    });
+
+    it('invalidates a budget-evicted current visual until its replacement paint settles', async () => {
+        vi.useFakeTimers();
+        class PreloadImage {
+            onload: (() => void) | null = null;
+            onerror: (() => void) | null = null;
+
+            set src(_value: string) {
+                queueMicrotask(() => this.onload?.());
+            }
+        }
+        vi.stubGlobal('Image', PreloadImage);
+
+        const documentPath = '/managed/evicted-current-page.pdf';
+        const source = createEvictableSource();
+        nativePdfMocks.createSource.mockReturnValue(source);
+        const host = document.createElement('div');
+        const viewport = document.createElement('div');
+        document.body.append(host, viewport);
+        Object.defineProperties(viewport, {
+            clientHeight: {
+                configurable: true,
+                value: 600,
+            },
+            clientWidth: {
+                configurable: true,
+                value: 800,
+            },
+        });
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        authority.bindViewportElement(viewport);
+        authority.openSurface.begin({
+            documentId: documentPath,
+            documentRevision: 'drt1:test:eviction',
+        });
+        const isLoading = ref(true);
+        let waitForWorkspaceSettle: ReturnType<
+            typeof useDocumentOpenVisualSettle
+        >['waitForDocumentOpenSettled'] = () => Promise.reject(new Error('Workspace settle was not bound'));
+        let isWorkspaceVisualReady = () => false;
+        const Root = defineComponent({setup() {
+            provide(documentViewerChassisAuthorityKey, authority);
+            const settle = useDocumentOpenVisualSettle({
+                tabId: 'eviction-tab',
+                hasPdf: ref(false),
+                pdfSrc: ref(null),
+                pdfDocument: ref(null),
+                totalPages: ref(2),
+                pageLabelsResolved: ref(false),
+                isLoading,
+                pdfError: ref(null),
+                djvuError: ref(null),
+                showDjvuSource: ref(false),
+                showNativePdfViewer: ref(true),
+                openSurface: authority.openSurface,
+                markAnnotationCommentsLoading: vi.fn(),
+            });
+            waitForWorkspaceSettle = settle.waitForDocumentOpenSettled;
+            isWorkspaceVisualReady = () => settle.initialDocumentVisualReady.value;
+            return () => h(NativePdfViewer, {
+                src: documentPath,
+                isActive: true,
+                currentPage: 1,
+                onLoading: (loading: boolean) => { isLoading.value = loading; },
+            });
+        }});
+        const app = createApp(Root);
+        const ElementStub = defineComponent({setup: () => () => h('span')});
+        app.component('UButton', ElementStub);
+        app.component('UIcon', ElementStub);
+        app.component('USkeleton', ElementStub);
+        app.mount(host);
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            viewport.remove();
+            activeUnmounts.delete(unmount);
+        };
+        activeUnmounts.add(unmount);
+
+        await settlePendingWork();
+        const initialImage = requireElement<HTMLImageElement>(
+            host,
+            'img[src="blob:eviction:page-1:render-1"]',
+        );
+        await settleImagePaint(initialImage);
+        await settlePendingWork();
+        await expect(waitForWorkspaceSettle()).resolves.toBeUndefined();
+        expect(isWorkspaceVisualReady()).toBe(true);
+        expect(source.renderPageObjectUrl).toHaveBeenCalledWith(2, {targetWidthPx: 760});
+
+        source.evictPage(2, () => {
+            expect(authority.openSurface.viewportSession.value.lifecycle).toBe('ready');
+            expect(source.evictedObjectUrls).not.toContain('blob:eviction:page-2:render-1');
+            expect(host.querySelector('img[src="blob:eviction:page-1:render-1"]')).not.toBeNull();
+        });
+        await nextTick();
+        expect(authority.openSurface.viewportSession.value.lifecycle).toBe('ready');
+        expect(isWorkspaceVisualReady()).toBe(true);
+        expect(host.querySelector('img[src="blob:eviction:page-1:render-1"]')).not.toBeNull();
+
+        source.evictPage(1, () => {
+            expect(authority.openSurface.viewportSession.value).toMatchObject({
+                lifecycle: 'transitioning',
+                requestedPage: 1,
+                visual: {
+                    pageNumber: 1,
+                    presentation: 'skeleton',
+                },
+            });
+            expect(source.evictedObjectUrls).not.toContain('blob:eviction:page-1:render-1');
+        });
+        expect(source.evictedObjectUrls).toContain('blob:eviction:page-1:render-1');
+        await nextTick();
+        expect(authority.openSurface.viewportSession.value).toMatchObject({
+            lifecycle: 'transitioning',
+            requestedPage: 1,
+            visual: {
+                pageNumber: 1,
+                presentation: 'skeleton',
+            },
+        });
+        expect(isWorkspaceVisualReady()).toBe(false);
+        expect(host.querySelector('img[src="blob:eviction:page-1:render-1"]')).toBeNull();
+        expect(host.querySelector('.document-page-skeleton')).not.toBeNull();
+        vi.advanceTimersToNextFrame();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(
+            host.querySelector('img[src="blob:eviction:page-1:render-1"]')
+            ?? host.querySelector('.document-page-skeleton'),
+        ).not.toBeNull();
+
+        const replacementSettle = waitForWorkspaceSettle();
+        let replacementSettled = false;
+        void replacementSettle.then(() => {
+            replacementSettled = true;
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(replacementSettled).toBe(false);
+
+        expect(authority.openSurface.supersede()).not.toBeNull();
+        expect(authority.openSurface.snapshot.value.phase).not.toBe('ready');
+        expect(authority.openSurface.snapshot.value.presentation).toBe('idle');
+        source.resolveCurrentPageReplacement();
+        await settlePendingWork();
+        const replacementImage = requireElement<HTMLImageElement>(
+            host,
+            'img[src="blob:eviction:page-1:render-2"]',
+        );
+        expect(authority.openSurface.snapshot.value.phase).not.toBe('ready');
+        expect(authority.openSurface.snapshot.value.presentation).toBe('idle');
+        expect(host.querySelector('.document-page-skeleton')).not.toBeNull();
+        expect(replacementSettled).toBe(false);
+
+        await settleImagePaint(replacementImage);
+        await replacementSettle;
+        expect(replacementSettled).toBe(true);
+        expect(isWorkspaceVisualReady()).toBe(true);
+        expect(authority.openSurface.viewportSession.value.lifecycle).toBe('ready');
+        expect(host.querySelector('.document-page-skeleton')).toBeNull();
+        expect(host.querySelector('.document-page-visual--committed img')?.getAttribute('src'))
+            .toBe('blob:eviction:page-1:render-2');
+    });
+});

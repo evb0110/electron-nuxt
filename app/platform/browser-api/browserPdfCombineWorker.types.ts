@@ -2,6 +2,7 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
+import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 
 interface IBrowserPdfCombineInput {
     fileName: string;
@@ -68,6 +69,7 @@ type TBrowserPdfCombineWorkerResponse =
         id: number;
         ok: false;
         error: string;
+        errorEnvelope?: INativeErrorEnvelope;
     };
 
 

@@ -12,6 +12,8 @@ import {
     vi,
 } from 'vitest';
 import type { IPageGeometry } from '@contracts/shared';
+import type {IPageMutationWorkerResult} from '@app/platform/browser-api/browserPageOpsWorker.types';
+import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
@@ -30,6 +32,14 @@ interface IPdfPageSummary {
 
 function toArrayBuffer(data: Uint8Array) {
     return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+}
+
+function assertSuccessfulWasmMutation(
+    result: IPageMutationWorkerResult | IBrowserPageOpsWasmFailure | null,
+): asserts result is IPageMutationWorkerResult {
+    if (result === null || 'status' in result) {
+        throw new Error('Expected successful browser page-ops WASM mutation');
+    }
 }
 
 async function createPdf(options: {
@@ -215,6 +225,13 @@ describe('browser page-ops WASM fast path', () => {
         expect(wasmCrop).not.toBeNull();
         expect(wasmRemoveCrop).not.toBeNull();
         expect(wasmGeometry).not.toBeNull();
+        assertSuccessfulWasmMutation(wasmDelete);
+        assertSuccessfulWasmMutation(wasmExtract);
+        assertSuccessfulWasmMutation(wasmReorder);
+        assertSuccessfulWasmMutation(wasmInsert);
+        assertSuccessfulWasmMutation(wasmRotate);
+        assertSuccessfulWasmMutation(wasmCrop);
+        assertSuccessfulWasmMutation(wasmRemoveCrop);
         expect(wasm.fetchMock).toHaveBeenCalledWith(
             'https://viewer.test/wasm/evb-pdf-page-ops.wasm',
             {signal: expect.any(AbortSignal)},
@@ -245,13 +262,13 @@ describe('browser page-ops WASM fast path', () => {
         const pdfLibRemoveCrop = await pdfLibCore.removeCropPdfBytes(basePdf, [2]);
         const pdfLibGeometry = await pdfLibCore.getPageGeometryFromPdfBytes(basePdf, 2);
 
-        expect(await summarizePdf(wasmDelete!.data)).toEqual(await summarizePdf(pdfLibDelete.data));
-        expect(await summarizePdf(wasmExtract!.data)).toEqual(await summarizePdf(pdfLibExtract.data));
-        expect(await summarizePdf(wasmReorder!.data)).toEqual(await summarizePdf(pdfLibReorder.data));
-        expect(await summarizePdf(wasmInsert!.data)).toEqual(await summarizePdf(pdfLibInsert.data));
-        expect(await summarizePdf(wasmRotate!.data)).toEqual(await summarizePdf(pdfLibRotate.data));
-        expect(await summarizePdf(wasmCrop!.data)).toEqual(await summarizePdf(pdfLibCrop.data));
-        expect(await summarizePdf(wasmRemoveCrop!.data)).toEqual(await summarizePdf(pdfLibRemoveCrop.data));
+        expect(await summarizePdf(wasmDelete.data)).toEqual(await summarizePdf(pdfLibDelete.data));
+        expect(await summarizePdf(wasmExtract.data)).toEqual(await summarizePdf(pdfLibExtract.data));
+        expect(await summarizePdf(wasmReorder.data)).toEqual(await summarizePdf(pdfLibReorder.data));
+        expect(await summarizePdf(wasmInsert.data)).toEqual(await summarizePdf(pdfLibInsert.data));
+        expect(await summarizePdf(wasmRotate.data)).toEqual(await summarizePdf(pdfLibRotate.data));
+        expect(await summarizePdf(wasmCrop.data)).toEqual(await summarizePdf(pdfLibCrop.data));
+        expect(await summarizePdf(wasmRemoveCrop.data)).toEqual(await summarizePdf(pdfLibRemoveCrop.data));
         expect(wasmGeometry).toEqual(pdfLibGeometry);
     });
 
@@ -297,14 +314,17 @@ describe('browser page-ops WASM fast path', () => {
         })).resolves.toBeNull();
     });
 
-    it('logs native WASM error strings when a page operation fails', async () => {
+    it('preserves native WASM error envelopes when a page operation falls back', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
         vi.stubGlobal('fetch', vi.fn(async () => ({
             ok: true,
             arrayBuffer: async () => new ArrayBuffer(8),
         })));
-        const wasmMock = createFailingPageOpsWasmExports('page wasm failed');
+        const wasmMock = createFailingPageOpsWasmExports(JSON.stringify({
+            code: 'corrupt-xref',
+            message: 'page wasm failed',
+        }));
         vi.stubGlobal('WebAssembly', {
             Memory: NativeWebAssembly.Memory,
             instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
@@ -315,7 +335,13 @@ describe('browser page-ops WASM fast path', () => {
         await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
             data: basePdf,
             pages: [1],
-        })).resolves.toBeNull();
+        })).resolves.toEqual({
+            status: 'failed',
+            error: {
+                code: 'corrupt-xref',
+                message: 'page wasm failed',
+            },
+        });
 
         expect(wasmMock.run).toHaveBeenCalledTimes(1);
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
@@ -330,7 +356,7 @@ describe('browser page-ops WASM fast path', () => {
         );
     });
 
-    it('falls back without touching linear memory when allocation returns address zero', async () => {
+    it('classifies allocation failure without touching linear memory', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
         vi.stubGlobal('fetch', vi.fn(async () => ({
@@ -349,8 +375,43 @@ describe('browser page-ops WASM fast path', () => {
         await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
             data: basePdf,
             pages: [1],
-        })).resolves.toBeNull();
+        })).resolves.toMatchObject({
+            status: 'failed',
+            error: {code: 'too-large'},
+        });
         expect(wasmMock.run).not.toHaveBeenCalled();
         expect(wasmMock.free).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'not-json',
+        JSON.stringify({
+            code: 'future-native-code',
+            message: 'future failure',
+        }),
+    ])('falls back to native-failure for malformed or unknown WASM errors', async (encodedError) => {
+        vi.resetModules();
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            arrayBuffer: async () => new ArrayBuffer(8),
+        })));
+        const wasmMock = createFailingPageOpsWasmExports(encodedError);
+        vi.stubGlobal('WebAssembly', {
+            Memory: NativeWebAssembly.Memory,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryRunBrowserPageOpsWithWasm} = await import(
+            '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm'
+        );
+        const basePdf = await createPdf({pageWidths: [200]});
+
+        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+            data: basePdf,
+            pages: [1],
+        })).resolves.toMatchObject({
+            status: 'failed',
+            error: {code: 'native-failure'},
+        });
     });
 });

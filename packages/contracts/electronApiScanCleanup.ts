@@ -6,6 +6,10 @@ export type * from '@contracts/scan-cleanup/nativeProtocolV3';
 export type * from '@contracts/scan-cleanup/outputMode';
 export type {IScanCleanupCapability} from '@contracts/scanCleanupPlatformFeature';
 export {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/outputMode';
+export {
+    isScanCleanupErrorEnvelope,
+    SCAN_CLEANUP_ERROR_CODES,
+} from '@contracts/scan-cleanup/ipc';
 export {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/nativeProtocolV3';
 export {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 export {

@@ -996,6 +996,7 @@ export function createDocumentPersistence(
                 BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', () => ({
                     reason: 'native-mutation-not-applied',
                     applied: result.applied,
+                    error: result.error,
                     validation: result.validation,
                 }));
                 logRendererTimings('not-applied', {validation: result.validation});

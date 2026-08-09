@@ -101,6 +101,29 @@ describe('feature IPC codec maps', () => {
             .toThrow('invalid working-copy backing status');
     });
 
+    it('preserves typed native mutation fallback errors and rejects unknown codes', () => {
+        const codec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
+        ];
+        const fallback = {
+            applied: false,
+            validation: null,
+            error: {
+                code: 'too-large',
+                message: 'Native mutation input exceeds limits',
+            },
+        } as const;
+
+        expect(codec?.decodeResult(fallback)).toEqual(fallback);
+        expect(() => codec?.decodeResult({
+            ...fallback,
+            error: {
+                code: 'future-native-code',
+                message: 'Unknown native mutation failure',
+            },
+        })).toThrow('invalid native PDF save result');
+    });
+
     it('preserves the source identity needed to validate cached opening geometry', () => {
         expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
             DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry

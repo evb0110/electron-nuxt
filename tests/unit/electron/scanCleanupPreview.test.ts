@@ -27,6 +27,8 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
 } from '@contracts/electronApiScanCleanup';
+import {isScanCleanupErrorEnvelope} from '@contracts/electronApiScanCleanup';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {
@@ -40,6 +42,7 @@ import {
     type IScanCleanupPreviewService,
 } from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
 import {resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/createScanCleanupService';
+import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     decodeScanCleanupDetectionJobState,
     decodeScanCleanupPreviewResult,
@@ -883,7 +886,29 @@ describe('scan cleanup preview', () => {
         // A path nothing registered is not a page the user navigated away from:
         // reporting it as a cancellation would leave the renderer spinning on a
         // request that will never be answered.
-        await expect(service.preview(sender(), request)).rejects.toThrow(/not managed by this owner/u);
+        const error = await service.preview(sender(), request).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(Error);
+        expect(findSerializableErrorEnvelope(error, isScanCleanupErrorEnvelope)).toMatchObject({
+            code: 'internal',
+            message: expect.stringMatching(/not managed by this owner/u),
+        });
+    });
+
+    it('serializes native preview error codes through the message-only IPC boundary', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.runSidecar = vi.fn(async () => {
+            throw new NativeScanCleanupError('too-large', 'Preview exceeds native limits');
+        });
+        const service = createScanCleanupPreviewService(deps);
+
+        const error = await previewOf(service, sender(), request).catch((caught: unknown) => caught);
+
+        expect(findSerializableErrorEnvelope(error, isScanCleanupErrorEnvelope)).toEqual({
+            code: 'too-large',
+            message: 'Preview exceeds native limits',
+        });
     });
 
     it('skips materialization for queued preview work canceled before it dequeues', async () => {

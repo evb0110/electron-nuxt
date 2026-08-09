@@ -415,9 +415,16 @@ function formatFixtureSize(value: number) {
 // small pdf-lib document — including the existing FreeText note the
 // annotation-save lane asserts — and sparse-pads it, so the file costs a few
 // hundred KiB of real disk whatever its declared size.
-function provisionLargePdfFixture(label: string, targetBytes: number): IFixtureAvailability {
+function provisionLargePdfFixture(
+    label: string,
+    targetBytes: number,
+    pageCount?: number,
+): IFixtureAvailability {
     const required = isEnvFlagEnabled(LARGE_PDF_REQUIRE_ENV_VAR);
-    const fixturePath = join(FIXTURE_CACHE_DIR, `${label}-${targetBytes}.pdf`);
+    const fixturePath = join(
+        FIXTURE_CACHE_DIR,
+        `${label}-${targetBytes}${pageCount === undefined ? '' : `-${pageCount}p`}.pdf`,
+    );
 
     try {
         if (!existsSync(fixturePath) || statSync(fixturePath).size !== targetBytes) {
@@ -426,6 +433,7 @@ function provisionLargePdfFixture(label: string, targetBytes: number): IFixtureA
                 resolve(process.cwd(), 'scripts', 'generate-large-pdf-e2e-fixture.mjs'),
                 `--output=${fixturePath}`,
                 `--bytes=${targetBytes}`,
+                ...(pageCount === undefined ? [] : [`--pages=${pageCount}`]),
             ], {stdio: 'pipe'});
         }
 
@@ -492,8 +500,8 @@ export function resolveLargePdfFixtureAvailability(): IFixtureAvailability {
     return provisionLargePdfFixture('annotation-save', ANNOTATION_LARGE_PDF_FIXTURE_BYTES);
 }
 
-export function resolveNativeLargePdfFixtureAvailability(): IFixtureAvailability {
-    return provisionLargePdfFixture('native-preview', NATIVE_LARGE_PDF_FIXTURE_BYTES);
+export function resolveNativeLargePdfFixtureAvailability(pageCount?: number): IFixtureAvailability {
+    return provisionLargePdfFixture('native-preview', NATIVE_LARGE_PDF_FIXTURE_BYTES, pageCount);
 }
 
 export function copyLargePdfFixture(targetFilename?: string) {

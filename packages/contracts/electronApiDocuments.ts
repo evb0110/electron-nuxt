@@ -45,6 +45,7 @@ import type {
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
+import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 
@@ -540,6 +541,7 @@ export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
 export interface IPdfNativeNoteTextSaveResult {
     applied: boolean;
     validation: IPdfValidationResult | null;
+    error?: INativeErrorEnvelope;
     syncError?: string;
     /** Immutable native output. It is not visible as document state until committed. */
     stagedOutput?: ITypedStagedArtifact;

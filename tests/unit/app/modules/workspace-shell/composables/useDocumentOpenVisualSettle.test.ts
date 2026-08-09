@@ -48,7 +48,10 @@ function createHarness(overrides: IHarnessOverrides = {}) {
     const markAnnotationCommentsLoading = vi.fn();
     const surfaceSession = createDocumentOpenSurfaceSession();
     const openSurface = overrides.openSurfaceSnapshot
-        ? {snapshot: ref(overrides.openSurfaceSnapshot)}
+        ? {
+            snapshot: ref(overrides.openSurfaceSnapshot),
+            viewportSession: surfaceSession.viewportSession,
+        }
         : surfaceSession;
 
     const settle = useDocumentOpenVisualSettle({

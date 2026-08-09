@@ -1,4 +1,8 @@
-import type {TNativeErrorCode} from '@contracts/nativeErrors';
+import {
+    NATIVE_ERROR_CODES,
+    type TNativeErrorCode,
+} from '@contracts/nativeErrors';
+import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 import type {
     IScanCleanupDocumentPrior,
     IScanCleanupOptions,
@@ -32,6 +36,10 @@ import {
     runtimeSchema,
     type TInferSchema,
 } from '@contracts/platformFeature';
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 
 export interface IScanCleanupOwnerContext {
     /** Stable for one renderer tab/session; Electron combines this with the sending WebContents id. */
@@ -45,6 +53,21 @@ export type TScanCleanupErrorCode =
     | 'tools-unavailable'
     | 'canceled'
     | 'internal';
+
+export const SCAN_CLEANUP_ERROR_CODES = [
+    ...NATIVE_ERROR_CODES,
+    'tools-unavailable',
+    'canceled',
+    'internal',
+] as const satisfies readonly TScanCleanupErrorCode[];
+
+export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {}
+
+export function isScanCleanupErrorEnvelope(value: unknown): value is IScanCleanupErrorEnvelope {
+    return isRecord(value)
+        && isOneOf(SCAN_CLEANUP_ERROR_CODES, value.code)
+        && typeof value.message === 'string';
+}
 
 export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     /** Renderer-created token joining the raw raster to this exact request generation. */

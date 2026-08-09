@@ -25,6 +25,7 @@ import {
     type TPdfNativeMutationSetNativeToolPayload,
 } from '@pdf-core';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     isNativePageOpsDisabled,
@@ -108,10 +109,17 @@ async function materializeNativeBinarySidecars(
     };
 }
 
-function createNotAppliedResult(): IPdfNativeNoteTextSaveResult {
+function createNotAppliedResult(error?: unknown): IPdfNativeNoteTextSaveResult {
+    const errorEnvelope = error === undefined
+        ? undefined
+        : {
+            code: hasNativeErrorCode(error) ? error.code : 'native-failure' as const,
+            message: getErrorMessage(error) || 'Native PDF mutation failed',
+        };
     return {
         applied: false,
         validation: null,
+        ...(errorEnvelope === undefined ? {} : {error: errorEnvelope}),
     };
 }
 
@@ -371,7 +379,7 @@ async function runNativeNoteCommand(
                     syncError: getErrorMessage(error),
                 };
             }
-            return createNotAppliedResult();
+            return createNotAppliedResult(error);
         } finally {
             await cleanupTempPath(tempPath);
             await rm(tempDir, {
@@ -468,7 +476,7 @@ async function runNativeWorkingCopyCommand(
                 phases: phaseTimings,
                 error: getErrorMessage(error),
             })}`);
-            return createNotAppliedResult();
+            return createNotAppliedResult(error);
         } finally {
             if (!staged) await cleanupTempPath(tempPath);
             await rm(tempDir, {
