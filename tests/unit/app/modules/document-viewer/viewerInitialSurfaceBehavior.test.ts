@@ -56,15 +56,12 @@ function mount(component: Parameters<typeof createApp>[0]) {
 describe('viewer initial-surface behavior', () => {
     beforeEach(() => {
         document.body.innerHTML = '';
-        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-            callback(0);
-            return 1;
-        });
     });
 
     afterEach(() => {
         for (const unmount of activeUnmounts) unmount();
         vi.unstubAllGlobals();
+        vi.useRealTimers();
     });
 
     it('routes every document renderer through the shared chassis adapter', () => {
@@ -123,8 +120,17 @@ describe('viewer initial-surface behavior', () => {
             'document-page-visual--committed',
         )).toBe(false);
 
+        vi.useFakeTimers();
         image?.dispatchEvent(new Event('load'));
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(events).toEqual([]);
+
+        vi.advanceTimersToNextFrame();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(events).toEqual([]);
+
+        vi.advanceTimersToNextFrame();
+        await vi.advanceTimersByTimeAsync(0);
         expect(events).toEqual([{
             objectUrl: 'blob:page-4',
             pageNumber: 4,
