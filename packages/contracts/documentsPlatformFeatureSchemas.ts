@@ -8,16 +8,16 @@ import type {
     IPdfNativeStagedCommitOptions,
     IPdfNativeWorkingCopyExpectation,
     IPdfOptimizeOptions,
-    IPdfOptimizeProgress,
     IPdfOptimizeResult,
     TDocumentSaveResult,
-    TOpenDocumentDirectBatchProgress,
     TOpenFileResult,
     TOpenFolderDialogResult,
     TShowItemInFolderResult,
 } from '@contracts/electronApiDocuments';
 import {
     decodeManagedTempFileHandle,
+    decodeOpenBatchProgress,
+    decodeOptimizeProgress,
     isPdfOptimizePreset,
 } from '@contracts/electronApiDocuments';
 import {
@@ -543,16 +543,16 @@ const nonNegativeInteger = s.fromParser(
     () => 0,
 );
 const noPayload = s.undefined();
-const optimizeProgress = s.trustedDirect<IPdfOptimizeProgress>(() => ({
+const optimizeProgress = s.fromParser(decodeOptimizeProgress, () => ({
     requestId: 'optimize-1',
-    preset: 'lossless',
-    phase: 'preparing',
+    preset: 'lossless' as const,
+    phase: 'preparing' as const,
     processed: 0,
     total: 1,
     percent: 0,
 }));
-const openBatchProgress = s.trustedDirect<TOpenDocumentDirectBatchProgress>(() => ({
-    operation: 'document-open',
+const openBatchProgress = s.fromParser(decodeOpenBatchProgress, () => ({
+    operation: 'document-open' as const,
     requestId: 'open-1',
     processed: 0,
     total: 1,

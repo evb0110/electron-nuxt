@@ -96,9 +96,8 @@ export const useSettings = () => {
             return sanitizeSettings(loadedSettings);
         },
         onLoaded(nextSettings) {
-            const sanitizedSettings = sanitizeSettings(nextSettings);
-            syncSettingsCookies(sanitizedSettings);
-            rememberSavedSettings(sanitizedSettings);
+            syncSettingsCookies(nextSettings);
+            rememberSavedSettings(nextSettings);
         },
         onError(loadError) {
             BrowserLogger.error('settings', 'Failed to load settings', loadError);
@@ -106,12 +105,7 @@ export const useSettings = () => {
     });
 
     async function load() {
-        const loadedSettings = await loadSettingsState();
-        if (loadedSettings) {
-            const sanitizedSettings = sanitizeSettings(loadedSettings);
-            syncSettingsCookies(sanitizedSettings);
-            rememberSavedSettings(sanitizedSettings);
-        }
+        await loadSettingsState();
     }
 
     function getSettingsPersistenceQueue() {

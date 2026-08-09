@@ -258,6 +258,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         if (raw.ownerId !== options.ownerId || raw.documentRevision !== options.documentRevision.value) {
             return;
         }
+        // Owner and revision survive a cancel; only a request still in flight
+        // may stream a raster, so an event already queued when cancel() retired
+        // the request IDs cannot resurrect the cleared preview.
+        if (!inFlightPreviewRequestIds.has(raw.requestId)) {
+            return;
+        }
         streamedRawByRequest.delete(raw.requestId);
         streamedRawByRequest.set(raw.requestId, raw);
         trimStreamedRaw();

@@ -55,6 +55,60 @@ describe('page ops platform feature schemas', () => {
         });
     });
 
+    it('preserves pageIdentityDelta through mutation and insert result decoders', () => {
+        const reorderResult = codecs[channels.reorder]!.decodeResult({
+            success: true,
+            pageCount: 2,
+            pageIdentityDelta: {
+                previousPageCount: 2,
+                pages: [
+                    {fromPageNumber: 2},
+                    {fromPageNumber: 1},
+                ],
+            },
+        });
+        expect(reorderResult).toEqual({
+            success: true,
+            pageCount: 2,
+            pageIdentityDelta: {
+                previousPageCount: 2,
+                pages: [
+                    {fromPageNumber: 2},
+                    {fromPageNumber: 1},
+                ],
+            },
+        });
+
+        const insertResult = codecs[channels.insert]!.decodeResult({
+            success: true,
+            pageIdentityDelta: {
+                previousPageCount: 1,
+                pages: [
+                    {fromPageNumber: 1},
+                    {insertedId: 'inserted:1'},
+                ],
+            },
+        });
+        expect(insertResult).toEqual({
+            success: true,
+            pageIdentityDelta: {
+                previousPageCount: 1,
+                pages: [
+                    {fromPageNumber: 1},
+                    {insertedId: 'inserted:1'},
+                ],
+            },
+        });
+
+        expect(() => codecs[channels.delete]!.decodeResult({
+            success: true,
+            pageIdentityDelta: {
+                previousPageCount: 1,
+                pages: [{}],
+            },
+        })).toThrow('pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
+    });
+
     it('keeps malformed tuple and result messages stable', () => {
         expect(() => codecs[channels.rotate]!.decodeArgs([
             '/tmp/work.pdf',

@@ -1,9 +1,4 @@
-import {
-    createError,
-    defineEventHandler,
-    getHeader,
-    setHeader,
-} from 'h3';
+import { createError } from 'h3';
 import { isNotNil } from 'es-toolkit/predicate';
 import type {
     JsonArray,
@@ -17,27 +12,8 @@ import {
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
 import { isRecord } from '@contracts/runtimeGuards';
-import { getAnalyticsDb } from '@server/db';
-import {
-    admitViewerAnalyticsEvents,
-    type IViewerAnalyticsAdmissionEvent,
-} from '@server/db/admitViewerAnalyticsEvents';
-import {
-    extractGeo,
-    getAnalyticsRequestHost,
-    hashVisitorIdentity,
-    isAnalyticsWriteAllowed,
-} from '@server/utils/analytics';
-import {
-    createAnalyticsDedupeKey,
-    isAnalyticsAdmissionRejected,
-    resolveRootAnalyticsAdmissionPolicy,
-    ROOT_ANALYTICS_BODY_MAX_BYTES,
-    ROOT_ANALYTICS_MAX_EVENT_COUNT,
-    ROOT_ANALYTICS_USER_AGENT_MAX_LENGTH,
-} from '@server/utils/analyticsAdmission';
-import { readBoundedAnalyticsJsonBody } from '@server/utils/analyticsRequestBody';
-import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
+import type { IViewerAnalyticsAdmissionEvent } from '@server/db/admitViewerAnalyticsEvents';
+import { ROOT_ANALYTICS_MAX_EVENT_COUNT } from '@server/utils/analyticsAdmission';
 
 const VALID_EVENT_NAMES: ReadonlySet<string> = new Set<TAnalyticsEventName>(ANALYTICS_EVENT_NAMES);
 const MAX_STRING_LENGTH = 500;
@@ -175,67 +151,3 @@ export function decodeViewerAnalyticsEventsBody(value: unknown) {
         .map(entry => parseEventEnvelope(entry))
         .filter(isNotNil);
 }
-
-export default defineEventHandler(async (event) => {
-    setHeader(event, 'cache-control', 'no-store');
-
-    if (!isAnalyticsWriteAllowed(event)) {
-        return {
-            ok: true,
-            persisted: false,
-        };
-    }
-
-    const body = await readBoundedAnalyticsJsonBody(event, ROOT_ANALYTICS_BODY_MAX_BYTES);
-    const parsedEvents = decodeViewerAnalyticsEventsBody(body);
-    if (parsedEvents.length === 0) {
-        return {
-            ok: true,
-            persisted: false,
-        };
-    }
-
-    const geo = extractGeo(event);
-    const visitorHash = await hashVisitorIdentity(event);
-    const userAgent = getHeader(event, 'user-agent')?.slice(0, ROOT_ANALYTICS_USER_AGENT_MAX_LENGTH) ?? null;
-    const deploymentHost = getAnalyticsRequestHost(event);
-    const policy = resolveRootAnalyticsAdmissionPolicy(getRuntimeEnv());
-    const dedupeKey = await createAnalyticsDedupeKey(
-        'viewer_events',
-        visitorHash,
-        parsedEvents,
-    );
-
-    try {
-        const db = getAnalyticsDb(event);
-        await admitViewerAnalyticsEvents(db, {
-            ...policy,
-            events: parsedEvents,
-            visitorHash,
-            deploymentHost,
-            userAgent,
-            country: geo.country,
-            city: geo.city,
-            region: geo.region,
-            dedupeKey,
-        });
-    } catch (error) {
-        if (isAnalyticsAdmissionRejected(error)) {
-            return {
-                ok: true,
-                persisted: false,
-            };
-        }
-        console.error('viewer analytics insert failed', error);
-        return {
-            ok: false,
-            persisted: false,
-        };
-    }
-
-    return {
-        ok: true,
-        persisted: true,
-        count: parsedEvents.length,
-    };
-});

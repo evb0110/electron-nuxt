@@ -80,4 +80,56 @@ describe('usePlatformHydratedState', () => {
 
         secondScope.stop();
     });
+
+    it('does not clobber a local write that landed while the load was in flight', async () => {
+        const deferred = createDeferred<{theme: string}>();
+        const onLoaded = vi.fn();
+        let hydrated!: ReturnType<typeof usePlatformHydratedState<{theme: string}>>;
+        const scope = effectScope();
+
+        scope.run(() => {
+            hydrated = usePlatformHydratedState({
+                key: 'mutation-fence-test',
+                initialValue: () => ({theme: 'system'}),
+                initialResolved: false,
+                loadValue: () => deferred.promise,
+                onLoaded,
+            });
+        });
+        const loadPromise = hydrated.load();
+        hydrated.state.value = {theme: 'dark'};
+        deferred.resolve({theme: 'light'});
+
+        await expect(loadPromise).resolves.toEqual({theme: 'light'});
+        expect(hydrated.state.value).toEqual({theme: 'dark'});
+        expect(hydrated.isResolved.value).toBe(true);
+        expect(onLoaded).not.toHaveBeenCalled();
+
+        scope.stop();
+    });
+
+    it('publishes the loaded value when no local write raced the load', async () => {
+        const deferred = createDeferred<{theme: string}>();
+        const onLoaded = vi.fn();
+        let hydrated!: ReturnType<typeof usePlatformHydratedState<{theme: string}>>;
+        const scope = effectScope();
+
+        scope.run(() => {
+            hydrated = usePlatformHydratedState({
+                key: 'mutation-fence-clean-test',
+                initialValue: () => ({theme: 'system'}),
+                initialResolved: false,
+                loadValue: () => deferred.promise,
+                onLoaded,
+            });
+        });
+        const loadPromise = hydrated.load();
+        deferred.resolve({theme: 'light'});
+
+        await expect(loadPromise).resolves.toEqual({theme: 'light'});
+        expect(hydrated.state.value).toEqual({theme: 'light'});
+        expect(onLoaded).toHaveBeenCalledWith({theme: 'light'});
+
+        scope.stop();
+    });
 });

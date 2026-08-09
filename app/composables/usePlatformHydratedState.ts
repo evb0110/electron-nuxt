@@ -17,6 +17,7 @@ interface IUsePlatformHydratedStateOptions<T> {
 interface IPlatformHydratedLoadSuccess<T> {
     ok: true;
     value: T;
+    supersededByLocalWrite: boolean;
 }
 
 interface IPlatformHydratedLoadFailure {
@@ -83,12 +84,17 @@ export const usePlatformHydratedState = <T>(
             error.value = null;
 
             try {
+                const stateAtLoadStart = state.value;
                 const nextValue = await options.loadValue();
-                state.value = nextValue;
+                const supersededByLocalWrite = state.value !== stateAtLoadStart;
+                if (!supersededByLocalWrite) {
+                    state.value = nextValue;
+                }
                 isResolved.value = true;
                 return {
                     ok: true,
                     value: nextValue,
+                    supersededByLocalWrite,
                 } satisfies IPlatformHydratedLoadSuccess<T>;
             } catch (loadError) {
                 error.value = options.getErrorMessage?.(loadError)
@@ -121,7 +127,9 @@ export const usePlatformHydratedState = <T>(
         }
 
         if (result.ok) {
-            options.onLoaded?.(result.value);
+            if (!result.supersededByLocalWrite) {
+                options.onLoaded?.(result.value);
+            }
             clearRetryTimer();
             return result.value;
         }

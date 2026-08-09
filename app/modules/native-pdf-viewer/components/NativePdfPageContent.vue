@@ -56,6 +56,7 @@
 
 <script setup lang="ts">
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pagePreviewSource';
 
 const props = defineProps<{
@@ -85,20 +86,8 @@ const showPageNumber = computed(() => (
     || props.pageState?.status === 'error'
 ));
 
-function waitForPaintFrame() {
-    if (typeof requestAnimationFrame !== 'function') {
-        return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => resolve());
-        });
-    });
-}
-
 async function emitVisualReadyAfterPaint(objectUrl: string) {
-    await waitForPaintFrame();
+    await waitForVisualFrames({ frames: 2 });
     if (
         props.pageState?.objectUrl !== objectUrl
     ) {

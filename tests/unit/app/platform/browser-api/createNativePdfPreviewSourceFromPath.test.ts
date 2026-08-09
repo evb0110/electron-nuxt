@@ -55,7 +55,8 @@ describe('createNativePdfPreviewSourceFromPath', () => {
         source.terminate();
 
         await expect(renderPromise).rejects.toThrow('Native PDF preview canceled');
-        expect(documentFiles.cancelPdfNativePagePreview).toHaveBeenCalledWith('pdf-native-preview:1:1');
+        expect(documentFiles.cancelPdfNativePagePreview)
+            .toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview:\d+:1:1$/));
     });
 
     it('cancels the active request for a page when that page is reset', async () => {
@@ -94,7 +95,83 @@ describe('createNativePdfPreviewSourceFromPath', () => {
         source.cancelPagePreview?.(2);
 
         await expect(renderPromise).rejects.toThrow('Native PDF preview canceled');
-        expect(documentFiles.cancelPdfNativePagePreview).toHaveBeenCalledWith('pdf-native-preview:2:1');
+        expect(documentFiles.cancelPdfNativePagePreview)
+            .toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview:\d+:2:1$/));
+    });
+
+    it('never reuses request IDs across two sources for the same path and page', async () => {
+        const seenRequestIds: string[] = [];
+        const documentFiles: Pick<
+            IDocumentsFileIoCapability,
+            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
+        > = {
+            cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
+            getPdfNativePageSizes: vi.fn(async () => []),
+            renderPdfNativePagePreview: vi.fn(async (
+                _path: string,
+                _pageNumber: number,
+                options?: {previewRequestId?: string},
+            ) => {
+                seenRequestIds.push(options?.previewRequestId ?? '');
+                return {
+                    bytes: new Uint8Array([1]),
+                    width: 40,
+                    height: 25,
+                };
+            }),
+        };
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => 'blob:pane-preview'),
+            revokeObjectURL: vi.fn(),
+        });
+        const paneA = createNativePdfPreviewSourceFromPath('/tmp/shared-pane.pdf', documentFiles);
+        const paneB = createNativePdfPreviewSourceFromPath('/tmp/shared-pane.pdf', documentFiles);
+
+        await paneA.renderPageObjectUrl(1);
+        await paneB.renderPageObjectUrl(1);
+
+        expect(seenRequestIds).toHaveLength(2);
+        expect(new Set(seenRequestIds).size).toBe(2);
+        paneA.terminate();
+        paneB.terminate();
+    });
+
+    it('keeps a same-path source budgeted when the other source terminates', async () => {
+        const documentFiles: Pick<
+            IDocumentsFileIoCapability,
+            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
+        > = {
+            cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
+            getPdfNativePageSizes: vi.fn(async () => []),
+            renderPdfNativePagePreview: vi.fn(async () => ({
+                bytes: new Uint8Array([1]),
+                width: 40,
+                height: 25,
+            })),
+        };
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn()
+                .mockReturnValueOnce('blob:pane-a')
+                .mockReturnValueOnce('blob:pane-b'),
+            revokeObjectURL: vi.fn(),
+        });
+        const before = workspaceSurfaceBudgetController.getSnapshot();
+        const paneA = createNativePdfPreviewSourceFromPath('/tmp/shared-budget.pdf', documentFiles);
+        const paneB = createNativePdfPreviewSourceFromPath('/tmp/shared-budget.pdf', documentFiles);
+        const pageBytes = 40 * 25 * 4;
+
+        await paneA.renderPageObjectUrl(1);
+        await paneB.renderPageObjectUrl(1);
+        expect(workspaceSurfaceBudgetController.getSnapshot().reservedBytesByCategory['native-preview'])
+            .toBe(before.reservedBytesByCategory['native-preview'] + pageBytes * 2);
+
+        paneA.terminate();
+
+        expect(workspaceSurfaceBudgetController.getSnapshot().reservedBytesByCategory['native-preview'])
+            .toBe(before.reservedBytesByCategory['native-preview'] + pageBytes);
+        paneB.terminate();
+        expect(workspaceSurfaceBudgetController.getSnapshot().reservedBytesByCategory['native-preview'])
+            .toBe(before.reservedBytesByCategory['native-preview']);
     });
 
     it('cancels one page consumer without canceling a concurrent consumer', async () => {

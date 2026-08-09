@@ -333,9 +333,9 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
             'file:cleanupOcrTemp',
             pathArgs('path'),
             s.declared<undefined>()(s.fromParser(
-                value => typeof value === 'boolean'
-                    ? value as never
-                    : fail('expected a boolean IPC result'),
+                value => value === undefined || typeof value === 'boolean'
+                    ? undefined as never
+                    : fail('expected a void IPC result'),
                 () => undefined,
             )),
             'cleanupOcrTemp',

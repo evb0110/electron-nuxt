@@ -892,6 +892,45 @@ describe('scan cleanup preview navigation', () => {
         capability.value = null;
     });
 
+    it('drops a raw event that was already queued when cancel cleared the session', async () => {
+        const backend = previewBackend();
+        let rawListener: ((raw: IScanCleanupRawPreviewEvent) => void) | null = null;
+        capability.value = {
+            ...backend.capability,
+            onPreviewRaw: (listener) => {
+                rawListener = listener;
+                return backend.capability.onPreviewRaw(listener);
+            },
+        };
+        const previewPage = ref(100);
+        const mounted = mountPreviewSession(previewPage, reactive(new Map()));
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        expect(mounted.session.rawResult.value?.pageNumber).toBe(100);
+        const [request] = backend.previewCalls.mock.calls.at(-1)!;
+
+        mounted.session.cancel();
+        expect(mounted.session.rawResult.value).toBeNull();
+
+        // The IPC queue can still hold a raw event for the request that was
+        // just cancelled; owner and revision both match, so only the retired
+        // request ID distinguishes it from live work.
+        rawListener!({
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            requestId: request.requestId,
+            pageNumber: request.pageNumber,
+            totalPages: TOTAL_PAGES,
+            rawImageData: new Uint8Array(new ArrayBuffer(PAGE_BYTES)),
+            rawWidthPx: 883,
+            rawHeightPx: 1335,
+        });
+
+        expect(mounted.session.rawResult.value).toBeNull();
+        mounted.unmount();
+        capability.value = null;
+    });
+
     it('stops re-requesting a page whose run keeps answering canceled', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;

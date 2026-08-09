@@ -1,4 +1,5 @@
 import type {
+    IPageIdentityDelta,
     IPageOpsExtractResult,
     IPageOpsInsertResult,
     IPageOpsMetadataSnapshot,
@@ -256,6 +257,41 @@ function decodeOptionalBoolean(value: unknown, fieldName: string) {
     return value;
 }
 
+function decodePageIdentityDelta(value: unknown): IPageIdentityDelta | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        throw new Error('pageIdentityDelta must be an object');
+    }
+    const previousPageCount = decodeSafeInteger(
+        [value.previousPageCount],
+        0,
+        'pageIdentityDelta.previousPageCount',
+    );
+    if (!Array.isArray(value.pages) || value.pages.length > MAX_COLLECTION_ITEMS) {
+        throw new Error('pageIdentityDelta.pages must be a bounded array');
+    }
+    const pages = value.pages.map((page): IPageIdentityDelta['pages'][number] => {
+        if (isRecord(page) && typeof page.insertedId === 'string') {
+            return {insertedId: page.insertedId};
+        }
+        if (
+            isRecord(page)
+            && typeof page.fromPageNumber === 'number'
+            && Number.isSafeInteger(page.fromPageNumber)
+            && page.fromPageNumber >= 1
+        ) {
+            return {fromPageNumber: page.fromPageNumber};
+        }
+        throw new Error('pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
+    });
+    return {
+        previousPageCount,
+        pages,
+    };
+}
+
 function decodePageOpsResult(value: unknown): IPageOpsResult {
     if (!isRecord(value) || typeof value.success !== 'boolean') {
         throw new Error('page operation result must include success');
@@ -264,10 +300,12 @@ function decodePageOpsResult(value: unknown): IPageOpsResult {
         ? undefined
         : decodeSafeInteger([value.pageCount], 0, 'pageCount');
     const documentRevision = decodeRevision(value.documentRevision);
+    const pageIdentityDelta = decodePageIdentityDelta(value.pageIdentityDelta);
     return {
         success: value.success,
         ...(pageCount === undefined ? {} : {pageCount}),
         ...(documentRevision === undefined ? {} : {documentRevision}),
+        ...(pageIdentityDelta === undefined ? {} : {pageIdentityDelta}),
     };
 }
 
@@ -292,10 +330,12 @@ function decodeInsertResult(value: unknown): IPageOpsInsertResult {
     }
     const canceled = decodeOptionalBoolean(value.canceled, 'canceled');
     const documentRevision = decodeRevision(value.documentRevision);
+    const pageIdentityDelta = decodePageIdentityDelta(value.pageIdentityDelta);
     return {
         success: value.success,
         ...(canceled === undefined ? {} : {canceled}),
         ...(documentRevision === undefined ? {} : {documentRevision}),
+        ...(pageIdentityDelta === undefined ? {} : {pageIdentityDelta}),
     };
 }
 

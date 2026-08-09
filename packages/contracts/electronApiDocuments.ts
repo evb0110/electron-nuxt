@@ -316,6 +316,73 @@ export interface IPdfOptimizeProgress {
     percent: number;
 }
 
+const PDF_OPTIMIZE_PROGRESS_PHASES = [
+    'preparing',
+    'rendering',
+    'assembling',
+    'optimizing',
+    'validating',
+    'complete',
+] as const satisfies readonly TPdfOptimizeProgressPhase[];
+const OPEN_BATCH_PROGRESS_OPERATIONS = [
+    'document-open',
+    'page-insert',
+] as const satisfies readonly TOpenBatchProgressOperation[];
+
+function decodeProgressCounters(value: Record<string, unknown>, label: string) {
+    if (
+        !isFiniteNumber(value.processed)
+        || value.processed < 0
+        || !isFiniteNumber(value.total)
+        || value.total < 0
+        || !isFiniteNumber(value.percent)
+    ) {
+        throw new Error(`invalid ${label} progress counters`);
+    }
+    return {
+        processed: value.processed,
+        total: value.total,
+        percent: value.percent,
+    };
+}
+
+export function decodeOptimizeProgress(value: unknown): IPdfOptimizeProgress {
+    if (
+        !isRecord(value)
+        || typeof value.requestId !== 'string'
+        || !isPdfOptimizePreset(value.preset)
+        || !isOneOf(PDF_OPTIMIZE_PROGRESS_PHASES, value.phase)
+    ) {
+        throw new Error('invalid PDF optimize progress event');
+    }
+    return {
+        requestId: value.requestId,
+        preset: value.preset,
+        phase: value.phase,
+        ...decodeProgressCounters(value, 'PDF optimize'),
+    };
+}
+
+export function decodeOpenBatchProgress(value: unknown): TOpenDocumentDirectBatchProgress {
+    if (
+        !isRecord(value)
+        || typeof value.requestId !== 'string'
+        || !isOneOf(OPEN_BATCH_PROGRESS_OPERATIONS, value.operation)
+        || !isFiniteNumber(value.elapsedMs)
+        || value.elapsedMs < 0
+        || (value.estimatedRemainingMs !== null && !isFiniteNumber(value.estimatedRemainingMs))
+    ) {
+        throw new Error('invalid open-batch progress event');
+    }
+    return {
+        operation: value.operation,
+        requestId: value.requestId,
+        ...decodeProgressCounters(value, 'open-batch'),
+        elapsedMs: value.elapsedMs,
+        estimatedRemainingMs: value.estimatedRemainingMs,
+    };
+}
+
 export interface IPdfOptimizeResult {
     path: TDocumentRef | null;
     validation: IPdfValidationResult | null;

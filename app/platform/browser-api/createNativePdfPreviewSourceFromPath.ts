@@ -20,6 +20,8 @@ function createPngObjectUrl(bytes: Uint8Array) {
     return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
 }
 
+let nextNativePreviewSourceInstanceId = 0;
+
 export function createNativePdfPreviewSourceFromPath(
     pdfPath: TDocumentRef,
     documentFiles: Pick<
@@ -41,6 +43,8 @@ export function createNativePdfPreviewSourceFromPath(
 
     let terminated = false;
     let nextPreviewRequestId = 0;
+    nextNativePreviewSourceInstanceId += 1;
+    const sourceInstanceId = nextNativePreviewSourceInstanceId;
     const activePreviewRequestIds = new Set<string>();
     const activePreviewRequestIdsByPage = new Map<number, Set<string>>();
     const canceledPreviewRequestIds = new Set<string>();
@@ -48,7 +52,7 @@ export function createNativePdfPreviewSourceFromPath(
         lease: IWorkspaceSurfaceBudgetLeasePort | null;
         invalidationListeners: Set<() => void>;
     }>();
-    const surfaceScopeId = `native-preview:${pdfPath}`;
+    const surfaceScopeId = `native-preview:${sourceInstanceId}:${pdfPath}`;
     const surfaceBudget = requireWorkspaceSurfaceBudgetPort();
     const cancelPreviewRequest = (requestId: string) => {
         void cancelPdfNativePagePreview(requestId).catch(() => undefined);
@@ -68,7 +72,7 @@ export function createNativePdfPreviewSourceFromPath(
             return requestId;
         }
         nextPreviewRequestId += 1;
-        return `pdf-native-preview:${pageNumber}:${nextPreviewRequestId}`;
+        return `pdf-native-preview:${sourceInstanceId}:${pageNumber}:${nextPreviewRequestId}`;
     };
 
     return {
