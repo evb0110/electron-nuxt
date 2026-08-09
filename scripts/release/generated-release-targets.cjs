@@ -341,6 +341,18 @@ const manifest = JSON.parse(String.raw`{
                 "icon.png"
             ],
             "type": "file"
+        },
+        {
+            "id": "third-party-notices",
+            "label": "third-party license notices",
+            "sourceSegments": [
+                "resources",
+                "third-party-notices"
+            ],
+            "stagedSegments": [
+                "third-party-notices"
+            ],
+            "type": "directory"
         }
     ],
     "platformArches": [

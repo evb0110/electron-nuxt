@@ -277,6 +277,16 @@ export const GLOBAL_PACKAGED_RESOURCES: readonly IGlobalPackagedResource[] = [
         stagedSegments: ['icon.png'],
         type: 'file',
     },
+    {
+        id: 'third-party-notices',
+        label: 'third-party license notices',
+        sourceSegments: [
+            'resources',
+            'third-party-notices',
+        ],
+        stagedSegments: ['third-party-notices'],
+        type: 'directory',
+    },
 ] as const;
 
 export const GENERATED_NATIVE_TOOL_RESOURCES = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({

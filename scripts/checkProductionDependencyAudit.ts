@@ -22,6 +22,7 @@ interface IAuditSummary {
 interface IAuditProject {
     cwd: string;
     label: string;
+    scope: 'all' | 'prod';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,13 +97,14 @@ export function assertProductionAuditIsClean(report: unknown, label = 'project')
         .filter(severity => summary.counts[severity] > 0)
         .map(severity => `${severity}=${summary.counts[severity]}`)
         .join(', ');
-    throw new Error(`${label} production dependency audit found ${summary.total} vulnerabilities (${details}).`);
+    throw new Error(`${label} dependency audit found ${summary.total} vulnerabilities (${details}).`);
 }
 
 function runProjectAudit(project: IAuditProject) {
+    const scopeArgs = project.scope === 'prod' ? ['--prod'] : [];
     let result = spawnSync('pnpm', [
         'audit',
-        '--prod',
+        ...scopeArgs,
         '--json',
     ], {
         cwd: project.cwd,
@@ -116,7 +118,7 @@ function runProjectAudit(project: IAuditProject) {
             `pnpm@${BULK_AUDIT_PNPM_VERSION}`,
             '--pm-on-fail=ignore',
             'audit',
-            '--prod',
+            ...scopeArgs,
             '--json',
         ], {
             cwd: project.cwd,
@@ -138,13 +140,19 @@ function runProjectAudit(project: IAuditProject) {
         throw new Error(`${project.label} pnpm audit failed with exit code ${result.status}${detail === '' ? '' : `: ${detail}`}`);
     }
 
-    console.log(`${project.label} production dependency audit passed (${summary.total} vulnerabilities).`);
+    console.log(`${project.label} dependency audit passed (${summary.total} vulnerabilities).`);
 }
 
 export function runProductionDependencyAudits() {
     runProjectAudit({
         cwd: PROJECT_ROOT,
-        label: 'workspace',
+        label: 'workspace production',
+        scope: 'prod',
+    });
+    runProjectAudit({
+        cwd: PROJECT_ROOT,
+        label: 'workspace full graph (Electron runtime and build tooling)',
+        scope: 'all',
     });
 }
 

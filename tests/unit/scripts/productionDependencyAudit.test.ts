@@ -54,7 +54,7 @@ describe('production dependency audit policy', () => {
             critical: 1,
             high: 2,
             low: 3,
-        }), 'landing')).toThrow('landing production dependency audit found 6 vulnerabilities (low=3, high=2, critical=1).');
+        }), 'landing')).toThrow('landing dependency audit found 6 vulnerabilities (low=3, high=2, critical=1).');
     });
 
     it('rejects muted advisories instead of silently accepting exceptions', () => {
