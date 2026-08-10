@@ -24,6 +24,7 @@ import {
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { devSupervisor } from '@scripts/electron-run/devSupervisor';
+import { runDevLogs } from '@scripts/devLogs';
 import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
 import {
     stopSession,
@@ -39,6 +40,7 @@ const CLI_COMMANDS = [
     'restart',
     'restartd',
     'list',
+    'logs',
     'screenshot',
     'screenshots',
     'console',
@@ -159,6 +161,8 @@ Session:
   restart             Stop and restart the session (useful for recovery)
   restartd            Stop and restart in detached mode
   list                List all sessions and their status
+  logs [--follow] [--since=15m] [--tail=200]
+                     Read the stable merged Electron, renderer, and Nuxt log
 
 Commands (require running session):
   health              Check app health status (loaded, API availability)
@@ -189,6 +193,7 @@ Examples:
   pnpm electron:run -s test screenshot "home"      # Screenshot in "test" session
   pnpm electron:run screenshots "progress" 12 500  # 12 shots every 500ms
   pnpm electron:run devtools network 200           # Recent network diagnostics
+  pnpm electron:run logs --follow --since=15m      # Follow merged current-session logs
   pnpm electron:run viewport                       # Read current viewport/window size
   pnpm electron:run resize 1280 820               # Set viewport for deterministic screenshots
   pnpm electron:run list                           # Show all running sessions
@@ -310,6 +315,10 @@ async function printStatus() {
             throw new Error('Malformed ping response payload');
         }
         await printSessionHealthStatus(info.port, pingResult.uptime);
+        if (info.logs) {
+            console.log(`  Logs: ${info.logs.sessionLogFile}`);
+            console.log(`  Follow: pnpm electron:run --session=${getCurrentSessionName()} logs --follow`);
+        }
     } catch {
         console.log('Session file exists but server not responding.');
         console.log('  Cleaning up stale session file...');
@@ -332,6 +341,9 @@ async function printSessionListItem(name: string) {
         console.log(`    Status:  ${status}`);
         console.log(`    PID:     ${info.pid}`);
         console.log(`    Ports:   server=${info.port}, cdp=${info.cdpPort}`);
+        if (info.logs) {
+            console.log(`    Logs:    ${info.logs.sessionLogFile}`);
+        }
         console.log('');
         return;
     }
@@ -408,6 +420,13 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
     },
     async list() {
         await printSessionList();
+    },
+    logs(args) {
+        runDevLogs([
+            `--session=${getCurrentSessionName()}`,
+            ...args,
+        ]);
+        return Promise.resolve();
     },
     screenshot: args => printJsonCommand('screenshot', args),
     screenshots: args => printJsonCommand('screenshots', args, 600_000),

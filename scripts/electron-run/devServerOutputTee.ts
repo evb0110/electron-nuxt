@@ -1,9 +1,11 @@
 import {
+    appendFileSync,
     closeSync,
     fstatSync,
     ftruncateSync,
     mkdirSync,
     openSync,
+    readFileSync,
     writeFileSync,
     writeSync,
 } from 'node:fs';
@@ -15,6 +17,8 @@ import {
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import {
     getCurrentSessionName,
+    sessionDir,
+    sessionLogFilePath,
     validateSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {
@@ -25,6 +29,7 @@ import {
 
 export const DEV_OUTPUT_TEE_DIR_ENV = 'EVB_DEV_OUTPUT_TEE_DIR';
 export const DEV_OUTPUT_TEE_DISABLED_ENV = 'EVB_DEV_OUTPUT_TEE_DISABLED';
+export const DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV = 'EVB_DEV_OUTPUT_TEE_STABLE_LOG_DISABLED';
 export const devServerOutputTeeBaseDir = join(projectRoot, '.devkit', 'scratch', 'dev-server-logs');
 export const DEV_OUTPUT_TEE_TRUNCATION_MARKER = '\n[EVB dev output truncated at file size limit]\n';
 
@@ -40,13 +45,28 @@ interface ICreateDevServerOutputTeeOptions {
     pid?: number;
     metadataFileName?: string;
     owner?: string;
+    sessionArtifactsDir?: string;
     retentionPolicy?: Partial<IDevServerOutputRetentionPolicy>;
+}
+
+export interface IDevServerLogManifest {
+    readonly schemaVersion: 1;
+    readonly createdAt: string;
+    readonly sessionName: string;
+    readonly runDir: string;
+    readonly relativeRunDir: string;
+    readonly sessionLogFile: string;
+    readonly runCombinedLogFile: string;
+    readonly sourceStems: readonly string[];
 }
 
 export interface IDevServerOutputTee {
     readonly runDir: string;
     readonly relativeRunDir: string;
     readonly sessionName: string;
+    readonly logManifestFile: string;
+    readonly sessionLogFile: string;
+    readonly runCombinedLogFile: string;
     write(source: string, stream: TOutputStreamName, chunk: TOutputChunk): void;
     writeLine(source: string, stream: TOutputStreamName, line: string): void;
     installProcessStreamTee(source?: string): void;
@@ -99,6 +119,22 @@ function writeJsonFile(filePath: string, value: unknown) {
     writeFileSync(filePath, `${JSON.stringify(value, null, 4)}\n`);
 }
 
+function readLogManifest(filePath: string): IDevServerLogManifest | null {
+    try {
+        const value = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<IDevServerLogManifest>;
+        if (
+            value.schemaVersion !== 1
+            || typeof value.runDir !== 'string'
+            || !Array.isArray(value.sourceStems)
+        ) {
+            return null;
+        }
+        return value as IDevServerLogManifest;
+    } catch {
+        return null;
+    }
+}
+
 function createRelativeRunDir(runDir: string) {
     const relativePath = relative(projectRoot, runDir);
     return relativePath && !relativePath.startsWith('..') ? relativePath : runDir;
@@ -131,6 +167,9 @@ class DevServerOutputTee implements IDevServerOutputTee {
     readonly runDir: string;
     readonly relativeRunDir: string;
     readonly sessionName: string;
+    readonly logManifestFile: string;
+    readonly sessionLogFile: string;
+    readonly runCombinedLogFile: string;
 
     private readonly baseDir: string;
     private readonly descriptor: {
@@ -149,6 +188,8 @@ class DevServerOutputTee implements IDevServerOutputTee {
     }>();
     private readonly metadataFilePath: string;
     private readonly retentionPolicy: IDevServerOutputRetentionPolicy;
+    private readonly sourceStems = new Set<string>();
+    private readonly stableLogEnabled: boolean;
     private readonly restoreProcessStreams: Array<() => void> = [];
     private closed = false;
 
@@ -164,6 +205,13 @@ class DevServerOutputTee implements IDevServerOutputTee {
             ...(options.runDir ? { runDir: options.runDir } : {}),
         });
         this.relativeRunDir = createRelativeRunDir(this.runDir);
+        const sessionArtifactsDir = options.sessionArtifactsDir || sessionDir(this.sessionName);
+        this.logManifestFile = join(sessionArtifactsDir, 'logs.json');
+        this.sessionLogFile = options.sessionArtifactsDir
+            ? join(sessionArtifactsDir, 'session.log')
+            : sessionLogFilePath(this.sessionName);
+        this.runCombinedLogFile = join(this.runDir, 'session.combined.log');
+        this.stableLogEnabled = !isTruthyEnvValue(options.env[DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV]);
         const retentionPolicy = resolveDevServerOutputRetentionPolicy(options.retentionPolicy);
         this.retentionPolicy = {
             ...retentionPolicy,
@@ -173,9 +221,18 @@ class DevServerOutputTee implements IDevServerOutputTee {
             ),
         };
         mkdirSync(this.runDir, { recursive: true });
+        mkdirSync(sessionArtifactsDir, { recursive: true });
         openTeeRunDirs.add(this.runDir);
 
         const createdAt = options.now.toISOString();
+        const previousManifest = readLogManifest(this.logManifestFile);
+        if (previousManifest?.runDir === this.runDir) {
+            for (const stem of previousManifest.sourceStems) {
+                if (typeof stem === 'string') this.sourceStems.add(stem);
+            }
+        } else if (this.stableLogEnabled) {
+            writeFileSync(this.sessionLogFile, '');
+        }
         writeLatestRunPointers({
             baseDir: options.baseDir,
             createdAt,
@@ -194,6 +251,7 @@ class DevServerOutputTee implements IDevServerOutputTee {
             relativeRunDir: this.relativeRunDir,
         };
         writeJsonFile(this.metadataFilePath, this.descriptor);
+        this.writeLogManifest(createdAt);
         this.pruneCompletedRuns(options.now);
     }
 
@@ -203,6 +261,10 @@ class DevServerOutputTee implements IDevServerOutputTee {
         }
 
         const stem = sanitizeDevServerOutputFileStem(source);
+        if (!this.sourceStems.has(stem)) {
+            this.sourceStems.add(stem);
+            this.writeLogManifest(this.descriptor.createdAt);
+        }
         const buffer = toBuffer(chunk);
         this.writeFile(`${stem}.${stream}.log`, buffer);
         this.writeCombinedFile(stem, stream, buffer);
@@ -317,9 +379,39 @@ class DevServerOutputTee implements IDevServerOutputTee {
     }
 
     private writeCombinedFile(stem: string, stream: TOutputStreamName, buffer: Buffer) {
-        const prefix = `[${new Date().toISOString()} ${stream}] `;
+        const timestamp = new Date().toISOString();
+        const prefix = `[${timestamp} ${stream}] `;
         const text = buffer.toString('utf8').replace(/^/gmu, prefix);
         this.writeFile(`${stem}.combined.log`, Buffer.from(text));
+
+        const aggregatePrefix = `[${timestamp} ${stem} ${stream}] `;
+        const aggregateText = buffer.toString('utf8').replace(/^/gmu, aggregatePrefix);
+        this.writeFile('session.combined.log', Buffer.from(aggregateText));
+        if (this.stableLogEnabled) {
+            try {
+                appendFileSync(this.sessionLogFile, aggregateText);
+            } catch {}
+        }
+    }
+
+    private writeLogManifest(createdAt: string) {
+        try {
+            const existing = readLogManifest(this.logManifestFile);
+            const sourceStems = new Set(
+                existing?.runDir === this.runDir ? existing.sourceStems : [],
+            );
+            for (const stem of this.sourceStems) sourceStems.add(stem);
+            writeJsonFile(this.logManifestFile, {
+                schemaVersion: 1,
+                createdAt,
+                sessionName: this.sessionName,
+                runDir: this.runDir,
+                relativeRunDir: this.relativeRunDir,
+                sessionLogFile: this.sessionLogFile,
+                runCombinedLogFile: this.runCombinedLogFile,
+                sourceStems: [...sourceStems].sort(),
+            } satisfies IDevServerLogManifest);
+        } catch {}
     }
 
     private pruneCompletedRuns(now = new Date()) {
@@ -354,6 +446,11 @@ export function createDevServerOutputTee(options: ICreateDevServerOutputTeeOptio
         pid: options.pid ?? process.pid,
         metadataFileName: options.metadataFileName ?? 'electron-run-tee.json',
         owner: options.owner ?? 'electron-run',
+        sessionArtifactsDir: options.sessionArtifactsDir ?? (
+            options.baseDir && options.baseDir !== devServerOutputTeeBaseDir
+                ? join(options.baseDir, '.session-artifacts')
+                : ''
+        ),
         retentionPolicy: options.retentionPolicy ?? {},
     };
     return new DevServerOutputTee({

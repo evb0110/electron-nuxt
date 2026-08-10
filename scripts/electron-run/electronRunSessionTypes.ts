@@ -83,6 +83,13 @@ export interface ISessionInfo {
     nuxtPid: number | null;
     nuxtPort: number;
     runId?: string | null;
+    logs?: {
+        manifestFile: string;
+        sessionLogFile: string;
+        runDir: string;
+        relativeRunDir: string;
+        runCombinedLogFile: string;
+    };
 }
 
 export interface ISessionStartingInfo {

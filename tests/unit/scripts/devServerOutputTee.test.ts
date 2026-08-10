@@ -110,6 +110,8 @@ describe('dev server output tee', () => {
         expect(readFileSync(join(tee.runDir, 'nuxt-dev-server.stdout.log'), 'utf8')).toBe('ready\n');
         expect(readFileSync(join(tee.runDir, 'electron-main-process.stderr.log'), 'utf8')).toBe('boom\n');
         expect(readFileSync(join(tee.runDir, 'nuxt-dev-server.combined.log'), 'utf8')).toContain('stdout] ready');
+        expect(readFileSync(tee.runCombinedLogFile, 'utf8')).toContain('nuxt-dev-server stdout] ready');
+        expect(readFileSync(tee.sessionLogFile, 'utf8')).toContain('electron-main-process stderr] boom');
 
         expect(readJsonFile<{
             owner: string;
@@ -120,6 +122,18 @@ describe('dev server output tee', () => {
         });
         expect(readJsonFile<{runDir: string}>(join(baseDir, 'latest-run.json')).runDir).toBe(tee.runDir);
         expect(readJsonFile<{runDir: string}>(join(baseDir, 'unit-session', 'latest-run.json')).runDir).toBe(tee.runDir);
+        expect(readJsonFile<{
+            runDir: string;
+            sessionLogFile: string;
+            sourceStems: string[];
+        }>(tee.logManifestFile)).toMatchObject({
+            runDir: tee.runDir,
+            sessionLogFile: tee.sessionLogFile,
+            sourceStems: [
+                'electron-main-process',
+                'nuxt-dev-server',
+            ],
+        });
     });
 
     it('can be explicitly disabled for callers that allow it', () => {

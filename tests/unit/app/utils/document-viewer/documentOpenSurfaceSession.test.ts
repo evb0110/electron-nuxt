@@ -1780,4 +1780,24 @@ describe('document open surface session', () => {
             pageNumber: 1,
         })).toBeNull();
     });
+
+    it('records an actionable reason when a canvas arrives before geometry', () => {
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'saved-result.pdf', 'open-intent:1');
+        const fence = createRenderFence(session, generation, 'open-intent:1');
+
+        expect(session.commitCanvas(fence)).toBe(false);
+        expect(session.getDiagnosticHistory().at(-1)).toMatchObject({
+            event: 'commit-canvas',
+            accepted: false,
+            reason: 'geometry-not-committed',
+            generation,
+            phase: 'pending',
+            requestedPage: 1,
+            operationId: `document-open:${String(generation)}:open-intent:1`,
+            details: {fence},
+        });
+        consoleWarn.mockRestore();
+    });
 });

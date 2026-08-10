@@ -1,6 +1,10 @@
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { Ref } from 'vue';
 import {
+    createDocumentOpenSurfaceDiagnostics,
+    type IDocumentOpenSurfaceDiagnosticEntry,
+} from '@app/utils/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
+import {
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
     resolveDocumentViewportCurrentPage,
@@ -34,21 +38,17 @@ export {
 
 export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
     | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';
-
-
 export type TDocumentOpenSurfacePresentation = 'idle' | 'page-shell'
     | 'committed' | 'failed';
 export interface IDocumentOpenSurfaceIdentity {
     readonly documentId: string;
     readonly documentRevision: string;
 }
-
 export interface IDocumentOpenSurfaceGeometry {
     readonly width: number;
     readonly height: number;
     readonly margin: number;
 }
-
 export interface IDocumentOpenSurfacePageFrame {
     readonly generation: number;
     readonly ownerId: string;
@@ -56,7 +56,6 @@ export interface IDocumentOpenSurfacePageFrame {
     readonly intentKey: string;
     readonly style: Readonly<Record<string, string>>;
 }
-
 export interface IDocumentOpenSurfacePreparedPageFrame {
     readonly documentId: string;
     readonly ownerId: string;
@@ -68,7 +67,6 @@ export interface IDocumentOpenSurfacePreparedPageFrame {
     readonly style: Readonly<Record<string, string>>;
     readonly geometry: IDocumentOpenSurfacePageGeometry;
 }
-
 export interface IDocumentOpenSurfacePageGeometry {
     readonly documentId: string;
     readonly pageNumber: number;
@@ -79,7 +77,6 @@ export interface IDocumentOpenSurfacePageGeometry {
     readonly size?: number;
     readonly modifiedAt?: number;
 }
-
 export interface IDocumentOpenSurfacePageGeometrySeed extends IDocumentOpenSurfacePageGeometry {
     readonly size: number;
     readonly modifiedAt: number;
@@ -120,9 +117,12 @@ export interface IDocumentOpenSurfaceSnapshot {
     readonly failure: string | null;
 }
 
+export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/utils/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
+
 export interface IDocumentOpenSurfaceSession {
     readonly snapshot: Readonly<Ref<IDocumentOpenSurfaceSnapshot>>;
     readonly viewportSession: Readonly<Ref<IDocumentViewportSessionState>>;
+    getDiagnosticHistory(): readonly IDocumentOpenSurfaceDiagnosticEntry[];
     begin(
         identity: IDocumentOpenSurfaceIdentity,
         openingPageGeometry?: IDocumentOpenSurfacePageGeometry | null,
@@ -445,6 +445,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     }>();
     const ownedRenderFences = new WeakMap<IDocumentOpenSurfaceRenderFence, IDocumentOpenSurfaceRenderOwner>();
     const openingSkeletonDelayMs = 120;
+    const diagnostics = createDocumentOpenSurfaceDiagnostics(() => ({
+        snapshot: snapshot.value,
+        viewport: sessionState.value.viewport,
+    }));
 
     function cancelSkeletonTimer(token: string) {
         const timer = skeletonTimers.get(token);
@@ -484,6 +488,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         for (const event of events) {
             const transition = reduceDocumentViewportSession(viewport, event);
             if (!transition.accepted) {
+                diagnostics.record(event.type, false, 'viewport-reducer-rejected');
                 return false;
             }
             viewport = transition.state;
@@ -494,6 +499,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             visual: updateVisual?.(sessionState.value.visual, viewport) ?? sessionState.value.visual,
         };
         for (const effect of effects) applyViewportEffect(effect);
+        for (const event of events) diagnostics.record(event.type, true);
         return true;
     }
 
@@ -655,6 +661,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     return {
         snapshot: readonly(snapshot),
         viewportSession,
+        getDiagnosticHistory: diagnostics.getHistory,
         begin(identity, openingPageGeometry = null, initialPage) {
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(openingPageGeometry);
             const identityOwnedOpeningPageGeometry = normalizedOpeningPageGeometry?.documentId === identity.documentId
@@ -889,11 +896,16 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             const current = snapshot.value;
             const isReadyNavigation = current.phase === 'ready';
             const owner = ownedRenderFences.get(fence);
-            if (
-                owner && owner.renderVersion !== nextRenderOwnerVersion
-                || !isCurrentFence(fence)
-                || !isReadyNavigation && current.geometry === null
-            ) {
+            if (owner && owner.renderVersion !== nextRenderOwnerVersion) {
+                diagnostics.reportRejected('commit-canvas', 'superseded-render-owner', {fence});
+                return false;
+            }
+            if (!isCurrentFence(fence)) {
+                diagnostics.reportRejected('commit-canvas', 'stale-render-fence', {fence});
+                return false;
+            }
+            if (!isReadyNavigation && current.geometry === null) {
+                diagnostics.reportRejected('commit-canvas', 'geometry-not-committed', {fence});
                 return false;
             }
             const previous = current.committedRender;
@@ -904,6 +916,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     || fence.renderVersion === previous.renderVersion && fence.requestId < previous.requestId
                 )
             ) {
+                diagnostics.reportRejected('commit-canvas', 'render-fence-older-than-committed', {
+                    fence,
+                    previous,
+                });
                 return false;
             }
             const accepted = dispatchViewport({
@@ -918,26 +934,34 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 },
             });
             if (!accepted) {
+                diagnostics.reportRejected('commit-canvas', 'viewport-reducer-rejected', {fence});
                 return false;
             }
             return true;
         },
         commitViewport(commit) {
             const current = snapshot.value;
-            if (
-                current.identity === null
-                || !canAcceptSameGenerationVisualCommit(current) && current.phase !== 'ready'
-                || commit.generation !== current.generation
-                || commit.documentRevision !== current.identity.documentRevision
-                || commit.viewportIntentId.length === 0
-                || !Number.isFinite(commit.documentGeometryRevision)
-                || !Number.isFinite(commit.interactionEpoch)
-                || !Number.isFinite(commit.left)
-                || !Number.isFinite(commit.top)
-            ) {
+            const rejectionReason = current.identity === null
+                ? 'missing-identity'
+                : !canAcceptSameGenerationVisualCommit(current) && current.phase !== 'ready'
+                    ? 'surface-not-accepting-visual-commit'
+                    : commit.generation !== current.generation
+                        ? 'generation-mismatch'
+                        : commit.documentRevision !== current.identity.documentRevision
+                            ? 'revision-mismatch'
+                            : commit.viewportIntentId.length === 0
+                                ? 'missing-viewport-intent'
+                                : !Number.isFinite(commit.documentGeometryRevision)
+                                    || !Number.isFinite(commit.interactionEpoch)
+                                    || !Number.isFinite(commit.left)
+                                    || !Number.isFinite(commit.top)
+                                    ? 'invalid-viewport-coordinates'
+                                    : null;
+            if (rejectionReason !== null) {
+                diagnostics.reportRejected('commit-viewport', rejectionReason, {commit});
                 return false;
             }
-            return dispatchViewport({
+            const accepted = dispatchViewport({
                 type: 'viewport-committed',
                 fence: {
                     generation: sessionState.value.viewport.generation,
@@ -955,6 +979,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     top: commit.top,
                 }),
             }));
+            if (!accepted) {
+                diagnostics.reportRejected('commit-viewport', 'viewport-reducer-rejected', {commit});
+            }
+            return accepted;
         },
         markReady(fence) {
             if (snapshot.value.phase === 'ready') {
@@ -971,6 +999,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 || !fencesMatch(committed, fence)
                 || viewport.pageNumber !== fence.pageNumber
             ) {
+                diagnostics.reportRejected('mark-ready', 'render-or-viewport-fence-mismatch', {
+                    fence,
+                    committed,
+                    viewport,
+                });
                 return false;
             }
             commitVisual(visual => ({

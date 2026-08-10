@@ -231,6 +231,8 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
                     interactionEpoch: openSurface.committedViewport.interactionEpoch,
                 } : null,
             } : null,
+            viewportSession: options.openSurface.viewportSession.value,
+            lifecycleHistory: (options.openSurface as IDocumentOpenSurfaceSession).getDiagnosticHistory(),
         });
         throw error;
     }

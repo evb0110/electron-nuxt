@@ -6,6 +6,7 @@ import {
 import { spawn } from 'node:child_process';
 import { delay } from 'es-toolkit/promise';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
+import { DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV } from '@scripts/electron-run/devServerOutputTee';
 import {
     cleanupStaleSessionArtifacts,
     cleanupSessionStartingAttempt,
@@ -98,6 +99,11 @@ export async function startSessionDetached(options: {
         env: {
             ...process.env,
             ...options.env,
+            // This process already redirects its complete stdout/stderr stream
+            // to the stable session log. The nested output tee still writes
+            // timestamped per-source files and the discovery manifest, but it
+            // must not append the same lines to session.log a second time.
+            [DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV]: '1',
             ...(options.initialOpenPaths
                 ? { [INITIAL_OPEN_PATHS_ENV]: JSON.stringify(normalizeInitialOpenPaths(options.initialOpenPaths)) }
                 : {}),

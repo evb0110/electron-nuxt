@@ -18,6 +18,7 @@ import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
 import {
     closeActiveDevServerOutputTee,
     installDevServerOutputTee,
+    type IDevServerOutputTee,
 } from '@scripts/electron-run/devServerOutputTee';
 import {
     hasOtherAliveSessionUsingNuxt,
@@ -362,6 +363,7 @@ function listenForSessionCommands(options: {
     cdpPort: number;
     electronProcess: ChildProcess;
     nuxtProcess: ChildProcess | null;
+    outputTee: IDevServerOutputTee | null;
     logTiming: (message: string) => void;
 }) {
     options.server.listen(options.serverPort, '127.0.0.1', () => {
@@ -374,6 +376,13 @@ function listenForSessionCommands(options: {
             nuxtPid: options.nuxtProcess?.pid ?? null,
             nuxtPort: getNuxtPort(),
             runId: process.env[E2E_RUN_ID_ENV] ?? null,
+            ...(options.outputTee ? {logs: {
+                manifestFile: options.outputTee.logManifestFile,
+                sessionLogFile: options.outputTee.sessionLogFile,
+                runDir: options.outputTee.runDir,
+                relativeRunDir: options.outputTee.relativeRunDir,
+                runCombinedLogFile: options.outputTee.runCombinedLogFile,
+            }} : {}),
         }));
         clearSessionStarting();
 
@@ -387,6 +396,7 @@ export async function startControlledSession(forceClean = false, options: IStart
     const outputTee = installDevServerOutputTee();
     if (outputTee) {
         console.log(`[DevOutput] Tee logs: ${outputTee.relativeRunDir}`);
+        console.log(`[DevOutput] Stable session log: ${outputTee.sessionLogFile}`);
     }
 
     const logTiming = createStartupLogger();
@@ -502,6 +512,7 @@ export async function startControlledSession(forceClean = false, options: IStart
             cdpPort: launch.cdpPort,
             electronProcess: launch.electronProcess,
             nuxtProcess: launch.nuxtProcess,
+            outputTee,
             logTiming,
         });
 
