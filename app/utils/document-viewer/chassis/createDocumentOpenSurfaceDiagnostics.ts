@@ -1,9 +1,14 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type {
-    IDocumentOpenSurfaceRenderFence,
-    IDocumentOpenSurfaceSnapshot,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewportSessionState } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
+
+export interface IDocumentOpenSurfaceDiagnosticFence {
+    readonly generation: number;
+    readonly documentRevision: string;
+    readonly viewportIntentId: string;
+    readonly renderVersion: number;
+    readonly requestId: number;
+    readonly pageNumber: number;
+}
 
 export interface IDocumentOpenSurfaceDiagnosticEntry {
     readonly timestamp: string;
@@ -12,17 +17,24 @@ export interface IDocumentOpenSurfaceDiagnosticEntry {
     readonly accepted: boolean;
     readonly reason: string | null;
     readonly generation: number;
-    readonly phase: IDocumentOpenSurfaceSnapshot['phase'];
-    readonly presentation: IDocumentOpenSurfaceSnapshot['presentation'];
+    readonly phase: string;
+    readonly presentation: string;
     readonly requestedPage: number;
     readonly committedPage: number | null;
     readonly viewportIntentId: string | null;
-    readonly renderFence: IDocumentOpenSurfaceRenderFence | null;
+    readonly renderFence: IDocumentOpenSurfaceDiagnosticFence | null;
     readonly details?: Readonly<Record<string, unknown>>;
 }
 
+interface IDocumentOpenSurfaceDiagnosticSnapshot {
+    readonly generation: number;
+    readonly identity: {readonly documentRevision: string} | null;
+    readonly phase: string;
+    readonly presentation: string;
+}
+
 interface IDocumentOpenSurfaceDiagnosticState {
-    snapshot: IDocumentOpenSurfaceSnapshot;
+    snapshot: IDocumentOpenSurfaceDiagnosticSnapshot;
     viewport: IDocumentViewportSessionState;
 }
 
