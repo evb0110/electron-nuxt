@@ -8,9 +8,19 @@
 // replacement for the finer word-loss audit.
 
 import {execFile} from 'node:child_process';
-import {mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {
+    mkdtemp,
+    readdir,
+    readFile,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {dirname, join, resolve} from 'node:path';
+import {
+    dirname,
+    join,
+    resolve,
+} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {tsImport} from 'tsx/esm/api';
@@ -21,7 +31,10 @@ const {resolveCliNativeToolPath} = await tsImport('../scanCleanupCliAdapters.ts'
 
 // Both pdfinfo and pdftoppm ship in the poppler native resource bundle; see
 // scan-cleanup-word-loss-audit.mjs for the same resolution pattern.
-const AUDIT_TOOL_CRATES = {pdfinfo: 'poppler', pdftoppm: 'poppler'};
+const AUDIT_TOOL_CRATES = {
+    pdfinfo: 'poppler',
+    pdftoppm: 'poppler',
+};
 const auditToolPaths = new Map();
 function resolveAuditTool(command) {
     let resolved = auditToolPaths.get(command);
@@ -81,13 +94,28 @@ const CONTENT_MIN_SIMILARITY = 0.2;
 const GEOMETRY_MIN_HEIGHT_RATIO = 0.6;
 
 function parseArgs(argv) {
-    const options = {cleaned: null, dpi: DEFAULT_DPI, expectSingles: new Set(), out: null, source: null};
-    const valueArguments = new Set(['--cleaned', '--dpi', '--expect-singles', '--out', '--source']);
+    const options = {
+        cleaned: null,
+        dpi: DEFAULT_DPI,
+        expectSingles: new Set(),
+        out: null,
+        source: null,
+    };
+    const valueArguments = new Set([
+        '--cleaned',
+        '--dpi',
+        '--expect-singles',
+        '--out',
+        '--source',
+    ]);
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         if (argument === '--help' || argument === '-h') {
             printHelp();
-            return {...options, help: true};
+            return {
+                ...options,
+                help: true,
+            };
         }
         if (!valueArguments.has(argument)) {
             throw new Error(`Unknown argument: ${argument}`);
@@ -170,7 +198,10 @@ function parsePgm(buffer) {
         throw new Error(`Expected a binary (P5) PGM file, got magic "${magic}"`);
     }
     const line2End = buffer.indexOf(0x0a, line1End + 1);
-    const [width, height] = buffer.toString('ascii', line1End + 1, line2End).trim().split(/\s+/u).map(Number);
+    const [
+        width,
+        height,
+    ] = buffer.toString('ascii', line1End + 1, line2End).trim().split(/\s+/u).map(Number);
     const line3End = buffer.indexOf(0x0a, line2End + 1);
     const maxValue = Number(buffer.toString('ascii', line2End + 1, line3End).trim());
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -183,7 +214,11 @@ function parsePgm(buffer) {
     if (data.length !== width * height) {
         throw new Error('Truncated PGM pixel data');
     }
-    return {data, height, width};
+    return {
+        data,
+        height,
+        width,
+    };
 }
 
 function pageNumberFromFileName(fileName) {
@@ -191,9 +226,25 @@ function pageNumberFromFileName(fileName) {
     return match ? Number(match[1]) : null;
 }
 
-async function renderPdfPagesGray({dpi, label, pageCount, pdfPath, workDirectory}) {
+async function renderPdfPagesGray({
+    dpi,
+    label,
+    pageCount,
+    pdfPath,
+    workDirectory,
+}) {
     const prefix = join(workDirectory, label);
-    await run('pdftoppm', ['-f', '1', '-l', String(pageCount), '-r', String(dpi), '-gray', pdfPath, prefix]);
+    await run('pdftoppm', [
+        '-f',
+        '1',
+        '-l',
+        String(pageCount),
+        '-r',
+        String(dpi),
+        '-gray',
+        pdfPath,
+        prefix,
+    ]);
     const entries = await readdir(workDirectory);
     const pages = new Map();
     for (const entry of entries) {
@@ -218,12 +269,19 @@ function cropColumns(bitmap, startX, endX) {
         const sourceOffset = y * bitmap.width + startX;
         data.set(bitmap.data.subarray(sourceOffset, sourceOffset + width), y * width);
     }
-    return {data, height: bitmap.height, width};
+    return {
+        data,
+        height: bitmap.height,
+        width,
+    };
 }
 
 function splitHalves(bitmap) {
     const leftWidth = Math.floor(bitmap.width / 2);
-    return {left: cropColumns(bitmap, 0, leftWidth), right: cropColumns(bitmap, leftWidth, bitmap.width)};
+    return {
+        left: cropColumns(bitmap, 0, leftWidth),
+        right: cropColumns(bitmap, leftWidth, bitmap.width),
+    };
 }
 
 // Min-pool a bitmap into a cols x rows grid of booleans: a cell is "dark" if
@@ -252,7 +310,12 @@ function minPoolGrid(bitmap, cols, rows) {
             }
         }
     }
-    return {cols, dark, inkFraction: darkCount / (cols * rows), rows};
+    return {
+        cols,
+        dark,
+        inkFraction: darkCount / (cols * rows),
+        rows,
+    };
 }
 
 function jaccardSimilarity(gridA, gridB) {
@@ -291,9 +354,21 @@ function round(value) {
     return Math.round(value * 10_000) / 10_000;
 }
 
-function auditHalf({cleanedBitmap, cleanedPage, side, sourceBitmap, sourcePage}) {
+function auditHalf({
+    cleanedBitmap,
+    cleanedPage,
+    side,
+    sourceBitmap,
+    sourcePage,
+}) {
     const sourceCoarse = minPoolGrid(sourceBitmap, COARSE_COLS, COARSE_ROWS);
-    const record = {cleanedPage, side, sourcePage, srcInk: round(sourceCoarse.inkFraction), violations: []};
+    const record = {
+        cleanedPage,
+        side,
+        sourcePage,
+        srcInk: round(sourceCoarse.inkFraction),
+        violations: [],
+    };
     if (!cleanedBitmap) {
         record.cleanInk = null;
         record.note = 'no cleaned page at the mapped index (page-count mismatch)';
@@ -354,15 +429,30 @@ function buildExpectedMapping(sourcePageCount, expectSingles) {
     let cursor = 1;
     for (let sourcePage = 1; sourcePage <= sourcePageCount; sourcePage += 1) {
         if (expectSingles.has(sourcePage)) {
-            entries.push({cleanedPage: cursor, side: 'whole', sourcePage});
+            entries.push({
+                cleanedPage: cursor,
+                side: 'whole',
+                sourcePage,
+            });
             cursor += 1;
         } else {
-            entries.push({cleanedPage: cursor, side: 'left', sourcePage});
-            entries.push({cleanedPage: cursor + 1, side: 'right', sourcePage});
+            entries.push({
+                cleanedPage: cursor,
+                side: 'left',
+                sourcePage,
+            });
+            entries.push({
+                cleanedPage: cursor + 1,
+                side: 'right',
+                sourcePage,
+            });
             cursor += 2;
         }
     }
-    return {entries, expectedCleanedCount: cursor - 1};
+    return {
+        entries,
+        expectedCleanedCount: cursor - 1,
+    };
 }
 
 async function main() {
@@ -373,14 +463,32 @@ async function main() {
 
     const sourcePageCount = await getPdfPageCount(options.source);
     const actualCleanedCount = await getPdfPageCount(options.cleaned);
-    const {entries, expectedCleanedCount} = buildExpectedMapping(sourcePageCount, options.expectSingles);
+    const {
+        entries,
+        expectedCleanedCount,
+    } = buildExpectedMapping(sourcePageCount, options.expectSingles);
 
     const workDirectory = await mkdtemp(join(tmpdir(), 'scan-cleanup-repr-audit-'));
     let pages;
     try {
-        const [sourcePages, cleanedPages] = await Promise.all([
-            renderPdfPagesGray({dpi: options.dpi, label: 'src', pageCount: sourcePageCount, pdfPath: options.source, workDirectory}),
-            renderPdfPagesGray({dpi: options.dpi, label: 'clean', pageCount: actualCleanedCount, pdfPath: options.cleaned, workDirectory}),
+        const [
+            sourcePages,
+            cleanedPages,
+        ] = await Promise.all([
+            renderPdfPagesGray({
+                dpi: options.dpi,
+                label: 'src',
+                pageCount: sourcePageCount,
+                pdfPath: options.source,
+                workDirectory,
+            }),
+            renderPdfPagesGray({
+                dpi: options.dpi,
+                label: 'clean',
+                pageCount: actualCleanedCount,
+                pdfPath: options.cleaned,
+                workDirectory,
+            }),
         ]);
         pages = entries.map(entry => {
             const sourceBitmap = sourcePages.get(entry.sourcePage);
@@ -397,10 +505,18 @@ async function main() {
             });
         });
     } finally {
-        await rm(workDirectory, {force: true, recursive: true});
+        await rm(workDirectory, {
+            force: true,
+            recursive: true,
+        });
     }
 
-    const violationCounts = {'artifact-retention': 0, 'content-loss': 0, geometry: 0, 'page-count': 0};
+    const violationCounts = {
+        'artifact-retention': 0,
+        'content-loss': 0,
+        geometry: 0,
+        'page-count': 0,
+    };
     for (const page of pages) {
         for (const violation of page.violations) {
             violationCounts[violation] += 1;
