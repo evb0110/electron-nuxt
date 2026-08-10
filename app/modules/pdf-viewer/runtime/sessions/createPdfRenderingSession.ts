@@ -858,6 +858,34 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             initialVisual.adoptResidentCanvas(signal.pageNumber);
         }
     }, {flush: 'sync'});
+    const chassisOpenSurface = options.chassisAuthority?.openSurface;
+    const stopOpenSurfaceResidentAdoptionWatch = chassisOpenSurface
+        ? watch(
+            [
+                () => chassisOpenSurface.snapshot.value.generation,
+                () => chassisOpenSurface.viewportSession.value.requestedPage,
+                renderedPageStateVersion,
+                options.viewerContainer,
+                options.isActive,
+            ],
+            () => {
+                const snapshot = chassisOpenSurface.snapshot.value;
+                if (
+                    snapshot.committedRender === null
+                    && (
+                        snapshot.phase === 'pending'
+                        || snapshot.phase === 'geometry-committed'
+                    )
+                ) {
+                    initialVisual.adoptResidentCanvas(chassisOpenSurface.viewportSession.value.requestedPage);
+                }
+            },
+            {
+                flush: 'post',
+                immediate: true,
+            },
+        )
+        : () => {};
     const stopNavigationCommitWatch = watch(viewport.navigationCommittedSignal, (signal, previous) => {
         if (signal.revision !== previous?.revision) {
             initialVisual.reconcileInitialVisual();
@@ -1078,6 +1106,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         stopDemandWatch();
         stopCancelRasterWatch();
         stopVisualReadyWatch();
+        stopOpenSurfaceResidentAdoptionWatch();
         stopNavigationCommitWatch();
         stopRevisionReauthorizationWatch();
         if (frameId !== null) {

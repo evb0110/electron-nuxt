@@ -21,6 +21,9 @@ import type { IPdfDocumentTransition } from '@app/modules/pdf-viewer/runtime/ses
 import type { IPdfViewportDemand } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import { createPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { cast } from '@tests/helpers/cast';
 
 const rendererFixture = vi.hoisted(() => {
     const api = {
@@ -136,6 +139,7 @@ function createRenderingFixture(fixtureOptions: {
     autoResolve?: boolean;
     bufferPages?: number;
     clampBufferedPages?: readonly number[];
+    withChassisAuthority?: boolean;
 } = {}) {
     const subscribers: Array<(transition: IPdfDocumentTransition) => void | Promise<void>> = [];
     const disposables: Array<() => void | Promise<void>> = [];
@@ -172,6 +176,9 @@ function createRenderingFixture(fixtureOptions: {
         revision: 0,
         pageNumber: 0,
     });
+    const openSurface = fixtureOptions.withChassisAuthority
+        ? createDocumentOpenSurfaceSession()
+        : null;
     const settleMandatoryRaster = vi.fn();
     const viewport = {
         currentPage,
@@ -191,6 +198,7 @@ function createRenderingFixture(fixtureOptions: {
         scale: {
             effectiveScale: ref(1),
             computeFitWidthScale: vi.fn(),
+            scaledMargin: ref(20),
         },
         transactionController: {
             activeTransaction: ref(null),
@@ -217,7 +225,28 @@ function createRenderingFixture(fixtureOptions: {
             resetContinuousScrollState: vi.fn(),
             cancelDestinationNavigationTarget: vi.fn(),
             submitViewportStateIntent: vi.fn(),
+            commitCurrentViewportIfSettled: vi.fn((pageNumber: number) => {
+                if (!openSurface) {
+                    return false;
+                }
+                const snapshot = openSurface.snapshot.value;
+                const viewportIntentId = openSurface.viewportSession.value.viewportIntent?.id;
+                if (snapshot.identity === null || viewportIntentId === undefined) {
+                    return false;
+                }
+                return openSurface.commitViewport({
+                    generation: snapshot.generation,
+                    documentRevision: snapshot.identity.documentRevision,
+                    viewportIntentId,
+                    documentGeometryRevision: 1,
+                    interactionEpoch: 0,
+                    pageNumber,
+                    left: 0,
+                    top: 0,
+                });
+            }),
         },
+        openVirtualSurfaceGeometry: {openingVirtualExtentMinimumScrollHeight: ref<number | null>(null)},
         summarizeViewerMetricsForLog: vi.fn(),
         summarizeVisiblePageSnapshotForLog: vi.fn(),
         syncCurrentPageFromViewport: vi.fn(async () => undefined),
@@ -331,6 +360,14 @@ function createRenderingFixture(fixtureOptions: {
         },
     };
     const viewerElement = document.createElement('div');
+    viewerElement.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+        top: 0,
+        right: 1000,
+        bottom: 800,
+        left: 0,
+        width: 1000,
+        height: 800,
+    }));
     const viewerContainer = ref<HTMLElement | null>(viewerElement);
     const outputScale = ref(1);
     const canvasHosts = new Map<number, HTMLElement>();
@@ -342,6 +379,10 @@ function createRenderingFixture(fixtureOptions: {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = String(pageNumber);
+        page.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+            width: 100,
+            height: 120,
+        }));
         const canvasSurface = document.createElement('div');
         canvasSurface.className = 'page_canvas';
         const canvasHost = document.createElement('div');
@@ -366,6 +407,14 @@ function createRenderingFixture(fixtureOptions: {
         const canvas = document.createElement('canvas');
         canvas.width = 100;
         canvas.height = 120;
+        canvas.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+            top: 0,
+            right: 100,
+            bottom: 120,
+            left: 0,
+            width: 100,
+            height: 120,
+        }));
         const wasClamped = renderOptions.contentIntent === 'canvas-only-buffer'
             && fixtureOptions.clampBufferedPages?.includes(pageProxy.pageNumber) === true;
         return {
@@ -388,6 +437,9 @@ function createRenderingFixture(fixtureOptions: {
         };
     });
     const emitInitialVisualReady = vi.fn();
+    const chassisAuthority = openSurface
+        ? cast<IDocumentViewerChassisAuthority>({openSurface})
+        : null;
     let rendering: ReturnType<typeof createPdfRenderingSession> | undefined;
     const root = document.createElement('div');
     const app = createApp(defineComponent({
@@ -396,8 +448,8 @@ function createRenderingFixture(fixtureOptions: {
             rendering = createPdfRenderingSession({
                 document: documentSession as never,
                 viewport: viewport as never,
-                chassisAuthority: null,
-                openSurfaceRenderOwner: undefined,
+                chassisAuthority,
+                openSurfaceRenderOwner: openSurface?.claimRenderOwner(),
                 performancePolicy: {clampedVisibleRefineMode: 'immediate'} as never,
                 viewerContainer,
                 isActive: computed(() => true),
@@ -438,6 +490,7 @@ function createRenderingFixture(fixtureOptions: {
         disposables,
         emitInitialVisualReady,
         navigationCommittedSignal,
+        openSurface,
         rendering,
         renderTasks,
         rasterScheduler,
@@ -522,6 +575,39 @@ describe('PdfRenderingSession behavior', () => {
             canvas.height = 0;
             canvas.remove();
         });
+    });
+
+    it('adopts a resident page when a host open generation starts after the canvas painted', async () => {
+        const fixture = createRenderingFixture({withChassisAuthority: true});
+        try {
+            await fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            });
+            expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull();
+
+            const generation = fixture.openSurface!.begin({
+                documentId: 'saved-result.pdf',
+                documentRevision: 'open-intent:1',
+            }, null, 3);
+            fixture.openSurface!.metadataReady(5);
+
+            await vi.waitFor(() => expect(fixture.openSurface!.snapshot.value).toMatchObject({
+                generation,
+                phase: 'ready',
+                presentation: 'committed',
+                geometry: {
+                    width: 100,
+                    height: 120,
+                    margin: 20,
+                },
+                committedRender: {pageNumber: 3},
+                committedViewport: {pageNumber: 3},
+            }));
+            expect(fixture.emitInitialVisualReady).toHaveBeenCalledExactlyOnceWith({pageNumber: 3});
+        } finally {
+            await fixture.dispose();
+        }
     });
 
     it('notifies the attached presentation controller once for a current page-layer commit', async () => {

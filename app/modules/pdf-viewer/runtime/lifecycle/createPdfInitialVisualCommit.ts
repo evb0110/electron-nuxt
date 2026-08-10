@@ -20,6 +20,7 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
     const chassisAuthority = options.chassisAuthority;
     const viewport = options.viewport;
     let pendingReadyToken: number | null = null;
+    let lastEmittedReadyGeneration: number | null = null;
     function readExactInitialCommit(requireViewport: boolean) {
         const surface = chassisAuthority?.openSurface;
         const snapshot = surface?.snapshot.value;
@@ -51,7 +52,10 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         const ready = readExactInitialCommit(true);
         if (!ready
             || ready.snapshot.phase !== 'ready'
-            || pendingReadyToken === null
+            || (
+                pendingReadyToken === null
+                && lastEmittedReadyGeneration === ready.snapshot.generation
+            )
             || !isPdfInitialVisualCanvasReady(
                 options.viewerContainer.value,
                 ready.pageNumber,
@@ -61,6 +65,7 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
             return;
         }
         pendingReadyToken = null;
+        lastEmittedReadyGeneration = ready.snapshot.generation;
         markStartupMetricOnce('evb:first-page-painted');
         options.emitInitialVisualReady({pageNumber: ready.pageNumber});
     }
@@ -69,9 +74,39 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
             return;
         }
         const surface = chassisAuthority.openSurface;
-        const snapshot = surface.snapshot.value;
+        let snapshot = surface.snapshot.value;
         if (snapshot.identity === null || surface.viewportSession.value.requestedPage !== pageNumber) {
             return;
+        }
+        // A new open-surface generation can be established after this PDF
+        // session has already painted the requested page (for example when a
+        // saved result is adopted by a newly materialized tab). Resident
+        // adoption then owns the first visual commit, so it must establish the
+        // same measured geometry that a fresh canvas mount commits below.
+        // Creating the render fence first would leave an uncommittable fence in
+        // the reducer whenever geometry is still null, permanently pinning the
+        // chassis-owned opening shell over an already-ready canvas.
+        if (snapshot.phase === 'pending' && snapshot.geometry === null) {
+            const geometryCommitted = commitPdfPageSkeletonGeometry(
+                chassisAuthority,
+                options.viewerContainer,
+                viewport.currentPage,
+                viewport.scale.scaledMargin,
+                pageNumber,
+                {
+                    authoritativePageNumber: pageNumber,
+                    expectedGeneration: snapshot.generation,
+                    minimumScrollHeight: viewport.openVirtualSurfaceGeometry.openingVirtualExtentMinimumScrollHeight.value,
+                    requireVisibleSkeleton: false,
+                },
+            );
+            if (!geometryCommitted) {
+                return;
+            }
+            snapshot = surface.snapshot.value;
+            if (snapshot.identity === null || surface.viewportSession.value.requestedPage !== pageNumber) {
+                return;
+            }
         }
         const fence = surface.createOwnedResidentRenderFence(options.openSurfaceRenderOwner, {
             generation: snapshot.generation,
@@ -81,6 +116,7 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         if (!fence || !surface.commitCanvas(fence)) {
             return;
         }
+        viewport.singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
         reconcileInitialVisual();
     }
     function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
