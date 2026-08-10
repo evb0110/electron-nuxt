@@ -47,6 +47,7 @@ interface IRunResultWorkerTaskBaseOptions {
     invalidResultMessage?: string;
     signal?: AbortSignal;
     timeoutMs?: number;
+    inactivityTimeoutMs?: number;
     createCancelMessage?: (reason: 'abort' | 'timeout') => unknown;
     cooperativeCancelDelayMs?: number;
     resourceLimits?: ResourceLimits;
@@ -264,6 +265,7 @@ function attachWorkerHandlers<T>({
     let settled = false;
     let online = false;
     let timeout: NodeJS.Timeout | null = null;
+    let inactivityTimeout: NodeJS.Timeout | null = null;
     let cooperativeCancelTimer: NodeJS.Timeout | null = null;
     let hasPendingCancelError = false;
     let pendingCancelError: unknown;
@@ -273,6 +275,10 @@ function attachWorkerHandlers<T>({
         if (timeout) {
             clearTimeout(timeout);
             timeout = null;
+        }
+        if (inactivityTimeout) {
+            clearTimeout(inactivityTimeout);
+            inactivityTimeout = null;
         }
         if (cooperativeCancelTimer) {
             clearTimeout(cooperativeCancelTimer);
@@ -323,6 +329,22 @@ function attachWorkerHandlers<T>({
         requestCancel('abort', getAbortReason(options.signal!));
     };
 
+    const restartInactivityTimeout = () => {
+        const inactivityTimeoutMs = options.inactivityTimeoutMs;
+        if (inactivityTimeoutMs === undefined || settled || hasPendingCancelError) {
+            return;
+        }
+        if (inactivityTimeout) {
+            clearTimeout(inactivityTimeout);
+        }
+        inactivityTimeout = setTimeout(() => {
+            requestCancel(
+                'timeout',
+                new Error(`Worker task timed out after ${inactivityTimeoutMs}ms without progress`),
+            );
+        }, inactivityTimeoutMs);
+    };
+
     options.signal?.addEventListener('abort', handleAbort, { once: true });
 
     if (options.timeoutMs !== undefined) {
@@ -330,6 +352,7 @@ function attachWorkerHandlers<T>({
             requestCancel('timeout', new Error(`Worker task timed out after ${options.timeoutMs}ms`));
         }, options.timeoutMs);
     }
+    restartInactivityTimeout();
 
     worker.once('online', () => {
         online = true;
@@ -346,6 +369,7 @@ function attachWorkerHandlers<T>({
             );
         }
         if (onProgressMessage?.(payload)) {
+            restartInactivityTimeout();
             return;
         }
         finalize(() => {

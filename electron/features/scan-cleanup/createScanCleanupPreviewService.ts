@@ -1188,7 +1188,7 @@ function resolveFallbackDetailDpi(
     request: IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>},
     raw: Pick<IRawPreview, 'width' | 'height' | 'dpi'>,
     sourceDpi: number,
-    sourceHasDominantBilevelLayer: boolean,
+    sourceRasterDetected: boolean,
     documentCanvas: IScanCleanupDocumentCanvasPlan | null,
 ) {
     const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
@@ -1209,7 +1209,7 @@ function resolveFallbackDetailDpi(
         sourceDpi: Math.max(sourceDpi, raw.dpi),
         outputCarriesBinaryLayer:
             request.detail.outputMode === 'bw' || request.detail.outputMode === 'mixed',
-        sourceHasDominantBilevelLayer,
+        sourceRasterDetected,
     });
     return {
         renderDpi: Math.max(1, Math.floor(Math.min(requestedRenderDpi, budgetDpi))),
@@ -1536,7 +1536,7 @@ async function runDetailPreview(
     baseRasterPath: string,
     analysis: IBasePreviewAnalysis,
     sourceDpiCandidate: number | null | undefined,
-    sourceHasDominantBilevelLayer: boolean,
+    sourceRasterDetected: boolean,
     scratch: string,
     dependencies: IScanCleanupPreviewDependencies,
 ): Promise<TScanCleanupPreviewWireResult> {
@@ -1548,7 +1548,7 @@ async function runDetailPreview(
     const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi({
         sourceDpi: Math.max(sourceDpi, baseRaw.dpi),
         outputCarriesBinaryLayer: request.detail.outputMode === 'bw',
-        sourceHasDominantBilevelLayer,
+        sourceRasterDetected,
     });
     const renderDpi = resolveDetailRenderDpi(
         request.detail.viewports,
@@ -1921,8 +1921,7 @@ async function runPreview(
         const sourceRasterPage = rasterPages ?? await retention.rasterPage(
             document, request.pageNumber, signal,
         );
-        const sourceHasDominantBilevelLayer = sourceRasterPage.dominantBilevelLayerPages
-            ?.has(request.pageNumber) ?? false;
+        const sourceRasterDetected = sourceRasterPage.pages.has(request.pageNumber);
         let fallbackDetail = false;
         if (request.detail) {
             const {
@@ -1963,7 +1962,7 @@ async function runPreview(
                     inputPath,
                     analysis,
                     sourceDpiCandidate,
-                    sourceHasDominantBilevelLayer,
+                    sourceRasterDetected,
                     scratch,
                     dependencies,
                 );
@@ -1982,7 +1981,7 @@ async function runPreview(
                 detailRequest,
                 baseRaw,
                 sourceDpi,
-                sourceHasDominantBilevelLayer,
+                sourceRasterDetected,
                 documentCanvas,
             ));
             if (renderDpi !== baseRaw.dpi) {

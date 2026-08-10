@@ -2,6 +2,13 @@
 
 Status: implementation, local verification, and final independent review complete; remote reconciliation/publication follows this ledger commit. This ledger is based on a live 392-page development-app run and two independent read-only Claude Opus 5 passes (design and final implementation review). It supersedes guesses made from the screenshot alone and does not reopen completed stage-28 audit findings.
 
+Update (2026-08-10): the universal 2x/600-DPI continuous-source policy recorded
+below was superseded after a 300-DPI, 158-page scan demonstrated a roughly 10x
+runtime regression and a 994 MiB raster window. Detected rasters now retain their
+measured source grid; only binary pages without a measurable raster use the
+600-DPI synthesis floor. The remainder of this ledger is retained as historical
+evidence for the decisions made on 2026-08-07.
+
 ## Goal
 
 Make a long cleanup run materially faster and smaller, make progress truthful and geometrically stable, make matched-canvas margins mean what the UI promises, and prevent stale preview/settings state from misleading the user.

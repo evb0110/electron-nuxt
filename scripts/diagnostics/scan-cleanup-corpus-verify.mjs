@@ -1267,6 +1267,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 fixture.pdfPath,
             ]);
             const {
+                detected: sourceRasterDetected,
                 dpi: sourceDpi,
                 hasBilevelLayer: sourceHasBilevelLayer,
                 hasDominantBilevelLayer: sourceHasDominantBilevelLayer,
@@ -1294,6 +1295,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 detectionRaster,
                 pageNumber,
                 sourceDpi,
+                sourceRasterDetected,
                 sourceHasBilevelLayer,
                 sourceHasDominantBilevelLayer,
                 sourceBackgroundDpi,
@@ -1349,17 +1351,17 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 pageNumber,
                 sourceDpi,
                 sourceHasBilevelLayer,
-                sourceHasDominantBilevelLayer,
+                sourceRasterDetected,
                 sourceRaster,
             } = page;
-            const supersampled = analysis.recommendedOutputMode === 'bw'
+            const outputCarriesBinaryLayer = analysis.recommendedOutputMode === 'bw'
             || analysis.recommendedOutputMode === 'mixed';
             const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi({
                 sourceDpi,
-                outputCarriesBinaryLayer: supersampled,
-                sourceHasDominantBilevelLayer,
+                outputCarriesBinaryLayer,
+                sourceRasterDetected,
             });
-            const renderDpi = supersampled
+            const renderDpi = outputCarriesBinaryLayer
                 ? resolveSafeRenderDpi(
                     requestedRenderDpi,
                     analysis.recommendedOutputMode === 'bw'
@@ -2081,8 +2083,8 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             extractedImageBytes(sourceRawPrefix, sourceImages),
             extractedImageBytes(outputRawPrefix, outputImages),
         ]);
-        // The intentional 2x thresholding grid preserves finer bilevel
-        // contours, which modestly increases the encoded JBIG2/CCITT stream.
+        // Binary cleanup can modestly increase the encoded JBIG2/CCITT stream
+        // even when it retains the source raster's measured grid.
         const maximumBilevelBytes = Math.ceil(sourcePageImageBytes * 1.65);
         const bilevelBudgetPassed = outputPageImageBytes <= maximumBilevelBytes;
         pageClassSizeBudgets.push({

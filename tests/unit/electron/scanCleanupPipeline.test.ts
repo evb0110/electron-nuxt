@@ -1235,23 +1235,23 @@ describe('scan cleanup pipeline', () => {
         const renderedDpis = vi.mocked(pipelineDependencies.renderPagePpm).mock.calls
             .map(call => call[5]);
         expect(renderedDpis).toEqual([
-            600,
-            600,
+            300,
+            300,
         ]);
         expect(cleanupManifest).not.toBeNull();
         expect(cleanupManifest!.pages[0]!.options).toMatchObject({
             matchPageSize: true,
             outputMode: 'bw',
             sourceDpi: 300,
-            requestedRenderDpi: 600,
-            dpi: 600,
+            requestedRenderDpi: 300,
+            dpi: 300,
             pageAlignment: 'top-center',
         });
         expect(cleanupManifest!.pages[1]!.options).toMatchObject({
             outputMode: 'grayscale',
             sourceDpi: 150,
             requestedRenderDpi: 150,
-            dpi: 600,
+            dpi: 300,
         });
         expect(cleanupManifest!.pages[0]!.outputs[0]).toMatchObject({
             outputPath: expect.stringMatching(/clean-1-0\.png$/u),
@@ -2928,7 +2928,7 @@ describe('scan cleanup pipeline', () => {
         )).rejects.toThrow(expected);
     });
 
-    it('supersamples detected BW rasters with unchanged physical page size', async () => {
+    it('keeps detected BW rasters on the finest measured source grid', async () => {
         const fixture = await setup();
         let finalOptions: Array<{
             dpi: number;
@@ -3007,15 +3007,15 @@ describe('scan cleanup pipeline', () => {
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(finalOptions).toEqual([
             expect.objectContaining({
-                dpi: 1_440,
+                dpi: 720,
                 sourceDpi: 720,
-                requestedRenderDpi: 1_440,
+                requestedRenderDpi: 720,
                 outputMode: 'bw',
             }),
             expect.objectContaining({
-                dpi: 1_440,
+                dpi: 720,
                 sourceDpi: 640,
-                requestedRenderDpi: 1_280,
+                requestedRenderDpi: 640,
                 outputMode: 'bw',
             }),
         ]);
@@ -3028,7 +3028,7 @@ describe('scan cleanup pipeline', () => {
             .toEqual(new Set(['240.000000x336.000000']));
     });
 
-    it('caps BW supersampling at the shared 160 MP bilevel handoff limit', async () => {
+    it('caps an oversized detected BW raster at the shared 160 MP handoff limit', async () => {
         const fixture = await setup();
         let finalDpi = 0;
         let requestedRenderDpi = 0;
@@ -3079,7 +3079,7 @@ describe('scan cleanup pipeline', () => {
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
-        expect(requestedRenderDpi).toBe(2_400);
+        expect(requestedRenderDpi).toBe(1_200);
         expect(finalDpi).toBe(948);
         expect(16_000 * 16_000 * (finalDpi / 1_200) ** 2).toBeLessThanOrEqual(160_000_000);
         expect(16_000 * 16_000 * (requestedRenderDpi / 1_200) ** 2).toBeGreaterThan(160_000_000);
@@ -3136,7 +3136,7 @@ describe('scan cleanup pipeline', () => {
         expect(finalDpi).toBe(600);
     });
 
-    it('raises reliable low-DPI sources onto the matched document grid', async () => {
+    it('keeps a reliable low-DPI raster on its measured source grid', async () => {
         const fixture = await setup();
         let finalDpi = 0;
         let requestedRenderDpi = 0;
@@ -3180,8 +3180,8 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
-        expect(requestedRenderDpi).toBe(600);
-        expect(finalDpi).toBe(600);
+        expect(requestedRenderDpi).toBe(200);
+        expect(finalDpi).toBe(200);
     });
 
     it('renders BW and mixed recommendations on the finest matched document grid', async () => {
@@ -3307,12 +3307,12 @@ describe('scan cleanup pipeline', () => {
             }),
             expect.objectContaining({
                 dpi: 720,
-                requestedRenderDpi: 600,
+                requestedRenderDpi: 300,
                 outputMode: 'bw',
             }),
             expect.objectContaining({
                 dpi: 720,
-                requestedRenderDpi: 600,
+                requestedRenderDpi: 150,
                 outputMode: 'mixed',
             }),
         ]);
@@ -3750,8 +3750,8 @@ describe('scan cleanup pipeline', () => {
         expect(manifestCanvas).toEqual({
             widthPoints: 240,
             heightPoints: 336,
-            widthPx: Math.ceil(240 / 72 * 600),
-            heightPx: Math.ceil(336 / 72 * 600),
+            widthPx: Math.ceil(240 / 72 * 300),
+            heightPx: Math.ceil(336 / 72 * 300),
         });
     });
 
@@ -4012,10 +4012,10 @@ describe('scan cleanup pipeline', () => {
         ]));
 
         const canvasDpi = measured.canvas!.widthPx / measured.canvas!.widthPoints * 72;
-        expect(canvasDpi).toBeLessThan(2_400);
+        expect(canvasDpi).toBeLessThan(1_200);
         expect(measured.warnings.filter(warning => /normalized this document at/u.test(warning)))
             .toEqual([`Matched page size normalized this document at ${String(Math.round(canvasDpi))} DPI `
-                + 'instead of the 2400 DPI its finest page was rendered at, '
+                + 'instead of the 1200 DPI its finest page was rendered at, '
                 + 'to keep one shared page inside the output pixel budget']);
     });
 
@@ -4116,8 +4116,8 @@ describe('scan cleanup pipeline', () => {
 
     it('gives a partial run the pixel grid the whole document is rendered on', async () => {
         // One document, two Letter pages, scanned at different resolutions:
-        // page 1 at 300 DPI and page 2 at 150. Binary thresholding uses a
-        // document-wide 600-DPI contour grid for both pages.
+        // page 1 at 300 DPI and page 2 at 150. Existing rasters use the finest
+        // measured source grid, independent of which page is selected.
         const letter = [
             {
                 widthPoints: 612,
@@ -4141,14 +4141,14 @@ describe('scan cleanup pipeline', () => {
         const documentGrid = {
             widthPoints: 612,
             heightPoints: 792,
-            widthPx: Math.ceil(612 / 72 * 600),
-            heightPx: Math.ceil(792 / 72 * 600),
+            widthPx: Math.ceil(612 / 72 * 300),
+            heightPx: Math.ceil(792 / 72 * 300),
         };
 
         const full = (await measuredCanvas(letter, {}, {}, sourceDpiByPage)).canvas;
         // The low-resolution page, cleaned on its own. Its own render is
-        // 1275 x 1650 before binary supersampling, and a grid derived from the
-        // run's scope still has to match the complete document's contour grid.
+        // 1275 x 1650 at source resolution, and a grid derived from the run's
+        // scope still has to match the complete document's source-aware grid.
         const partialLowDpiPage = (await measuredCanvas(
             letter,
             {},

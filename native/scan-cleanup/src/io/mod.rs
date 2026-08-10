@@ -5,9 +5,9 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
-    thread,
-    time::Duration,
 };
+#[cfg(unix)]
+use std::{os::fd::AsRawFd, thread, time::Duration};
 
 pub mod pbm;
 pub mod png;
@@ -18,6 +18,10 @@ pub(crate) const MAX_STREAM_INPUT_BYTES: usize = MAX_COMPRESSED_BYTES;
 const COPY_BUFFER_BYTES: usize = 64 * 1024;
 const ATOMIC_TEMP_ATTEMPTS: usize = 16;
 const ATOMIC_TEMP_RANDOM_BYTES: usize = 16;
+#[cfg(unix)]
+const STREAM_CANCEL_SELECT_INTERVAL_US: libc::suseconds_t = 50_000;
+#[cfg(unix)]
+const STREAM_UNCONNECTED_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Debug)]
 pub(crate) enum BoundedIoError {
@@ -94,7 +98,7 @@ pub(crate) fn copy_bounded_cancelable(
 /// an earlier page fails before the producer ever opens this stream.
 #[cfg(unix)]
 pub(crate) fn copy_bounded_nonblocking_stream_cancelable(
-    source: &mut impl Read,
+    source: &mut (impl Read + AsRawFd),
     destination: &mut impl Write,
     max_bytes: usize,
     is_canceled: impl Fn() -> bool,
@@ -111,15 +115,48 @@ pub(crate) fn copy_bounded_nonblocking_stream_cancelable(
         let count = match source.read(&mut buffer[..read_limit]) {
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(2));
+                let descriptor = source.as_raw_fd();
+                if descriptor < 0 || descriptor as usize >= libc::FD_SETSIZE {
+                    return Err(std::io::Error::other(format!(
+                        "stream descriptor {descriptor} exceeds select guardrails",
+                    ))
+                    .into());
+                }
+                // SAFETY: fd_set is a plain C bitset and all-zero is its empty
+                // state. The source descriptor stays valid through select.
+                let mut read_descriptors = unsafe { std::mem::zeroed::<libc::fd_set>() };
+                // SAFETY: `descriptor` is owned by source and fd_set points to
+                // initialized storage for the duration of both calls.
+                unsafe { libc::FD_SET(descriptor, &raw mut read_descriptors) };
+                let mut timeout = libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: STREAM_CANCEL_SELECT_INTERVAL_US,
+                };
+                let ready = unsafe {
+                    libc::select(
+                        descriptor + 1,
+                        &raw mut read_descriptors,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        &raw mut timeout,
+                    )
+                };
+                if ready < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error.into());
+                }
                 continue;
             }
             Err(error) => return Err(error.into()),
             Ok(0) if !received_data => {
                 // O_NONBLOCK reports EOF while no writer is connected. Wait
-                // for either a producer or cancellation instead of accepting
-                // a truncated, empty raster.
-                thread::sleep(Duration::from_millis(2));
+                // for a producer without spinning on the persistent POLLHUP.
+                // Once connected, data is drained immediately; this delay is
+                // never applied between producer writes.
+                thread::sleep(STREAM_UNCONNECTED_RETRY_INTERVAL);
                 continue;
             }
             Ok(count) => count,
@@ -353,6 +390,58 @@ mod tests {
 
         assert!(matches!(error, BoundedIoError::Canceled));
         assert!(destination.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn nonblocking_fifo_copy_does_not_throttle_a_ready_large_stream() {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        const STREAM_BYTES: usize = 32 * 1024 * 1024;
+        const MAX_ELAPSED: Duration = Duration::from_secs(2);
+
+        let directory = test_directory("fifo-throughput");
+        let fifo = directory.join("source.fifo");
+        let output = directory.join("materialized.ppm");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+
+        let producer_fifo = fifo.clone();
+        let producer = std::thread::spawn(move || {
+            let mut writer = OpenOptions::new().write(true).open(producer_fifo).unwrap();
+            let block = [0x5au8; COPY_BUFFER_BYTES];
+            for _ in 0..STREAM_BYTES / block.len() {
+                writer.write_all(&block).unwrap();
+            }
+        });
+        let mut source = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo)
+            .unwrap();
+        let mut destination = File::create(&output).unwrap();
+        let started_at = std::time::Instant::now();
+        let copied = copy_bounded_nonblocking_stream_cancelable(
+            &mut source,
+            &mut destination,
+            STREAM_BYTES,
+            || false,
+        )
+        .unwrap();
+        let elapsed = started_at.elapsed();
+        producer.join().unwrap();
+        drop(destination);
+        drop(source);
+        fs::remove_dir_all(&directory).unwrap();
+
+        assert_eq!(copied, STREAM_BYTES as u64);
+        assert!(
+            elapsed < MAX_ELAPSED,
+            "ready FIFO copy took {elapsed:?}; fixed sleep polling is throttling the stream",
+        );
     }
 
     #[test]

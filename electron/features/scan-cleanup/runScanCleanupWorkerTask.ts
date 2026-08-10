@@ -64,7 +64,10 @@ export async function runScanCleanupWorkerTask(
         invalidResultMessage: 'Scan cleanup worker returned an invalid summary',
         createStartupError: message => new Error(`Scan cleanup worker startup failed: ${message}`),
         createWorkerExitError: code => new Error(`Scan cleanup worker exited with code ${code}`),
-        timeoutMs: 60 * 60 * 1000,
+        // A high-DPI book can legitimately take longer than an hour while
+        // still completing pages continuously. Guard against a stalled worker
+        // without canceling healthy long-running cleanup jobs.
+        inactivityTimeoutMs: 60 * 60 * 1000,
         resourceLimits: {
             maxOldGenerationSizeMb: 256,
             maxYoungGenerationSizeMb: 64,

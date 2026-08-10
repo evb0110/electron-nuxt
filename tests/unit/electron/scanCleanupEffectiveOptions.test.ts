@@ -41,44 +41,44 @@ function resolve(pageOverride = createScanCleanupPageOverride()) {
 }
 
 describe('effective scan cleanup options', () => {
-    it('supersamples newly thresholded text but retains an existing dominant binary grid', () => {
+    it('keeps measured source rasters on their native grid and floors only synthesized binary pages', () => {
         expect(resolveScanCleanupRequestedRenderDpi({
             sourceDpi: 200,
             outputCarriesBinaryLayer: true,
-        })).toBe(600);
+            sourceRasterDetected: true,
+        })).toBe(200);
         expect(resolveScanCleanupRequestedRenderDpi({
             sourceDpi: 300,
             outputCarriesBinaryLayer: true,
-        })).toBe(600);
+            sourceRasterDetected: true,
+        })).toBe(300);
         expect(resolveScanCleanupRequestedRenderDpi({
             sourceDpi: 360,
             outputCarriesBinaryLayer: true,
-        })).toBe(720);
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 720,
-            outputCarriesBinaryLayer: true,
-        })).toBe(1_440);
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 360,
-            outputCarriesBinaryLayer: false,
-        })).toBe(360);
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 360,
-            outputCarriesBinaryLayer: true,
-            sourceHasDominantBilevelLayer: true,
+            sourceRasterDetected: true,
         })).toBe(360);
         expect(resolveScanCleanupRequestedRenderDpi({
             sourceDpi: 200,
             outputCarriesBinaryLayer: true,
-            sourceHasDominantBilevelLayer: true,
+            sourceRasterDetected: false,
+        })).toBe(600);
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 720,
+            outputCarriesBinaryLayer: true,
+            sourceRasterDetected: false,
+        })).toBe(720);
+        expect(resolveScanCleanupRequestedRenderDpi({
+            sourceDpi: 200,
+            outputCarriesBinaryLayer: false,
+            sourceRasterDetected: false,
         })).toBe(200);
     });
 
-    it('keeps a dominant binary source on one document canvas grid in every run scope', () => {
+    it('keeps a detected raster on one document canvas grid in every run scope', () => {
         const input = {
             configuredMode: 'auto' as const,
             sourceDpi: 360,
-            sourceHasDominantBilevelLayer: true,
+            sourceRasterDetected: true,
             guardrail: {
                 dpi: 360,
                 width: 2_200,

@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -100,6 +101,10 @@ vi.mock('worker_threads', () => ({
 }));
 
 describe('workerTask', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
@@ -294,5 +299,47 @@ describe('workerTask', () => {
         mocks.workerRecords[0]?.emit('exit', 1);
 
         await expect(taskPromise).rejects.toBe(abortReason);
+    });
+
+    it('restarts inactivity timeouts when a streaming worker reports progress', async () => {
+        vi.useFakeTimers();
+        mocks.throwConstructorError = false;
+        const { startStreamingWorkerTask } = await import('@electron/utils/workerTask');
+
+        const task = startStreamingWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: { ok: true },
+            invalidPayloadMessage: 'invalid payload',
+            createStartupError: message => new Error(`startup: ${message}`),
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+            inactivityTimeoutMs: 1_000,
+            createCancelMessage: reason => ({
+                type: 'cancel',
+                reason,
+            }),
+            onProgressMessage: payload => payload === 'progress',
+        });
+        const rejection = expect(task.promise).rejects.toThrow(
+            'Worker task timed out after 1000ms without progress',
+        );
+
+        await vi.advanceTimersByTimeAsync(900);
+        mocks.workerRecords[0]?.emit('message', 'progress');
+        await vi.advanceTimersByTimeAsync(999);
+
+        expect(mocks.workerRecords[0]?.postMessageCalls).toEqual([]);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual({
+            type: 'cancel',
+            reason: 'timeout',
+        });
+        mocks.workerRecords[0]?.emit('message', {
+            type: 'result',
+            ok: false,
+            error: 'canceled',
+        });
+
+        await rejection;
     });
 });
