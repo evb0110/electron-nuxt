@@ -1,9 +1,9 @@
-use evb_native_support::{NativeErrorCode, NativeErrorEnvelope};
+use evb_native_support::{NativeError, NativeErrorCode, NativeErrorEnvelope};
 use std::{cell::RefCell, mem, slice, str};
 
 use crate::{
-    write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource,
-    JpegSizeGuardrail, PageSpec, PdfBuildOptions, PdfPageSize, PdfPageSpec, Result,
+    is_output_limit_exceeded, write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec,
+    InputSource, JpegSizeGuardrail, PageSpec, PdfBuildOptions, PdfPageSize, PdfPageSpec, Result,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPIC";
@@ -30,6 +30,9 @@ struct RequestHeader {
 
 #[no_mangle]
 pub extern "C" fn evb_pdf_image_combine_alloc(len: usize) -> *mut u8 {
+    if !allocation_length_is_admitted(len, MAX_REQUEST_BYTES) {
+        return std::ptr::null_mut();
+    }
     let mut buffer = Vec::<u8>::new();
     if buffer.try_reserve_exact(len).is_err() {
         return std::ptr::null_mut();
@@ -37,6 +40,10 @@ pub extern "C" fn evb_pdf_image_combine_alloc(len: usize) -> *mut u8 {
     let pointer = buffer.as_mut_ptr();
     mem::forget(buffer);
     pointer
+}
+
+fn allocation_length_is_admitted(len: usize, max_bytes: usize) -> bool {
+    len > 0 && len <= max_bytes
 }
 
 #[no_mangle]
@@ -118,8 +125,29 @@ fn clear_last_result() {
 }
 
 fn build_pdf_from_request(request: &[u8]) -> Result<Vec<u8>> {
-    let (page_specs, options) = parse_request(request)?;
-    write_pdf(Vec::new(), page_specs, &options, |_| {})
+    build_pdf_from_request_with_limit(request, MAX_OUTPUT_BYTES as u64)
+}
+
+fn build_pdf_from_request_with_limit(request: &[u8], max_output_bytes: u64) -> Result<Vec<u8>> {
+    let (page_specs, mut options) = parse_request(request)?;
+    options.max_output_bytes = max_output_bytes;
+    write_pdf(Vec::new(), page_specs, &options, |_| {}).map_err(|error| {
+        let is_typed_output_limit =
+            error
+                .downcast_ref::<NativeError>()
+                .is_some_and(|native_error| {
+                    native_error.code == NativeErrorCode::TooLarge
+                        && native_error.message.contains("Combined PDF output exceeds")
+                });
+        if is_output_limit_exceeded(error.as_ref()) || is_typed_output_limit {
+            Box::new(NativeError::new(
+                NativeErrorCode::TooLarge,
+                "Image-combine WASM output exceeds the admission ceiling",
+            )) as Box<dyn std::error::Error>
+        } else {
+            error
+        }
+    })
 }
 
 fn parse_request(request: &[u8]) -> Result<(Vec<PdfPageSpec<'_>>, PdfBuildOptions)> {
@@ -156,7 +184,7 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
         max_pages,
         max_pixels,
         max_bilevel_pixels: max_pixels,
-        max_output_bytes: u64::MAX,
+        max_output_bytes: MAX_OUTPUT_BYTES as u64,
         max_tiff_frames: read_usize_le(request, offset, "max_tiff_frames")?,
         provenance_stamp_hex: None,
         worker_threads: 1,
@@ -404,6 +432,37 @@ mod tests {
 
     const PPM: &[u8] = b"P6\n1 1\n255\n\x10\x20\x30";
     const PBM: &[u8] = b"P4\n8 1\n\x80";
+
+    #[test]
+    fn allocator_admits_only_nonzero_lengths_at_or_below_the_cap() {
+        assert!(!allocation_length_is_admitted(0, 8));
+        assert!(allocation_length_is_admitted(8, 8));
+        assert!(!allocation_length_is_admitted(9, 8));
+        assert!(evb_pdf_image_combine_alloc(0).is_null());
+        assert!(evb_pdf_image_combine_alloc(MAX_REQUEST_BYTES + 1).is_null());
+    }
+
+    #[test]
+    fn framing_offsets_reject_checked_arithmetic_overflow() {
+        let mut offset = usize::MAX;
+        let error = take_bytes(&[], &mut offset, 1).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Invalid image-combine WASM request length"
+        );
+    }
+
+    #[test]
+    fn writer_stops_at_the_output_cap_with_a_typed_error() {
+        let request = image_request(REQUEST_VERSION_V1, false);
+        let error = build_pdf_from_request_with_limit(&request, 64).unwrap_err();
+        let native_error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+        assert_eq!(
+            native_error.message,
+            "Image-combine WASM output exceeds the admission ceiling"
+        );
+    }
 
     #[test]
     fn versions_one_through_four_map_to_page_specs_and_build() {

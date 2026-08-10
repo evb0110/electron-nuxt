@@ -1,5 +1,48 @@
 use super::*;
 
+fn deserialize_collection<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    deserialize_bounded_vec::<D, T, MAX_COLLECTION_ITEMS>(deserializer)
+}
+
+fn deserialize_bookmark_items<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<BookmarkEntry>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, BookmarkEntry, 5_000>(deserializer)
+}
+
+fn deserialize_shape_items<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    deserialize_bounded_vec::<D, T, 4_096>(deserializer)
+}
+
+fn deserialize_shape_points<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<ShapePoint>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, ShapePoint, 20_000>(deserializer)
+}
+
+fn deserialize_placed_images<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<PlacedImage>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, PlacedImage, 16>(deserializer)
+}
+
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 pub(crate) fn domain_error(code: NativeErrorCode, message: impl Into<String>) -> Box<dyn Error> {
@@ -168,6 +211,7 @@ pub(crate) enum Operation {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SplitPagesFile {
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) pages: Vec<SplitPageInstruction>,
     #[serde(default)]
     pub(crate) provenance_stamp_hex: Option<String>,
@@ -178,6 +222,7 @@ pub(crate) struct SplitPagesFile {
 pub(crate) struct SplitPageInstruction {
     pub(crate) source_page_index: usize,
     pub(crate) rotation_quarter_turns: i64,
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) outputs: Vec<SplitPageOutput>,
 }
 
@@ -192,6 +237,7 @@ pub(crate) struct SplitPageOutput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TextLayerFile {
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) pages: Vec<TextLayerInstruction>,
 }
 
@@ -239,6 +285,7 @@ pub(crate) struct Config {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct NoteTextUpdatesFile {
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) updates: Vec<NoteTextUpdate>,
 }
 
@@ -246,10 +293,13 @@ pub(crate) struct NoteTextUpdatesFile {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NoteChangesFile {
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) updates: Vec<NoteTextUpdate>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) deletes: Vec<AnnotationDelete>,
 }
 
@@ -257,16 +307,20 @@ pub(crate) struct NoteChangesFile {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NativeMutationsFile {
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) updates: Vec<NoteTextUpdate>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) deletes: Vec<AnnotationDelete>,
     pub(crate) page_labels: Option<PageLabelsMutation>,
     pub(crate) bookmarks: Option<BookmarksMutation>,
     pub(crate) shapes: Option<ShapesMutation>,
     pub(crate) markup: Option<MarkupMutation>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_placed_images")]
     pub(crate) placed_images: Vec<PlacedImage>,
 }
 
@@ -304,6 +358,7 @@ pub(crate) struct FreeTextNote {
 pub(crate) struct PageLabelsMutation {
     pub(crate) total_pages: u32,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) ranges: Vec<PageLabelRange>,
 }
 
@@ -322,6 +377,7 @@ pub(crate) struct BookmarksMutation {
     pub(crate) total_pages: u32,
     pub(crate) untitled_label: String,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_bookmark_items")]
     pub(crate) items: Vec<BookmarkEntry>,
 }
 
@@ -338,6 +394,7 @@ pub(crate) struct BookmarkEntry {
     pub(crate) italic: bool,
     pub(crate) color: Option<String>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_bookmark_items")]
     pub(crate) items: Vec<BookmarkEntry>,
 }
 
@@ -348,10 +405,13 @@ pub(crate) struct ShapesMutation {
     #[serde(default)]
     pub(crate) rewrite_shape_state: bool,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_shape_items")]
     pub(crate) shapes: Vec<ShapeAnnotation>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_shape_items")]
     pub(crate) deleted_annotation_ids: Vec<String>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_shape_items")]
     pub(crate) deleted_stable_keys: Vec<String>,
 }
 
@@ -359,8 +419,10 @@ pub(crate) struct ShapesMutation {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct MarkupMutation {
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_shape_items")]
     pub(crate) overrides: Vec<(String, String)>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_shape_items")]
     pub(crate) hints: Vec<MarkupSubtypeHint>,
 }
 
@@ -377,6 +439,8 @@ pub(crate) struct PlacedImage {
     pub(crate) bytes_path: PathBuf,
     pub(crate) byte_length: u64,
     pub(crate) sha256: String,
+    #[serde(skip)]
+    pub(crate) validated_bytes: std::cell::RefCell<Option<Vec<u8>>>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -424,8 +488,10 @@ pub(crate) struct ShapeAnnotation {
     pub(crate) opacity: f64,
     pub(crate) stroke_width: f64,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_shape_points")]
     pub(crate) points: Vec<ShapePoint>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_shape_items")]
     pub(crate) strokes: Vec<Vec<ShapePoint>>,
     #[serde(default)]
     pub(crate) annotation_id: Option<String>,

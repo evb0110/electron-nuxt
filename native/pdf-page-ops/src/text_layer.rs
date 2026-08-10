@@ -6,7 +6,7 @@ const MAX_TEXT_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_OBJECT_GRAPH_DEPTH: usize = 128;
 
 pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
-    let instructions: TextLayerFile = serde_json::from_slice(&fs::read(path)?)?;
+    let instructions: TextLayerFile = read_json_sidecar(path, "text-layer instructions")?;
     if instructions.pages.is_empty() {
         return Err("overlay-text requires at least one page instruction".into());
     }

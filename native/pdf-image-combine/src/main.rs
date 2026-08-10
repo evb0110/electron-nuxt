@@ -1,13 +1,15 @@
 use std::{
-    env, fs,
+    env,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
 
 use evb_native_support::{
+    bounded_io::{deserialize_bounded_vec, deserialize_json_slice, read_file_bounded},
     generated_native_tool_protocols::PDF_IMAGE_COMBINE,
     output::{AtomicOutput, ValidatedInputFiles},
+    NativeError, NativeErrorCode,
 };
 use evb_pdf_image_combine::{
     combine_tiff_paths, default_worker_threads, encode_netpbm_path_as_png, probe_netpbm_path,
@@ -16,6 +18,10 @@ use evb_pdf_image_combine::{
     Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
 };
 use serde::Deserialize;
+
+const MAX_COMBINE_PAGES: usize = 10_000;
+const MAX_SIDECAR_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PATH_BYTES: usize = 4_096;
 
 struct Config {
     output_path: PathBuf,
@@ -61,7 +67,13 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         println!("{}", serde_json::to_string(&probe)?);
         return Ok(());
     }
-    let config = parse_args(raw_args.into_iter())?;
+    let max_pages = read_limit(
+        "EVB_PDF_COMBINE_MAX_PAGES",
+        500,
+        1,
+        MAX_COMBINE_PAGES as u64,
+    ) as usize;
+    let config = parse_args(raw_args.into_iter(), max_pages)?;
     let max_pixels = read_limit(
         "EVB_PDF_COMBINE_MAX_IMAGE_PIXELS",
         DEFAULT_MAX_IMAGE_PIXELS,
@@ -87,7 +99,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
 
     let (page_specs, provenance_stamp_hex) =
         if let Some(manifest_path) = &config.compact_manifest_path {
-            let manifest = read_compact_manifest(manifest_path)?;
+            let manifest = read_compact_manifest(manifest_path, max_pages)?;
             (manifest.page_specs, manifest.provenance_stamp_hex)
         } else {
             (
@@ -117,7 +129,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         &config.output_path,
         &PdfBuildOptions {
             default_dpi: config.dpi,
-            max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
+            max_pages,
             max_pixels,
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_output_bytes: read_limit(
@@ -212,7 +224,7 @@ fn write_pdf_file(
     Ok(())
 }
 
-fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Config> {
+fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Result<Config> {
     let mut output_path = None;
     let mut input_paths = Vec::new();
     let mut json_progress = false;
@@ -243,7 +255,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Config> {
             }
             "--inputs-file" => {
                 let value = args.next().ok_or("Missing --inputs-file value")?;
-                input_paths.extend(read_input_paths_file(Path::new(&value))?);
+                input_paths.extend(read_input_paths_file(Path::new(&value), max_pages)?);
             }
             "--compact-manifest" => {
                 compact_manifest_path = Some(PathBuf::from(
@@ -264,6 +276,23 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Config> {
     if compact_manifest_path.is_some() && output_format != OutputFormat::Pdf {
         return Err("--compact-manifest is only supported for PDF output".into());
     }
+    if input_paths.len() > max_pages {
+        return Err(NativeError::new(
+            NativeErrorCode::TooLarge,
+            format!("Image input list exceeds the {max_pages}-page admission ceiling"),
+        )
+        .into());
+    }
+    if input_paths
+        .iter()
+        .any(|path| path.as_os_str().to_string_lossy().len() > MAX_PATH_BYTES)
+    {
+        return Err(NativeError::new(
+            NativeErrorCode::TooLarge,
+            format!("Image input path exceeds the {MAX_PATH_BYTES}-byte admission ceiling"),
+        )
+        .into());
+    }
     Ok(Config {
         output_path,
         input_paths,
@@ -275,13 +304,37 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Config> {
     })
 }
 
-fn read_input_paths_file(path: &Path) -> Result<Vec<PathBuf>> {
-    Ok(fs::read_to_string(path)?
+fn read_input_paths_file(path: &Path, max_pages: usize) -> Result<Vec<PathBuf>> {
+    let bytes = read_file_bounded(path, MAX_SIDECAR_BYTES, "image input list")?;
+    let contents = std::str::from_utf8(&bytes).map_err(|error| {
+        NativeError::new(
+            NativeErrorCode::InvalidRequest,
+            format!("Invalid image input list UTF-8: {error}"),
+        )
+    })?;
+    let mut paths = Vec::new();
+    for line in contents
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .map(PathBuf::from)
-        .collect())
+    {
+        if paths.len() == max_pages {
+            return Err(NativeError::new(
+                NativeErrorCode::TooLarge,
+                format!("Image input list exceeds the {max_pages}-page admission ceiling"),
+            )
+            .into());
+        }
+        if line.len() > MAX_PATH_BYTES {
+            return Err(NativeError::new(
+                NativeErrorCode::TooLarge,
+                format!("Image input path exceeds the {MAX_PATH_BYTES}-byte admission ceiling"),
+            )
+            .into());
+        }
+        paths.push(PathBuf::from(line));
+    }
+    Ok(paths)
 }
 
 struct ParsedCompactManifest {
@@ -294,7 +347,17 @@ struct ParsedCompactManifest {
 struct CompactManifestEnvelope {
     #[serde(default)]
     provenance_stamp_hex: Option<String>,
+    #[serde(deserialize_with = "deserialize_compact_manifest_pages")]
     pages: Vec<CompactManifestPage>,
+}
+
+fn deserialize_compact_manifest_pages<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<CompactManifestPage>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, CompactManifestPage, MAX_COMBINE_PAGES>(deserializer)
 }
 
 #[derive(Deserialize)]
@@ -313,11 +376,18 @@ impl CompactManifestPage {
     }
 }
 
-fn read_compact_manifest(path: &Path) -> Result<ParsedCompactManifest> {
-    let contents = fs::read_to_string(path)?;
+fn read_compact_manifest(path: &Path, max_pages: usize) -> Result<ParsedCompactManifest> {
+    let bytes = read_file_bounded(path, MAX_SIDECAR_BYTES, "compact image manifest")?;
+    let contents = std::str::from_utf8(&bytes).map_err(|error| {
+        NativeError::new(
+            NativeErrorCode::InvalidRequest,
+            format!("Invalid compact image manifest UTF-8: {error}"),
+        )
+    })?;
 
     if contents.trim_start().starts_with('{') {
-        let envelope: CompactManifestEnvelope = serde_json::from_str(&contents)?;
+        let envelope: CompactManifestEnvelope =
+            deserialize_json_slice(&bytes, "compact image manifest")?;
         let mut page_specs = Vec::new();
         for (index, line) in envelope
             .pages
@@ -326,6 +396,15 @@ fn read_compact_manifest(path: &Path) -> Result<ParsedCompactManifest> {
             .enumerate()
         {
             if !line.trim().is_empty() {
+                if page_specs.len() == max_pages {
+                    return Err(NativeError::new(
+                        NativeErrorCode::TooLarge,
+                        format!(
+                            "Compact image manifest exceeds the {max_pages}-page admission ceiling"
+                        ),
+                    )
+                    .into());
+                }
                 let page = page_specs.len() + 1;
                 page_specs.push(parse_compact_manifest_line(&line, index + 1, page)?);
             }
@@ -339,6 +418,15 @@ fn read_compact_manifest(path: &Path) -> Result<ParsedCompactManifest> {
     let mut page_specs = Vec::new();
     for (index, line) in contents.lines().enumerate() {
         if !line.trim().is_empty() {
+            if page_specs.len() == max_pages {
+                return Err(NativeError::new(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "Compact image manifest exceeds the {max_pages}-page admission ceiling"
+                    ),
+                )
+                .into());
+            }
             let page = page_specs.len() + 1;
             page_specs.push(parse_compact_manifest_line(line, index + 1, page)?);
         }
@@ -626,7 +714,11 @@ fn parse_u8_range(value: Option<&str>, label: &str, line_number: usize) -> Resul
 }
 
 fn parse_manifest_path(value: &str, line_number: usize) -> Result<PathBuf> {
-    if value.is_empty() || value.trim() != value || value.contains(['\r', '\n']) {
+    if value.is_empty()
+        || value.trim() != value
+        || value.contains(['\r', '\n'])
+        || value.len() > MAX_PATH_BYTES
+    {
         return Err(format!("Invalid path on compact manifest line {line_number}").into());
     }
     Ok(PathBuf::from(value))
@@ -666,6 +758,18 @@ fn print_progress(processed: usize, total: usize, started_at: Instant) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_manifest_path(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "evb-combine-{label}-{}-{nonce}.manifest",
+            std::process::id()
+        ))
+    }
 
     #[test]
     fn parses_all_compact_page_shapes_into_page_specs() {
@@ -714,6 +818,7 @@ mod tests {
             ["--output", "/tmp/output.pdf", "/tmp/input.pbm"]
                 .into_iter()
                 .map(str::to_owned),
+            500,
         )
         .unwrap();
         assert!(!default.shared_jbig2_symbols);
@@ -727,6 +832,7 @@ mod tests {
             ]
             .into_iter()
             .map(str::to_owned),
+            500,
         )
         .unwrap();
         assert!(enabled.shared_jbig2_symbols);
@@ -765,5 +871,24 @@ mod tests {
             ),
             _ => panic!("placed image line did not retain its rectangle"),
         }
+    }
+
+    #[test]
+    fn compact_manifest_rejects_configured_page_limit_before_opening_images() {
+        let path = temp_manifest_path("page-limit");
+        std::fs::write(
+            &path,
+            "image\t72\t72\t/tmp/one.ppm\nimage\t72\t72\t/tmp/two.ppm\n",
+        )
+        .unwrap();
+
+        let error = match read_compact_manifest(&path, 1) {
+            Ok(_) => panic!("oversized compact manifest was accepted"),
+            Err(error) => error,
+        };
+        let native = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native.code, NativeErrorCode::TooLarge);
+        assert!(native.message.contains("1-page admission ceiling"));
+        std::fs::remove_file(path).unwrap();
     }
 }

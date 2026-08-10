@@ -11,6 +11,11 @@ import type {
 import type { IResolvedSearchMatchOptions } from '@pdf-core';
 import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import {
+    COMPACT_SEARCH_INDEX_MAX_BYTES,
+    COMPACT_SEARCH_INDEX_MAX_PAGE_RECORDS,
+    COMPACT_SEARCH_INDEX_MAX_TOTAL_TEXT_BYTES,
+} from '@contracts/searchIndexSidecar';
+import {
     EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
 } from '@electron/config/constants';
@@ -177,11 +182,15 @@ async function loadNativeSearchIndexMetadata(
         }
         const revisionTokenEnd = revisionTokenByteOffset + revisionTokenByteLength;
         const minimumSize = pageTableOffset + pageRecordCount * PAGE_RECORD_SIZE;
+        const totalTextBytes = fileStat.size - textDataOffset;
         if (
             revisionTokenByteOffset < HEADER_SIZE
             || revisionTokenEnd > pageTableOffset
+            || pageRecordCount > COMPACT_SEARCH_INDEX_MAX_PAGE_RECORDS
             || textDataOffset < minimumSize
             || fileStat.size < textDataOffset
+            || fileStat.size > COMPACT_SEARCH_INDEX_MAX_BYTES
+            || totalTextBytes > COMPACT_SEARCH_INDEX_MAX_TOTAL_TEXT_BYTES
         ) {
             return null;
         }

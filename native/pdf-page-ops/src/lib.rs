@@ -1,10 +1,14 @@
 mod page_sizes;
 
-use evb_native_support::{NativeError, NativeErrorCode};
+use evb_native_support::{
+    bounded_io::{deserialize_bounded_vec, deserialize_json_file_bounded, read_file_bounded},
+    NativeError, NativeErrorCode,
+};
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 use lopdf::dictionary;
 use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream, StringFormat};
 use page_sizes::write_page_sizes_json;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::{
     cmp::Ordering,
@@ -12,7 +16,7 @@ use std::{
     error::Error,
     fs::{self, File, OpenOptions},
     io::{BufReader, Read, Seek, SeekFrom, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 mod annotations;
@@ -21,6 +25,7 @@ mod cli;
 mod dispatcher;
 mod incremental;
 mod input;
+mod load_policy;
 mod markup;
 mod markup_hints;
 mod page_geometry;
@@ -33,12 +38,31 @@ mod split_pages;
 mod text_layer;
 mod types;
 
+const MAX_SIDECAR_BYTES: usize = 256 * 1024 * 1024;
+const MAX_COLLECTION_ITEMS: usize = 100_000;
+const MAX_AGGREGATE_TEXT_BYTES: usize = 64 * 1024 * 1024;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+const PAGE_OP_WASM_MUTATION_HEADER_BYTES: usize = 12;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+const PAGE_OP_WASM_MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
+
+fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -> Result<T> {
+    deserialize_json_file_bounded(path, MAX_SIDECAR_BYTES, label).map_err(|error| {
+        if error.code == NativeErrorCode::Io {
+            domain_error(NativeErrorCode::InvalidRequest, error.message)
+        } else {
+            Box::new(error)
+        }
+    })
+}
+
 pub(crate) use annotations::*;
 pub(crate) use catalog::*;
 pub(crate) use cli::*;
 pub(crate) use dispatcher::*;
 pub(crate) use incremental::*;
 pub(crate) use input::*;
+pub(crate) use load_policy::*;
 pub(crate) use markup::*;
 pub(crate) use markup_hints::*;
 pub(crate) use page_geometry::*;

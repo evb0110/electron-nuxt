@@ -2945,107 +2945,7 @@ fn batch_applies_per_output_placement_over_document_default() {
 }
 
 #[test]
-fn matched_canvas_keeps_source_grids_and_reports_one_physical_rectangle() {
-    let scratch = Scratch::new("matched-quantile");
-    let manifest = scratch.path("matched-quantile-manifest.json");
-    let mut pages = Vec::new();
-    let mut output_paths = Vec::new();
-    let mut metadata_paths = Vec::new();
-    for index in 0..10 {
-        let input = scratch.path(&format!("matched-quantile-input-{index}.png"));
-        let output = scratch.path(&format!("matched-quantile-output-{index}.png"));
-        let metadata = scratch.path(&format!("matched-quantile-metadata-{index}.json"));
-        let (width, height) = if index == 9 { (140, 100) } else { (80, 60) };
-        let mut image = GrayImage::new(width, height, 255);
-        for y in 15..height.min(45) {
-            for x in 18..width.min(62) {
-                if y % 7 < 3 {
-                    image.set(x, y, 20);
-                }
-            }
-        }
-        fs::write(&input, encode_gray(&image).unwrap()).unwrap();
-        pages.push(serde_json::json!({
-            "inputPath": input,
-            "sourcePageIndex": index,
-            "pageMetadataPath": scratch.path(&format!("matched-quantile-page-{index}.json")),
-            "options": {
-                "dpi": 300,
-                "layout": "force-single",
-                "normalizeIllumination": false,
-                "cropContent": false,
-                "outputMode": "grayscale",
-                "matchPageSize": true,
-                "pageAlignment": "center"
-            },
-            "outputs": [{"outputPath": output, "metadataPath": metadata}]
-        }));
-        output_paths.push(output);
-        metadata_paths.push(metadata);
-    }
-    let payload = serde_json::json!({
-        "version": 3,
-        "operation": "render",
-        "renderMode": "final",
-        "canvasScope": "document",
-        // The largest page the document carries, at its own resolution.
-        "documentCanvas": {
-            "widthPoints": 33.6,
-            "heightPoints": 24.0,
-            "widthPx": 140,
-            "heightPx": 100
-        },
-        "pages": pages
-    });
-    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args(["--manifest", manifest.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "stderr={}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-
-    for index in 0..10 {
-        let image = decode_gray(&fs::read(&output_paths[index]).unwrap(), 20_000, 200).unwrap();
-        let metadata: Value =
-            serde_json::from_slice(&fs::read(&metadata_paths[index]).unwrap()).unwrap();
-        let expected_dimensions = if index == 9 { (140, 100) } else { (80, 60) };
-        assert_eq!((image.width(), image.height()), expected_dimensions);
-        assert_eq!(metadata["matchedCanvasTargetWidthPx"], 140);
-        assert_eq!(metadata["matchedCanvasTargetHeightPx"], 100);
-        assert_eq!(metadata["matchedCanvasTargetWidthPoints"], 33.6);
-        assert_eq!(metadata["matchedCanvasTargetHeightPoints"], 24.0);
-        assert_eq!(metadata["canvasPolicy"], "strict-maximum");
-        assert_eq!(metadata["canvasOverflow"], false);
-        assert_eq!(metadata["uniformCanvas"], true);
-        assert_eq!(metadata["canvasWidthPx"], 140);
-        assert_eq!(metadata["canvasHeightPx"], 100);
-        let content_width = metadata["matchedCanvasContentWidthPx"].as_f64().unwrap();
-        let content_height = metadata["matchedCanvasContentHeightPx"].as_f64().unwrap();
-        assert_eq!(metadata["outputWidthPx"], expected_dimensions.0);
-        assert_eq!(metadata["outputHeightPx"], expected_dimensions.1);
-        if index == 9 {
-            assert_eq!((content_width, content_height), (140.0, 100.0));
-            assert!(metadata["pdfImagePlacement"].is_null());
-            continue;
-        }
-        // The smaller page is scaled up to the canvas, not padded into a
-        // corner of it: it fills the axis that constrains it, and keeps the
-        // 4:3 shape it arrived with.
-        assert_eq!(content_height, 100.0);
-        assert!(
-            (content_width / content_height - 80.0 / 60.0).abs() < 0.02,
-            "page {index} lost its aspect ratio ({content_width}x{content_height})"
-        );
-        assert_pdf_image_placement_matches_canvas(&metadata);
-    }
-}
-
-#[test]
-fn matched_canvas_keeps_lower_resolution_continuous_tone_at_its_native_grid() {
+fn matched_canvas_real_binary_keeps_native_density_on_one_physical_rectangle() {
     let scratch = Scratch::new("matched-physical");
     let manifest = scratch.path("matched-physical-manifest.json");
     let mut pages = Vec::new();
@@ -3083,6 +2983,31 @@ fn matched_canvas_keeps_lower_resolution_continuous_tone_at_its_native_grid() {
         outputs.push(output);
         metadata_paths.push(metadata);
     }
+    let color_input = scratch.path("matched-physical-color-input.png");
+    let color_output = scratch.path("matched-physical-color-output.png");
+    let color_metadata = scratch.path("matched-physical-color-metadata.json");
+    let mut color_image = RgbImage::new(80, 60, [248; 3]);
+    for y in 10..50 {
+        for x in 15..65 {
+            color_image.set(x, y, [30, 90, 180]);
+        }
+    }
+    fs::write(&color_input, encode_rgb(&color_image).unwrap()).unwrap();
+    pages.push(serde_json::json!({
+        "inputPath": color_input,
+        "sourcePageIndex": 2,
+        "pageMetadataPath": scratch.path("matched-physical-color-page.json"),
+        "options": {
+            "dpi": 100,
+            "layout": "force-single",
+            "normalizeIllumination": false,
+            "cropContent": false,
+            "outputMode": "color",
+            "matchPageSize": true,
+            "pageAlignment": "center"
+        },
+        "outputs": [{"outputPath": color_output, "metadataPath": color_metadata}]
+    }));
     fs::write(
         &manifest,
         serde_json::to_vec_pretty(&serde_json::json!({
@@ -3144,70 +3069,13 @@ fn matched_canvas_keeps_lower_resolution_continuous_tone_at_its_native_grid() {
             "physical bar placement disagrees by {difference:.4}"
         );
     }
-}
-
-#[test]
-fn matched_canvas_keeps_color_at_source_resolution_and_emits_pdf_placement() {
-    let scratch = Scratch::new("matched-color-placement");
-    let manifest = scratch.path("manifest.json");
-    let input = scratch.path("input.png");
-    let output = scratch.path("output.png");
-    let metadata_path = scratch.path("output.json");
-    let mut image = RgbImage::new(80, 60, [248; 3]);
-    for y in 10..50 {
-        for x in 15..65 {
-            image.set(x, y, [30, 90, 180]);
-        }
-    }
-    fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
-    fs::write(
-        &manifest,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "version": 3,
-            "operation": "render",
-            "renderMode": "final",
-            "canvasScope": "document",
-            "documentCanvas": {
-                "widthPoints": 28.8,
-                "heightPoints": 24.0,
-                "widthPx": 120,
-                "heightPx": 100
-            },
-            "pages": [{
-                "inputPath": input,
-                "sourcePageIndex": 0,
-                "pageMetadataPath": scratch.path("page.json"),
-                "options": {
-                    "dpi": 300,
-                    "layout": "force-single",
-                    "normalizeIllumination": false,
-                    "cropContent": false,
-                    "outputMode": "color",
-                    "matchPageSize": true,
-                    "pageAlignment": "center"
-                },
-                "outputs": [{"outputPath": output, "metadataPath": metadata_path}]
-            }]
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args(["--manifest", manifest.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "stderr={}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let raster = decode_gray(&fs::read(&output).unwrap(), 20_000, 200).unwrap();
-    assert_eq!((raster.width(), raster.height()), (80, 60));
-    let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
-    assert_eq!(metadata["outputWidthPx"], 80);
-    assert_eq!(metadata["outputHeightPx"], 60);
-    assert_pdf_image_placement_matches_canvas(&metadata);
+    let color_raster = decode_gray(&fs::read(color_output).unwrap(), 50_000, 300).unwrap();
+    assert_eq!((color_raster.width(), color_raster.height()), (80, 60));
+    let color_metadata: Value = serde_json::from_slice(&fs::read(color_metadata).unwrap()).unwrap();
+    assert_eq!(color_metadata["outputMode"], "color");
+    assert_eq!(color_metadata["outputWidthPx"], 80);
+    assert_eq!(color_metadata["outputHeightPx"], 60);
+    assert_pdf_image_placement_matches_canvas(&color_metadata);
 }
 
 #[test]

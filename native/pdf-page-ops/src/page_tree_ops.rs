@@ -12,6 +12,45 @@ pub(crate) struct PageMutationBytes {
     pub(crate) page_count: u32,
 }
 
+struct BoundedPdfWriter {
+    bytes: Vec<u8>,
+    max_bytes: usize,
+    limit_exceeded: bool,
+}
+
+impl BoundedPdfWriter {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_bytes,
+            limit_exceeded: false,
+        }
+    }
+}
+
+impl Write for BoundedPdfWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let Some(next_len) = self.bytes.len().checked_add(buffer.len()) else {
+            self.limit_exceeded = true;
+            return Err(std::io::Error::other("Page-op WASM output limit exceeded"));
+        };
+        let Some(reserve_len) = buffer.len().checked_add(PAGE_OP_WASM_MUTATION_HEADER_BYTES) else {
+            self.limit_exceeded = true;
+            return Err(std::io::Error::other("Page-op WASM output limit exceeded"));
+        };
+        if next_len > self.max_bytes || self.bytes.try_reserve(reserve_len).is_err() {
+            self.limit_exceeded = true;
+            return Err(std::io::Error::other("Page-op WASM output limit exceeded"));
+        }
+        self.bytes.extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct PageCloneSource {
     pub(crate) document_index: usize,
@@ -26,7 +65,7 @@ pub(crate) struct PageCloneContext<'a> {
 }
 
 pub(crate) fn load_browser_pdf(data: &[u8]) -> Result<Document> {
-    let document = Document::load_mem(data)?;
+    let document = load_pdf_bytes(data)?;
     if document.is_encrypted() {
         return Err("Encrypted PDFs are not supported by browser page-op WASM".into());
     }
@@ -34,9 +73,26 @@ pub(crate) fn load_browser_pdf(data: &[u8]) -> Result<Document> {
 }
 
 pub(crate) fn save_document_to_bytes(document: &mut Document) -> Result<Vec<u8>> {
-    let mut output = Vec::new();
-    document.save_to(&mut output)?;
-    Ok(output)
+    save_document_to_bytes_with_limit(
+        document,
+        PAGE_OP_WASM_MAX_OUTPUT_BYTES - PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    )
+}
+
+pub(crate) fn save_document_to_bytes_with_limit(
+    document: &mut Document,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    let mut output = BoundedPdfWriter::new(max_bytes);
+    let result = document.save_to(&mut output);
+    if output.limit_exceeded {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM output exceeds the admission ceiling",
+        ));
+    }
+    result?;
+    Ok(output.bytes)
 }
 
 pub(crate) fn page_count(document: &Document) -> u32 {

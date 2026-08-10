@@ -5,7 +5,8 @@ use crate::{
     crop_browser_pdf_bytes, delete_browser_pdf_pages, extract_browser_pdf_pages,
     get_browser_page_geometry_from_bytes, insert_browser_pdf_pages, remove_crop_browser_pdf_bytes,
     reorder_browser_pdf_pages, rotate_browser_pdf_bytes, CropMargins, PageGeometry,
-    PageMutationBytes, PdfRect, Result,
+    PageMutationBytes, PdfRect, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES,
+    PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPPO";
@@ -23,7 +24,6 @@ const OP_GET_PAGE_GEOMETRY: u32 = 8;
 const RESPONSE_MUTATION: u32 = 1;
 const RESPONSE_GEOMETRY: u32 = 2;
 const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
-const MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
 
 thread_local! {
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
@@ -43,6 +43,9 @@ struct ParsedRequest<'a> {
 
 #[no_mangle]
 pub extern "C" fn evb_pdf_page_ops_alloc(len: usize) -> *mut u8 {
+    if !allocation_length_is_admitted(len, MAX_REQUEST_BYTES) {
+        return std::ptr::null_mut();
+    }
     let mut buffer = Vec::<u8>::new();
     if buffer.try_reserve_exact(len).is_err() {
         return std::ptr::null_mut();
@@ -50,6 +53,10 @@ pub extern "C" fn evb_pdf_page_ops_alloc(len: usize) -> *mut u8 {
     let pointer = buffer.as_mut_ptr();
     mem::forget(buffer);
     pointer
+}
+
+fn allocation_length_is_admitted(len: usize, max_bytes: usize) -> bool {
+    len > 0 && len <= max_bytes
 }
 
 #[no_mangle]
@@ -74,7 +81,7 @@ pub unsafe extern "C" fn evb_pdf_page_ops_run(
     }
     let request = slice::from_raw_parts(request_pointer, request_len);
     match std::panic::catch_unwind(|| run_request(request)) {
-        Ok(Ok(output)) if output.len() <= MAX_OUTPUT_BYTES => {
+        Ok(Ok(output)) if output.len() <= PAGE_OP_WASM_MAX_OUTPUT_BYTES => {
             LAST_OUTPUT.with(|slot| {
                 *slot.borrow_mut() = output;
             });
@@ -244,14 +251,45 @@ fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
 }
 
 fn encode_mutation(result: PageMutationBytes) -> Result<Vec<u8>> {
-    let data_len = u32::try_from(result.data.len())
-        .map_err(|_| "Page-op WASM mutation output is too large")?;
-    let mut output = Vec::with_capacity(12 + result.data.len());
-    write_u32_le(&mut output, RESPONSE_MUTATION);
-    write_u32_le(&mut output, result.page_count);
-    write_u32_le(&mut output, data_len);
-    output.extend_from_slice(&result.data);
-    Ok(output)
+    encode_mutation_with_limit(result, PAGE_OP_WASM_MAX_OUTPUT_BYTES)
+}
+
+fn mutation_frame_len(data_len: usize, max_output_bytes: usize) -> Result<usize> {
+    let framed_len = PAGE_OP_WASM_MUTATION_HEADER_BYTES
+        .checked_add(data_len)
+        .ok_or_else(page_op_output_limit)?;
+    if framed_len > max_output_bytes {
+        return Err(page_op_output_limit());
+    }
+    Ok(framed_len)
+}
+
+fn page_op_output_limit() -> Box<dyn std::error::Error> {
+    Box::new(evb_native_support::NativeError::new(
+        NativeErrorCode::TooLarge,
+        "Page-op WASM output exceeds the admission ceiling",
+    ))
+}
+
+fn encode_mutation_with_limit(
+    mut result: PageMutationBytes,
+    max_output_bytes: usize,
+) -> Result<Vec<u8>> {
+    let data_len = u32::try_from(result.data.len()).map_err(|_| page_op_output_limit())?;
+    let raw_len = result.data.len();
+    let framed_len = mutation_frame_len(raw_len, max_output_bytes)?;
+    result
+        .data
+        .try_reserve_exact(PAGE_OP_WASM_MUTATION_HEADER_BYTES)
+        .map_err(|_| page_op_output_limit())?;
+    result.data.resize(framed_len, 0);
+    result
+        .data
+        .copy_within(0..raw_len, PAGE_OP_WASM_MUTATION_HEADER_BYTES);
+    result.data[0..4].copy_from_slice(&RESPONSE_MUTATION.to_le_bytes());
+    result.data[4..8].copy_from_slice(&result.page_count.to_le_bytes());
+    result.data[8..12].copy_from_slice(&data_len.to_le_bytes());
+    Ok(result.data)
 }
 
 fn encode_geometry(geometry: PageGeometry) -> Result<Vec<u8>> {
@@ -382,6 +420,73 @@ mod tests {
         write_u32_le(&mut request, 1);
         request.extend_from_slice(data);
         request
+    }
+
+    fn assert_too_large(error: Box<dyn std::error::Error>) {
+        assert_eq!(
+            error
+                .downcast_ref::<evb_native_support::NativeError>()
+                .unwrap()
+                .code,
+            NativeErrorCode::TooLarge
+        );
+    }
+
+    #[test]
+    fn allocator_admits_only_nonzero_lengths_at_or_below_the_cap() {
+        assert!(!allocation_length_is_admitted(0, 8));
+        assert!(allocation_length_is_admitted(8, 8));
+        assert!(!allocation_length_is_admitted(9, 8));
+        assert!(evb_pdf_page_ops_alloc(0).is_null());
+        assert!(evb_pdf_page_ops_alloc(MAX_REQUEST_BYTES + 1).is_null());
+    }
+
+    #[test]
+    fn mutation_framing_checks_exact_limits_and_arithmetic_overflow() {
+        let framed = encode_mutation_with_limit(
+            PageMutationBytes {
+                data: vec![1, 2, 3, 4],
+                page_count: 2,
+            },
+            16,
+        )
+        .unwrap();
+        assert_eq!(framed.len(), 16);
+        assert_eq!(&framed[0..4], &RESPONSE_MUTATION.to_le_bytes());
+        assert_eq!(&framed[4..8], &2u32.to_le_bytes());
+        assert_eq!(&framed[8..12], &4u32.to_le_bytes());
+        assert_eq!(&framed[12..], &[1, 2, 3, 4]);
+
+        assert_too_large(
+            encode_mutation_with_limit(
+                PageMutationBytes {
+                    data: vec![0; 5],
+                    page_count: 1,
+                },
+                16,
+            )
+            .unwrap_err(),
+        );
+        assert_too_large(mutation_frame_len(usize::MAX, usize::MAX).unwrap_err());
+    }
+
+    #[test]
+    fn document_writer_stops_at_the_output_cap_with_a_typed_error() {
+        let mut document = Document::load_mem(&test_pdf_bytes()).unwrap();
+        let error = crate::save_document_to_bytes_with_limit(&mut document, 16).unwrap_err();
+        assert_too_large(error);
+    }
+
+    #[test]
+    fn run_rejects_oversized_lengths_before_reading_the_pointer() {
+        let dangling = std::ptr::NonNull::<u8>::dangling().as_ptr();
+        let status = unsafe { evb_pdf_page_ops_run(dangling, MAX_REQUEST_BYTES + 1) };
+        assert_eq!(status, -1);
+        let envelope = LAST_ERROR.with(|slot| String::from_utf8(slot.borrow().clone()).unwrap());
+        assert_eq!(
+            envelope,
+            r#"{"code":"too-large","message":"Page-op WASM request exceeds the admission ceiling"}"#
+        );
     }
 
     #[test]

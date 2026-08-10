@@ -1,8 +1,14 @@
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::{
+    content::{Content, Operation},
+    DecompressError, Dictionary, Document, Error as LopdfError, Object, ObjectId,
+};
 use serde::Serialize;
 use std::{collections::HashMap, fs, path::Path};
 
-use crate::{resolve_page_rotation, resolve_page_view, PdfRect, Result};
+use crate::{
+    domain_error, reclassify_domain_error, resolve_page_rotation, resolve_page_view,
+    NativeErrorCode, PdfRect, Result, MAX_DECOMPRESSED_PDF_STREAM_BYTES,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,7 +76,7 @@ impl Matrix {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct FullPageImage {
     width_px: i64,
     height_px: i64,
@@ -171,13 +177,51 @@ fn covers_page(matrix: Matrix, page_view: PdfRect) -> bool {
     overlap_width >= page_view.width() * 0.98 && overlap_height >= page_view.height() * 0.98
 }
 
-fn dominant_full_page_image(
+fn decode_page_content_with_limit(
+    document: &Document,
+    page_id: ObjectId,
+    max_decompressed_bytes: usize,
+) -> Result<Content<Vec<Operation>>> {
+    let bytes = document
+        .get_page_content_with_limit(page_id, max_decompressed_bytes)
+        .map_err(|error| {
+            if matches!(
+                error,
+                LopdfError::Decompress(DecompressError::MemoryLimitExceeded { .. })
+            ) {
+                domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "PDF page content exceeds the {max_decompressed_bytes}-byte decompression ceiling"
+                    ),
+                )
+            } else {
+                domain_error(
+                    NativeErrorCode::CorruptXref,
+                    format!("Failed to decode PDF page content: {error}"),
+                )
+            }
+        })?;
+    Content::decode(&bytes).map_err(|error| {
+        domain_error(
+            NativeErrorCode::CorruptXref,
+            format!("Failed to parse PDF page content: {error}"),
+        )
+    })
+}
+
+fn dominant_full_page_image_with_limit(
     document: &Document,
     page_id: ObjectId,
     page_view: PdfRect,
-) -> Option<FullPageImage> {
-    let images = page_image_dimensions(document, page_id).ok()?;
-    let content = document.get_and_decode_page_content(page_id).ok()?;
+    max_decompressed_bytes: usize,
+) -> Result<Option<FullPageImage>> {
+    let images = page_image_dimensions(document, page_id)
+        .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
+    if images.is_empty() {
+        return Ok(None);
+    }
+    let content = decode_page_content_with_limit(document, page_id, max_decompressed_bytes)?;
     let mut matrix = Matrix::IDENTITY;
     let mut stack = Vec::new();
     let mut dominant: Option<FullPageImage> = None;
@@ -204,8 +248,12 @@ fn dominant_full_page_image(
                 }
             }
             "Do" if operation.operands.len() == 1 && covers_page(matrix, page_view) => {
-                let name = operation.operands[0].as_name().ok()?;
-                let (width_px, height_px) = *images.get(name)?;
+                let Ok(name) = operation.operands[0].as_name() else {
+                    continue;
+                };
+                let Some(&(width_px, height_px)) = images.get(name) else {
+                    continue;
+                };
                 let candidate = FullPageImage {
                     width_px,
                     height_px,
@@ -226,7 +274,20 @@ fn dominant_full_page_image(
             _ => {}
         }
     }
-    dominant
+    Ok(dominant)
+}
+
+fn dominant_full_page_image(
+    document: &Document,
+    page_id: ObjectId,
+    page_view: PdfRect,
+) -> Result<Option<FullPageImage>> {
+    dominant_full_page_image_with_limit(
+        document,
+        page_id,
+        page_view,
+        MAX_DECOMPRESSED_PDF_STREAM_BYTES,
+    )
 }
 
 fn collect_page_sizes(document: &Document) -> Result<PageSizesOutput> {
@@ -236,7 +297,7 @@ fn collect_page_sizes(document: &Document) -> Result<PageSizesOutput> {
         .map(|(page_number, page_id)| {
             let page_view = resolve_page_view(document, page_id)?;
             let rotation = resolve_page_rotation(document, page_id)?;
-            let dominant_image = dominant_full_page_image(document, page_id, page_view);
+            let dominant_image = dominant_full_page_image(document, page_id, page_view)?;
             Ok(PageSizeEntry {
                 page_number,
                 x_points: page_view.x1,
@@ -391,5 +452,43 @@ mod tests {
 
         assert_eq!(page.dominant_image_width_px, None);
         assert_eq!(page.dominant_image_height_px, None);
+    }
+
+    #[test]
+    fn rejects_expanding_page_content_during_page_size_inspection() {
+        let (mut document, page_id) = create_test_document();
+        let image_id = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 1,
+                "Height" => 1,
+            },
+            Vec::new(),
+        ));
+        let mut content = Stream::new(Dictionary::new(), vec![b' '; 1_024]);
+        content.compress().unwrap();
+        let content_id = document.add_object(content);
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Resources",
+            dictionary! {
+                "XObject" => dictionary! {
+                    "Scan" => image_id,
+                },
+            },
+        );
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Contents", content_id);
+        let page_view = resolve_page_view(&document, page_id).unwrap();
+
+        let error =
+            dominant_full_page_image_with_limit(&document, page_id, page_view, 32).unwrap_err();
+        let native_error = error.downcast_ref::<crate::NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+        assert!(native_error
+            .message
+            .contains("32-byte decompression ceiling"));
     }
 }

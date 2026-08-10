@@ -3,12 +3,22 @@ use lopdf::dictionary;
 use std::path::Path;
 
 pub(crate) fn read_split_pages_file(path: &Path) -> Result<SplitPagesFile> {
-    let instructions: SplitPagesFile = serde_json::from_slice(&fs::read(path)?)?;
+    let instructions: SplitPagesFile = read_json_sidecar(path, "split-pages instructions")?;
     if instructions.pages.is_empty() {
         return Err("split-pages requires at least one source-page instruction".into());
     }
     if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
         validate_provenance_stamp_hex(stamp)?;
+    }
+    let output_count = instructions
+        .pages
+        .iter()
+        .try_fold(0usize, |total, page| total.checked_add(page.outputs.len()));
+    if output_count.is_none_or(|count| count > MAX_COLLECTION_ITEMS) {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("split-pages outputs exceed the {MAX_COLLECTION_ITEMS}-item admission ceiling"),
+        ));
     }
     Ok(instructions)
 }
@@ -369,53 +379,123 @@ fn apply_content_transform(
     transform_annotations(document, page, transform)
 }
 
-fn object_graph_is_complete(
-    document: &Document,
-    object: &Object,
-    seen: &mut HashSet<ObjectId>,
-) -> bool {
-    match object {
-        Object::Reference(object_id) => {
-            if !seen.insert(*object_id) {
-                return true;
-            }
-            document
-                .objects
-                .get(object_id)
-                .is_some_and(|referenced| object_graph_is_complete(document, referenced, seen))
-        }
-        Object::Array(items) => items
-            .iter()
-            .all(|item| object_graph_is_complete(document, item, seen)),
-        Object::Dictionary(dictionary) => dictionary
-            .iter()
-            .all(|(_, value)| object_graph_is_complete(document, value, seen)),
-        Object::Stream(stream) => stream
-            .dict
-            .iter()
-            .all(|(_, value)| object_graph_is_complete(document, value, seen)),
-        _ => true,
+const MAX_OC_GRAPH_DEPTH: usize = 64;
+const MAX_OC_GRAPH_NODES: usize = 100_000;
+
+fn optional_content_limit(message: impl Into<String>) -> Box<dyn Error> {
+    domain_error(NativeErrorCode::TooLarge, message)
+}
+
+fn push_object_graph_children<'a>(
+    stack: &mut Vec<(&'a Object, usize)>,
+    children: impl IntoIterator<Item = &'a Object>,
+    child_depth: usize,
+    visited_nodes: usize,
+    max_depth: usize,
+    max_nodes: usize,
+) -> Result<()> {
+    if child_depth > max_depth {
+        return Err(optional_content_limit(format!(
+            "PDF optional-content graph exceeds the {max_depth}-level traversal ceiling"
+        )));
     }
+    for child in children {
+        if visited_nodes.saturating_add(stack.len()) >= max_nodes {
+            return Err(optional_content_limit(format!(
+                "PDF optional-content graph exceeds the {max_nodes}-node traversal ceiling"
+            )));
+        }
+        stack.push((child, child_depth));
+    }
+    Ok(())
+}
+
+fn object_graph_is_complete_with_limits(
+    document: &Document,
+    root: &Object,
+    max_depth: usize,
+    max_nodes: usize,
+) -> Result<bool> {
+    let mut seen = HashSet::new();
+    let mut stack = vec![(root, 0usize)];
+    let mut visited_nodes = 0usize;
+    while let Some((object, depth)) = stack.pop() {
+        if visited_nodes >= max_nodes {
+            return Err(optional_content_limit(format!(
+                "PDF optional-content graph exceeds the {max_nodes}-node traversal ceiling"
+            )));
+        }
+        visited_nodes += 1;
+        let child_depth = depth.saturating_add(1);
+        match object {
+            Object::Reference(object_id) => {
+                if !seen.insert(*object_id) {
+                    continue;
+                }
+                let Some(referenced) = document.objects.get(object_id) else {
+                    return Ok(false);
+                };
+                push_object_graph_children(
+                    &mut stack,
+                    std::iter::once(referenced),
+                    child_depth,
+                    visited_nodes,
+                    max_depth,
+                    max_nodes,
+                )?;
+            }
+            Object::Array(items) => push_object_graph_children(
+                &mut stack,
+                items,
+                child_depth,
+                visited_nodes,
+                max_depth,
+                max_nodes,
+            )?,
+            Object::Dictionary(dictionary) => push_object_graph_children(
+                &mut stack,
+                dictionary.iter().map(|(_, value)| value),
+                child_depth,
+                visited_nodes,
+                max_depth,
+                max_nodes,
+            )?,
+            Object::Stream(stream) => push_object_graph_children(
+                &mut stack,
+                stream.dict.iter().map(|(_, value)| value),
+                child_depth,
+                visited_nodes,
+                max_depth,
+                max_nodes,
+            )?,
+            _ => {}
+        }
+    }
+    Ok(true)
+}
+
+fn object_graph_is_complete(document: &Document, root: &Object) -> Result<bool> {
+    object_graph_is_complete_with_limits(document, root, MAX_OC_GRAPH_DEPTH, MAX_OC_GRAPH_NODES)
 }
 
 fn resolve_object<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {
     document.dereference(object).ok().map(|(_, value)| value)
 }
 
-fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId) -> bool {
+fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId) -> Result<bool> {
     let Ok(catalog) = document.get_dictionary(catalog_id) else {
-        return false;
+        return Ok(false);
     };
     let Ok(properties) = catalog.get(b"OCProperties") else {
-        return true;
+        return Ok(true);
     };
-    if !object_graph_is_complete(document, properties, &mut HashSet::new()) {
-        return false;
+    if !object_graph_is_complete(document, properties)? {
+        return Ok(false);
     }
     let Some(properties) =
         resolve_object(document, properties).and_then(|value| value.as_dict().ok())
     else {
-        return false;
+        return Ok(false);
     };
     let Some(groups) = properties
         .get(b"OCGs")
@@ -423,9 +503,9 @@ fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId) -> bool {
         .and_then(|value| resolve_object(document, value))
         .and_then(|value| value.as_array().ok())
     else {
-        return false;
+        return Ok(false);
     };
-    groups.iter().all(|group| {
+    Ok(groups.iter().all(|group| {
         resolve_object(document, group)
             .and_then(|value| value.as_dict().ok())
             .is_some_and(|dictionary| {
@@ -434,17 +514,32 @@ fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId) -> bool {
                     .and_then(Object::as_name)
                     .is_ok_and(|name| name == b"OCG")
             })
-    })
+    }))
 }
 
 fn drop_invalid_oc_properties(document: &mut Document, catalog_id: ObjectId) -> Result<()> {
-    if has_valid_oc_properties(document, catalog_id) {
+    if has_valid_oc_properties(document, catalog_id)? {
         return Ok(());
     }
     document
         .get_dictionary_mut(catalog_id)?
         .remove(b"OCProperties");
     Ok(())
+}
+
+fn split_source_page_number(source_page_index: usize) -> Result<u32> {
+    let page_number = source_page_index.checked_add(1).ok_or_else(|| {
+        domain_error(
+            NativeErrorCode::InvalidRequest,
+            "split-pages sourcePageIndex is too large",
+        )
+    })?;
+    u32::try_from(page_number).map_err(|_| {
+        domain_error(
+            NativeErrorCode::InvalidRequest,
+            "split-pages sourcePageIndex is too large",
+        )
+    })
 }
 
 pub(crate) fn split_pages(
@@ -463,8 +558,7 @@ pub(crate) fn split_pages(
         if !(1..=2).contains(&instruction.outputs.len()) {
             return Err("split-pages requires one or two outputs per source page".into());
         }
-        let page_number = u32::try_from(instruction.source_page_index + 1)
-            .map_err(|_| "split-pages sourcePageIndex is too large")?;
+        let page_number = split_source_page_number(instruction.source_page_index)?;
         let source_page_id = resolve_page_id(&source_pages, page_number)?;
         let source_rotation = resolve_page_rotation(&document, source_page_id)?;
         for output_instruction in &instruction.outputs {
@@ -523,4 +617,109 @@ pub(crate) fn split_pages(
     }
     document.save(output_path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod optional_content_traversal_tests {
+    use super::*;
+
+    fn assert_too_large(result: Result<bool>, message_fragment: &str) {
+        let error = result.unwrap_err();
+        let native_error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+        assert!(native_error.message.contains(message_fragment));
+    }
+
+    #[test]
+    fn rejects_split_source_index_overflow_as_an_invalid_request() {
+        let error = split_source_page_number(usize::MAX).unwrap_err();
+        let native_error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::InvalidRequest);
+        assert_eq!(
+            native_error.message,
+            "split-pages sourcePageIndex is too large"
+        );
+    }
+
+    #[test]
+    fn rejects_deep_direct_optional_content_nesting_without_recursion() {
+        let document = Document::new();
+        let mut nested = Object::Null;
+        for _ in 0..65 {
+            nested = Object::Array(vec![nested]);
+        }
+
+        assert_too_large(
+            object_graph_is_complete(&document, &nested),
+            "64-level traversal ceiling",
+        );
+    }
+
+    #[test]
+    fn rejects_broad_optional_content_graphs_at_the_node_ceiling() {
+        let document = Document::new();
+        let broad = Object::Array(vec![Object::Null; 8]);
+
+        assert_too_large(
+            object_graph_is_complete_with_limits(&document, &broad, 4, 4),
+            "4-node traversal ceiling",
+        );
+    }
+
+    #[test]
+    fn accepts_optional_content_reference_cycles_once_each() {
+        let mut document = Document::new();
+        document.set_object((1, 0), Object::Reference((2, 0)));
+        document.set_object(
+            (2, 0),
+            dictionary! {
+                "Back" => Object::Reference((1, 0)),
+            },
+        );
+
+        assert!(
+            object_graph_is_complete_with_limits(&document, &Object::Reference((1, 0)), 8, 8,)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn accepts_valid_nested_optional_content_arrays_dictionaries_and_streams() {
+        let mut document = Document::new();
+        let pages_id = document.add_object(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Vec::<Object>::new(),
+            "Count" => 0,
+        });
+        let group_id = document.add_object(dictionary! {
+            "Type" => "OCG",
+            "Name" => Object::string_literal("Layer"),
+        });
+        let usage_id = document.add_object(Stream::new(
+            dictionary! {
+                "Nested" => dictionary! {
+                    "Values" => vec![Object::Reference(group_id)],
+                },
+            },
+            Vec::new(),
+        ));
+        let properties_id = document.add_object(dictionary! {
+            "OCGs" => vec![Object::Reference(group_id)],
+            "D" => dictionary! {
+                "Order" => vec![
+                    Object::string_literal("Layers"),
+                    Object::Array(vec![Object::Reference(group_id)]),
+                ],
+                "UsageApplication" => usage_id,
+            },
+        });
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "OCProperties" => properties_id,
+        });
+        document.trailer.set("Root", catalog_id);
+
+        assert!(has_valid_oc_properties(&document, catalog_id).unwrap());
+    }
 }

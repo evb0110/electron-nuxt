@@ -1,11 +1,16 @@
 use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
 use std::{
     borrow::Cow,
+    env,
     fs::File,
-    io::{BufReader, Cursor, Read},
+    io::{BufReader, Cursor},
     path::Path,
+    sync::OnceLock,
 };
 
+use evb_native_support::bounded_io::read_open_file_bounded;
+#[cfg(test)]
+use evb_native_support::{NativeError, NativeErrorCode};
 use evb_raster_io::{
     decode_png, read_png_passthrough, CompressedPng, DecodeLimits, PassthroughLimits, PngColorType,
 };
@@ -17,7 +22,7 @@ use crate::{
     netpbm::{is_rgb_data_grayscale, parse_netpbm, read_netpbm_file, NetpbmData, OwnedNetpbm},
     pdf::{ImagePage, ImagePayload},
     tiff_io::{visit_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
-    ImageProcessing, PdfBuildOptions, PdfPageSize, Result, DEFAULT_DPI,
+    too_large_error, ImageProcessing, PdfBuildOptions, PdfPageSize, Result, DEFAULT_DPI,
 };
 
 const JPEG_GUARDRAIL_QUALITY_FLOOR: u8 = 75;
@@ -25,6 +30,22 @@ const JPEG_GUARDRAIL_PPI_CAP: f64 = 300.0;
 const JPEG_GUARDRAIL_GRAYSCALE_BPP: f64 = 1.5;
 const JPEG_GUARDRAIL_COLOR_BPP: f64 = 2.25;
 const MAX_PNG_ICC_PROFILE_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_MAX_IMAGE_INPUT_MB: usize = 512;
+const MIN_IMAGE_INPUT_MB: usize = 16;
+const MAX_IMAGE_INPUT_MB: usize = 4_096;
+
+fn max_image_input_bytes() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        env::var("EVB_PDF_COMBINE_MAX_INPUT_MB")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| (MIN_IMAGE_INPUT_MB..=MAX_IMAGE_INPUT_MB).contains(value))
+            .unwrap_or(DEFAULT_MAX_IMAGE_INPUT_MB)
+            * 1024
+            * 1024
+    })
+}
 
 #[derive(Clone, Copy)]
 pub struct JpegSizeGuardrail {
@@ -272,10 +293,8 @@ pub(crate) fn read_image_page_from_bytes(
     }
 }
 
-fn read_file(mut file: File) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
+fn read_file(file: File) -> Result<Vec<u8>> {
+    read_open_file_bounded(file, max_image_input_bytes(), "image input").map_err(Into::into)
 }
 
 fn read_png_page_from_reader<R: std::io::Read>(
@@ -980,9 +999,9 @@ fn emit_guardrail_action(
 pub(crate) fn assert_pixel_limit(width: u32, height: u32, max_pixels: u64) -> Result<()> {
     let pixels = width as u64 * height as u64;
     if width == 0 || height == 0 || pixels > max_pixels {
-        return Err(
-            format!("Image dimensions are too large to combine safely: {width}x{height}").into(),
-        );
+        return Err(too_large_error(format!(
+            "Image dimensions are too large to combine safely: {width}x{height}"
+        )));
     }
     Ok(())
 }
@@ -990,6 +1009,13 @@ pub(crate) fn assert_pixel_limit(width: u32, height: u32, max_pixels: u64) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pixel_ceiling_returns_a_typed_too_large_error() {
+        let error = assert_pixel_limit(11, 10, 100).unwrap_err();
+        let native_error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+    }
 
     #[test]
     fn builds_grayscale_netpbm_pdf_image_payload() {

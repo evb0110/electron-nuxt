@@ -28,7 +28,9 @@ use crate::{
     split::LayoutClassification,
     CleanupOptions, OrthogonalRotation, OutputMode, PROTOCOL_VERSION,
 };
-use evb_native_support::{NativeError, NativeErrorCode, NativeErrorEnvelope};
+use evb_native_support::{
+    bounded_io::deserialize_json_file_bounded, NativeError, NativeErrorCode, NativeErrorEnvelope,
+};
 use rayon::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage};
 use serde::Serialize;
@@ -54,6 +56,8 @@ use std::{
 const LAYERED_BACKGROUND_MAX_DPI: f64 = 200.0;
 const PHOTO_BACKGROUND_MAX_DPI: f64 = 300.0;
 const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
+const MAX_MANIFEST_BYTES: usize = 256 * 1024 * 1024;
+const MAX_DETAIL_METADATA_BYTES: usize = 16 * 1024 * 1024;
 
 fn layered_background_dpi(options: &CleanupOptions, confirmed_picture: bool) -> f64 {
     let max_dpi = if confirmed_picture {
@@ -408,9 +412,8 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
 }
 
 fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
-    let bytes = fs::read(path)?;
-    let manifest: ManifestV3 = serde_json::from_slice(&bytes)
-        .map_err(|error| invalid(format!("Invalid v3 batch manifest: {error}")))?;
+    let manifest: ManifestV3 =
+        deserialize_json_file_bounded(path, MAX_MANIFEST_BYTES, "v3 batch manifest")?;
     manifest.validate()?;
     preflight_manifest_paths(&manifest)?;
     let total = manifest.pages.len();
@@ -1806,19 +1809,21 @@ fn run_page(
             output.background_output_path.is_some() && output.foreground_mask_output_path.is_some()
         });
     let mut result = if let Some(detail_plan) = &page.detail_render_plan {
-        let metadata_bytes = fs::read(&detail_plan.base_metadata_path).map_err(|error| {
-            invalid(format!(
-                "Failed to read detail base metadata {}: {error}",
-                detail_plan.base_metadata_path.display(),
-            ))
-        })?;
-        let base_metadata: CleanupMetadata =
-            serde_json::from_slice(&metadata_bytes).map_err(|error| {
+        let base_metadata: CleanupMetadata = deserialize_json_file_bounded(
+            &detail_plan.base_metadata_path,
+            MAX_DETAIL_METADATA_BYTES,
+            "detail base metadata",
+        )
+        .map_err(|error| {
+            if error.code == NativeErrorCode::TooLarge {
+                error
+            } else {
                 invalid(format!(
                     "Invalid detail base metadata {}: {error}",
                     detail_plan.base_metadata_path.display(),
                 ))
-            })?;
+            }
+        })?;
         let base_source = raster::read_image(
             &detail_plan.base_raster_path,
             options.max_pixels,

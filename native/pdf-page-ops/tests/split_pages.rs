@@ -1,9 +1,9 @@
 use lopdf::{dictionary, Dictionary, Document, Object, Stream};
 use std::{
     env,
-    fs::{remove_file, write},
+    fs::{remove_file, write, File},
     path::Path,
-    process::Command,
+    process::{Command, Output},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -16,7 +16,16 @@ fn path(label: &str, extension: &str) -> std::path::PathBuf {
 }
 
 fn run_split_pages(input: &Path, output: &Path, instructions: &Path) {
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+    let result = run_split_pages_output(input, output, instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+fn run_split_pages_output(input: &Path, output: &Path, instructions: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["split-pages", "--input"])
         .arg(input)
         .arg("--output")
@@ -24,12 +33,202 @@ fn run_split_pages(input: &Path, output: &Path, instructions: &Path) {
         .arg("--instructions-file")
         .arg(instructions)
         .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
+        .unwrap()
+}
+
+fn assert_error_code(output: &Output, expected_code: &str) -> serde_json::Value {
+    assert!(!output.status.success());
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(envelope["code"], expected_code, "{envelope}");
+    envelope
+}
+
+fn save_single_page_pdf(
+    path: &Path,
+    contents: Stream,
+) -> (Document, lopdf::ObjectId, lopdf::ObjectId) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let content_id = document.add_object(contents);
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+        "Contents" => content_id,
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
     );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+    (document, catalog_id, page_id)
+}
+
+#[test]
+fn split_pages_rejects_pdf_input_above_the_shared_encoded_limit() {
+    let input = path("oversized-input", "pdf");
+    let output = path("oversized-output", "pdf");
+    let instructions = path("oversized-instructions", "json");
+    File::create(&input)
+        .unwrap()
+        .set_len((512 * 1024 * 1024) + 1)
+        .unwrap();
+    write(&instructions, r#"{"pages":[]}"#).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["split-pages", "--input"])
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .arg("--instructions-file")
+        .arg(&instructions)
+        .output()
+        .unwrap();
+
+    assert!(!result.status.success());
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(stderr.contains(r#""code":"too-large""#), "{stderr}");
+    assert!(
+        stderr.contains("536870912-byte admission ceiling"),
+        "{stderr}"
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
+}
+
+#[test]
+fn split_pages_rejects_deep_optional_content_graph_in_the_real_binary() {
+    let input = path("deep-ocg-input", "pdf");
+    let output = path("deep-ocg-output", "pdf");
+    let instructions = path("deep-ocg-instructions", "json");
+    let (mut document, catalog_id, _) =
+        save_single_page_pdf(&input, Stream::new(dictionary! {}, Vec::new()));
+    let mut nested = Object::Null;
+    for _ in 0..66 {
+        nested = Object::Array(vec![nested]);
+    }
+    document
+        .get_dictionary_mut(catalog_id)
+        .unwrap()
+        .set("OCProperties", nested);
+    document.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120}}]}]}"#,
+    )
+    .unwrap();
+
+    let result = run_split_pages_output(&input, &output, &instructions);
+    let envelope = assert_error_code(&result, "too-large");
+    assert!(envelope["message"]
+        .as_str()
+        .unwrap()
+        .contains("64-level traversal ceiling"));
+
+    for path in [input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn page_sizes_rejects_compressed_page_content_over_the_decode_limit() {
+    let input = path("decompression-input", "pdf");
+    let output = path("decompression-output", "json");
+    let mut stream = Stream::new(dictionary! {}, vec![b' '; (64 * 1024 * 1024) + 1]);
+    stream.compress().unwrap();
+    let (mut document, _, page_id) = save_single_page_pdf(&input, stream);
+    let image_id = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => 1,
+            "Height" => 1,
+            "ColorSpace" => "DeviceGray",
+            "BitsPerComponent" => 8,
+        },
+        vec![0],
+    ));
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Resources",
+        dictionary! {"XObject" => dictionary! {"Im0" => image_id}},
+    );
+    document.save(&input).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["page-sizes", "--input"])
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .output()
+        .unwrap();
+    let envelope = assert_error_code(&result, "too-large");
+    assert!(envelope["message"]
+        .as_str()
+        .unwrap()
+        .contains("67108864-byte decompression ceiling"));
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+}
+
+#[test]
+fn split_pages_rejects_sparse_sidecar_above_the_shared_byte_limit() {
+    let input = path("oversized-sidecar-input", "pdf");
+    let output = path("oversized-sidecar-output", "pdf");
+    let instructions = path("oversized-sidecar-instructions", "json");
+    save_single_page_pdf(&input, Stream::new(dictionary! {}, Vec::new()));
+    File::create(&instructions)
+        .unwrap()
+        .set_len((256 * 1024 * 1024) + 1)
+        .unwrap();
+
+    let result = run_split_pages_output(&input, &output, &instructions);
+    let envelope = assert_error_code(&result, "too-large");
+    assert!(envelope["message"]
+        .as_str()
+        .unwrap()
+        .contains("268435456-byte admission ceiling"));
+
+    for path in [input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn split_pages_rejects_source_index_arithmetic_overflow_without_panicking() {
+    let input = path("overflow-index-input", "pdf");
+    let output = path("overflow-index-output", "pdf");
+    let instructions = path("overflow-index-instructions", "json");
+    save_single_page_pdf(&input, Stream::new(dictionary! {}, Vec::new()));
+    write(
+        &instructions,
+        format!(
+            r#"{{"pages":[{{"sourcePageIndex":{},"rotationQuarterTurns":0,"outputs":[{{"cropRect":{{"x":0,"y":0,"width":200,"height":120}}}}]}}]}}"#,
+            usize::MAX
+        ),
+    )
+    .unwrap();
+
+    let result = run_split_pages_output(&input, &output, &instructions);
+    let envelope = assert_error_code(&result, "invalid-request");
+    assert_eq!(
+        envelope["message"],
+        "split-pages sourcePageIndex is too large"
+    );
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("panic"));
+
+    for path in [input, output, instructions] {
+        let _ = remove_file(path);
+    }
 }
 
 #[test]

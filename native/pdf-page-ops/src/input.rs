@@ -8,8 +8,28 @@ pub(crate) fn parse_margin(value: &str, label: &str) -> Result<f64> {
     Ok(parsed)
 }
 
-pub(crate) fn read_pages_file(path: &PathBuf) -> Result<Vec<u32>> {
-    let contents = fs::read_to_string(path)?;
+pub(crate) fn read_pages_file(path: &Path) -> Result<Vec<u32>> {
+    read_pages_file_with_limits(path, MAX_SIDECAR_BYTES, MAX_COLLECTION_ITEMS)
+}
+
+fn read_pages_file_with_limits(
+    path: &Path,
+    max_bytes: usize,
+    max_items: usize,
+) -> Result<Vec<u32>> {
+    let bytes = read_file_bounded(path, max_bytes, "page selection file").map_err(|error| {
+        if error.code == NativeErrorCode::Io {
+            domain_error(NativeErrorCode::InvalidRequest, error.message)
+        } else {
+            Box::new(error)
+        }
+    })?;
+    let contents = std::str::from_utf8(&bytes).map_err(|error| {
+        domain_error(
+            NativeErrorCode::InvalidRequest,
+            format!("Invalid page selection file UTF-8: {error}"),
+        )
+    })?;
     let mut pages = Vec::new();
     for (index, line) in contents.lines().enumerate() {
         let trimmed = line.trim();
@@ -22,6 +42,12 @@ pub(crate) fn read_pages_file(path: &PathBuf) -> Result<Vec<u32>> {
         if page == 0 {
             return Err(format!("Invalid page number on line {}", index + 1).into());
         }
+        if pages.len() == max_items {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("Page selection exceeds the {max_items}-item admission ceiling"),
+            ));
+        }
         pages.push(page);
     }
     if pages.is_empty() {
@@ -30,9 +56,8 @@ pub(crate) fn read_pages_file(path: &PathBuf) -> Result<Vec<u32>> {
     Ok(pages)
 }
 
-pub(crate) fn read_note_text_updates(path: &PathBuf) -> Result<Vec<NoteTextUpdate>> {
-    let contents = fs::read_to_string(path)?;
-    let parsed: NoteTextUpdatesFile = serde_json::from_str(&contents)?;
+pub(crate) fn read_note_text_updates(path: &Path) -> Result<Vec<NoteTextUpdate>> {
+    let parsed: NoteTextUpdatesFile = read_json_sidecar(path, "note text updates")?;
     if parsed.updates.is_empty() {
         return Err("At least one note text update is required".into());
     }
@@ -41,6 +66,7 @@ pub(crate) fn read_note_text_updates(path: &PathBuf) -> Result<Vec<NoteTextUpdat
             return Err("Invalid note update object number".into());
         }
     }
+    validate_note_text_budget(&parsed.updates)?;
     Ok(parsed.updates)
 }
 
@@ -89,9 +115,8 @@ pub(crate) fn validate_marker_rect(rect: MarkerRect) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn read_note_changes(path: &PathBuf) -> Result<NoteChangesFile> {
-    let contents = fs::read_to_string(path)?;
-    let parsed: NoteChangesFile = serde_json::from_str(&contents)?;
+pub(crate) fn read_note_changes(path: &Path) -> Result<NoteChangesFile> {
+    let parsed: NoteChangesFile = read_json_sidecar(path, "note changes")?;
     if parsed.updates.is_empty() && parsed.free_text_notes.is_empty() && parsed.deletes.is_empty() {
         return Err("At least one note change is required".into());
     }
@@ -102,6 +127,12 @@ pub(crate) fn read_note_changes(path: &PathBuf) -> Result<NoteChangesFile> {
     }
     validate_free_text_notes(&parsed.free_text_notes)?;
     validate_annotation_deletes(&parsed.deletes)?;
+    validate_mutation_collection_budget(&[
+        parsed.updates.len(),
+        parsed.free_text_notes.len(),
+        parsed.deletes.len(),
+    ])?;
+    validate_note_changes_text_budget(&parsed)?;
     Ok(parsed)
 }
 
@@ -137,6 +168,12 @@ pub(crate) fn validate_bookmark_items(items: &[BookmarkEntry], depth: usize) -> 
         ));
     }
     for item in items {
+        if item.title.len() > 4_096 {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Bookmark title exceeds the 4096-byte admission ceiling",
+            ));
+        }
         if let Some(color) = item.color.as_deref() {
             if parse_pdf_color(Some(color)).is_none() {
                 return Err("Invalid bookmark color".into());
@@ -370,14 +407,16 @@ pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
         {
             return Err("Invalid placed image rotation".into());
         }
-        read_validated_placed_image_bytes(image)?;
+    }
+    let payloads = validate_placed_image_payloads(images)?;
+    for (image, bytes) in images.iter().zip(payloads) {
+        *image.validated_bytes.borrow_mut() = Some(bytes);
     }
     Ok(())
 }
 
-pub(crate) fn read_native_mutations(path: &PathBuf) -> Result<NativeMutationsFile> {
-    let contents = fs::read_to_string(path)?;
-    let parsed: NativeMutationsFile = serde_json::from_str(&contents)?;
+pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> {
+    let parsed: NativeMutationsFile = read_json_sidecar(path, "native PDF mutations")?;
     if parsed.updates.is_empty()
         && parsed.free_text_notes.is_empty()
         && parsed.deletes.is_empty()
@@ -409,5 +448,202 @@ pub(crate) fn read_native_mutations(path: &PathBuf) -> Result<NativeMutationsFil
         validate_markup_mutation(markup)?;
     }
     validate_placed_images(&parsed.placed_images)?;
+    validate_mutation_collection_budget(&[
+        parsed.updates.len(),
+        parsed.free_text_notes.len(),
+        parsed.deletes.len(),
+        parsed.placed_images.len(),
+    ])?;
+    validate_native_mutation_text_budget(&parsed)?;
     Ok(parsed)
+}
+
+fn validate_mutation_collection_budget(lengths: &[usize]) -> Result<()> {
+    let total = lengths
+        .iter()
+        .try_fold(0usize, |total, length| total.checked_add(*length))
+        .unwrap_or(usize::MAX);
+    if total > MAX_COLLECTION_ITEMS {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!(
+                "Mutation collections exceed the {MAX_COLLECTION_ITEMS}-item admission ceiling"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn consume_text_bytes(total: &mut usize, value: &str) -> Result<()> {
+    *total = total.checked_add(value.len()).unwrap_or(usize::MAX);
+    if *total > MAX_AGGREGATE_TEXT_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Mutation text exceeds the {MAX_AGGREGATE_TEXT_BYTES}-byte admission ceiling"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_note_text_budget(updates: &[NoteTextUpdate]) -> Result<()> {
+    let mut total = 0usize;
+    for update in updates {
+        consume_text_bytes(&mut total, &update.text)?;
+    }
+    Ok(())
+}
+
+fn validate_note_changes_text_budget(changes: &NoteChangesFile) -> Result<()> {
+    let mut total = 0usize;
+    for update in &changes.updates {
+        consume_text_bytes(&mut total, &update.text)?;
+    }
+    for note in &changes.free_text_notes {
+        consume_text_bytes(&mut total, &note.stable_key)?;
+        consume_text_bytes(&mut total, &note.text)?;
+        for value in [note.author.as_deref(), note.color.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            consume_text_bytes(&mut total, value)?;
+        }
+    }
+    for delete in &changes.deletes {
+        if let Some(stable_key) = delete.stable_key.as_deref() {
+            consume_text_bytes(&mut total, stable_key)?;
+        }
+    }
+    Ok(())
+}
+
+fn consume_bookmark_text(total: &mut usize, items: &[BookmarkEntry]) -> Result<()> {
+    for item in items {
+        consume_text_bytes(total, &item.title)?;
+        for value in [item.named_dest.as_deref(), item.color.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            consume_text_bytes(total, value)?;
+        }
+        consume_bookmark_text(total, &item.items)?;
+    }
+    Ok(())
+}
+
+fn validate_native_mutation_text_budget(mutations: &NativeMutationsFile) -> Result<()> {
+    let mut total = 0usize;
+    for update in &mutations.updates {
+        consume_text_bytes(&mut total, &update.text)?;
+    }
+    for note in &mutations.free_text_notes {
+        consume_text_bytes(&mut total, &note.stable_key)?;
+        consume_text_bytes(&mut total, &note.text)?;
+        for value in [note.author.as_deref(), note.color.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            consume_text_bytes(&mut total, value)?;
+        }
+    }
+    for delete in &mutations.deletes {
+        if let Some(stable_key) = delete.stable_key.as_deref() {
+            consume_text_bytes(&mut total, stable_key)?;
+        }
+    }
+    if let Some(labels) = &mutations.page_labels {
+        for range in &labels.ranges {
+            consume_text_bytes(&mut total, &range.prefix)?;
+            if let Some(style) = range.style.as_deref() {
+                consume_text_bytes(&mut total, style)?;
+            }
+        }
+    }
+    if let Some(bookmarks) = &mutations.bookmarks {
+        consume_text_bytes(&mut total, &bookmarks.untitled_label)?;
+        consume_bookmark_text(&mut total, &bookmarks.items)?;
+    }
+    if let Some(shapes) = &mutations.shapes {
+        for shape in &shapes.shapes {
+            for value in [
+                Some(shape.shape_type.as_str()),
+                Some(shape.color.as_str()),
+                shape.fill_color.as_deref(),
+                shape.annotation_id.as_deref(),
+                shape.stable_key.as_deref(),
+                shape.pdf_subtype.as_deref(),
+                shape.line_start_style.as_deref(),
+                shape.line_end_style.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                consume_text_bytes(&mut total, value)?;
+            }
+        }
+        for value in shapes
+            .deleted_annotation_ids
+            .iter()
+            .chain(&shapes.deleted_stable_keys)
+        {
+            consume_text_bytes(&mut total, value)?;
+        }
+    }
+    if let Some(markup) = &mutations.markup {
+        for (annotation_id, subtype) in &markup.overrides {
+            consume_text_bytes(&mut total, annotation_id)?;
+            consume_text_bytes(&mut total, subtype)?;
+        }
+        for hint in &markup.hints {
+            consume_text_bytes(&mut total, &hint.subtype)?;
+            for value in [
+                hint.annotation_id.as_deref(),
+                hint.color.as_deref(),
+                hint.id.as_deref(),
+                hint.source.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                consume_text_bytes(&mut total, value)?;
+            }
+        }
+    }
+    for image in &mutations.placed_images {
+        consume_text_bytes(&mut total, &image.mime_type)?;
+        consume_text_bytes(&mut total, &image.bytes_path.to_string_lossy())?;
+        consume_text_bytes(&mut total, &image.sha256)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod bounded_input_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "evb-page-ops-{label}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn page_selection_admission_reports_typed_byte_and_item_limits() {
+        let path = temp_path("page-selection-limit");
+        fs::write(&path, b"1\n2\n").unwrap();
+
+        for error in [
+            read_pages_file_with_limits(&path, 3, 10).unwrap_err(),
+            read_pages_file_with_limits(&path, 16, 1).unwrap_err(),
+        ] {
+            let native = error.downcast_ref::<NativeError>().unwrap();
+            assert_eq!(native.code, NativeErrorCode::TooLarge);
+        }
+        fs::remove_file(path).unwrap();
+    }
 }

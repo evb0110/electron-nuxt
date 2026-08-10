@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::{any::Any, error::Error};
 use thiserror::Error;
 
+pub mod bounded_io;
 pub mod generated_native_tool_protocols;
 pub mod output;
 

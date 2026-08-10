@@ -12,12 +12,8 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         );
     }
 
-    let mut document = Document::load(&config.input_path).map_err(|error| {
-        domain_error(
-            NativeErrorCode::CorruptXref,
-            format!("Failed to parse PDF structure: {error}"),
-        )
-    })?;
+    let mut document = load_pdf_path(&config.input_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     if document.is_encrypted() {
         return Err(domain_error(
             NativeErrorCode::Encrypted,
@@ -36,11 +32,8 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             source_path,
             instructions_file,
         } => {
-            let source = Document::load(&source_path).map_err(|error| {
-                domain_error(
-                    NativeErrorCode::CorruptXref,
-                    format!("Failed to parse source PDF structure: {error}"),
-                )
+            let source = load_pdf_path(&source_path).map_err(|error| {
+                classify_pdf_load_error(error, "Failed to parse source PDF structure")
             })?;
             if source.is_encrypted() {
                 return Err(domain_error(
@@ -102,6 +95,14 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
 
     document.save(&config.output_path)?;
     Ok(())
+}
+
+pub(crate) fn classify_pdf_load_error(error: Box<dyn Error>, context: &str) -> Box<dyn Error> {
+    if error.downcast_ref::<NativeError>().is_some() {
+        error
+    } else {
+        domain_error(NativeErrorCode::CorruptXref, format!("{context}: {error}"))
+    }
 }
 
 /// The three append commands differ only in the payload schema they accept, so

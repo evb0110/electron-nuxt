@@ -27,24 +27,46 @@ pub(crate) fn upsert_free_text_notes(
     notes: &[FreeTextNote],
     modified_at: &str,
 ) -> Result<()> {
+    let mut annotation_visits = 0usize;
+    upsert_free_text_notes_with_counter(document, notes, modified_at, &mut annotation_visits)
+}
+
+pub(crate) fn upsert_free_text_notes_with_counter(
+    document: &mut Document,
+    notes: &[FreeTextNote],
+    modified_at: &str,
+    annotation_visits: &mut usize,
+) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
     }
 
     let page_map = document.get_pages();
-    let mut blank_ap_ref: Option<ObjectId> = None;
+    let mut note_pages = Vec::with_capacity(notes.len());
+    let mut annotation_indexes = HashMap::new();
     for note in notes {
         let page_number = note
             .page_index
             .checked_add(1)
             .ok_or("Invalid FreeText note page index")?;
         let page_id = resolve_page_id(&page_map, page_number)?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
+        {
+            let (index, scanned) = build_page_annotation_index(document, page_id)?;
+            *annotation_visits = (*annotation_visits).saturating_add(scanned);
+            entry.insert(index);
+        }
+        note_pages.push(page_id);
+    }
+    let mut blank_ap_ref: Option<ObjectId> = None;
+    for (note, page_id) in notes.iter().zip(note_pages) {
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let pdf_rect = marker_rect_to_pdf_rect(note.marker_rect, page_view, page_rotation)?;
         let note_name = replayable_free_text_note_name(note);
-        let annots = get_page_annots(document, page_id)?;
-        let existing = find_existing_free_text_note(document, &annots, &note_name)?;
+        let existing = annotation_indexes
+            .get(&page_id)
+            .and_then(|index| index.first_free_text_named(&note_name));
 
         if let Some(annot_id) = existing {
             let popup_ref = {
@@ -62,12 +84,10 @@ pub(crate) fn upsert_free_text_notes(
                 &mut blank_ap_ref,
             )?;
             if let Some(popup_id) = ensured_popup_ref {
-                if !annots
-                    .iter()
-                    .any(|object| object.as_reference().ok() == Some(popup_id))
-                {
-                    append_annots_to_page(document, page_id, &[popup_id])?;
-                }
+                annotation_indexes
+                    .get_mut(&page_id)
+                    .expect("FreeText pages are indexed before mutation")
+                    .append_missing_refs(&[popup_id]);
             }
             continue;
         }
@@ -86,7 +106,13 @@ pub(crate) fn upsert_free_text_notes(
         let popup_dict = build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref);
         document.set_object(annot_ref, Object::Dictionary(annot_dict));
         document.set_object(popup_ref, Object::Dictionary(popup_dict));
-        append_annots_to_page(document, page_id, &[annot_ref, popup_ref])?;
+        annotation_indexes
+            .get_mut(&page_id)
+            .expect("FreeText pages are indexed before mutation")
+            .append_free_text(&note_name, annot_ref, popup_ref);
+    }
+    for (page_id, index) in annotation_indexes {
+        write_page_annotation_index(document, page_id, index)?;
     }
     Ok(())
 }
@@ -96,29 +122,57 @@ pub(crate) fn upsert_free_text_notes_incremental(
     notes: &[FreeTextNote],
     modified_at: &str,
 ) -> Result<()> {
+    let mut annotation_visits = 0usize;
+    upsert_free_text_notes_incremental_with_counter(
+        incremental,
+        notes,
+        modified_at,
+        &mut annotation_visits,
+    )
+}
+
+pub(crate) fn upsert_free_text_notes_incremental_with_counter(
+    incremental: &mut IncrementalDocument,
+    notes: &[FreeTextNote],
+    modified_at: &str,
+    annotation_visits: &mut usize,
+) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
     }
 
     let page_map = incremental.get_prev_documents().get_pages();
-    let mut blank_ap_ref: Option<ObjectId> = None;
+    let mut note_pages = Vec::with_capacity(notes.len());
+    let mut annotation_indexes = HashMap::new();
     for note in notes {
         let page_number = note
             .page_index
             .checked_add(1)
             .ok_or("Invalid FreeText note page index")?;
         let page_id = resolve_page_id(&page_map, page_number)?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
+        {
+            let (index, scanned) =
+                build_page_annotation_index(incremental.get_prev_documents(), page_id)?;
+            *annotation_visits = (*annotation_visits).saturating_add(scanned);
+            entry.insert(index);
+        }
+        note_pages.push(page_id);
+    }
+    let mut blank_ap_ref: Option<ObjectId> = None;
+    for (note, page_id) in notes.iter().zip(note_pages) {
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let pdf_rect = marker_rect_to_pdf_rect(note.marker_rect, page_view, page_rotation)?;
         let note_name = replayable_free_text_note_name(note);
-        let annots = get_page_annots(incremental.get_prev_documents(), page_id)?;
-        let existing =
-            find_existing_free_text_note(incremental.get_prev_documents(), &annots, &note_name)?;
+        let existing = annotation_indexes
+            .get(&page_id)
+            .and_then(|index| index.first_free_text_named(&note_name));
 
         if let Some(annot_id) = existing {
             let popup_ref = {
-                let annot_dict = incremental.get_prev_documents().get_dictionary(annot_id)?;
+                let revision = AppendedRevision::new(incremental);
+                let annot_dict = revision.dictionary(annot_id)?;
                 annotation_related_ref(annot_dict, b"Popup")
             };
             incremental.opt_clone_object_to_new_document(annot_id)?;
@@ -133,12 +187,10 @@ pub(crate) fn upsert_free_text_notes_incremental(
                 &mut blank_ap_ref,
             )?;
             if let Some(popup_id) = popup_ref {
-                if !annots
-                    .iter()
-                    .any(|object| object.as_reference().ok() == Some(popup_id))
-                {
-                    append_annots_to_page_incremental(incremental, page_id, &[popup_id])?;
-                }
+                annotation_indexes
+                    .get_mut(&page_id)
+                    .expect("FreeText pages are indexed before mutation")
+                    .append_missing_refs(&[popup_id]);
             }
             continue;
         }
@@ -162,7 +214,13 @@ pub(crate) fn upsert_free_text_notes_incremental(
         incremental
             .new_document
             .set_object(popup_ref, Object::Dictionary(popup_dict));
-        append_annots_to_page_incremental(incremental, page_id, &[annot_ref, popup_ref])?;
+        annotation_indexes
+            .get_mut(&page_id)
+            .expect("FreeText pages are indexed before mutation")
+            .append_free_text(&note_name, annot_ref, popup_ref);
+    }
+    for (page_id, index) in annotation_indexes {
+        write_page_annotation_index_incremental(incremental, page_id, index)?;
     }
     Ok(())
 }
@@ -410,30 +468,128 @@ pub(crate) fn replayable_free_text_note_name(note: &FreeTextNote) -> String {
     replayable_free_text_note_name_from_parts(&note.stable_key, note.created_at)
 }
 
-pub(crate) fn find_existing_free_text_note(
-    document: &Document,
-    annots: &[Object],
-    note_name: &str,
-) -> Result<Option<ObjectId>> {
-    for object in annots {
-        let annot_id = match object.as_reference() {
-            Ok(id) => id,
-            Err(_) => continue,
-        };
-        let dict = match document.get_dictionary(annot_id) {
-            Ok(dict) => dict,
-            Err(_) => continue,
-        };
-        if annotation_subtype(dict) != "freetext" {
-            continue;
-        }
-        let name_matches =
-            dict.get(b"NM").ok().and_then(pdf_string_to_text).as_deref() == Some(note_name);
-        if name_matches {
-            return Ok(Some(annot_id));
+pub(crate) struct PageAnnotationIndex {
+    annots: Vec<Object>,
+    annotation_refs: HashSet<ObjectId>,
+    first_free_text_by_name: HashMap<String, ObjectId>,
+    named_free_text: Vec<(ObjectId, String)>,
+    dirty: bool,
+}
+
+impl PageAnnotationIndex {
+    fn first_free_text_named(&self, note_name: &str) -> Option<ObjectId> {
+        self.first_free_text_by_name.get(note_name).copied()
+    }
+
+    pub(crate) fn append_missing_refs(&mut self, refs: &[ObjectId]) {
+        for object_id in refs {
+            if self.annotation_refs.insert(*object_id) {
+                self.annots.push(Object::Reference(*object_id));
+                self.dirty = true;
+            }
         }
     }
-    Ok(None)
+
+    fn append_free_text(&mut self, note_name: &str, annot_ref: ObjectId, popup_ref: ObjectId) {
+        self.first_free_text_by_name
+            .entry(note_name.to_string())
+            .or_insert(annot_ref);
+        self.named_free_text
+            .push((annot_ref, note_name.to_string()));
+        self.append_missing_refs(&[annot_ref, popup_ref]);
+    }
+
+    fn matching_stable_delete_refs(&self, delete: &AnnotationDelete) -> Vec<ObjectId> {
+        let Some(stable_key) = delete.stable_key.as_deref().map(str::trim) else {
+            return Vec::new();
+        };
+        if stable_key.is_empty() {
+            return Vec::new();
+        }
+        let exact_name = replayable_free_text_note_name_from_parts(stable_key, delete.created_at);
+        let stable_prefix = format!(
+            "{}:created:",
+            replayable_free_text_note_name_from_parts(stable_key, None)
+        );
+        self.named_free_text
+            .iter()
+            .filter_map(|(object_id, note_name)| {
+                let matches = note_name == &exact_name
+                    || (delete.created_at.is_none_or(|created_at| created_at == 0)
+                        && note_name.starts_with(&stable_prefix));
+                matches.then_some(*object_id)
+            })
+            .collect()
+    }
+}
+
+pub(crate) fn build_page_annotation_index(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+) -> Result<(PageAnnotationIndex, usize)> {
+    let annots = get_page_annots(document, page_id)?;
+    let mut annotation_refs = HashSet::new();
+    let mut first_free_text_by_name = HashMap::new();
+    let mut named_free_text = Vec::new();
+    let mut scanned = 0usize;
+    for object in &annots {
+        scanned += 1;
+        let Ok(object_id) = object.as_reference() else {
+            continue;
+        };
+        annotation_refs.insert(object_id);
+        let Ok(dictionary) = document.dictionary(object_id) else {
+            continue;
+        };
+        if annotation_subtype(dictionary) != "freetext" {
+            continue;
+        }
+        let Some(note_name) = dictionary.get(b"NM").ok().and_then(pdf_string_to_text) else {
+            continue;
+        };
+        first_free_text_by_name
+            .entry(note_name.clone())
+            .or_insert(object_id);
+        named_free_text.push((object_id, note_name));
+    }
+    Ok((
+        PageAnnotationIndex {
+            annots,
+            annotation_refs,
+            first_free_text_by_name,
+            named_free_text,
+            dirty: false,
+        },
+        scanned,
+    ))
+}
+
+pub(crate) fn write_page_annotation_index(
+    document: &mut Document,
+    page_id: ObjectId,
+    index: PageAnnotationIndex,
+) -> Result<()> {
+    if index.dirty {
+        document
+            .get_dictionary_mut(page_id)?
+            .set("Annots", Object::Array(index.annots));
+    }
+    Ok(())
+}
+
+pub(crate) fn write_page_annotation_index_incremental(
+    incremental: &mut IncrementalDocument,
+    page_id: ObjectId,
+    index: PageAnnotationIndex,
+) -> Result<()> {
+    if index.dirty {
+        incremental.opt_clone_object_to_new_document(page_id)?;
+        incremental
+            .new_document
+            .get_dictionary_mut(page_id)?
+            .set("Annots", Object::Array(index.annots));
+    }
+    Ok(())
 }
 
 pub(crate) fn get_page_annots(
@@ -573,25 +729,15 @@ pub(crate) fn resolve_annotation_delete_target_refs(
         return Ok(vec![(object_number, generation_number)]);
     }
 
-    let annots = get_page_annots(document, page_id)?;
-    let matching_refs: Vec<ObjectId> = annots
-        .iter()
-        .filter_map(|object| object.as_reference().ok())
-        .filter_map(|object_id| {
-            let is_free_text = document
-                .dictionary(object_id)
-                .map(|dict| annotation_subtype(dict) == "freetext")
-                .unwrap_or(false);
-            if !is_free_text {
-                return None;
-            }
-            match annotation_matches_stable_delete_name(document, object_id, delete) {
-                Ok(true) => Some(Ok(object_id)),
-                Ok(false) => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let (index, _) = build_page_annotation_index(document, page_id)?;
+    resolve_annotation_delete_target_refs_from_index(&index, delete)
+}
+
+fn resolve_annotation_delete_target_refs_from_index(
+    index: &PageAnnotationIndex,
+    delete: &AnnotationDelete,
+) -> Result<Vec<ObjectId>> {
+    let matching_refs = index.matching_stable_delete_refs(delete);
 
     match matching_refs.len() {
         1 => Ok(matching_refs),
@@ -606,13 +752,28 @@ pub(crate) fn collect_delete_refs(
 ) -> Result<HashSet<ObjectId>> {
     let page_map = document.get_pages();
     let mut refs_to_delete = HashSet::new();
+    let mut annotation_indexes = HashMap::new();
     for delete in deletes {
         let page_number = delete
             .page_index
             .checked_add(1)
             .ok_or("Invalid annotation delete page index")?;
         let page_id = resolve_page_id(&page_map, page_number)?;
-        for target_id in resolve_annotation_delete_target_refs(document, page_id, delete)? {
+        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
+        {
+            entry.insert(build_page_annotation_index(document, page_id)?.0);
+        }
+        let index = annotation_indexes
+            .get(&page_id)
+            .expect("Annotation-delete pages are indexed before lookup");
+        let target_refs = if let (Some(object_number), Some(generation_number)) =
+            (delete.object_number, delete.generation_number)
+        {
+            vec![(object_number, generation_number)]
+        } else {
+            resolve_annotation_delete_target_refs_from_index(index, delete)?
+        };
+        for target_id in target_refs {
             for object_id in collect_annotation_refs_to_delete(document, target_id)? {
                 refs_to_delete.insert(object_id);
             }

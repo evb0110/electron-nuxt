@@ -27,6 +27,26 @@ const HEADER_SIZE: usize = 64;
 const PAGE_RECORD_SIZE: usize = 24;
 const MAX_SERVICE_WORKERS: usize = 4;
 const MAX_SERVICE_CACHED_INDEXES: usize = 8;
+const MAX_SERVICE_CACHED_INDEX_BYTES: usize = 512 * 1024 * 1024;
+const MAX_SEARCH_INDEX_BYTES: usize = 320 * 1024 * 1024;
+const MAX_SEARCH_INDEX_PAGE_RECORDS: usize = 1_000_000;
+const MAX_SEARCH_INDEX_PAGE_TEXT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_SEARCH_INDEX_TOTAL_TEXT_BYTES: usize = 256 * 1024 * 1024;
+
+#[derive(Clone, Copy)]
+struct SearchIndexLimits {
+    max_index_bytes: usize,
+    max_page_records: usize,
+    max_page_text_bytes: usize,
+    max_total_text_bytes: usize,
+}
+
+const SEARCH_INDEX_LIMITS: SearchIndexLimits = SearchIndexLimits {
+    max_index_bytes: MAX_SEARCH_INDEX_BYTES,
+    max_page_records: MAX_SEARCH_INDEX_PAGE_RECORDS,
+    max_page_text_bytes: MAX_SEARCH_INDEX_PAGE_TEXT_BYTES,
+    max_total_text_bytes: MAX_SEARCH_INDEX_TOTAL_TEXT_BYTES,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -166,6 +186,14 @@ fn usize_from_u64(value: u64, label: &str) -> Result<usize, NativeError> {
 
 fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Box<dyn Error>> {
     let file = File::open(path)?;
+    let file_len = usize::try_from(file.metadata()?.len())
+        .map_err(|_| too_large("Native search index is too large"))?;
+    if file_len > SEARCH_INDEX_LIMITS.max_index_bytes {
+        return Err(Box::new(too_large(format!(
+            "Native search index exceeds the {}-byte admission ceiling",
+            SEARCH_INDEX_LIMITS.max_index_bytes
+        ))));
+    }
     // SAFETY: the mapping is read-only and retained by SearchIndex. Index files
     // are immutable revision-keyed sidecars and are replaced atomically.
     let mapped = unsafe { MmapOptions::new().map(&file)? };
@@ -176,7 +204,21 @@ fn load_index_data(
     data: SearchIndexData,
     expected_revision: &str,
 ) -> Result<SearchIndex, Box<dyn Error>> {
+    load_index_data_with_limits(data, expected_revision, SEARCH_INDEX_LIMITS)
+}
+
+fn load_index_data_with_limits(
+    data: SearchIndexData,
+    expected_revision: &str,
+    limits: SearchIndexLimits,
+) -> Result<SearchIndex, Box<dyn Error>> {
     let bytes = data.as_ref();
+    if bytes.len() > limits.max_index_bytes {
+        return Err(Box::new(too_large(format!(
+            "Native search index exceeds the {}-byte admission ceiling",
+            limits.max_index_bytes
+        ))));
+    }
     if bytes.len() < HEADER_SIZE {
         return Err(Box::new(native_failure(
             "Native search index is too small".to_string(),
@@ -239,6 +281,12 @@ fn load_index_data(
 
     let page_record_count_usize = usize::try_from(page_record_count)
         .map_err(|_| too_large("Native search index page count is too large".to_string()))?;
+    if page_record_count_usize > limits.max_page_records {
+        return Err(Box::new(too_large(format!(
+            "Native search index exceeds the {}-record admission ceiling",
+            limits.max_page_records
+        ))));
+    }
     let table_size = page_record_count_usize
         .checked_mul(PAGE_RECORD_SIZE)
         .ok_or_else(|| too_large("Native search index table is too large".to_string()))?;
@@ -250,6 +298,13 @@ fn load_index_data(
             "Native search index page table is truncated".to_string(),
         )));
     }
+    let total_text_bytes = bytes.len() - text_data_offset;
+    if total_text_bytes > limits.max_total_text_bytes {
+        return Err(Box::new(too_large(format!(
+            "Native search index text exceeds the {}-byte aggregate admission ceiling",
+            limits.max_total_text_bytes
+        ))));
+    }
 
     let mut records = Vec::with_capacity(page_record_count_usize);
     for record_index in 0..page_record_count_usize {
@@ -257,6 +312,12 @@ fn load_index_data(
         let page_number = read_u32_le(bytes, record_offset)?;
         let byte_offset = usize_from_u64(read_u64_le(bytes, record_offset + 8)?, "byte offset")?;
         let byte_len = usize_from_u64(read_u64_le(bytes, record_offset + 16)?, "byte length")?;
+        if byte_len > limits.max_page_text_bytes {
+            return Err(Box::new(too_large(format!(
+                "Native search index page text exceeds the {}-byte admission ceiling",
+                limits.max_page_text_bytes
+            ))));
+        }
         let byte_end = byte_offset.checked_add(byte_len).ok_or_else(|| {
             too_large("Native search index page text offset overflow".to_string())
         })?;
@@ -280,6 +341,14 @@ fn load_index_data(
 }
 
 impl SearchIndex {
+    fn cache_weight_bytes(&self) -> usize {
+        self.data.as_ref().len().saturating_add(
+            self.records
+                .len()
+                .saturating_mul(std::mem::size_of::<PageRecord>()),
+        )
+    }
+
     fn page_text(&self, record: &PageRecord) -> Result<&str, Box<dyn Error>> {
         let end = record.offset.checked_add(record.byte_len).ok_or_else(|| {
             too_large("Native search index page text offset overflow".to_string())
@@ -903,13 +972,40 @@ enum ServiceResponse<'a> {
     },
 }
 
-#[derive(Default)]
 struct ServiceIndexCacheState {
     entries: HashMap<(PathBuf, String), Arc<SearchIndex>>,
     recency: VecDeque<(PathBuf, String)>,
+    max_entries: usize,
+    max_bytes: usize,
+}
+
+impl Default for ServiceIndexCacheState {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+            recency: VecDeque::new(),
+            max_entries: MAX_SERVICE_CACHED_INDEXES,
+            max_bytes: MAX_SERVICE_CACHED_INDEX_BYTES,
+        }
+    }
 }
 
 impl ServiceIndexCacheState {
+    #[cfg(test)]
+    fn with_limits(max_entries: usize, max_bytes: usize) -> Self {
+        Self {
+            max_entries,
+            max_bytes,
+            ..Self::default()
+        }
+    }
+
+    fn cached_bytes(&self) -> usize {
+        self.entries.values().fold(0usize, |total, index| {
+            total.saturating_add(index.cache_weight_bytes())
+        })
+    }
+
     fn get(&mut self, key: &(PathBuf, String)) -> Option<Arc<SearchIndex>> {
         let index = self.entries.get(key).cloned()?;
         self.recency.retain(|candidate| candidate != key);
@@ -924,7 +1020,7 @@ impl ServiceIndexCacheState {
             .retain(|(cached_path, _)| cached_path != &key.0);
         self.entries.insert(key.clone(), index);
         self.recency.push_back(key);
-        while self.entries.len() > MAX_SERVICE_CACHED_INDEXES {
+        while self.entries.len() > self.max_entries || self.cached_bytes() > self.max_bytes {
             if let Some(oldest) = self.recency.pop_front() {
                 self.entries.remove(&oldest);
             } else {
@@ -1539,6 +1635,48 @@ mod tests {
         assert!(result.is_err());
     }
 
+    fn assert_too_large_index(bytes: Vec<u8>, limits: SearchIndexLimits, message: &str) {
+        let error = load_index_data_with_limits(
+            SearchIndexData::Owned(bytes),
+            TEST_DOCUMENT_REVISION,
+            limits,
+        )
+        .unwrap_err();
+        let native_error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+        assert!(native_error.message.contains(message), "{native_error}");
+    }
+
+    #[test]
+    fn caps_search_index_records_and_text_before_retention() {
+        let tiny_limits = SearchIndexLimits {
+            max_index_bytes: 1_024,
+            max_page_records: 1,
+            max_page_text_bytes: 4,
+            max_total_text_bytes: 8,
+        };
+
+        let mut too_many_records = serialized_index(&[]);
+        too_many_records[20..24].copy_from_slice(&2u32.to_le_bytes());
+        assert_too_large_index(too_many_records, tiny_limits, "1-record admission ceiling");
+
+        assert_too_large_index(
+            serialized_index(&[(1, "12345")]),
+            tiny_limits,
+            "4-byte admission ceiling",
+        );
+        assert_too_large_index(
+            serialized_index(&[(1, "1234"), (2, "5678")]),
+            SearchIndexLimits {
+                max_page_records: 2,
+                max_page_text_bytes: 8,
+                max_total_text_bytes: 7,
+                ..tiny_limits
+            },
+            "7-byte aggregate admission ceiling",
+        );
+    }
+
     #[test]
     fn bounds_service_index_cache_without_invalidating_active_indexes() {
         let active = Arc::new(test_index(&[(1, "active")]));
@@ -1563,6 +1701,27 @@ mod tests {
         assert!(!cache.entries.contains_key(&active_key));
         assert_eq!(active.page_count, 1);
         assert_eq!(Arc::strong_count(&active), 1);
+    }
+
+    #[test]
+    fn bounds_service_index_cache_by_retained_bytes() {
+        let first = Arc::new(test_index(&[(1, "first")]));
+        let weight = first.cache_weight_bytes();
+        let mut cache = ServiceIndexCacheState::with_limits(8, weight * 2);
+        let first_key = (PathBuf::from("first.bin"), "revision-1".to_string());
+        cache.insert(first_key.clone(), Arc::clone(&first));
+        cache.insert(
+            (PathBuf::from("second.bin"), "revision-2".to_string()),
+            Arc::new(test_index(&[(1, "other")])),
+        );
+        cache.insert(
+            (PathBuf::from("third.bin"), "revision-3".to_string()),
+            Arc::new(test_index(&[(1, "third")])),
+        );
+
+        assert!(cache.cached_bytes() <= weight * 2);
+        assert!(!cache.entries.contains_key(&first_key));
+        assert_eq!(Arc::strong_count(&first), 1);
     }
 
     trait MatchText {

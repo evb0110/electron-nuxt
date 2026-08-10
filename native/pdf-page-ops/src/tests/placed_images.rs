@@ -6,8 +6,6 @@
     }
 
     fn placed_jpeg_mutation() -> PlacedImage {
-        use sha2::{Digest, Sha256};
-
         let bytes_path = temp_pdf_path("placed-image-jpeg");
         let bytes = minimal_jpeg_bytes();
         write(&bytes_path, &bytes).unwrap();
@@ -21,7 +19,8 @@
             mime_type: "image/jpeg".to_string(),
             bytes_path,
             byte_length: bytes.len() as u64,
-            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            sha256: sha256_hex(&bytes),
+            validated_bytes: std::cell::RefCell::new(None),
         }
     }
 
@@ -32,6 +31,89 @@
         let error = validate_placed_images(&[image]).unwrap_err();
         let native_error = error.downcast_ref::<NativeError>().unwrap();
         assert_eq!(native_error.code, NativeErrorCode::InvalidRequest);
+    }
+
+    #[test]
+    fn placed_image_metadata_limits_reject_before_opening_payloads() {
+        use std::cell::Cell;
+        use std::fs::File;
+
+        let mut image = placed_jpeg_mutation();
+        let image_path = image.bytes_path.clone();
+        File::options()
+            .write(true)
+            .open(&image.bytes_path)
+            .unwrap()
+            .set_len(5)
+            .unwrap();
+        image.byte_length = 4;
+        let open_count = Cell::new(0usize);
+        let error = validate_placed_image_payloads_with_limits_and_open(
+            &[image],
+            4,
+            8,
+            |path| {
+                open_count.set(open_count.get() + 1);
+                File::open(path)
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<NativeError>().unwrap().code,
+            NativeErrorCode::TooLarge
+        );
+        assert_eq!(open_count.get(), 0);
+        let _ = remove_file(image_path);
+    }
+
+    #[test]
+    fn placed_image_aggregate_limit_is_checked_before_any_payload_read() {
+        use std::cell::Cell;
+        use std::fs::File;
+
+        let mut images = [placed_jpeg_mutation(), placed_jpeg_mutation()];
+        for image in &mut images {
+            write(&image.bytes_path, b"ab").unwrap();
+            image.byte_length = 2;
+            image.sha256 = sha256_hex(b"ab");
+        }
+        let open_count = Cell::new(0usize);
+        let error = validate_placed_image_payloads_with_limits_and_open(
+            &images,
+            4,
+            3,
+            |path| {
+                open_count.set(open_count.get() + 1);
+                File::open(path)
+            },
+        )
+        .unwrap_err();
+
+        let native_error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+        assert!(native_error.message.contains("3-byte aggregate admission ceiling"));
+        assert_eq!(open_count.get(), 0);
+        for image in images {
+            let _ = remove_file(image.bytes_path);
+        }
+    }
+
+    #[test]
+    fn placed_image_apply_reuses_validated_bytes_after_sidecar_removal() {
+        let (mut document, page_id) = create_test_document();
+        let image = placed_jpeg_mutation();
+        let image_path = image.bytes_path.clone();
+        let mutations = NativeMutationsFile {
+            placed_images: vec![image],
+            ..NativeMutationsFile::default()
+        };
+        validate_placed_images(&mutations.placed_images).unwrap();
+        remove_file(&image_path).unwrap();
+
+        apply_native_mutations(&mut document, &mutations, "D:20260609123456Z").unwrap();
+
+        assert_eq!(get_page_annots(&document, page_id).unwrap().len(), 1);
     }
 
     #[test]

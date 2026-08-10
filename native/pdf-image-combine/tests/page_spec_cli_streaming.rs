@@ -1,5 +1,6 @@
 use std::{
     env, fs,
+    fs::File,
     path::{Path, PathBuf},
     process::{self, Command},
     time::{SystemTime, UNIX_EPOCH},
@@ -70,17 +71,160 @@ fn cli_preserves_existing_output_for_oversized_input() {
     fs::write(&input_path, b"P6\n1001 1000\n255\n").unwrap();
     fs::write(&output_path, b"existing-output").unwrap();
 
-    let status = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
         .env("EVB_PDF_COMBINE_MAX_IMAGE_PIXELS", "1000000")
         .args(["--output", output_path.to_str().unwrap(), "--"])
         .arg(&input_path)
-        .status()
+        .output()
         .unwrap();
-    assert!(!status.success());
+    assert!(!output.status.success());
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(envelope["code"], "too-large");
     assert_eq!(fs::read(&output_path).unwrap(), b"existing-output");
     assert_no_sibling_temporary(&output_path);
 
     remove_files([&input_path, &output_path]);
+}
+
+#[test]
+fn cli_rejects_compact_manifest_over_configured_page_limit_before_image_io() {
+    let manifest_path = temp_path("oversized-manifest").with_extension("tsv");
+    let output_path = temp_path("oversized-manifest-output").with_extension("pdf");
+    fs::write(
+        &manifest_path,
+        "image\t72\t72\t/missing-one.ppm\nimage\t72\t72\t/missing-two.ppm\n",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .env("EVB_PDF_COMBINE_MAX_PAGES", "1")
+        .args([
+            "--output",
+            output_path.to_str().unwrap(),
+            "--compact-manifest",
+        ])
+        .arg(&manifest_path)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(envelope["code"], "too-large");
+    assert!(envelope["message"]
+        .as_str()
+        .unwrap()
+        .contains("1-page admission ceiling"));
+    assert!(!output_path.exists());
+
+    remove_files([&manifest_path, &output_path]);
+}
+
+#[test]
+fn cli_rejects_oversized_jpeg_and_jp2_dimensions_before_pdf_output() {
+    let fixtures = [
+        ("jpg", oversized_jpeg(2_000, 2_000)),
+        ("jp2", oversized_jp2(2_000, 2_000)),
+    ];
+
+    for (extension, bytes) in fixtures {
+        let input_path = temp_path("oversized-dimensions").with_extension(extension);
+        let output_path = temp_path("oversized-dimensions-output").with_extension("pdf");
+        fs::write(&input_path, bytes).unwrap();
+
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+            .env("EVB_PDF_COMBINE_MAX_IMAGE_PIXELS", "1000000")
+            .args(["--output", output_path.to_str().unwrap(), "--"])
+            .arg(&input_path)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "{extension} unexpectedly succeeded"
+        );
+        let envelope: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(envelope["code"], "too-large", "{extension}: {envelope}");
+        assert!(!output_path.exists());
+        assert_no_sibling_temporary(&output_path);
+
+        remove_files([&input_path, &output_path]);
+    }
+}
+
+#[test]
+fn cli_rejects_sparse_manifest_above_the_byte_limit_before_parsing() {
+    let manifest_path = temp_path("oversized-manifest-bytes").with_extension("tsv");
+    let output_path = temp_path("oversized-manifest-bytes-output").with_extension("pdf");
+    File::create(&manifest_path)
+        .unwrap()
+        .set_len((64 * 1024 * 1024) + 1)
+        .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .args([
+            "--output",
+            output_path.to_str().unwrap(),
+            "--compact-manifest",
+        ])
+        .arg(&manifest_path)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(envelope["code"], "too-large");
+    assert!(envelope["message"]
+        .as_str()
+        .unwrap()
+        .contains("67108864-byte admission ceiling"));
+    assert!(!output_path.exists());
+
+    remove_files([&manifest_path, &output_path]);
+}
+
+fn oversized_jpeg(width: u16, height: u16) -> Vec<u8> {
+    let [width_high, width_low] = width.to_be_bytes();
+    let [height_high, height_low] = height.to_be_bytes();
+    vec![
+        0xff,
+        0xd8,
+        0xff,
+        0xc0,
+        0x00,
+        0x0b,
+        8,
+        height_high,
+        height_low,
+        width_high,
+        width_low,
+        0x01,
+        0x01,
+        0x11,
+        0x00,
+        0xff,
+        0xda,
+        0x00,
+        0x08,
+        0x01,
+        0x01,
+        0x00,
+        0x00,
+        0x3f,
+        0x00,
+        0x11,
+        0xff,
+        0xd9,
+    ]
+}
+
+fn oversized_jp2(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = b"\0\0\0\x0cjP  \r\n\x87\n".to_vec();
+    bytes.extend_from_slice(&30u32.to_be_bytes());
+    bytes.extend_from_slice(b"jp2h");
+    bytes.extend_from_slice(&22u32.to_be_bytes());
+    bytes.extend_from_slice(b"ihdr");
+    bytes.extend_from_slice(&height.to_be_bytes());
+    bytes.extend_from_slice(&width.to_be_bytes());
+    bytes.extend_from_slice(&3u16.to_be_bytes());
+    bytes.extend_from_slice(&[7, 7, 0, 0]);
+    bytes
 }
 
 fn image_bytes<'a>(file_name: &'a str, data: &'a [u8]) -> PageSpec<InputSource<'a>> {

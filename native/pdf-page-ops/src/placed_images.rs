@@ -1,29 +1,154 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
-pub(crate) fn read_validated_placed_image_bytes(image: &PlacedImage) -> Result<Vec<u8>> {
-    let bytes = fs::read(&image.bytes_path)?;
-    let image_len = u64::try_from(bytes.len())?;
-    if image_len == 0 || image_len > 128 * 1024 * 1024 {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "Invalid placed image byte length",
-        ));
+const MAX_PLACED_IMAGE_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_PLACED_IMAGE_AGGREGATE_BYTES: u64 = 512 * 1024 * 1024;
+const PLACED_IMAGE_READ_CHUNK_BYTES: usize = 64 * 1024;
+
+fn digest_hex(digest: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
-    if image_len != image.byte_length {
-        return Err(domain_error(
-            NativeErrorCode::InvalidRequest,
-            "Placed image sidecar byte length does not match its manifest",
-        ));
+    output
+}
+
+#[cfg(test)]
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    digest_hex(&Sha256::digest(bytes))
+}
+
+pub(crate) fn validate_placed_image_payloads(images: &[PlacedImage]) -> Result<Vec<Vec<u8>>> {
+    validate_placed_image_payloads_with_limits_and_open(
+        images,
+        MAX_PLACED_IMAGE_BYTES,
+        MAX_PLACED_IMAGE_AGGREGATE_BYTES,
+        |path| File::open(path),
+    )
+}
+
+pub(crate) fn take_or_validate_placed_image_payloads(
+    mutations: &NativeMutationsFile,
+) -> Result<Vec<Vec<u8>>> {
+    if mutations
+        .placed_images
+        .iter()
+        .any(|image| image.validated_bytes.borrow().is_none())
+    {
+        validate_placed_images(&mutations.placed_images)?;
     }
-    let digest = format!("{:x}", Sha256::digest(&bytes));
-    if image.sha256.len() != 64 || !digest.eq_ignore_ascii_case(&image.sha256) {
-        return Err(domain_error(
-            NativeErrorCode::InvalidRequest,
-            "Placed image sidecar hash does not match its manifest",
-        ));
+    mutations
+        .placed_images
+        .iter()
+        .map(|image| {
+            image
+                .validated_bytes
+                .borrow_mut()
+                .take()
+                .ok_or_else(|| "Placed image validation cache is missing".into())
+        })
+        .collect()
+}
+
+pub(crate) fn validate_placed_image_payloads_with_limits_and_open(
+    images: &[PlacedImage],
+    max_image_bytes: u64,
+    max_aggregate_bytes: u64,
+    mut open: impl FnMut(&Path) -> std::io::Result<File>,
+) -> Result<Vec<Vec<u8>>> {
+    let mut admitted_lengths = Vec::with_capacity(images.len());
+    let mut aggregate_bytes = 0u64;
+    for image in images {
+        if image.byte_length == 0 || image.byte_length > max_image_bytes {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Invalid placed image byte length",
+            ));
+        }
+        if image.sha256.len() != 64 {
+            return Err(domain_error(
+                NativeErrorCode::InvalidRequest,
+                "Placed image sidecar hash does not match its manifest",
+            ));
+        }
+        let image_len = fs::metadata(&image.bytes_path)?.len();
+        if image_len == 0 || image_len > max_image_bytes {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Invalid placed image byte length",
+            ));
+        }
+        if image_len != image.byte_length {
+            return Err(domain_error(
+                NativeErrorCode::InvalidRequest,
+                "Placed image sidecar byte length does not match its manifest",
+            ));
+        }
+        aggregate_bytes = aggregate_bytes.saturating_add(image_len);
+        if aggregate_bytes > max_aggregate_bytes {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!(
+                    "Placed images exceed the {max_aggregate_bytes}-byte aggregate admission ceiling"
+                ),
+            ));
+        }
+        admitted_lengths.push(image_len);
     }
-    Ok(bytes)
+
+    images
+        .iter()
+        .zip(admitted_lengths)
+        .map(|(image, admitted_len)| {
+            let capacity = usize::try_from(admitted_len).map_err(|_| {
+                domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Invalid placed image byte length",
+                )
+            })?;
+            let mut bytes = Vec::new();
+            bytes.try_reserve_exact(capacity).map_err(|_| {
+                domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Invalid placed image byte length",
+                )
+            })?;
+            let mut reader = open(&image.bytes_path)?.take(admitted_len.saturating_add(1));
+            let mut hasher = Sha256::new();
+            let mut chunk = [0u8; PLACED_IMAGE_READ_CHUNK_BYTES];
+            loop {
+                let read = reader.read(&mut chunk)?;
+                if read == 0 {
+                    break;
+                }
+                let next_len = bytes.len().saturating_add(read);
+                if next_len > capacity {
+                    return Err(domain_error(
+                        NativeErrorCode::InvalidRequest,
+                        "Placed image sidecar byte length does not match its manifest",
+                    ));
+                }
+                hasher.update(&chunk[..read]);
+                bytes.extend_from_slice(&chunk[..read]);
+            }
+            if bytes.len() != capacity {
+                return Err(domain_error(
+                    NativeErrorCode::InvalidRequest,
+                    "Placed image sidecar byte length does not match its manifest",
+                ));
+            }
+            let digest = digest_hex(&hasher.finalize());
+            if !digest.eq_ignore_ascii_case(&image.sha256) {
+                return Err(domain_error(
+                    NativeErrorCode::InvalidRequest,
+                    "Placed image sidecar hash does not match its manifest",
+                ));
+            }
+            Ok(bytes)
+        })
+        .collect()
 }
 
 pub(crate) struct JpegInfo {
@@ -295,6 +420,7 @@ pub(crate) fn build_placed_image_stamp_dict(
 pub(crate) fn apply_placed_images(
     document: &mut Document,
     images: &[PlacedImage],
+    image_bytes: Vec<Vec<u8>>,
     modified_at: &str,
 ) -> Result<()> {
     if images.is_empty() {
@@ -302,15 +428,28 @@ pub(crate) fn apply_placed_images(
     }
 
     let page_map = document.get_pages();
-    for (index, image) in images.iter().enumerate() {
+    if images.len() != image_bytes.len() {
+        return Err("Placed image validation cache does not match its manifest".into());
+    }
+    let mut image_pages = Vec::with_capacity(images.len());
+    let mut annotation_indexes = HashMap::new();
+    for image in images {
         let page_number = image
             .page_index
             .checked_add(1)
             .ok_or("Invalid placed image page index")?;
         let page_id = resolve_page_id(&page_map, page_number)?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
+        {
+            entry.insert(build_page_annotation_index(document, page_id)?.0);
+        }
+        image_pages.push(page_id);
+    }
+    for (index, ((image, image_bytes), page_id)) in
+        images.iter().zip(image_bytes).zip(image_pages).enumerate()
+    {
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let image_bytes = read_validated_placed_image_bytes(image)?;
         let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
         let image_ref = document.add_object(build_jpeg_image_stream(image_bytes, &jpeg_info));
@@ -324,7 +463,13 @@ pub(crate) fn apply_placed_images(
         let stamp_dict =
             build_placed_image_stamp_dict(image, &geometry, appearance_ref, index, modified_at);
         document.set_object(stamp_ref, Object::Dictionary(stamp_dict));
-        append_annots_to_page(document, page_id, &[stamp_ref])?;
+        annotation_indexes
+            .get_mut(&page_id)
+            .expect("Placed-image pages are indexed before mutation")
+            .append_missing_refs(&[stamp_ref]);
+    }
+    for (page_id, index) in annotation_indexes {
+        write_page_annotation_index(document, page_id, index)?;
     }
     Ok(())
 }
@@ -332,6 +477,7 @@ pub(crate) fn apply_placed_images(
 pub(crate) fn apply_placed_images_incremental(
     incremental: &mut IncrementalDocument,
     images: &[PlacedImage],
+    image_bytes: Vec<Vec<u8>>,
     modified_at: &str,
 ) -> Result<()> {
     if images.is_empty() {
@@ -339,15 +485,28 @@ pub(crate) fn apply_placed_images_incremental(
     }
 
     let page_map = incremental.get_prev_documents().get_pages();
-    for (index, image) in images.iter().enumerate() {
+    if images.len() != image_bytes.len() {
+        return Err("Placed image validation cache does not match its manifest".into());
+    }
+    let mut image_pages = Vec::with_capacity(images.len());
+    let mut annotation_indexes = HashMap::new();
+    for image in images {
         let page_number = image
             .page_index
             .checked_add(1)
             .ok_or("Invalid placed image page index")?;
         let page_id = resolve_page_id(&page_map, page_number)?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
+        {
+            entry.insert(build_page_annotation_index(incremental.get_prev_documents(), page_id)?.0);
+        }
+        image_pages.push(page_id);
+    }
+    for (index, ((image, image_bytes), page_id)) in
+        images.iter().zip(image_bytes).zip(image_pages).enumerate()
+    {
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let image_bytes = read_validated_placed_image_bytes(image)?;
         let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
         let image_ref = incremental
@@ -368,7 +527,13 @@ pub(crate) fn apply_placed_images_incremental(
         incremental
             .new_document
             .set_object(stamp_ref, Object::Dictionary(stamp_dict));
-        append_annots_to_page_incremental(incremental, page_id, &[stamp_ref])?;
+        annotation_indexes
+            .get_mut(&page_id)
+            .expect("Placed-image pages are indexed before mutation")
+            .append_missing_refs(&[stamp_ref]);
+    }
+    for (page_id, index) in annotation_indexes {
+        write_page_annotation_index_incremental(incremental, page_id, index)?;
     }
     Ok(())
 }

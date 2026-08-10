@@ -98,7 +98,8 @@ pub(crate) fn apply_native_mutations(
         apply_markup_mutations(document, markup)?;
     }
     if !mutations.placed_images.is_empty() {
-        apply_placed_images(document, &mutations.placed_images, modified_at)?;
+        let image_bytes = take_or_validate_placed_image_payloads(mutations)?;
+        apply_placed_images(document, &mutations.placed_images, image_bytes, modified_at)?;
     }
     Ok(())
 }
@@ -130,7 +131,13 @@ pub(crate) fn apply_native_mutations_incremental(
         apply_markup_mutations_incremental(incremental, markup)?;
     }
     if !mutations.placed_images.is_empty() {
-        apply_placed_images_incremental(incremental, &mutations.placed_images, modified_at)?;
+        let image_bytes = take_or_validate_placed_image_payloads(mutations)?;
+        apply_placed_images_incremental(
+            incremental,
+            &mutations.placed_images,
+            image_bytes,
+            modified_at,
+        )?;
     }
     Ok(())
 }
@@ -141,7 +148,8 @@ pub(crate) fn append_native_mutations(
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
-    let mut incremental = IncrementalDocument::load(input_path)?;
+    let mut incremental = load_incremental_pdf_path(input_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     if incremental.get_prev_documents().is_encrypted() {
         return Err(domain_error(
             NativeErrorCode::Encrypted,

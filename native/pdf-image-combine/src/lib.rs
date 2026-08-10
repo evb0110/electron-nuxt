@@ -27,7 +27,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
+use evb_native_support::{
+    output::{AtomicOutput, ValidatedInputFiles},
+    NativeError, NativeErrorCode,
+};
 use evb_raster_io::{decode_png_gray, write_png, DecodeLimits, PixelBuffer};
 
 use crate::{
@@ -58,6 +61,10 @@ pub const DEFAULT_MAX_IMAGE_PIXELS: u64 = 80_000_000;
 pub const DEFAULT_MAX_BILEVEL_PIXELS: u64 = 160_000_000;
 pub(crate) const CM_PER_INCH: f64 = 2.54;
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+fn too_large_error(message: impl Into<String>) -> Box<dyn Error> {
+    Box::new(NativeError::new(NativeErrorCode::TooLarge, message))
+}
 
 #[doc(hidden)]
 pub fn fuzz_parse_jpeg(data: &[u8]) {
@@ -332,6 +339,13 @@ where
                 on_processed(processed);
             }
         }
+    })
+    .map_err(|error| {
+        if is_output_limit_exceeded(error.as_ref()) {
+            too_large_error(error.to_string())
+        } else {
+            error
+        }
     })?;
     Ok(output.into_inner())
 }
@@ -536,6 +550,31 @@ struct PageEncoders {
 }
 
 #[cfg(not(target_family = "wasm"))]
+struct PreparedPageError {
+    code: Option<NativeErrorCode>,
+    message: String,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl PreparedPageError {
+    fn capture(error: Box<dyn Error>) -> Self {
+        Self {
+            code: error
+                .downcast_ref::<NativeError>()
+                .map(|native_error| native_error.code),
+            message: error.to_string(),
+        }
+    }
+
+    fn into_error(self) -> Box<dyn Error> {
+        match self.code {
+            Some(code) => Box::new(NativeError::new(code, self.message)),
+            None => self.message.into(),
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
 impl PageEncoders {
     fn new(threads: usize) -> Result<Self> {
         let pool = if threads > 1 {
@@ -562,11 +601,11 @@ impl PageEncoders {
         pool.install(|| {
             batch
                 .into_par_iter()
-                .map(|spec| prepare_page_spec(spec, options).map_err(|error| error.to_string()))
+                .map(|spec| prepare_page_spec(spec, options).map_err(PreparedPageError::capture))
                 .collect::<Vec<_>>()
         })
         .into_iter()
-        .map(|prepared| prepared.map_err(Into::into))
+        .map(|prepared| prepared.map_err(PreparedPageError::into_error))
         .collect()
     }
 }
@@ -841,6 +880,24 @@ struct OutputLimitWriter<W: Write> {
     written: u64,
 }
 
+#[derive(Debug)]
+struct OutputLimitExceeded;
+
+impl std::fmt::Display for OutputLimitExceeded {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Combined PDF output exceeds the configured byte limit")
+    }
+}
+
+impl Error for OutputLimitExceeded {}
+
+fn is_output_limit_exceeded(error: &(dyn Error + 'static)) -> bool {
+    error
+        .downcast_ref::<std::io::Error>()
+        .and_then(std::io::Error::get_ref)
+        .is_some_and(|source| source.downcast_ref::<OutputLimitExceeded>().is_some())
+}
+
 impl<W: Write> OutputLimitWriter<W> {
     fn new(inner: W, max_bytes: u64) -> Self {
         Self {
@@ -859,9 +916,7 @@ impl<W: Write> Write for OutputLimitWriter<W> {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
         let requested = u64::try_from(buffer.len()).unwrap_or(u64::MAX);
         if self.written.saturating_add(requested) > self.max_bytes {
-            return Err(std::io::Error::other(
-                "Combined PDF output exceeds the configured byte limit",
-            ));
+            return Err(std::io::Error::other(OutputLimitExceeded));
         }
         let written = self.inner.write(buffer)?;
         self.written = self.written.saturating_add(written as u64);
@@ -876,9 +931,11 @@ impl<W: Write> Write for OutputLimitWriter<W> {
 fn next_page_count_with_limit(current: usize, max_pages: usize) -> Result<usize> {
     let next = current
         .checked_add(1)
-        .ok_or("Combined PDF page count overflow")?;
+        .ok_or_else(|| too_large_error("Combined PDF page count overflow"))?;
     if next > max_pages {
-        return Err(format!("Combined PDF is capped at {max_pages} pages").into());
+        return Err(too_large_error(format!(
+            "Combined PDF is capped at {max_pages} pages"
+        )));
     }
     Ok(next)
 }
@@ -1464,8 +1521,21 @@ mod tests {
         )
         .err()
         .unwrap();
+        let native_error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
         assert!(error.to_string().contains("configured byte limit"));
         assert!(state.borrow().bytes <= 64);
+    }
+
+    #[test]
+    fn page_ceiling_and_counter_overflow_return_typed_too_large_errors() {
+        for error in [
+            next_page_count_with_limit(1, 1).unwrap_err(),
+            next_page_count_with_limit(usize::MAX, usize::MAX).unwrap_err(),
+        ] {
+            let native_error = error.downcast_ref::<NativeError>().unwrap();
+            assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+        }
     }
 
     #[test]

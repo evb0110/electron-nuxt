@@ -621,6 +621,134 @@
     }
 
     #[test]
+    fn same_page_free_text_batch_indexes_initial_annots_once_and_preserves_order() {
+        let (mut document, page_id) = create_test_document();
+        let mut initial_refs = Vec::new();
+        for index in 0..24 {
+            let annot_id = document.add_object(dictionary! {
+                "Type" => "Annot",
+                "Subtype" => "FreeText",
+                "NM" => Object::string_literal(format!("evb-note:existing-{index}")),
+                "Contents" => Object::string_literal("old"),
+            });
+            initial_refs.push(annot_id);
+        }
+        document
+            .get_object_mut(page_id)
+            .unwrap()
+            .as_dict_mut()
+            .unwrap()
+            .set(
+                "Annots",
+                Object::Array(initial_refs.iter().copied().map(Object::Reference).collect()),
+            );
+
+        let notes: Vec<FreeTextNote> = (0..28)
+            .map(|index| FreeTextNote {
+                page_index: 0,
+                stable_key: format!("existing-{index}"),
+                text: format!("updated-{index}"),
+                marker_rect: MarkerRect {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.2,
+                    height: 0.1,
+                },
+                author: None,
+                color: None,
+                created_at: None,
+            })
+            .collect();
+        let mut annotation_visits = 0;
+
+        upsert_free_text_notes_with_counter(
+            &mut document,
+            &notes,
+            "D:20260609123456Z",
+            &mut annotation_visits,
+        )
+        .unwrap();
+
+        let final_refs: Vec<ObjectId> = get_page_annots(&document, page_id)
+            .unwrap()
+            .iter()
+            .map(|object| object.as_reference().unwrap())
+            .collect();
+        assert_eq!(annotation_visits, initial_refs.len());
+        assert_eq!(&final_refs[..initial_refs.len()], initial_refs.as_slice());
+        assert_eq!(final_refs.len(), initial_refs.len() * 2 + 4 * 2);
+        for (index, annot_id) in initial_refs.iter().enumerate() {
+            assert_eq!(
+                string_bytes(&document, *annot_id, b"Contents"),
+                encode_pdf_text_string(&format!("updated-{index}"))
+            );
+        }
+    }
+
+    #[test]
+    fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
+        let (mut document, page_id) = create_test_document();
+        let pdf_path = temp_pdf_path("incremental-free-text-same-batch");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, original_bytes).unwrap();
+        let mut incremental = IncrementalDocument::load(&pdf_path).unwrap();
+        let notes: Vec<FreeTextNote> = ["first", "second"]
+            .into_iter()
+            .map(|text| FreeTextNote {
+                page_index: 0,
+                stable_key: "same-batch".to_string(),
+                text: text.to_string(),
+                marker_rect: MarkerRect {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.2,
+                    height: 0.1,
+                },
+                author: None,
+                color: None,
+                created_at: None,
+            })
+            .collect();
+        let mut annotation_visits = 0;
+
+        upsert_free_text_notes_incremental_with_counter(
+            &mut incremental,
+            &notes,
+            "D:20260609123456Z",
+            &mut annotation_visits,
+        )
+        .unwrap();
+
+        let revision = AppendedRevision::new(&incremental);
+        let annots = get_page_annots(&revision, page_id).unwrap();
+        let free_text_refs: Vec<ObjectId> = annots
+            .iter()
+            .filter_map(|object| object.as_reference().ok())
+            .filter(|object_id| {
+                revision
+                    .dictionary(*object_id)
+                    .map(|dict| annotation_subtype(dict) == "freetext")
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(annotation_visits, 0);
+        assert_eq!(free_text_refs.len(), 1);
+        assert_eq!(
+            revision
+                .dictionary(free_text_refs[0])
+                .unwrap()
+                .get(b"Contents")
+                .ok()
+                .and_then(pdf_string_to_text)
+                .as_deref(),
+            Some("second")
+        );
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
     fn appended_revision_reads_written_objects_over_the_untouched_base_revision() {
         let (mut document, target_id, _) = create_test_note_pdf();
         let pdf_path = temp_pdf_path("appended-revision-overlay");

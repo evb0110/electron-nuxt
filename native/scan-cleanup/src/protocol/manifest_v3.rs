@@ -1,5 +1,5 @@
 use crate::{split::DocumentPrior, CleanupOptions};
-use evb_native_support::{NativeError, NativeErrorCode};
+use evb_native_support::{bounded_io::deserialize_bounded_vec, NativeError, NativeErrorCode};
 use scan_primitives::Point;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,6 +9,15 @@ use std::{
 
 pub const VERSION: u32 = 3;
 pub const MAX_RASTER_WINDOW: usize = 16;
+pub const MAX_MANIFEST_PAGES: usize = 20_000;
+pub const MAX_MANIFEST_PATH_BYTES: usize = 4_096;
+
+fn deserialize_manifest_pages<'de, D>(deserializer: D) -> Result<Vec<Page>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, Page, MAX_MANIFEST_PAGES>(deserializer)
+}
 
 const fn default_raster_window() -> usize {
     1
@@ -248,6 +257,7 @@ pub struct ManifestV3 {
     /// coordinate producers retain the one-page acknowledgement turnstile.
     #[serde(default = "default_raster_window")]
     pub raster_window: usize,
+    #[serde(deserialize_with = "deserialize_manifest_pages")]
     pub pages: Vec<Page>,
 }
 
@@ -261,6 +271,12 @@ impl ManifestV3 {
         }
         if self.pages.is_empty() {
             return Err(invalid("Batch manifest contains no pages"));
+        }
+        if self.pages.len() > MAX_MANIFEST_PAGES {
+            return Err(NativeError::new(
+                NativeErrorCode::TooLarge,
+                format!("Batch manifest exceeds the {MAX_MANIFEST_PAGES}-page admission ceiling"),
+            ));
         }
         if self.document_canvas.is_some_and(|canvas| {
             !canvas.width_points.is_finite()
@@ -364,6 +380,20 @@ impl ManifestV3 {
             if self.operation == Operation::Render && page.outputs.is_empty() {
                 return Err(invalid(
                     "Render page requires at least one output destination",
+                ));
+            }
+        }
+        for path in self
+            .input_paths()
+            .into_iter()
+            .chain(self.destination_paths())
+        {
+            if path.as_os_str().to_string_lossy().len() > MAX_MANIFEST_PATH_BYTES {
+                return Err(NativeError::new(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "Manifest path exceeds the {MAX_MANIFEST_PATH_BYTES}-byte admission ceiling"
+                    ),
                 ));
             }
         }
@@ -660,6 +690,21 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("must be unique"));
+    }
+
+    #[test]
+    fn manifest_paths_have_the_native_protocol_byte_ceiling() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.pages[0].input_path = PathBuf::from("x".repeat(MAX_MANIFEST_PATH_BYTES + 1));
+
+        let error = manifest.validate().unwrap_err();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
+        assert!(error.message.contains("4096-byte admission ceiling"));
     }
 
     #[test]
