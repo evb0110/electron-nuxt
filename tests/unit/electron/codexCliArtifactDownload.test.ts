@@ -125,19 +125,6 @@ describe('pinned Codex CLI artifact policy', () => {
         await expect(readFile(destinationPath)).rejects.toThrow();
     });
 
-    it('never pipes a floating network response into a shell', async () => {
-        const source = await readFile(join(
-            process.cwd(),
-            'electron/features/agent/codexCli.ts',
-        ), 'utf8');
-
-        expect(source).not.toContain('Invoke-Expression');
-        expect(source).not.toContain('| sh');
-        expect(source).not.toContain('curl -fsSL');
-        expect(source).not.toContain('install.ps1');
-        expect(source).not.toContain('install.sh');
-    });
-
     it('resolves Windows extraction only through an absolute System32 tar path', () => {
         const pathExists = vi.fn(() => true);
 

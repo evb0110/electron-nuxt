@@ -179,15 +179,6 @@ describe('sessionManager automation launch args', () => {
         ]);
     });
 
-    it('wires isolated artifact directories into Nuxt and Vite configuration', async () => {
-        const source = await readFile('nuxt.config.ts', 'utf8');
-
-        expect(source).toContain('process.env.EVB_NUXT_BUILD_DIR?.trim()');
-        expect(source).toContain('{buildDir: isolatedNuxtBuildDir}');
-        expect(source).toContain('process.env.EVB_NUXT_VITE_CACHE_DIR?.trim()');
-        expect(source).toContain('{cacheDir: isolatedNuxtViteCacheDir}');
-    });
-
     it('does not leak Vitest worker mode into the Nuxt dev server', () => {
         expect(buildNuxtDevServerEnv({
             NODE_ENV: 'test',

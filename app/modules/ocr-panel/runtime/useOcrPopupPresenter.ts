@@ -18,7 +18,7 @@ import type {
 } from 'vue';
 import { useOcr } from '@app/composables/useOcr';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
-import type { IAgentOcrRunOptions } from '@app/types/ocrAgent';
+import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';

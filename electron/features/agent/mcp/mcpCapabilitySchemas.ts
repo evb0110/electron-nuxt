@@ -2,6 +2,7 @@ import {
     ANNOTATION_TOOLS,
     DRAWABLE_SHAPE_TOOLS,
 } from '@contracts/annotations';
+export {AGENT_OCR_RUN_INPUT_SCHEMA as OCR_RUN_INPUT_SCHEMA} from '@contracts/agentOcr';
 
 const TAB_ID_SCHEMA = {
     type: 'string',
@@ -809,53 +810,6 @@ export const INSERT_PAGES_INPUT_SCHEMA = {
         type: 'number',
         description: 'One-based page after which selected files should be inserted. Defaults to the end of the document.',
     }},
-    additionalProperties: false,
-};
-export const OCR_RUN_INPUT_SCHEMA = {
-    type: 'object',
-    properties: {
-        pageRange: {
-            type: 'string',
-            enum: [
-                'all',
-                'current',
-                'custom',
-            ],
-            description: 'Pages to OCR. Defaults to the OCR popup current setting.',
-        },
-        customRange: {
-            type: 'string',
-            description: 'Custom page range such as 1-3,7. Used when pageRange is custom.',
-        },
-        languages: {
-            type: 'array',
-            items: {type: 'string'},
-            description: 'OCR language codes such as eng, deu, tur. Defaults to the OCR popup current setting.',
-        },
-        qualityProfile: {
-            type: 'string',
-            enum: [
-                'balanced',
-                'accurate',
-                'poor-scan',
-            ],
-            description: 'OCR quality profile. Defaults to the OCR popup current setting.',
-        },
-        preprocessingMode: {
-            type: 'string',
-            enum: [
-                'off',
-                'clean',
-            ],
-            description: 'Optional image preprocessing mode before OCR. Defaults to the OCR popup current setting.',
-        },
-        pageSegmentationMode: {
-            type: 'integer',
-            minimum: 0,
-            maximum: 13,
-            description: 'Optional Tesseract page segmentation mode from 0 to 13.',
-        },
-    },
     additionalProperties: false,
 };
 export const ALLOW_INTERNAL_AND_EXTERNAL = {

@@ -4,6 +4,10 @@ import {
     getRequestWebStream,
     type H3Event,
 } from 'h3';
+import {
+    decodeBoundedAnalyticsJsonStream as decodeBoundedAnalyticsJsonStreamCore,
+    parseBoundedAnalyticsContentLength,
+} from '@contracts/analyticsRequestBody';
 
 function createInvalidBodyError(message: string) {
     return createError({
@@ -23,20 +27,10 @@ export function parseAnalyticsContentLength(
     value: string | undefined,
     maxBytes: number,
 ) {
-    if (value === undefined) {
-        return null;
-    }
-    if (!/^(0|[1-9]\d*)$/u.test(value)) {
-        throw createInvalidBodyError('Invalid Content-Length');
-    }
-    const parsed = Number(value);
-    if (!Number.isSafeInteger(parsed)) {
-        throw createInvalidBodyError('Invalid Content-Length');
-    }
-    if (parsed > maxBytes) {
-        throw createOversizedBodyError();
-    }
-    return parsed;
+    return parseBoundedAnalyticsContentLength(value, maxBytes, {
+        createInvalidBodyError,
+        createOversizedBodyError,
+    });
 }
 
 export async function decodeBoundedAnalyticsJsonStream(
@@ -44,48 +38,10 @@ export async function decodeBoundedAnalyticsJsonStream(
     declaredLength: number | null,
     maxBytes: number,
 ) {
-    const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
-    let totalBytes = 0;
-    try {
-        while (true) {
-            const result = await reader.read();
-            if (result.done) {
-                break;
-            }
-            if (!(result.value instanceof Uint8Array)) {
-                throw createInvalidBodyError('Analytics request body contains invalid bytes');
-            }
-            totalBytes += result.value.byteLength;
-            if (totalBytes > maxBytes) {
-                throw createOversizedBodyError();
-            }
-            chunks.push(result.value);
-        }
-    } catch (error) {
-        await reader.cancel(error).catch(() => undefined);
-        throw error;
-    }
-
-    if (declaredLength !== null && declaredLength !== totalBytes) {
-        throw createInvalidBodyError('Content-Length does not match request body');
-    }
-    if (totalBytes === 0) {
-        throw createInvalidBodyError('Analytics request body is empty');
-    }
-
-    const bodyBytes = new Uint8Array(totalBytes);
-    let offset = 0;
-    for (const chunk of chunks) {
-        bodyBytes.set(chunk, offset);
-        offset += chunk.byteLength;
-    }
-
-    try {
-        return JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bodyBytes)) as unknown;
-    } catch {
-        throw createInvalidBodyError('Analytics request body must be valid JSON');
-    }
+    return decodeBoundedAnalyticsJsonStreamCore(stream, declaredLength, maxBytes, {
+        createInvalidBodyError,
+        createOversizedBodyError,
+    });
 }
 
 export async function readBoundedAnalyticsJsonBody(

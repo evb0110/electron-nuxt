@@ -96,6 +96,36 @@ describe('root analytics body decoder', () => {
         )).rejects.toMatchObject({statusCode: 400});
     });
 
+    it('rejects empty, non-byte, and malformed UTF-8 streams at the shared boundary', async () => {
+        await expect(decodeBoundedAnalyticsJsonStream(
+            new ReadableStream<Uint8Array>({start: controller => controller.close()}),
+            null,
+            64,
+        )).rejects.toMatchObject({
+            statusCode: 400,
+            statusMessage: 'Analytics request body is empty',
+        });
+        await expect(decodeBoundedAnalyticsJsonStream(
+            new ReadableStream<unknown>({start(controller) {
+                controller.enqueue('not bytes');
+                controller.close();
+            }}),
+            null,
+            64,
+        )).rejects.toMatchObject({statusCode: 400});
+        await expect(decodeBoundedAnalyticsJsonStream(
+            new ReadableStream<Uint8Array>({start(controller) {
+                controller.enqueue(Uint8Array.of(0xC3, 0x28));
+                controller.close();
+            }}),
+            2,
+            64,
+        )).rejects.toMatchObject({
+            statusCode: 400,
+            statusMessage: 'Analytics request body must be valid JSON',
+        });
+    });
+
     it('bounds batches and preserves client time separately from server chronology', () => {
         const clientOccurredAt = '1999-01-01T00:00:00.000Z';
         const decoded = decodeViewerAnalyticsEventsBody({events: [{

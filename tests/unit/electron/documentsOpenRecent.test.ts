@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
         logRejectedOpenPath: vi.fn(),
         handlePdfOpeningGeometry: vi.fn(),
         openInputPaths: vi.fn(),
+        showOpenDialog: vi.fn(),
         showOpenDocumentDialog: vi.fn(),
         logger: {
             debug: vi.fn(),
@@ -28,7 +29,10 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('electron', () => ({ dialog: { showOpenDialog: vi.fn() } }));
+vi.mock('electron', () => ({
+    app: {getPath: vi.fn(() => '/home/test/Documents')},
+    dialog: {showOpenDialog: (...args: unknown[]) => mocks.showOpenDialog(...args)},
+}));
 vi.mock('@electron/te', () => ({ te: (key: string) => key }));
 vi.mock('@electron/utils/error', () => ({ getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error) }));
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
@@ -78,6 +82,10 @@ describe('document direct-open recent authorization', () => {
         mocks.getRecentFiles.mockResolvedValue([]);
         mocks.handlePdfOpeningGeometry.mockResolvedValue(null);
         mocks.openInputPaths.mockResolvedValue(null);
+        mocks.showOpenDialog.mockResolvedValue({
+            canceled: true,
+            filePaths: [],
+        });
     });
 
     it('opens the exact trusted recent path after restart when another recent file shares its basename', async () => {
@@ -176,5 +184,28 @@ describe('document direct-open recent authorization', () => {
 
         expect(mocks.openInputPaths).not.toHaveBeenCalled();
         expect(mocks.logRejectedOpenPath).toHaveBeenCalledWith(unknownPath);
+    });
+
+    it('starts folder and image dialogs in the Documents directory', async () => {
+        const {
+            handleOpenFolderDialog,
+            handleOpenImageDialog,
+        } = await import('@electron/features/documents/main/documentOpenHandlers');
+        const context = {
+            ...createOpenContext(42),
+            parentWindow: null,
+        };
+
+        await expect(handleOpenFolderDialog(context)).resolves.toBeNull();
+        await expect(handleOpenImageDialog(context)).resolves.toBeNull();
+
+        expect(mocks.showOpenDialog).toHaveBeenNthCalledWith(1, expect.objectContaining({
+            defaultPath: '/home/test/Documents',
+            properties: ['openDirectory'],
+        }));
+        expect(mocks.showOpenDialog).toHaveBeenNthCalledWith(2, expect.objectContaining({
+            defaultPath: '/home/test/Documents',
+            properties: ['openFile'],
+        }));
     });
 });

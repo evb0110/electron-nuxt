@@ -36,6 +36,12 @@ describe('settings-sanitizer', () => {
         });
     });
 
+    it('requires a finite settings version', () => {
+        expect(sanitizeSettings({version: Number.POSITIVE_INFINITY}).version).toBe(DEFAULT_SETTINGS.version);
+        expect(sanitizeSettings({version: Number.NaN}).version).toBe(DEFAULT_SETTINGS.version);
+        expect(sanitizeSettings({version: -1.5}).version).toBe(-1.5);
+    });
+
     it('normalizes invalid locale/theme and trims skipped update version', () => {
         expect(sanitizeSettings({
             version: 1,

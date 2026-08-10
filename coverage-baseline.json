@@ -97,6 +97,29 @@
       }
     }
   },
+  "files": {
+    "app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts": {
+      "lines": 66.35
+    },
+    "app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts": {
+      "lines": 36.49
+    },
+    "app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts": {
+      "lines": 22.13
+    },
+    "electron/features/agent/workspaceBridge.ts": {
+      "lines": 85.25
+    },
+    "electron/features/documents/main/nativePdfMutationSaveHandlers.ts": {
+      "lines": 88.55
+    },
+    "electron/features/documents/main/nativePdfPreview.ts": {
+      "lines": 89.43
+    },
+    "electron/features/scan-cleanup/createScanCleanupPreviewService.ts": {
+      "lines": 86.72
+    }
+  },
   "metrics": {
     "statements": 66.02,
     "branches": 59.38,
@@ -104,5 +127,5 @@
     "lines": 66.41
   },
   "tolerancePercentagePoints": 0.5,
-  "version": 1
+  "version": 2
 }

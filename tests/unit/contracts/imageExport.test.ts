@@ -46,6 +46,28 @@ describe('image export platform feature schemas', () => {
         ])).toThrow('pageNumbers must contain positive safe integers');
         expect(() => codecs[channels.exportPdfToImages]!.decodeArgs([
             '/tmp/book.pdf',
+            [
+                1,
+                1,
+            ],
+        ])).toThrow('pageNumbers must contain unique pages');
+        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs([
+            '/tmp/book.pdf',
+            [1],
+            'x'.repeat(129),
+        ])).toThrow('requestId exceeds maximum length (128)');
+        expect(codecs[channels.exportPdfToImages]!.decodeArgs([
+            '/tmp/book.pdf',
+            [1],
+            ' export-1 ',
+        ])).toEqual([
+            '/tmp/book.pdf',
+            [1],
+            'export-1',
+            undefined,
+        ]);
+        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs([
+            '/tmp/book.pdf',
             [1],
             undefined,
             'epub',

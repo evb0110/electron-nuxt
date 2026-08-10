@@ -1,4 +1,8 @@
-import { sanitizeSettings } from '@contracts/settings';
+import {
+    SETTINGS_SAVE_KEYS,
+    sanitizeSettings,
+    type TSettingsSavePatch,
+} from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
 
 const SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS = 1_000;
@@ -15,7 +19,7 @@ export interface ISettingsPersistenceScheduler {
 export interface ISettingsPersistenceQueueOptions {
     getSettingsSnapshot: () => unknown;
     getLastSavedSettings: () => ISettingsData | null;
-    savePatch: (patch: Partial<ISettingsData>) => Promise<void>;
+    savePatch: (patch: TSettingsSavePatch) => Promise<void>;
     onSaved: (settings: ISettingsData) => void;
     onSaveError: (error: unknown) => void;
     onStatusChanged?: (status: TSettingsPersistenceStatus, error?: unknown) => void;
@@ -39,20 +43,14 @@ export function buildSettingsPatch(
     previousSettings: ISettingsData | null,
     nextSettings: ISettingsData,
 ) {
-    if (!previousSettings) {
-        return nextSettings;
-    }
-
-    const baseSettings = previousSettings;
-    const patch: Partial<ISettingsData> = {};
-    function assignChangedSetting<TKey extends keyof ISettingsData>(key: TKey) {
-        if (nextSettings[key] !== baseSettings[key]) {
-            patch[key] = nextSettings[key];
+    const patch: TSettingsSavePatch = {};
+    for (const key of SETTINGS_SAVE_KEYS) {
+        if (
+            Object.hasOwn(nextSettings, key)
+            && (!previousSettings || nextSettings[key] !== previousSettings[key])
+        ) {
+            Object.assign(patch, {[key]: nextSettings[key]});
         }
-    }
-
-    for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
-        assignChangedSetting(key);
     }
     return patch;
 }

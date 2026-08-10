@@ -32,10 +32,20 @@ describe('settings platform feature schemas', () => {
             .toThrow('invalid settings field: theme');
         expect(() => codecs[channels.save]!.decodeArgs([{unknown: true}]))
             .toThrow('invalid settings field: unknown');
+        expect(() => codecs[channels.save]!.decodeArgs([{agentMcpEnabled: true}]))
+            .toThrow('invalid settings field: agentMcpEnabled');
+        expect(() => codecs[channels.save]!.decodeArgs([{skippedUpdateVersion: '1.2.3'}]))
+            .toThrow('invalid settings field: skippedUpdateVersion');
+        expect(() => codecs[channels.save]!.decodeArgs([{version: Number.POSITIVE_INFINITY}]))
+            .toThrow('invalid settings field: version');
         expect(() => codecs[channels.get]!.decodeResult({
             ...DEFAULT_SETTINGS,
             theme: 'sepia',
         })).toThrow('invalid settings result field: theme');
+        expect(() => codecs[channels.get]!.decodeResult({
+            ...DEFAULT_SETTINGS,
+            version: Number.NaN,
+        })).toThrow('invalid settings result field: version');
     });
 
     it('keeps fixture examples valid at both boundaries', () => {

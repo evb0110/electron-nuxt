@@ -46,6 +46,7 @@ describe('scan cleanup renderer preference store', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         resetScanCleanupPreferencesStore();
     });
 
@@ -84,6 +85,7 @@ describe('scan cleanup renderer preference store', () => {
     });
 
     it('keeps loaded document settings isolated from global preferences without echoing writes', async () => {
+        vi.useFakeTimers();
         const sourceSha256 = 'b'.repeat(64);
         const documentKey = '/documents/stored-margins.pdf';
         const stored = createDefaultScanCleanupSettingsFile();
@@ -119,8 +121,9 @@ describe('scan cleanup renderer preference store', () => {
         }}));
         app.mount(host);
 
+        await vi.advanceTimersByTimeAsync(0);
         await vi.waitFor(() => expect(settings!.values.marginsMm.topMm).toBe(12));
-        await new Promise(resolve => setTimeout(resolve, 350));
+        await vi.advanceTimersByTimeAsync(350);
 
         expect(getScanCleanupPreferencesStore().marginsMm).toEqual({
             leftMm: 5,

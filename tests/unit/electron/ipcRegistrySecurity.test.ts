@@ -439,14 +439,15 @@ describe('IPC registry sender trust', () => {
             expect(handler).toBeTypeOf('function');
             const event = createEvent('http://127.0.0.1:41001/electron/settings');
 
-            const firstSave = handler?.(event, {
-                theme: 'dark',
-                skippedUpdateVersion: 'renderer-stale',
-            });
-            const secondSave = handler?.(event, {
-                assistantPanelEnabled: true,
-                agentMcpEnabled: false,
-            });
+            await expect(handler?.(event, {skippedUpdateVersion: 'renderer-stale'}))
+                .rejects
+                .toThrow('Invalid IPC arguments for settings:save');
+            await expect(handler?.(event, {agentMcpEnabled: false}))
+                .rejects
+                .toThrow('Invalid IPC arguments for settings:save');
+
+            const firstSave = handler?.(event, {theme: 'dark'});
+            const secondSave = handler?.(event, {assistantPanelEnabled: true});
 
             expect(mocks.updateSettings).not.toHaveBeenCalled();
 

@@ -158,6 +158,7 @@ describe('CI topology policy', () => {
             'unit-electron',
             'unit-scripts',
             'unit-policy',
+            'unit-static-architecture',
         ]) {
             expect(packageScripts['test:unit']).toContain(`--project ${project}`);
         }
@@ -505,7 +506,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm run test:coverage');
         expectNoExactRunStep(workflowJob(workflow, 'manual_quality'), 'pnpm run test:unit');
         expectNoExactRunStep(workflowJob(workflow, 'nightly_maintenance'), 'pnpm run test:unit');
-        expect(packageJson).toContain('"test:coverage": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy && pnpm exec tsx scripts/checkCoverageRatchet.ts && pnpm exec tsx scripts/checkZeroExecutionCoverage.ts"');
+        expect(packageJson).toContain('"test:coverage": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --project unit-static-architecture && pnpm exec tsx scripts/checkCoverageRatchet.ts && pnpm exec tsx scripts/checkZeroExecutionCoverage.ts"');
         expect(packageJson).not.toContain('"test:coverage:run"');
         expect(packageJson).not.toContain('"check:coverage:zero-execution"');
         expect(packageJson).not.toContain('"check:coverage:ratchet"');

@@ -118,6 +118,7 @@ const unitTestProjects = [
     'unit-electron',
     'unit-scripts',
     'unit-policy',
+    'unit-static-architecture',
 ];
 
 async function readPackageScripts() {

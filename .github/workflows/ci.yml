@@ -304,6 +304,44 @@ jobs:
       - name: Landing build
         run: pnpm --dir landing run build
 
+  nuxt_compatibility_v5:
+    name: Nuxt Compatibility v5 (Advisory / ${{ matrix.project }})
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [root, landing]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Typecheck with compatibility v5
+        env:
+          EVB_NUXT_COMPATIBILITY_VERSION: '5'
+        run: |
+          if [ "${{ matrix.project }}" = "landing" ]; then
+            EVB_NUXT_BUILD_DIR="$RUNNER_TEMP/nuxt-compat-v5-landing" node scripts/run-nuxt-typecheck.mjs landing
+          else
+            EVB_NUXT_BUILD_DIR="$RUNNER_TEMP/nuxt-compat-v5-root" node scripts/run-nuxt-typecheck.mjs
+          fi
+
   manual_quality:
     name: Manual Quality Gates
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -766,6 +804,9 @@ jobs:
 
       - name: Verify Electron install
         run: pnpm run check:electron:install
+
+      - name: Validate quarantine graduation policy
+        run: pnpm exec vitest run --project unit-static-architecture tests/unit/architecture/quarantineGraduationPolicy.test.ts
 
       - name: Electron E2E quarantine
         run: pnpm run test:e2e:electron:quarantine

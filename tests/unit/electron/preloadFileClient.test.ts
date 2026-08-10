@@ -1442,7 +1442,7 @@ async function waitForCondition(assertion: () => void) {
             return;
         } catch (error) {
             lastError = error;
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await new Promise<void>(resolve => setImmediate(resolve));
         }
     }
     throw lastError;

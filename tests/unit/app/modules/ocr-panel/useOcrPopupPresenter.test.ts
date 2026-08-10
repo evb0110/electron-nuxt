@@ -271,6 +271,8 @@ describe('useOcrPopupPresenter', () => {
                 qualityProfile: 'poor-scan',
                 preprocessingMode: 'clean',
                 pageSegmentationMode: 6,
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: true,
             });
 
             expect(harness.isOpen.value).toBe(true);
@@ -284,6 +286,8 @@ describe('useOcrPopupPresenter', () => {
                 qualityProfile: 'poor-scan',
                 preprocessingMode: 'clean',
                 pageSegmentationMode: 6,
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: true,
             });
             expect(harness.ocr.runOcr).toHaveBeenCalledWith(
                 5,

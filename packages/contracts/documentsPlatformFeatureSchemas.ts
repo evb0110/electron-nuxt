@@ -10,7 +10,6 @@ import {
     type IPdfNativePageSize,
     type IPdfNativeSaveResult,
     type IPdfNativeStagedCommitOptions,
-    type IPdfNativeWorkingCopyExpectation,
     type IPdfOptimizeOptions,
     type IPdfOptimizeResult,
     type TDocumentSaveResult,
@@ -48,11 +47,19 @@ import {
 import type { IRecentFile } from '@contracts/shared';
 import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+import {
+    normalizePdfNativeModifiedAt,
+    normalizePdfNativeMutationSet,
+    normalizePdfNativeWorkingCopyExpectation,
+} from '@contracts/nativePdfMutations';
 
+const fixtureNativeMutation = {pageLabels: {
+    totalPages: 1,
+    ranges: [],
+}};
 function fail(message: string): never {
     throw new Error(message);
 }
-
 function decodeOpeningGeometry(value: unknown) {
     if (
         !isRecord(value)
@@ -90,7 +97,6 @@ function decodeOpeningGeometry(value: unknown) {
         modifiedAt: value.modifiedAt,
     };
 }
-
 function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
     if (value === null) {
         return null;
@@ -126,7 +132,6 @@ function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
         ...(openingGeometry === undefined ? {} : {openingGeometry}),
     };
 }
-
 function decodeRecentFile(value: unknown): IRecentFile {
     if (
         !isRecord(value)
@@ -148,7 +153,6 @@ function decodeRecentFile(value: unknown): IRecentFile {
         ...(value.modifiedAt === undefined ? {} : {modifiedAt: Number(value.modifiedAt)}),
     };
 }
-
 const applicationMenuOptionalBooleanFields = [
     'interactive',
     'supportsSaveAs',
@@ -179,7 +183,6 @@ const applicationMenuOptionalBooleanFields = [
     'canCloseTab',
     'canTransferActiveTab',
 ] as const satisfies ReadonlyArray<keyof IApplicationMenuDocumentState>;
-
 function decodeApplicationMenuDocumentState(value: unknown): boolean | IApplicationMenuDocumentState {
     if (typeof value === 'boolean') {
         return value;
@@ -220,14 +223,12 @@ function decodeApplicationMenuDocumentState(value: unknown): boolean | IApplicat
         canSave: value.canSave,
     };
 }
-
 function decodeNonNegativeInteger(value: unknown, field: string) {
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
         fail(`${field} must be a non-negative safe integer`);
     }
     return value;
 }
-
 const platformUnsupportedReasons = [
     'unsupported-backend',
     'missing-browser-permission',
@@ -249,7 +250,6 @@ const documentSaveFailureReasons = [
 const longNativeIpcTimeoutMs = 30 * 60 * 1_000;
 const fixtureRevisionToken = requireDocumentRevisionToken('drt1:fixture');
 const fixtureRevisionOptions = {expectedDocumentRevisionToken: fixtureRevisionToken};
-
 function decodeArgumentArray(value: unknown, minLength: number, maxLength = minLength) {
     if (!Array.isArray(value) || value.length < minLength || value.length > maxLength) {
         fail(`expected ${minLength === maxLength ? minLength : `${minLength}-${maxLength}`} arguments`);
@@ -883,14 +883,14 @@ const nativeMutationsArgs = documentArgs<'savePdfNativeMutations'>(
         const args = decodeArgumentArray(value, 3, 4);
         return appendOptional([
             decodeStringValue(args[0], 'path'),
-            decodeRequiredObject<TDocumentMethodArgs<'savePdfNativeMutations'>[1]>(args[1], 'mutations'),
-            decodeStringValue(args[2], 'modifiedAt'),
+            normalizePdfNativeMutationSet(args[1], 'mutations'),
+            normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
         ], decodeRevisionOptions(args[3])) as TDocumentMethodArgs<'savePdfNativeMutations'>;
     },
     () => [
         '/tmp/working.pdf',
-        {},
-        '2026-01-01T00:00:00.000Z',
+        fixtureNativeMutation,
+        'D:20260101000000Z',
         fixtureRevisionOptions,
     ],
 );
@@ -899,15 +899,15 @@ const applyNativeMutationsArgs = documentArgs<'applyPdfNativeMutationsToWorkingC
         const args = decodeArgumentArray(value, 4, 5);
         return appendOptional([
             decodeStringValue(args[0], 'path'),
-            decodeRequiredObject<TDocumentMethodArgs<'applyPdfNativeMutationsToWorkingCopy'>[1]>(args[1], 'mutations'),
-            decodeStringValue(args[2], 'modifiedAt'),
-            decodeRequiredObject<IPdfNativeWorkingCopyExpectation>(args[3], 'expectedBase'),
+            normalizePdfNativeMutationSet(args[1], 'mutations'),
+            normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
+            normalizePdfNativeWorkingCopyExpectation(args[3], 'expectedBase'),
         ], decodeRevisionOptions(args[4])) as TDocumentMethodArgs<'applyPdfNativeMutationsToWorkingCopy'>;
     },
     () => [
         '/tmp/working.pdf',
-        {},
-        '2026-01-01T00:00:00.000Z',
+        fixtureNativeMutation,
+        'D:20260101000000Z',
         {
             byteLength: 1,
             sha256: '0'.repeat(64),

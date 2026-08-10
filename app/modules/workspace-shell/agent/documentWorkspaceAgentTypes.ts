@@ -14,17 +14,19 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
+import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 
 export type {
     IAgentOcrRunOptions,
-    IOcrPopupAgentExpose,
     TAgentOcrPageRange,
+} from '@contracts/agentOcr';
+export type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
+export type {
     TOcrPreprocessingMode,
     TOcrQualityProfile,
-} from '@app/types/ocrAgent';
+} from '@contracts/electronApiOcr';
 
 export type TWorkspaceAgentSidebarTab = 'annotations' | 'bookmarks' | 'thumbnails' | 'search';
 export type TWorkspaceAgentFitMode = 'width' | 'height';

@@ -865,6 +865,8 @@ describe('useDocumentWorkspaceAgent', () => {
             qualityProfile: 'poor-scan',
             preprocessingMode: 'clean',
             pageSegmentationMode: 11,
+            supersessionPolicy: 'replace-all',
+            replaceAllAcknowledged: true,
         })).resolves.toMatchObject({
             ok: true,
             actionId: 'ocr.start',
@@ -881,7 +883,33 @@ describe('useDocumentWorkspaceAgent', () => {
             qualityProfile: 'poor-scan',
             preprocessingMode: 'clean',
             pageSegmentationMode: 11,
+            supersessionPolicy: 'replace-all',
+            replaceAllAcknowledged: true,
             open: true,
+        });
+    });
+
+    it('keeps a contract-requested OCR run in the background', async () => {
+        const runOcrForAgent = vi.fn(async () => ({ok: true}));
+        const handleDropdownOpen = vi.fn();
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            handleDropdownOpen,
+            ocrPopupRef: ref({
+                runOcrForAgent,
+                cancelOcrForAgent: vi.fn(async () => ({ok: true})),
+                getAgentOcrSnapshot: vi.fn(() => ({})),
+            }),
+        }));
+
+        await agent.runAgentAction('ocr.start', {
+            languages: ['eng'],
+            open: false,
+        });
+
+        expect(handleDropdownOpen).not.toHaveBeenCalled();
+        expect(runOcrForAgent).toHaveBeenCalledWith({
+            languages: ['eng'],
+            open: false,
         });
     });
 
@@ -898,6 +926,7 @@ describe('useDocumentWorkspaceAgent', () => {
             qualityProfile: 'stock',
             preprocessingMode: 'maybe',
             pageSegmentationMode: 42,
+            selectedLanguages: ['rus'],
         });
 
         expect(runOcrForAgent).toHaveBeenCalledWith({open: true});

@@ -45,6 +45,7 @@ const vitestProjectNames = {
     unitElectron: 'unit-electron',
     unitScripts: 'unit-scripts',
     unitPolicy: 'unit-policy',
+    unitStaticArchitecture: 'unit-static-architecture',
     browserIntegration: 'browser-integration',
     electronE2ERegression: 'e2e-regression',
     electronE2EBlockingSmoke: 'e2e-blocking-smoke',
@@ -189,6 +190,12 @@ describe('unit Vitest project topology', () => {
             .toEqual(expect.arrayContaining(unitPolicyTestFiles));
         expect(projectByName(config, vitestProjectNames.unitPolicy).test?.include)
             .toEqual(unitPolicyTestFiles);
+        expect(projectByName(config, vitestProjectNames.unitStaticArchitecture).test?.include)
+            .toContain('tests/unit/architecture/**/*.test.ts');
+        expect(projectByName(config, vitestProjectNames.unitApp).test?.exclude)
+            .toEqual(expect.arrayContaining(
+                projectByName(config, vitestProjectNames.unitStaticArchitecture).test?.include ?? [],
+            ));
         expect(projectByName(config, vitestProjectNames.browserIntegration).test?.include)
             .toEqual(['tests/integration/browser/**/*.test.ts']);
     });

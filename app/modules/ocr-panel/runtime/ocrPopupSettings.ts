@@ -1,34 +1,12 @@
-import type {
-    TOcrPreprocessingMode,
-    TOcrQualityProfile,
-    TOcrTextSupersessionPolicy,
-} from '@contracts/electronApiOcr';
-import type { IAgentOcrRunOptions } from '@app/types/ocrAgent';
-import type {
-    IOcrSettings,
-    TOcrPageRange,
-} from '@app/utils/ocr/ocrTypes';
+import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
+import {parseAgentOcrRunOptions} from '@contracts/agentOcr';
+import type {TOcrQualityProfile} from '@contracts/electronApiOcr';
+import type {IOcrSettings} from '@app/utils/ocr/ocrTypes';
 
 export const OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE = '__automatic_page_segmentation__';
 
-function isOcrPageRange(value: unknown): value is TOcrPageRange {
-    return value === 'all' || value === 'current' || value === 'custom';
-}
-
-function isOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
-    return value === 'balanced' || value === 'accurate' || value === 'poor-scan';
-}
-
-function isOcrPreprocessingMode(value: unknown): value is TOcrPreprocessingMode {
-    return value === 'off' || value === 'clean';
-}
-
 function isOcrPageSegmentationMode(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13;
-}
-
-function isOcrSupersessionPolicy(value: unknown): value is TOcrTextSupersessionPolicy {
-    return value === 'missing-only' || value === 'replace-evb' || value === 'replace-all';
 }
 
 export function normalizeSelectedOcrLanguages(selectedLanguages: string[]) {
@@ -78,33 +56,34 @@ export function applyAgentOcrOptionsToSettings(
     options: IAgentOcrRunOptions,
     availableLanguageCodes: ReadonlySet<string>,
 ) {
+    const parsedOptions = parseAgentOcrRunOptions(options);
     const nextSettings = {
         ...currentSettings,
         selectedLanguages: [...currentSettings.selectedLanguages],
     };
 
-    if (isOcrPageRange(options.pageRange)) {
-        nextSettings.pageRange = options.pageRange;
+    if (parsedOptions.pageRange !== undefined) {
+        nextSettings.pageRange = parsedOptions.pageRange;
     }
-    if (typeof options.customRange === 'string') {
-        nextSettings.customRange = options.customRange;
+    if (parsedOptions.customRange !== undefined) {
+        nextSettings.customRange = parsedOptions.customRange;
     }
-    if (isOcrQualityProfile(options.qualityProfile)) {
-        nextSettings.qualityProfile = options.qualityProfile;
+    if (parsedOptions.qualityProfile !== undefined) {
+        nextSettings.qualityProfile = parsedOptions.qualityProfile;
     }
-    if (isOcrPreprocessingMode(options.preprocessingMode)) {
-        nextSettings.preprocessingMode = options.preprocessingMode;
+    if (parsedOptions.preprocessingMode !== undefined) {
+        nextSettings.preprocessingMode = parsedOptions.preprocessingMode;
     }
-    if (isOcrPageSegmentationMode(options.pageSegmentationMode)) {
-        nextSettings.pageSegmentationMode = options.pageSegmentationMode;
+    if (parsedOptions.pageSegmentationMode !== undefined) {
+        nextSettings.pageSegmentationMode = parsedOptions.pageSegmentationMode;
     }
-    if (isOcrSupersessionPolicy(options.supersessionPolicy)) {
-        nextSettings.supersessionPolicy = options.supersessionPolicy;
-        nextSettings.replaceAllAcknowledged = options.supersessionPolicy === 'replace-all'
-            && options.replaceAllAcknowledged === true;
+    if (parsedOptions.supersessionPolicy !== undefined) {
+        nextSettings.supersessionPolicy = parsedOptions.supersessionPolicy;
+        nextSettings.replaceAllAcknowledged = parsedOptions.supersessionPolicy === 'replace-all'
+            && parsedOptions.replaceAllAcknowledged === true;
     }
 
-    const languages = normalizeAgentLanguages(options.languages, availableLanguageCodes);
+    const languages = normalizeAgentLanguages(parsedOptions.languages, availableLanguageCodes);
     if (languages !== null) {
         nextSettings.selectedLanguages = languages;
     }

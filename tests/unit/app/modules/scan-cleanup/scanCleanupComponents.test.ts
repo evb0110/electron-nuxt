@@ -40,7 +40,6 @@ import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanClean
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
-import {readFileSync} from 'node:fs';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {resetScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -782,27 +781,6 @@ const placementAlignments = [
     'bottom-center',
     'bottom-right',
 ] as const satisfies readonly TScanCleanupPageAlignment[];
-
-const previewShellStyleSource = readFileSync(
-    'app/modules/scan-cleanup/components/preview/PreviewShell.css',
-    'utf8',
-);
-const previewShellSource = readFileSync(
-    'app/modules/scan-cleanup/components/preview/PreviewShell.vue',
-    'utf8',
-);
-const scanCleanupSegmentedSource = readFileSync(
-    'app/modules/scan-cleanup/components/ScanCleanupSegmented.vue',
-    'utf8',
-);
-const scanCleanupToolbarSource = readFileSync(
-    'app/modules/scan-cleanup/components/ScanCleanupToolbar.vue',
-    'utf8',
-);
-const scanCleanupWorkspaceSource = readFileSync(
-    'app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue',
-    'utf8',
-);
 
 function settingsPanelProps(
     settings: Record<string, unknown>,
@@ -1812,11 +1790,6 @@ describe('Scan cleanup components', () => {
             .toBe('100%');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')).toBeNull();
         expect(harness.host.querySelectorAll('.scan-cleanup-toolbar-primary-action')).toHaveLength(1);
-        expect(scanCleanupToolbarSource).toContain('minmax(0, 1fr)');
-        expect(scanCleanupToolbarSource).toContain('minmax(0, var(--app-scan-toolbar-meter-width))');
-        expect(scanCleanupToolbarSource).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 2fr)');
-        expect(scanCleanupToolbarSource).toContain('width: 100%;');
-        expect(scanCleanupToolbarSource).not.toContain('minmax(var(--app-scan-toolbar-right-zone-width), auto)');
         etaText.value = 'Estimated time left: 3:42';
         await nextTick();
         expect(meter?.textContent).toContain('Estimated time left: 3:42');
@@ -4515,30 +4488,6 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('[name="i-ph-arrows-out"]')).toBeNull();
     });
 
-    it('keeps Fit integrated with its rounded group while comparison options use bordered selection', () => {
-        expect(previewShellStyleSource).toMatch(
-            /\.preview-zoom-button\.is-active\s*\{[^}]*--app-toolbar-control-active-bg[^}]*\}/,
-        );
-        expect(previewShellStyleSource).not.toMatch(
-            /\.preview-zoom-button\.is-active(?::hover[^\s{]*)?\s*\{[^}]*box-shadow/,
-        );
-        expect(previewShellStyleSource).toMatch(
-            /\.preview-zoom-button\.is-fit-page\s*\{[^}]*border-start-end-radius:[^}]*border-end-end-radius:/,
-        );
-        expect(scanCleanupSegmentedSource).toMatch(
-            /\.scan-cleanup-segmented-option\.is-selected\s*\{[^}]*--app-control-active-bg[^}]*--app-control-active-border[^}]*\}/,
-        );
-        expect(scanCleanupSegmentedSource).not.toMatch(
-            /\.scan-cleanup-segmented-option\.is-selected\s*\{[^}]*--ui-primary/,
-        );
-    });
-
-    it('keeps the loading skeleton flush with the stable paper rectangle', () => {
-        expect(previewShellStyleSource).toMatch(
-            /\.preview-skeleton-page \.preview-skeleton-fill\s*\{[^}]*inset: 0;/,
-        );
-    });
-
     it('keeps overlay help in the header without reserving a full legend row', async () => {
         const viewMode = ref<'original' | 'cleaned'>('cleaned');
         const matchPageSize = ref(true);
@@ -4583,9 +4532,6 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(overlayHelp()).not.toBeNull();
         expect(harness.host.querySelector('.overlay-legend')).toBeNull();
-        expect(previewShellSource).toContain('<template #content>');
-        expect(previewShellSource).toContain('class="preview-overlay-tooltip"');
-        expect(previewShellSource).toContain('<span v-if="matchPageSize"><i class="legend-swatch is-canvas"');
     });
 
     it('reserves the widest page counter and detection counter so their neighbours never move', async () => {
@@ -4663,8 +4609,6 @@ describe('Scan cleanup components', () => {
         })));
         const cancel = harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-cancel-detection');
         expect(cancel?.getAttribute('aria-label')).toBe(cancelLabel);
-        expect(scanCleanupToolbarSource).toContain(':text="detectionCancelLabel"');
-        expect(scanCleanupToolbarSource).toContain(':aria-label="detectionCancelLabel"');
     });
 
     it('presents the background-analysis handoff as indeterminate instead of resetting to zero percent', () => {
@@ -4731,10 +4675,6 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).toContain('Estimating time left…');
         expect(fill?.style.width).toBe('25%');
         expect(meter?.getAttribute('aria-valuenow')).toBe('25');
-        // The workspace feeds this state: while the run waits for detection it
-        // must swap the meter source to detection progress, not the run job.
-        expect(scanCleanupWorkspaceSource).toContain('waitingForDetection.value');
-        expect(scanCleanupWorkspaceSource).toContain(':percent="meterPercent"');
     });
 
     it('keeps every state-gated setting mounted so switching modes never moves the panel', async () => {

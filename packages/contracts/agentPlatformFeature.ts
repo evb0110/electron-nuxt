@@ -27,7 +27,6 @@ import type {
     IAgentAssistantState,
     IAgentAssistantStatus,
     IAgentAssistantTurnState,
-    IAgentWorkspaceSnapshot,
     IAgentWorkspaceSnapshotRequest,
     IAgentWorkspaceSnapshotResponse,
     TAgentCommand,
@@ -43,6 +42,7 @@ import {
     ASSISTANT_MAX_IMAGE_BYTES,
     ASSISTANT_PROVIDER_IDS,
 } from '@contracts/agent';
+import { isAgentWorkspaceSnapshot } from '@contracts/isAgentWorkspaceSnapshot';
 import type { TDocumentBackend } from '@contracts/documentRef';
 import {
     isDocumentRevisionInfo,
@@ -189,18 +189,6 @@ function decodeAssistantSendMessageRequest(value: unknown): IAgentAssistantSendM
     };
 }
 
-function isWorkspaceSnapshot(value: unknown): value is IAgentWorkspaceSnapshot {
-    return isRecord(value)
-        && typeof value.capturedAt === 'string'
-        && (value.activePaneId === null || typeof value.activePaneId === 'string')
-        && (value.activeTabId === null || typeof value.activeTabId === 'string')
-        && isRecord(value.summary)
-        && Array.isArray(value.panes) && value.panes.length <= 10_000
-        && Array.isArray(value.tabs) && value.tabs.length <= 10_000
-        && Array.isArray(value.recentFiles) && value.recentFiles.length <= 10_000
-        && (value.layout === null || isRecord(value.layout));
-}
-
 function decodeWorkspaceSnapshotResponse(value: unknown): IAgentWorkspaceSnapshotResponse {
     if (
         !isRecord(value)
@@ -209,7 +197,7 @@ function decodeWorkspaceSnapshotResponse(value: unknown): IAgentWorkspaceSnapsho
         || (value.windowId !== undefined && (typeof value.windowId !== 'number' || !Number.isSafeInteger(value.windowId)))
         || (value.revision !== undefined && (typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision)))
         || (value.unchanged !== undefined && typeof value.unchanged !== 'boolean')
-        || (value.snapshot !== undefined && !isWorkspaceSnapshot(value.snapshot))
+        || (value.snapshot !== undefined && !isAgentWorkspaceSnapshot(value.snapshot))
         || (value.error !== undefined && typeof value.error !== 'string')
     ) {
         throw new Error('invalid workspace snapshot response');

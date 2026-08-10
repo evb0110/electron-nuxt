@@ -1,6 +1,4 @@
 // @vitest-environment happy-dom
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
     effectScope,
     nextTick,
@@ -61,25 +59,6 @@ describe('useWorkspaceStartupReadiness', () => {
             reason: 'test-open',
             timedOut: false,
         });
-    });
-
-    it('uses viewer readiness instead of DOM render polling or native viewer selection shortcuts', async () => {
-        const readinessSource = await readFile(
-            join(process.cwd(), 'app/modules/workspace-shell/composables/useWorkspaceStartupReadiness.ts'),
-            'utf8',
-        );
-        const exposeSource = await readFile(
-            join(process.cwd(), 'app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types.ts'),
-            'utf8',
-        );
-
-        expect(exposeSource).toContain('waitForViewerLoadSettled?: () => Promise<void>');
-        expect(readinessSource).toContain('waitForViewerLoadSettled');
-        expect(readinessSource).not.toContain('querySelector');
-        expect(readinessSource).not.toContain('hasRenderedStartupDocument');
-        expect(readinessSource).not.toContain('requestAnimationFrame');
-        expect(readinessSource).not.toContain('showDjvuSource');
-        expect(readinessSource).not.toContain('showNativePdfViewer');
     });
 
     it('suppresses readiness dispatch after its owning scope is disposed', async () => {

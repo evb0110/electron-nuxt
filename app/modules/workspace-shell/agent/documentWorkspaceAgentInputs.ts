@@ -10,12 +10,7 @@ import {
 import { isOneOf } from '@contracts/runtimeGuards';
 import { uniq } from 'es-toolkit/array';
 import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
-import type {
-    TOcrPreprocessingMode,
-    TOcrQualityProfile,
-    TAgentOcrPageRange,
-    TWorkspaceAgentSidebarTab,
-} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
+import type {TWorkspaceAgentSidebarTab} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 
 const AGENT_SIDEBAR_TABS = [
     'annotations',
@@ -110,22 +105,6 @@ export function isAgentTextMarkupKind(value: unknown): value is TAgentTextMarkup
 
 export function isAgentShapeTool(value: unknown): value is TDrawableShapeType {
     return isOneOf(DRAWABLE_SHAPE_TOOLS, value);
-}
-
-export function isAgentOcrPageRange(value: unknown): value is TAgentOcrPageRange {
-    return value === 'all' || value === 'current' || value === 'custom';
-}
-
-export function isAgentOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
-    return value === 'balanced' || value === 'accurate' || value === 'poor-scan';
-}
-
-export function isAgentOcrPreprocessingMode(value: unknown): value is TOcrPreprocessingMode {
-    return value === 'off' || value === 'clean';
-}
-
-export function isAgentOcrPageSegmentationMode(value: unknown): value is number {
-    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13;
 }
 
 export function getAgentNullableStringInput(input: Record<string, unknown> | undefined, key: string) {

@@ -35,6 +35,7 @@ const unitProjects = [
     'unit-electron',
     'unit-scripts',
     'unit-policy',
+    'unit-static-architecture',
 ];
 const allTs7Projects = [
     'electron/tsconfig.json',
@@ -128,7 +129,6 @@ export async function collectValidationChanges({
             reason: 'explicit-files',
         };
     }
-
     const resolvedBase = base
         ?? process.env.EVB_GATE_BASE
         ?? await gitOutput([
@@ -166,7 +166,6 @@ export async function collectValidationChanges({
             reason: 'git-change-detection-failed',
         };
     }
-
     const committedOutput = await gitOutput([
         'diff',
         '--name-only',
@@ -182,7 +181,6 @@ export async function collectValidationChanges({
             reason: 'git-base-diff-failed',
         };
     }
-
     return {
         base: resolvedBase,
         files: unique([
@@ -210,7 +208,6 @@ export function classifyValidationImpacts(
     const unmatchedFiles = normalizedFiles.filter(file => !Object.values(policy).some(definition => (
         definition.paths.some(pattern => matchesChangedAreaPattern(file, pattern))
     )));
-
     return {
         full: unmatchedFiles.length > 0,
         impacts,
@@ -225,7 +222,6 @@ function selectedTypecheckProjects(files, classification) {
             workspacePackages: true,
         };
     }
-
     const projects = [];
     if (classification.impacts.electron) {
         projects.push('electron/tsconfig.json');
@@ -255,7 +251,7 @@ function selectedUnitProjects(files, classification) {
     }
     const projects = [];
     if (classification.impacts.app) {
-        projects.push('unit-app');
+        projects.push('unit-app', 'unit-static-architecture');
     }
     if (classification.impacts.electron) {
         projects.push('unit-electron');
@@ -270,8 +266,12 @@ function selectedUnitProjects(files, classification) {
         projects.push('unit-scripts');
     }
     for (const file of files) {
-        if (file.startsWith('tests/unit/app/')) {
-            projects.push('unit-app');
+        if (file.startsWith('tests/e2e/electron/quarantine/')) {
+            projects.push('unit-static-architecture');
+        } else if (file.startsWith('tests/unit/app/')) {
+            projects.push('unit-app', 'unit-static-architecture');
+        } else if (file.startsWith('tests/unit/architecture/')) {
+            projects.push('unit-static-architecture');
         } else if (file.startsWith('tests/unit/electron/') || file.startsWith('tests/unit/e2e/')) {
             projects.push('unit-electron');
         } else if (file.startsWith('tests/unit/scripts/')) {

@@ -9,6 +9,7 @@ import {
     IPC_FILENAME_MAX_LENGTH,
     truncateForIpc,
 } from '@electron/utils/ipcLimits';
+import { getDocumentsDialogDefaultPath } from '@electron/utils/dialogDefaultPaths';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
 
 interface IOpenDocumentDialogOptions {
@@ -73,6 +74,7 @@ export async function showOpenDocumentDialogForContext(
 ) {
     const dialogOptions = {
         title: options.title,
+        defaultPath: getDocumentsDialogDefaultPath(),
         filters: [{
             name: te('dialogs.documentsFilter'),
             extensions: options.extensions,

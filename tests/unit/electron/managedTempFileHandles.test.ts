@@ -30,7 +30,16 @@ const mocks = vi.hoisted(() => ({
     revision: null as null | {token: string},
 }));
 
-const waitForFilesystemTimestampTick = () => new Promise(resolve => setTimeout(resolve, 5));
+function changeFileModeAfterCtimeAdvances(path: string, initialMode: number) {
+    const initialCtimeNs = statSync(path, {bigint: true}).ctimeNs;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        chmodSync(path, initialMode ^ (attempt % 2 === 0 ? 0o100 : 0o200));
+        if (statSync(path, {bigint: true}).ctimeNs !== initialCtimeNs) {
+            return;
+        }
+    }
+    throw new Error('Filesystem ctime did not advance after repeated mode changes');
+}
 
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadableBinaryPath: vi.fn(async () => mocks.path)}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({readWorkingCopyRevisionSidecar: vi.fn(async () => mocks.revision)}));
@@ -246,8 +255,7 @@ describe('managed temporary file handles', () => {
         });
         const fileStat = statSync(mocks.path);
 
-        await waitForFilesystemTimestampTick();
-        chmodSync(mocks.path, fileStat.mode ^ 0o100);
+        changeFileModeAfterCtimeAdvances(mocks.path, fileStat.mode);
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))
             .rejects.toThrow('changed after staging');
@@ -265,8 +273,9 @@ describe('managed temporary file handles', () => {
             fsynced: false,
         });
 
-        await waitForFilesystemTimestampTick();
+        const fileStat = statSync(mocks.path);
         writeFileSync(mocks.path, Buffer.from('rewritten-file-bytes'));
+        utimesSync(mocks.path, fileStat.atime, new Date(fileStat.mtimeMs + 2_000));
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))
             .rejects.toThrow('changed after staging');
@@ -493,7 +502,6 @@ describe('managed temporary file handles', () => {
             fsynced: false,
         });
         const linkedPath = join(directory, 'linked.pdf');
-        await waitForFilesystemTimestampTick();
         linkSync(mocks.path, linkedPath);
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))

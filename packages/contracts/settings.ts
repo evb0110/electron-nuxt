@@ -45,6 +45,43 @@ const PERFORMANCE_MODES: ReadonlySet<string> = new Set<TPerformanceMode>([
 const MAX_AUTHOR_NAME_LENGTH = 256;
 const MAX_SKIPPED_UPDATE_VERSION_LENGTH = 128;
 
+type TSettingsSaveManagedKey = 'agentMcpEnabled' | 'skippedUpdateVersion';
+export type TSettingsSaveKey = Exclude<keyof ISettingsData, TSettingsSaveManagedKey>;
+export type TSettingsSavePatch = Partial<Pick<ISettingsData, TSettingsSaveKey>>;
+
+export const SETTINGS_SAVE_KEYS = [
+    'version',
+    'authorName',
+    'theme',
+    'locale',
+    'defaultZoomPreset',
+    'defaultViewMode',
+    'defaultContinuousScroll',
+    'defaultAnnotationColor',
+    'uiScale',
+    'tabMemoryPolicy',
+    'performanceMode',
+    'optimizePdfOnSaveAs',
+    'assistantPanelEnabled',
+    'suppressDefaultViewerPrompt',
+] as const satisfies readonly TSettingsSaveKey[];
+
+const SETTINGS_SAVE_KEY_SET: ReadonlySet<string> = new Set(SETTINGS_SAVE_KEYS);
+
+export function isSettingsSaveKey(key: string): key is TSettingsSaveKey {
+    return SETTINGS_SAVE_KEY_SET.has(key);
+}
+
+export function pickSettingsSavePatch(settings: ISettingsData): TSettingsSavePatch {
+    const patch: TSettingsSavePatch = {};
+    for (const key of SETTINGS_SAVE_KEYS) {
+        if (Object.hasOwn(settings, key)) {
+            Object.assign(patch, {[key]: settings[key]});
+        }
+    }
+    return patch;
+}
+
 export const DEFAULT_SETTINGS: ISettingsData = {
     version: 2,
     authorName: '',
@@ -168,7 +205,9 @@ export function normalizePerformanceMode(value: unknown): TPerformanceMode {
 export function sanitizeSettings(raw: unknown): ISettingsData {
     const value = isRecord(raw) ? raw : null;
     const settings: ISettingsData = {
-        version: typeof value?.version === 'number' ? value.version : DEFAULT_SETTINGS.version,
+        version: typeof value?.version === 'number' && Number.isFinite(value.version)
+            ? value.version
+            : DEFAULT_SETTINGS.version,
         authorName: normalizeBoundedString(value?.authorName, MAX_AUTHOR_NAME_LENGTH),
         theme: normalizeTheme(value?.theme),
         locale: normalizeLocale(value?.locale),

@@ -30,6 +30,7 @@ const nitroOutput = isVercelBuildOutput
 const isDev = process.env.NODE_ENV !== 'production';
 const isolatedNuxtBuildDir = process.env.EVB_NUXT_BUILD_DIR?.trim();
 const isolatedNuxtViteCacheDir = process.env.EVB_NUXT_VITE_CACHE_DIR?.trim();
+const enableNuxtCompatibilityV5 = process.env.EVB_NUXT_COMPATIBILITY_VERSION === '5';
 const appShellCacheHeaders = {
     'cache-control': 'no-store, max-age=0, must-revalidate',
     'pragma': 'no-cache',
@@ -59,6 +60,7 @@ function isKnownSourcemapWarning(log: IRollupLog) {
 
 export default defineNuxtConfig({
     ...(isolatedNuxtBuildDir ? {buildDir: isolatedNuxtBuildDir} : {}),
+    ...(enableNuxtCompatibilityV5 ? {future: {compatibilityVersion: 5 as const}} : {}),
 
     app: {
         head: {

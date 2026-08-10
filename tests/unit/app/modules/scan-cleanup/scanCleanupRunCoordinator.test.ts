@@ -616,7 +616,7 @@ describe('scan cleanup run coordinator', () => {
         expect(toastAdd).not.toHaveBeenCalled();
 
         listener(completed);
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await Promise.resolve();
         expect(openGeneratedPdf).toHaveBeenCalledOnce();
 
         openGate.resolve(true);

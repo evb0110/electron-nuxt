@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evb-viewer.dev/schemas/electron-e2e-quarantine-graduation-policy.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "version",
+    "lane",
+    "tests"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./graduation-policy.schema.json"
+    },
+    "version": {
+      "const": 1
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events",
+        "blocking",
+        "retryCount",
+        "minimumConsecutiveGreenScheduledRuns"
+      ],
+      "properties": {
+        "events": {
+          "const": [
+            "schedule",
+            "workflow_dispatch"
+          ]
+        },
+        "blocking": {
+          "const": false
+        },
+        "retryCount": {
+          "const": 2
+        },
+        "minimumConsecutiveGreenScheduledRuns": {
+          "const": 30
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "targetProject",
+          "consecutiveGreenScheduledRuns"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^tests/e2e/electron/quarantine/.+\\.e2e\\.test\\.ts$"
+          },
+          "targetProject": {
+            "enum": [
+              "e2e-regression",
+              "e2e-blocking-smoke"
+            ]
+          },
+          "consecutiveGreenScheduledRuns": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 29
+          }
+        }
+      }
+    }
+  }
+}

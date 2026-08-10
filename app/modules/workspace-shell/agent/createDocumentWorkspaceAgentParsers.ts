@@ -2,18 +2,14 @@ import type { Ref } from 'vue';
 import {
     getAgentNumberInput,
     getAgentNumberArrayInput,
-    getAgentStringArrayInput,
     getAgentStringInput,
     hasAgentInputKey,
     isAgentAnnotationTool,
-    isAgentOcrPageSegmentationMode,
-    isAgentOcrQualityProfile,
-    isAgentOcrPageRange,
-    isAgentOcrPreprocessingMode,
     isAgentRecord,
     isAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import type { IAgentOcrRunOptions } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
+import {parseAgentOcrRunOptions} from '@contracts/agentOcr';
 import {
     getAgentPageNumberInput,
     normalizeAgentPageNumber,
@@ -23,27 +19,10 @@ interface IDocumentWorkspaceAgentParsersOptions { totalPages: Ref<number>; }
 
 export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceAgentParsersOptions) {
     function getAgentOcrRunOptions(input: Record<string, unknown>): IAgentOcrRunOptions {
-        const pageRange = getAgentStringInput(input, 'pageRange');
-        const customRange = getAgentStringInput(input, 'customRange');
-        const qualityProfile = getAgentStringInput(input, 'qualityProfile');
-        const preprocessingMode = getAgentStringInput(input, 'preprocessingMode');
-        const pageSegmentationMode = getAgentNumberInput(input, 'pageSegmentationMode');
-        const parsedQualityProfile = isAgentOcrQualityProfile(qualityProfile)
-            ? qualityProfile
-            : undefined;
-        const parsedPreprocessingMode = isAgentOcrPreprocessingMode(preprocessingMode)
-            ? preprocessingMode
-            : undefined;
-        const languages = getAgentStringArrayInput(input, 'languages')
-            ?? getAgentStringArrayInput(input, 'selectedLanguages');
+        const parsed = parseAgentOcrRunOptions(input);
         return {
-            ...(isAgentOcrPageRange(pageRange) ? {pageRange} : {}),
-            ...(customRange === null ? {} : {customRange}),
-            ...(parsedQualityProfile === undefined ? {} : {qualityProfile: parsedQualityProfile}),
-            ...(parsedPreprocessingMode === undefined ? {} : {preprocessingMode: parsedPreprocessingMode}),
-            ...(isAgentOcrPageSegmentationMode(pageSegmentationMode) ? {pageSegmentationMode} : {}),
-            ...(languages === undefined ? {} : {languages}),
-            open: true,
+            ...parsed,
+            open: parsed.open ?? true,
         };
     }
 

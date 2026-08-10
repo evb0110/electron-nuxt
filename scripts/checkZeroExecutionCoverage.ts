@@ -5,6 +5,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {LOAD_BEARING_COVERAGE_FILES} from '@scripts/checkCoverageRatchet';
 
 const DEFAULT_SUMMARY_PATH = 'coverage/coverage-summary.json';
 
@@ -66,6 +67,9 @@ export function isZeroExecutionTripwireTarget(filePath: string) {
         return false;
     }
     if (normalized.startsWith('electron/platform-ipc/') || normalized.startsWith('packages/contracts/')) {
+        return true;
+    }
+    if ((LOAD_BEARING_COVERAGE_FILES as readonly string[]).includes(normalized)) {
         return true;
     }
 

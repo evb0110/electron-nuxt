@@ -15,6 +15,7 @@ import {
 } from '@contracts/runtimeGuards';
 
 const MAX_COLLECTION_ITEMS = 100_000;
+const IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH = 128;
 
 type TImageExportArgs = [
     workingCopyPath: string,
@@ -36,7 +37,27 @@ function decodeOptionalPageNumbers(value: unknown) {
     if (value.some(page => typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1)) {
         throw new Error('pageNumbers must contain positive safe integers');
     }
+    if (new Set(value).size !== value.length) {
+        throw new Error('pageNumbers must contain unique pages');
+    }
     return value as number[];
+}
+
+function decodeOptionalRequestId(value: unknown) {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (typeof value !== 'string') {
+        throw new Error('requestId must be a string');
+    }
+    const requestId = value.trim();
+    if (!requestId) {
+        return undefined;
+    }
+    if (requestId.length > IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH) {
+        throw new Error(`requestId exceeds maximum length (${IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH})`);
+    }
+    return requestId;
 }
 
 function decodeExportArgs(value: unknown): TImageExportArgs {
@@ -48,10 +69,7 @@ function decodeExportArgs(value: unknown): TImageExportArgs {
     if (typeof workingCopyPath !== 'string' || workingCopyPath.trim().length === 0) {
         throw new Error('workingCopyPath must be a non-empty string');
     }
-    const requestId = items[2];
-    if (requestId !== undefined && requestId !== null && typeof requestId !== 'string') {
-        throw new Error('requestId must be a string');
-    }
+    const requestId = decodeOptionalRequestId(items[2]);
     const sourceKind = items[3];
     if (sourceKind !== undefined && sourceKind !== 'pdf' && sourceKind !== 'djvu') {
         throw new Error('sourceKind must be pdf or djvu');
@@ -59,7 +77,7 @@ function decodeExportArgs(value: unknown): TImageExportArgs {
     return [
         workingCopyPath,
         decodeOptionalPageNumbers(items[1]),
-        requestId ?? undefined,
+        requestId,
         sourceKind,
     ];
 }

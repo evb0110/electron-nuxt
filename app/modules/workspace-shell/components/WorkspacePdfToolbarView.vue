@@ -267,10 +267,8 @@ import { PdfZoomDropdown } from '@app/modules/pdf-viewer/public/component-export
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
-import type {
-    IAgentOcrRunOptions,
-    IOcrPopupAgentExpose,
-} from '@app/types/ocrAgent';
+import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
+import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
 import {

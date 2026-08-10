@@ -98,6 +98,7 @@ vi.mock('electron', () => {
 
     return {
         app: {
+            getPath: vi.fn(() => '/Users/Test/Documents'),
             on: vi.fn(),
             quit: vi.fn(),
             showAboutPanel: vi.fn(),
@@ -227,6 +228,7 @@ describe('native menu and dialog routing', () => {
         await flushCommandRoute();
         expect(mocks.dialog.showOpenDialog).toHaveBeenCalledWith(window, expect.objectContaining({
             title: 'dialogs.openDocument',
+            defaultPath: '/Users/Test/Documents',
             filters: [{
                 name: 'dialogs.documentsFilter',
                 extensions: expect.arrayContaining([

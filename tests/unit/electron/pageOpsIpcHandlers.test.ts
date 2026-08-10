@@ -86,7 +86,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
-    app: { isPackaged: false },
+    app: {
+        getPath: vi.fn(() => '/home/test/Documents'),
+        isPackaged: false,
+    },
     BrowserWindow: {
         fromWebContents: () => null,
         getFocusedWindow: () => mocks.getFocusedWindow(),
@@ -490,6 +493,38 @@ describe('page ops main bindings', () => {
                 cancelGroup: nativeOptions.cancelGroup,
             }),
         );
+    });
+
+    it('opens insert-page sources from the validated working-copy directory', async () => {
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/pdf-work-1/work.pdf');
+        const handler = getHandler('page-ops:insert');
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/home/test/Documents/original.pdf',
+            3,
+            1,
+        )).resolves.toEqual({
+            success: false,
+            canceled: true,
+        });
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf', 1);
+        expect(mocks.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({defaultPath: '/tmp/pdf-work-1'}));
+    });
+
+    it('rejects unmanaged insert-page paths before opening the source dialog', async () => {
+        mocks.ensureWorkingCopyDirectory.mockResolvedValueOnce(false);
+        const handler = getHandler('page-ops:insert');
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/unmanaged/work.pdf',
+            3,
+            1,
+        )).rejects.toThrow('Path is not a managed working copy');
+
+        expect(mocks.showOpenDialog).not.toHaveBeenCalled();
     });
 
     it('rejects a running page-op helper when the mutation operation is canceled', async () => {

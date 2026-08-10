@@ -10,9 +10,14 @@ import {
 
 // Nuxt 4.4.7's config declaration currently loses the helper call signature.
 const defineNuxtConfig = defineNuxtConfigBase as <T extends Record<string, unknown>>(config: T) => T;
+const isolatedNuxtBuildDir = process.env.EVB_NUXT_BUILD_DIR?.trim();
+const enableNuxtCompatibilityV5 = process.env.EVB_NUXT_COMPATIBILITY_VERSION === '5';
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
+    ...(isolatedNuxtBuildDir ? {buildDir: isolatedNuxtBuildDir} : {}),
+    ...(enableNuxtCompatibilityV5 ? {future: {compatibilityVersion: 5 as const}} : {}),
+
     modules: [
         '@nuxt/eslint',
         '@nuxt/ui',

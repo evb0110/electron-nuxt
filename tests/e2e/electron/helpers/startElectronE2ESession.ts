@@ -37,7 +37,10 @@ import {
 } from '@scripts/electron-run/electronRunRunId';
 import { readE2ESharedRendererConfig } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
-import {DEFAULT_SETTINGS} from '@contracts/settings';
+import {
+    DEFAULT_SETTINGS,
+    pickSettingsSavePatch,
+} from '@contracts/settings';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
 import { stopSingleSession } from '@scripts/electron-run/stopSession';
@@ -496,7 +499,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {
                 throw new Error('Electron checkpoint discard bridge is unavailable before renderer teardown');
             }
             return discardWorkspaceCheckpoint();
-        }, DEFAULT_SETTINGS);
+        }, pickSettingsSavePatch(DEFAULT_SETTINGS));
         let checkpointResumed = false;
         const restoreRendererAndResumeCheckpoint = async () => {
             await page.goto(rendererUrl, {waitUntil: 'domcontentloaded'});

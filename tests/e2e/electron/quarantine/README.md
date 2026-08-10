@@ -8,6 +8,9 @@ repro, deflake, or harness change.
 - Do not move stable smoke tests here without an audit-backed reason.
 - Graduate a quarantined test back to the smoke or extended lane after 30 green
   scheduled runs.
+- Keep each test's graduation target and consecutive-green count current in
+  `graduation-policy.json`. The static architecture policy gate verifies the
+  quarantine inventory and fails when a test reaches its graduation threshold.
 - This directory may intentionally contain zero tests; the quarantine Vitest
   project is run with `--passWithNoTests` for that state.
 

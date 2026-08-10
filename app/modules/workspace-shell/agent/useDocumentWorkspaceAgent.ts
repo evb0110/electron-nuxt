@@ -435,7 +435,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             policy: {mutatesDocument: true},
             parse: getAgentOcrRunOptions,
             async run(runOptions: IAgentOcrRunOptions, _actionId, context) {
-                handleDropdownOpen('ocr', true);
+                if (runOptions.open !== false) handleDropdownOpen('ocr', true);
                 await nextTick();
                 context?.assertCurrentDocument();
                 const result = await ocrPopupRef.value?.runOcrForAgent(runOptions);

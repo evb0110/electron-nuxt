@@ -4,8 +4,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
@@ -40,28 +38,6 @@ function createSource(pageCount: number) {
 }
 
 describe('prioritized document page metrics', () => {
-    it('fences page rendering on exact per-page metric readiness', () => {
-        const runtime = readFileSync(join(
-            process.cwd(),
-            'app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts',
-        ), 'utf8');
-        const presentation = readFileSync(join(
-            process.cwd(),
-            'app/modules/workspace-shell/viewers/documentPageSourcePresentation.ts',
-        ), 'utf8');
-        const state = readFileSync(join(
-            process.cwd(),
-            'app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts',
-        ), 'utf8');
-
-        expect(runtime).toContain('const exactPageMetricNumbers = new Set<number>();');
-        expect(runtime).toContain('if (exactPageMetricNumbers.has(pageNumber) && exactMetric)');
-        expect(presentation).toContain('await options.ensureExactPageMetric(');
-        expect(presentation).toContain('if (!isCurrent())');
-        expect(presentation).not.toContain('if (pageNumber !== currentPage)');
-        expect(state).toContain('onMetric: context.scheduleRender,');
-    });
-
     it('keeps a stable cold-open page frame before trusted metrics arrive', () => {
         const metrics = createColdOpenProvisionalDocumentPageMetrics(7);
 

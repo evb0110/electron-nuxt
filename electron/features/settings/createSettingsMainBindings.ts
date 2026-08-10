@@ -1,5 +1,8 @@
 import type { IpcMainInvokeEvent } from 'electron';
-import { sanitizeSettings } from '@contracts/settings';
+import {
+    sanitizeSettings,
+    type TSettingsSavePatch,
+} from '@contracts/settings';
 import type { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import type { ISettingsData } from '@contracts/shared';
@@ -16,7 +19,7 @@ const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 const SETTINGS_SAVE_COALESCE_MS = 25;
 
 interface IQueuedSettingsSave {
-    pendingPatch: Record<string, unknown>;
+    pendingPatch: TSettingsSavePatch;
     shutdownAssistant: () => Promise<void>;
     waiters: Array<{
         resolve: () => void;
@@ -29,7 +32,7 @@ interface IQueuedSettingsSave {
 const settingsSaveQueuesBySender = new Map<number, IQueuedSettingsSave>();
 
 async function applySettingsSavePatch(
-    settingsPayload: Record<string, unknown>,
+    settingsPayload: TSettingsSavePatch,
     shutdownAssistant: () => Promise<void>,
 ) {
     let shouldShutdownAssistant = false;
@@ -38,20 +41,8 @@ async function applySettingsSavePatch(
             ...currentSettings,
             ...settingsPayload,
         });
-        const {
-            skippedUpdateVersion: _ignoredSkippedUpdateVersion,
-            ...incomingWithoutSkippedUpdateVersion
-        } = incoming;
         shouldShutdownAssistant = currentSettings.assistantPanelEnabled && !incoming.assistantPanelEnabled;
-        return {
-            ...incomingWithoutSkippedUpdateVersion,
-            // This value is managed by updater flow; avoid stale renderer snapshots clobbering it.
-            ...(currentSettings.skippedUpdateVersion === undefined
-                ? {}
-                : {skippedUpdateVersion: currentSettings.skippedUpdateVersion}),
-            // This value is managed by the Codex MCP flow because it mutates external Codex config.
-            agentMcpEnabled: currentSettings.agentMcpEnabled,
-        };
+        return incoming;
     });
     if (shouldShutdownAssistant) {
         await shutdownAssistant();
@@ -103,7 +94,7 @@ async function flushSettingsSaveQueue(senderId: number, queue: IQueuedSettingsSa
 
 function queueSettingsSave(
     senderId: number,
-    settingsPayload: Record<string, unknown>,
+    settingsPayload: TSettingsSavePatch,
     shutdownAssistant: () => Promise<void>,
 ) {
     let queue = settingsSaveQueuesBySender.get(senderId);

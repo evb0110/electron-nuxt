@@ -10,6 +10,7 @@ import type {
     IPdfSearchResponse,
 } from '@contracts/search';
 import type { ISettingsData } from '@contracts/shared';
+import type { TSettingsSavePatch } from '@contracts/settings';
 import type {
     IWindowTabTargetWindow,
     IWindowTabTransferRequest,
@@ -74,7 +75,7 @@ export interface IViewerSearchCapability {
 
 export interface IViewerSettingsCapability {
     get(): Promise<ISettingsData>;
-    save(settings: Partial<ISettingsData>): Promise<void>;
+    save(settings: TSettingsSavePatch): Promise<void>;
 }
 
 export interface IViewerHostApi {

@@ -11,8 +11,8 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { cast } from '@tests/helpers/cast';
 
-function flushAsync() {
-    return new Promise(resolve => setTimeout(resolve, 0));
+async function flushAsync() {
+    await new Promise<void>(resolve => setImmediate(resolve));
 }
 
 function createCancelledRenderError() {

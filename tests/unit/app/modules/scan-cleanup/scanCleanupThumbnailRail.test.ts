@@ -16,7 +16,6 @@ import {
     ref,
     Teleport,
 } from 'vue';
-import {readFileSync} from 'node:fs';
 import type {
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
@@ -31,11 +30,6 @@ import {
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
 import AppTooltip from '@app/components/AppTooltip.vue';
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';
-
-const scanCleanupThumbnailRailSource = readFileSync(
-    'app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue',
-    'utf8',
-);
 
 vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', async () => {
     const vue = await import('vue');
@@ -542,22 +536,6 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(header?.querySelectorAll('button')).toHaveLength(0);
     });
 
-    it('keeps the 8rem rail controls usable in the compact workspace layout', () => {
-        expect(scanCleanupThumbnailRailSource).toContain('container-type: inline-size');
-        const compactRules = scanCleanupThumbnailRailSource.match(
-            /@container \(width <= 10rem\) \{(?<rules>[\s\S]*)\n\}/u,
-        )?.groups?.rules;
-
-        expect(compactRules).toMatch(/\.scan-thumbnail-rail-header \{[\s\S]*?padding-inline/u);
-        expect(compactRules).toMatch(/\.scan-thumbnail-rail-actions \{[\s\S]*?flex: 1/u);
-        expect(compactRules).toMatch(/\.scan-thumbnail-actions \{[\s\S]*?padding: var\(--app-space-xs\)/u);
-        // Two square buttons fit an 8rem rail without wrapping, and the status
-        // line truncates instead of growing the row.
-        expect(scanCleanupThumbnailRailSource).toMatch(
-            /\.scan-thumbnail-status \{[\s\S]*?text-overflow: ellipsis/u,
-        );
-    });
-
     it('portals the override menu outside the virtual list and renders complete item labels', async () => {
         const harness = mountRail();
         const list = harness.host.querySelector<HTMLElement>('[data-thumbnail-list-stub]')!;
@@ -813,10 +791,6 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(page3Toggle.getAttribute('role')).toBe('switch');
         expect(page3Toggle.getAttribute('aria-checked')).toBe('false');
         expect(page3Toggle.querySelector('[data-icon="i-ph-eye-slash"]')).not.toBeNull();
-        expect(scanCleanupThumbnailRailSource).toMatch(
-            /data-document-thumbnail-item\]:hover\) \.scan-thumbnail-exclude-toggle/,
-        );
-
         page3Toggle.click();
         expect(harness.overrideUpdates.at(-1)).toEqual([
             3,

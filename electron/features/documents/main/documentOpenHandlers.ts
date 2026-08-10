@@ -27,6 +27,7 @@ import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeat
 import { getErrorMessage } from '@electron/utils/error';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
+import { getDocumentsDialogDefaultPath } from '@electron/utils/dialogDefaultPaths';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import { openInputPaths } from '@electron/features/documents/main/openInputPaths.service';
 import {
@@ -241,6 +242,7 @@ export async function handleOpenPdfDialog(context: IDocumentsDialogContext): Pro
 export async function handleOpenFolderDialog(context: IDocumentsDialogContext): Promise<TOpenFileResult | null> {
     const dialogOptions = {
         title: te('dialogs.openFolder'),
+        defaultPath: getDocumentsDialogDefaultPath(),
         properties: ['openDirectory'],
     } satisfies Electron.OpenDialogOptions;
 
@@ -288,6 +290,7 @@ export async function handleOpenCombineDialog(context: IDocumentsDialogContext):
 export async function handleOpenImageDialog(context: IDocumentsDialogContext) {
     const dialogOptions = {
         title: te('dialogs.openImage'),
+        defaultPath: getDocumentsDialogDefaultPath(),
         filters: [{
             name: te('dialogs.imagesFilter'),
             extensions: [

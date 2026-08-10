@@ -72,6 +72,7 @@ import {
     normalizeExpectedDocumentRevisionToken,
 } from '@electron/file-access/documentMutationGuards';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
+import { getWorkingCopyDialogDefaultPath } from '@electron/utils/dialogDefaultPaths';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 import {applyPageMetadataRemap} from '@electron/features/page-ops/main/pageMetadataRemap';
@@ -397,6 +398,7 @@ async function handlePageOpsInsert(
 
     const dialogOptions = {
         title: te('dialogs.insertPagesFromPdf'),
+        defaultPath: getWorkingCopyDialogDefaultPath(normalizedWorkingCopyPath),
         filters: [{
             name: te('dialogs.documentsFilter'),
             extensions: [

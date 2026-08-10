@@ -1660,7 +1660,8 @@ describe('scan cleanup workspace session detection guidance', () => {
             ownerId: mounted.session.run.ownerId,
             documentRevision: 'revision-1',
         }));
-        await new Promise(resolve => setTimeout(resolve, 5));
+        await nextTick();
+        await Promise.resolve();
 
         expect(harness.value.detectAll).toHaveBeenCalledOnce();
         expect(mounted.session.detection.terminalStatus.value).toBeNull();
@@ -1673,7 +1674,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.detection.terminalStatus.value).toBeNull();
         harness.emitDetection(detectionState('detect-2', 'completed'));
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
-        await new Promise(resolve => setTimeout(resolve, 5));
+        await nextTick();
+        await Promise.resolve();
         expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
         mounted.unmount();
     });
@@ -1765,7 +1767,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         );
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
         expect(harness.value.detectAll).toHaveBeenLastCalledWith(expect.objectContaining({documentRevision: 'revision-2'}));
-        await new Promise(resolve => setTimeout(resolve, 5));
+        await nextTick();
+        await Promise.resolve();
         expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
         mounted.unmount();
     });
@@ -2343,7 +2346,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             excluded: true,
         };
         await nextTick();
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await Promise.resolve();
         expect(harness.value.detectAll).toHaveBeenCalledTimes(4);
         expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1))
             .toBe('single-uncut-page');
@@ -2360,7 +2363,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             }},
         };
         await nextTick();
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await Promise.resolve();
         expect(harness.value.detectAll).toHaveBeenCalledTimes(4);
         expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1))
             .toBe('single-uncut-page');

@@ -451,6 +451,7 @@ describe('PdfPageRasterScheduler', () => {
     });
 
     it('gives up on a permanently rejected commit without leaking a lease or reservation', async () => {
+        vi.useFakeTimers();
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const release = vi.fn();
         const discard = vi.fn();
@@ -484,10 +485,10 @@ describe('PdfPageRasterScheduler', () => {
         });
         // A target that never accepts must settle rather than spin: once the bounded
         // reattempt window has elapsed, the attempt count stops climbing.
-        await new Promise(resolve => setTimeout(resolve, 400));
+        await vi.advanceTimersByTimeAsync(400);
         const settledAttempts = commitAttempts;
         expect(settledAttempts).toBeGreaterThan(1);
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await vi.advanceTimersByTimeAsync(300);
         expect(commitAttempts).toBe(settledAttempts);
 
         // Every attempt hands back exactly what it took.

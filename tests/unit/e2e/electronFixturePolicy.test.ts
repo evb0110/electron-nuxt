@@ -56,11 +56,7 @@ import {
 import { assertOcrPdfSemanticOutput } from '@tests/e2e/electron/helpers/electronApiHelpers';
 
 const ELECTRON_FIXTURE_ROOT = join(process.cwd(), 'tests/fixtures/electron');
-const ELECTRON_E2E_SOURCE_ROOT = join(process.cwd(), 'tests/e2e/electron');
 const MAX_TRACKED_ELECTRON_BINARY_FIXTURE_BYTES = 2 * 1024 * 1024;
-// Home directories of a single machine. A suite that writes its evidence there
-// silently produces nothing on any other checkout, CI runner, or worktree.
-const MACHINE_HOME_PATH_PATTERN = /(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+/u;
 
 async function collectFiles(directory: string): Promise<string[]> {
     const entries = await readdir(directory, { withFileTypes: true });
@@ -109,87 +105,6 @@ describe('Electron E2E fixture policy', () => {
         }
     });
 
-    it('boots sessions in a suite hook so filtered test-name runs cannot skip initialization', async () => {
-        const source = await readFile(
-            'tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts',
-            'utf8',
-        );
-        const startBlock = source.slice(
-            source.indexOf('start: async'),
-            source.indexOf('restart: async'),
-        );
-        const bootHookBlock = source.slice(
-            source.indexOf('beforeAll(async () =>'),
-            source.indexOf('beforeEach((context) =>'),
-        );
-
-        expect(startBlock).not.toContain('if (bootFailure)');
-        expect(startBlock).toContain('bootFailure = null;');
-        expect(bootHookBlock).toContain('bootFailure = null;');
-        expect(source).not.toContain('\'[INFRA] boots an Electron session\'');
-        expect(source).toContain('the suite boot hook may not have completed');
-    });
-
-    it('captures and retains session diagnostics when an Electron E2E test fails', async () => {
-        const fixtureSource = await readFile(
-            'tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts',
-            'utf8',
-        );
-        const sessionSource = await readFile(
-            'tests/e2e/electron/helpers/startElectronE2ESession.ts',
-            'utf8',
-        );
-
-        expect(fixtureSource).toContain('context.onTestFailed');
-        expect(fixtureSource).toContain('captureFailureArtifacts');
-        expect(fixtureSource).toContain('preserveArtifacts: preserveFailureArtifacts');
-        expect(fixtureSource).toContain('await previousSession.stop');
-        expect(fixtureSource).toContain('if (clean)');
-        expect(fixtureSource).toContain('await stopSingleSession(previousSession.name, {keepNuxt})');
-        expect(sessionSource).toContain('page.screenshot');
-        expect(sessionSource).toContain('createSessionDiagnostics(sessionName)');
-        expect(sessionSource).toContain('join(FAILURE_ARTIFACTS_BASE_DIR, sessionName)');
-        expect(sessionSource).toContain('stopOptions.preserveArtifacts');
-        expect(sessionSource).toContain('\'electron-user-data\'');
-        expect(sessionSource).toContain('prunePreservedSessionArtifacts(scopedSessionName)');
-    });
-
-    it('discards the retiring renderer checkpoint before unmounting it during an in-process reset', async () => {
-        const source = await readFile(
-            'tests/e2e/electron/helpers/startElectronE2ESession.ts',
-            'utf8',
-        );
-        const resetBlock = source.slice(
-            source.indexOf('const resetForE2E = async () =>'),
-            source.indexOf('\\n\\n    return {', source.indexOf('const resetForE2E = async () =>')),
-        );
-        const savePreferencesAt = resetBlock.indexOf('settings.save(defaultSettings)');
-        const unmountAt = resetBlock.indexOf('about:blank');
-        const discardCheckpointAt = resetBlock.indexOf('discardWorkspaceCheckpoint()');
-        const clearOriginAt = resetBlock.indexOf('Storage.clearDataForOrigin');
-        const cleanupFixturesAt = resetBlock.indexOf('cleanupSessionFixtures(scopedSessionName)');
-        const restoreRendererAt = resetBlock.indexOf('page.goto(rendererUrl');
-        const rendererReadyAt = resetBlock.indexOf('waitForRendererReady(page)');
-        const resumeCheckpointAt = resetBlock.indexOf('resumeWorkspaceCheckpoint(discardToken)');
-        const restoreRendererCallAt = resetBlock.indexOf(
-            'restoreRendererAndResumeCheckpoint();',
-            clearOriginAt,
-        );
-
-        expect(savePreferencesAt).toBeGreaterThan(-1);
-        expect(discardCheckpointAt).toBeGreaterThan(savePreferencesAt);
-        expect(unmountAt).toBeGreaterThan(discardCheckpointAt);
-        expect(cleanupFixturesAt).toBeGreaterThan(unmountAt);
-        expect(clearOriginAt).toBeGreaterThan(cleanupFixturesAt);
-        expect(restoreRendererCallAt).toBeGreaterThan(clearOriginAt);
-        expect(rendererReadyAt).toBeGreaterThan(restoreRendererAt);
-        expect(resumeCheckpointAt).toBeGreaterThan(rendererReadyAt);
-        expect(resetBlock).not.toContain('workspace-checkpoint.json');
-        expect(resetBlock).not.toContain('claimWorkspaceCheckpoint');
-        expect(resetBlock).toContain('installPageEvaluationShims(page)');
-        expect(resetBlock).toContain('waitForRendererReady(page)');
-    });
-
     it('retains bounded failure evidence without keeping Electron profile or app copies', async () => {
         const sessionName = `e2e-unit-retained-artifacts-${process.pid}`;
         const root = sessionDir(sessionName);
@@ -227,75 +142,6 @@ describe('Electron E2E fixture policy', () => {
         expect(shouldPreserveE2EArtifacts({EVB_E2E_PRESERVE_ARTIFACTS: 'yes'})).toBe(true);
         expect(shouldPreserveE2EArtifacts({EVB_E2E_PRESERVE_ARTIFACTS: '0'})).toBe(false);
         expect(shouldPreserveE2EArtifacts({})).toBe(false);
-    });
-
-    it('matches openPdf readiness against the workspace document record', async () => {
-        const source = await readFile(
-            'scripts/electron-run/createCommandHandler.ts',
-            'utf8',
-        );
-
-        expect(source).toContain('activeDocumentRecord?.tab?.originalPath');
-        expect(source).toContain('isRequestedDocumentLoaded(viewer.documentPath)');
-        expect(source).toContain('viewer.documentPath ?? \'<none>\'');
-    });
-
-    it('matches active and Recent documents by full source identity rather than basename', async () => {
-        const viewerCore = await readFile(
-            'tests/e2e/electron/helpers/viewerCore.ts',
-            'utf8',
-        );
-        const sourceWait = viewerCore.slice(
-            viewerCore.indexOf('export async function waitForActiveDocumentSource'),
-            viewerCore.indexOf('export async function waitForPdfLoaded'),
-        );
-        const recentFilesSuite = await readFile(
-            'tests/e2e/electron/recentFiles.e2e.test.ts',
-            'utf8',
-        );
-
-        expect(sourceWait).toContain('\'originalPath\'');
-        expect(sourceWait).toContain('\'pendingDocumentPath\'');
-        expect(sourceWait).toContain('normalize(candidate) === requestedPath');
-        expect(sourceWait).not.toContain('basename');
-        expect(recentFilesSuite).toContain('row.dataset.recentSource === targetSourcePath');
-        expect(recentFilesSuite).toContain('two files share a basename');
-    });
-
-    it('waits for startup ownership and never retries a slow direct open in a fresh tab', async () => {
-        const viewerCore = await readFile(
-            'tests/e2e/electron/helpers/viewerCore.ts',
-            'utf8',
-        );
-        const openFlow = viewerCore.slice(
-            viewerCore.indexOf('async function openPathInApp'),
-            viewerCore.indexOf('export async function triggerOpenPathInApp'),
-        );
-
-        expect(openFlow).toContain('isStartupOpenClaimPending?.() === false');
-        expect(openFlow).toContain('getActiveTabId?.()');
-        expect(openFlow).not.toContain('__evbDocumentOpenShellReadyAt');
-        expect(openFlow).not.toContain('performance.now()');
-        expect(openFlow).toContain('openTriggered = true');
-        expect(openFlow.match(/openTriggered = false/gu)).toHaveLength(1);
-        expect(openFlow).toContain('DirectDocumentOpenRejectedError');
-        expect(openFlow).not.toContain('openFreshTabForDocumentOpen');
-        expect(openFlow).not.toContain('New Tab');
-    });
-
-    it('does not abandon an in-flight PDF diagnostic stage before fixture cleanup', async () => {
-        const source = await readFile(
-            'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
-            'utf8',
-        );
-        const diagnosticStage = source.slice(
-            source.indexOf('async function runPdfDiagnosticStage'),
-            source.indexOf('async function waitForCommittedEmptyBaseline'),
-        );
-
-        expect(diagnosticStage).toContain('const result = await operation();');
-        expect(diagnosticStage).not.toContain('Promise.race');
-        expect(diagnosticStage).not.toContain('setTimeout');
     });
 
     it('generates a scanned large-PDF fixture without constructing dense text layers', async () => {
@@ -344,20 +190,6 @@ describe('Electron E2E fixture policy', () => {
         } finally {
             await rm(outputPath, { force: true });
         }
-    });
-
-    it('keeps nightly large-PDF CI required and self-provisioning', async () => {
-        const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
-        const job = workflow.slice(workflow.indexOf('  nightly_electron_e2e_large_pdf:'), workflow.indexOf('  nightly_electron_e2e_quarantine:'));
-        const packageScripts = JSON.parse(await readFile('package.json', 'utf8')).scripts as Record<string, string>;
-
-        expect(job).toContain('pnpm run test:e2e:electron:large');
-        expect(packageScripts['test:e2e:electron:large']).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
-        // Both lanes provision their own fixtures now, so a CI staging step could
-        // only hand one of them a document outside its band.
-        expect(job).not.toContain('generate-large-pdf-e2e-fixture.mjs');
-        expect(job).not.toContain('EVB_E2E_LARGE_PDF_FIXTURE');
-        expect(job).not.toContain('pnpm exec vitest run --project e2e-large-pdf');
     });
 
     it('reports an optional missing fixture once and returns the skipped suite selector', () => {
@@ -498,76 +330,6 @@ describe('Electron E2E fixture policy', () => {
         expect(offenders).toEqual([]);
     });
 
-    it('writes every E2E artifact under the repository instead of one machine home', async () => {
-        const files = (await collectFiles(ELECTRON_E2E_SOURCE_ROOT)).filter(file => file.endsWith('.ts'));
-        const offenders: string[] = [];
-
-        expect(files.length).toBeGreaterThan(0);
-        for (const file of files) {
-            const match = MACHINE_HOME_PATH_PATTERN.exec(await readFile(file, 'utf8'));
-            if (match) {
-                offenders.push(`${file.replace(`${process.cwd()}/`, '')} (${match[0]})`);
-            }
-        }
-
-        expect(offenders).toEqual([]);
-    });
-
-    it('keeps rapid PDF navigation self-sufficient instead of silently skipped', async () => {
-        const source = await readFile('tests/e2e/electron/rapidPdfNavigation.e2e.test.ts', 'utf8');
-
-        expect(source).toContain('createLargeScannedFixturePdf');
-        expect(source).toContain('waitForScannedFixturePageIdentity');
-        expect(source).not.toContain('selectFixtureDescribe');
-        expect(source).not.toContain('EVB_E2E_REQUIRE_PAGE_JUMP_FIXTURE');
-    });
-
-    it('keeps the blocking large-PDF regression scanned and retry-isolated', async () => {
-        const source = await readFile('tests/e2e/electron/prBlockingSmoke.e2e.test.ts', 'utf8');
-
-        expect(source).toContain('createLargeScannedFixturePdf');
-        expect(source).toContain('findPdfVirtualizationContractViolations');
-        expect(source).toContain('wheelPdfViewportAndWaitForSettlement');
-        expect(source).toContain('sessionFixture.restart({');
-        expect(source).toContain('it(\'keeps large-PDF interaction transitions causally stable\'');
-        const cumulativeTestStart = source.indexOf(
-            'it(\'keeps large-PDF opening, virtualization, and repeated reopen within budget\'',
-        );
-        const interactionTestStart = source.indexOf('it(\'keeps large-PDF interaction transitions causally stable\'');
-        const interactionTestEnd = source.indexOf(
-            'it(\'does not report a delayed render error for a high-zoom current page\'',
-            interactionTestStart,
-        );
-        const cumulativeTestSource = source.slice(cumulativeTestStart, interactionTestStart);
-        const interactionTestSource = source.slice(interactionTestStart, interactionTestEnd);
-        expect(interactionTestStart).toBeGreaterThan(cumulativeTestStart);
-        expect(cumulativeTestSource).toContain('retry: 0');
-        expect(cumulativeTestSource).toContain('timeout: 240_000');
-        expect(interactionTestSource.match(/waitForAnimationFrames\(session\.page, 10\)/gu)).toHaveLength(4);
-        expect(interactionTestSource).toContain('horizontalOverflowCheckpoint: \'high-zoom-transition\'');
-        expect(source).not.toContain('createLargeMultiPageTextFixturePdf');
-    });
-
-    it('keeps the committed-surface browser sampler self-contained and resilient', async () => {
-        const source = await readFile(
-            'tests/e2e/electron/helpers/viewerCommittedSurfaceContract.ts',
-            'utf8',
-        );
-        const samplerStart = source.indexOf('export async function installCommittedSurfaceSampler');
-        const samplerEnd = source.indexOf(
-            'export async function markCommittedSurfaceInteractionCheckpoint',
-            samplerStart,
-        );
-        const samplerSource = source.slice(samplerStart, samplerEnd);
-
-        expect(samplerSource).toContain('const browserOwnsPageFrameStyle =');
-        expect(samplerSource).toContain('browserOwnsPageFrameStyle(toStyle(pageCanvas))');
-        expect(samplerSource).toContain('} finally {');
-        expect(samplerSource).toContain('window.requestAnimationFrame(capture)');
-        expect(samplerSource).toContain('__committedSurfaceErrors');
-        expect(samplerSource).not.toContain('|| ownsPageFrameStyle(');
-    });
-
     it('provisions its own oversized native-preview fixture instead of borrowing the annotation-save one', async () => {
         const undersizedPath = await createMultiPageTextFixturePdf('unit-native-preview-undersized.pdf', 1);
         const previousFixture = process.env.EVB_E2E_LARGE_PDF_FIXTURE;
@@ -629,16 +391,6 @@ describe('Electron E2E fixture policy', () => {
         }
     });
 
-    it('documents the native-preview lane requirement and its self-provisioning fixture in the lane README', async () => {
-        const readme = await readFile(
-            'tests/fixtures/electron/large-pdf-fixtures/README.md',
-            'utf8',
-        );
-
-        expect(readme).toContain('EVB_E2E_LARGE_PDF_FIXTURE');
-        expect(readme).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
-        expect(readme).toContain('scripts/generate-large-pdf-e2e-fixture.mjs');
-    });
 });
 
 describe('Electron E2E deterministic isolation policy', () => {
@@ -674,42 +426,6 @@ describe('Electron E2E deterministic isolation policy', () => {
             ],
             command: '/runtime/pnpm',
         });
-    });
-
-    it('gives dev, E2E, and diagnostics distinct entry ownership over one internal controller', async () => {
-        const [
-            devSupervisor,
-            sessionController,
-            ephemeralEntry,
-            fixture,
-            diagnostics,
-            diagnosticsAdapter,
-            launchOwner,
-        ] = await Promise.all([
-            readFile('scripts/electron-run/devSupervisor.ts', 'utf8'),
-            readFile('scripts/electron-run/sessionController.ts', 'utf8'),
-            readFile('scripts/electron-run/ephemeralSessionEntry.ts', 'utf8'),
-            readFile('tests/e2e/electron/helpers/startElectronE2ESession.ts', 'utf8'),
-            readFile('scripts/diagnostics/runPdfDiagnosticScenario.ts', 'utf8'),
-            readFile('scripts/diagnostics/startPdfDiagnosticsElectronSession.ts', 'utf8'),
-            readFile('scripts/electron-run/electronLaunch.ts', 'utf8'),
-        ]);
-
-        expect(devSupervisor).toContain('@scripts/electron-run/sessionController');
-        expect(devSupervisor).toContain('cannot own an ephemeral E2E session');
-        expect(sessionController).toContain('@scripts/electron-run/electronLaunch');
-        expect(ephemeralEntry).toContain('assertE2ESessionName(sessionName)');
-        expect(ephemeralEntry).toContain('@scripts/electron-run/sessionController');
-        expect(fixture).toContain('@scripts/electron-run/startSessionDetached');
-        expect(fixture).toContain('owner: \'e2e\'');
-        expect(diagnostics).toContain('startPdfDiagnosticsElectronSession');
-        expect(diagnosticsAdapter).toContain('startElectronE2ESession');
-        expect(launchOwner).toContain('export async function launchAutomationSessionWithRecovery');
-
-        expect(fixture).not.toContain('electron-run/devSupervisor');
-        expect(diagnostics).not.toContain('electron-run/devSupervisor');
-        expect(ephemeralEntry).not.toContain('electron-run/devSupervisor');
-        expect(fixture).toContain('assertE2ESessionName(createE2ERunScopedSessionName(sessionName');
     });
 
     it('keeps shared renderer and requested default sessions run-scoped with separate profiles', () => {

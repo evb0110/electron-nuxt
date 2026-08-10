@@ -1,4 +1,3 @@
-import type { ISettingsData } from '@contracts/shared';
 import type {
     IDebugLogEntry,
     IRendererLogEntry,
@@ -6,7 +5,9 @@ import type {
 } from '@contracts/electronApiCommon';
 import {
     DEFAULT_SETTINGS,
+    isSettingsSaveKey,
     sanitizeSettings,
+    type TSettingsSavePatch,
 } from '@contracts/settings';
 import {
     defineForwardedPlatformMethod,
@@ -19,9 +20,14 @@ import { isRecord } from '@contracts/runtimeGuards';
 
 type TVoidResult = ReturnType<() => void>;
 
-function decodeSettingsPatch(value: unknown): Partial<ISettingsData> {
+function decodeSettingsPatch(value: unknown): TSettingsSavePatch {
     if (!isRecord(value)) {
         throw new Error('settings must be an object');
+    }
+    for (const key of Object.keys(value)) {
+        if (!isSettingsSaveKey(key)) {
+            throw new Error(`invalid settings field: ${key}`);
+        }
     }
     const normalized = sanitizeSettings({
         ...DEFAULT_SETTINGS,
@@ -31,7 +37,7 @@ function decodeSettingsPatch(value: unknown): Partial<ISettingsData> {
         key,
         candidate,
     ] of Object.entries(value)) {
-        if (!(key in normalized) || normalized[key as keyof typeof normalized] !== candidate) {
+        if (normalized[key as keyof typeof normalized] !== candidate) {
             throw new Error(`invalid settings field: ${key}`);
         }
     }
@@ -60,7 +66,7 @@ function decodeSettingsResult(value: unknown) {
     return normalized;
 }
 
-const settingsPatch = s.fromParser(decodeSettingsPatch, (): Partial<ISettingsData> => ({theme: 'dark'}));
+const settingsPatch = s.fromParser(decodeSettingsPatch, (): TSettingsSavePatch => ({theme: 'dark'}));
 const settingsResult = s.fromParser(decodeSettingsResult, () => DEFAULT_SETTINGS);
 const voidResult = s.declared<TVoidResult>()(s.undefined());
 

@@ -10,6 +10,7 @@ import {
 } from '@electron/features/agent/mcp/mcpToolDefinitions';
 import { ASSISTANT_MCP_TOOL_HANDLER_NAMES } from '@electron/features/agent/mcp/mcpServerCore';
 import { resolveAgentCommandRequestTimeoutMs } from '@electron/features/agent/workspaceBridge';
+import {AGENT_OCR_RUN_INPUT_SCHEMA} from '@contracts/agentOcr';
 
 describe('assistant tool contract invariants', () => {
     it('maps every advertised tool to exactly one handler and keeps capability ids unique', () => {
@@ -39,6 +40,27 @@ describe('assistant tool contract invariants', () => {
             unexpected: true,
         }, template?.inputSchema ?? {})).toThrow(/advertised schema/u);
         expect(() => validateJsonObjectAgainstSchema('document.search', {query: 'needle'}, template?.inputSchema ?? {})).not.toThrow();
+    });
+
+    it('advertises the shared OCR contract and enforces replace-all acknowledgement', () => {
+        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'ocr.start');
+        expect(template?.inputSchema).toBe(AGENT_OCR_RUN_INPUT_SCHEMA);
+        expect(() => validateJsonObjectAgainstSchema(
+            'ocr.start',
+            {supersessionPolicy: 'replace-all'},
+            template?.inputSchema ?? {},
+        )).toThrow(/advertised schema/u);
+        expect(() => validateJsonObjectAgainstSchema('ocr.start', {
+            languages: ['eng'],
+            supersessionPolicy: 'replace-all',
+            replaceAllAcknowledged: true,
+            open: false,
+        }, template?.inputSchema ?? {})).not.toThrow();
+        expect(() => validateJsonObjectAgainstSchema(
+            'ocr.start',
+            {selectedLanguages: ['eng']},
+            template?.inputSchema ?? {},
+        )).toThrow(/advertised schema/u);
     });
 
     it.each([

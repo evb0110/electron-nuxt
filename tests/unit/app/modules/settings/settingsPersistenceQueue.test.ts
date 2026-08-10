@@ -46,6 +46,21 @@ describe('settingsPersistenceQueue', () => {
         expect(buildSettingsPatch(previousSettings, nextSettings)).toEqual({ locale: 'fr' });
     });
 
+    it('never includes settings owned by updater and MCP flows', () => {
+        const previousSettings = createSettings({
+            agentMcpEnabled: false,
+            skippedUpdateVersion: '1.0.0',
+        });
+        const nextSettings = createSettings({
+            agentMcpEnabled: true,
+            skippedUpdateVersion: '2.0.0',
+        });
+
+        expect(buildSettingsPatch(previousSettings, nextSettings)).toEqual({});
+        expect(buildSettingsPatch(null, nextSettings)).not.toHaveProperty('agentMcpEnabled');
+        expect(buildSettingsPatch(null, nextSettings)).not.toHaveProperty('skippedUpdateVersion');
+    });
+
     it('skips platform writes when the sanitized payload has not changed', async () => {
         const snapshot = createSettings({ locale: 'fr' });
         let lastSavedSettings: ISettingsData | null = snapshot;

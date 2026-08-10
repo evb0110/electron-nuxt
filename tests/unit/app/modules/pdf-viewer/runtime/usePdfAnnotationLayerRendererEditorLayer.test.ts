@@ -480,7 +480,8 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(secondUiManager.removeLayer).not.toHaveBeenCalledWith(replacementLayer);
 
         lateRender.resolve(undefined);
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await lateRender.promise;
+        await Promise.resolve();
 
         expect(secondUiManager.removeLayer).not.toHaveBeenCalledWith(replacementLayer);
         expect(loggerWarn).not.toHaveBeenCalled();

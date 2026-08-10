@@ -431,6 +431,31 @@ describe('agent workspace bridge', () => {
         await expect(nextPending).resolves.toBe(snapshot);
     });
 
+    it('rejects snapshots with malformed deep members through the shared contract validator', async () => {
+        const window = createFakeWindow(607);
+        mocks.fromWebContents.mockReturnValue(window);
+        const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
+        const request = getSnapshotRequest(window);
+
+        expect(submitAgentWorkspaceSnapshotResponse(
+            createResponseEvent(window),
+            {
+                requestId: request.requestId,
+                windowId: request.windowId,
+                ok: true,
+                snapshot: {
+                    ...createWorkspaceSnapshot(),
+                    panes: [42],
+                },
+            },
+        )).toEqual({
+            accepted: false,
+            reason: 'invalid-payload',
+        });
+
+        await expect(pending).rejects.toThrow('did not match the expected contract');
+    });
+
     it('returns actionable acknowledgements for invalid and stale snapshot responses', () => {
         const window = createFakeWindow(303);
         mocks.fromWebContents.mockReturnValue(window);

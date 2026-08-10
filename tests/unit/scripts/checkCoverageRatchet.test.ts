@@ -7,6 +7,7 @@ import {
     compareCoverageToBaseline,
     createCoverageBaseline,
     DEFAULT_COVERAGE_AREAS,
+    LOAD_BEARING_COVERAGE_FILES,
     parseCoverageSummary,
 } from '@scripts/checkCoverageRatchet';
 
@@ -30,6 +31,10 @@ function metricSummary(pct: number) {
 function summary(totalPct: number, filePct = totalPct) {
     return JSON.stringify({
         total: metricSummary(totalPct),
+        ...Object.fromEntries(LOAD_BEARING_COVERAGE_FILES.map(filePath => [
+            `/repo/${filePath}`,
+            metricSummary(filePct),
+        ])),
         '/repo/app/runtime.ts': metricSummary(filePct),
         '/repo/electron/main.ts': metricSummary(filePct),
         '/repo/electron/features/djvu/open.ts': metricSummary(filePct),
@@ -70,5 +75,39 @@ describe('coverage ratchet', () => {
             'scripts-core': {include: ['scripts/']},
             'workspace-shell': {include: ['app/modules/workspace-shell/']},
         });
+    });
+
+    it('ratchets lifecycle-critical files and rejects zero execution', () => {
+        const baseline = createCoverageBaseline(parseCoverageSummary(summary(70, 80), '/repo'));
+        const snapshot = parseCoverageSummary(summary(70, 80), '/repo');
+        const targetPath = LOAD_BEARING_COVERAGE_FILES[0];
+        const target = snapshot.files.find(file => file.filePath === targetPath)!;
+        target.metrics.lines = {
+            covered: 0,
+            pct: 0,
+            total: 100,
+        };
+
+        const result = compareCoverageToBaseline(snapshot, baseline);
+
+        expect(result.passed).toBe(false);
+        expect(result.failures).toContain(`${targetPath} has zero executed lines`);
+    });
+
+    it('detects a load-bearing file regression hidden by stable aggregate coverage', () => {
+        const baseline = createCoverageBaseline(parseCoverageSummary(summary(70, 80), '/repo'));
+        const snapshot = parseCoverageSummary(summary(70, 80), '/repo');
+        const targetPath = LOAD_BEARING_COVERAGE_FILES[0];
+        const target = snapshot.files.find(file => file.filePath === targetPath)!;
+        target.metrics.lines = {
+            covered: 79.49,
+            pct: 79.49,
+            total: 100,
+        };
+
+        const result = compareCoverageToBaseline(snapshot, baseline);
+
+        expect(result.passed).toBe(false);
+        expect(result.failures).toContain(`${targetPath} lines regressed by 0.51 percentage points`);
     });
 });

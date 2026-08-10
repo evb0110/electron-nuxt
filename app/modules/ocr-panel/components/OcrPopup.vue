@@ -383,7 +383,7 @@ import type {
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingHelpTooltip.vue';
-import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
+import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 import { useOcrPopupPresenter } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';

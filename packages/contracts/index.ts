@@ -398,9 +398,14 @@ export {
 
 export {
     DEFAULT_SETTINGS,
+    SETTINGS_SAVE_KEYS,
+    isSettingsSaveKey,
     normalizeLocale,
     normalizeTheme,
+    pickSettingsSavePatch,
     sanitizeSettings,
+    type TSettingsSaveKey,
+    type TSettingsSavePatch,
 } from '@contracts/settings';
 
 export {
@@ -442,6 +447,15 @@ export type {
     TPdfViewMode,
 } from '@contracts/shared';
 export { isOcrWord } from '@contracts/shared';
+
+export {
+    AGENT_OCR_RUN_INPUT_SCHEMA,
+    parseAgentOcrRunOptions,
+} from '@contracts/agentOcr';
+export type {
+    IAgentOcrRunOptions,
+    TAgentOcrPageRange,
+} from '@contracts/agentOcr';
 
 export {
     OCR_TEXT_LAYER_INDEX_SOURCE,

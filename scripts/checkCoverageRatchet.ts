@@ -40,11 +40,14 @@ interface ICoverageAreaBaseline {
     metrics: Record<TCoverageMetric, number>;
 }
 
+interface ICoverageFileBaseline {lines: number;}
+
 interface ICoverageBaseline {
     areas: Record<string, ICoverageAreaBaseline>;
+    files: Record<string, ICoverageFileBaseline>;
     metrics: Record<TCoverageMetric, number>;
     tolerancePercentagePoints: number;
-    version: 1;
+    version: 2;
 }
 
 export const DEFAULT_COVERAGE_AREAS = {
@@ -57,6 +60,16 @@ export const DEFAULT_COVERAGE_AREAS = {
     'scripts-core': {include: ['scripts/']},
     'workspace-shell': {include: ['app/modules/workspace-shell/']},
 } satisfies Record<string, {include: string[]}>;
+
+export const LOAD_BEARING_COVERAGE_FILES = [
+    'app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts',
+    'app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts',
+    'app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts',
+    'electron/features/agent/workspaceBridge.ts',
+    'electron/features/documents/main/nativePdfMutationSaveHandlers.ts',
+    'electron/features/documents/main/nativePdfPreview.ts',
+    'electron/features/scan-cleanup/createScanCleanupPreviewService.ts',
+] as const;
 
 function assertNumber(value: unknown, label: string) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -140,6 +153,10 @@ function metricPercentages(metrics: Record<TCoverageMetric, IMetricSummary>) {
 }
 
 export function createCoverageBaseline(snapshot: ICoverageSnapshot, tolerance = DEFAULT_TOLERANCE): ICoverageBaseline {
+    const filesByPath = new Map(snapshot.files.map(file => [
+        file.filePath,
+        file,
+    ]));
     return {
         areas: Object.fromEntries(Object.entries(DEFAULT_COVERAGE_AREAS).map(([
             name,
@@ -155,9 +172,19 @@ export function createCoverageBaseline(snapshot: ICoverageSnapshot, tolerance = 
                 },
             ];
         })),
+        files: Object.fromEntries(LOAD_BEARING_COVERAGE_FILES.map((filePath) => {
+            const file = filesByPath.get(filePath);
+            if (!file) {
+                throw new TypeError(`Load-bearing file ${filePath} is missing from the coverage report.`);
+            }
+            return [
+                filePath,
+                {lines: file.metrics.lines.pct},
+            ];
+        })),
         metrics: metricPercentages(snapshot.metrics),
         tolerancePercentagePoints: tolerance,
-        version: 1,
+        version: 2,
     };
 }
 
@@ -190,6 +217,28 @@ export function compareCoverageToBaseline(snapshot: ICoverageSnapshot, baseline:
             compare(name, aggregate.metrics, area.metrics);
         }
     }
+    const filesByPath = new Map(snapshot.files.map(file => [
+        file.filePath,
+        file,
+    ]));
+    for (const [
+        filePath,
+        expected,
+    ] of Object.entries(baseline.files)) {
+        const file = filesByPath.get(filePath);
+        if (!file) {
+            failures.push(`${filePath} is missing from the coverage report`);
+            continue;
+        }
+        const lines = file.metrics.lines;
+        const delta = Number((lines.pct - expected.lines).toFixed(2));
+        comparisons.push(`${filePath} lines: ${lines.pct.toFixed(2)}% (${delta >= 0 ? '+' : ''}${delta.toFixed(2)} pp)`);
+        if (lines.total > 0 && lines.covered === 0) {
+            failures.push(`${filePath} has zero executed lines`);
+        } else if (delta < -baseline.tolerancePercentagePoints) {
+            failures.push(`${filePath} lines regressed by ${Math.abs(delta).toFixed(2)} percentage points`);
+        }
+    }
     return {
         comparisons,
         failures,
@@ -199,7 +248,12 @@ export function compareCoverageToBaseline(snapshot: ICoverageSnapshot, baseline:
 
 function parseBaseline(source: string): ICoverageBaseline {
     const parsed = JSON.parse(source) as ICoverageBaseline;
-    if (parsed.version !== 1 || !isRecord(parsed.metrics) || !isRecord(parsed.areas)) {
+    if (
+        parsed.version !== 2
+        || !isRecord(parsed.metrics)
+        || !isRecord(parsed.areas)
+        || !isRecord(parsed.files)
+    ) {
         throw new TypeError('Coverage baseline is invalid or unsupported.');
     }
     return parsed;

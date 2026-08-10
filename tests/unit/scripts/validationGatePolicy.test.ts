@@ -160,10 +160,27 @@ describe('validation gate policy', () => {
         const related = plan.find(stage => stage.id === 'test.unit.related');
 
         expect(related?.args).toContain('unit-app');
+        expect(related?.args).toContain('unit-static-architecture');
         expect(related?.args).not.toContain('unit-core');
         expect(related?.args).not.toContain('unit-electron');
         expect(related?.args).not.toContain('unit-scripts');
         expect(related?.args).not.toContain('unit-policy');
+    });
+
+    it('targets the static architecture lane when quarantine metadata changes', () => {
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files: ['tests/e2e/electron/quarantine/graduation-policy.json'],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'acceptance',
+        });
+        const related = plan.find(stage => stage.id === 'test.unit.affected-projects');
+
+        expect(related?.args).toContain('unit-static-architecture');
+        expect(related?.args).not.toContain('unit-app');
+        expect(related?.args).toContain('unit-electron');
     });
 
     it('keeps informational and exhaustive reports in the nightly tier', () => {
