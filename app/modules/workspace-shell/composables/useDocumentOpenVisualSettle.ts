@@ -75,11 +75,12 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         // to a skeleton (a budget eviction of the on-screen visual), there is
         // no canvas left to protect and readiness must drop until the
         // replacement paint settles.
+        const visual = options.openSurface.viewportSession.value.visual;
         return identity !== null
             && committed?.generation === surface.generation
             && committed.documentId === identity.documentId
             && committed.documentRevision === identity.documentRevision
-            && options.openSurface.viewportSession.value.visual.presentation !== 'skeleton';
+            && (visual.kind !== 'page' || visual.presentation !== 'skeleton');
     });
     let documentOpenVisualSettlePromise: Promise<void> | null = null;
     let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;
