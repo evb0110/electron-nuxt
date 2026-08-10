@@ -559,8 +559,25 @@ fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foregr
         output_mode: OutputMode::Mixed,
         layout: LayoutMode::Single,
         normalize_illumination: false,
-        crop_content: false,
-        match_page_size: false,
+        crop_content: true,
+        match_page_size: true,
+        page_alignment: evb_scan_cleanup::PageAlignment::Center,
+        margins_mm: Some(evb_scan_cleanup::MarginsMm {
+            left_mm: 0.0,
+            top_mm: 0.0,
+            right_mm: 0.0,
+            bottom_mm: 0.0,
+        }),
+        automatic_content_boxes: evb_scan_cleanup::ManualContentBoxes {
+            full: Some(evb_scan_cleanup::NormalizedRect {
+                x: 0.0,
+                y: 10.0 / 120.0,
+                width: 170.0 / 180.0,
+                height: 100.0 / 120.0,
+                rotation: OrthogonalRotation::None,
+            }),
+            ..evb_scan_cleanup::ManualContentBoxes::default()
+        },
         dpi: 600.0,
         source_dpi: Some(300.0),
         manual_zones: ManualZones {
@@ -585,6 +602,12 @@ fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foregr
         "operation": "render",
         "renderMode": "final",
         "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 21.6,
+            "heightPoints": 14.4,
+            "widthPx": 180,
+            "heightPx": 120
+        },
         "pages": [{
             "inputPath": input,
             "sourcePageIndex": 0,
@@ -620,6 +643,10 @@ fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foregr
     // alpha remains a preview/composite feature.
     assert_eq!(metadata["layeredForegroundKind"], "stencil");
     assert_eq!(metadata["layeredBackgroundDpi"], 300.0);
+    assert_eq!(metadata["matchedCanvasContentWidthPx"], 170);
+    assert_eq!(metadata["matchedCanvasContentHeightPx"], 100);
+    assert_eq!(metadata["placementOffsetXPx"], 5);
+    assert_eq!(metadata["placementOffsetYPx"], 10);
     // A fresh stencil lives on the rendered page grid; it carries no
     // separate foreground DPI (that was soft-alpha metadata).
     assert!(metadata["layeredForegroundDpi"].is_null());
@@ -1577,13 +1604,13 @@ fn matched_canvas_repads_the_published_pbm_without_a_composite() {
 }
 
 #[test]
-fn matched_canvas_places_an_automatic_crop_at_its_paper_origin() {
-    let scratch = Scratch::new("matched-crop-origin");
-    let input = scratch.path("matched-crop-origin-input.png");
-    let output = scratch.path("matched-crop-origin-output.png");
-    let metadata = scratch.path("matched-crop-origin-output.json");
-    let page_metadata = scratch.path("matched-crop-origin-page.json");
-    let manifest = scratch.path("matched-crop-origin-manifest.json");
+fn matched_canvas_places_an_automatic_crop_by_content_alignment() {
+    let scratch = Scratch::new("matched-crop-alignment");
+    let input = scratch.path("matched-crop-alignment-input.png");
+    let output = scratch.path("matched-crop-alignment-output.png");
+    let metadata = scratch.path("matched-crop-alignment-output.json");
+    let page_metadata = scratch.path("matched-crop-alignment-page.json");
+    let manifest = scratch.path("matched-crop-alignment-manifest.json");
     let mut image = GrayImage::new(100, 100, 255);
     for y in 20..70 {
         for x in 30..70 {
@@ -1648,8 +1675,8 @@ fn matched_canvas_places_an_automatic_crop_at_its_paper_origin() {
     assert_eq!(metadata["cropRect"]["yPx"], 10.0);
     assert_eq!(metadata["matchedCanvasContentWidthPx"], 60);
     assert_eq!(metadata["matchedCanvasContentHeightPx"], 70);
-    assert_eq!(metadata["placementOffsetXPx"], 20);
-    assert_eq!(metadata["placementOffsetYPx"], 10);
+    assert_eq!(metadata["placementOffsetXPx"], 0);
+    assert_eq!(metadata["placementOffsetYPx"], 0);
     assert_pdf_image_placement_matches_canvas(&metadata);
 }
 
@@ -3303,10 +3330,20 @@ fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
                 "dpi": 300,
                 "layout": "force-single",
                 "normalizeIllumination": false,
-                "cropContent": false,
+                "cropContent": true,
                 "outputMode": "grayscale",
                 "matchPageSize": true,
-                "pageAlignment": "center"
+                "pageAlignment": "center",
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0},
+                "automaticContentBoxes": {
+                    "full": {
+                        "xNormalized": 0.125,
+                        "yNormalized": 0.2,
+                        "widthNormalized": 0.75,
+                        "heightNormalized": 0.4666666666666667,
+                        "rotationDegrees": 0
+                    }
+                }
             },
             "outputs": [{"outputPath": output, "metadataPath": metadata_path}]
         }]
@@ -3356,10 +3393,12 @@ fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
     // Both modes retain the raster they rendered. The final adds the PDF
     // placement contract while the preview already has the canvas fields its
     // renderer consumes.
-    assert_eq!(final_dimensions, (80, 60));
-    assert_eq!(preview_dimensions, (80, 60));
-    assert_eq!(final_metadata["outputWidthPx"], 80);
-    assert_eq!(preview_metadata["outputWidthPx"], 80);
+    assert_eq!(final_dimensions, (60, 28));
+    assert_eq!(preview_dimensions, (60, 28));
+    assert_eq!(final_metadata["outputWidthPx"], 60);
+    assert_eq!(preview_metadata["outputWidthPx"], 60);
+    assert_eq!(final_metadata["placementOffsetXPx"], 20);
+    assert_eq!(final_metadata["placementOffsetYPx"], 26);
     assert_pdf_image_placement_matches_canvas(&final_metadata);
     assert!(preview_metadata["pdfImagePlacement"].is_null());
 }

@@ -120,6 +120,47 @@ describe('scan-cleanup source text layer', () => {
         expect(instruction!.outputPageIndex).toBe(3);
     });
 
+    it('keeps cropped source text registered when content alignment moves the raster', () => {
+        const instruction = resolveScanCleanupTextLayerInstruction(output({
+            outputWidthPx: 800,
+            outputHeightPx: 500,
+            canvasWidthPx: 500,
+            canvasHeightPx: 300,
+            matchedCanvasTargetWidthPoints: 100,
+            matchedCanvasTargetHeightPoints: 60,
+            matchedCanvasContentWidthPx: 400,
+            matchedCanvasContentHeightPx: 250,
+            placementOffsetXPx: 70,
+            placementOffsetYPx: 35,
+            forwardTransform: {matrix: [
+                [
+                    1,
+                    0,
+                    -100,
+                ],
+                [
+                    0,
+                    1,
+                    -50,
+                ],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ]},
+        }), 0, pageSize);
+
+        expect(instruction!.matrix).toEqual([
+            0.5,
+            0,
+            0,
+            0.5,
+            4,
+            -2,
+        ]);
+    });
+
     it('marks split halves for semantic filtering without changing affine singles', () => {
         const left = resolveScanCleanupTextLayerInstruction(output({
             half: 'left',

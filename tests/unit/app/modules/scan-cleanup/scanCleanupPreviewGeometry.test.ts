@@ -309,6 +309,47 @@ describe('scan cleanup preview geometry', () => {
     });
 
     it.each([
+        {
+            half: 'left' as const,
+            contentWidth: 876,
+            contentHeight: 1_408,
+            nativeLeft: 113,
+        },
+        {
+            half: 'right' as const,
+            contentWidth: 607,
+            contentHeight: 1_406,
+            nativeLeft: 247,
+        },
+    ])('recomputes the Luther $half leaf at the native top-center offset', ({
+        half,
+        contentWidth,
+        contentHeight,
+        nativeLeft,
+    }) => {
+        const nativeMetadata = metadata({
+            half,
+            appliedMargins: {
+                leftPx: 30,
+                topPx: 30,
+                rightPx: 30,
+                bottomPx: 30,
+            },
+            outputWidthPx: contentWidth,
+            outputHeightPx: contentHeight,
+            canvasWidthPx: 1_102,
+            canvasHeightPx: 1_626,
+            matchedCanvasContentWidthPx: contentWidth,
+            matchedCanvasContentHeightPx: contentHeight,
+            placementOffsetXPx: nativeLeft,
+            placementOffsetYPx: 30,
+        });
+
+        expect(resolvePreviewMetadataPlacement(nativeMetadata, 'top-center'))
+            .toEqual(resolvePreviewMetadataPlacement(nativeMetadata));
+    });
+
+    it.each([
         'top-left',
         'top-center',
         'top-right',

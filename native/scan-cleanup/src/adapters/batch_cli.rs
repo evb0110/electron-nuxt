@@ -145,11 +145,6 @@ struct WrittenOutput {
     /// does not put the two leaves at different physical scales.
     paper_width: f64,
     paper_height: f64,
-    /// Origin of the intrinsic crop within that paper. Matched-canvas
-    /// placement must compose this with the paper's alignment; aligning the
-    /// cropped raster itself moves every retained mark toward the page edge.
-    crop_x: f64,
-    crop_y: f64,
     content_detected: bool,
     matched_in_memory: bool,
 }
@@ -1970,8 +1965,6 @@ fn run_page(
                 let placement = plan_canvas_placement_for(
                     output.image.width(),
                     output.image.height(),
-                    output.metadata.crop_rect.x,
-                    output.metadata.crop_rect.y,
                     paper_width,
                     paper_height,
                     output.metadata.content_box.is_some(),
@@ -2222,8 +2215,6 @@ fn run_page(
                 height: output.image.height(),
                 paper_width,
                 paper_height,
-                crop_x: output.metadata.crop_rect.x,
-                crop_y: output.metadata.crop_rect.y,
                 content_detected: output.metadata.content_box.is_some(),
                 matched_in_memory: matched_placement.is_some(),
             });
@@ -2443,8 +2434,8 @@ struct CanvasPlacement {
     left: usize,
     top: usize,
     /// Requested physical margin inset on the final canvas grid. The actual
-    /// paper band can be larger when crop coordinates or alignment leave more
-    /// whitespace, but content never crosses these edges.
+    /// paper band can be larger when alignment leaves more whitespace, but
+    /// content never crosses these edges.
     requested_margins: [usize; 4],
     margins_reduced: bool,
     margins_unavailable: bool,
@@ -2520,8 +2511,6 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
     plan_canvas_placement_for(
         output.width,
         output.height,
-        output.crop_x,
-        output.crop_y,
         output.paper_width,
         output.paper_height,
         output.content_detected,
@@ -2537,8 +2526,6 @@ fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> Can
 fn plan_canvas_placement_for(
     width: usize,
     height: usize,
-    crop_x: f64,
-    crop_y: f64,
     paper_width: f64,
     paper_height: f64,
     content_detected: bool,
@@ -2603,46 +2590,28 @@ fn plan_canvas_placement_for(
         || paper_height_points / canvas.height_points * canvas.height_px as f64
             > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
     let pixel_scale = paper_scale * canvas.dpi() / options.dpi;
-    let mut render_scale = pixel_scale;
-    let mut scaled_width = width as f64 * render_scale;
-    let mut scaled_height = height as f64 * render_scale;
+    let mut scaled_width = width as f64 * pixel_scale;
+    let mut scaled_height = height as f64 * pixel_scale;
     let overflow = scaled_width > inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
         || scaled_height > inner_height as f64 + CANVAS_GRID_TOLERANCE_PX;
     if overflow {
         let fit = (inner_width as f64 / scaled_width.max(1.0))
             .min(inner_height as f64 / scaled_height.max(1.0));
-        render_scale *= fit;
         scaled_width *= fit;
         scaled_height *= fit;
     }
     let content_width = (scaled_width.round() as usize).clamp(1, inner_width);
     let content_height = (scaled_height.round() as usize).clamp(1, inner_height);
-    let aligned_paper_width = (paper_width * render_scale).round() as usize;
-    let aligned_paper_height = (paper_height * render_scale).round() as usize;
-    let (paper_left, paper_top) = options.placement_for(half).offset(
-        canvas.width_px.saturating_sub(aligned_paper_width),
-        canvas.height_px.saturating_sub(aligned_paper_height),
+    // Paper geometry owns scale; the intrinsic cleaned raster owns placement.
+    // Keeping source crop coordinates out of this calculation makes native
+    // final output follow the same Content placement contract as preview and
+    // lossless output: align the raster inside the requested margin box.
+    let (aligned_x, aligned_y) = options.placement_for(half).offset(
+        inner_width.saturating_sub(content_width),
+        inner_height.saturating_sub(content_height),
     );
-    // Cropping selects a rectangle from the aligned paper; it does not give
-    // that rectangle a new page origin. Compose the crop offset after paper
-    // alignment so crop-on and crop-off retain identical page coordinates.
-    // A requested margin can move the crop origin above or to the left of the
-    // source paper. Preserve that signed offset: clamping the crop before it
-    // is composed shifts the paper by the synthetic margin whenever the
-    // selected alignment leaves slack on the canvas. Round the completed sum
-    // once so negative and positive crop origins follow the same grid rule.
-    let left = ((paper_left as f64) + crop_x * render_scale).round().clamp(
-        margin_left as f64,
-        canvas
-            .width_px
-            .saturating_sub(margin_right.saturating_add(content_width)) as f64,
-    ) as usize;
-    let top = ((paper_top as f64) + crop_y * render_scale).round().clamp(
-        margin_top as f64,
-        canvas
-            .height_px
-            .saturating_sub(margin_bottom.saturating_add(content_height)) as f64,
-    ) as usize;
+    let left = margin_left + aligned_x;
+    let top = margin_top + aligned_y;
     CanvasPlacement {
         content_width,
         content_height,
@@ -3673,8 +3642,6 @@ mod tests {
         let left = plan_canvas_placement_for(
             876,
             1_407,
-            145.0,
-            115.0,
             left_paper.0,
             left_paper.1,
             true,
@@ -3685,8 +3652,6 @@ mod tests {
         let right = plan_canvas_placement_for(
             607,
             1_405,
-            208.0,
-            113.0,
             right_paper.0,
             right_paper.1,
             true,
@@ -3697,10 +3662,16 @@ mod tests {
 
         assert_eq!(left.paper_scale, right.paper_scale);
         assert!(left.content_height.abs_diff(right.content_height) <= 2);
+        assert_eq!((left.content_width, left.content_height), (876, 1_408));
+        assert_eq!((right.content_width, right.content_height), (607, 1_406));
+        assert_eq!((left.left, left.top), (113, 30));
+        assert_eq!((right.left, right.top), (247, 30));
+        assert_eq!(canvas.width_px - left.left - left.content_width, left.left);
+        assert!((canvas.width_px - right.left - right.content_width).abs_diff(right.left) <= 1);
     }
 
     #[test]
-    fn matched_canvas_composes_crop_origin_after_paper_alignment() {
+    fn matched_canvas_aligns_the_intrinsic_raster_inside_the_canvas() {
         let options = CleanupOptions {
             dpi: 360.0,
             ..CleanupOptions::default()
@@ -3715,8 +3686,6 @@ mod tests {
         let cropped = plan_canvas_placement_for(
             580,
             820,
-            60.0,
-            90.0,
             700.0,
             1_000.0,
             false,
@@ -3727,8 +3696,6 @@ mod tests {
         let uncropped = plan_canvas_placement_for(
             700,
             1_000,
-            0.0,
-            0.0,
             700.0,
             1_000.0,
             false,
@@ -3737,14 +3704,14 @@ mod tests {
             &canvas,
         );
 
-        assert_eq!((cropped.left, cropped.top), (60, 90));
+        assert_eq!((cropped.left, cropped.top), (60, 0));
         assert_eq!((uncropped.left, uncropped.top), (0, 0));
         assert_eq!(cropped.content_width, 580);
         assert_eq!(cropped.content_height, 820);
     }
 
     #[test]
-    fn matched_canvas_preserves_paper_alignment_for_negative_crop_origins() {
+    fn matched_canvas_aligns_intrinsic_whitespace_with_the_raster() {
         let options = CleanupOptions {
             dpi: 100.0,
             page_alignment: crate::PageAlignment::Center,
@@ -3757,14 +3724,12 @@ mod tests {
             height_px: 1_000,
         };
 
-        // The 800x1000 source paper is centered at x=100. The intrinsic crop
-        // carries 50 px of synthetic paper to its left, so the crop itself
-        // starts at x=50 and source-paper x=0 still lands at x=100.
+        // The intrinsic raster carries 50 px of synthetic paper to its left.
+        // Placement aligns that raster as one unit; source-space crop origins
+        // remain mapping metadata and cannot move the raster on the canvas.
         let placement = plan_canvas_placement_for(
             850,
             1_000,
-            -50.0,
-            0.0,
             800.0,
             1_000.0,
             false,
@@ -3772,7 +3737,7 @@ mod tests {
             crate::pipeline::PageHalf::Full,
             &canvas,
         );
-        assert_eq!(placement.left, 50);
+        assert_eq!(placement.left, 75);
 
         let mut intrinsic = GrayImage::new(850, 1_000, 255);
         intrinsic.set(50, 100, 0);
@@ -3783,8 +3748,8 @@ mod tests {
             placement.left,
             placement.top,
         );
-        assert_eq!(composed.get(100, 100), 0);
-        assert_eq!(composed.get(150, 100), 255);
+        assert_eq!(composed.get(100, 100), 255);
+        assert_eq!(composed.get(125, 100), 0);
     }
 
     #[test]
@@ -3805,8 +3770,6 @@ mod tests {
         let placement = plan_canvas_placement_for(
             1_000,
             1_000,
-            0.0,
-            0.0,
             1_000.0,
             1_000.0,
             true,
@@ -3858,8 +3821,6 @@ mod tests {
         let placement = plan_canvas_placement_for(
             1_000,
             1_000,
-            0.0,
-            0.0,
             1_000.0,
             1_000.0,
             true,
@@ -3889,6 +3850,85 @@ mod tests {
         assert_eq!(composed.get(71, 71), 0);
         assert_eq!(composed.get(928, 928), 0);
         assert_eq!(composed.get(929, 928), 255);
+    }
+
+    #[test]
+    fn matched_canvas_honors_every_alignment_inside_asymmetric_margins() {
+        let canvas = DocumentCanvas {
+            width_points: 144.0,
+            height_points: 129.6,
+            width_px: 200,
+            height_px: 180,
+        };
+        let cases = [
+            (crate::PageAlignment::TopLeft, (11, 13)),
+            (crate::PageAlignment::TopCenter, (67, 13)),
+            (crate::PageAlignment::TopRight, (123, 13)),
+            (crate::PageAlignment::CenterLeft, (11, 67)),
+            (crate::PageAlignment::Center, (67, 67)),
+            (crate::PageAlignment::CenterRight, (123, 67)),
+            (crate::PageAlignment::BottomLeft, (11, 121)),
+            (crate::PageAlignment::BottomCenter, (67, 121)),
+            (crate::PageAlignment::BottomRight, (123, 121)),
+        ];
+
+        for (page_alignment, expected) in cases {
+            let options = CleanupOptions {
+                dpi: 100.0,
+                page_alignment,
+                margins_pixels: Some([11.0, 13.0, 17.0, 19.0]),
+                ..CleanupOptions::default()
+            };
+            let placement = plan_canvas_placement_for(
+                60,
+                40,
+                200.0,
+                180.0,
+                true,
+                &options,
+                crate::pipeline::PageHalf::Full,
+                &canvas,
+            );
+
+            assert_eq!(placement.requested_margins, [11, 13, 17, 19]);
+            assert_eq!(
+                (placement.content_width, placement.content_height),
+                (60, 40)
+            );
+            assert_eq!((placement.left, placement.top), expected);
+        }
+    }
+
+    #[test]
+    fn matched_canvas_keeps_bottom_right_alignment_when_margins_are_reduced() {
+        let options = CleanupOptions {
+            dpi: 100.0,
+            page_alignment: crate::PageAlignment::BottomRight,
+            margins_pixels: Some([8.0, 9.0, 4.0, 3.0]),
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 7.2,
+            height_points: 5.76,
+            width_px: 10,
+            height_px: 8,
+        };
+
+        let placement = plan_canvas_placement_for(
+            4,
+            4,
+            10.0,
+            8.0,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+        );
+
+        assert!(placement.margins_reduced);
+        assert_eq!(placement.requested_margins, [6, 5, 3, 2]);
+        assert_eq!((placement.content_width, placement.content_height), (1, 1));
+        assert_eq!((placement.left, placement.top), (6, 5));
     }
 
     #[test]

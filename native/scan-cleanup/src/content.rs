@@ -1901,9 +1901,10 @@ pub(crate) fn content_with_margins_for_dimensions(
     // the crop extend beyond the scanned sheet so the inverse renderer fills
     // the uncovered area with white. Clamping here silently erased a requested
     // margin whenever detected content reached an edge (most visibly on book
-    // covers). Matched-canvas placement fits the complete padded raster and
-    // composes its crop origin after paper alignment, while lossless assembly
-    // represents the same outward rectangle directly in PDF user space.
+    // covers). Callers that keep intrinsic margins retain this complete padded
+    // raster. Matched-canvas callers intentionally omit crop-time margins and
+    // let final placement own them; lossless assembly represents the same
+    // outward rectangle directly in PDF user space.
     let left = expanded.x.floor();
     let top = expanded.y.floor();
     let right = expanded.right().ceil();
