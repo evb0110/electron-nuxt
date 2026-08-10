@@ -1,4 +1,4 @@
-export const PDF_INSERT_EXTENSIONS = [
+const PDF_INSERT_EXTENSIONS = [
     '.pdf',
     '.png',
     '.jpg',
@@ -10,18 +10,18 @@ export const PDF_INSERT_EXTENSIONS = [
     '.gif',
 ] as const;
 
-export const WORKSPACE_DOCUMENT_EXTENSIONS = [
+const WORKSPACE_DOCUMENT_EXTENSIONS = [
     '.djvu',
     '.djv',
     ...PDF_INSERT_EXTENSIONS,
 ] as const;
 
-export const DJVU_DOCUMENT_EXTENSIONS = [
+const DJVU_DOCUMENT_EXTENSIONS = [
     '.djvu',
     '.djv',
 ] as const;
 
-export const IMAGE_DOCUMENT_EXTENSIONS = [
+const IMAGE_DOCUMENT_EXTENSIONS = [
     '.png',
     '.jpg',
     '.jpeg',
@@ -32,7 +32,7 @@ export const IMAGE_DOCUMENT_EXTENSIONS = [
     '.gif',
 ] as const;
 
-export function getDocumentExtension(filePath: string) {
+function getDocumentExtension(filePath: string) {
     const normalizedPath = filePath.toLocaleLowerCase();
     const extension = normalizedPath.match(/\.[a-z0-9]+$/u)?.[0] ?? '';
     return extension;

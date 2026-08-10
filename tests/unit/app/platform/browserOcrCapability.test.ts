@@ -36,46 +36,10 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
         const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
 
         await expect(browserOcrCapability.getLanguages()).resolves.toEqual([]);
-        await expect(browserOcrCapability.validateTools()).resolves.toMatchObject({
-            valid: false,
-            errors: ['Browser OCR is unavailable; use the desktop app to create searchable PDFs.'],
-            tools: {
-                tesseract: {
-                    found: false,
-                    path: 'browser:unavailable',
-                },
-                tessdata: {
-                    found: false,
-                    path: 'browser:unavailable',
-                    languages: [],
-                },
-            },
-        });
     });
 
-    it('does not run recognition or create searchable PDFs in browser runtime', async () => {
+    it('does not create searchable PDFs in browser runtime', async () => {
         const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
-
-        await expect(browserOcrCapability.recognize({
-            pageNumber: 3,
-            imageData: new Uint8Array([1]),
-            languages: ['eng'],
-        })).resolves.toMatchObject({
-            pageNumber: 3,
-            success: false,
-            text: '',
-            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
-        });
-
-        await expect(browserOcrCapability.recognizeBatch([{
-            pageNumber: 1,
-            imageData: new Uint8Array([1]),
-            languages: ['eng'],
-        }], 'request-1')).resolves.toMatchObject({
-            results: {},
-            errors: ['Browser OCR is unavailable; use the desktop app to create searchable PDFs.'],
-            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
-        });
 
         await expect(browserOcrCapability.createSearchablePdf('/tmp/in.pdf', [{
             pageNumber: 1,
@@ -101,14 +65,6 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
             cleaned: false,
             errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
         });
-        await expect(browserOcrCapability.preprocessing.validate()).resolves.toMatchObject({
-            valid: false,
-            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
-        });
-        await expect(browserOcrCapability.preprocessing.preprocessPage(new Uint8Array([1]), true)).resolves.toMatchObject({
-            success: false,
-            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
-        });
     });
 
     it('keeps browser OCR event hooks inert', async () => {
@@ -118,7 +74,6 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
 
         const unsubscribeProgress = browserOcrCapability.onProgress(onProgress);
         const unsubscribeComplete = browserOcrCapability.onComplete(onComplete);
-        await browserOcrCapability.installLanguages(['eng'], 'request-3');
         unsubscribeProgress();
         unsubscribeComplete();
 

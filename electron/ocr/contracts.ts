@@ -10,22 +10,9 @@ import type {
     TOcrQualityProfile,
 } from '@contracts/electronApiOcr';
 
-interface IOcrRecognizePageRequest {
-    pageNumber: number;
-    imageData: Uint8Array;
-    languages: string[];
-    imageWidth?: number;
-    imageHeight?: number;
-}
-
 interface IOcrCreatePdfPageRequest {
     pageNumber: number;
     languages: string[];
-}
-
-interface IOcrRecognizeBatchPayload {
-    pages: IOcrRecognizePageRequest[];
-    requestId: string;
 }
 
 interface IOcrCreateSearchablePdfPayload {
@@ -37,10 +24,7 @@ interface IOcrCreateSearchablePdfPayload {
 
 const MAX_PAGE_NUMBER = 1_000_000;
 const MAX_LANGUAGES_PER_PAGE = 16;
-const MAX_IMAGE_BYTES = 128 * 1024 * 1024;
-const MAX_BATCH_IMAGE_BYTES = 512 * 1024 * 1024;
 const MAX_BATCH_PAGES = 5_000;
-const MAX_IMAGE_PIXELS = 45_000_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
 const MAX_TESSERACT_PSM = 13;
@@ -100,13 +84,6 @@ function asPositiveInteger(value: unknown, fieldName: string) {
         throw new OcrPayloadValidationError(`${fieldName} exceeds maximum value (${MAX_PAGE_NUMBER})`);
     }
     return value;
-}
-
-function asOptionalPositiveInteger(value: unknown, fieldName: string) {
-    if (value === null || value === undefined) {
-        return undefined;
-    }
-    return asPositiveInteger(value, fieldName);
 }
 
 function asOptionalDpi(value: unknown, fieldName: string) {
@@ -215,29 +192,6 @@ function asSearchablePdfOptions(value: unknown): IOcrSearchablePdfOptions {
     return options;
 }
 
-function toUint8Array(value: unknown, fieldName: string, maxBytes: number) {
-    let bytes: Uint8Array;
-
-    if (value instanceof Uint8Array) {
-        bytes = value;
-    } else if (value instanceof ArrayBuffer) {
-        bytes = new Uint8Array(value);
-    } else if (ArrayBuffer.isView(value)) {
-        bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    } else {
-        throw new OcrPayloadValidationError(`${fieldName} must be a Uint8Array`);
-    }
-
-    if (bytes.byteLength === 0) {
-        throw new OcrPayloadValidationError(`${fieldName} must not be empty`);
-    }
-    if (bytes.byteLength > maxBytes) {
-        throw new OcrPayloadValidationError(`${fieldName} exceeds maximum size (${maxBytes} bytes)`);
-    }
-
-    return bytes;
-}
-
 function asLanguages(value: unknown, fieldName: string) {
     if (!Array.isArray(value) || value.length === 0) {
         throw new OcrPayloadValidationError(`${fieldName} must be a non-empty array`);
@@ -266,33 +220,6 @@ function assertUniqueLanguageBudget(
             `${fieldName} exceed maximum unique language count (${MAX_UNIQUE_LANGUAGES_PER_JOB})`,
         );
     }
-}
-
-function asRecognizePageRequest(payload: unknown, fieldName: string): IOcrRecognizePageRequest {
-    if (!payload || typeof payload !== 'object') {
-        throw new OcrPayloadValidationError(`${fieldName} must be an object`);
-    }
-
-    const record = payload as Record<string, unknown>;
-    const imageWidth = asOptionalPositiveInteger(record.imageWidth, `${fieldName}.imageWidth`);
-    const imageHeight = asOptionalPositiveInteger(record.imageHeight, `${fieldName}.imageHeight`);
-    if ((imageWidth === undefined) !== (imageHeight === undefined)) {
-        throw new OcrPayloadValidationError(`${fieldName}.imageWidth and ${fieldName}.imageHeight must be provided together`);
-    }
-    if (imageWidth !== undefined && imageHeight !== undefined && imageWidth * imageHeight > MAX_IMAGE_PIXELS) {
-        throw new OcrPayloadValidationError(`${fieldName} image dimensions exceed maximum pixel count (${MAX_IMAGE_PIXELS})`);
-    }
-
-    const request: IOcrRecognizePageRequest = {
-        pageNumber: asPositiveInteger(record.pageNumber, `${fieldName}.pageNumber`),
-        imageData: toUint8Array(record.imageData, `${fieldName}.imageData`, MAX_IMAGE_BYTES),
-        languages: asLanguages(record.languages, `${fieldName}.languages`),
-    };
-    if (imageWidth !== undefined && imageHeight !== undefined) {
-        request.imageWidth = imageWidth;
-        request.imageHeight = imageHeight;
-    }
-    return request;
 }
 
 function asCreatePdfPageRequest(payload: unknown, fieldName: string): IOcrCreatePdfPageRequest {
@@ -325,43 +252,6 @@ function asPagesArray<T extends { languages: string[] }>(
     const pages = pagesPayload.map((page, index) => mapPage(page, `${fieldName}[${index}]`));
     assertUniqueLanguageBudget(pages, fieldName);
     return pages;
-}
-
-function assertRecognizeBatchByteBudget(pages: IOcrRecognizePageRequest[]) {
-    let totalBytes = 0;
-    for (const page of pages) {
-        totalBytes += page.imageData.byteLength;
-        if (totalBytes > MAX_BATCH_IMAGE_BYTES) {
-            throw new OcrPayloadValidationError(`pages image data exceeds maximum total size (${MAX_BATCH_IMAGE_BYTES} bytes)`);
-        }
-    }
-}
-
-function assertUniqueRecognizePageNumbers(pages: IOcrRecognizePageRequest[]) {
-    const seen = new Set<number>();
-    for (const page of pages) {
-        if (seen.has(page.pageNumber)) {
-            throw new OcrPayloadValidationError(`Duplicate OCR pageNumber in recognizeBatch: ${page.pageNumber}`);
-        }
-        seen.add(page.pageNumber);
-    }
-}
-
-export function validateRecognizeRequest(payload: unknown): IOcrRecognizePageRequest {
-    return asRecognizePageRequest(payload, 'request');
-}
-
-export function validateRecognizeBatchPayload(
-    pagesPayload: unknown,
-    requestIdPayload: unknown,
-): IOcrRecognizeBatchPayload {
-    const pages = asPagesArray(pagesPayload, 'pages', asRecognizePageRequest);
-    assertRecognizeBatchByteBudget(pages);
-    assertUniqueRecognizePageNumbers(pages);
-    return {
-        pages,
-        requestId: asRequestId(requestIdPayload, 'requestId'),
-    };
 }
 
 export function validateCreateSearchablePdfPayload(

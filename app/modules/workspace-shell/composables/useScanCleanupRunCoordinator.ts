@@ -6,7 +6,6 @@ import {
     installScanCleanupRunCoordinator,
     pruneScanCleanupOutputs,
 } from '@app/modules/scan-cleanup/public/runtime';
-import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { getDocumentOpenCapability } from '@app/utils/platformDocuments';
@@ -67,15 +66,11 @@ export const useScanCleanupRunCoordinator = (
     handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
     isStartupOpenClaimPending: Ref<boolean>,
     t: TTranslateFn,
-    tabs: Ref<ITab[]>,
     documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentController>>,
     activateTab: (tabId: string) => void,
 ) => {
     const toast = useToast();
     const cleanup = installScanCleanupRunCoordinator({
-        getOpenPdfPaths: () => tabs.value
-            .map(tab => tab.originalPath)
-            .filter((path): path is string => typeof path === 'string' && path.length > 0),
         openGeneratedPdf: async (path) => {
             const result = await getDocumentOpenCapability().openDocumentDirect(path);
             return result?.kind === 'pdf'

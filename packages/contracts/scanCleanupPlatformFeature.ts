@@ -9,7 +9,6 @@ import type {
 } from '@contracts/scan-cleanup/ipc';
 import {
     decodeDetectionArgs,
-    decodeOpenPdfPaths,
     decodeOwnedJobId,
     decodePreviewArgs,
     decodePreviewCancelArgs,
@@ -128,7 +127,6 @@ const ownedJobArgs = s.fromParser(decodeArgs(decodeOwnedJobId), () => [
     'scan-cleanup-fixture',
     owner,
 ] as [string, IScanCleanupOwnerContext]);
-const openPathsArgs = s.fromParser(decodeArgs(decodeOpenPdfPaths), () => [['/tmp/source.pdf']]);
 const rawPreviewEvent = s.fromParser(decodeScanCleanupRawPreviewEvent, () => ({
     ...owner,
     requestId: 'preview-request-1',
@@ -271,7 +269,7 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
             kind: 'async',
             channel: 'scan-cleanup:output:prune',
             ipc: {
-                args: openPathsArgs,
+                args: s.tuple([]),
                 result: nonNegativeInteger,
             },
             main: {

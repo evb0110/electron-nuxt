@@ -9,7 +9,7 @@ import {
     resolveEffectiveScanCleanupOptions,
     resolveScanCleanupCanvasPageDpi,
     resolveScanCleanupRequestedRenderDpi,
-} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+} from '@scan-cleanup-core/policy/effectiveOptions';
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,

@@ -13,7 +13,6 @@ export interface IDjvuPdfConversionPolicyDecision {
     subsample: number;
     recommendedSubsample: number;
     effectivePixels: number;
-    pixelLimit: number;
     isAllowed: boolean;
 }
 
@@ -117,7 +116,6 @@ export function evaluateDjvuPdfConversionPolicy(
         subsample: normalizedSubsample,
         recommendedSubsample,
         effectivePixels,
-        pixelLimit: DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
         isAllowed: normalizedSubsample >= recommendedSubsample
             || effectivePixels <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
     };

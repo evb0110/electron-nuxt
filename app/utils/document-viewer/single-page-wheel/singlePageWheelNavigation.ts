@@ -1,6 +1,5 @@
 import type { TDocumentViewMode } from '@contracts/shared';
 import { stepBySpread } from '@app/utils/pdfViewMode';
-import { resolveSnapAnchorForWheelDirection } from '@app/utils/document-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
 import type {
     TPageSnapAnchor,
     TWheelDirection,
@@ -106,7 +105,8 @@ export function resolveWheelTargetAnchor(
     targetPageIsTall: boolean,
     direction: TWheelDirection,
 ): TPageSnapAnchor {
-    return targetPageIsTall
-        ? resolveSnapAnchorForWheelDirection(direction)
-        : 'top';
+    if (!targetPageIsTall) {
+        return 'top';
+    }
+    return direction > 0 ? 'top' : 'bottom';
 }

@@ -13,7 +13,7 @@ interface IShortcutDef {
     };
 }
 
-export const SHORTCUTS = {
+const SHORTCUTS = {
     openFile: {
         key: 'O',
         modifiers: ['mod'], 

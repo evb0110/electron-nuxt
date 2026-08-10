@@ -613,7 +613,6 @@ useScanCleanupRunCoordinator(
     handleOpenInNewTab,
     isStartupOpenClaimPending,
     t,
-    tabs,
     documentSessionsByTabId,
     activateTabById,
 );
@@ -871,7 +870,6 @@ useTabsShellBindings({
     clearRecentFiles,
     loadRecentFiles,
     isStartupOpenClaimPending,
-    openSettings: openSettingsPage,
     checkForUpdates,
     splitEditor,
     focusPane: focusEditorPane,

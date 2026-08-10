@@ -15,15 +15,10 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
-import { assertNonEmptyString } from '@contracts/ipcAssertions';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
-import {
-    OCR_PLATFORM_FEATURE,
-    OCR_PREPROCESSING_PLATFORM_FEATURE,
-    type IOcrCapability,
-} from '@contracts/ocrPlatformFeature';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
@@ -65,7 +60,6 @@ import {
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-const OCR_LANGUAGE_INSTALL_UNAVAILABLE = 'OCR language installation is not available from the renderer; validateTools only reports installed languages.';
 
 function stringifyDetails(details?: Record<string, unknown>) {
     if (!details) {
@@ -162,35 +156,7 @@ export function createElectronApi(
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
     const pageOps = createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE);
     const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
-    const ocrIpc = createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE);
-    const ocr = {
-        ...ocrIpc,
-        installLanguages: async (_languages: string[], requestId: string) => {
-            const checkedRequestId = assertNonEmptyString(
-                requestId,
-                'ocrInstallLanguages.requestId',
-                128,
-            );
-            const validation = await ocrIpc.validateTools();
-            return {
-                started: false,
-                jobId: checkedRequestId,
-                installed: [],
-                errors: [
-                    OCR_LANGUAGE_INSTALL_UNAVAILABLE,
-                    ...validation.errors,
-                ],
-                error: OCR_LANGUAGE_INSTALL_UNAVAILABLE,
-                ...(validation.errorEnvelope
-                    ? {errorEnvelope: validation.errorEnvelope}
-                    : {}),
-            };
-        },
-        preprocessing: createPlatformFeaturePreloadClient(
-            ipcRenderer,
-            OCR_PREPROCESSING_PLATFORM_FEATURE,
-        ),
-    } satisfies IOcrCapability;
+    const ocr = createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE);
     const settingsIpc = createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE);
     const updatesIpc = createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE);
     const hostIpc = createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile: () => options.resourceProfile ?? null});
@@ -518,8 +484,6 @@ export function createElectronApi(
             onDebugLog: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onDecodedPayload(CORE_IPC_EVENT_CHANNELS.debugLog, decodeDebugLogEntry, callback),
             rendererLog: (entry) => ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, entry),
-            onMenuOpenSettings: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuOpenSettings, callback),
         },
 
         system: {

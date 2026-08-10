@@ -17,13 +17,13 @@ import { shouldIgnoreEditorEvent } from '@app/modules/pdf-viewer/engine/annotati
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type {
     IAnnotationCommentSummary,
-    IAnnotationEditorState,
     IAnnotationSettings,
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
+import type {IPdfjsAnnotationEditorState} from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import { cast } from '@tests/helpers/cast';
 
 const {
@@ -147,7 +147,7 @@ async function createBridgeHarness(
     const annotationL10n = shallowRef(null);
     const pdfDocument = shallowRef<PDFDocumentProxy | null>({ annotationStorage: {} } as PDFDocumentProxy);
     const emitAnnotationModified = vi.fn();
-    const emitAnnotationState = vi.fn<(state: IAnnotationEditorState) => void>();
+    const emitAnnotationState = vi.fn<(patch: Partial<IPdfjsAnnotationEditorState>) => void>();
     const emitAnnotationOpenNote = vi.fn<(comment: IAnnotationCommentSummary) => void>();
     const recordPdfjsExecutorCommand = vi.fn();
     const annotationTool = ref<TAnnotationTool>(tool);
@@ -294,6 +294,20 @@ describe('useAnnotationEditorBridge', () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+    });
+
+    it('forwards PDF.js annotation state patches without owning merged state', async () => {
+        const {
+            emitAnnotationState,
+            eventBus,
+        } = await createBridgeHarness('text');
+        emitAnnotationState.mockClear();
+
+        eventBus.dispatch('annotationeditorstateschanged', {details: {isEditing: true}});
+        eventBus.dispatch('annotationeditorstateschanged', {details: {hasSomethingToUndo: true}});
+
+        expect(emitAnnotationState).toHaveBeenNthCalledWith(1, {isEditing: true});
+        expect(emitAnnotationState).toHaveBeenNthCalledWith(2, {hasSomethingToUndo: true});
     });
 
     it('clears selection after committing a new ink editor', async () => {

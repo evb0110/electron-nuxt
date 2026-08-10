@@ -200,17 +200,17 @@ function normalizePrintPageNumbers(pageNumbers: unknown) {
 
 function normalizeDjvuConvertOptions(
     options: IDjvuConvertOptions,
-    requestIdFieldName = 'convertToPdf.options.requestId',
+    requestIdFieldName = 'startConvertToPdf.options.requestId',
 ) {
     if (!isRecord(options)) {
-        throw new TypeError('convertToPdf.options must be an object');
+        throw new TypeError('startConvertToPdf.options must be an object');
     }
 
     const normalizedOptions: IDjvuConvertOptions = {};
     if (options.jobId !== undefined) {
-        const jobId = normalizeOptionalRequestId(options.jobId, 'convertToPdf.options.jobId');
+        const jobId = normalizeOptionalRequestId(options.jobId, 'startConvertToPdf.options.jobId');
         if (jobId === undefined) {
-            throw new TypeError('convertToPdf.options.jobId must be a non-empty string');
+            throw new TypeError('startConvertToPdf.options.jobId must be a non-empty string');
         }
         normalizedOptions.jobId = jobId;
     }
@@ -220,13 +220,13 @@ function normalizeDjvuConvertOptions(
             || !Number.isSafeInteger(options.subsample)
             || options.subsample < 1
         ) {
-            throw new TypeError('convertToPdf.options.subsample must be a positive integer');
+            throw new TypeError('startConvertToPdf.options.subsample must be a positive integer');
         }
         normalizedOptions.subsample = options.subsample;
     }
     if (options.preserveBookmarks !== undefined) {
         if (typeof options.preserveBookmarks !== 'boolean') {
-            throw new TypeError('convertToPdf.options.preserveBookmarks must be a boolean');
+            throw new TypeError('startConvertToPdf.options.preserveBookmarks must be a boolean');
         }
         normalizedOptions.preserveBookmarks = options.preserveBookmarks;
     }
@@ -236,7 +236,7 @@ function normalizeDjvuConvertOptions(
         && options.pdfStrategy !== 'compact-djvu-aware'
         && options.pdfStrategy !== 'auto'
     ) {
-        throw new TypeError('convertToPdf.options.pdfStrategy is invalid');
+        throw new TypeError('startConvertToPdf.options.pdfStrategy is invalid');
     }
     if (options.pdfStrategy !== undefined) {
         normalizedOptions.pdfStrategy = options.pdfStrategy;
@@ -253,7 +253,7 @@ function normalizeDjvuConvertOptions(
     }
     if (options.documentRef !== undefined) {
         if (typeof options.documentRef !== 'string' || options.documentRef.trim() === '') {
-            throw new TypeError('convertToPdf.options.documentRef must be a non-empty string');
+            throw new TypeError('startConvertToPdf.options.documentRef must be a non-empty string');
         }
         normalizedOptions.documentRef = options.documentRef.trim();
     }
@@ -329,7 +329,7 @@ function normalizeDjvuPrintOptions(options: IDjvuPrintOptions) {
 
 function decodeConvertOptions(
     value: unknown,
-    requestIdFieldName = 'convertToPdf.options.requestId',
+    requestIdFieldName = 'startConvertToPdf.options.requestId',
 ) {
     return normalizeDjvuConvertOptions(
         value as IDjvuConvertOptions,
@@ -782,24 +782,6 @@ const startOpenArgs = argsSchema<[TDocumentRef, string]>(
         'djvu-open-fixture',
     ],
 );
-const convertArgs = argsSchema<[TDocumentRef, string, IDjvuConvertOptions]>(
-    (args) => {
-        requireArgs(args, 3);
-        return [
-            decodeStringArg(args, 0, 'djvuPath'),
-            decodeStringArg(args, 1, 'outputPath'),
-            decodeConvertOptions(args[2]),
-        ];
-    },
-    () => [
-        '/tmp/fixture.djvu',
-        '/tmp/fixture.pdf',
-        {
-            preserveBookmarks: true,
-            requestId: 'djvu-convert-fixture',
-        },
-    ],
-);
 const startConvertArgs = argsSchema<[TDocumentRef, string, IDjvuConvertOptions]>(
     (args) => {
         requireArgs(args, 3);
@@ -1058,34 +1040,11 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             result: openResult,
             timeout: true,
         }),
-        openForViewing: defineDjvuMethod({
-            name: 'openForViewing',
-            channel: 'djvu:openForViewing',
-            args: documentArgs,
-            result: openResult,
-            timeout: true,
-        }),
         releaseViewingPath: defineDjvuMethod({
             name: 'releaseViewingPath',
             channel: 'djvu:releaseViewingPath',
             args: documentArgs,
             result: voidResult,
-        }),
-        convertToPdf: defineDjvuClientMethod({
-            name: 'convertToPdf',
-            channel: 'djvu:convertToPdf',
-            args: convertArgs,
-            result: convertResult,
-            timeout: true,
-            mapArgs: (
-                djvuPath: TDocumentRef,
-                outputPath: string,
-                options: IDjvuConvertOptions,
-            ): [TDocumentRef, string, IDjvuConvertOptions] => [
-                djvuPath,
-                outputPath,
-                normalizeDjvuConvertOptions(options),
-            ],
         }),
         startConvertToPdf: defineDjvuClientMethod({
             name: 'startConvertToPdf',

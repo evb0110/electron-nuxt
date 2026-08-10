@@ -14,6 +14,6 @@ export function getReaderCommandMenuIcon(command: TReaderCommandId): TReaderComm
     return toReaderCommandMenuIcon(getReaderCommandToolbarIcon(command));
 }
 
-export function toReaderCommandMenuIcon(icon: TReaderCommandIconName): TReaderCommandMenuIcon {
+function toReaderCommandMenuIcon(icon: TReaderCommandIconName): TReaderCommandMenuIcon {
     return `i-${icon.replace(':', '-')}` as TReaderCommandMenuIcon;
 }

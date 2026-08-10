@@ -1,4 +1,7 @@
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentsBatchProgress,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import { hasElectronAPI } from '@app/utils/platform';
 import {
     getDocumentOpenCapability,
@@ -91,25 +94,17 @@ function assertCombineInputsWithinCapabilities(options: ICombinePdfFilesOptions)
     }
 }
 
-export interface ICombinePdfProgress {
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
-}
-
 export interface ICombinePdfFilesOptions {
     files: readonly ICombinePdfInputFile[];
     outputName: string;
     openErrorMessage: string;
-    onProgress?: (progress: ICombinePdfProgress) => void;
+    onProgress?: (progress: IDocumentsBatchProgress) => void;
     signal?: AbortSignal;
 }
 
 function emitCompleteProgress(
     options: ICombinePdfFilesOptions,
-    previousProgress?: ICombinePdfProgress | null,
+    previousProgress?: IDocumentsBatchProgress | null,
 ) {
     options.onProgress?.({
         processed: options.files.length,
@@ -121,8 +116,8 @@ function emitCompleteProgress(
 }
 
 function toMonotonicInProgress(
-    next: ICombinePdfProgress,
-    previous: ICombinePdfProgress | null,
+    next: IDocumentsBatchProgress,
+    previous: IDocumentsBatchProgress | null,
 ) {
     return {
         ...next,
@@ -143,7 +138,7 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
     }
 
     const requestId = crypto.randomUUID();
-    let latestProgress: ICombinePdfProgress | null = null;
+    let latestProgress: IDocumentsBatchProgress | null = null;
     const stopProgress = documentOpen.onOpenDocumentDirectBatchProgress((nextProgress) => {
         if (
             nextProgress.operation !== 'document-open'
@@ -181,7 +176,7 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
 }
 
 async function combineBrowserFiles(options: ICombinePdfFilesOptions): Promise<TOpenFileResult> {
-    let latestProgress: ICombinePdfProgress | null = null;
+    let latestProgress: IDocumentsBatchProgress | null = null;
     const documentPicker = getDocumentPickerCapability();
     if (!documentPicker.createCombinedPdfFromFiles) {
         throw new Error(options.openErrorMessage);

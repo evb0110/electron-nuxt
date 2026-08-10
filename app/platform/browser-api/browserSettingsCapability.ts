@@ -123,7 +123,6 @@ export const browserSettingsCapability: ISettingsCapability = {
     },
     onDebugLog: noopUnsubscribe,
     rendererLog(_entry: IRendererLogEntry) {},
-    onMenuOpenSettings: noopUnsubscribe,
 };
 
 browserSettingsCapability satisfies TFeatureBrowserBindings<typeof SETTINGS_PLATFORM_FEATURE>;

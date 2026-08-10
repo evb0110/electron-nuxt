@@ -1,7 +1,6 @@
-import type {
-    DJVU_PLATFORM_FEATURE,
-    IDjvuCapability,
-} from '@contracts/djvuPlatformFeature';
+import type { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import type { IDjvuOpenResult } from '@contracts/electronApiDjvu';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     browserDocumentStore,
@@ -24,56 +23,57 @@ import {
     withBrowserDjvuWorker,
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 
-export const browserDjvuCapability: IDjvuCapability = {
+async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuOpenResult> {
+    if (!isBrowserDocumentRef(djvuPath)) {
+        return withBrowserDjvuWorker(djvuPath, async (worker) => {
+            const pageSizes = await worker.doc.getPagesSizes().run();
+            return pageSizes.length > 0
+                ? {
+                    success: true,
+                    pageCount: pageSizes.length,
+                }
+                : {
+                    success: false,
+                    error: 'DjVu document has no pages',
+                };
+        });
+    }
+    try {
+        const worker = await retainBrowserDjvuViewingWorker(djvuPath);
+        const pageSizes = await worker.doc.getPagesSizes().run();
+        const pageCount = pageSizes.length;
+
+        if (pageCount <= 0) {
+            releaseBrowserDjvuViewingWorker(djvuPath);
+            return {
+                success: false,
+                error: 'DjVu document has no pages',
+            };
+        }
+        return {
+            success: true,
+            pageCount,
+        };
+    } catch (error: unknown) {
+        releaseBrowserDjvuViewingWorker(djvuPath);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'DjVu viewing failed',
+        };
+    }
+}
+
+export const browserDjvuCapability = {
     startOpenForViewing(djvuPath, requestId) {
         const jobId = `djvu-open-${requestId}`;
         return Promise.resolve(browserDurableDjvuJobs.startOpen(
             jobId,
             requestId,
-            () => browserDjvuCapability.openForViewing(djvuPath),
+            () => openBrowserDjvuForViewing(djvuPath),
         ));
     },
     awaitOpenJob(jobId) {
         return browserDurableDjvuJobs.awaitOpen(jobId);
-    },
-    async openForViewing(djvuPath) {
-        if (!isBrowserDocumentRef(djvuPath)) {
-            return withBrowserDjvuWorker(djvuPath, async (worker) => {
-                const pageSizes = await worker.doc.getPagesSizes().run();
-                return pageSizes.length > 0
-                    ? {
-                        success: true,
-                        pageCount: pageSizes.length,
-                    }
-                    : {
-                        success: false,
-                        error: 'DjVu document has no pages',
-                    };
-            });
-        }
-        try {
-            const worker = await retainBrowserDjvuViewingWorker(djvuPath);
-            const pageSizes = await worker.doc.getPagesSizes().run();
-            const pageCount = pageSizes.length;
-
-            if (pageCount <= 0) {
-                releaseBrowserDjvuViewingWorker(djvuPath);
-                return {
-                    success: false,
-                    error: 'DjVu document has no pages',
-                };
-            }
-            return {
-                success: true,
-                pageCount,
-            };
-        } catch (error: unknown) {
-            releaseBrowserDjvuViewingWorker(djvuPath);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : 'DjVu viewing failed',
-            };
-        }
     },
     releaseViewingPath(djvuPath) {
         if (isBrowserDocumentRef(djvuPath)) releaseBrowserDjvuViewingWorker(djvuPath);
@@ -83,14 +83,13 @@ export const browserDjvuCapability: IDjvuCapability = {
         return Promise.resolve({ canceled: false });
     },
     ...browserDjvuTextSearchCapability,
-    convertToPdf: runBrowserDjvuConversion,
     startConvertToPdf(djvuPath, outputPath, options) {
         const requestId = options.requestId ?? crypto.randomUUID();
         const jobId = options.jobId ?? `djvu-convert-${requestId}`;
         return Promise.resolve(browserDurableDjvuJobs.startConvert(
             jobId,
             requestId,
-            () => browserDjvuCapability.convertToPdf(djvuPath, outputPath, {
+            () => runBrowserDjvuConversion(djvuPath, outputPath, {
                 ...options,
                 jobId,
                 requestId,

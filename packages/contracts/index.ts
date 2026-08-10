@@ -247,7 +247,6 @@ export {
 } from '@contracts/djvuPlatformFeature';
 export {
     OCR_PLATFORM_FEATURE,
-    OCR_PREPROCESSING_PLATFORM_FEATURE,
     type IOcrEventMap,
     type IOcrInvokeMap,
 } from '@contracts/ocrPlatformFeature';

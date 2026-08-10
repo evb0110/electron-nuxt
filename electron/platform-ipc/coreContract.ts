@@ -3,7 +3,6 @@ import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 export const CORE_IPC_CHANNELS = {rendererReady: 'app:rendererReady'} as const;
 
 export const CORE_IPC_EVENT_CHANNELS = {
-    menuOpenSettings: 'menu:openSettings',
     menuCheckForUpdates: 'menu:checkForUpdates',
     debugLog: 'debug:log',
     shutdownSaveFlushRequest: 'shutdown:saveFlushRequest',
@@ -15,7 +14,6 @@ export const CORE_IPC_SEND_CHANNELS = {
 } as const;
 
 export interface ICoreEventMap {
-    [CORE_IPC_EVENT_CHANNELS.menuOpenSettings]: undefined;
     [CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates]: undefined;
     [CORE_IPC_EVENT_CHANNELS.debugLog]: IDebugLogEntry;
     [CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest]: IShutdownSaveFlushRequest;

@@ -1,9 +1,10 @@
-import type {
-    IAgentAssistantChatScope,
-    IAgentAssistantModelOption,
-    IAgentAssistantState,
-    IAgentAssistantStatus,
-    TAgentAssistantProviderId,
+import {
+    cloneAssistantScope,
+    type IAgentAssistantChatScope,
+    type IAgentAssistantModelOption,
+    type IAgentAssistantState,
+    type IAgentAssistantStatus,
+    type TAgentAssistantProviderId,
 } from '@contracts/agent';
 import {
     CODEX_APP_INSTALL_URL,
@@ -12,10 +13,7 @@ import {
 } from '@electron/features/agent/codexCli';
 import type { TCodexAssistantModelOption } from '@electron/features/agent/assistantModelCatalog';
 import { createAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
-import {
-    cloneAssistantScope,
-    type IAssistantChatSession,
-} from '@electron/features/agent/assistantChatSessionStore';
+import type {IAssistantChatSession} from '@electron/features/agent/assistantChatSessionStore';
 import {
     buildAssistantProviderStatuses,
     type TAssistantProviderRuntimeStateMap,

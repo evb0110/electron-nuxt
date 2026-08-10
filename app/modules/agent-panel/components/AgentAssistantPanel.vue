@@ -670,7 +670,6 @@ import AssistantMessageSegments from '@app/modules/agent-panel/components/Assist
 import AssistantMessageActions from '@app/modules/agent-panel/components/AssistantMessageActions.vue';
 import AssistantHighlightedCode from '@app/modules/agent-panel/components/AssistantHighlightedCode.vue';
 import AssistantTurnStatus from '@app/modules/agent-panel/components/AssistantTurnStatus.vue';
-import { createAgentAssistantPanelControllerProps } from '@app/modules/agent-panel/composables/createAgentAssistantPanelControllerProps';
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
 import { getAssistantImagePreviewUrl } from '@app/modules/agent-panel/utils/assistantImageAttachments';
 const {
@@ -687,14 +686,14 @@ const emit = defineEmits<{
     'resize-start': [event: PointerEvent];
 }>();
 
-const props = createAgentAssistantPanelControllerProps(() => ({
-    activeDocumentName: activeDocumentName ?? null,
-    chatScope: chatScope ?? null,
-    hasActiveDocument: hasActiveDocument ?? false,
-    hasAnyDocument: hasAnyDocument ?? false,
-    width,
-    isResizing: isResizing ?? false,
-}));
+const props = {
+    get activeDocumentName() { return activeDocumentName ?? null; },
+    get chatScope() { return chatScope ?? null; },
+    get hasActiveDocument() { return hasActiveDocument ?? false; },
+    get hasAnyDocument() { return hasAnyDocument ?? false; },
+    get width() { return width; },
+    get isResizing() { return isResizing ?? false; },
+} satisfies Readonly<IAgentAssistantPanelControllerProps>;
 
 const {
     ASSISTANT_PRESETS,

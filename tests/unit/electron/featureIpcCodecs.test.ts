@@ -9,25 +9,15 @@ import { DOCUMENT_FILES_PLATFORM_FEATURE } from '@contracts/documentsPlatformFea
 import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import {
-    OCR_PLATFORM_FEATURE,
-    OCR_PREPROCESSING_PLATFORM_FEATURE,
-} from '@contracts/ocrPlatformFeature';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
+import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scanCleanupPlatformFeature';
 
 const AGENT_CHANNELS = AGENT_PLATFORM_FEATURE.invokeChannels;
 const AGENT_IPC_CODECS = AGENT_PLATFORM_FEATURE.ipcCodecs;
 const DJVU_CHANNELS = DJVU_PLATFORM_FEATURE.invokeChannels;
 const DJVU_IPC_CODECS = DJVU_PLATFORM_FEATURE.ipcCodecs;
-const OCR_CHANNELS = {
-    ...OCR_PLATFORM_FEATURE.invokeChannels,
-    preprocessingValidate: OCR_PREPROCESSING_PLATFORM_FEATURE.invokeChannels.validate,
-    preprocessingPreprocessPage:
-        OCR_PREPROCESSING_PLATFORM_FEATURE.invokeChannels.preprocessPage,
-};
-const OCR_IPC_CODECS = {
-    ...OCR_PLATFORM_FEATURE.ipcCodecs,
-    ...OCR_PREPROCESSING_PLATFORM_FEATURE.ipcCodecs,
-};
+const OCR_CHANNELS = OCR_PLATFORM_FEATURE.invokeChannels;
+const OCR_IPC_CODECS = OCR_PLATFORM_FEATURE.ipcCodecs;
 const djvuCodec = (channel: string) => DJVU_IPC_CODECS[channel]!;
 const agentCodec = (channel: string) => AGENT_IPC_CODECS[channel]!;
 const ocrCodec = (channel: string) => OCR_IPC_CODECS[channel]!;
@@ -67,6 +57,14 @@ describe('feature IPC codec maps', () => {
             expectExhaustiveMap(feature.invokeChannels, feature.ipcCodecs);
         }
         expectExhaustiveMap(DOCUMENTS_CHANNELS, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
+    });
+
+    it('keeps scan-cleanup generated-output pruning zero-argument', () => {
+        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels.pruneGeneratedOutputs;
+        const codec = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[channel];
+
+        expect(codec?.decodeArgs([])).toEqual([]);
+        expect(() => codec?.decodeArgs([['/tmp/reported-open.pdf']])).toThrow('expected 0 arguments, received 1');
     });
 
     it('validates working-copy backing status once at the generated IPC boundary', () => {
@@ -420,10 +418,6 @@ describe('feature IPC codec maps', () => {
             },
         ])).toThrow('pageNumbers exceeds maximum item count (100000)');
 
-        expect(() => ocrCodec(OCR_CHANNELS.recognizeBatch).decodeArgs([
-            Array.from({length: 100_001}),
-            'request-1',
-        ])).toThrow('OCR pages exceeds maximum item count (100000)');
         expect(() => ocrCodec(OCR_CHANNELS.createSearchablePdf).decodeArgs([
             '/tmp/a.pdf',
             Array.from({length: 100_001}),

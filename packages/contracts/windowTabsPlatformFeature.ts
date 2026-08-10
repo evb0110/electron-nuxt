@@ -46,12 +46,6 @@ const documentRef = s.fromParser<TDocumentRef>((value) => {
     }
     return value;
 }, () => '/tmp/document.pdf');
-const tabId = s.fromParser<string>((value) => {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        throw new Error('invalid tab id');
-    }
-    return value;
-}, () => 'tab-1');
 const paneDirection = s.fromParser<TPaneDirection>((value) => {
     if (value !== 'left' && value !== 'right' && value !== 'up' && value !== 'down') {
         throw new Error('invalid pane direction');
@@ -177,13 +171,6 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
             result: targetWindows,
             main: 'listWindowTabTargets',
         }),
-        showContextMenu: defineForwardedPlatformMethod({
-            name: 'showContextMenu',
-            channel: 'tabs:showContextMenu',
-            args: s.tuple([tabId]),
-            result: voidResult,
-            main: 'showWindowTabContextMenu',
-        }),
         closeCurrentWindow: defineForwardedPlatformMethod({
             name: 'closeCurrentWindow',
             channel: 'window:closeCurrent',
@@ -285,7 +272,6 @@ export type IWindowTabsApi = Pick<
     | 'transfer'
     | 'transferAck'
     | 'listTargetWindows'
-    | 'showContextMenu'
     | 'onIncomingTransfer'
     | 'onWindowAction'
 >;

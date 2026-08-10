@@ -43,7 +43,3 @@ export function createDocumentSinglePageRange(pageNumber: number, totalPages: nu
 export function doDocumentPageRangesIntersect(left: IDocumentPageRange, right: IDocumentPageRange) {
     return left.start <= right.end && right.start <= left.end;
 }
-
-export function doesDocumentPageRangeContainPage(range: IDocumentPageRange, pageNumber: number) {
-    return pageNumber >= range.start && pageNumber <= range.end;
-}

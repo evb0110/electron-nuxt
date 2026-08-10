@@ -6,10 +6,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    ICombinePdfProgress ,
-    CombinePdfError,
-} from '@app/services/pdf/combinePdfFiles';
+import type {IDocumentsBatchProgress} from '@contracts/electronApiDocuments';
+import type {CombinePdfError} from '@app/services/pdf/combinePdfFiles';
 import {combinePdfFiles} from '@app/services/pdf/combinePdfFiles';
 
 interface IMenuProgress {
@@ -89,7 +87,7 @@ describe('combinePdfFiles', () => {
     it('uses split picker and open capabilities for Electron combine batches', async () => {
         const firstFile = createFile('first.pdf');
         const secondFile = createFile('second.pdf');
-        const onProgress = vi.fn<(progress: ICombinePdfProgress) => void>();
+        const onProgress = vi.fn<(progress: IDocumentsBatchProgress) => void>();
         mocks.documentPicker.getPathsForFiles.mockReturnValue([
             '/tmp/first.pdf',
             '/tmp/second.pdf',
@@ -165,7 +163,7 @@ describe('combinePdfFiles', () => {
         ]);
         mocks.documentPicker.createCombinedPdfFromFiles.mockImplementation(async (
             _files: File[],
-            options: { onProgress?: (progress: ICombinePdfProgress) => void },
+            options: { onProgress?: (progress: IDocumentsBatchProgress) => void },
         ) => {
             options.onProgress?.({
                 processed: 1,
@@ -203,7 +201,7 @@ describe('combinePdfFiles', () => {
     });
 
     it('keeps fallback progress monotonic and reserves 100 percent for completion', async () => {
-        const onProgress = vi.fn<(progress: ICombinePdfProgress) => void>();
+        const onProgress = vi.fn<(progress: IDocumentsBatchProgress) => void>();
         mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
         mocks.documentOpen.openDocumentDirectBatch.mockImplementation(async (_paths: string[], requestId: string) => {
             for (const percent of [

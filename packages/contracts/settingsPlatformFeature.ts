@@ -2,7 +2,6 @@ import type { ISettingsData } from '@contracts/shared';
 import type {
     IDebugLogEntry,
     IRendererLogEntry,
-    TMenuEventCallback,
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 import {
@@ -101,7 +100,6 @@ interface ISettingsSupportCapability {
     getDebugLogs: () => Promise<IDebugLogEntry[]>;
     onDebugLog: (callback: (entry: IDebugLogEntry) => void) => TMenuEventUnsubscribe;
     rendererLog: (entry: IRendererLogEntry) => void;
-    onMenuOpenSettings: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
 }
 
 export type ISettingsCapability =

@@ -1,7 +1,4 @@
-import type {
-    IPlatformApi,
-    IPlatformRuntimeManifest,
-} from '@contracts/platformApi';
+import type { IPlatformApi } from '@contracts/platformApi';
 import { delay } from 'es-toolkit/promise';
 import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserPlatformApi';
 import {
@@ -103,10 +100,6 @@ export async function waitForPreferredDesktopPlatformBridge({
             ...(attempts === undefined ? {} : { attempts }),
         }),
     };
-}
-
-export function getPlatformManifest(): IPlatformRuntimeManifest {
-    return getPlatformAPI().manifest;
 }
 
 function createPlatformContractError(result: ReturnType<typeof validateElectronPlatformApi>) {

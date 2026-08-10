@@ -1,6 +1,4 @@
 import type {Ref} from 'vue';
-import {mergeCombinePdfQueue} from '@app/modules/combine/mergeCombinePdfQueue';
-import {moveArrayItem} from '@app/utils/moveArrayItem';
 import {canMutateCombineFiles} from '@app/services/pdf/combineOperationSnapshot';
 
 export const useCombinePdfQueue = <T>(options: {
@@ -16,9 +14,17 @@ export const useCombinePdfQueue = <T>(options: {
         if (!canMutateCombineFiles(options.isMutationLocked.value)) {
             return;
         }
-        const merged = mergeCombinePdfQueue(files.value, fileList, options);
-        files.value = merged.files;
-        lastRejectedCount.value = merged.rejected;
+        const nextFiles = [...files.value];
+        let rejected = 0;
+        for (const file of Array.from(fileList)) {
+            if (!options.isSupported(file)) {
+                rejected += 1;
+                continue;
+            }
+            nextFiles.push(options.toQueueItem(file));
+        }
+        files.value = nextFiles;
+        lastRejectedCount.value = rejected;
     }
     function clearFiles() {
         if (!canMutateCombineFiles(options.isMutationLocked.value)) {
@@ -38,7 +44,17 @@ export const useCombinePdfQueue = <T>(options: {
         if (!canMutateCombineFiles(options.isMutationLocked.value) || targetIndex < 0 || targetIndex >= files.value.length) {
             return false;
         }
-        files.value = moveArrayItem(files.value, index, targetIndex);
+        if (index < 0 || index >= files.value.length) {
+            files.value = [...files.value];
+            return true;
+        }
+        const item = files.value[index]!;
+        const withoutItem = files.value.filter((_file, fileIndex) => fileIndex !== index);
+        files.value = [
+            ...withoutItem.slice(0, targetIndex),
+            item,
+            ...withoutItem.slice(targetIndex),
+        ];
         return true;
     }
 

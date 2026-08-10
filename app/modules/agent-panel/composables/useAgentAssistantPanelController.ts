@@ -1,16 +1,18 @@
-import type {
-    IAgentAssistantChatScope,
-    IAgentAssistantChatMessage,
-    IAgentAssistantEvent,
-    IAgentAssistantImageAttachment,
-    IAgentAssistantState,
-    IAgentAssistantStateRequest,
-    TAgentAssistantEffort,
-    TAgentAssistantLoginMode,
-    TAgentAssistantMessageRole,
-    TAgentAssistantPresetId,
-    TAgentAssistantProviderId,
-    TAgentAssistantSpeedMode,
+import {
+    buildAgentAssistantScopeFingerprint,
+    cloneAssistantScope,
+    type IAgentAssistantChatScope,
+    type IAgentAssistantChatMessage,
+    type IAgentAssistantEvent,
+    type IAgentAssistantImageAttachment,
+    type IAgentAssistantState,
+    type IAgentAssistantStateRequest,
+    type TAgentAssistantEffort,
+    type TAgentAssistantLoginMode,
+    type TAgentAssistantMessageRole,
+    type TAgentAssistantPresetId,
+    type TAgentAssistantProviderId,
+    type TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
 import {
@@ -19,7 +21,6 @@ import {
     ASSISTANT_SPEED_MODES,
 } from '@contracts/agentModels';
 import {
-    cloneAssistantScope,
     createSelectedAssistantStatus,
     getStateScopeFingerprint,
     normalizeEffortValue,
@@ -30,7 +31,6 @@ import {
     providerDefaultSpeedMode,
     speedModesForProviderStatus,
 } from '@app/modules/agent-panel/utils/assistantSelectionState';
-import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
 import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/createEmptyAssistantState';
 import {
     ASSISTANT_PRESETS,

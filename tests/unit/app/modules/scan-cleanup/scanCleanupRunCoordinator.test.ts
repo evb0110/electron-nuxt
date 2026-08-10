@@ -238,7 +238,6 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(),
             saveActiveDocumentAs: vi.fn(),
             openScanCleanupForDocument: vi.fn(),
-            getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
             toast: {add: toastAdd},
         });
@@ -282,7 +281,6 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(),
             saveActiveDocumentAs: vi.fn(),
             openScanCleanupForDocument: vi.fn(),
-            getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
             toast: {add: toastAdd},
         });
@@ -343,7 +341,6 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             saveActiveDocumentAs,
             openScanCleanupForDocument,
-            getOpenPdfPaths: () => ['/managed/already-open.pdf'],
             t: ((key: string) => key) as never,
             toast: {add: toastAdd},
         });
@@ -509,7 +506,6 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(async () => true),
             saveActiveDocumentAs: vi.fn(),
-            getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
             toast: {add: toastAdd},
         });
@@ -582,7 +578,6 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
             toast: {add: toastAdd},
         });
@@ -670,7 +665,6 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
             toast: {add: toastAdd},
         });
@@ -761,7 +755,6 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
             toast: {add: vi.fn()},
         });
@@ -815,7 +808,6 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
             toast: {add: vi.fn()},
         });
@@ -892,7 +884,6 @@ describe('scan cleanup run coordinator', () => {
         const dependencies = {
             openGeneratedPdf: vi.fn(async () => true),
             saveActiveDocumentAs: vi.fn(),
-            getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
             toast: {add: vi.fn()},
         };

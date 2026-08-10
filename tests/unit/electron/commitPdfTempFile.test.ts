@@ -10,12 +10,6 @@ import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTe
 const mocks = vi.hoisted(() => ({
     acquire: vi.fn(),
     atomicReplace: vi.fn(),
-    finish: vi.fn(),
-    handoff: vi.fn(),
-    start: vi.fn(() => ({
-        jobId: 'save-job',
-        signal: new AbortController().signal,
-    })),
     stat: vi.fn(),
     resolveTypedStagedArtifact: vi.fn(),
 }));
@@ -27,51 +21,32 @@ vi.mock('@electron/utils/workerTask', () => ({resolveUnpackedWorkerPath: vi.fn((
 vi.mock('@electron/utils/atomicReplace', () => ({atomicReplace: mocks.atomicReplace}));
 vi.mock('@electron/file-access/workingCopyMutationCommitSignal', () => ({markActiveWorkingCopyMutationCommitStarted: vi.fn()}));
 vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {acquire: mocks.acquire}}));
-vi.mock('@electron/output/documentOutputService', () => ({documentOutputService: {
-    finish: mocks.finish,
-    handoff: mocks.handoff,
-    start: mocks.start,
-}}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: vi.fn(() => ({qpdf: '/tmp/qpdf'}))}));
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({resolveTypedStagedArtifact: mocks.resolveTypedStagedArtifact}));
 
 describe('commitPdfTempFile', () => {
     afterEach(() => {
         vi.clearAllMocks();
-        mocks.start.mockReturnValue({
-            jobId: 'save-job',
-            signal: new AbortController().signal,
-        });
         mocks.resolveTypedStagedArtifact.mockImplementation(async (_context, artifact) => artifact);
     });
 
-    it('terminalizes a source stat failure', async () => {
+    it('rejects a source stat failure', async () => {
         mocks.stat.mockRejectedValueOnce(new Error('source disappeared'));
 
         await expect(commitPdfTempFile('/tmp/missing.pdf', '/tmp/output.pdf'))
             .rejects.toThrow('source disappeared');
-        expect(mocks.finish).toHaveBeenCalledWith(
-            'save-job',
-            'failed',
-            'source disappeared',
-        );
     });
 
-    it('terminalizes a broker admission failure', async () => {
+    it('rejects a broker admission failure', async () => {
         mocks.acquire.mockRejectedValueOnce(new Error('admission unavailable'));
 
         await expect(commitPdfTempFile('/tmp/source.pdf', '/tmp/output.pdf', {
             expectedBytes: 1,
             changedObjectRefs: ['1 0 R'],
         })).rejects.toThrow('admission unavailable');
-        expect(mocks.finish).toHaveBeenCalledWith(
-            'save-job',
-            'failed',
-            'admission unavailable',
-        );
     });
 
-    it('terminalizes an authoritative receipt resolution failure', async () => {
+    it('rejects an authoritative receipt resolution failure', async () => {
         mocks.resolveTypedStagedArtifact.mockRejectedValueOnce(new Error('receipt altered'));
 
         await expect(commitPdfTempFile('/tmp/source.pdf', '/tmp/output.pdf', {receipt: {
@@ -97,11 +72,6 @@ describe('commitPdfTempFile', () => {
             },
             context: {senderId: 42},
         }})).rejects.toThrow('receipt altered');
-        expect(mocks.finish).toHaveBeenCalledWith(
-            'save-job',
-            'failed',
-            'receipt altered',
-        );
         expect(mocks.stat).not.toHaveBeenCalled();
     });
 

@@ -82,7 +82,7 @@ export function shouldReclaimViewerResidencyState(state: TViewerResidencyState) 
     return state === 'hibernating';
 }
 
-export function isViewerReclaimCandidate(candidate: IViewerReclaimCandidate) {
+function isViewerReclaimCandidate(candidate: IViewerReclaimCandidate) {
     return !candidate.isActive
         && candidate.residencyState !== 'active'
         && candidate.canReclaim;
@@ -113,7 +113,7 @@ function compareViewerReclaimCandidates(
     return left.viewerId.localeCompare(right.viewerId);
 }
 
-export function rankViewerReclaimCandidates(
+function rankViewerReclaimCandidates(
     candidates: readonly IViewerReclaimCandidate[],
 ) {
     return candidates

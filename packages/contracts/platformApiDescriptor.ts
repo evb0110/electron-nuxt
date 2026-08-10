@@ -2,10 +2,7 @@ import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
 import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
 import {DOCUMENT_PLATFORM_FEATURES} from '@contracts/documentsPlatformFeature';
 import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
-import {
-    OCR_PLATFORM_FEATURE,
-    OCR_PREPROCESSING_PLATFORM_FEATURE,
-} from '@contracts/ocrPlatformFeature';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
 import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
@@ -46,10 +43,6 @@ const requiredInBrowser = {
 
 const legacyMethodPaths = [
     [
-        'ocr',
-        'installLanguages',
-    ],
-    [
         'settings',
         'getDebugLogs',
     ],
@@ -60,10 +53,6 @@ const legacyMethodPaths = [
     [
         'settings',
         'rendererLog',
-    ],
-    [
-        'settings',
-        'onMenuOpenSettings',
     ],
     [
         'system',
@@ -197,7 +186,6 @@ export const PLATFORM_FEATURE_REGISTRY = [
     SEARCH_PLATFORM_FEATURE,
     DJVU_PLATFORM_FEATURE,
     OCR_PLATFORM_FEATURE,
-    OCR_PREPROCESSING_PLATFORM_FEATURE,
     SCAN_CLEANUP_PLATFORM_FEATURE,
     IMAGE_EXPORT_PLATFORM_FEATURE,
     PAGE_OPS_PLATFORM_FEATURE,

@@ -3,17 +3,10 @@ import type {
     IOcrCompleteResult,
     IOcrDiagnostic,
     IOcrErrorEnvelope,
-    IOcrJobProjectionState,
     IOcrJobStartResult,
-    IOcrRecognizeBatchResult,
     IOcrProgress,
-    IOcrRecognizeRequest,
-    IOcrRecognizeResult,
     IOcrResultFileAckResult,
     IOcrSearchablePdfOptions,
-    IOcrToolValidationResult,
-    IPreprocessingValidationResult,
-    IPreprocessPageResult,
 } from '@contracts/electronApiOcr';
 import {
     OCR_COMPLETE_EVENT_CHANNEL,
@@ -77,10 +70,6 @@ function requireArgs(args: readonly unknown[], count: number | {
     return args;
 }
 
-function decodeStringArg(args: readonly unknown[], index: number, fieldName: string) {
-    return assertNonEmptyString(args[index], fieldName);
-}
-
 function decodeSafeIntegerArg(
     args: readonly unknown[],
     index: number,
@@ -100,14 +89,6 @@ function decodeStringArrayArg(args: readonly unknown[], index: number, fieldName
         throw new Error(`${fieldName} must be an array of strings`);
     }
     return value as string[];
-}
-
-function decodeUint8ArrayArg(args: readonly unknown[], index: number, fieldName: string) {
-    const value = args[index];
-    if (!(value instanceof Uint8Array)) {
-        throw new Error(`${fieldName} must be a Uint8Array`);
-    }
-    return value;
 }
 
 function decodeBoundedArray(value: unknown, fieldName: string) {
@@ -151,21 +132,6 @@ function resultSchema<TResult>(
     return s.declared<TResult>()(s.fromParser(decode, example));
 }
 
-const OCR_JOB_STATUSES = [
-    'queued',
-    'running',
-    'handoff',
-    'completed',
-    'canceled',
-    'failed',
-] as const;
-const OCR_JOB_PHASES = [
-    ...OCR_PROGRESS_PHASES,
-    'queued',
-    'recognizing',
-    'applying',
-    'cancel-requested',
-] as const;
 
 function decodeOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
     if (value === undefined) {
@@ -203,32 +169,6 @@ function decodeOptionalErrorFields(value: Record<PropertyKey, unknown>) {
         ...(value.error === undefined ? {} : {error: value.error}),
         ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
     };
-}
-
-function decodeRecognizeRequest(value: unknown): IOcrRecognizeRequest {
-    if (!isRecord(value)) {
-        throw new Error('OCR recognize request must be an object');
-    }
-    const pageNumber = decodeSafeIntegerArg([value.pageNumber], 0, 'pageNumber', 1);
-    const imageData = decodeUint8ArrayArg([value.imageData], 0, 'imageData');
-    const languages = decodeStringArrayArg([value.languages], 0, 'languages');
-    const imageWidth = value.imageWidth === undefined
-        ? undefined
-        : decodeSafeIntegerArg([value.imageWidth], 0, 'imageWidth', 1);
-    const imageHeight = value.imageHeight === undefined
-        ? undefined
-        : decodeSafeIntegerArg([value.imageHeight], 0, 'imageHeight', 1);
-    return {
-        pageNumber,
-        imageData,
-        languages,
-        ...(imageWidth === undefined ? {} : {imageWidth}),
-        ...(imageHeight === undefined ? {} : {imageHeight}),
-    };
-}
-
-function decodeRecognizeRequests(value: unknown) {
-    return decodeBoundedArray(value, 'OCR pages').map(decodeRecognizeRequest);
 }
 
 function decodeSearchablePdfPages(value: unknown) {
@@ -298,49 +238,6 @@ function decodeSearchablePdfOptions(value: unknown): number | IOcrSearchablePdfO
     };
 }
 
-function decodeRecognizeResult(value: unknown) {
-    if (
-        !isRecord(value)
-        || !Number.isSafeInteger(value.pageNumber)
-        || typeof value.pageNumber !== 'number'
-        || value.pageNumber < 1
-        || typeof value.success !== 'boolean'
-        || typeof value.text !== 'string'
-    ) {
-        throw new Error('invalid OCR recognize result');
-    }
-    return {
-        pageNumber: value.pageNumber,
-        success: value.success,
-        text: value.text,
-        ...decodeOptionalErrorFields(value),
-    };
-}
-
-function decodeRecognizeBatchResult(value: unknown) {
-    if (!isRecord(value) || !isRecord(value.results) || !Array.isArray(value.errors)) {
-        throw new Error('invalid OCR batch result');
-    }
-    const results: Record<number, string> = {};
-    for (const [
-        pageNumber,
-        text,
-    ] of Object.entries(value.results)) {
-        if (!/^\d+$/u.test(pageNumber) || typeof text !== 'string') {
-            throw new Error('invalid OCR batch result entry');
-        }
-        results[Number(pageNumber)] = text;
-    }
-    if (value.errors.some(error => typeof error !== 'string')) {
-        throw new Error('invalid OCR batch errors');
-    }
-    return {
-        results,
-        errors: value.errors.map(String),
-        ...decodeOptionalErrorFields(value),
-    };
-}
-
 function decodeJobStartResult(value: unknown) {
     if (
         !isRecord(value)
@@ -387,178 +284,6 @@ function decodeAckResult(value: unknown) {
     }
     return {
         cleaned: value.cleaned,
-        ...decodeOptionalErrorFields(value),
-    };
-}
-
-function decodeToolEntry(value: unknown, name: string): {
-    found: boolean;
-    path: string;
-    version?: string;
-    languages?: string[];
-    onDemandLanguages?: string[];
-} {
-    if (!isRecord(value) || typeof value.found !== 'boolean' || typeof value.path !== 'string') {
-        throw new Error(`invalid ${name} tool status`);
-    }
-    if (value.version !== undefined && typeof value.version !== 'string') {
-        throw new Error(`invalid ${name} tool version`);
-    }
-    let languages: string[] | undefined;
-    if (value.languages !== undefined) {
-        if (!Array.isArray(value.languages) || value.languages.some(item => typeof item !== 'string')) {
-            throw new Error(`invalid ${name} tool languages`);
-        }
-        languages = value.languages.map(item => String(item));
-    }
-    let onDemandLanguages: string[] | undefined;
-    if (value.onDemandLanguages !== undefined) {
-        if (!Array.isArray(value.onDemandLanguages) || value.onDemandLanguages.some(item => typeof item !== 'string')) {
-            throw new Error(`invalid ${name} tool on-demand languages`);
-        }
-        onDemandLanguages = value.onDemandLanguages.map(item => String(item));
-    }
-    return {
-        found: value.found,
-        path: value.path,
-        ...(value.version === undefined ? {} : {version: value.version}),
-        ...(languages === undefined ? {} : {languages}),
-        ...(onDemandLanguages === undefined ? {} : {onDemandLanguages}),
-    };
-}
-
-function decodeToolValidationResult(value: unknown): IOcrToolValidationResult {
-    if (!isRecord(value) || typeof value.valid !== 'boolean' || !isRecord(value.tools) || !Array.isArray(value.errors)) {
-        throw new Error('invalid OCR tool validation result');
-    }
-    const tesseract = decodeToolEntry(value.tools.tesseract, 'tesseract');
-    const tessdata = decodeToolEntry(value.tools.tessdata, 'tessdata');
-    const pdftoppm = decodeToolEntry(value.tools.pdftoppm, 'pdftoppm');
-    const pdftotext = decodeToolEntry(value.tools.pdftotext, 'pdftotext');
-    const qpdf = decodeToolEntry(value.tools.qpdf, 'qpdf');
-    const popplerRuntime = value.tools.popplerRuntime;
-    if (
-        !isRecord(popplerRuntime)
-        || typeof popplerRuntime.dataDirFound !== 'boolean'
-        || (popplerRuntime.dataDir !== undefined && typeof popplerRuntime.dataDir !== 'string')
-        || typeof popplerRuntime.fontConfigDirFound !== 'boolean'
-        || (popplerRuntime.fontConfigDir !== undefined && typeof popplerRuntime.fontConfigDir !== 'string')
-        || value.errors.some(error => typeof error !== 'string')
-    ) {
-        throw new Error('invalid OCR tool validation details');
-    }
-    const errors = value.errors.map(error => String(error));
-    return {
-        valid: value.valid,
-        tools: {
-            tesseract: {
-                found: tesseract.found,
-                path: tesseract.path,
-                ...(tesseract.version === undefined ? {} : {version: tesseract.version}),
-            },
-            tessdata: {
-                found: tessdata.found,
-                path: tessdata.path,
-                ...(tessdata.languages === undefined ? {} : {languages: [...tessdata.languages]}),
-                ...(tessdata.onDemandLanguages === undefined ? {} : {onDemandLanguages: [...tessdata.onDemandLanguages]}),
-            },
-            pdftoppm: {
-                found: pdftoppm.found,
-                path: pdftoppm.path,
-            },
-            pdftotext: {
-                found: pdftotext.found,
-                path: pdftotext.path,
-            },
-            popplerRuntime: {
-                dataDirFound: popplerRuntime.dataDirFound,
-                ...(popplerRuntime.dataDir === undefined ? {} : {dataDir: popplerRuntime.dataDir}),
-                fontConfigDirFound: popplerRuntime.fontConfigDirFound,
-                ...(popplerRuntime.fontConfigDir === undefined ? {} : {fontConfigDir: popplerRuntime.fontConfigDir}),
-            },
-            qpdf: {
-                found: qpdf.found,
-                path: qpdf.path,
-            },
-        },
-        errors,
-        ...decodeOptionalErrorFields(value),
-    };
-}
-
-function decodePreprocessingValidation(value: unknown) {
-    if (
-        !isRecord(value)
-        || typeof value.valid !== 'boolean'
-        || !Array.isArray(value.available)
-        || value.available.some(item => typeof item !== 'string')
-        || !Array.isArray(value.missing)
-        || value.missing.some(item => typeof item !== 'string')
-    ) {
-        throw new Error('invalid preprocessing validation result');
-    }
-    return {
-        valid: value.valid,
-        available: value.available.map(String),
-        missing: value.missing.map(String),
-        ...decodeOptionalErrorFields(value),
-    };
-}
-
-function decodeOcrJobProjection(value: unknown) {
-    if (value === null) {
-        return null;
-    }
-    if (
-        !isRecord(value)
-        || typeof value.jobId !== 'string'
-        || typeof value.requestId !== 'string'
-        || !isOneOf(OCR_JOB_STATUSES, value.status)
-        || !isOneOf(OCR_JOB_PHASES, value.phase)
-        || typeof value.percent !== 'number'
-        || !Number.isFinite(value.percent)
-        || typeof value.updatedAtMs !== 'number'
-        || !Number.isFinite(value.updatedAtMs)
-        || (value.current !== undefined && !isFiniteNumber(value.current))
-        || (value.total !== undefined && !isFiniteNumber(value.total))
-        || (value.error !== undefined && typeof value.error !== 'string')
-        || (
-            value.supersessionPolicy !== undefined
-            && value.supersessionPolicy !== 'missing-only'
-            && value.supersessionPolicy !== 'replace-evb'
-            && value.supersessionPolicy !== 'replace-all'
-        )
-        || (value.replaceAllAcknowledged !== undefined && typeof value.replaceAllAcknowledged !== 'boolean')
-    ) {
-        throw new Error('invalid OCR job projection');
-    }
-    const projection: IOcrJobProjectionState = {
-        jobId: value.jobId,
-        requestId: value.requestId,
-        status: value.status,
-        phase: value.phase,
-        percent: value.percent,
-        updatedAtMs: value.updatedAtMs,
-        ...(value.current === undefined ? {} : {current: value.current}),
-        ...(value.total === undefined ? {} : {total: value.total}),
-        ...(value.error === undefined ? {} : {error: value.error}),
-        ...(value.supersessionPolicy === undefined ? {} : {supersessionPolicy: value.supersessionPolicy}),
-        ...(value.replaceAllAcknowledged === undefined ? {} : {replaceAllAcknowledged: value.replaceAllAcknowledged}),
-    };
-    return projection;
-}
-
-function decodePreprocessPageResult(value: unknown) {
-    if (!isRecord(value) || typeof value.success !== 'boolean' || !(value.imageData instanceof Uint8Array)) {
-        throw new Error('invalid preprocess page result');
-    }
-    if (value.message !== undefined && typeof value.message !== 'string') {
-        throw new Error('invalid preprocess page message');
-    }
-    return {
-        success: value.success,
-        imageData: value.imageData,
-        ...(value.message === undefined ? {} : {message: value.message}),
         ...decodeOptionalErrorFields(value),
     };
 }
@@ -812,31 +537,6 @@ function decodeDocumentRevisionArg(
     return documentRevision;
 }
 
-const recognizeArgs = argsSchema<[IOcrRecognizeRequest]>(
-    args => [decodeRecognizeRequest(requireArgs(args, 1)[0])],
-    () => [{
-        pageNumber: 1,
-        imageData: new Uint8Array([1]),
-        languages: ['eng'],
-    }],
-);
-const recognizeBatchArgs = argsSchema<[IOcrRecognizeRequest[], string]>(
-    (args) => {
-        requireArgs(args, 2);
-        return [
-            decodeRecognizeRequests(args[0]),
-            decodeStringArg(args, 1, 'requestId'),
-        ];
-    },
-    () => [
-        [{
-            pageNumber: 1,
-            imageData: new Uint8Array([1]),
-            languages: ['eng'],
-        }],
-        'ocr-batch-fixture',
-    ],
-);
 const createSearchablePdfArgs = argsSchema<TOcrCreateSearchablePdfArgs>(
     (args) => {
         requireArgs(args, {
@@ -988,39 +688,11 @@ const resolveDocumentOcrPageArgs = argsSchema<[
         1,
     ],
 );
-const preprocessPageArgs = argsSchema<[Uint8Array, boolean]>(
-    (args) => {
-        requireArgs(args, 2);
-        if (typeof args[1] !== 'boolean') {
-            throw new Error('usePreprocessing must be a boolean');
-        }
-        return [
-            decodeUint8ArrayArg(args, 0, 'imageData'),
-            args[1],
-        ];
-    },
-    () => [
-        new Uint8Array([1]),
-        true,
-    ],
-);
-
-const recognizeResult = resultSchema<IOcrRecognizeResult>(decodeRecognizeResult, () => ({
-    pageNumber: 1,
-    success: true,
-    text: 'fixture',
-}));
-const recognizeBatchResult = resultSchema<IOcrRecognizeBatchResult>(decodeRecognizeBatchResult, () => ({
-    results: {1: 'fixture'},
-    errors: [],
-}));
 const jobStartResult = resultSchema<IOcrJobStartResult>(decodeJobStartResult, () => ({
     started: true,
     jobId: 'ocr-job-fixture',
 }));
 const cancelResult = resultSchema(decodeCancelResult, () => ({canceled: false}));
-const jobProjectionResult =
-    resultSchema<IOcrJobProjectionState | null>(decodeOcrJobProjection, () => null);
 const acknowledgeResult =
     resultSchema<IOcrResultFileAckResult>(decodeAckResult, () => ({cleaned: true}));
 const languagesResult = resultSchema<IOcrLanguage[]>(
@@ -1065,55 +737,6 @@ const documentOcrPageResult = resultSchema<IDocumentOcrPageSnapshot>(
         documentRevision: parseDocumentRevisionToken('drt1:ocr-fixture')!,
         pageCount: 0,
         page: null,
-    }),
-);
-const toolValidationResult = resultSchema<IOcrToolValidationResult>(
-    decodeToolValidationResult,
-    () => ({
-        valid: true,
-        tools: {
-            tesseract: {
-                found: true,
-                path: '/tools/tesseract',
-            },
-            tessdata: {
-                found: true,
-                path: '/tools/tessdata',
-                languages: ['eng'],
-            },
-            pdftoppm: {
-                found: true,
-                path: '/tools/pdftoppm',
-            },
-            pdftotext: {
-                found: true,
-                path: '/tools/pdftotext',
-            },
-            popplerRuntime: {
-                dataDirFound: true,
-                fontConfigDirFound: true,
-            },
-            qpdf: {
-                found: true,
-                path: '/tools/qpdf',
-            },
-        },
-        errors: [],
-    }),
-);
-const preprocessingValidationResult = resultSchema<IPreprocessingValidationResult>(
-    decodePreprocessingValidation,
-    () => ({
-        valid: true,
-        available: ['unpaper'],
-        missing: [],
-    }),
-);
-const preprocessPageResult = resultSchema<IPreprocessPageResult>(
-    decodePreprocessPageResult,
-    () => ({
-        success: true,
-        imageData: new Uint8Array([1]),
     }),
 );
 const progress = s.declared<IOcrProgress>()(
@@ -1196,46 +819,11 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
         electron: true,
     },
     methods: {
-        recognize: defineOcrMethod({
-            name: 'recognize',
-            channel: 'ocr:recognize',
-            args: recognizeArgs,
-            result: recognizeResult,
-            timeout: true,
-        }),
-        recognizeBatch: defineOcrMethod({
-            name: 'recognizeBatch',
-            channel: 'ocr:recognizeBatch',
-            args: recognizeBatchArgs,
-            result: recognizeBatchResult,
-            timeout: true,
-        }),
         cancel: defineOcrMethod({
             name: 'cancel',
             channel: 'ocr:cancel',
             args: requestIdArgs,
             result: cancelResult,
-        }),
-        getJobState: defineOcrMethod({
-            name: 'getJobState',
-            channel: 'ocr:job:get-state',
-            args: requestIdArgs,
-            result: jobProjectionResult,
-            timeout: true,
-        }),
-        subscribeJob: defineOcrMethod({
-            name: 'subscribeJob',
-            channel: 'ocr:job:subscribe',
-            args: requestIdArgs,
-            result: jobProjectionResult,
-            timeout: true,
-        }),
-        reconnectJob: defineOcrMethod({
-            name: 'reconnectJob',
-            channel: 'ocr:job:reconnect',
-            args: requestIdArgs,
-            result: jobProjectionResult,
-            timeout: true,
         }),
         getLanguages: defineOcrMethod({
             name: 'getLanguages',
@@ -1265,13 +853,6 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
             result: documentOcrPageResult,
             timeout: true,
             optionalWhenImplemented: true,
-        }),
-        validateTools: defineOcrMethod({
-            name: 'validateTools',
-            channel: 'ocr:validateTools',
-            args: s.tuple([]),
-            result: toolValidationResult,
-            timeout: true,
         }),
         acknowledgeResultFile: defineOcrMethod({
             name: 'acknowledgeResultFile',
@@ -1314,45 +895,11 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
     },
 });
 
-export const OCR_PREPROCESSING_PLATFORM_FEATURE = definePlatformFeature({
-    path: [
-        'ocr',
-        'preprocessing',
-    ],
-    required: {
-        browser: true,
-        electron: true,
-    },
-    methods: {
-        validate: defineOcrMethod({
-            name: 'validate',
-            channel: 'preprocessing:validate',
-            args: s.tuple([]),
-            result: preprocessingValidationResult,
-            timeout: true,
-        }),
-        preprocessPage: defineOcrMethod({
-            name: 'preprocessPage',
-            channel: 'preprocessing:preprocessPage',
-            args: preprocessPageArgs,
-            result: preprocessPageResult,
-            timeout: true,
-        }),
-    },
-    events: {},
-});
-
 type TOcrFeatureCapability = TFeatureCapability<typeof OCR_PLATFORM_FEATURE>;
 type TOcrHotReloadMethod = 'resolveDocumentOcrAvailability' | 'resolveDocumentOcrPage';
 
 export type IOcrCapability =
     Omit<TOcrFeatureCapability, TOcrHotReloadMethod>
-    & Partial<Pick<TOcrFeatureCapability, TOcrHotReloadMethod>>
-    & {
-        installLanguages: (languages: string[], requestId: string) => Promise<IOcrJobStartResult>;
-        preprocessing: TFeatureCapability<typeof OCR_PREPROCESSING_PLATFORM_FEATURE>;
-    };
-export type IOcrInvokeMap =
-    TFeatureInvokeMap<typeof OCR_PLATFORM_FEATURE>
-    & TFeatureInvokeMap<typeof OCR_PREPROCESSING_PLATFORM_FEATURE>;
+    & Partial<Pick<TOcrFeatureCapability, TOcrHotReloadMethod>>;
+export type IOcrInvokeMap = TFeatureInvokeMap<typeof OCR_PLATFORM_FEATURE>;
 export type IOcrEventMap = TFeatureEventMap<typeof OCR_PLATFORM_FEATURE>;

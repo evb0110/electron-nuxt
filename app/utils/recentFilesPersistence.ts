@@ -14,8 +14,8 @@ import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersi
 
 export const RECENT_FILES_COOKIE_KEY = 'evb_viewer_recent_files';
 export const RECENT_FILES_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
-export const RECENT_FILES_LIMIT = 30;
-export const RECENT_FILES_COOKIE_MAX_ENCODED_LENGTH = 3000;
+const RECENT_FILES_LIMIT = 30;
+const RECENT_FILES_COOKIE_MAX_ENCODED_LENGTH = 3000;
 
 interface IRecentFilesCookieSnapshot {
     recentFiles: IRecentFile[];
@@ -106,7 +106,7 @@ function buildRecentFilesCookiePayload(recentFiles: IRecentFile[], truncated: bo
     };
 }
 
-export function normalizeRecentFile(value: unknown): IRecentFile | null {
+function normalizeRecentFile(value: unknown): IRecentFile | null {
     if (!isRecord(value)) {
         return null;
     }

@@ -33,7 +33,6 @@ export interface ITabsMenuBindingDeps {
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
-    openSettings: () => void;
     checkForUpdates: () => Promise<void> | void;
     splitEditor: (direction: TPaneDirection) => Promise<void> | void;
     focusPane: (direction: TPaneDirection) => void;
@@ -166,9 +165,6 @@ export function registerTabsMenuBindings(
                 await deps.clearRecentFiles();
                 await deps.loadRecentFiles();
             });
-        }),
-        api.settings?.onMenuOpenSettings?.(() => {
-            runMenuAction('open-settings', () => deps.openSettings());
         }),
         documentMenu?.onMenuToggleAssistant?.(() => {
             runMenuAction('toggle-assistant', () => deps.toggleAssistant());

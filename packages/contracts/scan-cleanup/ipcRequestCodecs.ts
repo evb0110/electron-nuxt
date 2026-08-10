@@ -315,21 +315,6 @@ export function decodeDocumentPrior(value: unknown): IScanCleanupDocumentPrior {
     };
 }
 
-export function decodeOpenPdfPaths(args: readonly unknown[]) {
-    requireIpcArgumentCount(args, {
-        min: 1,
-        max: 1,
-    });
-    if (!Array.isArray(args[0]) || args[0].length > SCAN_CLEANUP_INPUT_MAX_PAGES) {
-        throw new Error('invalid scan-cleanup open PDF paths');
-    }
-    return [args[0].map(path => decodeBoundedScanCleanupString(
-        path,
-        'open PDF path',
-        SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
-    ))] as [string[]];
-}
-
 function decodePageOverride(
     value: unknown,
     budget: IScanCleanupInputBudget,

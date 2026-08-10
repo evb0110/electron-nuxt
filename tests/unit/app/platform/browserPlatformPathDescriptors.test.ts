@@ -81,7 +81,7 @@ describe('browser platform path descriptors', () => {
         expect(paths).toContain('documentRecentFiles.recentFiles.get');
         expect(paths).toContain('documentWindow.showItemInFolder');
         expect(paths).toContain('documentMenu.onMenuSave');
-        expect(paths).toContain('ocr.preprocessing.validate');
+        expect(paths).toContain('ocr.createSearchablePdf');
         expect(paths).toContain('windowTabs.notifyRendererReady');
         expect(paths).toContain('agent.onAssistantEvent');
     });

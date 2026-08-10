@@ -12,7 +12,7 @@ function ensureTrailingSlash(path: string) {
     return path.endsWith('/') ? path : `${path}/`;
 }
 
-export const browserViewerAssets = {
+const browserViewerAssets = {
     pdfWorkerUrl() {
         return `${PDF_ASSET_BASE_URL}${PDF_WORKER_FILE}`;
     },

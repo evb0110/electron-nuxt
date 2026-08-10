@@ -3,7 +3,7 @@ import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
 import type { TZoomMode } from '@contracts/shared';
 
-export const DOCUMENT_WHEEL_ZOOM_SENSITIVITY = 0.0016;
+const DOCUMENT_WHEEL_ZOOM_SENSITIVITY = 0.0016;
 export const DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS = 180;
 const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_DELTA_LINE_MODE = 1;
@@ -102,7 +102,7 @@ export function resolveDocumentWheelInteraction(
     };
 }
 
-export function resolveDocumentWheelCumulativeDelta(startZoom: number, targetZoom: number) {
+function resolveDocumentWheelCumulativeDelta(startZoom: number, targetZoom: number) {
     if (
         !Number.isFinite(startZoom)
         || startZoom <= 0

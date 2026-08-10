@@ -3,7 +3,6 @@ import { dirname } from 'node:path';
 import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-access/workingCopyMutationCommitSignal';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
-import { documentOutputService } from '@electron/output/documentOutputService';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsService';
@@ -30,17 +29,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
         context: IDocumentsSenderIdContext;
     };
 } = {}) {
-    const outputJob = documentOutputService.start({
-        operation: 'save-as-pdf',
-        sourceKind: 'pdf',
-        initialPhase: 'validating',
-    });
-    const signal = options.signal
-        ? AbortSignal.any([
-            options.signal,
-            outputJob.signal,
-        ])
-        : outputJob.signal;
+    const signal = options.signal;
     let lease: IJobBrokerLease | undefined;
     try {
         const stagedArtifact = options.receipt === undefined
@@ -65,11 +54,6 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
         if (!shouldUseDocumentSaveUtility(expectedBytes) && !options.changedObjectRefs?.length) {
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
             await atomicReplace(sourcePath, targetPath);
-            documentOutputService.handoff(outputJob.jobId, targetPath, {
-                phase: 'publishing',
-                percent: 100,
-            });
-            documentOutputService.finish(outputJob.jobId, 'completed');
             return null;
         }
         lease = await mainJobBroker.acquire({
@@ -82,7 +66,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
                 nativeProcesses: 1,
                 ioWeight: 4,
             },
-            signal,
+            ...(signal ? {signal} : {}),
         });
         markActiveWorkingCopyMutationCommitStarted();
         const result = await runDocumentSaveUtilityProcess({
@@ -90,7 +74,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
             serviceName: 'EVB document save',
             utilityName: 'Document save utility',
             timeoutMs: 10 * 60_000,
-            signal,
+            ...(signal ? {signal} : {}),
             request: {
                 type: 'commit',
                 sourcePath,
@@ -101,19 +85,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
                 ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
             },
         });
-        documentOutputService.handoff(outputJob.jobId, targetPath, {
-            phase: 'publishing',
-            percent: 100,
-        });
-        documentOutputService.finish(outputJob.jobId, 'completed');
         return result;
-    } catch (error) {
-        documentOutputService.finish(
-            outputJob.jobId,
-            signal.aborted ? 'canceled' : 'failed',
-            error instanceof Error ? error.message : String(error),
-        );
-        throw error;
     } finally {
         lease?.release();
     }

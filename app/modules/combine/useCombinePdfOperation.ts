@@ -1,9 +1,11 @@
 import type {Ref} from 'vue';
-import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {
+    IDocumentsBatchProgress,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import {
     combinePdfFiles,
     CombinePdfError,
-    type ICombinePdfProgress,
 } from '@app/services/pdf/combinePdfFiles';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {removeCompletedCombineSnapshot} from '@app/services/pdf/combineOperationSnapshot';
@@ -19,7 +21,7 @@ export const useCombinePdfOperation = <T extends {
     translate: (key: string) => string;
 }) => {
     const isCombining = ref(false);
-    const progress = ref<ICombinePdfProgress | null>(null);
+    const progress = ref<IDocumentsBatchProgress | null>(null);
     const combineError = ref<string | null>(null);
     const pendingCombinedResult = ref<TOpenFileResult | null>(null);
     const queueMutationLocked = computed(() => (

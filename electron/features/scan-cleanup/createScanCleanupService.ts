@@ -19,7 +19,6 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
-import { documentOutputService } from '@electron/output/documentOutputService';
 import {
     createStableJobBrokerOwnerId,
     type IJobResourceVector,
@@ -319,7 +318,7 @@ export interface IScanCleanupService {
     cancel: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => boolean;
     getState: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
     subscribe: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
-    pruneGeneratedOutputs: (reportedOpenPdfPaths?: readonly string[]) => Promise<number>;
+    pruneGeneratedOutputs: () => Promise<number>;
 }
 
 export const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = 128 * 1024 * 1024;
@@ -452,12 +451,6 @@ export function createScanCleanupService(): IScanCleanupService {
                     percent: 0,
                     completedPageNumbers: [],
                 };
-                documentOutputService.start({
-                    operation: 'scan-cleanup',
-                    sourceKind: 'pdf',
-                    jobId,
-                    initialPhase: 'queued',
-                });
                 const handle = jobs.start({
                     jobId,
                     owner: ownerActor(sender, request),
@@ -562,12 +555,6 @@ export function createScanCleanupService(): IScanCleanupService {
                                         progress: nextProgress,
                                         updatedAtMs: Date.now(),
                                     });
-                                    documentOutputService.update(jobId, {
-                                        phase: nextProgress.stage,
-                                        percent: nextProgress.percent,
-                                        current: nextProgress.completedUnits,
-                                        total: nextProgress.totalUnits,
-                                    });
                                 },
                             );
                             // Resolve the cancel-vs-publish race in the same main
@@ -577,8 +564,6 @@ export function createScanCleanupService(): IScanCleanupService {
                             // requests are rejected as soon as commit begins.
                             job.signal.throwIfAborted();
                             job.markCommitStarted();
-                            documentOutputService.handoff(jobId, outputPdfPath);
-                            documentOutputService.finish(jobId, 'completed');
                             const completedPageNumbers = request.sourcePageNumbers
                                 ?? Array.from({length: summary.inputPages}, (_, index) => index + 1);
                             return {
@@ -588,16 +573,10 @@ export function createScanCleanupService(): IScanCleanupService {
                                 completedPageNumbers,
                             };
                         } catch (error) {
-                            const aborted = job.signal.aborted;
                             await rm(dirname(outputPdfPath), {
                                 recursive: true,
                                 force: true,
                             }).catch(() => undefined);
-                            documentOutputService.finish(
-                                jobId,
-                                aborted ? 'canceled' : 'failed',
-                                aborted ? undefined : getErrorMessage(error),
-                            );
                             throw error;
                         } finally {
                             lease?.release();
@@ -657,9 +636,7 @@ export function createScanCleanupService(): IScanCleanupService {
             }
             return state;
         },
-        pruneGeneratedOutputs(_reportedOpenPdfPaths) {
-            // A renderer can only report its own projection, and that report
-            // can already be stale by the time this asynchronous prune runs.
+        pruneGeneratedOutputs() {
             return pruneScanCleanupGeneratedOutputs({isOutputLive: isWorkingCopyOriginalPathRegistered});
         },
     };

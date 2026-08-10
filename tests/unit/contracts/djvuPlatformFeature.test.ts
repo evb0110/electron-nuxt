@@ -17,9 +17,7 @@ describe('DjVu platform feature', () => {
         expect(channels).toEqual({
             startOpenForViewing: 'djvu:open:start',
             awaitOpenJob: 'djvu:open:await',
-            openForViewing: 'djvu:openForViewing',
             releaseViewingPath: 'djvu:releaseViewingPath',
-            convertToPdf: 'djvu:convertToPdf',
             startConvertToPdf: 'djvu:convert:start',
             awaitConvertJob: 'djvu:convert:await',
             printDjvuPath: 'djvu:printDjvuPath',

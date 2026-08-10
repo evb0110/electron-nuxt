@@ -58,7 +58,6 @@ import {
     type IScanCleanupDetectionRetention,
     type IScanCleanupDocumentRasterPages,
 } from '@scan-cleanup-core/detection';
-import {resolveReusablePagePlan} from '@scan-cleanup-core/policy/effectiveOptions';
 import {
     CANVAS_CONTENT_SCALE_EPSILON,
     resolveMatchedCanvasResamplePages,
@@ -67,7 +66,7 @@ import {
     resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupProvisionalDocumentCanvas,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-} from '@electron/features/scan-cleanup/policy/documentCanvas';
+} from '@scan-cleanup-core/policy/documentCanvas';
 import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
@@ -91,8 +90,8 @@ import {
     logRasterHandoff,
     readAvailableScratchBytes,
     resolveRasterHandoff,
-} from '@electron/features/scan-cleanup/worker/resolveRasterHandoff';
-import {readPpmDimensions} from '@electron/features/scan-cleanup/worker/rasterLayerDimensions';
+} from '@scan-cleanup-core/resolveRasterHandoff';
+import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
     classifyScanCleanupError,
@@ -109,12 +108,13 @@ import {
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
-import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
+import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {
     SCAN_CLEANUP_MAX_DIMENSION_PX,
+    resolveReusablePagePlan,
     resolveScanCleanupPipelineMaxPixels,
     resolveScanCleanupRequestedRenderDpi,
-} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+} from '@scan-cleanup-core/policy/effectiveOptions';
 import type {
     IPdfMrcLayers,
     IScanCleanupRasterRenderLimits,

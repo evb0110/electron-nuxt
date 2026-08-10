@@ -127,7 +127,7 @@ interface IEditorBridgeDeps {
         patchResizableFreeTextEditors: (mgr: TAnnotationEditorUIManager) => void;
     };
     emitAnnotationModified: () => void;
-    emitAnnotationState: (state: IPdfjsAnnotationEditorState) => void;
+    emitAnnotationState: (patch: Partial<IPdfjsAnnotationEditorState>) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     recordPdfjsExecutorCommand?: (command: {
         cmd: () => void;
@@ -165,8 +165,6 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
     } = deps;
 
     const annotationEventBus = shallowRef<TEventBus | null>(null);
-    const annotationState = ref<IPdfjsAnnotationEditorState>(createEmptyPdfjsAnnotationEditorState());
-
     let annotationStateListener: ((event: unknown) => void) | null = null;
     let documentGeneration = 0;
     let managerGeneration = 0;
@@ -424,8 +422,6 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         const eventBus = createPdfjsEventBus(EventBus);
         annotationEventBus.value = eventBus;
         annotationL10n.value = createPdfjsGenericL10n(GenericL10n);
-        annotationState.value = createEmptyPdfjsAnnotationEditorState();
-
         const commentManager = createSimpleCommentManager(container);
 
         const uiManager = annotationEditorCompatibilityAdapter.wrapUiManager(createPdfjsUiManager({
@@ -620,11 +616,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                         });
                         if (undoRegistered) {
                             getPdfjsEditorFacadeState(normalizedEditor).creationHistoryRegistered = true;
-                            annotationState.value = {
-                                ...annotationState.value,
-                                isEmpty: false,
-                            };
-                            emitAnnotationState(annotationState.value);
+                            emitAnnotationState({isEmpty: false});
                         }
                     }
                 }
@@ -717,11 +709,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             if (!patch) {
                 return;
             }
-            annotationState.value = {
-                ...annotationState.value,
-                ...patch,
-            };
-            emitAnnotationState(annotationState.value);
+            emitAnnotationState(patch);
         };
         eventBus.on('annotationeditorstateschanged', annotationStateListener);
 
@@ -746,7 +734,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 message: 'Failed to restore pending annotation tool',
             },
         );
-        emitAnnotationState(annotationState.value);
+        emitAnnotationState(createEmptyPdfjsAnnotationEditorState());
         commentSync.scheduleAnnotationCommentsSync(true);
     }
 
@@ -759,7 +747,6 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         annotationEventBus,
         annotationUiManager,
         annotationL10n,
-        annotationState,
         pdfjsFacade,
         initAnnotationEditor,
         destroyAnnotationEditor,

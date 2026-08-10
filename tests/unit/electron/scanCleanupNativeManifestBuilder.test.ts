@@ -11,9 +11,9 @@ import type {
 import {
     buildNativeScanCleanupManifest,
     serializeNativeScanCleanupOptions,
-} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
-import {assertNativeScanCleanupManifestGeometry} from '@electron/features/scan-cleanup/policy/assertNativeScanCleanupManifestGeometry';
-import {resolveEffectiveScanCleanupOptions} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
+import {assertNativeScanCleanupManifestGeometry} from '@scan-cleanup-core/policy/assertNativeScanCleanupManifestGeometry';
+import {resolveEffectiveScanCleanupOptions} from '@scan-cleanup-core/policy/effectiveOptions';
 import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
 import {
     describe,

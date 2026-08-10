@@ -15,7 +15,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     remove: vi.fn(async () => {}),
 }));
 const browserDjvuCapabilityMock = vi.hoisted(() => ({
-    convertToPdf: vi.fn(),
+    runConversion: vi.fn(),
     cancel: vi.fn(async () => {}),
 }));
 
@@ -25,7 +25,10 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
     browserDocumentStore: browserDocumentStoreMock,
 }));
 vi.mock('@app/platform/browser-api/browserDjvuCapability', () => ({browserDjvuCapability: browserDjvuCapabilityMock}));
-vi.mock('@app/platform/browser-api/browserDjvuConversionPipeline', () => ({getBrowserDjvuBookmarksForCombine: async () => []}));
+vi.mock('@app/platform/browser-api/browserDjvuConversionPipeline', () => ({
+    getBrowserDjvuBookmarksForCombine: async () => [],
+    runBrowserDjvuConversion: browserDjvuCapabilityMock.runConversion,
+}));
 
 describe('browser combine DjVu abort window', () => {
     beforeEach(() => {
@@ -48,7 +51,7 @@ describe('browser combine DjVu abort window', () => {
             {signal: controller.signal},
         )).rejects.toMatchObject({name: 'AbortError'});
 
-        expect(browserDjvuCapabilityMock.convertToPdf).not.toHaveBeenCalled();
+        expect(browserDjvuCapabilityMock.runConversion).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.remove).toHaveBeenCalledWith('stored://converted.pdf');
     });
 });

@@ -46,16 +46,10 @@ vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: un
 vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: mocks.createAgentService}));
 vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/image-export/public', () => ({imageExportMainBindings: new Proxy({}, {get: () => vi.fn()})}));
-vi.mock('@electron/features/ocr/mainBindings', () => ({
-    ocrMainBindings: new Proxy({}, {get: () => vi.fn()}),
-    ocrPreprocessingMainBindings: new Proxy({}, {get: () => vi.fn()}),
-}));
+vi.mock('@electron/features/ocr/mainBindings', () => ({ocrMainBindings: new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/features/page-ops/public', () => ({pageOpsMainBindings: new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/features/search/public', () => ({prepareSearchMainBindings: () => new Proxy({}, {get: () => vi.fn()})}));
-vi.mock('@electron/menu', () => ({
-    showTabContextMenu: vi.fn(),
-    updateRecentFilesMenu: vi.fn(),
-}));
+vi.mock('@electron/menu', () => ({updateRecentFilesMenu: vi.fn()}));
 vi.mock('@electron/settings', () => ({
     loadSettings: vi.fn(async () => ({})),
     updateSettings: vi.fn(async (updater: TMockSettingsUpdater) => {

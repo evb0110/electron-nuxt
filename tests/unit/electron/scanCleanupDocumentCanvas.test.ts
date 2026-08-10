@@ -21,7 +21,7 @@ import {
     resolveScanCleanupProvisionalDocumentCanvas,
     resolveScanCleanupUnclassifiedPages,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-} from '@electron/features/scan-cleanup/policy/documentCanvas';
+} from '@scan-cleanup-core/policy/documentCanvas';
 import {
     parsePdfInfoPageGeometry,
     parsePdfPageSizesPayload,

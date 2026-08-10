@@ -185,10 +185,6 @@ describe('scan-cleanup IPC structured-clone contract', () => {
         ]]));
         const reactiveDocumentPrior = documentPriorByPage.get(2)!;
         const reactiveOwner = reactive({...owner});
-        const reactiveOpenPaths = reactive([
-            '/documents/source.pdf',
-            '/documents/cleaned.pdf',
-        ]);
         expect(isReactive(reactiveDocumentPrior)).toBe(true);
 
         const regressedPreviewPayload = {
@@ -253,7 +249,7 @@ describe('scan-cleanup IPC structured-clone contract', () => {
             client.getJobState('cleanup-1', reactiveOwner),
             client.subscribeJob('cleanup-1', reactiveOwner),
             client.reconnectJob('cleanup-1', reactiveOwner),
-            client.pruneGeneratedOutputs(reactiveOpenPaths),
+            client.pruneGeneratedOutputs(),
             client.getSettings!({}),
             client.updateSettings!({}),
         ]);

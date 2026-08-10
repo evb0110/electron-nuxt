@@ -1,6 +1,6 @@
 import { clamp } from 'es-toolkit/math';
 
-export const DOCUMENT_PAGE_LABEL_STYLE_VALUES = [
+const DOCUMENT_PAGE_LABEL_STYLE_VALUES = [
     'D',
     'R',
     'r',

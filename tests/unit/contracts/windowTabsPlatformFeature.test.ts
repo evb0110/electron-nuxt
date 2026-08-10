@@ -22,7 +22,6 @@ describe('window tabs platform feature schemas', () => {
             transfer: 'tabs:transfer',
             transferAck: 'tabs:transferAck',
             listTargetWindows: 'tabs:listTargets',
-            showContextMenu: 'tabs:showContextMenu',
             closeCurrentWindow: 'window:closeCurrent',
             claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
             acknowledgePendingExternalOpenPaths: 'app:acknowledgePendingExternalOpenPaths',
@@ -41,7 +40,7 @@ describe('window tabs platform feature schemas', () => {
             onMenuMoveTabToPane: 'menu:moveTabToPane',
             onMenuCopyTabToPane: 'menu:copyTabToPane',
         });
-        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(19);
+        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(18);
         expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods)
             .not.toContainEqual(expect.objectContaining({path: [
                 'windowTabs',
@@ -69,7 +68,6 @@ describe('window tabs platform feature schemas', () => {
             transferId: '',
             success: true,
         }])).toThrow('invalid window tab transfer acknowledgement');
-        expect(() => codecs[channels.showContextMenu]!.decodeArgs([''])).toThrow('invalid tab id');
         expect(() => codecs[channels.listTargetWindows]!.decodeResult([{
             windowId: 0,
             label: 'Invalid',

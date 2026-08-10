@@ -195,7 +195,6 @@ export interface IScanCleanupCoordinatorDependencies {
     openGeneratedPdf: (path: string) => Promise<boolean>;
     saveActiveDocumentAs: () => Promise<unknown>;
     openScanCleanupForDocument?: (documentRef: string) => Promise<boolean> | boolean;
-    getOpenPdfPaths: () => string[];
     t: TTranslateFn;
     toast: IScanCleanupToast;
 }
@@ -523,7 +522,7 @@ export function setScanCleanupWorkspaceOwnerOpen(ownerId: string, open: boolean)
 export async function pruneScanCleanupOutputs() {
     const capability = getScanCleanupCapability();
     return capability && dependencies
-        ? capability.pruneGeneratedOutputs(dependencies.getOpenPdfPaths())
+        ? capability.pruneGeneratedOutputs()
         : 0;
 }
 

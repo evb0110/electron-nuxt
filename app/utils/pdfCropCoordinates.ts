@@ -6,7 +6,7 @@ import type {
 import { clamp } from 'es-toolkit/math';
 
 export const PDF_POINTS_PER_INCH = 72;
-export const PDF_POINTS_PER_MM = 72 / 25.4;
+const PDF_POINTS_PER_MM = 72 / 25.4;
 
 export function pointsToUnit(pts: number, unit: TCropUnit) {
     switch (unit) {
@@ -30,19 +30,6 @@ export function unitStep(unit: TCropUnit) {
         case 'mm': return 1;
         case 'in': return 0.01;
     }
-}
-
-export function unitPrecision(unit: TCropUnit) {
-    switch (unit) {
-        case 'pt': return 1;
-        case 'mm': return 1;
-        case 'in': return 2;
-    }
-}
-
-export function formatUnitValue(pts: number, unit: TCropUnit) {
-    const value = pointsToUnit(pts, unit);
-    return value.toFixed(unitPrecision(unit));
 }
 
 function clamp01(value: number) {

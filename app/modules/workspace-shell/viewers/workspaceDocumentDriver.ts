@@ -30,7 +30,6 @@ import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
-import type { IOpenBatchProgressState } from '@app/modules/workspace-shell/composables/openBatchProgressState';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
     getWorkspaceViewerAdapter,
@@ -52,6 +51,14 @@ import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 export type TWorkspaceDocumentDriverId = 'pdfjs' | 'native-pdf' | 'djvu';
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
+
+interface IOpenBatchProgressState {
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}
 
 const PDF_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     annotations: true,

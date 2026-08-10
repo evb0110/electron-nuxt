@@ -45,10 +45,10 @@ import {
     resolveEffectiveScanCleanupOptions,
     SCAN_CLEANUP_COLOR_JPEG_QUALITY,
     SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY,
-} from '@electron/features/scan-cleanup/policy/effectiveOptions';
-import {createPagePlanResolver} from '@electron/features/scan-cleanup/worker/createPagePlanResolver';
-import {mapScanCleanupRasterPages} from '@electron/features/scan-cleanup/worker/resolveRasterHandoff';
-import {resolveCompactSourcePreservation} from '@electron/features/scan-cleanup/worker/assembleCompactScanCleanupPages';
+} from '@scan-cleanup-core/policy/effectiveOptions';
+import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
+import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
+import {resolveCompactSourcePreservation} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     assertScanCleanupCompactSourceBudget,
@@ -56,7 +56,7 @@ import {
     SCAN_CLEANUP_COMPACT_SOURCE_FIXED_BYTE_ALLOWANCE,
     SCAN_CLEANUP_COMPACT_SOURCE_MAX_BYTE_RATIO,
     shouldExtractTrustedMrcForeground,
-} from '@electron/features/scan-cleanup/policy/scanCleanupRepresentationPolicy';
+} from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
 import {
     ScanCleanupMissingOutputError,
     ScanCleanupPdfValidationError,

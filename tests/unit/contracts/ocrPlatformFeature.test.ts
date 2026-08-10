@@ -4,10 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    OCR_PLATFORM_FEATURE,
-    OCR_PREPROCESSING_PLATFORM_FEATURE,
-} from '@contracts/ocrPlatformFeature';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
 
@@ -17,24 +14,14 @@ const eventChannels = OCR_PLATFORM_FEATURE.eventChannels;
 describe('OCR platform feature', () => {
     it('preserves channels, timeouts, optional members, and registry replay policy', () => {
         expect(channels).toEqual({
-            recognize: 'ocr:recognize',
-            recognizeBatch: 'ocr:recognizeBatch',
             cancel: 'ocr:cancel',
-            getJobState: 'ocr:job:get-state',
-            subscribeJob: 'ocr:job:subscribe',
-            reconnectJob: 'ocr:job:reconnect',
             getLanguages: 'ocr:getLanguages',
             resolveDocumentTextCatalog: 'ocr:resolveDocumentTextCatalog',
             resolveDocumentOcrAvailability: 'ocr:resolveDocumentOcrAvailability',
             resolveDocumentOcrPage: 'ocr:resolveDocumentOcrPage',
-            validateTools: 'ocr:validateTools',
             acknowledgeResultFile: 'ocr:ackResultFile',
             createSearchablePdf: 'ocr:createSearchablePdf',
             subscribeProgress: 'ocr:progress:subscribe',
-        });
-        expect(OCR_PREPROCESSING_PLATFORM_FEATURE.invokeChannels).toEqual({
-            validate: 'preprocessing:validate',
-            preprocessPage: 'preprocessing:preprocessPage',
         });
         expect(eventChannels).toEqual({
             onProgress: 'ocr:progress',
@@ -52,9 +39,6 @@ describe('OCR platform feature', () => {
             .toMatchObject({optionalWhenImplemented: true});
         expect(OCR_PLATFORM_FEATURE.methods.createSearchablePdf.ipc.timeoutMs)
             .toBe(30 * 60 * 1_000);
-        expect(
-            OCR_PREPROCESSING_PLATFORM_FEATURE.methods.preprocessPage.ipc.timeoutMs,
-        ).toBe(30 * 60 * 1_000);
         const replay = OCR_PLATFORM_FEATURE.events.onProgress.subscription.replay;
         expect(replay).toMatchObject({
             intervalMs: 50,

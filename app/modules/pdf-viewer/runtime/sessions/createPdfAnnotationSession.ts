@@ -423,8 +423,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getMarkupSubtype: () => toolState,
         getFreeTextResize: () => freeTextResize,
         emitAnnotationModified: options.emitAnnotationModified,
-        emitAnnotationState: (state) => {
-            pdfjsAnnotationEditorState.value = state;
+        emitAnnotationState: (patch) => {
+            pdfjsAnnotationEditorState.value = {
+                ...pdfjsAnnotationEditorState.value,
+                ...patch,
+            };
             appAnnotationHistory.emitCombinedState();
         },
         recordPdfjsExecutorCommand: command => appAnnotationHistory.registerExecutorCommand(command),

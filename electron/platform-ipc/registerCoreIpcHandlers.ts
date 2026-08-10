@@ -10,7 +10,6 @@ import {
 } from '@contracts/windowTabsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { te } from '@electron/te';
-import {showTabContextMenu} from '@electron/menu';
 import {
     acknowledgeWindowTabTransfer,
     requestWindowTabTransfer,
@@ -145,12 +144,6 @@ export function registerCoreIpcHandlers(
         listWindowTabTargets: ({sender}): IWindowTabTargetWindow[] => {
             const sourceWindow = BrowserWindow.fromWebContents(sender);
             return sourceWindow ? buildTabTransferTargetLabels(sourceWindow.id) : [];
-        },
-        showWindowTabContextMenu: ({sender}, tabId) => {
-            const window = BrowserWindow.fromWebContents(sender);
-            if (window) {
-                showTabContextMenu(window, tabId);
-            }
         },
         closeCurrentWindow: ({sender}) => {
             const window = BrowserWindow.fromWebContents(sender);

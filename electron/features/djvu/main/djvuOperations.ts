@@ -15,7 +15,6 @@ import {
     awaitDurableDjvuConvertJob,
     awaitDurableDjvuOpenJob,
     handleDjvuCancel,
-    handleDjvuConvertToPdf,
     handleDjvuPrintPath,
     startDurableDjvuConvertJob,
     startDurableDjvuOpenJob,
@@ -594,16 +593,6 @@ function normalizeDjvuReleasePath(path: unknown, owner?: WebContents) {
     return resolve(normalizedPath);
 }
 
-export function handleDjvuOpenForViewingOperation(
-    context: IDjvuOperationContext,
-    djvuPath: string,
-) {
-    return handleDjvuOpenForViewing(
-        context,
-        requireDjvuOpenPath(djvuPath, context.sender),
-    );
-}
-
 export function handleDjvuStartOpenForViewingOperation(
     context: IDjvuOperationContext,
     djvuPath: string,
@@ -634,20 +623,6 @@ export function handleDjvuReleaseViewingPath(
     releaseDjvuViewingPath(
         context,
         normalizeDjvuReleasePath(djvuPath, context.sender),
-    );
-}
-
-export function handleDjvuConvertToPdfOperation(
-    context: IDjvuOperationContext,
-    djvuPath: string,
-    outputPath: string,
-    options: IDjvuConvertOptions,
-) {
-    return handleDjvuConvertToPdf(
-        context,
-        requireDjvuOpenPath(djvuPath, context.sender),
-        outputPath,
-        options,
     );
 }
 

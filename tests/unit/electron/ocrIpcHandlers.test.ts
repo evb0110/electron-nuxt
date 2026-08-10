@@ -6,28 +6,15 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    OCR_PLATFORM_FEATURE,
-    OCR_PREPROCESSING_PLATFORM_FEATURE,
-} from '@contracts/ocrPlatformFeature';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
-    runOcr: vi.fn(),
     handleOcrCreateSearchablePdfAsync: vi.fn(),
     handleOcrCancel: vi.fn(),
     handleOcrAcknowledgeResultFile: vi.fn(),
-    safeSendToWindow: vi.fn(),
-    validateOcrTools: vi.fn(),
-    getOcrToolPaths: vi.fn(),
-    handlePreprocessingValidate: vi.fn(),
-    handlePreprocessPage: vi.fn(),
-    forEachConcurrent: vi.fn(),
-    getOcrConcurrency: vi.fn(),
-    getTesseractThreadLimit: vi.fn(),
-    getSequentialProgressPage: vi.fn(),
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
     ensureWorkingCopyMaterialized: vi.fn(),
     requireManagedWorkingCopyPath: vi.fn<(path: string) => Promise<string>>(),
@@ -38,13 +25,6 @@ vi.mock('electron', () => ({
     BrowserWindow: { fromWebContents: vi.fn(() => null) },
     ipcMain: { handle: vi.fn() },
 }));
-vi.mock('@electron/ocr/runOcr', () => ({runOcr: mocks.runOcr}));
-
-vi.mock('@electron/ocr/paths', () => ({
-    validateOcrTools: mocks.validateOcrTools,
-    getOcrToolPaths: mocks.getOcrToolPaths,
-}));
-
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -52,12 +32,6 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-vi.mock('@electron/utils/concurrency', () => ({
-    forEachConcurrent: mocks.forEachConcurrent,
-    getOcrConcurrency: mocks.getOcrConcurrency,
-    getTesseractThreadLimit: mocks.getTesseractThreadLimit,
-    getSequentialProgressPage: mocks.getSequentialProgressPage,
-}));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: string) => mocks.requireManagedWorkingCopyPath(path)}));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => {
@@ -82,21 +56,10 @@ vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,
     handleOcrCancel: mocks.handleOcrCancel,
     handleOcrAcknowledgeResultFile: mocks.handleOcrAcknowledgeResultFile,
-    getOcrJobState: vi.fn(),
-    safeSendToWindow: mocks.safeSendToWindow,
     subscribeManagedOcrProgress: vi.fn(),
-    subscribeOcrJob: vi.fn(),
 }));
 
-vi.mock('@electron/ocr/preprocessingHandlers', () => ({
-    handlePreprocessingValidate: mocks.handlePreprocessingValidate,
-    handlePreprocessPage: mocks.handlePreprocessPage,
-}));
-
-const {
-    ocrMainBindings,
-    ocrPreprocessingMainBindings,
-} = await import('@electron/features/ocr/mainBindings');
+const { ocrMainBindings } = await import('@electron/features/ocr/mainBindings');
 
 function registerOcrFeatureHandlers() {
     const registrar = {handle: (channel: string, handler: TRegisteredHandler) => {
@@ -106,11 +69,6 @@ function registerOcrFeatureHandlers() {
         cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
         OCR_PLATFORM_FEATURE,
         ocrMainBindings,
-    );
-    registerPlatformFeatureHandlers(
-        cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-        OCR_PREPROCESSING_PLATFORM_FEATURE,
-        ocrPreprocessingMainBindings,
     );
 }
 
@@ -144,30 +102,6 @@ describe('OCR platform feature main bindings', () => {
         }));
         mocks.requireManagedWorkingCopyPath.mockImplementation(async (path: string) => path);
 
-        mocks.getOcrToolPaths.mockReturnValue({
-            tesseract: '/mock/tesseract',
-            tessdata: '/mock/tessdata',
-            pdftoppm: '/mock/pdftoppm',
-            pdftotext: '/mock/pdftotext',
-            popplerDataDir: '/mock/poppler/share',
-            popplerFontConfigDir: '/mock/poppler/fonts',
-            qpdf: '/mock/qpdf',
-        });
-
-        mocks.getOcrConcurrency.mockReturnValue(1);
-        mocks.getTesseractThreadLimit.mockReturnValue(1);
-        mocks.getSequentialProgressPage.mockImplementation((pages: Array<{ pageNumber: number }>, processedCount: number) =>
-            pages[Math.max(0, processedCount - 1)]?.pageNumber ?? 0);
-        mocks.forEachConcurrent.mockImplementation(async (
-            pages: unknown[],
-            _concurrency: number,
-            worker: (page: unknown) => Promise<void>,
-        ) => {
-            for (const page of pages) {
-                await worker(page);
-            }
-        });
-
         mocks.handleOcrCreateSearchablePdfAsync.mockResolvedValue({
             started: true,
             jobId: 'default-job-id',
@@ -175,158 +109,6 @@ describe('OCR platform feature main bindings', () => {
         mocks.handleOcrCancel.mockReturnValue({ canceled: true });
         mocks.handleOcrAcknowledgeResultFile.mockResolvedValue({ cleaned: true });
         registerOcrFeatureHandlers();
-    });
-
-    it('rejects malformed OCR batch payloads with stable typed envelope', async () => {
-        const handler = getHandler('ocr:recognizeBatch');
-
-        const result = await handler(
-            {sender: createMockSender(10)},
-            [{
-                pageNumber: 1,
-                imageData: 'not-bytes',
-                languages: ['eng'],
-            }],
-            'batch-1',
-        ) as {
-            results: Record<number, string>;
-            errors: string[];
-            errorEnvelope?: {
-                code: string;
-                retryable: boolean;
-            };
-        };
-
-        expect(result.results).toEqual({});
-        expect(result.errors[0]).toContain('imageData must be a Uint8Array');
-        expect(result.errorEnvelope).toMatchObject({
-            code: 'OCR_INVALID_PAYLOAD',
-            retryable: false,
-        });
-        expect(mocks.runOcr).not.toHaveBeenCalled();
-    });
-
-    it('rejects duplicate OCR batch page numbers before native OCR starts', async () => {
-        const handler = getHandler('ocr:recognizeBatch');
-
-        const result = await handler(
-            {sender: createMockSender(21)},
-            [
-                {
-                    pageNumber: 1,
-                    imageData: new Uint8Array([1]),
-                    languages: ['eng'],
-                },
-                {
-                    pageNumber: 1,
-                    imageData: new Uint8Array([2]),
-                    languages: ['eng'],
-                },
-            ],
-            'batch-duplicates',
-        ) as {
-            results: Record<number, string>;
-            errors: string[];
-            errorEnvelope?: {code: string};
-        };
-
-        expect(result.results).toEqual({});
-        expect(result.errors[0]).toContain('Duplicate OCR pageNumber');
-        expect(result.errorEnvelope).toMatchObject({ code: 'OCR_INVALID_PAYLOAD' });
-        expect(mocks.runOcr).not.toHaveBeenCalled();
-    });
-
-    it('rejects plain OCR image dimensions that exceed the pixel budget', async () => {
-        const handler = getHandler('ocr:recognize');
-
-        const result = await handler(
-            {sender: createMockSender(22)},
-            {
-                pageNumber: 1,
-                imageData: new Uint8Array([1]),
-                languages: ['eng'],
-                imageWidth: 45_000,
-                imageHeight: 1_001,
-            },
-        ) as {
-            success: boolean;
-            error?: string;
-            errorEnvelope?: {code: string};
-        };
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('maximum pixel count');
-        expect(result.errorEnvelope).toMatchObject({ code: 'OCR_INVALID_PAYLOAD' });
-        expect(mocks.runOcr).not.toHaveBeenCalled();
-    });
-
-    it('returns structured envelopes for plain OCR native failures', async () => {
-        const handler = getHandler('ocr:recognize');
-        mocks.runOcr.mockResolvedValue({
-            success: false,
-            text: '',
-            error: 'Tesseract output exceeded maximum size (1024 bytes)',
-        });
-
-        const result = await handler(
-            {sender: createMockSender(23)},
-            {
-                pageNumber: 7,
-                imageData: new Uint8Array([1]),
-                languages: ['eng'],
-            },
-        ) as {
-            pageNumber: number;
-            success: boolean;
-            error?: string;
-            errorEnvelope?: {
-                code: string;
-                message: string;
-            };
-        };
-
-        expect(result).toMatchObject({
-            pageNumber: 7,
-            success: false,
-            error: 'Tesseract output exceeded maximum size (1024 bytes)',
-            errorEnvelope: {
-                code: 'OCR_INTERNAL_ERROR',
-                message: 'Tesseract output exceeded maximum size (1024 bytes)',
-            },
-        });
-    });
-
-    it('admits concurrent recognition fairly through the shared broker without rejecting queued work', async () => {
-        const handler = getHandler('ocr:recognize');
-        const deferredResults: Array<{resolve: (result: unknown) => void}> = [];
-        mocks.runOcr.mockImplementation(() => new Promise(resolve => {
-            deferredResults.push({resolve});
-        }));
-
-        const calls = Array.from({length: 11}, (_value, index) => handler(
-            {sender: createMockSender(100 + index)},
-            {
-                pageNumber: index + 1,
-                imageData: new Uint8Array([index + 1]),
-                languages: ['eng'],
-            },
-        ));
-
-        await vi.waitFor(() => expect(deferredResults.length).toBeGreaterThan(0));
-
-        let resolvedCount = 0;
-        while (resolvedCount < calls.length) {
-            await vi.waitFor(() => {
-                expect(deferredResults.length).toBeGreaterThan(resolvedCount);
-            });
-            resolvedCount += 1;
-            deferredResults[resolvedCount - 1]?.resolve({
-                success: true,
-                text: `done-${resolvedCount}`,
-            });
-        }
-
-        await expect(Promise.all(calls)).resolves.toHaveLength(calls.length);
     });
 
     it('returns typed worker-unavailable envelope for missing OCR worker path', async () => {
@@ -639,136 +421,4 @@ describe('OCR platform feature main bindings', () => {
         expect(mocks.handleOcrCancel).not.toHaveBeenCalled();
     });
 
-    it('passes a renderer-lifetime abort signal into synchronous batch OCR', async () => {
-        const handler = getHandler('ocr:recognizeBatch');
-        mocks.runOcr.mockResolvedValue({
-            success: true,
-            text: 'done',
-        });
-        const sender = createMockSender(15);
-
-        const result = await handler(
-            {sender},
-            [{
-                pageNumber: 1,
-                imageData: new Uint8Array([1]),
-                languages: ['eng'],
-            }],
-            'batch-with-signal',
-        ) as {
-            results: Record<number, string>;
-            errors: string[];
-        };
-
-        expect(result).toEqual({
-            results: {1: 'done'},
-            errors: [],
-        });
-        expect(sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
-        expect(sender.once).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
-        expect(sender.on).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
-        expect(mocks.runOcr).toHaveBeenCalledWith(
-            Buffer.from([1]),
-            ['eng'],
-            expect.objectContaining({
-                signal: expect.any(AbortSignal),
-                threads: 1,
-            }),
-        );
-        expect(sender.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
-        expect(sender.removeListener).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
-        expect(sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
-    });
-
-    it('cancels an active legacy recognizeBatch request by request id', async () => {
-        const batchHandler = getHandler('ocr:recognizeBatch');
-        const cancelHandler = getHandler('ocr:cancel');
-        const sender = createMockSender(30);
-        mocks.runOcr.mockImplementation((_image, _languages, options?: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
-            options?.signal?.addEventListener('abort', () => {
-                reject(new Error('Tesseract aborted'));
-            }, { once: true });
-            setTimeout(() => resolve({
-                success: true,
-                text: 'too late',
-            }), 50);
-        }));
-
-        const batchPromise = batchHandler(
-            {sender},
-            [{
-                pageNumber: 1,
-                imageData: new Uint8Array([1]),
-                languages: ['eng'],
-            }],
-            'legacy-batch-cancel',
-        ) as Promise<{
-            results: Record<number, string>;
-            errors: string[];
-        }>;
-
-        await vi.waitFor(() => {
-            expect(mocks.runOcr).toHaveBeenCalledTimes(1);
-        });
-
-        expect(cancelHandler({sender}, 'legacy-batch-cancel')).toEqual({ canceled: true });
-        await expect(batchPromise).resolves.toMatchObject({
-            results: {},
-            errors: [expect.stringContaining('Tesseract aborted')],
-        });
-        expect(mocks.handleOcrCancel).not.toHaveBeenCalled();
-    });
-
-    it('keeps the original legacy recognizeBatch cancellable after duplicate-id backpressure', async () => {
-        const batchHandler = getHandler('ocr:recognizeBatch');
-        const cancelHandler = getHandler('ocr:cancel');
-        const sender = createMockSender(31);
-        mocks.runOcr.mockImplementation((_image, _languages, options?: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
-            options?.signal?.addEventListener('abort', () => {
-                reject(new Error('Tesseract aborted'));
-            }, { once: true });
-            setTimeout(() => resolve({
-                success: true,
-                text: 'too late',
-            }), 100);
-        }));
-
-        const firstBatchPromise = batchHandler(
-            {sender},
-            [{
-                pageNumber: 1,
-                imageData: new Uint8Array([1]),
-                languages: ['eng'],
-            }],
-            'duplicate-legacy-batch',
-        ) as Promise<{
-            results: Record<number, string>;
-            errors: string[];
-        }>;
-
-        await vi.waitFor(() => {
-            expect(mocks.runOcr).toHaveBeenCalledTimes(1);
-        });
-
-        await expect(batchHandler(
-            {sender},
-            [{
-                pageNumber: 2,
-                imageData: new Uint8Array([2]),
-                languages: ['eng'],
-            }],
-            'duplicate-legacy-batch',
-        )).resolves.toMatchObject({
-            results: {},
-            errors: [expect.stringContaining('already exists')],
-            errorEnvelope: {code: 'OCR_QUEUE_BACKPRESSURE'},
-        });
-
-        expect(cancelHandler({sender}, 'duplicate-legacy-batch')).toEqual({ canceled: true });
-        await expect(firstBatchPromise).resolves.toMatchObject({
-            results: {},
-            errors: [expect.stringContaining('Tesseract aborted')],
-        });
-        expect(mocks.handleOcrCancel).not.toHaveBeenCalled();
-    });
 });

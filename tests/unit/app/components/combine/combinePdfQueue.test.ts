@@ -3,24 +3,29 @@ import {
     expect,
     it,
 } from 'vitest';
-import {mergeCombinePdfQueue} from '@app/modules/combine/mergeCombinePdfQueue';
+import {ref} from 'vue';
+import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
 
-describe('mergeCombinePdfQueue', () => {
+describe('useCombinePdfQueue', () => {
     it('preserves order, reports unsupported files, and allows intentional duplicates', () => {
         const duplicate = new File(['pdf'], 'same.pdf', {type: 'application/pdf'});
         const unsupported = new File(['text'], 'notes.txt', {type: 'text/plain'});
-        const result = mergeCombinePdfQueue<File>([duplicate], [
-            duplicate,
-            unsupported,
-        ], {
+        const files = ref([duplicate]);
+        const queue = useCombinePdfQueue({
+            files,
+            isMutationLocked: ref(false),
             isSupported: file => file.name.endsWith('.pdf'),
             toQueueItem: file => file,
         });
+        queue.addFiles([
+            duplicate,
+            unsupported,
+        ]);
 
-        expect(result.files).toEqual([
+        expect(files.value).toEqual([
             duplicate,
             duplicate,
         ]);
-        expect(result.rejected).toBe(1);
+        expect(queue.lastRejectedCount.value).toBe(1);
     });
 });

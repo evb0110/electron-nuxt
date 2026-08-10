@@ -5,6 +5,7 @@ import type {
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
+import {cloneAssistantScope} from '@contracts/agent';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
@@ -16,7 +17,6 @@ import {
     CODEX_ASSISTANT_EFFORTS,
     CODEX_ASSISTANT_FALLBACK_MODELS,
 } from '@contracts/agentModels';
-import { cloneAssistantScope } from '@app/modules/agent-panel/utils/assistantSelectionState';
 
 interface ICreateEmptyAssistantStateOptions {
     chatScope: IAgentAssistantChatScope | null;

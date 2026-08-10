@@ -32,7 +32,10 @@ import {
 } from '@app/platform/browser-api/browserPdfCombineWorkerClient';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
-import { getBrowserDjvuBookmarksForCombine } from '@app/platform/browser-api/browserDjvuConversionPipeline';
+import {
+    getBrowserDjvuBookmarksForCombine,
+    runBrowserDjvuConversion,
+} from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
 import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
 import {
@@ -225,7 +228,7 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
         let result;
         try {
             throwIfCombineAborted(signal);
-            result = await browserDjvuCapability.convertToPdf(
+            result = await runBrowserDjvuConversion(
                 path,
                 outputRef,
                 {

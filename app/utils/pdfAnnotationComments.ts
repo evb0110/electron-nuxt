@@ -5,35 +5,13 @@ export interface ICommentQueryMatchPart {
     match: boolean;
 }
 
-function containsWord(text: string, word: string) {
-    return new RegExp(`\\b${word}\\b`, 'i').test(text);
-}
-
-export function isTextNoteComment(comment: IAnnotationCommentSummary) {
-    if (comment.hasNote === true) {
-        return true;
-    }
-
-    const subtype = (comment.subtype ?? '').toLowerCase();
-    const label = (comment.kindLabel ?? '').toLowerCase();
-
-    return (
-        subtype.includes('popup')
-        || subtype.includes('text')
-        || subtype.includes('note')
-        || containsWord(label, 'note')
-        || containsWord(label, 'comment')
-        || containsWord(label, 'sticky')
-    );
-}
-
 function normalizeTimestamp(value: number | null | undefined) {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
         ? value
         : null;
 }
 
-export function getAnnotationCommentCreatedAt(comment: IAnnotationCommentSummary) {
+function getAnnotationCommentCreatedAt(comment: IAnnotationCommentSummary) {
     return normalizeTimestamp(comment.createdAt);
 }
 
@@ -42,7 +20,7 @@ export function getAnnotationCommentDisplayTimestamp(comment: IAnnotationComment
         ?? normalizeTimestamp(comment.createdAt);
 }
 
-export function getAnnotationCommentSortTimestamp(comment: IAnnotationCommentSummary) {
+function getAnnotationCommentSortTimestamp(comment: IAnnotationCommentSummary) {
     return getAnnotationCommentCreatedAt(comment) ?? 0;
 }
 

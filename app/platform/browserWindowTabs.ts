@@ -861,9 +861,6 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             } satisfies IWindowTabTargetWindow))
             .sort((left, right) => left.label.localeCompare(right.label));
     },
-    showContextMenu(_tabId: string) {
-        return Promise.resolve();
-    },
     onIncomingTransfer(callback) {
         initializeBrowserWindowTabs();
         incomingTransferListeners.add(callback);

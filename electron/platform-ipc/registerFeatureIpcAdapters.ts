@@ -22,10 +22,7 @@ import {
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import type { TAgentService } from '@electron/features/agent/createAgentService';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
-import {
-    OCR_PLATFORM_FEATURE,
-    OCR_PREPROCESSING_PLATFORM_FEATURE,
-} from '@contracts/ocrPlatformFeature';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
@@ -152,11 +149,6 @@ export function registerFeatureIpcAdapters(
     registerLazyPlatformFeature(ipcMain, OCR_PLATFORM_FEATURE, async () => {
         const {ocrMainBindings} = await import('@electron/features/ocr/mainBindings');
         return ocrMainBindings;
-    });
-    registerLazyPlatformFeature(ipcMain, OCR_PREPROCESSING_PLATFORM_FEATURE, async () => {
-        const {ocrPreprocessingMainBindings} =
-            await import('@electron/features/ocr/mainBindings');
-        return ocrPreprocessingMainBindings;
     });
     registerLazyPlatformFeature(ipcMain, SCAN_CLEANUP_PLATFORM_FEATURE, async () => {
         const {scanCleanupMainBindings} =

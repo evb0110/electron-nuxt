@@ -100,8 +100,6 @@ function isRefProxy(value: unknown): value is IRefProxy {
         && typeof value.gen === 'number';
 }
 
-export { isRefProxy };
-
 function normalizeOutlineDest(value: unknown): IOutlineItemRaw['dest'] {
     if (typeof value === 'string' || value === null || Array.isArray(value)) {
         return value;

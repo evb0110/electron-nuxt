@@ -109,7 +109,7 @@ function addPagesAroundAnchor(
     }
 }
 
-export function hasDocumentViewerPageRange(range: IDocumentViewerPageRange) {
+function hasDocumentViewerPageRange(range: IDocumentViewerPageRange) {
     return range.end >= range.start;
 }
 

@@ -66,7 +66,6 @@ const mocks = vi.hoisted(() => {
         acquire,
         allowOpenPath: vi.fn(() => '/managed/cleaned.pdf'),
         createOutput: vi.fn(async () => '/managed/cleaned.pdf'),
-        handoff: vi.fn(),
         host,
         hostProfile: () => host as IHostResourceProfileSnapshot,
         isWorkingCopyOriginalPathRegistered: vi.fn(() => false),
@@ -113,12 +112,6 @@ vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
         pruneScanCleanupGeneratedOutputs: mocks.pruneOutputs,
     };
 });
-vi.mock('@electron/output/documentOutputService', () => ({documentOutputService: {
-    start: vi.fn(),
-    update: vi.fn(),
-    handoff: mocks.handoff,
-    finish: vi.fn(),
-}}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyBackingEntry: () => ({backing: 'materialized'}),
     isWorkingCopyOriginalPathRegistered: mocks.isWorkingCopyOriginalPathRegistered,
@@ -202,7 +195,6 @@ describe('scan cleanup service', () => {
         mocks.allowOpenPath.mockClear();
         mocks.createOutput.mockClear();
         mocks.createOutput.mockImplementation(async () => '/managed/cleaned.pdf');
-        mocks.handoff.mockReset();
         mocks.isWorkingCopyOriginalPathRegistered.mockReset();
         mocks.isWorkingCopyOriginalPathRegistered.mockReturnValue(false);
         mocks.pruneOutputs.mockClear();
@@ -259,16 +251,7 @@ describe('scan cleanup service', () => {
         }
     });
 
-    it('ignores a stale renderer path report and delegates liveness to the main registry', async () => {
-        const service = createScanCleanupService();
-
-        await expect(service.pruneGeneratedOutputs(['/managed/stale-reporter.pdf']))
-            .resolves.toBe(0);
-
-        expect(mocks.pruneOutputs).toHaveBeenCalledWith({isOutputLive: mocks.isWorkingCopyOriginalPathRegistered});
-    });
-
-    it('uses main-owned liveness when startup pruning has no renderer report', async () => {
+    it('uses main-owned liveness when pruning generated outputs', async () => {
         const service = createScanCleanupService();
 
         await expect(service.pruneGeneratedOutputs()).resolves.toBe(0);
@@ -609,10 +592,9 @@ describe('scan cleanup service', () => {
         await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
             .toMatchObject({status: 'canceled'}));
         await expect(access(outputPdfPath)).rejects.toThrow();
-        expect(mocks.handoff).not.toHaveBeenCalled();
     });
 
-    it('rejects cancellation after main enters the published-output commit state', async () => {
+    it('treats cancellation after completion as idempotent', async () => {
         const returned = Promise.withResolvers<{
             inputPages: number;
             outputPages: number;
@@ -629,11 +611,6 @@ describe('scan cleanup service', () => {
         const webContents = sender();
         const started = await service.start(webContents, startRequest);
         if (!started.started) throw new Error('Expected scan cleanup to start');
-        let cancelResult: boolean | null = null;
-        mocks.handoff.mockImplementationOnce(() => {
-            cancelResult = service.cancel(webContents, started.jobId, owner);
-        });
-
         returned.resolve({
             inputPages: 1,
             outputPages: 1,
@@ -648,7 +625,6 @@ describe('scan cleanup service', () => {
 
         await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
             .toMatchObject({status: 'completed'}));
-        expect(cancelResult).toBe(false);
-        expect(mocks.handoff).toHaveBeenCalledWith(started.jobId, started.outputPdfPath);
+        expect(service.cancel(webContents, started.jobId, owner)).toBe(true);
     });
 });

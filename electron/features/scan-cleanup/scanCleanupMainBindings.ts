@@ -35,9 +35,7 @@ export const scanCleanupMainBindings = {
     getJobState: (context, jobId, owner) => service.getState(context.sender, jobId, owner),
     subscribeJob: (context, jobId, owner) => service.subscribe(context.sender, jobId, owner),
     reconnectJob: (context, jobId, owner) => service.subscribe(context.sender, jobId, owner),
-    // The renderer list is only a projection of one WebContents and may be
-    // missing or stale. Main owns working-copy registrations across windows.
-    pruneGeneratedOutputs: _reportedOpenPdfPaths => service.pruneGeneratedOutputs(),
+    pruneGeneratedOutputs: () => service.pruneGeneratedOutputs(),
     getSettings: (_context, request) => settingsStore.get(request),
     updateSettings: (_context, request) => settingsStore.update(request),
 } satisfies TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;
