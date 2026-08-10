@@ -8,7 +8,6 @@ import {
     DRAWABLE_SHAPE_TOOLS,
 } from '@app/types/annotations';
 import { isOneOf } from '@contracts/runtimeGuards';
-import { uniq } from 'es-toolkit/array';
 import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
 import type {TWorkspaceAgentSidebarTab} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 
@@ -52,25 +51,6 @@ export function getAgentNumberInput(input: Record<string, unknown> | undefined, 
 export function getAgentBooleanInput(input: Record<string, unknown> | undefined, key: string) {
     const value = input?.[key];
     return typeof value === 'boolean' ? value : null;
-}
-
-export function getAgentStringArrayInput(input: Record<string, unknown> | undefined, key: string) {
-    const value = input?.[key];
-    if (!Array.isArray(value)) {
-        return undefined;
-    }
-    const strings: string[] = [];
-    for (const item of value) {
-        if (typeof item !== 'string') {
-            continue;
-        }
-
-        const trimmedItem = item.trim();
-        if (trimmedItem) {
-            strings.push(trimmedItem);
-        }
-    }
-    return strings.length > 0 ? uniq(strings) : undefined;
 }
 
 export function getAgentNumberArrayInput(input: Record<string, unknown> | undefined, key: string) {
