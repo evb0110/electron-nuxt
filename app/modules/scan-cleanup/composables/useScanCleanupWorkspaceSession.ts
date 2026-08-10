@@ -76,6 +76,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         documentRevision,
         documentPriorByPage: detection.documentPriorByPage,
         initialViewMode: options.initialPreviewViewMode?.(),
+        layoutDetectionComplete: detection.layoutDetectionComplete,
         lifecycleDocumentKey,
         ownerId,
         pagePlanEvidenceByPage: detection.pagePlanEvidenceByPage,

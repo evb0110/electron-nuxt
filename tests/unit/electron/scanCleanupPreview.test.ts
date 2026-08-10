@@ -4192,6 +4192,18 @@ describe('scan cleanup preview', () => {
             pageNumber: 2,
             layoutByPage: {'1': 'two-page-spread'},
         });
+        // Another page's interim single verdict is only one provisional
+        // outlier. It must not put the already-proven spread leaves back onto
+        // the full landscape sheet.
+        await previewOf(service, owner, {
+            ...matched,
+            pageNumber: 3,
+            layoutByPage: {
+                '1': 'two-page-spread',
+                '2': 'two-page-spread',
+                '3': 'single-uncut-page',
+            },
+        });
         analysis.resolve(undefined);
         await vi.waitFor(() => expect(
             service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status,
@@ -4199,11 +4211,12 @@ describe('scan cleanup preview', () => {
         // And once it has measured every content crop.
         await previewOf(service, owner, {
             ...matched,
-            pageNumber: 3,
+            pageNumber: 1,
+            layoutDetectionComplete: true,
             layoutByPage: {
                 '1': 'two-page-spread',
                 '2': 'two-page-spread',
-                '3': 'two-page-spread',
+                '3': 'single-uncut-page',
             },
         });
 
@@ -4219,6 +4232,12 @@ describe('scan cleanup preview', () => {
                 widthPoints: 612,
                 heightPoints: 792,
                 widthPx: 1_241,
+                heightPx: 1_606,
+            },
+            {
+                widthPoints: 1_224,
+                heightPoints: 792,
+                widthPx: 2_482,
                 heightPx: 1_606,
             },
         ]);

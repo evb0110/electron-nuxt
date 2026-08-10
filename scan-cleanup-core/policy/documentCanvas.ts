@@ -213,11 +213,12 @@ export function resolveScanCleanupUnclassifiedPages(
  * layout detection is still open.
  *
  * Unknown automatic sheets are omitted instead of being guessed as either a
- * full page or a spread. Forced/manual pages are already facts and known
- * automatic pages speak only for themselves. The provisional plan can grow
- * when detection finds a larger real output page, and a revised classification
- * can correct it, but one unknown landscape scan cannot make every known
- * portrait half pretend to live on a landscape sheet.
+ * full page or a spread. Forced/manual pages are already facts. While native
+ * reconciliation is open, automatic pages contribute only through the
+ * dominant output-count cohort: a lone provisional single-page verdict cannot
+ * resize every already-proven spread leaf onto a landscape canvas. Once the
+ * caller says reconciliation is complete, every observed page speaks for
+ * itself and a genuinely mixed document is measured in full.
  *
  * Final conversion deliberately does not use this helper. It waits for page
  * plans and then calls `resolveScanCleanupDocumentCanvas` over the full
@@ -229,11 +230,48 @@ export function resolveScanCleanupProvisionalDocumentCanvas(
     renderDpi: number,
     options: IScanCleanupOptions,
     layoutByPage?: TScanCleanupLayoutByPage,
+    layoutEvidenceComplete = false,
 ): IScanCleanupDocumentCanvasPlan | null {
-    const evidencedPages = pageSizes.filter(pageSize => (
-        !isAutomaticLayout(options, pageSize.pageNumber)
-        || readObservedLayout(layoutByPage, pageSize.pageNumber) !== undefined
+    if (layoutEvidenceComplete) {
+        return resolveScanCleanupDocumentCanvas(
+            pageSizes,
+            renderDpi,
+            options,
+            layoutByPage,
+        );
+    }
+    const automaticEvidence = pageSizes.filter(pageSize => (
+        !getScanCleanupPageOverride(options.pageOverrides, pageSize.pageNumber).excluded
+        && isAutomaticLayout(options, pageSize.pageNumber)
+        && readObservedLayout(layoutByPage, pageSize.pageNumber) !== undefined
     ));
+    let dominantShares: number | null = null;
+    if (automaticEvidence.length > 0) {
+        const firstShares = resolveSheetShares(
+            options,
+            automaticEvidence[0]!.pageNumber,
+            layoutByPage,
+        );
+        const counts = new Map<number, number>();
+        for (const pageSize of automaticEvidence) {
+            const shares = resolveSheetShares(options, pageSize.pageNumber, layoutByPage);
+            counts.set(shares, (counts.get(shares) ?? 0) + 1);
+        }
+        dominantShares = [...counts].reduce((best, candidate) => (
+            candidate[1] > best[1] ? candidate : best
+        ), [
+            firstShares,
+            counts.get(firstShares) ?? 0,
+        ])[0];
+    }
+    const evidencedPages = pageSizes.filter(pageSize => {
+        if (!isAutomaticLayout(options, pageSize.pageNumber)) {
+            return true;
+        }
+        return dominantShares !== null
+            && readObservedLayout(layoutByPage, pageSize.pageNumber) !== undefined
+            && resolveSheetShares(options, pageSize.pageNumber, layoutByPage) === dominantShares;
+    });
     return resolveScanCleanupDocumentCanvas(
         evidencedPages,
         renderDpi,

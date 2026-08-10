@@ -617,7 +617,7 @@ export async function runScanCleanupDetection<TDocument>(
         const results = new Map<number, IScanCleanupDetectionResult>();
         const publishedResults = () => [...results.values()]
             .sort((left, right) => left.pageNumber - right.pageNumber);
-        const documentCanvasSignature = () => {
+        const documentCanvasSignature = (layoutEvidenceComplete = false) => {
             if (!request.options.matchPageSize) {
                 return '';
             }
@@ -633,6 +633,7 @@ export async function runScanCleanupDetection<TDocument>(
                 matchedPreviewDpi,
                 request.options,
                 layoutByPage,
+                layoutEvidenceComplete,
             ));
             // The first preview is already measured against the unclassified
             // document. Preserve that identity until the resolved plan truly
@@ -641,6 +642,7 @@ export async function runScanCleanupDetection<TDocument>(
             return signature === baselineCanvasSignature ? '' : signature;
         };
         let analyzedPages = 0;
+        const completedPages = new Set<number>();
         // Detection and visible previews use the native classifier's 150-DPI
         // ceiling without upsampling a proven lower-resolution page. On POSIX,
         // feed raw PPM through FIFOs so native starts classifying the first page
@@ -974,13 +976,16 @@ export async function runScanCleanupDetection<TDocument>(
                 if (nativeProgress.stage !== 'page-complete' || !recordResult(nativeProgress)) {
                     return;
                 }
+                if (nativeProgress.pageNumber !== undefined) {
+                    completedPages.add(nativeProgress.pageNumber);
+                }
                 const completedUnits = Math.max(analyzedPages, progress.completedUnits);
                 publish(publishedResults(), {
                     ...progress,
                     stage: 'detecting',
                     completedUnits,
                     percent: progress.totalUnits === 0 ? 100 : completedUnits / progress.totalUnits * 100,
-                }, documentCanvasSignature());
+                }, documentCanvasSignature(completedPages.size === totalPages));
             },
             {priority: 'background'},
         );

@@ -94,6 +94,12 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
      */
     layoutByPage?: TScanCleanupLayoutByPage;
     /**
+     * True only after document detection has finished reconciling every
+     * automatic page. Before that, matched-canvas planning treats layout
+     * verdicts as provisional evidence and resists document-wide outliers.
+     */
+    layoutDetectionComplete?: boolean;
+    /**
      * Automatic geometry already established by document detection for this
      * page. Preview replays it just like final conversion, so loading, base
      * preview, detail tiles, and export do not run competing page planners.

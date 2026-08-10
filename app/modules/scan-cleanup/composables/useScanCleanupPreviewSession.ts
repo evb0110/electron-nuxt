@@ -57,6 +57,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     documentRevision: ComputedRef<string>;
     documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
     initialViewMode?: 'original' | 'cleaned' | undefined;
+    layoutDetectionComplete: ComputedRef<boolean>;
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
     pagePlanEvidenceByPage: ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
@@ -504,6 +505,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                         ? {}
                         : {softAlphaForegroundRecommendation}),
                     ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
+                    layoutDetectionComplete: options.layoutDetectionComplete.value,
                     layoutByPage: layoutByPage.value,
                 },
             };
@@ -624,6 +626,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                         ? {}
                         : {softAlphaForegroundRecommendation}),
                     ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
+                    layoutDetectionComplete: options.layoutDetectionComplete.value,
                     layoutByPage: layoutByPage.value,
                 })), requestId);
                 // A cancelled request has no result to keep or display. When the
@@ -799,6 +802,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ? {}
                     : {softAlphaForegroundRecommendation}),
                 ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
+                layoutDetectionComplete: options.layoutDetectionComplete.value,
                 layoutByPage: layoutByPage.value,
                 detail: {
                     viewports,

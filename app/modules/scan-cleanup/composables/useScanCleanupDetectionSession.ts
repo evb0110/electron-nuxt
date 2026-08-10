@@ -235,6 +235,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ? status
             : null;
     });
+    const layoutDetectionComplete = computed(() => terminalStatus.value === 'completed');
     const cancelRequested = computed(() => jobState.value?.status === 'canceling');
     const pending = computed(() => autoPending.value || starting.value || isDetecting.value);
     const canStart = computed(() => Boolean(options.sourcePath.value)
@@ -1008,6 +1009,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         error,
         errorCode,
         isDetecting,
+        layoutDetectionComplete,
         maybeAutoDetect,
         outputEstimate,
         pagePlanEvidenceByPage,

@@ -1086,6 +1086,9 @@ function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>)
         outputModeRecommendation: request.outputModeRecommendation ?? null,
         softAlphaForegroundRecommendation: request.softAlphaForegroundRecommendation ?? null,
         pagePlanEvidence: request.pagePlanEvidence ?? null,
+        layoutDetectionComplete: request.options.matchPageSize
+            ? request.layoutDetectionComplete === true
+            : false,
         layouts: request.options.matchPageSize
             ? scanCleanupLayoutSignature(request.layoutByPage ?? {})
             : '',
@@ -1853,6 +1856,7 @@ async function runPreview(
                 matchedPreviewDpi,
                 request.options,
                 request.layoutByPage,
+                request.layoutDetectionComplete === true,
             )
             : null;
         // Matched pages must share the preview's document grid. Rendering a

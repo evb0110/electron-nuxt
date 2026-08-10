@@ -938,6 +938,8 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
     if (
         !isRecord(value)
         || (value.visible !== undefined && typeof value.visible !== 'boolean')
+        || (value.layoutDetectionComplete !== undefined
+            && typeof value.layoutDetectionComplete !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview request');
     const requestId = decodeBoundedScanCleanupString(
         value.requestId,
@@ -1014,6 +1016,9 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
                 return {softAlphaForegroundRecommendation: value.softAlphaForegroundRecommendation};
             })()),
         ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
+        ...(value.layoutDetectionComplete === undefined
+            ? {}
+            : {layoutDetectionComplete: value.layoutDetectionComplete}),
         ...(value.pagePlanEvidence === undefined
             ? {}
             : {pagePlanEvidence: decodeScanCleanupPagePlanEvidence(value.pagePlanEvidence, pageNumber)}),

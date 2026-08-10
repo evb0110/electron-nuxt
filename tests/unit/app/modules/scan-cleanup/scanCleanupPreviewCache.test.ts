@@ -7,11 +7,12 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     IScanCleanupPreviewResult,
+    TScanCleanupLayoutByPage,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
 import {scanCleanupMatchedCanvasOverridesSignature} from '@contracts/scanCleanupPageOverrides';
 import {
-    resolveScanCleanupDocumentCanvas,
+    resolveScanCleanupProvisionalDocumentCanvas,
     scanCleanupDocumentCanvasSignature,
 } from '@scan-cleanup-core/policy/documentCanvas';
 import {
@@ -375,7 +376,7 @@ describe('scan cleanup renderer preview cache', () => {
             .toBe(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null));
     });
 
-    it('keeps a homogeneous-spread preview stable until the computed canvas actually changes', () => {
+    it('keeps the dominant provisional canvas stable through an interim layout outlier', () => {
         const pages = Array.from({length: 4}, (_, index) => ({
             pageNumber: index + 1,
             xPoints: 0,
@@ -384,50 +385,60 @@ describe('scan cleanup renderer preview cache', () => {
             heightPoints: 800,
             rotation: 0,
         }));
-        const baselinePlanSignature = scanCleanupDocumentCanvasSignature(
-            resolveScanCleanupDocumentCanvas(pages, 150, previewOptions),
-        );
-        const signatureFor = (spreadPages: readonly number[]) => {
-            const layouts = Object.fromEntries(spreadPages.map(pageNumber => [
-                String(pageNumber),
-                'two-page-spread' as const,
-            ]));
+        const baselinePlanSignature = scanCleanupDocumentCanvasSignature(null);
+        const signatureFor = (
+            layouts: TScanCleanupLayoutByPage,
+            layoutEvidenceComplete = false,
+        ) => {
             const signature = scanCleanupDocumentCanvasSignature(
-                resolveScanCleanupDocumentCanvas(pages, 150, previewOptions, layouts),
+                resolveScanCleanupProvisionalDocumentCanvas(
+                    pages,
+                    150,
+                    previewOptions,
+                    layouts,
+                    layoutEvidenceComplete,
+                ),
             );
             return signature === baselinePlanSignature ? '' : signature;
         };
-        const keyFor = (spreadPages: readonly number[]) => createScanCleanupPreviewCacheKey(
+        const keyFor = (
+            layouts: TScanCleanupLayoutByPage,
+            layoutEvidenceComplete = false,
+        ) => createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
             '/tmp/source.pdf',
             'rev',
             null,
-            signatureFor(spreadPages),
+            signatureFor(layouts, layoutEvidenceComplete),
             '',
             null,
             null,
             'two-page-spread',
         );
 
-        // Unknown pages remain full sheets. Incremental spread results do not
-        // move the largest output rectangle until the last unknown page lands.
-        const provisional = keyFor([1]);
-        expect(keyFor([
-            1,
-            2,
-        ])).toBe(provisional);
-        expect(keyFor([
-            1,
-            2,
-            3,
-        ])).toBe(provisional);
-        expect(keyFor([
-            1,
-            2,
-            3,
-            4,
-        ])).not.toBe(provisional);
+        const provisional = keyFor({'1': 'two-page-spread'});
+        expect(keyFor({
+            '1': 'two-page-spread',
+            '2': 'two-page-spread',
+        })).toBe(provisional);
+        expect(keyFor({
+            '1': 'two-page-spread',
+            '2': 'two-page-spread',
+            '3': 'single-uncut-page',
+        })).toBe(provisional);
+        expect(keyFor({
+            '1': 'two-page-spread',
+            '2': 'two-page-spread',
+            '3': 'two-page-spread',
+            '4': 'two-page-spread',
+        }, true)).toBe(provisional);
+        expect(keyFor({
+            '1': 'two-page-spread',
+            '2': 'two-page-spread',
+            '3': 'single-uncut-page',
+            '4': 'two-page-spread',
+        }, true)).not.toBe(provisional);
     });
 
     it('revalidates when the visible page itself is newly reclassified', () => {

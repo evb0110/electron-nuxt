@@ -325,6 +325,7 @@ function mountPreviewSession(
             documentRevision: computed(() => 'revision-1'),
             documentPriorByPage,
             ...(initialViewMode === undefined ? {} : {initialViewMode}),
+            layoutDetectionComplete: computed(() => false),
             lifecycleDocumentKey: computed(() => lifecycleKey?.value ?? 'reference.pdf'),
             ownerId: 'owner-1',
             pagePlanEvidenceByPage: new Map(),

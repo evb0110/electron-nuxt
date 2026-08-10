@@ -667,6 +667,11 @@ describe('scan cleanup document canvas', () => {
                     widthPoints: 1_224,
                     heightPoints: 792,
                 }),
+                page({
+                    pageNumber: 3,
+                    widthPoints: 1_224,
+                    heightPoints: 792,
+                }),
             ];
 
             expect(resolveScanCleanupProvisionalDocumentCanvas(pages, 150, options, {}))
@@ -680,8 +685,9 @@ describe('scan cleanup document canvas', () => {
                 widthPoints: 612,
                 heightPoints: 792,
             });
-            // A later single-page verdict is new evidence for a genuinely
-            // larger output and is allowed to grow the provisional canvas.
+            // An interim single-page outlier cannot resize every known spread
+            // leaf. A tie is resolved by the earliest observed cohort, and a
+            // later spread makes that cohort the clear document majority.
             expect(resolveScanCleanupProvisionalDocumentCanvas(
                 pages,
                 150,
@@ -689,6 +695,52 @@ describe('scan cleanup document canvas', () => {
                 {
                     '1': 'two-page-spread',
                     '2': 'single-uncut-page',
+                },
+            )).toMatchObject({
+                widthPoints: 612,
+                heightPoints: 792,
+            });
+            expect(resolveScanCleanupProvisionalDocumentCanvas(
+                pages,
+                150,
+                options,
+                {
+                    '1': 'two-page-spread',
+                    '2': 'single-uncut-page',
+                    '3': 'two-page-spread',
+                },
+            )).toMatchObject({
+                widthPoints: 612,
+                heightPoints: 792,
+            });
+            // Once reconciliation is complete, a genuine single page is hard
+            // evidence and the authoritative mixed-document canvas grows.
+            expect(resolveScanCleanupProvisionalDocumentCanvas(
+                pages,
+                150,
+                options,
+                {
+                    '1': 'two-page-spread',
+                    '2': 'single-uncut-page',
+                    '3': 'two-page-spread',
+                },
+                true,
+            )).toMatchObject({
+                widthPoints: 1_224,
+                heightPoints: 792,
+            });
+            // A manual single-page choice is already authoritative while
+            // automatic reconciliation is still running.
+            expect(resolveScanCleanupProvisionalDocumentCanvas(
+                pages,
+                150,
+                {
+                    ...options,
+                    pageOverrides: {'2': override({layoutOverride: 'single'})},
+                },
+                {
+                    '1': 'two-page-spread',
+                    '3': 'two-page-spread',
                 },
             )).toMatchObject({
                 widthPoints: 1_224,

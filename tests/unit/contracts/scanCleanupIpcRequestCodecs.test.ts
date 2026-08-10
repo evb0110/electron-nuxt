@@ -126,18 +126,27 @@ function requestWithOverrides(pageOverrides: Record<string, unknown>) {
 describe('scan-cleanup IPC request codecs', () => {
     it('decodes a detected page plan on preview requests', () => {
         const pagePlanEvidence = request.pagePlanEvidenceByPage['12'];
-        expect(decodePreviewArgs([{
+        const decoded = decodePreviewArgs([{
             ...request,
             requestId: 'preview-12',
             pageNumber: 12,
+            layoutDetectionComplete: true,
             pagePlanEvidence,
-        }])[0].pagePlanEvidence).toEqual(pagePlanEvidence);
+        }])[0];
+        expect(decoded.pagePlanEvidence).toEqual(pagePlanEvidence);
+        expect(decoded.layoutDetectionComplete).toBe(true);
         expect(() => decodePreviewArgs([{
             ...request,
             requestId: 'preview-12',
             pageNumber: 11,
             pagePlanEvidence,
         }])).toThrow('page-plan evidence');
+        expect(() => decodePreviewArgs([{
+            ...request,
+            requestId: 'preview-12',
+            pageNumber: 12,
+            layoutDetectionComplete: 'yes',
+        }])).toThrow('preview request');
     });
 
     it('decodes typed automatic page-plan evidence', () => {
