@@ -540,7 +540,7 @@ pub(crate) fn clean_detail_page_with_color(
     metadata.render_region = Some(render_region);
     metadata.input_width = plan.full_source_width_px;
     metadata.input_height = plan.full_source_height_px;
-    metadata.output_mode = options.output_mode;
+    metadata.output_mode = output.metadata.output_mode;
     metadata.binarization_mode = output.metadata.binarization_mode;
     metadata.binarization_diagnostics = output.metadata.binarization_diagnostics;
     metadata.despeckle_fallback = output.metadata.despeckle_fallback;
@@ -1145,6 +1145,128 @@ fn union_optional_masks(
         (Some(mask), None) | (None, Some(mask)) => Some(Arc::clone(mask)),
         (None, None) => None,
     }
+}
+
+/// Every subtractive pass below binarization judges ink by local evidence
+/// alone, and nothing measured the page as a whole, so one systematic
+/// misjudgement could empty a leaf with no signal that anything went wrong.
+/// The floor is scoped to ink the page's own text and picture ownership masks
+/// claim: discarding an unowned scanner rail — what those passes exist for —
+/// cannot trip it, while deleting owned text or picture ink does.
+const OWNED_INK_RETENTION_FLOOR: f64 = 0.55;
+/// Retention is not a meaningful ratio on a leaf that carries almost no owned
+/// ink to begin with: a blank verso whose text mask caught nothing but a few
+/// specks of the fold shadow would otherwise demand that the shadow be kept.
+const OWNED_INK_RETENTION_MINIMUM_FRACTION: f64 = 0.000_2;
+const OWNED_INK_RETENTION_MINIMUM_PIXELS: usize = 512;
+/// A leaf the blankness test already judged non-blank must never publish as an
+/// empty bilevel sheet. Below this ink fraction the black-and-white rendition
+/// has lost the page outright — pale or continuous-tone originals do this —
+/// and the calibrated grayscale rendition is the honest fallback.
+const PALE_BILEVEL_COLLAPSE_INK_FRACTION: f64 = 0.000_05;
+
+/// Ownership is read from the strict text mask, never from the permissive
+/// vicinity mask: the vicinity mask deliberately covers soft tone such as the
+/// spread's fold shadow, and scoring retention over it would have the guard
+/// demand that a correctly suppressed scanner rail be put back.
+fn page_ink_ownership_mask(
+    text: Option<&BinaryImage>,
+    picture: Option<&BinaryImage>,
+) -> Option<BinaryImage> {
+    match (text, picture) {
+        (Some(text), Some(picture)) => Some(text.or(picture)),
+        (Some(mask), None) | (None, Some(mask)) => Some(mask.clone()),
+        (None, None) => None,
+    }
+}
+
+fn owned_ink_pixels(binary: &BinaryImage, ownership: &BinaryImage) -> usize {
+    binary.and(ownership).count_black()
+}
+
+fn owned_ink_minimum(width: usize, height: usize) -> usize {
+    ((width.saturating_mul(height) as f64 * OWNED_INK_RETENTION_MINIMUM_FRACTION) as usize)
+        .max(OWNED_INK_RETENTION_MINIMUM_PIXELS)
+}
+
+fn page_half_label(half: PageHalf) -> &'static str {
+    match half {
+        PageHalf::Full => "full page",
+        PageHalf::Left => "left half",
+        PageHalf::Right => "right half",
+    }
+}
+
+/// Returns the raster to publish and whether the conservative rendition had to
+/// be restored.
+fn conserve_page_ink(
+    conservative: BinaryImage,
+    cleaned: BinaryImage,
+    ownership: Option<&BinaryImage>,
+    source_page_index: usize,
+    half: PageHalf,
+    warnings: &mut Vec<String>,
+) -> (BinaryImage, bool) {
+    // Without an ownership mask there is no way to tell page ink from a
+    // scanner rail, and a page-level ratio would be as likely to restore the
+    // rail as to rescue content.
+    let Some(ownership) = ownership else {
+        return (cleaned, false);
+    };
+    let supported = owned_ink_pixels(&conservative, ownership);
+    let surviving = owned_ink_pixels(&cleaned, ownership);
+    let minimum = owned_ink_minimum(conservative.width(), conservative.height());
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_INK").is_some() {
+        eprintln!(
+            "ink-conservation page={} half={:?} owned={supported} surviving={surviving} minimum={minimum} retention={:.4}",
+            source_page_index + 1,
+            half,
+            if supported == 0 {
+                1.0
+            } else {
+                surviving as f64 / supported as f64
+            },
+        );
+    }
+    if supported < minimum {
+        return (cleaned, false);
+    }
+    let retention = surviving as f64 / supported as f64;
+    if retention >= OWNED_INK_RETENTION_FLOOR {
+        return (cleaned, false);
+    }
+    warnings.push(format!(
+        "Cleanup kept only {:.1}% of the detected content ink on source page {} ({}); the conservative rendition was emitted instead",
+        retention * 100.0,
+        source_page_index + 1,
+        page_half_label(half)
+    ));
+    (conservative, true)
+}
+
+/// Width of the leaf edge band that carries the fold shadow and the scanner
+/// rail rather than page content. Page margins are wider than this at any scan
+/// resolution, so no printed matter falls inside the band.
+const LEAF_EDGE_BAND_FRACTION: f64 = 0.04;
+
+fn leaf_interior_is_blank(gray: &GrayImage, dpi: f64) -> bool {
+    let inset_x = (gray.width() as f64 * LEAF_EDGE_BAND_FRACTION) as usize;
+    let inset_y = (gray.height() as f64 * LEAF_EDGE_BAND_FRACTION) as usize;
+    let width = gray.width().saturating_sub(inset_x.saturating_mul(2));
+    let height = gray.height().saturating_sub(inset_y.saturating_mul(2));
+    if width == 0 || height == 0 {
+        return false;
+    }
+    let interior = crop_gray(
+        gray,
+        Rect::new(inset_x as f64, inset_y as f64, width as f64, height as f64),
+    );
+    is_effectively_blank(&interior, dpi)
+}
+
+fn pale_bilevel_collapse(binary: &BinaryImage) -> bool {
+    let area = binary.width().saturating_mul(binary.height());
+    (binary.count_black() as f64) < area as f64 * PALE_BILEVEL_COLLAPSE_INK_FRACTION
 }
 
 fn manual_picture_crop_authority(
@@ -3169,6 +3291,9 @@ fn scale_split_result(
     full_height: usize,
 ) {
     split.cutter_x = split.cutter_x.map(|x| x / scale_x);
+    split.gutter_left_x = split
+        .gutter_left_x
+        .map(|x| (x / scale_x).clamp(0.0, full_width as f64));
     if let Some(seam) = &mut split.split_seam {
         for point in &mut seam.points {
             point.x = (point.x / scale_x).clamp(0.0, full_width as f64);
@@ -4748,13 +4873,34 @@ fn clean_region(
     }
     timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     let output_processing_started = Instant::now();
+    let ink_ownership_mask =
+        page_ink_ownership_mask(rendered_text_mask.as_ref(), rendered_picture_mask.as_ref());
     let effectively_blank = source_effectively_blank
         || if skips_gray_twin {
             is_effectively_blank(content_analysis, calibration.effective_dpi)
         } else {
             is_effectively_blank(&rendered_gray, options.dpi)
         };
-    let fail_closed_blank = force_clean_blank || content.content.is_none() && effectively_blank;
+    // A verso whose only survivor is the fold shadow along the leaf edge is a
+    // blank page, and publishing the streak serves nobody. The leaf has to own
+    // no text and no picture ink at all before this applies, so a pale page
+    // that still carries structure can never be erased by it.
+    let unowned_edge_residue = !effectively_blank
+        && content.content.is_none()
+        && ink_ownership_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && leaf_interior_is_blank(&rendered_gray, options.dpi);
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_INK").is_some() {
+        eprintln!(
+            "blank-residue page={} half={half:?} effectivelyBlank={effectively_blank} content={} owned={:?} residue={unowned_edge_residue}",
+            source_page_index + 1,
+            content.content.is_some(),
+            ink_ownership_mask.as_ref().map(|mask| mask.count_black()),
+        );
+    }
+    let fail_closed_blank = force_clean_blank
+        || content.content.is_none() && (effectively_blank || unowned_edge_residue);
     // Whole-page abstention guarded against the old destructive whitening.
     // Picture zones now preserve continuous tone exactly while everything
     // else is smoothly normalized toward white, so cleanup is always safe and
@@ -4763,6 +4909,8 @@ fn clean_region(
     let trusted_selection_applied = rendered_trusted_foreground_mask.is_some();
     let trusted_mrc_background_preserved = false;
     let mut ink_consistency_diagnostics = None;
+    let mut conservation_warnings = Vec::new();
+    let mut emitted_output_mode = options.output_mode;
     let (
         mut image,
         mut color_image,
@@ -4875,6 +5023,7 @@ fn clean_region(
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
+                    let conservative = binary.clone();
                     let binary = filter_soft_shallow_bleed_components(
                         &binary,
                         &rendered_source_gray,
@@ -4890,14 +5039,39 @@ fn clean_region(
                         options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
                         options.dpi,
                     );
-                    (
-                        CleanupRaster::Bilevel(binary),
-                        None,
-                        Some(mode),
-                        Some(diagnostics),
-                        despeckle_fallback,
-                        None,
-                    )
+                    let (binary, _) = conserve_page_ink(
+                        conservative,
+                        binary,
+                        ink_ownership_mask.as_ref(),
+                        source_page_index,
+                        half,
+                        &mut conservation_warnings,
+                    );
+                    if !effectively_blank && pale_bilevel_collapse(&binary) {
+                        conservation_warnings.push(format!(
+                            "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
+                            source_page_index + 1,
+                            page_half_label(half)
+                        ));
+                        emitted_output_mode = OutputMode::Grayscale;
+                        (
+                            CleanupRaster::Gray(rendered_gray),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                            None,
+                        )
+                    } else {
+                        (
+                            CleanupRaster::Bilevel(binary),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                            None,
+                        )
+                    }
                 }
             }
             OutputMode::Mixed => {
@@ -4935,6 +5109,7 @@ fn clean_region(
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                     );
+                    let conservative = binary.clone();
                     let binary = filter_soft_shallow_bleed_components(
                         &binary,
                         &rendered_source_gray,
@@ -4950,14 +5125,39 @@ fn clean_region(
                         options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
                         options.dpi,
                     );
-                    (
-                        CleanupRaster::Bilevel(binary),
-                        None,
-                        Some(mode),
-                        Some(diagnostics),
-                        despeckle_fallback,
-                        None,
-                    )
+                    let (binary, _) = conserve_page_ink(
+                        conservative,
+                        binary,
+                        ink_ownership_mask.as_ref(),
+                        source_page_index,
+                        half,
+                        &mut conservation_warnings,
+                    );
+                    if !effectively_blank && pale_bilevel_collapse(&binary) {
+                        conservation_warnings.push(format!(
+                            "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
+                            source_page_index + 1,
+                            page_half_label(half)
+                        ));
+                        emitted_output_mode = OutputMode::Grayscale;
+                        (
+                            CleanupRaster::Gray(rendered_gray),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                            None,
+                        )
+                    } else {
+                        (
+                            CleanupRaster::Bilevel(binary),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                            None,
+                        )
+                    }
                 } else {
                     // Mixed pages are uncommon and their picture-excluding route is
                     // resolved inside the binarizer. Keep a geometry-matched raw
@@ -5003,6 +5203,7 @@ fn clean_region(
                             options.dpi,
                         ));
                     }
+                    let conservative = binary.clone();
                     let (binary, removed_edge_bands) = suppress_scanner_edge_bands(
                         &binary,
                         &rendered_gray,
@@ -5042,6 +5243,19 @@ fn clean_region(
                         options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
                         options.dpi,
                     );
+                    // Restoring the pre-suppression stencil also has to restore
+                    // the bands it removed: composition whitens them out of the
+                    // background layer, which would delete the very ink the
+                    // guard just decided to keep.
+                    let (binary, conserved) = conserve_page_ink(
+                        conservative,
+                        binary,
+                        ink_ownership_mask.as_ref(),
+                        source_page_index,
+                        half,
+                        &mut conservation_warnings,
+                    );
+                    let removed_edge_bands = (!conserved).then_some(&removed_edge_bands);
                     let reuse_source_mrc_foreground = can_reuse_source_mrc_foreground(
                         options,
                         rendered_trusted_foreground_mask.as_ref(),
@@ -5059,7 +5273,7 @@ fn clean_region(
                         &binary,
                         picture_mask,
                         rendered_chroma_picture_mask.as_ref(),
-                        Some(&removed_edge_bands),
+                        removed_edge_bands,
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
@@ -5154,6 +5368,7 @@ fn clean_region(
             deskew.confidence
         )]
     };
+    warnings.append(&mut conservation_warnings);
     if options.crop_content && !crop_enabled && content.content.is_none() {
         warnings.push("Content crop was skipped because no content box was detected".into());
     }
@@ -5214,7 +5429,7 @@ fn clean_region(
             matched_canvas_content_width: None,
             matched_canvas_content_height: None,
             pdf_image_placement: None,
-            output_mode: options.output_mode,
+            output_mode: emitted_output_mode,
             bilevel_written: false,
             layered_written: false,
             layered_foreground_kind: None,

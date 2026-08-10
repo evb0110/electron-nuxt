@@ -45,7 +45,7 @@ fn real_hard_cases_and_spread_controls_follow_stage_b_policy() {
             .iter()
             .filter(|item| item.family == "luther-soft-gutter")
             .count(),
-        4
+        5
     );
 
     let mut failures = Vec::new();

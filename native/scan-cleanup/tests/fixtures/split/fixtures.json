@@ -369,5 +369,18 @@
     "maxDimension": 1200,
     "expectedCutterRatio": 0.54,
     "cutterToleranceRatio": 0.03
+  },
+  {
+    "id": "spread-luther-plate-p00126",
+    "documentId": "luther-soft-gutter",
+    "page": 126,
+    "expected": "two-page-spread",
+    "family": "luther-soft-gutter",
+    "file": "spread-luther-plate-p00126.png",
+    "sourceNote": "003319_luther_syr_chronik_josua_styllites.pdf page 126, a pale photographic plate facing a text page, downscaled from a 150 DPI test raster",
+    "effectiveDpi": 82.15426745778184,
+    "maxDimension": 1200,
+    "expectedCutterRatio": 0.522,
+    "cutterToleranceRatio": 0.03
   }
 ]

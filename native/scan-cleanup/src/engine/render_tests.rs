@@ -6099,4 +6099,160 @@ mod tests {
         assert!((0..100).all(|y| (0..80).all(|x| !enforced.get(x, y))));
         assert!((40..60).all(|y| (130..134).all(|x| enforced.get(x, y))));
     }
+
+    /// A text column with `rows` scanlines of ink inside the ownership mask,
+    /// plus an unowned scanner rail down the left edge.
+    fn owned_page_fixture(rows: std::ops::Range<usize>) -> (BinaryImage, BinaryImage) {
+        let mut ownership = BinaryImage::new(400, 400);
+        for y in 100..300 {
+            for x in 100..300 {
+                ownership.set(x, y, true);
+            }
+        }
+        let mut ink = BinaryImage::new(400, 400);
+        for y in rows {
+            for x in 100..300 {
+                ink.set(x, y, true);
+            }
+        }
+        for y in 0..400 {
+            for x in 0..12 {
+                ink.set(x, y, true);
+            }
+        }
+        (ownership, ink)
+    }
+
+    #[test]
+    fn ink_conservation_restores_the_page_when_cleanup_deletes_its_content() {
+        let (ownership, conservative) = owned_page_fixture(100..300);
+        let (_, cleaned) = owned_page_fixture(100..150);
+        let mut warnings = Vec::new();
+
+        let (published, conserved) = conserve_page_ink(
+            conservative.clone(),
+            cleaned,
+            Some(&ownership),
+            115,
+            PageHalf::Left,
+            &mut warnings,
+        );
+
+        assert!(conserved);
+        assert_eq!(published.count_black(), conservative.count_black());
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("source page 116 (left half)"),
+            "the warning does not name the page: {}",
+            warnings[0]
+        );
+    }
+
+    #[test]
+    fn ink_conservation_leaves_a_normally_cleaned_page_alone() {
+        let (ownership, conservative) = owned_page_fixture(100..300);
+        let (_, cleaned) = owned_page_fixture(100..290);
+        let cleaned_ink = cleaned.count_black();
+        let mut warnings = Vec::new();
+
+        let (published, conserved) = conserve_page_ink(
+            conservative,
+            cleaned,
+            Some(&ownership),
+            2,
+            PageHalf::Right,
+            &mut warnings,
+        );
+
+        assert!(!conserved);
+        assert_eq!(published.count_black(), cleaned_ink);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn ink_conservation_does_not_demand_that_a_scanner_rail_be_kept() {
+        let (ownership, conservative) = owned_page_fixture(100..300);
+        let mut cleaned = conservative.clone();
+        for y in 0..400 {
+            for x in 0..12 {
+                cleaned.set(x, y, false);
+            }
+        }
+        let mut warnings = Vec::new();
+
+        let (published, conserved) = conserve_page_ink(
+            conservative,
+            cleaned,
+            Some(&ownership),
+            2,
+            PageHalf::Left,
+            &mut warnings,
+        );
+
+        assert!(!conserved);
+        assert!((0..400).all(|y| !published.get(0, y)));
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn ink_conservation_ignores_a_leaf_that_owns_almost_no_ink() {
+        let mut ownership = BinaryImage::new(400, 400);
+        let mut conservative = BinaryImage::new(400, 400);
+        for y in 200..203 {
+            for x in 200..240 {
+                ownership.set(x, y, true);
+                conservative.set(x, y, true);
+            }
+        }
+        let mut warnings = Vec::new();
+
+        let (published, conserved) = conserve_page_ink(
+            conservative,
+            BinaryImage::new(400, 400),
+            Some(&ownership),
+            2,
+            PageHalf::Left,
+            &mut warnings,
+        );
+
+        assert!(!conserved);
+        assert_eq!(published.count_black(), 0);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn a_bilevel_rendition_that_lost_the_page_counts_as_collapsed() {
+        let (_, page) = owned_page_fixture(100..300);
+        assert!(!pale_bilevel_collapse(&page));
+        let mut faint = BinaryImage::new(400, 400);
+        for x in 100..104 {
+            faint.set(x, 200, true);
+        }
+        assert!(pale_bilevel_collapse(&faint));
+    }
+
+    #[test]
+    fn leaf_blankness_is_read_past_the_fold_shadow_but_not_past_the_text() {
+        let mut shadowed = GrayImage::new(600, 800, 250);
+        for y in 0..800 {
+            for x in 0..20 {
+                shadowed.set(x, y, (30 + x * 8) as u8);
+            }
+        }
+        assert!(
+            leaf_interior_is_blank(&shadowed, 150.0),
+            "a blank verso was denied its clean page by the fold shadow",
+        );
+
+        let mut printed = shadowed.clone();
+        for y in 300..340 {
+            for x in 200..420 {
+                printed.set(x, y, 40);
+            }
+        }
+        assert!(
+            !leaf_interior_is_blank(&printed, 150.0),
+            "a printed leaf was treated as blank",
+        );
+    }
 }

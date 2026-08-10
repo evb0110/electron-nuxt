@@ -35,6 +35,10 @@ const BORDER_INK_LUMINANCE_CUTOFF: u8 = 160;
 const BLANK_EDGE_DIFFERENCE: u8 = 12;
 const BLANK_MAX_EDGE_FRACTION: f64 = 0.0015;
 const BLANK_MAX_ROBUST_LUMINANCE_RANGE: f64 = 48.0;
+/// Width of the leaf edge band that carries scanner rails and fold shadow
+/// rather than page content. Page margins at any scan resolution are wider
+/// than this, so no printed matter falls inside the band.
+const BLANK_EDGE_BAND_FRACTION: f64 = 0.04;
 const STRONG_BIMODALITY: f64 = 0.78;
 const BIMODALITY_HYSTERESIS: f64 = 0.055;
 const MIN_LUMINANCE_MODE_DISTANCE: f64 = 60.0;
@@ -1040,9 +1044,34 @@ pub(crate) fn is_blank_scan_candidate(
     analysis: &GrayImage,
     analysis_rgb: Option<&RgbImage>,
 ) -> bool {
-    is_blank_luminance(luminance_evidence(analysis))
+    // A leaf carries the scanner rail and the spread's fold shadow in its own
+    // edge band. Those are sheet artifacts, not page content, and their
+    // luminance spread was enough to deny a blank verso its clean white page:
+    // the verso then kept whatever streak the crop locked onto. Tone evidence
+    // is therefore read from the interior. Glyph structure and chroma still
+    // answer for the whole leaf, so a marginal note or an edge-hugging stamp
+    // keeps vetoing the verdict — the page must never be erased because its
+    // only content sits near the edge.
+    is_blank_luminance(luminance_evidence(&blank_interior(analysis)))
         && !has_coherent_edge_structure(analysis)
         && !has_significant_chroma(chroma_evidence(analysis, analysis_rgb, 0))
+}
+
+fn blank_interior(analysis: &GrayImage) -> GrayImage {
+    let inset_x = (analysis.width() as f64 * BLANK_EDGE_BAND_FRACTION).round() as usize;
+    let inset_y = (analysis.height() as f64 * BLANK_EDGE_BAND_FRACTION).round() as usize;
+    let width = analysis.width().saturating_sub(inset_x * 2);
+    let height = analysis.height().saturating_sub(inset_y * 2);
+    if width == 0 || height == 0 {
+        return analysis.clone();
+    }
+    let mut interior = GrayImage::new(width, height, 255);
+    for y in 0..height {
+        for x in 0..width {
+            interior.set(x, y, analysis.get(x + inset_x, y + inset_y));
+        }
+    }
+    interior
 }
 
 fn has_significant_chroma(chroma: ChromaEvidence) -> bool {
@@ -1928,6 +1957,50 @@ mod tests {
             }
         }
         assert!(is_blank_scan_candidate(&gray, None));
+    }
+
+    fn leaf_with_a_fold_shadow(base: u8) -> GrayImage {
+        let mut gray = GrayImage::new(620, 877, base);
+        for y in 0..gray.height() {
+            for x in 0..22 {
+                gray.set(x, y, (26 + x * 9).min(base as usize) as u8);
+            }
+        }
+        gray
+    }
+
+    #[test]
+    fn a_fold_shadow_in_the_edge_band_does_not_deny_a_blank_verso() {
+        let gray = leaf_with_a_fold_shadow(232);
+        assert!(
+            is_blank_scan_candidate(&gray, None),
+            "the leaf's own fold shadow was read as page content: {:?}",
+            luminance_evidence(&gray),
+        );
+    }
+
+    #[test]
+    fn a_pale_but_printed_leaf_is_never_a_blank_candidate() {
+        let mut gray = leaf_with_a_fold_shadow(232);
+        let ink = 190;
+        for line in 0..4 {
+            let top = 400 + line * 14;
+            for glyph in 0..12 {
+                let left = 282 + glyph * 9;
+                for y in top..top + 7 {
+                    gray.set(left, y, ink);
+                    gray.set(left + 4, y, ink);
+                }
+                for x in left..=left + 4 {
+                    gray.set(x, top, ink);
+                    gray.set(x, top + 3, ink);
+                }
+            }
+        }
+        assert!(
+            !is_blank_scan_candidate(&gray, None),
+            "a pale but printed leaf would have been emitted blank",
+        );
     }
 
     #[test]

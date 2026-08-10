@@ -22,6 +22,16 @@ const CUTTER_ANGLE_STEP_DEGREES: f64 = 0.5;
 const TOP_CUTTER_CANDIDATES: usize = 8;
 const TOP_DESKEW_CANDIDATE_GROUPS: usize = 2;
 const CURVED_SEAM_BAND_WIDTH_FRACTION: f64 = 0.015;
+/// What a fully saturated fold is worth on its own in [`bilateral_page_score`],
+/// chosen to clear that score's 0.08 gate and nothing more: the two leaves of a
+/// folded sheet are proven separate by the fold itself, so the bilateral test
+/// must stop asking them to look equally printed.
+const FOLDED_SHEET_BILATERAL_FLOOR: f64 = 0.10;
+const MAX_GUTTER_BAND_FRACTION: f64 = 0.03;
+const MIN_GUTTER_BAND_DEPRESSION: f64 = 6.0;
+const GUTTER_BAND_PAPER_ROW_SHARE: f64 = 0.10;
+const GUTTER_BAND_INK_ROW_SHARE: f64 = 0.10;
+const GUTTER_BAND_MAX_COLUMN_CONTRAST: f64 = 60.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -169,7 +179,25 @@ pub struct SplitDiagnostics {
 pub struct SplitResult {
     pub classification: LayoutClassification,
     pub confidence: f64,
+    /// Where the right leaf begins, and the only leaf edge that survives the
+    /// analyze-to-clean handoff.
     pub cutter_x: Option<f64>,
+    /// Where the left leaf ends: the left edge of the fold shadow the cutter
+    /// runs through, in the same coordinate space as
+    /// [`SplitResult::cutter_x`] and never right of it. The strip between the
+    /// two is fold rather than page and belongs to neither leaf. Absent means
+    /// no measurable shadow, so the leaves meet at the cutter exactly as they
+    /// always did.
+    ///
+    /// Only the left leaf gives ground. The cutter stays where the classifier
+    /// put it, so the right leaf's origin — the anchor for the leaf-local
+    /// content boxes the analyze pass publishes — is identical to what it
+    /// would have been without any shadow measurement, and the clean pass
+    /// re-cutting the page on its own raster cannot move it. The right leaf
+    /// therefore keeps its half of the fold, which its own content crop
+    /// removes; leaving a pale edge there is the deliberate cost of never
+    /// shifting a leaf origin out from under a content box.
+    pub gutter_left_x: Option<f64>,
     pub pages: Vec<Polygon>,
     pub split_seam: Option<SplitSeamPolyline>,
     pub diagnostics: SplitDiagnostics,
@@ -196,16 +224,19 @@ impl SplitResult {
             height,
             prior,
         );
+        let previous_cutter = self.cutter_x;
         self.classification = decision.classification;
         self.confidence = decision.confidence;
         self.cutter_x = decision.cutter_x;
         self.reconciliation = decision.reconciliation;
         self.diagnostics.evidence_product = decision.confidence;
+        // A shadow measured for one cutter says nothing about a different one,
+        // and a prior-forced split never observed a fold shadow at all.
+        self.gutter_left_x = self
+            .gutter_left_x
+            .filter(|_| decision.cutter_x == previous_cutter);
         self.pages = match decision.cutter_x {
-            Some(cutter) => vec![
-                page_polygon(0.0, cutter, height),
-                page_polygon(cutter, width as f64, height),
-            ],
+            Some(cutter) => leaf_polygons(width, height, cutter, self.gutter_left_x),
             None => vec![page_polygon(0.0, width as f64, height)],
         };
         if decision.classification != LayoutClassification::TwoPageSpread {
@@ -228,6 +259,7 @@ impl SplitResult {
         self.classification = LayoutClassification::SingleUncutPage;
         self.reconciliation.tier1_verdict = LayoutClassification::SingleUncutPage;
         self.cutter_x = None;
+        self.gutter_left_x = None;
         let width = self
             .pages
             .iter()
@@ -264,6 +296,16 @@ struct FoldCandidate {
     left_deskew_confidence: f64,
     right_deskew_confidence: f64,
     joint_deskew_score: f64,
+}
+
+/// Column statistics the gutter band reads: `bright` and `dark` are the
+/// luminance quantiles that separate a uniformly shadowed column from one that
+/// carries ink over visible paper.
+#[derive(Clone, Copy, Debug, Default)]
+struct ColumnProfile {
+    mean: f64,
+    bright: f64,
+    dark: f64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -355,10 +397,20 @@ fn detect_split_impl(
         } else {
             mode_classification(mode)
         };
+        let cutter = cutter.clamp(1.0, gray.width().saturating_sub(1) as f64);
+        // The shadow does not travel with the cutter, so re-measure it here on
+        // the pixels this pass actually has. Only the left leaf's edge can
+        // move; the cutter is taken as given, so nothing anchored to the right
+        // leaf shifts under it.
+        let gutter_left_x = matches!(classification, LayoutClassification::TwoPageSpread)
+            .then(|| gutter_shadow_band(gray, cutter))
+            .flatten()
+            .map(|(left, _)| left);
         return split_at(
             gray.width(),
             gray.height(),
-            cutter.clamp(1.0, gray.width().saturating_sub(1) as f64),
+            cutter,
+            gutter_left_x,
             classification,
             1.0,
             SplitDiagnostics::default(),
@@ -377,6 +429,7 @@ fn detect_split_impl(
                 gray.width(),
                 gray.height(),
                 gray.width() as f64 * 0.5,
+                None,
                 mode_classification(mode),
                 1.0,
                 SplitDiagnostics::default(),
@@ -534,7 +587,13 @@ fn spread_decision(
     let agreement_score = if fold.is_some() && !agrees { 0.65 } else { 1.0 };
     let soft_gutter_score = soft_gutter.map_or(0.0, |candidate| candidate.score);
     let gutter_score = gutter_darkness.max(fold_score).max(soft_gutter_score) * agreement_score;
-    let bilateral = bilateral_page_score(&analysis.cleaned, &analysis.gray, decision_x);
+    let folded_sheet_balance = folded_sheet_balance(soft_gutter, gutter_darkness);
+    let bilateral = bilateral_page_score(
+        &analysis.cleaned,
+        &analysis.gray,
+        decision_x,
+        folded_sheet_balance,
+    );
     let outer_margins = outer_margin_score(&analysis.cleaned, &analysis.binary, decision_x);
     let (confidence, independent_spread_cues) = spread_confidence(
         whitespace.score,
@@ -629,7 +688,12 @@ fn spread_decision(
         )
     });
     let sparse_x = sparse_gutter.map_or(decision_x, |candidate| candidate.x);
-    let sparse_bilateral = bilateral_page_score(&analysis.cleaned, &analysis.gray, sparse_x);
+    let sparse_bilateral = bilateral_page_score(
+        &analysis.cleaned,
+        &analysis.gray,
+        sparse_x,
+        folded_sheet_balance,
+    );
     let sparse_outer_margins = outer_margin_score(&analysis.cleaned, &analysis.binary, sparse_x);
     let sparse_agreement = fold.is_none()
         || agrees
@@ -687,11 +751,17 @@ fn spread_decision(
         (decision_x, confidence)
     };
 
+    // The cutter itself does not move: relocating it would hand the leaf on
+    // the far side material the other leaf used to own. Only the left leaf
+    // pulls back, to the near edge of the fold the cutter runs through.
     let cutter = scale_x(decision_x, analysis.gray.width(), original.width());
+    let gutter_left_x = gutter_shadow_band(&analysis.gray, decision_x)
+        .map(|(left, _)| scale_x(left, analysis.gray.width(), original.width()));
     let mut result = split_at(
         original.width(),
         original.height(),
         cutter,
+        gutter_left_x,
         LayoutClassification::TwoPageSpread,
         confidence,
         *diagnostics,
@@ -766,6 +836,7 @@ fn offcut_decision(
         original.width(),
         original.height(),
         cutter,
+        None,
         LayoutClassification::PageWithOffcut,
         evidence_product,
         *diagnostics,
@@ -926,7 +997,24 @@ struct BilateralScore {
     right: SideScore,
 }
 
-fn bilateral_page_score(cleaned: &BinaryImage, gray: &GrayImage, cutter_x: f64) -> BilateralScore {
+/// How strongly the gutter reads as the physical fold of a folded sheet rather
+/// than as a page-internal gap: a shadow that is deep, unbroken and runs the
+/// whole height of the raster.
+fn folded_sheet_balance(soft_gutter: Option<SoftGutterCandidate>, gutter_darkness: f64) -> f64 {
+    soft_gutter.map_or(0.0, |candidate| {
+        ramp(candidate.mean_depression, 8.0, 20.0)
+            * ramp(candidate.vertical_coverage, 0.88, 0.97)
+            * ramp(candidate.continuity, 0.80, 0.95)
+            * ramp(gutter_darkness, 0.40, 0.80)
+    })
+}
+
+fn bilateral_page_score(
+    cleaned: &BinaryImage,
+    gray: &GrayImage,
+    cutter_x: f64,
+    folded_sheet_balance: f64,
+) -> BilateralScore {
     let cutter = clamp_cutter(cleaned.width(), cutter_x);
     let left = side_page_score(cleaned, gray, 0, cutter);
     let right = side_page_score(cleaned, gray, cutter, cleaned.width());
@@ -948,8 +1036,21 @@ fn bilateral_page_score(cleaned: &BinaryImage, gray: &GrayImage, cutter_x: f64) 
     } else {
         0.0
     };
+    // A fold that darkens the full height of the sheet proves the two leaves
+    // are physically separate pages, so a pale plate facing a text page is a
+    // spread even though neither their ink volumes nor their page scores can
+    // balance. Both leaves must still expose their own page surface, which no
+    // born-digital raster does, and the floor is a floor rather than a factor
+    // because the pale leaf's own score measures how much of it was printed,
+    // not whether it is a leaf.
+    let folded_sheet_floor = if left.surface_score > 0.0 && right.surface_score > 0.0 {
+        FOLDED_SHEET_BILATERAL_FLOOR * folded_sheet_balance
+    } else {
+        0.0
+    };
     BilateralScore {
-        score: left.page_score.min(right.page_score) * content_balance.max(blank_leaf_balance),
+        score: (left.page_score.min(right.page_score) * content_balance.max(blank_leaf_balance))
+            .max(folded_sheet_floor),
         left,
         right,
     }
@@ -2047,6 +2148,134 @@ fn dimension_matches(actual: usize, expected: f64) -> bool {
     (actual as f64 - expected).abs() / expected.max(1.0) <= 0.02
 }
 
+/// Measures the run of fold shadow the cutter stands in, so the left leaf can
+/// end at its near edge instead of carrying the fold into a page of its own.
+/// The caller keeps the cutter where it was and uses only the left edge; the
+/// right edge says how much fold stays with the right leaf, for that leaf's own
+/// content crop to deal with.
+///
+/// The band is the run of columns around the cutter that are shadow and
+/// nothing else, and every rule here can only shorten it: a hard cap of
+/// [`MAX_GUTTER_BAND_FRACTION`] per side, the requirement that no paper shows
+/// through the column, and the requirement that the column holds no ink. The
+/// last two are what protect content: a column of glyphs, however dense, keeps
+/// bright paper between its rows and its ink sits far below the fold it would
+/// have to hide in. A page whose fold leaves no measurable shadow yields
+/// `None`, which cuts at a single column exactly as before. The band may be
+/// asymmetric, since a sheet lit from one side casts its shadow mostly onto
+/// one leaf.
+fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
+    let width = gray.width();
+    let cap = (width as f64 * MAX_GUTTER_BAND_FRACTION).floor() as usize;
+    let center = clamp_cutter(width, cutter_x);
+    let lower = center.saturating_sub(cap).max(1);
+    let upper = (center + cap).min(width.saturating_sub(1));
+    if cap == 0 || gray.height() < 16 || lower >= center || upper <= center {
+        return None;
+    }
+    let top = gray.height() / 20;
+    let bottom = gray.height() - top;
+    let rows = (bottom - top).max(1);
+    let column = |x: usize| {
+        let mut histogram = [0u32; 256];
+        let mut sum = 0u64;
+        for y in top..bottom {
+            let value = gray.get(x, y);
+            histogram[usize::from(value)] += 1;
+            sum += u64::from(value);
+        }
+        let share = |fraction: f64| (rows as f64 * fraction).ceil() as u32;
+        ColumnProfile {
+            mean: sum as f64 / rows as f64,
+            bright: brightest_quantile(&histogram, share(GUTTER_BAND_PAPER_ROW_SHARE)),
+            dark: darkest_quantile(&histogram, share(GUTTER_BAND_INK_ROW_SHARE)),
+        }
+    };
+    // The shoulders sit just outside the widest band we would ever remove, so
+    // they measure undisturbed page rather than shadow.
+    let shoulder = cap;
+    let shoulder_reference = |from: usize, to: usize| {
+        (from < to).then(|| {
+            let count = (to - from) as f64;
+            (from..to)
+                .map(column)
+                .fold(ColumnProfile::default(), |sums, profile| ColumnProfile {
+                    mean: sums.mean + profile.mean / count,
+                    bright: sums.bright + profile.bright / count,
+                    dark: sums.dark + profile.dark / count,
+                })
+        })
+    };
+    let left_reference = shoulder_reference(lower.saturating_sub(shoulder), lower)?;
+    let right_reference =
+        shoulder_reference((upper + 1).min(width), (upper + shoulder + 1).min(width))?;
+    // The dimmer shoulder yields the smaller depressions, hence the narrower
+    // band: when the two leaves are lit differently, prefer under-removal.
+    let reference = left_reference.mean.min(right_reference.mean);
+    let paper_reference = left_reference.bright.min(right_reference.bright);
+    let columns: Vec<ColumnProfile> = (lower..=upper).map(column).collect();
+    // A shadowed column is dark over nearly its whole height and has no ink in
+    // it: paper still shows through wherever glyphs are, and ink is far darker
+    // than the fold it sits in. Both tests are per column, so the band can only
+    // grow through columns that are shadow and nothing else.
+    let paper_limit = paper_reference - MIN_GUTTER_BAND_DEPRESSION;
+    let shadowed = |offset: usize| {
+        let profile = columns[offset];
+        profile.bright <= paper_limit
+            && profile.mean - profile.dark <= GUTTER_BAND_MAX_COLUMN_CONTRAST
+    };
+    // Only the run the cutter itself stands in counts. A shadow the cutter
+    // misses is not the fold this cut runs through, and trimming the left leaf
+    // back to it would cross page the cut had already assigned to that leaf.
+    let center_offset = center - lower;
+    if !shadowed(center_offset) {
+        return None;
+    }
+    let mut left_offset = center_offset;
+    while left_offset > 0 && shadowed(left_offset - 1) {
+        left_offset -= 1;
+    }
+    let mut right_offset = center_offset;
+    while right_offset + 1 < columns.len() && shadowed(right_offset + 1) {
+        right_offset += 1;
+    }
+    // A faint tint is not a fold. Somewhere in the run the sheet has to be
+    // measurably darker than the page around it.
+    let deepest = (left_offset..=right_offset)
+        .map(|offset| reference - columns[offset].mean)
+        .fold(f64::MIN, f64::max);
+    if deepest < MIN_GUTTER_BAND_DEPRESSION {
+        return None;
+    }
+    let left_edge = lower + left_offset;
+    let right_edge = lower + right_offset;
+    (left_edge < right_edge).then_some((left_edge as f64, right_edge as f64))
+}
+
+/// The luminance at or above which `target` rows of the column sit.
+fn brightest_quantile(histogram: &[u32; 256], target: u32) -> f64 {
+    let mut seen = 0u32;
+    for (value, count) in histogram.iter().enumerate().rev() {
+        seen += count;
+        if seen >= target {
+            return value as f64;
+        }
+    }
+    0.0
+}
+
+/// The luminance at or below which `target` rows of the column sit.
+fn darkest_quantile(histogram: &[u32; 256], target: u32) -> f64 {
+    let mut seen = 0u32;
+    for (value, count) in histogram.iter().enumerate() {
+        seen += count;
+        if seen >= target {
+            return value as f64;
+        }
+    }
+    255.0
+}
+
 fn clamp_cutter(width: usize, cutter_x: f64) -> usize {
     cutter_x.round().clamp(1.0, width.saturating_sub(1) as f64) as usize
 }
@@ -2076,6 +2305,7 @@ fn single(
         classification: LayoutClassification::SingleUncutPage,
         confidence,
         cutter_x: None,
+        gutter_left_x: None,
         pages: vec![page_polygon(0.0, width as f64, height)],
         split_seam: None,
         diagnostics,
@@ -2088,6 +2318,7 @@ fn split_at(
     width: usize,
     height: usize,
     x: f64,
+    gutter_left_x: Option<f64>,
     classification: LayoutClassification,
     confidence: f64,
     diagnostics: SplitDiagnostics,
@@ -2101,15 +2332,20 @@ fn split_at(
         classification,
         confidence,
         cutter_x: Some(x),
-        pages: vec![
-            page_polygon(0.0, x, height),
-            page_polygon(x, width as f64, height),
-        ],
+        gutter_left_x,
+        pages: leaf_polygons(width, height, x, gutter_left_x),
         split_seam: None,
         diagnostics,
         reconciliation,
         reusable_binary: None,
     }
+}
+
+fn leaf_polygons(width: usize, height: usize, x: f64, gutter_left_x: Option<f64>) -> Vec<Polygon> {
+    vec![
+        page_polygon(0.0, gutter_left_x.unwrap_or(x).min(x), height),
+        page_polygon(x, width as f64, height),
+    ]
 }
 
 fn page_polygon(left: f64, right: f64, height: usize) -> Polygon {
@@ -2415,7 +2651,19 @@ mod tests {
             result.diagnostics.soft_gutter_coverage >= 0.75,
             "{result:?}"
         );
-        assert!((result.cutter_x.unwrap() - 330.0).abs() <= 8.0);
+        // The cut runs along the shadow's right edge, so the fold sits between
+        // Measuring the shadow leaves the cut itself where it was; only the
+        // left leaf pulls back into the fold.
+        let cutter = result.cutter_x.unwrap();
+        assert!((cutter - 330.0).abs() <= 8.0);
+        let gutter_left = result
+            .gutter_left_x
+            .expect("a soft fold still casts a measurable shadow");
+        assert!(gutter_left < cutter, "{gutter_left}..{cutter}");
+        assert!(
+            cutter - gutter_left <= 660.0 * MAX_GUTTER_BAND_FRACTION,
+            "{gutter_left}..{cutter}"
+        );
     }
 
     #[test]
@@ -2567,6 +2815,7 @@ mod tests {
             660,
             936,
             570.0,
+            None,
             LayoutClassification::PageWithOffcut,
             0.7,
             diagnostics,
@@ -2581,6 +2830,7 @@ mod tests {
             660,
             420,
             330.0,
+            None,
             LayoutClassification::TwoPageSpread,
             0.8,
             SplitDiagnostics::default(),
@@ -2667,6 +2917,241 @@ mod tests {
         assert!(!rejected.reconciliation.reconciled);
         assert_eq!(rejected.reconciliation.cluster_agreement, -0.85);
         assert!(rejected.confidence < 0.2);
+    }
+
+    fn fold_shadow_page(
+        width: usize,
+        height: usize,
+        center: usize,
+        half_width: usize,
+        depth: u8,
+    ) -> GrayImage {
+        let mut gray = GrayImage::new(width, height, 245);
+        for y in 0..height {
+            for x in center.saturating_sub(half_width)..=(center + half_width).min(width - 1) {
+                gray.set(x, y, 245 - depth);
+            }
+        }
+        gray
+    }
+
+    #[test]
+    fn gutter_band_covers_the_fold_shadow_and_stays_inside_the_capped_window() {
+        let page = fold_shadow_page(1000, 600, 500, 8, 60);
+        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
+        assert!(left <= 492.0 && right >= 508.0, "{left}..{right}");
+        assert!(
+            right - left <= 2.0 * 1000.0 * MAX_GUTTER_BAND_FRACTION,
+            "{left}..{right}"
+        );
+    }
+
+    #[test]
+    fn gutter_band_is_absent_when_the_fold_leaves_no_shadow() {
+        let page = fold_shadow_page(1000, 600, 500, 0, 0);
+        assert_eq!(gutter_shadow_band(&page, 500.0), None);
+        // A shadow wider than the search window leaves no clean shoulder to
+        // measure against, which must degrade to the plain cutter as well.
+        let engulfed = fold_shadow_page(1000, 600, 500, 200, 60);
+        assert_eq!(gutter_shadow_band(&engulfed, 500.0), None);
+    }
+
+    #[test]
+    fn gutter_band_stops_at_a_column_that_carries_ink() {
+        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
+        for y in (30..570).step_by(6) {
+            page.set(485, y, 25);
+            page.set(486, y, 25);
+        }
+        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
+        assert!(
+            left >= 487.0,
+            "the band must not reach the inked columns: {left}"
+        );
+        assert!(
+            right >= 520.0,
+            "the shadow-only side stays covered: {right}"
+        );
+    }
+
+    #[test]
+    fn spread_leaves_exclude_the_fold_shadow_and_a_shadowless_cut_stays_adjacent() {
+        let mut gray = GrayImage::new(1200, 800, 245);
+        add_text_lines(&mut gray, 60, 560);
+        add_text_lines(&mut gray, 640, 1140);
+        for y in 0..800 {
+            for x in 590..=610 {
+                gray.set(x, y, 150);
+            }
+        }
+        let banded = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+        assert_eq!(banded.classification, LayoutClassification::TwoPageSpread);
+        let gutter_left = banded.gutter_left_x.expect("a measured fold shadow");
+        let cutter = banded.cutter_x.expect("a spread cuts somewhere");
+        // The cut still lands in the fold, and the left leaf pulls back to the
+        // near edge of it.
+        assert!((590.0..=610.0).contains(&cutter), "{cutter}");
+        assert!(gutter_left <= 592.0, "{gutter_left}");
+        assert_eq!(banded.pages[0].points[1].x, gutter_left);
+        assert_eq!(banded.pages[1].points[0].x, cutter);
+
+        let plain = split_at(
+            1200,
+            800,
+            600.0,
+            None,
+            LayoutClassification::TwoPageSpread,
+            0.9,
+            SplitDiagnostics::default(),
+        );
+        assert_eq!(plain.pages[0].points[1].x, 600.0);
+        assert_eq!(plain.pages[1].points[0].x, 600.0);
+    }
+
+    #[test]
+    fn a_carried_cutter_trims_the_same_shadow_without_moving_the_leaf_it_anchors() {
+        let mut gray = GrayImage::new(1200, 800, 245);
+        add_text_lines(&mut gray, 60, 560);
+        add_text_lines(&mut gray, 640, 1140);
+        for y in 0..800 {
+            for x in 590..=610 {
+                gray.set(x, y, 150);
+            }
+        }
+        let measured = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+        let cutter = measured.cutter_x.expect("a spread cuts somewhere");
+        // The clean pass inherits nothing but the cutter, so it has to find the
+        // same shadow again and leave the right leaf exactly where the analyze
+        // pass left it.
+        let carried = detect_split(&gray, 150.0, LayoutMode::Auto, Some(cutter));
+        assert_eq!(carried.cutter_x, Some(cutter));
+        assert_eq!(carried.gutter_left_x, measured.gutter_left_x);
+        assert_eq!(carried.pages[1].points[0].x, cutter);
+
+        let shadowless = GrayImage::new(1200, 800, 245);
+        assert_eq!(
+            detect_split(&shadowless, 150.0, LayoutMode::Auto, Some(600.0)).gutter_left_x,
+            None
+        );
+    }
+
+    #[test]
+    fn a_full_height_fold_lets_a_nearly_inkless_leaf_still_prove_a_spread() {
+        let mut gray = GrayImage::new(1200, 800, 245);
+        // A pale photographic plate facing a text page: the two leaves can
+        // never balance their ink, so only the fold can carry the decision.
+        for y in 40..760 {
+            for x in 40..560 {
+                gray.set(x, y, 238 - u8::try_from((x + y) % 3).unwrap());
+            }
+        }
+        for y in 60..64 {
+            for x in 40..150 {
+                gray.set(x, y, 150);
+            }
+        }
+        add_text_lines(&mut gray, 640, 1140);
+        for y in 0..800 {
+            for x in 592..=608 {
+                gray.set(x, y, 120);
+            }
+        }
+        let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+        assert_eq!(
+            result.classification,
+            LayoutClassification::TwoPageSpread,
+            "{result:?}"
+        );
+        assert!(result.diagnostics.bilateral_gate_passed, "{result:?}");
+        // Neither ink balance nor the blank-leaf escape hatch can carry this
+        // gate: the plate has a hundredth of the text page's ink, and squaring
+        // its own page score stays below the bilateral threshold.
+        assert!(
+            result.diagnostics.left_ink_pixels * 20 < result.diagnostics.right_ink_pixels,
+            "{result:?}"
+        );
+        assert!(
+            result.diagnostics.left_page_score * result.diagnostics.left_page_score < 0.08,
+            "{result:?}"
+        );
+        assert!(
+            (result.diagnostics.bilateral_score - FOLDED_SHEET_BILATERAL_FLOOR).abs() < 1e-9,
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn folded_sheet_balance_needs_a_deep_unbroken_full_height_fold() {
+        let saturated = SoftGutterCandidate {
+            x: 600.0,
+            score: 1.0,
+            vertical_coverage: 1.0,
+            continuity: 1.0,
+            mean_depression: 24.0,
+        };
+        assert_eq!(folded_sheet_balance(Some(saturated), 1.0), 1.0);
+        assert_eq!(folded_sheet_balance(None, 1.0), 0.0);
+        assert_eq!(folded_sheet_balance(Some(saturated), 0.3), 0.0);
+        let interrupted = SoftGutterCandidate {
+            continuity: 0.6,
+            ..saturated
+        };
+        assert_eq!(folded_sheet_balance(Some(interrupted), 1.0), 0.0);
+        let shallow = SoftGutterCandidate {
+            mean_depression: 6.0,
+            ..saturated
+        };
+        assert_eq!(folded_sheet_balance(Some(shallow), 1.0), 0.0);
+    }
+
+    #[test]
+    fn a_document_prior_never_reuses_a_shadow_measured_for_another_cutter() {
+        let prior = DocumentPrior {
+            dominant_layout: LayoutClassification::TwoPageSpread,
+            cutter_ratio_median: Some(0.50),
+            cluster_dims: ClusterDimensions {
+                width: 1200.0,
+                height: 800.0,
+            },
+            agreement_strength: 0.90,
+        };
+        let mut moved = split_at(
+            1200,
+            800,
+            700.0,
+            Some(690.0),
+            LayoutClassification::TwoPageSpread,
+            0.4,
+            SplitDiagnostics {
+                decision_x: 700.0,
+                whitespace_score: 0.6,
+                ..SplitDiagnostics::default()
+            },
+        );
+        moved.classification = LayoutClassification::SingleUncutPage;
+        moved.apply_document_prior(1200, 800, prior);
+        assert_eq!(moved.cutter_x, Some(600.0));
+        assert_eq!(moved.gutter_left_x, None);
+        assert_eq!(moved.pages[0].points[1].x, 600.0);
+        assert_eq!(moved.pages[1].points[0].x, 600.0);
+
+        let mut kept = split_at(
+            1200,
+            800,
+            600.0,
+            Some(590.0),
+            LayoutClassification::TwoPageSpread,
+            0.8,
+            SplitDiagnostics {
+                decision_x: 600.0,
+                whitespace_score: 0.6,
+                ..SplitDiagnostics::default()
+            },
+        );
+        kept.apply_document_prior(1200, 800, prior);
+        assert_eq!(kept.gutter_left_x, Some(590.0));
+        assert_eq!(kept.pages[0].points[1].x, 590.0);
+        assert_eq!(kept.pages[1].points[0].x, 600.0);
     }
 
     #[test]

@@ -265,7 +265,13 @@ fn detect_content_at_analysis_scale(
             picture_mask_overlap_pixels,
         });
     }
-    let clustered = cluster_content_blocks(&map, &candidates, analysis_picture_mask, calibration);
+    let clustered = cluster_content_blocks(
+        &map,
+        &candidates,
+        analysis_picture_mask,
+        &distance_to_white,
+        calibration,
+    );
     let retained = clustered.retained;
     let candidate_image = map.retain(|component| retained[component.label as usize]);
     let (mut blocks, component_blocks) = retained_content_blocks(
@@ -295,6 +301,21 @@ fn detect_content_at_analysis_scale(
         garbage,
         calibration,
     );
+    if matches!(purpose, ContentAnalysisPurpose::Crop { .. })
+        && !crop_evidence_supports_bounds(
+            text.summary.ink_pixels,
+            blocks
+                .iter()
+                .filter(|block| block.initialized)
+                .map(|block| block.ink_area)
+                .sum(),
+            analysis_picture_mask,
+            working.width(),
+            working.height(),
+        )
+    {
+        bounds = None;
+    }
     if let Some(picture_bounds) = picture_mask.and_then(|mask| {
         crop_qualified_picture_bounds_with_authority(
             mask,
@@ -312,6 +333,11 @@ fn detect_content_at_analysis_scale(
             },
             None => picture_bounds,
         });
+    }
+    if matches!(purpose, ContentAnalysisPurpose::Crop { .. })
+        && bounds.is_some_and(|bounds| is_edge_sliver(bounds, working.width(), working.height()))
+    {
+        bounds = None;
     }
     let protected_blocks = blocks
         .iter()
@@ -342,6 +368,61 @@ fn detect_content_at_analysis_scale(
         text.mask,
         text.vicinity_mask,
     )
+}
+
+/// A leaf with no page content on it still carries a fold shadow, a scanner
+/// rail and dust, and that is enough to assemble a content box out of nothing:
+/// the crop then follows the shadow and publishes the page as a sliver. A box
+/// may drive a crop only once the leaf shows page evidence. Below both floors
+/// the box is withdrawn, which costs a crop and never a pixel: the full leaf
+/// is emitted instead.
+///
+/// Glyph ink is the strong signal — a page of prose covers well over a percent
+/// of the leaf, a blank verso's shadow specks a fraction of a per mille — so
+/// its floor sits an order of magnitude below the sparsest real text page.
+const CROP_TEXT_EVIDENCE_MINIMUM_FRACTION: f64 = 0.0005;
+/// Rules, diagrams and other line art never reach the text mask, so retained
+/// block ink answers for them. It also counts the shadow fragments the text
+/// mask ignores, so its floor has to sit above what a blank leaf accumulates
+/// (0.47 per mille on the calibration book's page 3 verso) and below the
+/// sparsest ruled page (28 per mille across the pinned fixtures).
+const CROP_RETAINED_INK_MINIMUM_FRACTION: f64 = 0.002;
+
+fn crop_evidence_supports_bounds(
+    text_ink_pixels: usize,
+    retained_ink_pixels: usize,
+    picture_mask: Option<&BinaryImage>,
+    width: usize,
+    height: usize,
+) -> bool {
+    let picture_area = picture_mask.map_or(0, |mask| mask.count_black());
+    let area = width.saturating_mul(height) as f64;
+    let text_evidence = text_ink_pixels.saturating_add(picture_area) as f64
+        >= area * CROP_TEXT_EVIDENCE_MINIMUM_FRACTION;
+    let ink_evidence = retained_ink_pixels as f64 >= area * CROP_RETAINED_INK_MINIMUM_FRACTION;
+    let supported = text_evidence || ink_evidence;
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
+        eprintln!(
+            "{{\"event\":\"crop-evidence\",\"textInk\":{text_ink_pixels},\"retainedInk\":{retained_ink_pixels},\"pictureArea\":{picture_area},\"area\":{},\"supported\":{supported}}}",
+            width.saturating_mul(height),
+        );
+    }
+    supported
+}
+
+/// A page never prints a column narrower than a margin, so a box that thin
+/// against a leaf edge is the fold shadow or the scanner rail wearing the
+/// crop's authority. Withdrawing it costs the crop, never a pixel.
+const CROP_SLIVER_MAXIMUM_FRACTION: f64 = 0.05;
+
+fn is_edge_sliver(bounds: PixelBounds, width: usize, height: usize) -> bool {
+    let horizontal_margin = (width as f64 * CROP_SLIVER_MAXIMUM_FRACTION) as usize;
+    let vertical_margin = (height as f64 * CROP_SLIVER_MAXIMUM_FRACTION) as usize;
+    let narrow = bounds.width() <= horizontal_margin
+        && (bounds.left <= horizontal_margin || bounds.right + horizontal_margin >= width);
+    let short = bounds.height() <= vertical_margin
+        && (bounds.top <= vertical_margin || bounds.bottom + vertical_margin >= height);
+    narrow || short
 }
 
 fn component_center(component: &Component) -> (usize, usize) {
@@ -527,6 +608,7 @@ fn cluster_content_blocks(
     map: &ComponentMap,
     candidates: &[ContentCandidate<'_>],
     picture_mask: Option<&BinaryImage>,
+    distance_to_white: &[u32],
     calibration: PageCalibration,
 ) -> ClusteredContent {
     let mut candidate_labels = vec![false; map.components().len() + 1];
@@ -566,6 +648,14 @@ fn cluster_content_blocks(
         block.picture_mask_overlap_pixels += candidate.picture_mask_overlap_pixels;
     }
     annotate_picture_overlap(&mut blocks, picture_mask);
+    // Text-line evidence has to exist before retention, not after it. Retention
+    // decides which components survive into the block set that later grows the
+    // text mask, so a block judged only by relative ink mass — a footnote
+    // paragraph under a full page of body text — was deleted before it could
+    // ever prove it was text, and the crop bound followed the deletion.
+    let text_lines =
+        build_text_line_mask(&candidate_image, &blocks, distance_to_white, calibration);
+    annotate_text_evidence(map, &component_blocks, &mut blocks, &text_lines.mask);
     let fragmented_edge_continuations = blocks
         .iter()
         .map(|block| {
@@ -2214,6 +2304,16 @@ mod tests {
         artifact_top: usize,
         artifact_bottom: usize,
     ) -> (Option<PixelBounds>, Vec<ContentAcceptedTrim>) {
+        let (bounds, _, accepted_trims) =
+            direct_trim_fixture_with_garbage(artifact_top, artifact_bottom, true);
+        (bounds, accepted_trims)
+    }
+
+    fn direct_trim_fixture_with_garbage(
+        artifact_top: usize,
+        artifact_bottom: usize,
+        artifact_is_garbage: bool,
+    ) -> (Option<PixelBounds>, [f64; 4], Vec<ContentAcceptedTrim>) {
         let width = 200;
         let height = 200;
         let mut content = BinaryImage::new(width, height);
@@ -2259,8 +2359,15 @@ mod tests {
         component_blocks[artifact_label] = artifact_label;
         component_blocks[body_label] = body_label;
         let mut garbage_labels = vec![0u32; width * height];
-        for y in artifact_top..=artifact_bottom {
-            for x in 20..31 {
+        let (garbage_rows, garbage_columns) = if artifact_is_garbage {
+            (artifact_top..=artifact_bottom, 20..31)
+        } else {
+            // Garbage far from the band under test: its distance term is what
+            // holds the trim score below the side's threshold.
+            (190..=199, 160..200)
+        };
+        for y in garbage_rows {
+            for x in garbage_columns.clone() {
                 garbage_labels[y * width + x] = HORIZONTAL_GARBAGE;
             }
         }
@@ -2268,7 +2375,7 @@ mod tests {
         let protected_mask = BinaryImage::new(width, height);
         let calibration =
             PageCalibration::estimate_from_binary(&content, 150.0, CalibrationConfig::default());
-        let (bounds, _, accepted_trims) = trim_content_bounds(
+        trim_content_bounds(
             &content,
             &component_map,
             &blocks,
@@ -2277,8 +2384,7 @@ mod tests {
             &protected_mask,
             garbage_labels,
             calibration,
-        );
-        (bounds, accepted_trims)
+        )
     }
 
     fn iou(left: Rect, right: Rect) -> f64 {
@@ -2588,6 +2694,158 @@ mod tests {
             bounds.bottom() <= 735.0,
             "bottom gutter fragments survived: {bounds:?}"
         );
+    }
+
+    fn footnote_page_below_a_fold_shadow() -> GrayImage {
+        let mut image = GrayImage::new(600, 800, 242);
+        for row in 0..22 {
+            draw_glyph_line(&mut image, 145, 100 + row * 24, 24, 6, 11, 4);
+        }
+        draw_glyph_line(&mut image, 145, 712, 12, 5, 9, 4);
+        draw_glyph_line(&mut image, 145, 730, 12, 5, 9, 4);
+        for y in 0..image.height() {
+            for x in 0..16 {
+                let shading = (40 + x * 9 + (y % 7) * 3).min(242);
+                image.set(x, y, shading as u8);
+            }
+        }
+        image
+    }
+
+    #[test]
+    fn footnotes_near_the_page_edge_survive_a_full_page_of_body_text() {
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 40.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let image = footnote_page_below_a_fold_shadow();
+        let result = detect_content_and_margins_calibrated(
+            &image,
+            None,
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        );
+        let bounds = result.content.expect("authored text is content");
+        assert!(
+            bounds.bottom() >= 739.0,
+            "footnote block below the body text was cropped away: {bounds:?}"
+        );
+        assert!(
+            bounds.x >= 100.0,
+            "the fold shadow was taken for content: {bounds:?}"
+        );
+        let diagnostics = result.diagnostics.expect("analysis reports diagnostics");
+        let text_bounds = diagnostics
+            .text_mask
+            .bounds
+            .expect("text lines were detected");
+        assert!(
+            text_bounds.y_px + text_bounds.height_px >= 735,
+            "the footnote lines never earned text evidence: {text_bounds:?}",
+        );
+    }
+
+    #[test]
+    fn a_leaf_carrying_only_a_fold_shadow_yields_no_crop_box() {
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 40.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let mut image = GrayImage::new(600, 800, 244);
+        for y in 0..image.height() {
+            for x in 0..18 {
+                let shading = (26 + x * 11 + (y % 5) * 4).min(244);
+                image.set(x, y, shading as u8);
+            }
+        }
+        for speck in 0..12 {
+            let x = 120 + speck * 34;
+            let y = 90 + (speck % 5) * 130;
+            image.set(x, y, 60);
+            image.set(x + 1, y, 70);
+        }
+
+        let content = detect_content_and_margins_calibrated(
+            &image,
+            None,
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .content;
+        assert!(
+            content.is_none(),
+            "a blank leaf's fold shadow was published as a content box: {content:?}",
+        );
+    }
+
+    #[test]
+    fn an_edge_hugging_sliver_is_not_a_content_box() {
+        assert!(is_edge_sliver(
+            PixelBounds {
+                left: 0,
+                top: 40,
+                right: 14,
+                bottom: 2_060,
+            },
+            2_238,
+            3_252,
+        ));
+        assert!(is_edge_sliver(
+            PixelBounds {
+                left: 2_200,
+                top: 40,
+                right: 2_237,
+                bottom: 3_000,
+            },
+            2_238,
+            3_252,
+        ));
+        assert!(!is_edge_sliver(
+            PixelBounds {
+                left: 0,
+                top: 40,
+                right: 400,
+                bottom: 3_000,
+            },
+            2_238,
+            3_252,
+        ));
+    }
+
+    #[test]
+    fn crop_evidence_requires_page_ink_rather_than_edge_dirt() {
+        // Measured on the calibration book's page 3 verso: a blank leaf's fold
+        // shadow reaches 0.22 per mille of text ink and 0.47 of retained ink.
+        assert!(!crop_evidence_supports_bounds(415, 872, None, 1_138, 1_626));
+        // A page of prose on the same leaf.
+        assert!(crop_evidence_supports_bounds(
+            88_489, 90_767, None, 1_138, 1_626
+        ));
+        // Line art never enters the text mask; retained ink answers for it.
+        assert!(crop_evidence_supports_bounds(0, 51_128, None, 700, 1_000));
+        let mut picture = BinaryImage::new(2_238, 3_252);
+        for y in 500..1_500 {
+            for x in 400..1_400 {
+                picture.set(x, y, true);
+            }
+        }
+        assert!(crop_evidence_supports_bounds(
+            0,
+            0,
+            Some(&picture),
+            2_238,
+            3_252
+        ));
     }
 
     #[test]
@@ -2932,6 +3190,36 @@ mod tests {
             .iter()
             .any(|trim| { trim.side == ContentTrimSide::Top && trim.iteration == 1 }));
         assert!(bounds.top >= 80, "edge-attached band survived: {bounds:?}");
+    }
+
+    #[test]
+    fn a_side_below_its_trim_threshold_is_left_untrimmed() {
+        let (trimmed, trimmed_confidence, trims) = direct_trim_fixture_with_garbage(0, 30, true);
+        let trimmed = trimmed.expect("artifact and body are content");
+        assert!(
+            trimmed.top >= 80,
+            "the trimmable band survived: {trimmed:?}"
+        );
+        let accepted = trims
+            .iter()
+            .find(|trim| trim.side == ContentTrimSide::Top)
+            .expect("the band was trimmed from the top");
+        assert!(accepted.score > accepted.threshold);
+        assert!(trimmed_confidence[TrimSide::Top.index()] >= accepted.threshold);
+
+        // The same band with the garbage evidence elsewhere: the side scores
+        // below its threshold, so nothing is trimmed and the pixels stay.
+        let (kept, kept_confidence, kept_trims) = direct_trim_fixture_with_garbage(0, 30, false);
+        let kept = kept.expect("artifact and body are content");
+        assert!(
+            kept_trims.is_empty(),
+            "a below-threshold side was trimmed: {kept_trims:?}",
+        );
+        assert_eq!(kept.top, 0, "an unsupported trim removed content: {kept:?}");
+        assert!(
+            kept_confidence[TrimSide::Top.index()] < accepted.threshold,
+            "the refused side reported trim-worthy confidence: {kept_confidence:?}",
+        );
     }
 
     #[test]
