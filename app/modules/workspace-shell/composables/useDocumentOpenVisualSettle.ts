@@ -70,11 +70,16 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         // transient viewport state. A normal page command changes the viewport
         // lifecycle to `transitioning`; allowing that to clear this signal
         // makes the host mistake navigation for a fresh document open and
-        // replace the resident canvas with an opening skeleton.
+        // replace the resident canvas with an opening skeleton. The latch only
+        // holds while a resident visual exists: when the current page degrades
+        // to a skeleton (a budget eviction of the on-screen visual), there is
+        // no canvas left to protect and readiness must drop until the
+        // replacement paint settles.
         return identity !== null
             && committed?.generation === surface.generation
             && committed.documentId === identity.documentId
-            && committed.documentRevision === identity.documentRevision;
+            && committed.documentRevision === identity.documentRevision
+            && options.openSurface.viewportSession.value.visual.presentation !== 'skeleton';
     });
     let documentOpenVisualSettlePromise: Promise<void> | null = null;
     let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;
