@@ -1,4 +1,6 @@
 import {
+    computed,
+    effectScope,
     nextTick,
     ref,
 } from 'vue';
@@ -11,6 +13,7 @@ import {
     vi,
 } from 'vitest';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
+import { useDocumentOpenSurfaceLifecycle } from '@app/modules/workspace-shell/composables/useDocumentOpenSurfaceLifecycle';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSnapshot,
@@ -51,6 +54,7 @@ function createHarness(overrides: IHarnessOverrides = {}) {
         ? {
             snapshot: ref(overrides.openSurfaceSnapshot),
             viewportSession: surfaceSession.viewportSession,
+            getDiagnosticHistory: () => [],
         }
         : surfaceSession;
 
@@ -160,6 +164,51 @@ describe('useDocumentOpenVisualSettle', () => {
         commitHarnessSurfaceReady(harness);
 
         await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
+    });
+
+    it('keeps document readiness latched while page navigation transitions within the same generation', async () => {
+        const harness = createHarness({
+            hasPdf: true,
+            pdfSrc: {path: 'fixture.pdf'},
+            pdfDocument: {},
+            totalPages: 3,
+            pageLabelsResolved: true,
+            isLoading: false,
+        });
+        commitHarnessSurfaceReady(harness);
+        expect(harness.settle.initialDocumentVisualReady.value).toBe(true);
+
+        const initialGeneration = harness.surfaceSession.snapshot.value.generation;
+        const pendingDocumentOpen = computed(() => !harness.settle.initialDocumentVisualReady.value);
+        const scope = effectScope();
+        scope.run(() => useDocumentOpenSurfaceLifecycle({
+            openSurface: harness.surfaceSession,
+            onInitialVisualPending: vi.fn(),
+            onInitialVisualReady: vi.fn(),
+            pendingDocumentOpen,
+            pendingDocumentIdentity: ref('fixture.pdf'),
+        }));
+
+        harness.surfaceSession.metadataReady(3);
+        harness.surfaceSession.requestNavigation(2);
+        await nextTick();
+
+        expect(harness.surfaceSession.viewportSession.value).toMatchObject({
+            generation: initialGeneration,
+            lifecycle: 'transitioning',
+            requestedPage: 2,
+        });
+        expect(harness.surfaceSession.snapshot.value.generation).toBe(initialGeneration);
+        expect(harness.settle.initialDocumentVisualReady.value).toBe(true);
+        expect(pendingDocumentOpen.value).toBe(false);
+        scope.stop();
+
+        const nextGeneration = harness.surfaceSession.begin({
+            documentId: 'second.pdf',
+            documentRevision: 'revision-2',
+        });
+        expect(nextGeneration).toBeGreaterThan(initialGeneration);
+        expect(harness.settle.initialDocumentVisualReady.value).toBe(false);
     });
 
     it('accepts a settled PDF document for routing without waiting for its first canvas', async () => {

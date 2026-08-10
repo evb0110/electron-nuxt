@@ -20,11 +20,61 @@ interface IUseDocumentOpenVisualSettleOptions {
 }
 
 export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettleOptions) => {
+    const committedInitialVisualIdentity = shallowRef<{
+        documentId: string;
+        documentRevision: string;
+        generation: number;
+    } | null>(null);
+    watch(
+        [
+            options.openSurface.snapshot,
+            options.openSurface.viewportSession,
+        ],
+        ([
+            surface,
+            viewport,
+        ]) => {
+            const identity = surface.identity;
+            if (
+                identity === null
+                || surface.phase !== 'ready'
+                || surface.presentation !== 'committed'
+                || viewport.lifecycle !== 'ready'
+            ) {
+                return;
+            }
+            const committed = committedInitialVisualIdentity.value;
+            if (
+                committed?.generation === surface.generation
+                && committed.documentId === identity.documentId
+                && committed.documentRevision === identity.documentRevision
+            ) {
+                return;
+            }
+            committedInitialVisualIdentity.value = {
+                generation: surface.generation,
+                documentId: identity.documentId,
+                documentRevision: identity.documentRevision,
+            };
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
     const initialDocumentVisualReady = computed(() => {
         const surface = options.openSurface.snapshot.value;
-        return surface.phase === 'ready'
-            && surface.presentation === 'committed'
-            && options.openSurface.viewportSession.value.lifecycle === 'ready';
+        const identity = surface.identity;
+        const committed = committedInitialVisualIdentity.value;
+        // Initial readiness belongs to the document generation, not to every
+        // transient viewport state. A normal page command changes the viewport
+        // lifecycle to `transitioning`; allowing that to clear this signal
+        // makes the host mistake navigation for a fresh document open and
+        // replace the resident canvas with an opening skeleton.
+        return identity !== null
+            && committed?.generation === surface.generation
+            && committed.documentId === identity.documentId
+            && committed.documentRevision === identity.documentRevision;
     });
     let documentOpenVisualSettlePromise: Promise<void> | null = null;
     let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;

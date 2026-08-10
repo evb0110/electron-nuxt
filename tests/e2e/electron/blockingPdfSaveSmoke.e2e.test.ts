@@ -96,6 +96,42 @@ async function clickVisibleSaveToolbarButton(page: Page) {
     }
 }
 
+async function clickVisibleToolbarButton(page: Page, label: string) {
+    const clicked = await page.evaluate((buttonLabel) => {
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+            .find(candidate => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return candidate.getAttribute('aria-label')?.trim() === buttonLabel
+                    && !candidate.disabled
+                    && candidate.getAttribute('aria-disabled') !== 'true'
+                    && rect.width > 0
+                    && rect.height > 0
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+        button?.click();
+        return Boolean(button);
+    }, label);
+    if (!clicked) {
+        throw new Error(`Visible enabled ${label} toolbar button not found`);
+    }
+}
+
+async function readOpenSurfaceState(page: Page) {
+    return page.evaluate(() => {
+        const surface = document.querySelector<HTMLElement>('[data-open-surface-generation]');
+        return surface ? {
+            generation: Number(surface.dataset.openSurfaceGeneration),
+            documentRevision: surface.dataset.openSurfaceDocumentRevision ?? null,
+            lifecycle: surface.dataset.viewportLifecycle ?? null,
+            requestedPage: Number(surface.dataset.viewportRequestedPage),
+            committedPage: Number(surface.dataset.viewportCommittedPage),
+            visualPresentation: surface.dataset.viewportVisualPresentation ?? null,
+        } : null;
+    });
+}
+
 async function waitForFreeTextAnnotationOnDisk(filePath: string) {
     const startedAt = Date.now();
     let summary = await readPdfAnnotationSummary(filePath);
@@ -120,7 +156,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
     });
 
     it('opens a startup PDF path, creates a visible annotation, and saves it to disk', async () => {
-        const pdfPath = await createMultiPageTextFixturePdf(`blocking-save-smoke-${Date.now()}.pdf`, 1);
+        const pdfPath = await createMultiPageTextFixturePdf(`blocking-save-smoke-${Date.now()}.pdf`, 3);
         const beforeHash = hashFile(pdfPath);
 
         session = await startElectronE2ESession(`e2e-blocking-save-smoke-${Date.now()}`, {
@@ -185,5 +221,35 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
 
         const summary = await waitForFreeTextAnnotationOnDisk(pdfPath);
         expect(summary.bySubtype.FreeText ?? 0).toBeGreaterThan(0);
+
+        const initialSurface = await readOpenSurfaceState(page);
+        expect(initialSurface).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            visualPresentation: 'canvas',
+        });
+        await clickVisibleToolbarButton(page, 'Next Page');
+        await page.waitForFunction(
+            (generation) => {
+                const surface = document.querySelector<HTMLElement>('[data-open-surface-generation]');
+                return Number(surface?.dataset.openSurfaceGeneration) === generation
+                    && surface?.dataset.viewportLifecycle === 'ready'
+                    && surface.dataset.viewportRequestedPage === '2'
+                    && surface.dataset.viewportCommittedPage === '2'
+                    && surface.dataset.viewportVisualPresentation === 'canvas';
+            },
+            {timeout: 30_000},
+            initialSurface!.generation,
+        );
+        const navigatedSurface = await readOpenSurfaceState(page);
+        expect(navigatedSurface).toMatchObject({
+            generation: initialSurface!.generation,
+            documentRevision: initialSurface!.documentRevision,
+            lifecycle: 'ready',
+            requestedPage: 2,
+            committedPage: 2,
+            visualPresentation: 'canvas',
+        });
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 });
