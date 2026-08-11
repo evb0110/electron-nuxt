@@ -1217,18 +1217,6 @@ fn conserve_page_ink(
     let supported = owned_ink_pixels(&conservative, ownership);
     let surviving = owned_ink_pixels(&cleaned, ownership);
     let minimum = owned_ink_minimum(conservative.width(), conservative.height());
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_INK").is_some() {
-        eprintln!(
-            "ink-conservation page={} half={:?} owned={supported} surviving={surviving} minimum={minimum} retention={:.4}",
-            source_page_index + 1,
-            half,
-            if supported == 0 {
-                1.0
-            } else {
-                surviving as f64 / supported as f64
-            },
-        );
-    }
     if supported < minimum {
         return (cleaned, false);
     }
@@ -1298,6 +1286,7 @@ const FOLD_EDGE_BLANK_SPECK_MAX_MAJOR_MM: f64 = 2.0;
 const FOLD_EDGE_BLANK_SPECK_MAX_MINOR_MM: f64 = 1.25;
 const FOLD_EDGE_BLANK_SPECK_MAX_AREA_MM2: f64 = 0.5;
 
+#[allow(clippy::too_many_arguments)]
 fn filter_fold_edge_fragments(
     binary: &BinaryImage,
     picture_mask: Option<&BinaryImage>,
@@ -1659,7 +1648,9 @@ fn filter_fold_edge_fragments_with_removed(
             let mut covered: Option<(usize, usize)> = None;
             for (top, bottom) in intervals {
                 match covered {
-                    Some((covered_top, covered_bottom)) if top <= covered_bottom + 1 => {
+                    Some((covered_top, covered_bottom))
+                        if top <= covered_bottom.saturating_add(1) =>
+                    {
                         covered = Some((covered_top, covered_bottom.max(bottom)));
                     }
                     Some((covered_top, covered_bottom)) => {
@@ -1739,29 +1730,6 @@ fn filter_fold_edge_fragments_with_removed(
         // fragment being rejected. Only the part beyond the independently
         // bounded fold corridor is content interior for this filter.
         let content_ownership = component_has_content_ownership(component);
-        if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_FOLD_COMPONENTS").is_some() {
-            let edge = fold_edge_x_at(((component.top + component.bottom) / 2) as f64);
-            let near_fold = match half {
-                PageHalf::Left => component.right as f64 >= edge - margin,
-                PageHalf::Right => component.left as f64 <= edge + margin,
-                PageHalf::Full => false,
-            };
-            if near_fold {
-                eprintln!(
-                    "fold-component half={half:?} raster={}x{} edge={edge:.1} bbox={}x{}+{}+{} area={} small={small_fragment} line={line_like} inward={inward_depth:.1}/{margin:.1} picture={picture_ownership} textRaw={} vicinityRaw={} textOwned={text_ownership} contentRaw={} contentOwned={content_ownership}",
-                    binary.width(),
-                    binary.height(),
-                    width,
-                    height,
-                    component.left,
-                    component.top,
-                    component.area,
-                    text_mask.is_some_and(|mask| overlaps_mask(component, mask)),
-                    text_vicinity_mask.is_some_and(|mask| overlaps_mask(component, mask)),
-                    rendered_content_rect.is_some_and(|rect| component_inside(component, rect)),
-                );
-            }
-        }
         if (picture_ownership && !blank_speck) || text_ownership || content_ownership {
             return true;
         }
@@ -5452,22 +5420,13 @@ fn clean_region(
     // no text or picture ink and its inset interior must independently remain
     // blank. A pale plate therefore survives even when an edge shadow is also
     // present; only edge-confined unowned residue earns the white page.
-    let leaf_interior_blank = leaf_interior_is_blank(&rendered_gray, options.dpi);
     let unowned_edge_residue = !pale_tonal_structure
         && !effectively_blank
         && content.content.is_none()
         && ink_ownership_mask
             .as_ref()
             .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
-        && leaf_interior_blank;
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_INK").is_some() {
-        eprintln!(
-            "blank-residue page={} half={half:?} effectivelyBlank={effectively_blank} pale={pale_tonal_structure} interiorBlank={leaf_interior_blank} content={} owned={:?} residue={unowned_edge_residue}",
-            source_page_index + 1,
-            content.content.is_some(),
-            ink_ownership_mask.as_ref().map(|mask| mask.count_black()),
-        );
-    }
+        && leaf_interior_is_blank(&rendered_gray, options.dpi);
     let fail_closed_blank = force_clean_blank
         || (!pale_tonal_structure
             && content.content.is_none()
