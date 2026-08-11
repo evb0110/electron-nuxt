@@ -41,7 +41,10 @@ function changeFileModeAfterCtimeAdvances(path: string, initialMode: number) {
     throw new Error('Filesystem ctime did not advance after repeated mode changes');
 }
 
-vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadableBinaryPath: vi.fn(async () => mocks.path)}));
+vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({
+    resolveExistingReadableBinaryPath: vi.fn(async () => mocks.path),
+    resolveExistingReadableDocumentOrImagePath: vi.fn(async () => mocks.path),
+}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({readWorkingCopyRevisionSidecar: vi.fn(async () => mocks.revision)}));
 vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({fingerprintFileWithUtilityProcess: mocks.inspect}));
 
