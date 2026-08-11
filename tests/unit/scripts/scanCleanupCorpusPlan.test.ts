@@ -8,6 +8,24 @@ import {
     expect,
     it,
 } from 'vitest';
+import {readFileSync} from 'node:fs';
+
+function rustPaleCollapseWarning(pageNumber: number, half: string) {
+    const source = readFileSync(
+        new URL('../../../native/scan-cleanup/src/engine/render.rs', import.meta.url),
+        'utf8',
+    );
+    const templates = [...source.matchAll(
+        /conservation_warnings\.push\(format!\(\s*"([^"]+)"\s*,\s*source_page_index \+ 1,\s*page_half_label\(half\)\s*\)\);/g,
+    )].map(match => match[1]);
+    const uniqueTemplates = [...new Set(templates)];
+    if (templates.length === 0 || uniqueTemplates.length !== 1) {
+        throw new Error(`Expected one shared Rust pale-collapse warning, found ${JSON.stringify(uniqueTemplates)}`);
+    }
+    return uniqueTemplates[0]
+        .replace('{}', String(pageNumber))
+        .replace('{}', half);
+}
 
 const tone = {
     applied: true,
@@ -101,6 +119,36 @@ describe('scan cleanup corpus preview-plan replay', () => {
             ...final,
             outputMode: 'color',
         })).toEqual(['mode color != grayscale']);
+    });
+
+    it('allows only a warned pale-collapse grayscale fallback from a B&W recommendation', () => {
+        const bwAnalysis = {
+            ...analysis(),
+            recommendedOutputMode: 'bw',
+        };
+        const preview = {
+            ...previewOutput(),
+            outputMode: 'bw',
+        };
+        const warning = rustPaleCollapseWarning(126, 'left half');
+        const final = {
+            ...preview,
+            outputMode: 'grayscale',
+            warnings: [warning],
+        };
+        expect(pagePlanParityFailures(bwAnalysis, [preview], final)).toEqual([]);
+        expect(pagePlanParityFailures(bwAnalysis, [preview], {
+            ...final,
+            warnings: [],
+        })).toEqual(['mode grayscale != bw']);
+        expect(pagePlanParityFailures(bwAnalysis, [preview], {
+            ...final,
+            warnings: ['grayscale fallback was used'],
+        })).toEqual(['mode grayscale != bw']);
+        expect(pagePlanParityFailures(analysis(), [previewOutput()], {
+            ...final,
+            outputMode: 'bw',
+        })).toEqual(['mode bw != grayscale']);
     });
 
     it('allows only the unavoidable half-pixel quantization of a replayed split boundary', () => {

@@ -183,6 +183,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
         raw_source,
         picture_mask,
         text_vicinity,
+        None,
         options.binarization,
         diagnostics.route,
         options.dpi,
@@ -261,6 +262,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         raw_source,
         Some(picture_mask),
         text_vicinity,
+        None,
         options.binarization,
         diagnostics.route,
         options.dpi,
@@ -304,6 +306,7 @@ fn binarize_with_mode(
         raw_source,
         picture_mask,
         text_vicinity,
+        None,
         options.binarization,
         mode,
         options.dpi,
@@ -759,6 +762,7 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
     raw: &GrayImage,
     picture_mask: Option<&BinaryImage>,
     text_vicinity: Option<&BinaryImage>,
+    row_evidence_exclusion: Option<&BinaryImage>,
     requested_mode: BinarizationMode,
     selected_mode: BinarizationMode,
     dpi: f64,
@@ -782,6 +786,9 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
         mask.width() == damaged.width() && mask.height() == damaged.height()
     }));
     debug_assert!(text_vicinity.is_none_or(|mask| {
+        mask.width() == damaged.width() && mask.height() == damaged.height()
+    }));
+    debug_assert!(row_evidence_exclusion.is_none_or(|mask| {
         mask.width() == damaged.width() && mask.height() == damaged.height()
     }));
 
@@ -817,9 +824,17 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
         let horizontal = (dpi * 3.0 / 25.4).round().max(2.0) as usize;
         dilate(mask, horizontal, row_tolerance)
     });
-    let raw_row_profile = row_signal
-        .is_none()
-        .then(|| raw_text_row_profile(raw, picture_owner.as_ref(), &raw_max, &raw_min, paper, dpi));
+    let raw_row_profile = row_signal.is_none().then(|| {
+        raw_text_row_profile(
+            raw,
+            picture_owner.as_ref(),
+            row_evidence_exclusion,
+            &raw_max,
+            &raw_min,
+            paper,
+            dpi,
+        )
+    });
     let minimum_independent_row_support = (dpi * 0.30 / 25.4).round().max(4.0) as usize;
     let mut rescued = BinaryImage::new(damaged.width(), damaged.height());
 
@@ -888,6 +903,7 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
 fn raw_text_row_profile(
     raw: &GrayImage,
     picture_owner: Option<&BinaryImage>,
+    row_evidence_exclusion: Option<&BinaryImage>,
     raw_max: &GrayImage,
     raw_min: &GrayImage,
     paper: u8,
@@ -896,7 +912,9 @@ fn raw_text_row_profile(
     let mut profile = vec![0usize; raw.height()];
     for (y, row_count) in profile.iter_mut().enumerate() {
         for x in 0..raw.width() {
-            if picture_owner.is_some_and(|owner| owner.get(x, y)) {
+            if picture_owner.is_some_and(|owner| owner.get(x, y))
+                || row_evidence_exclusion.is_some_and(|excluded| excluded.get(x, y))
+            {
                 continue;
             }
             let gradient = raw_max.get(x, y).saturating_sub(raw_min.get(x, y));
@@ -1861,6 +1879,7 @@ mod tests {
                 &raw,
                 None,
                 Some(&text_vicinity),
+                None,
                 mode,
                 mode,
                 options.dpi,
@@ -1924,11 +1943,56 @@ mod tests {
             &raw,
             None,
             None,
+            None,
             BinarizationMode::Wolf,
             BinarizationMode::Wolf,
             300.0,
         );
         assert_eq!(rescued.count_black(), 0);
+    }
+
+    #[test]
+    fn row_evidence_exclusion_prevents_a_scanner_rail_from_supporting_specks() {
+        let mut raw = GrayImage::new(160, 100, 232);
+        let mut rail = BinaryImage::new(160, 100);
+        for y in 0..raw.height() {
+            for x in 0..8 {
+                raw.set(x, y, 80);
+                rail.set(x, y, true);
+            }
+        }
+        for y in 48..52 {
+            for x in 84..86 {
+                raw.set(x, y, 198);
+            }
+        }
+        let damaged = BinaryImage::new(raw.width(), raw.height());
+        let rescued_with_rail = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            None,
+            None,
+            BinarizationMode::Wolf,
+            BinarizationMode::Wolf,
+            300.0,
+        );
+        let rescued_without_rail = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            None,
+            Some(&rail),
+            BinarizationMode::Wolf,
+            BinarizationMode::Wolf,
+            300.0,
+        );
+
+        assert!(
+            rescued_with_rail.get(84, 49),
+            "the fixture must prove that the unmasked rail supplies row evidence",
+        );
+        assert_eq!(rescued_without_rail.count_black(), 0);
     }
 
     #[test]

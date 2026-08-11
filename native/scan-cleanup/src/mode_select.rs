@@ -39,6 +39,22 @@ const BLANK_MAX_ROBUST_LUMINANCE_RANGE: f64 = 48.0;
 /// rather than page content. Page margins at any scan resolution are wider
 /// than this, so no printed matter falls inside the band.
 const BLANK_EDGE_BAND_FRACTION: f64 = 0.04;
+/// Coarse grid used to find page-scale pale continuous-tone regions without
+/// promoting isolated scanner noise.
+const PALE_TONE_GRID_SIZE: usize = 64;
+/// Minimum mean depth below the paper reference for a pale-tone tile.
+const PALE_TONE_MIN_DELTA: f64 = 1.0;
+/// Second contour used to detach a real plate from one-level paper drift while
+/// preserving the edge-attachment rejection for monotone scanner falloff.
+const PALE_TONE_EDGE_DETACH_DELTA: f64 = 2.0;
+/// Maximum mean depth below paper that can still represent a pale plate.
+const PALE_TONE_MAX_DELTA: f64 = 24.0;
+/// Largest fraction of crisp, deeper-than-pale ink admitted in a plate tile.
+const PALE_TONE_MAX_INK_FRACTION: f64 = 0.005;
+/// Minimum connected share of the grid required for page-scale tone.
+const PALE_TONE_MIN_COMPONENT_FRACTION: f64 = 0.05;
+const PALE_TONE_MIN_COMPONENT_WIDTH_FRACTION: f64 = 0.25;
+const PALE_TONE_MIN_COMPONENT_HEIGHT_FRACTION: f64 = 0.125;
 const STRONG_BIMODALITY: f64 = 0.78;
 const BIMODALITY_HYSTERESIS: f64 = 0.055;
 const MIN_LUMINANCE_MODE_DISTANCE: f64 = 60.0;
@@ -1052,26 +1068,22 @@ pub(crate) fn is_blank_scan_candidate(
     // answer for the whole leaf, so a marginal note or an edge-hugging stamp
     // keeps vetoing the verdict — the page must never be erased because its
     // only content sits near the edge.
-    is_blank_luminance(luminance_evidence(&blank_interior(analysis)))
+    let interior = blank_interior_bounds(analysis);
+    is_blank_luminance(luminance_evidence_region(analysis, interior))
+        && !has_pale_tonal_structure_in_region(analysis, interior)
         && !has_coherent_edge_structure(analysis)
         && !has_significant_chroma(chroma_evidence(analysis, analysis_rgb, 0))
 }
 
-fn blank_interior(analysis: &GrayImage) -> GrayImage {
+fn blank_interior_bounds(analysis: &GrayImage) -> (usize, usize, usize, usize) {
     let inset_x = (analysis.width() as f64 * BLANK_EDGE_BAND_FRACTION).round() as usize;
     let inset_y = (analysis.height() as f64 * BLANK_EDGE_BAND_FRACTION).round() as usize;
     let width = analysis.width().saturating_sub(inset_x * 2);
     let height = analysis.height().saturating_sub(inset_y * 2);
     if width == 0 || height == 0 {
-        return analysis.clone();
+        return (0, 0, analysis.width(), analysis.height());
     }
-    let mut interior = GrayImage::new(width, height, 255);
-    for y in 0..height {
-        for x in 0..width {
-            interior.set(x, y, analysis.get(x + inset_x, y + inset_y));
-        }
-    }
-    interior
+    (inset_x, inset_y, inset_x + width, inset_y + height)
 }
 
 fn has_significant_chroma(chroma: ChromaEvidence) -> bool {
@@ -1085,6 +1097,154 @@ fn has_significant_chroma(chroma: ChromaEvidence) -> bool {
 fn is_blank_luminance(luminance: LuminanceEvidence) -> bool {
     luminance.edge_fraction <= BLANK_MAX_EDGE_FRACTION
         && luminance.robust_luminance_range <= BLANK_MAX_ROBUST_LUMINANCE_RANGE
+}
+
+pub(crate) fn has_pale_tonal_structure(image: &GrayImage) -> bool {
+    has_pale_tonal_structure_in_region(image, blank_interior_bounds(image))
+}
+
+fn has_pale_tonal_structure_in_region(
+    image: &GrayImage,
+    (region_left, region_top, region_right, region_bottom): (usize, usize, usize, usize),
+) -> bool {
+    let width = region_right.saturating_sub(region_left);
+    let height = region_bottom.saturating_sub(region_top);
+    let grid_width = width.min(PALE_TONE_GRID_SIZE);
+    let grid_height = height.min(PALE_TONE_GRID_SIZE);
+    if grid_width < 8 || grid_height < 8 {
+        return false;
+    }
+
+    let mut means = vec![0.0; grid_width * grid_height];
+    for grid_y in 0..grid_height {
+        let top = grid_y * height / grid_height;
+        let bottom = ((grid_y + 1) * height / grid_height).max(top + 1);
+        for grid_x in 0..grid_width {
+            let left = grid_x * width / grid_width;
+            let right = ((grid_x + 1) * width / grid_width).max(left + 1);
+            let mut sum = 0usize;
+            let mut count = 0usize;
+            for y in top..bottom.min(height) {
+                for x in left..right.min(width) {
+                    sum += usize::from(image.get(region_left + x, region_top + y));
+                    count += 1;
+                }
+            }
+            means[grid_y * grid_width + grid_x] = sum as f64 / count.max(1) as f64;
+        }
+    }
+
+    let mut paper_levels = means.clone();
+    paper_levels.sort_by(f64::total_cmp);
+    let paper = paper_levels[paper_levels.len().saturating_sub(1) * 9 / 10];
+    let crisp_cutoff = (paper - PALE_TONE_MAX_DELTA).floor().clamp(0.0, 255.0) as u8;
+    let mut ink_fractions = vec![0.0; means.len()];
+    for grid_y in 0..grid_height {
+        let top = grid_y * height / grid_height;
+        let bottom = ((grid_y + 1) * height / grid_height).max(top + 1);
+        for grid_x in 0..grid_width {
+            let left = grid_x * width / grid_width;
+            let right = ((grid_x + 1) * width / grid_width).max(left + 1);
+            let mut ink = 0usize;
+            let mut count = 0usize;
+            for y in top..bottom.min(height) {
+                for x in left..right.min(width) {
+                    ink += usize::from(image.get(region_left + x, region_top + y) < crisp_cutoff);
+                    count += 1;
+                }
+            }
+            ink_fractions[grid_y * grid_width + grid_x] = ink as f64 / count.max(1) as f64;
+        }
+    }
+    let mut smoothed = vec![0.0; means.len()];
+    for grid_y in 0..grid_height {
+        for grid_x in 0..grid_width {
+            let mut sum = 0.0;
+            let mut count = 0usize;
+            for neighbor_y in grid_y.saturating_sub(1)..=(grid_y + 1).min(grid_height - 1) {
+                for neighbor_x in grid_x.saturating_sub(1)..=(grid_x + 1).min(grid_width - 1) {
+                    sum += means[neighbor_y * grid_width + neighbor_x];
+                    count += 1;
+                }
+            }
+            smoothed[grid_y * grid_width + grid_x] = sum / count as f64;
+        }
+    }
+
+    let minimum_area = (grid_width * grid_height) as f64 * PALE_TONE_MIN_COMPONENT_FRACTION;
+    for minimum_delta in [PALE_TONE_MIN_DELTA, PALE_TONE_EDGE_DETACH_DELTA] {
+        let candidate = smoothed
+            .iter()
+            .enumerate()
+            .map(|(index, &value)| {
+                let tile_delta = paper - means[index];
+                let smoothed_delta = paper - value;
+                (minimum_delta..=PALE_TONE_MAX_DELTA).contains(&tile_delta)
+                    && (minimum_delta..=PALE_TONE_MAX_DELTA).contains(&smoothed_delta)
+                    && ink_fractions[index] <= PALE_TONE_MAX_INK_FRACTION
+            })
+            .collect::<Vec<_>>();
+        let mut visited = vec![false; candidate.len()];
+        for seed in 0..candidate.len() {
+            if !candidate[seed] || visited[seed] {
+                continue;
+            }
+            let mut stack = vec![seed];
+            visited[seed] = true;
+            let mut area = 0usize;
+            let mut left = grid_width;
+            let mut top = grid_height;
+            let mut right = 0usize;
+            let mut bottom = 0usize;
+            let mut tone_sum = 0.0;
+            while let Some(index) = stack.pop() {
+                let x = index % grid_width;
+                let y = index / grid_width;
+                area += 1;
+                left = left.min(x);
+                top = top.min(y);
+                right = right.max(x);
+                bottom = bottom.max(y);
+                tone_sum += smoothed[index];
+                for (neighbor_x, neighbor_y) in [
+                    (x.checked_sub(1), Some(y)),
+                    (
+                        x.checked_add(1).filter(|&value| value < grid_width),
+                        Some(y),
+                    ),
+                    (Some(x), y.checked_sub(1)),
+                    (
+                        Some(x),
+                        y.checked_add(1).filter(|&value| value < grid_height),
+                    ),
+                ] {
+                    let (Some(neighbor_x), Some(neighbor_y)) = (neighbor_x, neighbor_y) else {
+                        continue;
+                    };
+                    let neighbor = neighbor_y * grid_width + neighbor_x;
+                    if candidate[neighbor] && !visited[neighbor] {
+                        visited[neighbor] = true;
+                        stack.push(neighbor);
+                    }
+                }
+            }
+            let component_width = right - left + 1;
+            let component_height = bottom - top + 1;
+            let attached_to_edge =
+                left == 0 || top == 0 || right + 1 == grid_width || bottom + 1 == grid_height;
+            if !attached_to_edge
+                && area as f64 >= minimum_area
+                && component_width as f64
+                    >= grid_width as f64 * PALE_TONE_MIN_COMPONENT_WIDTH_FRACTION
+                && component_height as f64
+                    >= grid_height as f64 * PALE_TONE_MIN_COMPONENT_HEIGHT_FRACTION
+                && paper - tone_sum / area as f64 >= minimum_delta
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Global coverage is intentionally not sufficient to erase a page: a short
@@ -1515,9 +1675,18 @@ fn chroma_evidence_and_mask(
 }
 
 fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
+    luminance_evidence_region(image, (0, 0, image.width(), image.height()))
+}
+
+fn luminance_evidence_region(
+    image: &GrayImage,
+    (left, top, right, bottom): (usize, usize, usize, usize),
+) -> LuminanceEvidence {
     let mut histogram = [0u64; 256];
-    for &value in image.data() {
-        histogram[value as usize] += 1;
+    for y in top..bottom {
+        for x in left..right {
+            histogram[image.get(x, y) as usize] += 1;
+        }
     }
     let total = histogram.iter().sum::<u64>().max(1);
     let mean = histogram
@@ -1534,7 +1703,7 @@ fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
             difference * difference * *count as f64
         })
         .sum::<f64>();
-    let threshold = otsu_threshold(image) as usize;
+    let threshold = otsu_threshold_from_histogram(&histogram) as usize;
     let dark_count = histogram[..threshold].iter().sum::<u64>();
     let light_count = total.saturating_sub(dark_count);
     let dark_mean = if dark_count == 0 {
@@ -1582,15 +1751,15 @@ fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
     };
     let mut strong_edges = 0usize;
     let mut edge_comparisons = 0usize;
-    for y in 0..image.height() {
-        for x in 0..image.width() {
+    for y in top..bottom {
+        for x in left..right {
             let value = image.get(x, y);
-            if x > 0 {
+            if x > left {
                 strong_edges +=
                     usize::from(value.abs_diff(image.get(x - 1, y)) >= BLANK_EDGE_DIFFERENCE);
                 edge_comparisons += 1;
             }
-            if y > 0 {
+            if y > top {
                 strong_edges +=
                     usize::from(value.abs_diff(image.get(x, y - 1)) >= BLANK_EDGE_DIFFERENCE);
                 edge_comparisons += 1;
@@ -1622,6 +1791,45 @@ fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
         robust_luminance_range: luminance_histogram_percentile(&histogram, total, 0.99)
             - luminance_histogram_percentile(&histogram, total, 0.01),
     }
+}
+
+fn otsu_threshold_from_histogram(histogram: &[u64; 256]) -> u8 {
+    let total = histogram.iter().sum::<u64>();
+    if total == 0 {
+        return 0;
+    }
+    let weighted_total = histogram
+        .iter()
+        .enumerate()
+        .map(|(value, count)| value as u64 * count)
+        .sum::<u64>();
+    let mut background_count = 0u64;
+    let mut background_sum = 0u64;
+    let mut best_score = -1.0f64;
+    let mut first_best = 0u8;
+    let mut last_best = 0u8;
+    for threshold in 1..=255u16 {
+        let value = threshold as usize - 1;
+        background_count += histogram[value];
+        background_sum += value as u64 * histogram[value];
+        let foreground_count = total - background_count;
+        if background_count == 0 || foreground_count == 0 {
+            continue;
+        }
+        let mean_difference = background_sum as f64 / background_count as f64
+            - (weighted_total - background_sum) as f64 / foreground_count as f64;
+        let score =
+            background_count as f64 * foreground_count as f64 * mean_difference * mean_difference;
+        let tolerance = best_score.abs().max(1.0) * 1e-12;
+        if score > best_score + tolerance {
+            best_score = score;
+            first_best = threshold as u8;
+            last_best = threshold as u8;
+        } else if (score - best_score).abs() <= tolerance {
+            last_best = threshold as u8;
+        }
+    }
+    ((u16::from(first_best) + u16::from(last_best)) / 2) as u8
 }
 
 fn luminance_histogram_percentile(histogram: &[u64; 256], total: u64, percentile: f64) -> f64 {
@@ -1980,27 +2188,93 @@ mod tests {
     }
 
     #[test]
-    fn a_pale_but_printed_leaf_is_never_a_blank_candidate() {
-        let mut gray = leaf_with_a_fold_shadow(232);
-        let ink = 190;
-        for line in 0..4 {
-            let top = 400 + line * 14;
-            for glyph in 0..12 {
-                let left = 282 + glyph * 9;
-                for y in top..top + 7 {
-                    gray.set(left, y, ink);
-                    gray.set(left + 4, y, ink);
-                }
-                for x in left..=left + 4 {
-                    gray.set(x, top, ink);
-                    gray.set(x, top + 3, ink);
+    fn a_single_full_page_pale_plate_is_never_a_blank_candidate() {
+        let mut gray = GrayImage::new(1_116, 1_626, 240);
+        for y in 160..1_460 {
+            for x in 0..gray.width() {
+                gray.set(x, y, 239);
+            }
+        }
+        for y in 190..1_450 {
+            for x in 120..1_000 {
+                gray.set(x, y, 232);
+            }
+        }
+        let interior_area = (gray.width() as f64 * (1.0 - 2.0 * BLANK_EDGE_BAND_FRACTION))
+            * (gray.height() as f64 * (1.0 - 2.0 * BLANK_EDGE_BAND_FRACTION));
+        let plate_area = (1_000 - 120) * (1_450 - 190);
+        assert!(plate_area as f64 / interior_area >= 0.60);
+        assert!(has_pale_tonal_structure(&gray));
+        assert!(
+            !is_blank_scan_candidate(&gray, None),
+            "a pale photo plate would have been emitted blank",
+        );
+    }
+
+    #[test]
+    fn a_near_blank_leaf_without_a_plate_stays_a_blank_candidate() {
+        let mut gray = leaf_with_a_fold_shadow(244);
+        for y in 120..760 {
+            for x in 22..gray.width() {
+                gray.set(x, y, 243);
+            }
+        }
+        assert!(!has_pale_tonal_structure(&gray));
+        assert!(is_blank_scan_candidate(&gray, None));
+    }
+
+    #[test]
+    fn ordinary_text_pages_do_not_have_pale_tonal_structure() {
+        let mut dense = GrayImage::new(1_024, 1_400, 240);
+        for top in (120..1_280).step_by(25) {
+            for y in top..top + 4 {
+                for x in 100..924 {
+                    if (x / 31) % 6 != 5 {
+                        dense.set(x, y, 24);
+                    }
                 }
             }
         }
-        assert!(
-            !is_blank_scan_candidate(&gray, None),
-            "a pale but printed leaf would have been emitted blank",
-        );
+
+        let mut two_column = GrayImage::new(1_024, 1_400, 240);
+        for top in (140..1_260).step_by(28) {
+            for y in top..top + 5 {
+                for (left, right) in [(90, 480), (544, 934)] {
+                    for x in left..right {
+                        if (x / 29) % 5 != 4 {
+                            two_column.set(x, y, 20);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut title = GrayImage::new(1_024, 1_400, 240);
+        for (top, left, right) in [
+            (360, 210, 814),
+            (430, 150, 874),
+            (510, 260, 764),
+            (610, 330, 694),
+        ] {
+            for y in top..top + 12 {
+                for x in left..right {
+                    if (x / 37) % 6 != 5 {
+                        title.set(x, y, 18);
+                    }
+                }
+            }
+        }
+
+        for (label, page) in [
+            ("dense", dense),
+            ("two-column", two_column),
+            ("title", title),
+        ] {
+            assert!(
+                !has_pale_tonal_structure(&page),
+                "ordinary {label} text was promoted to a pale plate",
+            );
+        }
     }
 
     #[test]

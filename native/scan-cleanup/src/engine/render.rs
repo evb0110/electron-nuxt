@@ -7,10 +7,10 @@ use crate::engine::render_plan::{
 };
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
 use crate::mode_select::{
-    independent_chroma_mask, is_blank_scan_candidate, is_line_art_picture,
-    protect_bilevel_text_fidelity, recommend_output_mode_with_tone, should_veto_bilevel_fidelity,
-    text_soft_edge_to_ink_ratio, OutputModeDiagnostics, OutputModeRecommendation,
-    PreparedModeEvidence,
+    has_pale_tonal_structure, independent_chroma_mask, is_blank_scan_candidate,
+    is_line_art_picture, protect_bilevel_text_fidelity, recommend_output_mode_with_tone,
+    should_veto_bilevel_fidelity, text_soft_edge_to_ink_ratio, OutputModeDiagnostics,
+    OutputModeRecommendation, PreparedModeEvidence,
 };
 use crate::{
     auto_dewarp::detect_curves_at_dpi_with_depth,
@@ -1159,11 +1159,12 @@ const OWNED_INK_RETENTION_FLOOR: f64 = 0.55;
 /// specks of the fold shadow would otherwise demand that the shadow be kept.
 const OWNED_INK_RETENTION_MINIMUM_FRACTION: f64 = 0.000_2;
 const OWNED_INK_RETENTION_MINIMUM_PIXELS: usize = 512;
-/// A leaf the blankness test already judged non-blank must never publish as an
-/// empty bilevel sheet. Below this ink fraction the black-and-white rendition
-/// has lost the page outright — pale or continuous-tone originals do this —
-/// and the calibrated grayscale rendition is the honest fallback.
+/// Legacy collapse floor for an ordinary non-blank leaf whose normalized
+/// bilevel rendition has lost essentially every mark.
 const PALE_BILEVEL_COLLAPSE_INK_FRACTION: f64 = 0.000_05;
+/// Wider collapse floor used only after page-scale pale tone has independently
+/// established that a low-contrast plate, rather than paper, occupies the leaf.
+const PALE_TONAL_BILEVEL_COLLAPSE_INK_FRACTION: f64 = 0.001;
 
 /// Ownership is read from the strict text mask, never from the permissive
 /// vicinity mask: the vicinity mask deliberately covers soft tone such as the
@@ -1264,9 +1265,14 @@ fn leaf_interior_is_blank(gray: &GrayImage, dpi: f64) -> bool {
     is_effectively_blank(&interior, dpi)
 }
 
-fn pale_bilevel_collapse(binary: &BinaryImage) -> bool {
+fn pale_bilevel_collapse(binary: &BinaryImage, pale_tonal_structure: bool) -> bool {
     let area = binary.width().saturating_mul(binary.height());
-    (binary.count_black() as f64) < area as f64 * PALE_BILEVEL_COLLAPSE_INK_FRACTION
+    let ink_fraction = if pale_tonal_structure {
+        PALE_TONAL_BILEVEL_COLLAPSE_INK_FRACTION
+    } else {
+        PALE_BILEVEL_COLLAPSE_INK_FRACTION
+    };
+    (binary.count_black() as f64) < area as f64 * ink_fraction
 }
 
 fn manual_picture_crop_authority(
@@ -4875,17 +4881,21 @@ fn clean_region(
     let output_processing_started = Instant::now();
     let ink_ownership_mask =
         page_ink_ownership_mask(rendered_text_mask.as_ref(), rendered_picture_mask.as_ref());
-    let effectively_blank = source_effectively_blank
-        || if skips_gray_twin {
-            is_effectively_blank(content_analysis, calibration.effective_dpi)
-        } else {
-            is_effectively_blank(&rendered_gray, options.dpi)
-        };
+    let pale_tonal_structure =
+        !force_clean_blank && has_pale_tonal_structure(&rendered_source_gray);
+    let effectively_blank = force_clean_blank
+        || (!pale_tonal_structure
+            && if skips_gray_twin {
+                is_effectively_blank(content_analysis, calibration.effective_dpi)
+            } else {
+                is_effectively_blank(&rendered_gray, options.dpi)
+            });
     // A verso whose only survivor is the fold shadow along the leaf edge is a
     // blank page, and publishing the streak serves nobody. The leaf has to own
     // no text and no picture ink at all before this applies, so a pale page
     // that still carries structure can never be erased by it.
-    let unowned_edge_residue = !effectively_blank
+    let unowned_edge_residue = !pale_tonal_structure
+        && !effectively_blank
         && content.content.is_none()
         && ink_ownership_mask
             .as_ref()
@@ -4900,7 +4910,9 @@ fn clean_region(
         );
     }
     let fail_closed_blank = force_clean_blank
-        || content.content.is_none() && (effectively_blank || unowned_edge_residue);
+        || (!pale_tonal_structure
+            && content.content.is_none()
+            && (effectively_blank || unowned_edge_residue));
     // Whole-page abstention guarded against the old destructive whitening.
     // Picture zones now preserve continuous tone exactly while everything
     // else is smoothly normalized toward white, so cleanup is always safe and
@@ -4947,30 +4959,58 @@ fn clean_region(
                         options.source_has_bilevel_layer && !options.trusted_selection_incomplete
                     });
                 if let Some(trusted_foreground) = complete_trusted_foreground {
-                    let trusted_foreground = options.page_ink_consistency.map_or_else(
-                        || trusted_foreground.clone(),
-                        |context| {
-                            let (stabilized, diagnostics) = stabilize_trusted_stroke_mass(
-                                trusted_foreground,
-                                &rendered_source_gray,
-                                rendered_picture_mask.as_ref(),
-                                context,
-                                normalized.width(),
-                                normalized.height(),
-                                options.dpi,
-                            );
-                            ink_consistency_diagnostics = Some(diagnostics);
-                            stabilized
-                        },
-                    );
-                    (
-                        CleanupRaster::Bilevel(trusted_foreground),
-                        None,
-                        Some(mode),
-                        Some(routing_diagnostics),
-                        false,
-                        None,
-                    )
+                    if !effectively_blank
+                        && pale_tonal_structure
+                        && pale_bilevel_collapse(trusted_foreground, pale_tonal_structure)
+                    {
+                        conservation_warnings.push(format!(
+                            "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
+                            source_page_index + 1,
+                            page_half_label(half)
+                        ));
+                        emitted_output_mode = OutputMode::Grayscale;
+                        let grayscale_fallback = rendered_source_gray;
+                        let layers = create_mixed_layers.then(|| MixedLayers {
+                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+                            foreground_alpha: None,
+                            background: grayscale_fallback.clone(),
+                            color_background: None,
+                            source_mrc: false,
+                        });
+                        (
+                            CleanupRaster::Gray(grayscale_fallback),
+                            None,
+                            Some(mode),
+                            Some(routing_diagnostics),
+                            false,
+                            layers,
+                        )
+                    } else {
+                        let trusted_foreground = options.page_ink_consistency.map_or_else(
+                            || trusted_foreground.clone(),
+                            |context| {
+                                let (stabilized, diagnostics) = stabilize_trusted_stroke_mass(
+                                    trusted_foreground,
+                                    &rendered_source_gray,
+                                    rendered_picture_mask.as_ref(),
+                                    context,
+                                    normalized.width(),
+                                    normalized.height(),
+                                    options.dpi,
+                                );
+                                ink_consistency_diagnostics = Some(diagnostics);
+                                stabilized
+                            },
+                        );
+                        (
+                            CleanupRaster::Bilevel(trusted_foreground),
+                            None,
+                            Some(mode),
+                            Some(routing_diagnostics),
+                            false,
+                            None,
+                        )
+                    }
                 } else {
                     let global_threshold_source =
                         (mode == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
@@ -5047,20 +5087,32 @@ fn clean_region(
                         half,
                         &mut conservation_warnings,
                     );
-                    if !effectively_blank && pale_bilevel_collapse(&binary) {
+                    if !effectively_blank && pale_bilevel_collapse(&binary, pale_tonal_structure) {
                         conservation_warnings.push(format!(
                             "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
                             source_page_index + 1,
                             page_half_label(half)
                         ));
                         emitted_output_mode = OutputMode::Grayscale;
+                        let grayscale_fallback = if pale_tonal_structure {
+                            rendered_source_gray
+                        } else {
+                            rendered_gray
+                        };
+                        let layers = create_mixed_layers.then(|| MixedLayers {
+                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+                            foreground_alpha: None,
+                            background: grayscale_fallback.clone(),
+                            color_background: None,
+                            source_mrc: false,
+                        });
                         (
-                            CleanupRaster::Gray(rendered_gray),
+                            CleanupRaster::Gray(grayscale_fallback),
                             None,
                             Some(mode),
                             Some(diagnostics),
                             despeckle_fallback,
-                            None,
+                            layers,
                         )
                     } else {
                         (
@@ -5133,20 +5185,32 @@ fn clean_region(
                         half,
                         &mut conservation_warnings,
                     );
-                    if !effectively_blank && pale_bilevel_collapse(&binary) {
+                    if !effectively_blank && pale_bilevel_collapse(&binary, pale_tonal_structure) {
                         conservation_warnings.push(format!(
                             "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
                             source_page_index + 1,
                             page_half_label(half)
                         ));
                         emitted_output_mode = OutputMode::Grayscale;
+                        let grayscale_fallback = if pale_tonal_structure {
+                            rendered_source_gray
+                        } else {
+                            rendered_gray
+                        };
+                        let layers = create_mixed_layers.then(|| MixedLayers {
+                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+                            foreground_alpha: None,
+                            background: grayscale_fallback.clone(),
+                            color_background: None,
+                            source_mrc: false,
+                        });
                         (
-                            CleanupRaster::Gray(rendered_gray),
+                            CleanupRaster::Gray(grayscale_fallback),
                             None,
                             Some(mode),
                             Some(diagnostics),
                             despeckle_fallback,
-                            None,
+                            layers,
                         )
                     } else {
                         (

@@ -654,6 +654,7 @@ mod tests {
             &raw,
             None,
             Some(&text_vicinity),
+            None,
             crate::BinarizationMode::Wolf,
             crate::BinarizationMode::Wolf,
             360.0,
@@ -2537,6 +2538,184 @@ mod tests {
         let blank_image = blank.image.to_gray();
         assert!(blank_image.data().iter().all(|&value| value == 255));
         assert!(!blank_image.data().iter().all(|&value| value == 0));
+    }
+
+    fn pale_photo_plate_fixture() -> GrayImage {
+        let mut source = GrayImage::new(1_116, 1_626, 240);
+        for y in 160..1_460 {
+            for x in 0..source.width() {
+                source.set(x, y, 239);
+            }
+        }
+        for y in 190..1_450 {
+            for x in 120..1_000 {
+                source.set(x, y, 232);
+            }
+        }
+        for y in (0..source.height()).step_by(4) {
+            for x in 0..4 {
+                source.set(x, y, 0);
+            }
+        }
+        source
+    }
+
+    #[test]
+    fn pale_photo_plate_emits_source_gray_when_bw_collapses() {
+        let output = clean_page(
+            &pale_photo_plate_fixture(),
+            &CleanupOptions {
+                dpi: 150.0,
+                output_mode: OutputMode::Bw,
+                normalize_illumination: true,
+                crop_content: false,
+                match_page_size: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let gray = output.image.to_gray();
+        let minimum = gray.data().iter().copied().min().unwrap_or(255);
+        assert_eq!(output.metadata.output_mode, OutputMode::Grayscale);
+        assert!(!output.effectively_blank);
+        assert!(output.mixed_layers.is_some());
+        assert!(minimum <= 232, "pale plate was whitened: minimum={minimum}");
+        assert!(output
+            .metadata
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("grayscale rendition was emitted instead")));
+    }
+
+    #[test]
+    fn pale_photo_plate_bypasses_a_sparse_trusted_foreground() {
+        let source = pale_photo_plate_fixture();
+        assert!(has_pale_tonal_structure(&source));
+        let mut trusted_foreground = BinaryImage::new(source.width(), source.height());
+        for y in (0..source.height()).step_by(8) {
+            trusted_foreground.set(source.width() - 1, y, true);
+        }
+        let mut timings = PageStageTimings::default();
+        let output = clean_page_with_color_and_calibration_config(
+            &source,
+            None,
+            Some(&trusted_foreground),
+            None,
+            &CleanupOptions {
+                dpi: 150.0,
+                source_dpi: Some(150.0),
+                source_has_bilevel_layer: true,
+                output_mode: OutputMode::Bw,
+                normalize_illumination: true,
+                crop_content: false,
+                match_page_size: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy::COMPLETE,
+            &mut timings,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        assert_eq!(output.metadata.output_mode, OutputMode::Grayscale);
+        assert!(output
+            .metadata
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("grayscale rendition was emitted instead")));
+        assert!(output.image.to_gray().data().iter().copied().min().unwrap_or(255) <= 232);
+    }
+
+    #[test]
+    fn dense_trusted_foreground_on_a_pale_plate_stays_bilevel() {
+        let source = pale_photo_plate_fixture();
+        assert!(has_pale_tonal_structure(&source));
+        let mut trusted_foreground = BinaryImage::new(source.width(), source.height());
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                trusted_foreground.set(x, y, true);
+            }
+        }
+        let mut timings = PageStageTimings::default();
+        let output = clean_page_with_color_and_calibration_config(
+            &source,
+            None,
+            Some(&trusted_foreground),
+            None,
+            &CleanupOptions {
+                dpi: 150.0,
+                source_dpi: Some(150.0),
+                source_has_bilevel_layer: true,
+                output_mode: OutputMode::Bw,
+                normalize_illumination: true,
+                crop_content: false,
+                match_page_size: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy::COMPLETE,
+            &mut timings,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        let CleanupRaster::Bilevel(binary) = output.image else {
+            panic!("a non-collapsed trusted foreground must stay bilevel");
+        };
+        assert_eq!(output.metadata.output_mode, OutputMode::Bw);
+        assert_eq!(binary.count_black(), binary.width() * binary.height());
+        assert!(!output
+            .metadata
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("grayscale rendition was emitted instead")));
+    }
+
+    #[test]
+    fn blank_verso_does_not_trigger_the_pale_plate_rescue() {
+        let mut source = GrayImage::new(1_116, 1_626, 240);
+        for y in 0..source.height() {
+            for x in 0..22 {
+                source.set(x, y, (26 + x * 9).min(240) as u8);
+            }
+        }
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                output_mode: OutputMode::Bw,
+                normalize_illumination: true,
+                crop_content: false,
+                match_page_size: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        assert!(output.effectively_blank);
+        assert!(output.image.to_gray().data().iter().all(|&value| value == 255));
+        assert!(!output
+            .metadata
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("grayscale rendition was emitted instead")));
     }
 
     #[test]
@@ -6223,12 +6402,27 @@ mod tests {
     #[test]
     fn a_bilevel_rendition_that_lost_the_page_counts_as_collapsed() {
         let (_, page) = owned_page_fixture(100..300);
-        assert!(!pale_bilevel_collapse(&page));
+        assert!(!pale_bilevel_collapse(&page, false));
         let mut faint = BinaryImage::new(400, 400);
         for x in 100..104 {
             faint.set(x, 200, true);
         }
-        assert!(pale_bilevel_collapse(&faint));
+        assert!(pale_bilevel_collapse(&faint, false));
+    }
+
+    #[test]
+    fn pale_bilevel_collapse_is_strict_at_one_tenth_percent_ink() {
+        let with_ink = |ink: usize| {
+            let mut binary = BinaryImage::new(1_000, 100);
+            for index in 0..ink {
+                binary.set(index % binary.width(), index / binary.width(), true);
+            }
+            binary
+        };
+
+        assert!(pale_bilevel_collapse(&with_ink(99), true));
+        assert!(!pale_bilevel_collapse(&with_ink(100), true));
+        assert!(!pale_bilevel_collapse(&with_ink(101), true));
     }
 
     #[test]

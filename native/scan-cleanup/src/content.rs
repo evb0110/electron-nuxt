@@ -1,11 +1,12 @@
 use crate::{
     analysis::build_analysis_level,
-    bw::despeckle_connected_calibrated,
+    bw::{despeckle_connected_calibrated, rescue_component_scoped_faint_strokes},
     calibration::{CalibrationConfig, PageCalibration},
     protocol::manifest_v3::{
         ContentAcceptedTrim, ContentBlockEvidence, ContentDiagnosticRect, ContentDiagnostics,
         ContentSideConfidence, ContentTextMaskSummary, ContentTrimSide,
     },
+    BinarizationMode,
 };
 use scan_primitives::{
     distance::{find_peaks, squared_euclidean_distance, InfluenceMap},
@@ -208,11 +209,27 @@ fn detect_content_at_analysis_scale(
         .as_ref()
         .map(|qualification| borders.or(&qualification.excluded));
     let artifact_free_binary = binary.subtract(crop_artifacts.as_ref().unwrap_or(&borders));
-    let cleaned = despeckle_connected_calibrated(
-        &artifact_free_binary,
-        calibration.content_despeckle_dpi(),
-        calibration,
-    );
+    let cleaned = match purpose {
+        ContentAnalysisPurpose::Semantic => despeckle_connected_calibrated(
+            &artifact_free_binary,
+            calibration.content_despeckle_dpi(),
+            calibration,
+        ),
+        ContentAnalysisPurpose::Crop { .. } => rescue_component_scoped_faint_strokes(
+            &despeckle_connected_calibrated(
+                &artifact_free_binary,
+                calibration.content_despeckle_dpi(),
+                calibration,
+            ),
+            working,
+            picture_mask,
+            None,
+            Some(crop_artifacts.as_ref().unwrap_or(&borders)),
+            BinarizationMode::Wolf,
+            BinarizationMode::Wolf,
+            calibration.content_despeckle_dpi(),
+        ),
+    };
     let map = ComponentMap::from_binary(&cleaned);
     let distance_to_white = squared_euclidean_distance(&cleaned.invert());
     let mut candidates = Vec::new();
@@ -2697,15 +2714,21 @@ mod tests {
     }
 
     fn footnote_page_below_a_fold_shadow() -> GrayImage {
-        let mut image = GrayImage::new(600, 800, 242);
-        for row in 0..22 {
-            draw_glyph_line(&mut image, 145, 100 + row * 24, 24, 6, 11, 4);
+        let mut image = GrayImage::new(1_096, 1_626, 244);
+        for row in 0..25 {
+            draw_glyph_line(&mut image, 400, 312 + row * 31, 60, 4, 12, 7);
+            draw_glyph_line(&mut image, 125, 312 + row * 31, 18, 4, 12, 7);
         }
-        draw_glyph_line(&mut image, 145, 712, 12, 5, 9, 4);
-        draw_glyph_line(&mut image, 145, 730, 12, 5, 9, 4);
+        for x in 120..522 {
+            if x % 3 != 0 {
+                image.set(x, 1_484, 70);
+            }
+        }
+        draw_glyph_line(&mut image, 125, 1_500, 33, 2, 6, 7);
+        draw_glyph_line(&mut image, 125, 1_526, 33, 2, 6, 7);
         for y in 0..image.height() {
             for x in 0..16 {
-                let shading = (40 + x * 9 + (y % 7) * 3).min(242);
+                let shading = (40 + x * 9 + (y % 7) * 3).min(244);
                 image.set(x, y, shading as u8);
             }
         }
@@ -2732,7 +2755,7 @@ mod tests {
         );
         let bounds = result.content.expect("authored text is content");
         assert!(
-            bounds.bottom() >= 739.0,
+            bounds.bottom() >= 1_532.0,
             "footnote block below the body text was cropped away: {bounds:?}"
         );
         assert!(
@@ -2745,7 +2768,7 @@ mod tests {
             .bounds
             .expect("text lines were detected");
         assert!(
-            text_bounds.y_px + text_bounds.height_px >= 735,
+            text_bounds.y_px + text_bounds.height_px >= 1_532,
             "the footnote lines never earned text evidence: {text_bounds:?}",
         );
     }
@@ -2771,6 +2794,12 @@ mod tests {
             let y = 90 + (speck % 5) * 130;
             image.set(x, y, 60);
             image.set(x + 1, y, 70);
+        }
+        for y in (72..744).step_by(28) {
+            for x in 24..28 {
+                image.set(x, y, 220);
+                image.set(x, y + 1, 218);
+            }
         }
 
         let content = detect_content_and_margins_calibrated(

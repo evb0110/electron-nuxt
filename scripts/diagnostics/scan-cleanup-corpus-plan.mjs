@@ -196,7 +196,14 @@ export function pagePlanParityFailures(analysis, previewOutputs, outputMetadata)
     if (previewOutput === undefined) {
         return [`missing preview output for ${outputMetadata.half}`];
     }
-    if (outputMetadata.outputMode !== analysis.recommendedOutputMode) {
+    const paleCollapseGrayscaleFallback =
+        analysis.recommendedOutputMode === 'bw'
+        && outputMetadata.outputMode === 'grayscale'
+        && Array.isArray(outputMetadata.warnings)
+        && outputMetadata.warnings.some(warning =>
+            typeof warning === 'string'
+            && /^Black-and-white rendering left source page \d+ \((?:full page|left half|right half)\) empty although the leaf carries structure; the grayscale rendition was emitted instead$/.test(warning));
+    if (outputMetadata.outputMode !== analysis.recommendedOutputMode && !paleCollapseGrayscaleFallback) {
         failures.push(`mode ${String(outputMetadata.outputMode)} != ${String(analysis.recommendedOutputMode)}`);
     }
     const expectedTone = previewOutput.textToneDiagnostics;
