@@ -771,15 +771,19 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
 
         closeAnnotationContextMenu();
-        const file = await pickPageAnnotationImageFile();
-        if (!file) {
-            return;
+        try {
+            const file = await pickPageAnnotationImageFile();
+            if (!file) {
+                return;
+            }
+            await viewer.startImagePlacement(file, {
+                ...(pageNumber !== undefined ? { pageNumber } : {}),
+                ...(pageX !== undefined ? { pageX } : {}),
+                ...(pageY !== undefined ? { pageY } : {}),
+            });
+        } catch (error) {
+            BrowserLogger.warn('annotations', 'Failed to insert image from file', error);
         }
-        await viewer.startImagePlacement(file, {
-            ...(pageNumber !== undefined ? { pageNumber } : {}),
-            ...(pageX !== undefined ? { pageX } : {}),
-            ...(pageY !== undefined ? { pageY } : {}),
-        });
     }
 
     async function pasteImageFromClipboardAt(

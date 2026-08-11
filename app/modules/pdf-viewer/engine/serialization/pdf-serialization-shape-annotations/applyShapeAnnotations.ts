@@ -35,6 +35,7 @@ import { toPdfBoundsRect } from '@app/modules/pdf-viewer/engine/serialization/pd
 import { toPdfInkList } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-geometry/toPdfInkList';
 import { toPdfLinePoints } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-geometry/toPdfLinePoints';
 import { toPdfVertexPoints } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-geometry/toPdfVertexPoints';
+import { applyInkAnnotationAppearance } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shape-annotations/applyInkAnnotationAppearance';
 
 function updateShapeStyle(annotDict: PDFDict, doc: PDFDocument, shape: IShapeAnnotation) {
     setRgbColor(annotDict, doc, 'C', shape.color);
@@ -342,6 +343,7 @@ function createInkAnnotationDict(
     updateShapeStyle(annotDict, doc, shape);
     annotDict.delete(PDFName.of('LE'));
     annotDict.delete(PDFName.of('IC'));
+    applyInkAnnotationAppearance(annotDict, doc, shape, inkData.inkList, rect);
     updateShapeDates(annotDict, shape);
     return annotDict;
 }
@@ -368,6 +370,7 @@ function updateInkAnnotationDict(
     updateShapeStyle(annotDict, doc, shape);
     annotDict.delete(PDFName.of('LE'));
     annotDict.delete(PDFName.of('IC'));
+    applyInkAnnotationAppearance(annotDict, doc, shape, inkData.inkList, rect);
     updateShapeDates(annotDict, shape);
     return true;
 }

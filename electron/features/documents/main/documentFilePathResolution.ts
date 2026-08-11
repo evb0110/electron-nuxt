@@ -27,10 +27,23 @@ const MAX_IPC_READ_BYTES = (() => {
     }
     return parsed;
 })();
-const ALLOWED_BINARY_READ_EXTENSIONS = new Set([
+const ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS = new Set([
     '.pdf',
     '.djvu',
     '.djv',
+]);
+const ALLOWED_IMAGE_BINARY_READ_EXTENSIONS = new Set([
+    '.apng',
+    '.avif',
+    '.bmp',
+    '.gif',
+    '.jpeg',
+    '.jpg',
+    '.png',
+    '.svg',
+    '.svgz',
+    '.webp',
+    '.ico',
 ]);
 const ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS = new Set([
     '.djvu',
@@ -149,10 +162,31 @@ export async function resolveExistingReadableBinaryPath(
 ) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
-    if (!ALLOWED_BINARY_READ_EXTENSIONS.has(extension)) {
+    if (!ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS.has(extension)) {
         throw new Error('Invalid file type: only PDF and DjVu files are allowed');
     }
 
+    return resolveExistingReadablePath(normalizedPath, extension, senderId);
+}
+
+export async function resolveExistingReadableDocumentOrImagePath(
+    filePath: unknown,
+    senderId?: number,
+) {
+    const normalizedPath = normalizeNonEmptyPath(filePath);
+    const extension = extname(normalizedPath).toLowerCase();
+    if (!isAllowedBinaryReadExtension(extension)) {
+        throw new Error('Invalid file type: only supported document and image files are allowed');
+    }
+
+    return resolveExistingReadablePath(normalizedPath, extension, senderId);
+}
+
+async function resolveExistingReadablePath(
+    normalizedPath: string,
+    extension: string,
+    senderId?: number,
+) {
     const resolvedPath = await resolveReadablePath(
         normalizedPath,
         extension,
@@ -224,5 +258,7 @@ export function assertWithinIpcReadBudget(resolvedPath: string, knownSize?: numb
 }
 
 export function isAllowedBinaryReadExtension(extension: string) {
-    return ALLOWED_BINARY_READ_EXTENSIONS.has(extension);
+    const normalized = extension.toLowerCase();
+    return ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS.has(normalized)
+        || ALLOWED_IMAGE_BINARY_READ_EXTENSIONS.has(normalized);
 }

@@ -14,7 +14,10 @@ import {
     type TArtifactFileIdentity,
 } from '@contracts/stagedArtifacts';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
-import { resolveExistingReadableBinaryPath } from '@electron/features/documents/main/documentFilePathResolution';
+import {
+    resolveExistingReadableBinaryPath,
+    resolveExistingReadableDocumentOrImagePath,
+} from '@electron/features/documents/main/documentFilePathResolution';
 import { readWorkingCopyRevisionSidecar } from '@electron/file-access/documentRevisionSidecar';
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 
@@ -130,7 +133,7 @@ export async function createManagedTempFileHandle(
     filePath: unknown,
     options: {cleanupOnRelease?: boolean} = {},
 ): Promise<IManagedTempFileHandle> {
-    const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
+    const path = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
     const [
         inspection,
         revisionSidecar,

@@ -4,11 +4,14 @@ import {
     it,
 } from 'vitest';
 import {
+    PDFArray,
+    PDFDict,
     PDFDocument,
     PDFHexString,
     PDFName,
     PDFNumber,
-    type PDFRef,
+    PDFRawStream,
+    PDFRef,
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import {
@@ -128,6 +131,48 @@ const SHAPE_FIXTURES: IShapeAnnotation[] = [
                 y: 0.53,
             },
         ],
+    },
+    {
+        id: 'ink',
+        stableKey: 'evb-shape:ink',
+        type: 'polyline',
+        pageIndex: 0,
+        x: 0.1,
+        y: 0.65,
+        width: 0.25,
+        height: 0.08,
+        color: '#2563eb',
+        opacity: 0.65,
+        strokeWidth: 2.5,
+        points: [
+            {
+                x: 0.1,
+                y: 0.7,
+            },
+            {
+                x: 0.18,
+                y: 0.65,
+            },
+            {
+                x: 0.25,
+                y: 0.73,
+            },
+        ],
+        strokes: [[
+            {
+                x: 0.1,
+                y: 0.7,
+            },
+            {
+                x: 0.18,
+                y: 0.65,
+            },
+            {
+                x: 0.25,
+                y: 0.73,
+            },
+        ]],
+        pdfSubtype: 'Ink',
     },
 ];
 
@@ -268,6 +313,7 @@ describe('AnnotationRoundTripHarness', () => {
 
         expect(result.truth.map(annotation => annotation.subtype).sort()).toEqual([
             'Circle',
+            'Ink',
             'Line',
             'Line',
             'PolyLine',
@@ -275,6 +321,22 @@ describe('AnnotationRoundTripHarness', () => {
             'Square',
         ]);
         expect(result.truth.every(annotation => annotation.normalizedRect !== null)).toBe(true);
+
+        const serialized = await PDFDocument.load(result.bytes, {updateMetadata: false});
+        const annots = serialized.getPage(0).node.Annots();
+        expect(annots).toBeInstanceOf(PDFArray);
+        const inkDict = annots instanceof PDFArray
+            ? Array.from({length: annots.size()}, (_, index) => annots.get(index))
+                .filter((value): value is PDFRef => value instanceof PDFRef)
+                .map(ref => serialized.context.lookupMaybe(ref, PDFDict))
+                .find(dict => dict?.get(PDFName.of('Subtype'))?.toString() === '/Ink')
+            : null;
+        expect(inkDict).toBeInstanceOf(PDFDict);
+        const appearance = inkDict?.lookupMaybe(PDFName.of('AP'), PDFDict);
+        expect(appearance).toBeInstanceOf(PDFDict);
+        const normalAppearance = appearance?.get(PDFName.of('N'));
+        expect(normalAppearance ? serialized.context.lookup(normalAppearance) : null).toBeInstanceOf(PDFRawStream);
+        expect((inkDict?.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0) & 4).toBe(4);
     });
 
     it('keeps overlapping text-markup subtype, identity, color, and opacity distinct', async () => {

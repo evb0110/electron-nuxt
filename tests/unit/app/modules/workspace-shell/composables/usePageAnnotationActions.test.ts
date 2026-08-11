@@ -823,6 +823,19 @@ describe('usePageAnnotationActions', () => {
         expect(documentWorkingCopy.cleanupFile).not.toHaveBeenCalled();
     });
 
+    it('contains image picker read failures without tearing down the document workspace', async () => {
+        const {
+            viewer,
+            actions,
+        } = createHarness();
+        const {documentFiles} = installSplitImagePickerPlatform('/tmp/test.png');
+        documentFiles.statFile.mockRejectedValueOnce(new Error('image read rejected'));
+
+        await expect(actions.insertImageFromFileAt(2, 0.25, 0.5)).resolves.toBeUndefined();
+
+        expect(viewer.startImagePlacement).not.toHaveBeenCalled();
+    });
+
     it('cleans up browser image refs through the split working-copy capability', async () => {
         const {
             viewer,

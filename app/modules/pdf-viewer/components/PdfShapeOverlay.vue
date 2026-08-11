@@ -103,7 +103,7 @@
                 :stroke="shape.color"
                 :fill="shape.fillColor ?? 'none'"
                 :opacity="shape.opacity"
-                :stroke-width="shape.strokeWidth"
+                :stroke-width="visualStrokeWidth(shape)"
                 vector-effect="non-scaling-stroke"
             />
             <ellipse
@@ -115,7 +115,7 @@
                 :stroke="shape.color"
                 :fill="shape.fillColor ?? 'none'"
                 :opacity="shape.opacity"
-                :stroke-width="shape.strokeWidth"
+                :stroke-width="visualStrokeWidth(shape)"
                 vector-effect="non-scaling-stroke"
             />
             <line
@@ -126,7 +126,7 @@
                 :y2="lineVisibleY2(shape)"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
-                :stroke-width="shape.strokeWidth"
+                :stroke-width="visualStrokeWidth(shape)"
                 stroke-linecap="round"
                 vector-effect="non-scaling-stroke"
             />
@@ -138,7 +138,7 @@
                     fill="none"
                     :stroke="shape.color"
                     :opacity="shape.opacity"
-                    :stroke-width="shape.strokeWidth"
+                    :stroke-width="visualStrokeWidth(shape)"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     vector-effect="non-scaling-stroke"
@@ -150,7 +150,7 @@
                 :fill="shape.fillColor ?? 'none'"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
-                :stroke-width="shape.strokeWidth"
+                :stroke-width="visualStrokeWidth(shape)"
                 vector-effect="non-scaling-stroke"
             />
             <polyline
@@ -159,7 +159,7 @@
                 fill="none"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
-                :stroke-width="shape.strokeWidth"
+                :stroke-width="visualStrokeWidth(shape)"
                 vector-effect="non-scaling-stroke"
             />
             <polygon
@@ -174,7 +174,7 @@
                 fill="none"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
-                :stroke-width="shape.strokeWidth"
+                :stroke-width="visualStrokeWidth(shape)"
                 vector-effect="non-scaling-stroke"
             />
             <polygon
@@ -208,7 +208,7 @@
                 :stroke="drawingShape.color"
                 :fill="drawingShape.fillColor ?? 'none'"
                 :opacity="drawingShape.opacity"
-                :stroke-width="drawingShape.strokeWidth"
+                :stroke-width="visualStrokeWidth(drawingShape)"
                 stroke-dasharray="0.01 0.005"
                 vector-effect="non-scaling-stroke"
             />
@@ -221,7 +221,7 @@
                 :stroke="drawingShape.color"
                 :fill="drawingShape.fillColor ?? 'none'"
                 :opacity="drawingShape.opacity"
-                :stroke-width="drawingShape.strokeWidth"
+                :stroke-width="visualStrokeWidth(drawingShape)"
                 stroke-dasharray="0.01 0.005"
                 vector-effect="non-scaling-stroke"
             />
@@ -233,7 +233,7 @@
                 :y2="lineVisibleY2(drawingShape)"
                 :stroke="drawingShape.color"
                 :opacity="drawingShape.opacity"
-                :stroke-width="drawingShape.strokeWidth"
+                :stroke-width="visualStrokeWidth(drawingShape)"
                 stroke-dasharray="0.01 0.005"
                 vector-effect="non-scaling-stroke"
             />
@@ -245,7 +245,7 @@
                     fill="none"
                     :stroke="drawingShape.color"
                     :opacity="drawingShape.opacity"
-                    :stroke-width="drawingShape.strokeWidth"
+                    :stroke-width="visualStrokeWidth(drawingShape)"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     stroke-dasharray="0.01 0.005"
@@ -264,7 +264,7 @@
                 fill="none"
                 :stroke="drawingShape.color"
                 :opacity="drawingShape.opacity"
-                :stroke-width="drawingShape.strokeWidth"
+                :stroke-width="visualStrokeWidth(drawingShape)"
                 vector-effect="non-scaling-stroke"
             />
             <polygon
@@ -279,7 +279,7 @@
                 fill="none"
                 :stroke="drawingShape.color"
                 :opacity="drawingShape.opacity"
-                :stroke-width="drawingShape.strokeWidth"
+                :stroke-width="visualStrokeWidth(drawingShape)"
                 vector-effect="non-scaling-stroke"
             />
         </g>
@@ -401,6 +401,7 @@ const emit = defineEmits<{
 const svgRef = ref<SVGSVGElement | null>(null);
 const svgWidth = ref(1);
 const svgHeight = ref(1);
+const pdfToCssScale = ref(1);
 const SELECTION_OUTLINE_PADDING = 0.003;
 const RESIZE_HANDLES: TShapeResizeHandle[] = [
     'nw',
@@ -414,14 +415,27 @@ useResizeObserver(svgRef, (entries) => {
     if (entry) {
         svgWidth.value = entry.contentRect.width || 1;
         svgHeight.value = entry.contentRect.height || 1;
+        const style = window.getComputedStyle(entry.target);
+        const scaleFactor = Number.parseFloat(style.getPropertyValue('--scale-factor'));
+        const userUnit = Number.parseFloat(style.getPropertyValue('--user-unit'));
+        pdfToCssScale.value = (
+            Number.isFinite(scaleFactor)
+            && scaleFactor > 0
+            && Number.isFinite(userUnit)
+            && userUnit > 0
+        ) ? scaleFactor * userUnit : 1;
     }
 });
 
+function visualStrokeWidth(shape: Pick<IShapeAnnotation, 'strokeWidth'>) {
+    return shape.strokeWidth * pdfToCssScale.value;
+}
+
 function interactionStrokeWidth(shape: IShapeAnnotation) {
     if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'polyline') {
-        return Math.max(shape.strokeWidth + 14, 20);
+        return Math.max(visualStrokeWidth(shape) + 14, 20);
     }
-    return Math.max(shape.strokeWidth + 10, 14);
+    return Math.max(visualStrokeWidth(shape) + 10, 14);
 }
 
 function hasArrowHead(style: IShapeAnnotation['lineEndStyle']) {
@@ -445,9 +459,10 @@ function lineEndpoint(shape: IShapeAnnotation, edge: 'start' | 'end') {
 }
 
 function lineArrowSizing(shape: IShapeAnnotation) {
+    const strokeWidth = visualStrokeWidth(shape);
     return {
-        headLength: 10 * shape.strokeWidth,
-        headHalfWidth: 3.5 * shape.strokeWidth,
+        headLength: 10 * strokeWidth,
+        headHalfWidth: 3.5 * strokeWidth,
     };
 }
 

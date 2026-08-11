@@ -616,6 +616,24 @@ describe('fileOps path security', () => {
         ]));
     });
 
+    it('reads a user-approved image path for page annotation placement', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue('/Users/alice/Pictures/signature.png');
+
+        const content = await handleFileRead(readContext, '/Users/alice/Pictures/signature.png');
+        const metadata = await handleFileStat(readContext, '/Users/alice/Pictures/signature.png');
+
+        expect(mocks.readFile).toHaveBeenCalledWith('/Users/alice/Pictures/signature.png');
+        expect(content).toEqual(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        expect(metadata).toEqual({
+            size: 123,
+            modifiedAt: 1,
+        });
+    });
+
     it('resolves lazy-original documents to their logical managed reference', async () => {
         const entry = lazyOriginalEntry();
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);

@@ -347,6 +347,97 @@ pub(crate) fn set_ink_shape_fields(
     Ok(())
 }
 
+pub(crate) fn build_ink_shape_appearance_stream(
+    shape: &ShapeAnnotation,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> Result<Stream> {
+    let color = parse_pdf_color(Some(&shape.color)).ok_or("Invalid Ink appearance color")?;
+    let mut all_points = Vec::new();
+    let mut stroke_points = Vec::new();
+    for stroke in shape_ink_strokes(shape) {
+        let points = shape_points_to_pdf_points(stroke, page_view, page_rotation);
+        all_points.extend(points.iter().copied());
+        stroke_points.push(points);
+    }
+    let rect = pdf_points_bounds(&all_points, shape.stroke_width)?;
+
+    let mut content = String::new();
+    content.push_str("q\n/GS0 gs\n");
+    content.push_str(&format!(
+        "{} {} {} RG\n{} w\n1 J\n1 j\n",
+        number_to_content(color[0]),
+        number_to_content(color[1]),
+        number_to_content(color[2]),
+        number_to_content(shape.stroke_width),
+    ));
+    let mut has_path = false;
+    for points in stroke_points {
+        let Some(first) = points.first() else {
+            continue;
+        };
+        if points.len() < 2 {
+            continue;
+        }
+        content.push_str(&format!(
+            "{} {} m\n",
+            number_to_content(first.0),
+            number_to_content(first.1),
+        ));
+        for point in points.iter().skip(1) {
+            content.push_str(&format!(
+                "{} {} l\n",
+                number_to_content(point.0),
+                number_to_content(point.1),
+            ));
+        }
+        has_path = true;
+    }
+    if !has_path {
+        return Err("Ink appearance has no drawable path".into());
+    }
+    content.push_str("S\nQ\n");
+
+    let mut graphics_state = Dictionary::new();
+    graphics_state.set("Type", Object::Name(b"ExtGState".to_vec()));
+    graphics_state.set("CA", number_object(shape.opacity.clamp(0.0, 1.0)));
+    graphics_state.set("ca", number_object(shape.opacity.clamp(0.0, 1.0)));
+    let mut graphics_states = Dictionary::new();
+    graphics_states.set("GS0", Object::Dictionary(graphics_state));
+    let mut resources = Dictionary::new();
+    resources.set("ExtGState", Object::Dictionary(graphics_states));
+
+    let mut dict = Dictionary::new();
+    dict.set("Type", Object::Name(b"XObject".to_vec()));
+    dict.set("Subtype", Object::Name(b"Form".to_vec()));
+    dict.set("BBox", rect_object(rect));
+    dict.set(
+        "Matrix",
+        Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(1),
+            Object::Integer(0),
+            Object::Integer(0),
+        ]),
+    );
+    dict.set("Resources", Object::Dictionary(resources));
+    Ok(Stream::new(dict, content.into_bytes()))
+}
+
+pub(crate) fn attach_ink_shape_appearance(dict: &mut Dictionary, appearance_ref: ObjectId) {
+    let mut appearance = Dictionary::new();
+    appearance.set("N", Object::Reference(appearance_ref));
+    dict.set("AP", Object::Dictionary(appearance));
+    let flags = dict
+        .get(b"F")
+        .ok()
+        .and_then(|value| value.as_i64().ok())
+        .unwrap_or(0);
+    dict.set("F", Object::Integer(flags | 4));
+}
+
 pub(crate) fn update_shape_annotation_dict(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
@@ -521,9 +612,19 @@ pub(crate) fn apply_shape_annotation_decision(
     if let Some(stable_key) = annotation_stable_key.as_deref() {
         if let Some(index) = state.find_by_stable_key(stable_key) {
             let shape = state.shapes[index].clone();
+            let appearance_ref = if subtype == "ink" {
+                let appearance =
+                    build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
+                Some(document.add_object(appearance))
+            } else {
+                None
+            };
             let dict = document.get_dictionary_mut(object_id)?;
             let modified =
                 update_shape_annotation_dict(dict, &shape, page_view, page_rotation, modified_at)?;
+            if let Some(appearance_ref) = appearance_ref {
+                attach_ink_shape_appearance(dict, appearance_ref);
+            }
             state.consume(index);
             return Ok(modified);
         }
@@ -535,9 +636,18 @@ pub(crate) fn apply_shape_annotation_decision(
     }
     if let Some(index) = state.find_by_annotation_id(&annotation_id) {
         let shape = state.shapes[index].clone();
+        let appearance_ref = if subtype == "ink" {
+            let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
+            Some(document.add_object(appearance))
+        } else {
+            None
+        };
         let dict = document.get_dictionary_mut(object_id)?;
         let modified =
             update_shape_annotation_dict(dict, &shape, page_view, page_rotation, modified_at)?;
+        if let Some(appearance_ref) = appearance_ref {
+            attach_ink_shape_appearance(dict, appearance_ref);
+        }
         state.consume(index);
         return Ok(modified);
     }
@@ -588,9 +698,18 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
     if let Some(index) = shape_index {
         let shape = state.shapes[index].clone();
         incremental.opt_clone_object_to_new_document(object_id)?;
+        let appearance_ref = if subtype == "ink" {
+            let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
+            Some(incremental.new_document.add_object(appearance))
+        } else {
+            None
+        };
         let dict = incremental.new_document.get_dictionary_mut(object_id)?;
         let modified =
             update_shape_annotation_dict(dict, &shape, page_view, page_rotation, modified_at)?;
+        if let Some(appearance_ref) = appearance_ref {
+            attach_ink_shape_appearance(dict, appearance_ref);
+        }
         state.consume(index);
         return Ok(modified);
     }
@@ -666,7 +785,12 @@ pub(crate) fn append_remaining_shape_annotations(
         let page_id = resolve_page_id(&page_map, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let dict = create_shape_annotation_dict(&shape, page_view, page_rotation, modified_at)?;
+        let mut dict = create_shape_annotation_dict(&shape, page_view, page_rotation, modified_at)?;
+        if shape_annotation_subtype_for_create(&shape) == Some("Ink") {
+            let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
+            let appearance_ref = document.add_object(appearance);
+            attach_ink_shape_appearance(&mut dict, appearance_ref);
+        }
         let object_id = document.add_object(Object::Dictionary(dict));
         append_annots_to_page(document, page_id, &[object_id])?;
         modified = true;
@@ -689,7 +813,12 @@ pub(crate) fn append_remaining_shape_annotations_incremental(
         let page_id = resolve_page_id(&page_map, page_number)?;
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let dict = create_shape_annotation_dict(&shape, page_view, page_rotation, modified_at)?;
+        let mut dict = create_shape_annotation_dict(&shape, page_view, page_rotation, modified_at)?;
+        if shape_annotation_subtype_for_create(&shape) == Some("Ink") {
+            let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
+            let appearance_ref = incremental.new_document.add_object(appearance);
+            attach_ink_shape_appearance(&mut dict, appearance_ref);
+        }
         let object_id = incremental
             .new_document
             .add_object(Object::Dictionary(dict));

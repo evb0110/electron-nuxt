@@ -183,6 +183,70 @@
     }
 
     #[test]
+    fn appends_ink_with_a_preview_compatible_normal_appearance() {
+        let (mut document, page_id) = create_test_document();
+        let pdf_path = temp_pdf_path("append-ink-appearance");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, &original_bytes).unwrap();
+
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &NativeMutationsFile {
+                updates: Vec::new(),
+                free_text_notes: Vec::new(),
+                deletes: Vec::new(),
+                page_labels: None,
+                bookmarks: None,
+                shapes: Some(ShapesMutation {
+                    total_pages: 1,
+                    rewrite_shape_state: true,
+                    shapes: vec![ink_shape("evb-shape:ink-1", "#2563eb")],
+                    deleted_annotation_ids: Vec::new(),
+                    deleted_stable_keys: Vec::new(),
+                }),
+                markup: None,
+                placed_images: Vec::new(),
+            },
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        let annots = get_page_annots(&loaded, page_id).unwrap();
+        let ink_ref = annots[0].as_reference().unwrap();
+        let ink = loaded.get_dictionary(ink_ref).unwrap();
+        assert_eq!(annotation_subtype(ink), "ink");
+        assert_eq!(ink.get(b"F").unwrap().as_i64().unwrap() & 4, 4);
+        let appearance_ref = ink
+            .get(b"AP")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"N")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let appearance = loaded.get_object(appearance_ref).unwrap().as_stream().unwrap();
+        assert_eq!(
+            appearance.dict.get(b"Subtype").unwrap().as_name().unwrap(),
+            b"Form"
+        );
+        assert!(appearance.dict.get(b"BBox").is_ok());
+        assert!(appearance.dict.get(b"Resources").is_ok());
+        let content = String::from_utf8(appearance.content.clone()).unwrap();
+        assert!(content.contains("/GS0 gs"));
+        assert!(content.contains("1 J"));
+        assert!(content.contains("1 j"));
+        assert!(content.contains(" m\n"));
+        assert!(content.contains(" l\n"));
+        assert!(content.ends_with("S\nQ\n"));
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
     fn parse_pdf_color_rejects_non_ascii_hex_without_panic() {
         let parsed = std::panic::catch_unwind(|| parse_pdf_color(Some("#\u{e9}a")));
 

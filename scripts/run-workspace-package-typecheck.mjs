@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getWorkspacePackageRoots } from './workspace-roots.mjs';
+import { withTypecheckNodeHeap } from './typecheckNodeEnv.mjs';
 
 export const TYPECHECK_EXEMPT_WORKSPACE_PACKAGES = {'packages/electron-worker-bundles': 'JavaScript-only worker bundle manifest package with checked-in type declarations.'};
 
@@ -94,6 +95,7 @@ export function runWorkspacePackageTypecheck({
 
     runCommand(command.command, command.args, {
         cwd: projectRoot,
+        env: withTypecheckNodeHeap(),
         stdio: 'inherit',
     });
 }

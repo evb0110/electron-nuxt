@@ -25,7 +25,7 @@ import {
     assertWithinIpcReadBudget,
     isAllowedBinaryReadExtension,
     normalizeNonEmptyPath,
-    resolveExistingReadableBinaryPath,
+    resolveExistingReadableDocumentOrImagePath,
     resolveReadablePath,
     resolveReadablePathSync,
 } from '@electron/features/documents/main/documentFilePathResolution';
@@ -579,7 +579,7 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
     const extension = extname(normalizedPath).toLowerCase();
 
     if (!isAllowedBinaryReadExtension(extension)) {
-        throw new Error('Invalid file type: only PDF and DjVu files are allowed');
+        throw new Error('Invalid file type: only supported document and image files are allowed');
     }
 
     const resolvedPath = await resolveReadablePath(normalizedPath, extension, context.senderId);
@@ -608,7 +608,7 @@ export async function handleFileStat(
     size: number;
     modifiedAt: number
 }> {
-    const resolvedPath = await resolveExistingReadableBinaryPath(filePath, context.senderId);
+    const resolvedPath = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
     const originalBacking = resolveOriginalBackedRead(resolvedPath, context.senderId);
     if (originalBacking) {
         return statOriginalBacking(originalBacking);
@@ -626,7 +626,7 @@ export async function handleFileReadRange(
     offset: unknown,
     length: unknown,
 ) {
-    const resolvedPath = await resolveExistingReadableBinaryPath(filePath, context.senderId);
+    const resolvedPath = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
     const originalBacking = resolveOriginalBackedRead(resolvedPath, context.senderId);
     const off = Number(offset);
     const len = Number(length);

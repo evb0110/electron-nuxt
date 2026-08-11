@@ -112,6 +112,37 @@
         }
     }
 
+    fn ink_shape(stable_key: &str, color: &str) -> ShapeAnnotation {
+        let points = vec![
+            ShapePoint {x: 0.1, y: 0.7},
+            ShapePoint {x: 0.2, y: 0.65},
+            ShapePoint {x: 0.3, y: 0.72},
+        ];
+        ShapeAnnotation {
+            shape_type: "polyline".to_string(),
+            page_index: 0,
+            x: 0.1,
+            y: 0.65,
+            width: 0.2,
+            height: 0.07,
+            x2: None,
+            y2: None,
+            color: color.to_string(),
+            fill_color: None,
+            opacity: 0.65,
+            stroke_width: 2.5,
+            points: points.clone(),
+            strokes: vec![points],
+            annotation_id: None,
+            stable_key: Some(stable_key.to_string()),
+            pdf_subtype: Some("Ink".to_string()),
+            line_start_style: None,
+            line_end_style: None,
+            created_at: Some(1_780_000_000_000),
+            modified_at: Some(1_780_000_060_000),
+        }
+    }
+
     fn create_test_markup_pdf(subtype: &str) -> (Document, ObjectId, ObjectId) {
         let (mut document, page_id) = create_test_document();
         let annot_id = document.add_object(dictionary! {

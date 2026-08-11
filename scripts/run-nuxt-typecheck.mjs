@@ -8,6 +8,7 @@ import {
     dirname,
     resolve,
 } from 'node:path';
+import { withTypecheckNodeHeap } from './typecheckNodeEnv.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -24,7 +25,7 @@ mkdirSync(cacheDir, {recursive: true});
 if (cold) {
     rmSync(resolve(cacheDir, 'nuxt.tsbuildinfo'), {force: true});
 }
-const env = { ...process.env };
+const env = withTypecheckNodeHeap();
 
 // pnpm injects npm-specific config vars that newer npm versions warn about when
 // Nuxt shells out through npm internals during typecheck.
