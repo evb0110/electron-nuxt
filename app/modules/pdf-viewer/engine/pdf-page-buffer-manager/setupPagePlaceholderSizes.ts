@@ -1,4 +1,8 @@
 import type { IPdfPageMetric } from '@app/types/pdfUi';
+import {
+    buildPdfPageScaleStyle,
+    createPdfPageScale,
+} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 const placeholderSizeCache = new WeakMap<HTMLElement, {
     width: number;
@@ -38,13 +42,13 @@ export function setupPagePlaceholderSizes(
 
         const width = metric.width * scale;
         const height = metric.height * scale;
-        setStyleProperty(container.style, '--scale-factor', String(scale));
-        setStyleProperty(container.style, '--user-unit', String(metric.userUnit ?? 1));
-        setStyleProperty(
-            container.style,
-            '--total-scale-factor',
-            'calc(var(--scale-factor) * var(--user-unit, 1))',
-        );
+        const scaleStyle = buildPdfPageScaleStyle(createPdfPageScale(scale, metric.userUnit));
+        Object.entries(scaleStyle).forEach(([
+            property,
+            value,
+        ]) => {
+            setStyleProperty(container.style, property, value);
+        });
         const cached = placeholderSizeCache.get(container);
         if (
             cached

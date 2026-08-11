@@ -13,6 +13,7 @@ import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbTo
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { collectTextMarkupElementCandidates } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/collectTextMarkupElementCandidates';
 import { parseMarkupSubtype } from '@contracts/annotations';
+import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
@@ -25,9 +26,9 @@ const EDITED_TEXT_MARKUP_VISUAL_CLASS = 'pdf-edited-text-markup-overlay__visual'
 const EDITED_TEXT_MARKUP_VISUAL_KEY_ATTR = 'data-evb-edited-text-markup-key';
 
 const EDITED_TEXT_MARKUP_STROKE_WIDTHS: Record<Exclude<TMarkupSubtype, 'Highlight'>, string> = {
-    Underline: 'calc(var(--total-scale-factor, 1) * 0.571px)',
-    StrikeOut: 'calc(var(--total-scale-factor, 1) * 1px)',
-    Squiggly: 'calc(var(--total-scale-factor, 1) * 1px)',
+    Underline: toPdfScaledCssLength(0.571),
+    StrikeOut: toPdfScaledCssLength(1),
+    Squiggly: toPdfScaledCssLength(1),
 };
 
 const DEFAULT_EDITED_HIGHLIGHT_OVERLAY_OPACITY = 0.35;

@@ -10,7 +10,10 @@
         :data-page="page"
         :data-document-page-number="page"
         :data-page-visual="pageVisualState"
-        :style="placeholderStyle ?? undefined"
+        :style="[
+            placeholderStyle ?? undefined,
+            pageScaleStyle,
+        ]"
     >
         <div class="page_canvas">
             <div
@@ -50,6 +53,7 @@
             :is-annotation-tool-active="shapeContext.isAnyAnnotationToolActive.value"
             :selection-enabled="shapeContext.isSelectionToolActive.value"
             :tool="shapeContext.activeShapeTool.value"
+            :page-scale="pageScale"
             @start-drawing="startDrawingShape"
             @continue-drawing="continueDrawingShape"
             @finish-drawing="finishDrawingShape"
@@ -82,6 +86,10 @@ import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdfImagePlacement';
+import {
+    buildPdfPageScaleStyle,
+    type IPdfPageScale,
+} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 interface IProps {
     page: number;
@@ -92,6 +100,7 @@ interface IProps {
     buffered?: boolean;
     rendered?: boolean;
     shapeOverlayVisualReady?: boolean;
+    pageScale: IPdfPageScale | null;
     placeholderStyle?: Record<string, string> | null;
     placedImage?: IPdfImagePlacementDraft | null;
     placedImageBusy?: boolean;
@@ -106,6 +115,7 @@ const {
     buffered = false,
     rendered = false,
     shapeOverlayVisualReady = false,
+    pageScale,
     placeholderStyle = null,
     placedImage = null,
     placedImageBusy = false,
@@ -118,6 +128,7 @@ const emit = defineEmits<{
     'cancel-placed-image': [];
 }>();
 const pageContainer = ref<HTMLElement | null>(null);
+const pageScaleStyle = computed(() => pageScale ? buildPdfPageScaleStyle(pageScale) : undefined);
 
 const {
     scaledSkeletonPadding,

@@ -28,6 +28,7 @@ import {
     updatePdfjsAnnotationManagerParams,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 const FREE_TEXT_FONT_SIZE_MIN = 8;
 const FREE_TEXT_FONT_SIZE_MAX = 96;
@@ -175,7 +176,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
             return null;
         }
 
-        const scaleToken = computedStyle.getPropertyValue('--total-scale-factor').trim();
+        const scaleToken = computedStyle.getPropertyValue(PDF_PAGE_SCALE_CSS_VARS.totalScaleFactor).trim();
         const scale = Number.parseFloat(scaleToken);
         return Number.isFinite(scale) && scale > 0
             ? computedFontSize / scale

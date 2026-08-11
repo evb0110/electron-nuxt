@@ -5,6 +5,10 @@
     margin: 0 auto;
     flex-shrink: 0;
 
+    /* Canonical defaults for page-space paint before exact metrics arrive. */
+    --scale-factor: 1;
+    --user-unit: 1;
+    --total-scale-factor: 1;
     --scale-round-x: 1px;
     --scale-round-y: 1px;
 

@@ -265,14 +265,19 @@ describe('usePdfViewerVirtualization', () => {
             height: '1000px',
             '--scale-factor': '2',
             '--user-unit': '1',
-            '--total-scale-factor': 'calc(var(--scale-factor) * var(--user-unit, 1))',
+            '--total-scale-factor': 'calc(var(--scale-factor, 1) * var(--user-unit, 1))',
         });
         expect(virtualization.getPagePlaceholderStyle(4)).toEqual({
             width: '640px',
             height: '1040px',
             '--scale-factor': '2',
             '--user-unit': '1',
-            '--total-scale-factor': 'calc(var(--scale-factor) * var(--user-unit, 1))',
+            '--total-scale-factor': 'calc(var(--scale-factor, 1) * var(--user-unit, 1))',
+        });
+        expect(virtualization.getPageScale(2)).toEqual({
+            scaleFactor: 2,
+            userUnit: 1,
+            totalScaleFactor: 2,
         });
     });
 

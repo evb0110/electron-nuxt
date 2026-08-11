@@ -43,9 +43,9 @@ import {
     applyPdfViewportWrite,
     type IPdfViewportWritePort,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
-
 interface IRenderedTextLayer {
     textLayer: ReturnType<typeof createPdfjsTextLayer>;
     pdfPage: PDFPageProxy;
@@ -675,7 +675,7 @@ export const usePdfTextLayerRenderer = (deps: {
         const containerRect = pageContainer?.getBoundingClientRect() ?? null;
         const canvasHostRect = pageContainer?.querySelector<HTMLElement>('.page_canvas')?.getBoundingClientRect() ?? null;
         const computedTotalScaleFactor = typeof window !== 'undefined'
-            ? window.getComputedStyle(textLayerDiv).getPropertyValue('--total-scale-factor').trim()
+            ? window.getComputedStyle(textLayerDiv).getPropertyValue(PDF_PAGE_SCALE_CSS_VARS.totalScaleFactor).trim()
             : '';
 
         const currentRange = getCurrentMatchRanges(textLayerDiv).at(0) ?? null;
@@ -811,9 +811,9 @@ export const usePdfTextLayerRenderer = (deps: {
         textLayerDiv.innerHTML = '';
         // Mutable page scale belongs to the page shell. Layer-local copies can
         // outlive their render request and corrupt geometry after a fit change.
-        textLayerDiv.style.removeProperty('--scale-factor');
-        textLayerDiv.style.removeProperty('--user-unit');
-        textLayerDiv.style.removeProperty('--total-scale-factor');
+        textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.scaleFactor);
+        textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.userUnit);
+        textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.totalScaleFactor);
 
         let textContentSource: TTextLayerTextContentSource | null = null;
         let hasOcrFallbackForPage = false;

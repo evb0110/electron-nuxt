@@ -338,6 +338,10 @@ import type {
 import { usePdfShapeOverlayInteractions } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/usePdfShapeOverlayInteractions';
 import { getShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getShapeRect';
 import { getShapeStrokePointSets } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getShapeStrokePointSets';
+import {
+    toPdfScaledCssLength,
+    type IPdfPageScale,
+} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 interface IProps {
     shapes: IShapeAnnotation[];
@@ -348,6 +352,7 @@ interface IProps {
     isAnnotationToolActive: boolean;
     selectionEnabled: boolean;
     tool: TDrawableShapeType | null;
+    pageScale: IPdfPageScale | null;
 }
 
 const props = defineProps<IProps>();
@@ -401,7 +406,6 @@ const emit = defineEmits<{
 const svgRef = ref<SVGSVGElement | null>(null);
 const svgWidth = ref(1);
 const svgHeight = ref(1);
-const pdfToCssScale = ref(1);
 const SELECTION_OUTLINE_PADDING = 0.003;
 const RESIZE_HANDLES: TShapeResizeHandle[] = [
     'nw',
@@ -415,27 +419,18 @@ useResizeObserver(svgRef, (entries) => {
     if (entry) {
         svgWidth.value = entry.contentRect.width || 1;
         svgHeight.value = entry.contentRect.height || 1;
-        const style = window.getComputedStyle(entry.target);
-        const scaleFactor = Number.parseFloat(style.getPropertyValue('--scale-factor'));
-        const userUnit = Number.parseFloat(style.getPropertyValue('--user-unit'));
-        pdfToCssScale.value = (
-            Number.isFinite(scaleFactor)
-            && scaleFactor > 0
-            && Number.isFinite(userUnit)
-            && userUnit > 0
-        ) ? scaleFactor * userUnit : 1;
     }
 });
 
 function visualStrokeWidth(shape: Pick<IShapeAnnotation, 'strokeWidth'>) {
-    return shape.strokeWidth * pdfToCssScale.value;
+    return toPdfScaledCssLength(shape.strokeWidth);
 }
 
 function interactionStrokeWidth(shape: IShapeAnnotation) {
     if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'polyline') {
-        return Math.max(visualStrokeWidth(shape) + 14, 20);
+        return `max(20px, ${toPdfScaledCssLength(shape.strokeWidth, 14)})`;
     }
-    return Math.max(visualStrokeWidth(shape) + 10, 14);
+    return `max(14px, ${toPdfScaledCssLength(shape.strokeWidth, 10)})`;
 }
 
 function hasArrowHead(style: IShapeAnnotation['lineEndStyle']) {
@@ -459,7 +454,7 @@ function lineEndpoint(shape: IShapeAnnotation, edge: 'start' | 'end') {
 }
 
 function lineArrowSizing(shape: IShapeAnnotation) {
-    const strokeWidth = visualStrokeWidth(shape);
+    const strokeWidth = shape.strokeWidth * (props.pageScale?.totalScaleFactor ?? 1);
     return {
         headLength: 10 * strokeWidth,
         headHalfWidth: 3.5 * strokeWidth,

@@ -93,7 +93,7 @@ describe('pdfPageBufferManager.getPageContainer', () => {
         expect(containers[0]?.style.getPropertyValue('--scale-factor')).toBe('2');
         expect(containers[0]?.style.getPropertyValue('--user-unit')).toBe('2');
         expect(containers[0]?.style.getPropertyValue('--total-scale-factor')).toBe(
-            'calc(var(--scale-factor) * var(--user-unit, 1))',
+            'calc(var(--scale-factor, 1) * var(--user-unit, 1))',
         );
     });
 });

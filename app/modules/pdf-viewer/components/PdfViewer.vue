@@ -23,6 +23,7 @@
             :is-buffered-page="isPageBuffered"
             :is-rendered-page="isPageRenderedForClass"
             :is-shape-overlay-visual-ready-page="isPageVisualReadyForShapeOverlay"
+            :get-page-scale="getPageScale"
             :get-page-placeholder-style="getPagePlaceholderStyle"
             :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
             :pending-image-placement="pendingImagePlacement"
@@ -156,6 +157,7 @@ const {
     isPageBuffered,
     isPageRenderedForClass,
     isPageVisualReadyForShapeOverlay,
+    getPageScale,
     getPagePlaceholderStyle,
     getExactPagePlaceholderStyle,
     bottomVirtualSpacerStyle,

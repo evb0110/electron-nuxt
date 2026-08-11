@@ -8,6 +8,7 @@ import { createHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
@@ -379,7 +380,7 @@ export const usePdfCanvasRenderer = (deps: {
         // The layout owner writes width, height, and mutable scale for every
         // mounted page synchronously. The renderer contributes only immutable
         // PDF metadata discovered from the concrete page proxy.
-        container.style.setProperty('--user-unit', String(userUnit));
+        container.style.setProperty(PDF_PAGE_SCALE_CSS_VARS.userUnit, String(userUnit));
     }
 
     function mountCanvas(

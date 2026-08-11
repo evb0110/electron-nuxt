@@ -112,7 +112,7 @@ export async function createHiddenAnnotationOperationsFilter(
     }
 
     if (typeof pdfPage.getOperatorList !== 'function') {
-        return undefined;
+        throw new Error(`Cannot suppress managed annotation appearances on page ${pdfPage.pageNumber}: operator list is unavailable`);
     }
 
     try {
@@ -155,6 +155,6 @@ export async function createHiddenAnnotationOperationsFilter(
             `Failed to build hidden annotation filter for page ${pdfPage.pageNumber}`,
             error,
         );
-        return undefined;
+        throw error;
     }
 }

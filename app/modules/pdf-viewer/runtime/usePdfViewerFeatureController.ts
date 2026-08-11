@@ -480,6 +480,7 @@ export const usePdfViewerFeatureController = (
         isPageBuffered: viewportSession.viewModel.isPageBuffered,
         isPageRenderedForClass: renderingSession.isPageRenderedForClass,
         isPageVisualReadyForShapeOverlay: renderingSession.isPageVisualReady,
+        getPageScale: viewportSession.viewModel.getPageScale,
         getPagePlaceholderStyle: viewportSession.viewModel.getPagePlaceholderStyle,
         getExactPagePlaceholderStyle: viewportSession.openVirtualSurfaceGeometry.getExactPagePlaceholderStyle,
         topVirtualSpacerStyle: viewportSession.viewModel.topVirtualSpacerStyle,

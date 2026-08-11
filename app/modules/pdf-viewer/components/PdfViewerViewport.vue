@@ -33,6 +33,7 @@
                 :buffered="isBufferedPage(item.page)"
                 :rendered="isRenderedPage(item.page)"
                 :shape-overlay-visual-ready="isShapeOverlayVisualReadyPage(item.page)"
+                :page-scale="getPageScale(item.page)"
                 :placeholder-style="getEffectivePagePlaceholderStyle(item.page)"
                 :placed-image="pendingImagePlacement?.pageNumber === item.page ? pendingImagePlacement : null"
                 :placed-image-busy="isPendingImagePlacementFinalizing"
@@ -64,6 +65,7 @@ import type {
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdfImagePlacement';
 import type { IPdfVirtualPageSegment } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
+import type { IPdfPageScale } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import {
     resolveDocumentWheelInteraction,
     type IDocumentWheelInteraction,
@@ -85,6 +87,7 @@ interface IProps {
     isBufferedPage: (page: number) => boolean;
     isRenderedPage: (page: number) => boolean;
     isShapeOverlayVisualReadyPage: (page: number) => boolean;
+    getPageScale: (page: number) => IPdfPageScale | null;
     getPagePlaceholderStyle: (page: number) => Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
     pendingImagePlacement?: IPdfImagePlacementDraft | null;
@@ -107,6 +110,7 @@ const {
     isBufferedPage,
     isRenderedPage,
     isShapeOverlayVisualReadyPage,
+    getPageScale,
     getPagePlaceholderStyle,
     bottomVirtualSpacerStyle = null,
     pendingImagePlacement = null,

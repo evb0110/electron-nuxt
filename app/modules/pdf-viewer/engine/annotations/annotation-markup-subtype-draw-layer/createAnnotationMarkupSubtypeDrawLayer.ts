@@ -11,6 +11,7 @@ import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine
 import { findClosestHighlightDrawLayerSvg } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
 import { resolveEditorHighlightClipPathId } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
+import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
 
@@ -110,10 +111,6 @@ function resolveEditorPageDimensions(editor: IPdfjsEditor): [number, number] | n
         dimensions[0],
         dimensions[1],
     ];
-}
-
-function toNativeStrokeCssLength(strokeWidthPdfUnits: number) {
-    return `calc(var(--total-scale-factor, 1) * ${strokeWidthPdfUnits}px)`;
 }
 
 function toAttributeSelectorValue(value: string) {
@@ -346,7 +343,7 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
                         stroke: color ?? 'currentColor',
                         'stroke-linecap': 'butt',
                         'stroke-linejoin': 'miter',
-                        'stroke-width': toNativeStrokeCssLength(pathPlan.strokeWidthPdfUnits),
+                        'stroke-width': toPdfScaledCssLength(pathPlan.strokeWidthPdfUnits),
                         'vector-effect': 'non-scaling-stroke',
                     },
                 });

@@ -12,6 +12,10 @@ import { getPageRowBounds } from '@app/modules/pdf-viewer/engine/pdf-page-layout
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import {
+    buildPdfPageScaleStyle,
+    createPdfPageScale,
+} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import {
     createAnchorPageWindow,
@@ -128,18 +132,26 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         });
     });
 
-    function getPagePlaceholderStyle(pageNumber: number): Record<string, string> | null {
+    function getPageScale(pageNumber: number) {
         const metric = normalizedPageMetrics.value[pageNumber - 1];
         if (!metric) {
+            return null;
+        }
+
+        return createPdfPageScale(effectiveScale.value, metric.userUnit);
+    }
+
+    function getPagePlaceholderStyle(pageNumber: number): Record<string, string> | null {
+        const metric = normalizedPageMetrics.value[pageNumber - 1];
+        const pageScale = getPageScale(pageNumber);
+        if (!metric || !pageScale) {
             return null;
         }
 
         return {
             width: `${metric.width * effectiveScale.value}px`,
             height: `${metric.height * effectiveScale.value}px`,
-            '--scale-factor': String(effectiveScale.value),
-            '--user-unit': String(metric.userUnit ?? 1),
-            '--total-scale-factor': 'calc(var(--scale-factor) * var(--user-unit, 1))',
+            ...buildPdfPageScaleStyle(pageScale),
         };
     }
 
@@ -551,6 +563,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     return {
         pageHeightEstimate,
         pageLayout,
+        getPageScale,
         getPagePlaceholderStyle,
         virtualizedContinuousMode,
         navigationAnchorWindow,

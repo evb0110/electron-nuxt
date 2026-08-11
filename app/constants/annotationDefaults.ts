@@ -14,7 +14,7 @@ export const DEFAULT_ANNOTATION_SETTINGS = {
     squigglyOpacity: 0.7,
     inkColor: '#e11d48',
     inkOpacity: 0.9,
-    inkThickness: 2,
+    inkThickness: 1,
     textColor: '#111827',
     textSize: 22,
     shapeColor: '#2563eb',

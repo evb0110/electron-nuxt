@@ -61,7 +61,7 @@
                     :max="10"
                     :step="0.5"
                 />
-                <span class="annotation-properties-value">{{ shape.strokeWidth }}px</span>
+                <span class="annotation-properties-value">{{ shape.strokeWidth }}pt</span>
             </label>
 
             <label class="annotation-properties-field">

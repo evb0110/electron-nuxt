@@ -275,7 +275,7 @@ function formatShapeStrokeWidth(comment: IAnnotationCommentSummary) {
 function shapeStyleLabel(comment: IAnnotationCommentSummary) {
     const strokeWidth = formatShapeStrokeWidth(comment);
     if (strokeWidth) {
-        return `${t('annotations.stroke')} ${strokeWidth}`;
+        return `${t('annotations.stroke')} ${strokeWidth} pt`;
     }
 
     if (hasShapeFill(comment)) {

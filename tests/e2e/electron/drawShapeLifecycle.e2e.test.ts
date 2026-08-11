@@ -1081,6 +1081,41 @@ async function getManagedShapeDebugState(page: Page) {
     };
 }
 
+async function getFirstManagedShapeStrokeMetrics(page: Page) {
+    const [
+        shapeResult,
+        paint,
+    ] = await Promise.all([
+        callWorkspaceCommand<IManagedShapeDebugShape[]>(page, 'getAllShapes'),
+        evaluateInPage(page, () => {
+            const pageContainer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"]',
+            );
+            const visual = pageContainer?.querySelector<SVGGeometryElement>(
+                '.pdf-shape-overlay g[data-shape-id] polyline:not(.shape-hit-target)',
+            );
+            if (!pageContainer || !visual) {
+                return null;
+            }
+            const pageStyle = window.getComputedStyle(pageContainer);
+            return {
+                renderedStrokeWidth: Number.parseFloat(window.getComputedStyle(visual).strokeWidth),
+                scaleFactor: Number.parseFloat(pageStyle.getPropertyValue('--scale-factor')),
+                userUnit: Number.parseFloat(pageStyle.getPropertyValue('--user-unit')),
+                strokeWidthAttribute: visual.getAttribute('stroke-width'),
+            };
+        }),
+    ]);
+    const strokeWidth = shapeResult.value?.[0]?.strokeWidth;
+    if (!paint || typeof strokeWidth !== 'number') {
+        return null;
+    }
+    return {
+        ...paint,
+        strokeWidth,
+    };
+}
+
 async function getPointInteractionDebugState(page: Page, point: {
     x: number;
     y: number;
@@ -2379,6 +2414,19 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
 
         await waitForShapeCount(page, 1);
         await waitForNoShapeSelectionUi(page);
+
+        const initialStrokeMetrics = await getFirstManagedShapeStrokeMetrics(page);
+        expect(initialStrokeMetrics).not.toBeNull();
+        expect(initialStrokeMetrics?.strokeWidth).toBe(1);
+        expect(initialStrokeMetrics?.strokeWidthAttribute).toBe(
+            'calc(var(--total-scale-factor, 1) * 1px)',
+        );
+        expect(initialStrokeMetrics?.renderedStrokeWidth).toBeCloseTo(
+            (initialStrokeMetrics?.strokeWidth ?? 0)
+            * (initialStrokeMetrics?.scaleFactor ?? 0)
+            * (initialStrokeMetrics?.userUnit ?? 0),
+            2,
+        );
 
         await saveViaWindowHandle(page);
         await waitForShapeCount(page, 1);
