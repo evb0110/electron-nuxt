@@ -19,10 +19,11 @@ function rustPaleCollapseWarning(pageNumber: number, half: string) {
         /conservation_warnings\.push\(format!\(\s*"([^"]+)"\s*,\s*source_page_index \+ 1,\s*page_half_label\(half\)\s*\)\);/g,
     )].map(match => match[1]);
     const uniqueTemplates = [...new Set(templates)];
-    if (templates.length === 0 || uniqueTemplates.length !== 1) {
+    const template = uniqueTemplates[0];
+    if (template === undefined || uniqueTemplates.length !== 1) {
         throw new Error(`Expected one shared Rust pale-collapse warning, found ${JSON.stringify(uniqueTemplates)}`);
     }
-    return uniqueTemplates[0]
+    return template
         .replace('{}', String(pageNumber))
         .replace('{}', half);
 }
