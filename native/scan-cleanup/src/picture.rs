@@ -107,7 +107,13 @@ pub(crate) fn detect_picture_mask_with_continuous_tone(
     // histogram. Maps and line art that lack such evidence are handled by the
     // separate semantic-tone field and therefore remain illumination
     // corrected instead of reintroducing the scan's paper shade.
-    corroborate_picture_components(candidate, continuous_tone)
+    // Grow from a detector candidate into the continuous-tone field, then
+    // apply the artifact/size gate to that union. Qualifying the raw tone
+    // field by itself would promote fold shade and show-through; retaining
+    // only the candidate would split a photograph at the detector boundary.
+    let corroborated =
+        corroborate_picture_components(candidate, continuous_tone, source, raster_dpi, calibration);
+    qualify_picture_owner(source, &corroborated)
 }
 
 /// Finds source regions with a genuinely distributed local tone histogram.
@@ -960,6 +966,9 @@ fn complete_dense_picture_rectangles(candidate: BinaryImage) -> BinaryImage {
 fn corroborate_picture_components(
     candidate: BinaryImage,
     continuous_tone: &BinaryImage,
+    source: &GrayImage,
+    raster_dpi: f64,
+    calibration: PageCalibration,
 ) -> BinaryImage {
     debug_assert_eq!(
         (candidate.width(), candidate.height()),
@@ -969,7 +978,7 @@ fn corroborate_picture_components(
         return BinaryImage::new(candidate.width(), candidate.height());
     }
     let components = ComponentMap::from_binary(&candidate);
-    components.retain(|component| {
+    let retained = components.retain(|component| {
         let minimum_overlap = component.area.div_ceil(100).max(4);
         let mut overlap = 0usize;
         for y in component.top..=component.bottom {
@@ -983,7 +992,40 @@ fn corroborate_picture_components(
             }
         }
         false
-    })
+    });
+    if retained.count_black() == 0 {
+        return retained;
+    }
+
+    // A detector often sees only the darker lobe of a screened or shaded
+    // plate. Use the retained candidate as the anchor and admit only
+    // continuous-tone components touching that anchor. This is tone-driven
+    // growth, but it never admits an unrelated tone component: the caller
+    // still qualifies the resulting union against the same border, gutter,
+    // shadow, and density vetoes as every other automatic owner.
+    let anchors = dilate(&retained, 2, 2);
+    let tone_components = ComponentMap::from_binary(continuous_tone);
+    let tone_growth = tone_components.retain(|component| {
+        let mut overlap = 0usize;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if tone_components.label_at(x, y) == component.label && anchors.get(x, y) {
+                    overlap += 1;
+                    if overlap >= component.area.div_ceil(100).max(4) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    });
+    // Apply the same text/artifact veto to growth alone. Applying it to the
+    // entire union can revoke a genuine photo merely because a nearby body
+    // text chain was admitted by the generous context field; the retained
+    // candidate remains the seed, while the final caller still qualifies the
+    // complete union.
+    let tone_growth = veto_text_like_regions(source, tone_growth, raster_dpi, calibration);
+    retained.or(&tone_growth)
 }
 
 /// Applies the last semantic ownership veto to a detector candidate.
@@ -1011,18 +1053,33 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
         let height = component.bottom - component.top + 1;
         let page_width = source.width();
         let page_height = source.height();
+        let component_bounds_area = width.saturating_mul(height).max(1);
+        let density = component.area as f64 / component_bounds_area as f64;
+        // Edge overlap and shadow-shaped geometry are useful artifact signals
+        // only for small/sparse fields. A dense plate can legitimately touch
+        // both margins: this covers a 85% x 70% illustration, each half of a
+        // two-up plate pair, and a full-width banner whose height is shorter
+        // than the page. The non-edge content dominates those components.
+        let dense_large_component = density >= 0.70
+            && (component.area.saturating_mul(2) >= page_width.saturating_mul(page_height)
+                || (width.saturating_mul(5) >= page_width.saturating_mul(4)
+                    && height.saturating_mul(10) >= page_height)
+                || (height.saturating_mul(5) >= page_height.saturating_mul(4)
+                    && width.saturating_mul(10) >= page_width.saturating_mul(3)));
         let horizontal_edge_zone = page_width.div_ceil(40).max(1);
         let vertical_edge_zone = page_height.div_ceil(40).max(1);
         let vertical_shadow = (component.top < vertical_edge_zone
             || component.bottom.saturating_add(vertical_edge_zone) >= page_height)
             && height.saturating_mul(2) >= page_height
             && height >= width.saturating_mul(4)
-            && width.saturating_mul(5) <= page_width;
+            && width.saturating_mul(5) <= page_width
+            && !dense_large_component;
         let horizontal_shadow = (component.left < horizontal_edge_zone
             || component.right.saturating_add(horizontal_edge_zone) >= page_width)
             && width.saturating_mul(2) >= page_width
             && width >= height.saturating_mul(4)
-            && height.saturating_mul(5) <= page_height;
+            && height.saturating_mul(5) <= page_height
+            && !dense_large_component;
         let mut border_overlap = 0usize;
         let mut midtones = 0usize;
         for y in component.top..=component.bottom {
@@ -1040,24 +1097,22 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
             && component.right.saturating_add(horizontal_edge_zone) >= center;
         let page_filling = width.saturating_mul(5) >= page_width.saturating_mul(4)
             && height.saturating_mul(5) >= page_height.saturating_mul(4);
-        let component_bounds_area = width.saturating_mul(height).max(1);
         // Border evidence can overlap the authored edge of a full-bleed scan.
         // It may veto a sparse edge ghost or frame, but not a dense component
         // that already owns most of both page axes. The Bar Zobi manuscript
         // candidate is 99.9% dense in its 91% x 95% enclosure; the old 1%
         // overlap rule revoked all 576k corroborated pixels because 2.6% also
         // touched the rough leaf/black-stage boundary.
-        let dense_page_filling = page_filling
-            && component.area.saturating_mul(5) >= component_bounds_area.saturating_mul(4);
         let edge_artifact = border_overlap >= 16
             && border_overlap.saturating_mul(100) >= component.area
-            && !dense_page_filling;
+            && !dense_large_component;
         let sparse_midtones = midtones.saturating_mul(100) <= component.area.saturating_mul(8);
         let gutter_artifact = gutter_shadow
             && touches_vertical_edge
             && crosses_gutter
             && !page_filling
-            && sparse_midtones;
+            && sparse_midtones
+            && !dense_large_component;
         // A fold can disappear at the crop boundary before ownership is
         // qualified, so requiring contact with the top/bottom edge is not
         // sufficient. A narrow, long component centered on the gutter is
@@ -1067,7 +1122,14 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
             && component.right.saturating_mul(100) >= page_width * 40;
         let central_narrow_shadow = near_central_gutter
             && width.saturating_mul(12) <= page_width
-            && height.saturating_mul(5) >= page_height;
+            && height.saturating_mul(5) >= page_height
+            // A central narrow shape on a single portrait leaf is not enough
+            // to identify a fold. Require the source-level gutter context;
+            // pages without that context remain eligible for narrow inset
+            // illustrations and portraits. A real gutter shadow may itself
+            // be a solid dark column, so do not require sparse midtones here.
+            && gutter_shadow
+            && !dense_large_component;
         if component.area < PICTURE_OWNER_MIN_COMPONENT_PIXELS
             || vertical_shadow
             || horizontal_shadow
@@ -1113,7 +1175,58 @@ fn has_gutter_shadow(source: &GrayImage) -> bool {
     windows.sort_unstable_by(f64::total_cmp);
     let median = windows[windows.len() / 2];
     let maximum = windows[windows.len() - 1];
-    maximum >= 0.12 && maximum >= (median + 0.01) * 4.0
+    let dark_profile = maximum >= 0.12 && maximum >= (median + 0.01) * 4.0;
+    if dark_profile {
+        return true;
+    }
+
+    // Book folds are often pale at the analysis scale: the shadow is a broad
+    // luminance depression, not enough <=160 ink to satisfy the dark-density
+    // profile above. Measure the same central sliding windows in tone space,
+    // then require the winning window to stay below its peers for a material
+    // fraction of the page height. A title or text column can lower a few
+    // rows, but it cannot produce a vertically persistent gutter profile.
+    let tone_window_width = source.width().div_ceil(100).max(2);
+    let mut column_sum = vec![0usize; source.width()];
+    for y in 0..source.height() {
+        for (x, sum) in column_sum.iter_mut().enumerate() {
+            *sum += usize::from(source.get(x, y));
+        }
+    }
+    let column_means = column_sum
+        .into_iter()
+        .map(|sum| sum as f64 / source.height().max(1) as f64)
+        .collect::<Vec<_>>();
+    let mut prefix = vec![0.0; column_means.len() + 1];
+    for (index, mean) in column_means.iter().copied().enumerate() {
+        prefix[index + 1] = prefix[index] + mean;
+    }
+    let tone_window_end = central_right.saturating_sub(tone_window_width);
+    let mut tone_windows = (central_left..=tone_window_end)
+        .map(|left| {
+            let mean = (prefix[left + tone_window_width] - prefix[left]) / tone_window_width as f64;
+            (mean, left)
+        })
+        .collect::<Vec<_>>();
+    if tone_windows.is_empty() {
+        return false;
+    }
+    tone_windows.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+    let (minimum_tone, minimum_left) = tone_windows[0];
+    let median_tone = tone_windows[tone_windows.len() / 2].0;
+    if minimum_tone > 245.0 || median_tone - minimum_tone < 8.0 {
+        return false;
+    }
+    let low_tone_rows = (0..source.height())
+        .filter(|&y| {
+            let row_sum = (minimum_left..minimum_left + tone_window_width)
+                .map(|x| f64::from(source.get(x, y)))
+                .sum::<f64>();
+            let row_mean = row_sum / tone_window_width as f64;
+            median_tone - row_mean >= 8.0
+        })
+        .count();
+    low_tone_rows.saturating_mul(100) >= source.height().saturating_mul(35)
 }
 
 /// Expands an already-corroborated, irregular photo owner to the rectangular
@@ -1797,6 +1910,25 @@ mod tests {
     }
 
     #[test]
+    fn pale_spread_gutter_tone_profile_rejects_a_central_narrow_component() {
+        let mut page = GrayImage::new(220, 160, 250);
+        let mut candidate = BinaryImage::new(page.width(), page.height());
+        for y in 0..page.height() {
+            for x in 102..118 {
+                page.set(x, y, 235);
+                candidate.set(x, y, true);
+            }
+        }
+
+        let owner = qualify_picture_owner(&page, &candidate);
+        assert_eq!(
+            owner.count_black(),
+            0,
+            "a pale, vertically persistent spread fold must not become a photo owner"
+        );
+    }
+
+    #[test]
     fn dense_full_bleed_photo_owner_survives_leaf_edge_overlap() {
         let mut page = GrayImage::new(500, 340, 8);
         let mut candidate = BinaryImage::new(page.width(), page.height());
@@ -1820,6 +1952,113 @@ mod tests {
             owner.count_black(),
             candidate.count_black(),
             "a dense full-bleed photo cannot be revoked by its authored leaf edge"
+        );
+    }
+
+    #[test]
+    fn partially_detected_photo_grows_into_its_smooth_tonal_lobe() {
+        let mut source = GrayImage::new(320, 220, 245);
+        let mut candidate = BinaryImage::new(source.width(), source.height());
+        let mut continuous_tone = BinaryImage::new(source.width(), source.height());
+        for y in 45..176 {
+            for x in 60..261 {
+                continuous_tone.set(x, y, true);
+                source.set(
+                    x,
+                    y,
+                    if x < 145 {
+                        48 + ((x * 7 + y * 11) % 28) as u8
+                    } else {
+                        132 + ((x * 13 + y * 5) % 70) as u8
+                    },
+                );
+            }
+        }
+        // The flattened detector found only the dark lobe. The smooth lobe
+        // is still corroborated by the same distributed tone field.
+        for y in 55..166 {
+            for x in 70..141 {
+                candidate.set(x, y, true);
+            }
+        }
+
+        let calibration = PageCalibration::estimate(&source, 300.0, CalibrationConfig::default());
+        let grown = corroborate_picture_components(
+            candidate,
+            &continuous_tone,
+            &source,
+            300.0,
+            calibration,
+        );
+        assert!(
+            grown.get(220, 110),
+            "tone growth stopped at the dark-lobe detector boundary"
+        );
+        let owner = qualify_picture_owner(&source, &grown);
+        assert!(
+            owner.get(220, 110),
+            "the vetted union still lost the smooth photo lobe"
+        );
+        assert!(
+            owner.get(100, 110),
+            "the original dark-lobe ownership was not retained"
+        );
+    }
+
+    #[test]
+    fn narrow_tall_inset_photo_on_a_single_leaf_is_not_a_central_shadow() {
+        let mut page = GrayImage::new(300, 600, 244);
+        let mut candidate = BinaryImage::new(page.width(), page.height());
+        for y in 100..500 {
+            for x in 140..160 {
+                candidate.set(x, y, true);
+                page.set(x, y, 72 + ((x * 17 + y * 13) % 132) as u8);
+            }
+        }
+
+        let owner = qualify_picture_owner(&page, &candidate);
+        assert_eq!(
+            owner.count_black(),
+            candidate.count_black(),
+            "a narrow-tall inset illustration was mistaken for a fold without gutter evidence"
+        );
+    }
+
+    #[test]
+    fn dense_large_edge_touching_plates_survive_artifact_shaped_vetoes() {
+        let mut page = GrayImage::new(500, 400, 244);
+        let mut candidate = BinaryImage::new(page.width(), page.height());
+        // A large plate with a caption band reaches two leaf edges.
+        for y in 0..280 {
+            for x in 0..426 {
+                candidate.set(x, y, true);
+                page.set(x, y, 72 + ((x * 17 + y * 29) % 132) as u8);
+            }
+        }
+        // Two-up plates each occupy less than half the page area, but each
+        // spans most of the height and is dense enough to dominate its edge.
+        for &(left, right) in &[(0, 220), (280, 500)] {
+            for y in 20..380 {
+                for x in left..right {
+                    candidate.set(x, y, true);
+                    page.set(x, y, 84 + ((x * 7 + y * 19) % 112) as u8);
+                }
+            }
+        }
+        // A full-width banner is deliberately shorter than half the page but
+        // still has authored illustration depth, not fold-strip thickness.
+        for y in 340..400 {
+            for x in 0..500 {
+                candidate.set(x, y, true);
+                page.set(x, y, 96);
+            }
+        }
+
+        let owner = qualify_picture_owner(&page, &candidate);
+        assert_eq!(
+            owner.count_black(),
+            candidate.count_black(),
+            "dense large plates were still deleted by edge/shadow-shaped vetoes"
         );
     }
 

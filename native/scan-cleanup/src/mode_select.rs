@@ -217,7 +217,20 @@ pub(crate) struct PreparedModeEvidence<'a> {
     pub analysis: &'a GrayImage,
     pub analysis_rgb: Option<&'a RgbImage>,
     pub picture_mask: &'a BinaryImage,
+    /// True only when the owner was corroborated by distributed tone,
+    /// trusted producer tone, or an explicit picture-zone override. This
+    /// keeps the 0.5% floor evidence-backed instead of allowing a stain or
+    /// tape patch to become a picture on one knife-edge sample.
+    pub picture_tone_evidence: bool,
     pub text_line_count: usize,
+}
+
+fn picture_noise_floor(evidence: PreparedModeEvidence<'_>) -> f64 {
+    if evidence.picture_tone_evidence {
+        CORROBORATED_PICTURE_NOISE_FLOOR
+    } else {
+        PICTURE_NOISE_FLOOR
+    }
 }
 
 fn recommendation(
@@ -231,7 +244,7 @@ fn recommendation(
     picture_fraction: f64,
 ) -> OutputModeRecommendation {
     let significant_color = has_significant_chroma(chroma);
-    let significant_picture = picture_fraction >= PICTURE_NOISE_FLOOR;
+    let significant_picture = picture_fraction >= picture_noise_floor(evidence);
     let dense_text_bimodality_floor = DENSE_TEXT_BIMODALITY + BIMODALITY_HYSTERESIS;
     let dense_text_mode_distance_floor = DENSE_TEXT_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS;
     let dense_text_midtone_ceiling = DENSE_TEXT_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS;
@@ -267,7 +280,7 @@ fn recommendation(
             text_line_count: evidence.text_line_count,
             significant_color,
             significant_picture,
-            picture_gate_margin: picture_fraction - PICTURE_NOISE_FLOOR,
+            picture_gate_margin: picture_fraction - picture_noise_floor(evidence),
             tonal_midtone_gate_margin: luminance.midtone_fraction - TONAL_MIDTONE_FRACTION,
             strong_bimodality_gate_margin: luminance.bimodality - STRONG_BIMODALITY,
             confident_text_bimodality_margin: luminance.bimodality
@@ -595,47 +608,12 @@ pub(crate) fn recommend_output_mode_with_tone(
     result.diagnostics.coherent_outside_tonal_region = outside_tone.coherent();
     result.diagnostics.destructive_mode_tonal_veto = outside_tone.vetoes_destructive_mode();
 
-    let outside_tone_requires_mixed = outside_tone.vetoes_destructive_mode()
-        // Some fresh raster pages contain a broad gray band that is not
-        // coherent enough for the destructive-mode veto, but is still a
-        // continuous-tone owner beside text. Keep it in the calibrated Mixed
-        // background rather than allowing the stencil branch to flatten it.
-        || outside_tone.fraction >= 0.12
-        || outside_tone.largest_component_width_fraction >= 0.50;
-    if result.mode == OutputMode::Bw
-        && outside_tone_requires_mixed
-        // Outside tone may only promote a page the picture detector actually
-        // granted ownership on. Verso show-through is coherent gray outside
-        // every text line and passes the spatial tests above on hundreds of
-        // plain text pages; without detector corroboration the promoted page
-        // would publish a Mixed manifest that owns no tone at all.
-        && result.diagnostics.picture_fraction >= CORROBORATED_PICTURE_NOISE_FLOOR
-        && !is_bimodal_stencil_page(&result.diagnostics)
-    {
-        let spatial_extent = outside_tone
-            .largest_component_width_fraction
-            .min(outside_tone.largest_component_height_fraction);
-        // Tone beside text is a layering decision, not evidence that the
-        // complete sheet should become an 8-bit raster. Preserve the tone in a
-        // coarse background and keep text in the bilevel foreground. Pages
-        // without text have no useful foreground and remain grayscale.
-        result.mode = if evidence.text_line_count > 0 {
-            OutputMode::Mixed
-        } else {
-            OutputMode::Grayscale
-        };
-        result.confidence = (0.68 + 0.18 * outside_tone.fraction + 0.14 * spatial_extent)
-            .max(0.82)
-            .clamp(0.0, 1.0);
-        result.reason = if result.mode == OutputMode::Mixed {
-            OutputModeRecommendationReason::TextWithPictures
-        } else {
-            OutputModeRecommendationReason::ContinuousTone
-        };
-        result.diagnostics.rule = OutputModeRule::SpatialTone;
-        result.diagnostics.fallback_used = false;
-    }
-
+    // Outside-text tone remains diagnostic evidence for line-art refinement,
+    // but it is not a second mode owner. The old SpatialTone promotion was
+    // unsatisfiable after picture qualification moved before mode selection:
+    // every owner at the lower floor had already selected Mixed/Grayscale,
+    // while the B&W path carried no owner. Keeping this channel out of mode
+    // selection prevents show-through from becoming a UI "Text + pics" label.
     result
 }
 
@@ -692,7 +670,8 @@ pub(crate) fn recommend_output_mode(
     // reduced pictureFraction to zero.
     let picture_pixels = evidence.picture_mask.count_black();
     let picture_fraction = picture_pixels as f64 / pixel_count as f64;
-    let significant_picture = picture_fraction >= PICTURE_NOISE_FLOOR;
+    let picture_floor = picture_noise_floor(evidence);
+    let significant_picture = picture_fraction >= picture_floor;
     let has_text = evidence.text_line_count >= MIN_TEXT_LINES;
 
     if significant_color
@@ -748,7 +727,7 @@ pub(crate) fn recommend_output_mode(
     // text-with-picture pages in the calibrated book measure picture
     // fractions of 0.1-0.45, while a full-bleed tonal sheet measures 0.59
     // even when only its darker half seeds zones.
-    if confirmed_picture(evidence.picture_mask) && has_text && picture_fraction < 0.55 {
+    if significant_picture && has_text && picture_fraction < 0.55 {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 8.0).clamp(0.0, 1.0);
         return recommendation(
@@ -763,7 +742,7 @@ pub(crate) fn recommend_output_mode(
         );
     }
 
-    if confirmed_picture(evidence.picture_mask) {
+    if significant_picture {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let tonal_margin = (luminance.midtone_fraction / TONAL_MIDTONE_FRACTION).clamp(0.0, 1.0);
         let weak_bimodality = ((STRONG_BIMODALITY - luminance.bimodality) / 0.35).clamp(0.0, 1.0);
@@ -791,7 +770,7 @@ pub(crate) fn recommend_output_mode(
         && (MAX_SPARSE_TEXT_INK_FRACTION..=FLAT_FEW_LINE_TEXT_MAX_INK_FRACTION)
             .contains(&luminance.ink_fraction);
     let sparse_text_on_flat_paper = evidence.text_line_count >= 1
-        && picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
+        && picture_fraction + PICTURE_HYSTERESIS < picture_floor
         && luminance.robust_luminance_range <= BLANK_MAX_ROBUST_LUMINANCE_RANGE
         && ((sparse_ink_fraction && luminance.mode_distance >= MIN_SPARSE_TEXT_MODE_DISTANCE)
             || (few_line_ink_fraction
@@ -870,7 +849,7 @@ pub(crate) fn recommend_output_mode(
     }
 
     let confident_text = has_text
-        && picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
+        && picture_fraction + PICTURE_HYSTERESIS < picture_floor
         && luminance.bimodality >= STRONG_BIMODALITY + BIMODALITY_HYSTERESIS
         && luminance.mode_distance >= MIN_LUMINANCE_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS
         && luminance.midtone_fraction <= MAX_BW_MIDTONE_FRACTION - MIDTONE_HYSTERESIS;
@@ -921,7 +900,7 @@ pub(crate) fn recommend_output_mode(
         && luminance.bimodality >= VERY_DENSE_TEXT_MIN_BIMODALITY
         && luminance.mode_distance >= VERY_DENSE_TEXT_MIN_MODE_DISTANCE
         && luminance.midtone_fraction <= VERY_DENSE_TEXT_MAX_MIDTONE_FRACTION;
-    let dense_text = picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
+    let dense_text = picture_fraction + PICTURE_HYSTERESIS < picture_floor
         && ((evidence.text_line_count >= DENSE_TEXT_MIN_LINES
             && luminance.bimodality >= dense_text_bimodality_floor
             && dense_text_separated
@@ -968,7 +947,7 @@ pub(crate) fn recommend_output_mode(
         STRONG_SINGLE_LINE_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS;
     let single_line_midtone_ceiling = STRONG_SINGLE_LINE_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS;
     let strong_single_line_text = evidence.text_line_count == 1
-        && picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
+        && picture_fraction + PICTURE_HYSTERESIS < picture_floor
         && luminance.bimodality >= single_line_bimodality_floor
         && luminance.mode_distance >= single_line_mode_distance_floor
         && luminance.midtone_fraction <= single_line_midtone_ceiling
@@ -1324,14 +1303,6 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
                 && horizontal_gap <= maximum_glyph_height.saturating_mul(4)
         })
     })
-}
-
-fn confirmed_picture(picture_mask: &BinaryImage) -> bool {
-    let pixels = picture_mask
-        .width()
-        .saturating_mul(picture_mask.height())
-        .max(1);
-    picture_mask.count_black() as f64 / pixels as f64 >= CORROBORATED_PICTURE_NOISE_FLOOR
 }
 
 fn chroma_vector(pixel: [f64; 3]) -> [f64; 3] {
@@ -1932,6 +1903,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 0,
         });
         report("blank-flyleaf", recommendation);
@@ -2023,6 +1995,7 @@ mod tests {
                 analysis: &gray,
                 analysis_rgb: None,
                 picture_mask: &BinaryImage::new(gray.width(), gray.height()),
+                picture_tone_evidence: false,
                 text_line_count: 1,
             });
             assert_eq!(
@@ -2056,6 +2029,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &BinaryImage::new(gray.width(), gray.height()),
+            picture_tone_evidence: false,
             text_line_count: 5,
         });
 
@@ -2196,6 +2170,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 1,
         });
         assert_eq!(recommendation.reason, OutputModeRecommendationReason::Blank);
@@ -2550,6 +2525,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: true,
             text_line_count: 18,
         });
         report("small-corroborated-picture", recommendation);
@@ -2558,7 +2534,10 @@ mod tests {
             recommendation.diagnostics.picture_fraction < PICTURE_NOISE_FLOOR,
             "fixture must stay below the ordinary picture gate: {recommendation:?}"
         );
-        assert!(!recommendation.diagnostics.significant_picture);
+        assert!(
+            recommendation.diagnostics.significant_picture,
+            "corroborated tone evidence should keep the lower picture floor: {recommendation:?}"
+        );
         assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
         assert_eq!(
             recommendation.reason,
@@ -2589,6 +2568,7 @@ mod tests {
                 analysis: &gray,
                 analysis_rgb: None,
                 picture_mask: &owned_picture_mask,
+                picture_tone_evidence: true,
                 text_line_count: 8,
             },
             outside_tone,
@@ -2610,6 +2590,7 @@ mod tests {
                 analysis: &gray,
                 analysis_rgb: None,
                 picture_mask: &empty_picture_mask,
+                picture_tone_evidence: false,
                 text_line_count: 8,
             },
             outside_tone,
@@ -2618,6 +2599,33 @@ mod tests {
         assert_eq!(unowned.reason, OutputModeRecommendationReason::BimodalText);
         assert_eq!(unowned.diagnostics.picture_fraction, 0.0);
         assert!(!unowned.diagnostics.significant_picture);
+
+        // The old SpatialTone second opinion promoted this same sub-floor
+        // owner whenever outside-text tone was coherent. That path is gone:
+        // without corroboration the legacy 1.2% floor still protects a text
+        // page from a tape patch, stain, or distributed show-through.
+        let mut subfloor_picture_mask = BinaryImage::new(gray.width(), gray.height());
+        for y in 40..70 {
+            for x in 250..274 {
+                subfloor_picture_mask.set(x, y, true);
+            }
+        }
+        let subfloor_unconfirmed = recommend_output_mode_with_tone(
+            PreparedModeEvidence {
+                analysis: &gray,
+                analysis_rgb: None,
+                picture_mask: &subfloor_picture_mask,
+                picture_tone_evidence: false,
+                text_line_count: 8,
+            },
+            outside_tone,
+        );
+        assert_eq!(
+            subfloor_unconfirmed.mode,
+            OutputMode::Bw,
+            "outside tone must not revive the deleted second mode owner: {subfloor_unconfirmed:?}"
+        );
+        assert!(!subfloor_unconfirmed.diagnostics.significant_picture);
     }
 
     #[test]
@@ -2674,6 +2682,7 @@ mod tests {
             analysis: &dominant_gray,
             analysis_rgb: Some(&dominant_plate),
             picture_mask: &dominant_picture_mask,
+            picture_tone_evidence: true,
             text_line_count: 4,
         });
         assert_eq!(
@@ -2746,6 +2755,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: Some(&cover),
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 2,
         });
         report("dark-textured-cover-with-sticker", recommendation);
@@ -2797,10 +2807,13 @@ mod tests {
             .filter(|component| component.area >= MIN_PICTURE_COMPONENT_PIXELS)
             .map(|component| component.area)
             .sum::<usize>();
+        // The vetted owner now rejects the synthetic scanner rails and
+        // gutter before mode selection; this fixture must not manufacture a
+        // picture fraction merely to exercise the old second opinion.
         assert!(
-            raw_picture_pixels as f64 / gray.width().saturating_mul(gray.height()) as f64
-                >= PICTURE_NOISE_FLOOR,
-            "fixture must exercise the aggregate picture veto"
+            (raw_picture_pixels as f64 / gray.width().saturating_mul(gray.height()) as f64)
+                < PICTURE_NOISE_FLOOR,
+            "artifact-only rails must stay below the picture floor: pixels={raw_picture_pixels}"
         );
 
         let recommendation = classify(&gray, Some(&rgb));
@@ -2832,6 +2845,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: true,
             text_line_count: 0,
         });
         report("full-page-edge-halftone", recommendation);
@@ -2865,6 +2879,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: true,
             text_line_count: 8,
         });
         report("many-small-pictures", recommendation);
@@ -2913,6 +2928,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 8,
         });
         assert_eq!(recommendation.mode, OutputMode::Bw, "{recommendation:?}");
@@ -2935,6 +2951,7 @@ mod tests {
             analysis: &low_contrast,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 8,
         });
         assert_eq!(
@@ -2958,6 +2975,7 @@ mod tests {
             analysis: &tonal,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 8,
         });
         assert_eq!(
@@ -2975,6 +2993,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 1,
         });
         report("strong-single-line-text", recommendation);
@@ -2992,6 +3011,7 @@ mod tests {
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 0,
         });
         assert_eq!(
@@ -3010,6 +3030,7 @@ mod tests {
             analysis: &faint,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 1,
         });
         assert_eq!(
@@ -3031,6 +3052,7 @@ mod tests {
             analysis: &sparse,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 1,
         });
         assert_eq!(
@@ -3053,6 +3075,7 @@ mod tests {
             analysis: &solid_blob,
             analysis_rgb: None,
             picture_mask: &picture_mask,
+            picture_tone_evidence: false,
             text_line_count: 1,
         });
         assert_eq!(

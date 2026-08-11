@@ -175,6 +175,32 @@ mod tests {
     }
 
     #[test]
+    fn mixed_partition_consumes_a_qualified_spatial_tone_owner() {
+        let mut spatial = BinaryImage::new(4, 1);
+        spatial.set(2, 0, true);
+        let mut picture_mask = None;
+
+        partition_mixed_picture_mask(
+            &mut picture_mask,
+            false,
+            Some(&spatial),
+            None,
+            None,
+            None,
+            None,
+            25.4,
+            0,
+        );
+
+        assert!(
+            picture_mask
+                .as_ref()
+                .is_some_and(|mask| mask.get(2, 0)),
+            "a qualified flat-graphic tone field was discarded before Mixed composition"
+        );
+    }
+
+    #[test]
     fn mixed_partition_joins_interline_paper_but_keeps_tone_owned() {
         let mut picture = BinaryImage::new(5, 5);
         for y in 0..5 {
@@ -3444,16 +3470,32 @@ mod tests {
             .expect("rotation must not erase the tonal owner");
         assert!(rotated_owner.count_black() > 2_000);
         assert_ne!(rotated.resolved_output_mode, OutputMode::Bw);
+        let rotated_components = ComponentMap::from_binary(rotated_owner);
+        let rotated_component = rotated_components
+            .components()
+            .iter()
+            .max_by_key(|component| component.area)
+            .expect("rotated owner must have a dominant plate component");
+        assert!(
+            (40..=90).contains(&rotated_component.left)
+                && (210..=250).contains(&rotated_component.right)
+                && (160..=190).contains(&rotated_component.top)
+                && (270..=305).contains(&rotated_component.bottom),
+            "rotated owner landed in the wrong bbox: {rotated_component:?}"
+        );
+        assert!(rotated_owner.get(150, 220), "rotated plate center lost ownership");
+        assert!(!rotated_owner.get(25, 220), "owner was transposed into the margin");
 
-        let output = clean_page(&source, &options, 0)
+        let output = clean_page(&source, &rotated_options, 0)
             .unwrap()
             .outputs
             .remove(0);
         assert_ne!(output.metadata.output_mode, OutputMode::Bw);
         let rendered = output.image.to_gray();
+        assert_eq!((rendered.width(), rendered.height()), (560, 620));
         let mut retained_tones = 0usize;
-        for y in 150..400 {
-            for x in 360..570 {
+        for y in 350..580 {
+            for x in 150..450 {
                 if (8..=247).contains(&rendered.get(x, y)) {
                     retained_tones += 1;
                 }
@@ -3481,6 +3523,45 @@ mod tests {
         assert_eq!(image.get(1, 4), outside_before);
         assert_ne!(image.get(4, 4), center_before);
         assert!((48..=208).contains(&image.get(4, 4)));
+    }
+
+    #[test]
+    fn photo_descreen_gate_uses_the_region_source_extent() {
+        assert!(
+            !should_prefilter_confirmed_photo_regions(
+                true,
+                OutputMode::Mixed,
+                600,
+                800,
+                600,
+                800,
+            ),
+            "a 1:1 split-page region must not receive an unearned descreen pass"
+        );
+        assert!(should_prefilter_confirmed_photo_regions(
+            true,
+            OutputMode::Grayscale,
+            300,
+            400,
+            600,
+            800,
+        ));
+        assert!(!should_prefilter_confirmed_photo_regions(
+            false,
+            OutputMode::Mixed,
+            300,
+            400,
+            600,
+            800,
+        ));
+        assert!(!should_prefilter_confirmed_photo_regions(
+            true,
+            OutputMode::Bw,
+            300,
+            400,
+            600,
+            800,
+        ));
     }
 
     #[test]
@@ -4701,21 +4782,6 @@ mod tests {
 
     #[test]
     fn approved_small_photo_owner_preserves_tone_near_stencil() {
-        let mut vetted_owner = BinaryImage::new(4, 4);
-        vetted_owner.set(2, 2, true);
-        assert!(
-            confirmed_photo_preservation_policy(Some(&vetted_owner)),
-            "a nonempty vetted owner always receives exact preservation"
-        );
-        assert!(
-            !confirmed_photo_preservation_policy(None),
-            "unowned tone must not gain exact photo preservation"
-        );
-        let empty_owner = BinaryImage::new(4, 4);
-        assert!(
-            !confirmed_photo_preservation_policy(Some(&empty_owner)),
-            "an empty evidence mask is not a picture owner"
-        );
         // Keep the approved owner between the corroborated (0.5%) and legacy
         // significant-picture (1.2%) floors. This is the interval in which an
         // exact rectangular owner used to reach composition with the generic
@@ -4822,6 +4888,43 @@ mod tests {
             170,
             "approved photo tone was locally whitened beside stencil ink"
         );
+    }
+
+    #[test]
+    fn line_art_refinement_preserves_map_tone_outside_an_immutable_photo_owner() {
+        let mut layout = GrayImage::new(120, 90, 244);
+        let mut photo = BinaryImage::new(120, 90);
+        for y in 25..65 {
+            for x in 78..108 {
+                photo.set(x, y, true);
+                layout.set(x, y, 150);
+            }
+        }
+        let mut protection = BinaryImage::new(120, 90);
+        for y in 15..75 {
+            for x in 15..65 {
+                protection.set(x, y, true);
+                layout.set(x, y, if (x + y) % 7 < 3 { 72 } else { 188 });
+            }
+        }
+
+        let alpha = picture_and_line_art_preservation_alpha(
+            &layout,
+            &layout,
+            Some(&protection),
+            Some(&photo),
+            true,
+        )
+        .expect("line-art refinement must publish an alpha outside the photo owner");
+        assert!(
+            alpha.get(90, 45) >= 240,
+            "the immutable photo owner was weakened by line-art refinement"
+        );
+        assert!(
+            alpha.get(35, 45) > 0,
+            "line-art refinement was still unreachable outside a confirmed owner"
+        );
+        assert_eq!(alpha.get(4, 4), 0, "paper outside semantic geometry was preserved");
     }
 
     #[test]
