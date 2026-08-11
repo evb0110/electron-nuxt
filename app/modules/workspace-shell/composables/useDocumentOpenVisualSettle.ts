@@ -71,16 +71,22 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         // lifecycle to `transitioning`; allowing that to clear this signal
         // makes the host mistake navigation for a fresh document open and
         // replace the resident canvas with an opening skeleton. The latch only
-        // holds while a resident visual exists: when the current page degrades
-        // to a skeleton (a budget eviction of the on-screen visual), there is
-        // no canvas left to protect and readiness must drop until the
-        // replacement paint settles.
-        const visual = options.openSurface.viewportSession.value.visual;
+        // holds while a resident visual exists: when the committed page's own
+        // visual degrades to a skeleton (a budget eviction of the on-screen
+        // canvas), there is nothing left to protect and readiness must drop
+        // until the replacement paint settles. A skeleton for a different page
+        // is ordinary navigation - the resident canvas was superseded, not
+        // lost - and must not clear the latch.
+        const viewport = options.openSurface.viewportSession.value;
+        const visual = viewport.visual;
+        const residentVisualLost = visual.kind === 'page'
+            && visual.presentation === 'skeleton'
+            && (viewport.committedPage === null || visual.pageNumber === viewport.committedPage);
         return identity !== null
             && committed?.generation === surface.generation
             && committed.documentId === identity.documentId
             && committed.documentRevision === identity.documentRevision
-            && (visual.kind !== 'page' || visual.presentation !== 'skeleton');
+            && !residentVisualLost;
     });
     let documentOpenVisualSettlePromise: Promise<void> | null = null;
     let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;
