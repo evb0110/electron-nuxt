@@ -1,7 +1,5 @@
-use crate::{
-    calibration::PageCalibration, content::border_artifact_mask, io::png::RgbImage, OutputMode,
-};
-use scan_primitives::{threshold::otsu_threshold, BinaryImage, Component, ComponentMap, GrayImage};
+use crate::{calibration::PageCalibration, io::png::RgbImage, OutputMode};
+use scan_primitives::{threshold::otsu_threshold, BinaryImage, ComponentMap, GrayImage};
 use serde::{Deserialize, Serialize};
 
 const CHROMA_NOISE_FLOOR: f64 = 18.0;
@@ -20,6 +18,7 @@ const COLOR_DOMINANT_MAX_TEXT_LINES: usize = 6;
 const COLOR_TEXT_MAX_INK_FRACTION: f64 = 0.70;
 const SIGNIFICANT_CHROMA_COMPONENT_PIXELS: usize = 500;
 const CHROMA_COMPONENT_HYSTERESIS_PIXELS: usize = 80;
+#[cfg(test)]
 const MIN_PICTURE_COMPONENT_PIXELS: usize = 1_024;
 const PICTURE_NOISE_FLOOR: f64 = 0.012;
 // `picture_mask` is produced after picture candidates have been corroborated
@@ -31,7 +30,6 @@ const PICTURE_NOISE_FLOOR: f64 = 0.012;
 const CORROBORATED_PICTURE_NOISE_FLOOR: f64 = 0.005;
 const PICTURE_HYSTERESIS: f64 = 0.003;
 const PICTURE_BALANCE_FRACTION: f64 = 0.14;
-const BORDER_INK_LUMINANCE_CUTOFF: u8 = 160;
 const BLANK_EDGE_DIFFERENCE: u8 = 12;
 const BLANK_MAX_EDGE_FRACTION: f64 = 0.0015;
 const BLANK_MAX_ROBUST_LUMINANCE_RANGE: f64 = 48.0;
@@ -611,7 +609,7 @@ pub(crate) fn recommend_output_mode_with_tone(
         // every text line and passes the spatial tests above on hundreds of
         // plain text pages; without detector corroboration the promoted page
         // would publish a Mixed manifest that owns no tone at all.
-        && evidence.picture_mask.count_black() > 0
+        && result.diagnostics.picture_fraction >= CORROBORATED_PICTURE_NOISE_FLOOR
         && !is_bimodal_stencil_page(&result.diagnostics)
     {
         let spatial_extent = outside_tone
@@ -688,27 +686,13 @@ pub(crate) fn recommend_output_mode(
         .width()
         .saturating_mul(evidence.analysis.height())
         .max(1);
-    let picture_map = ComponentMap::from_binary(evidence.picture_mask);
-    let border_artifacts = border_artifact_mask(evidence.analysis);
-    let gutter_shadow = has_gutter_shadow(evidence.analysis);
-    let picture_pixels = picture_map
-        .components()
-        .iter()
-        .filter(|component| component.area >= MIN_PICTURE_COMPONENT_PIXELS)
-        .filter(|component| {
-            !is_border_artifact_picture_component(
-                &picture_map,
-                component,
-                &border_artifacts,
-                evidence.analysis,
-                gutter_shadow,
-            )
-        })
-        .map(|component| component.area)
-        .sum::<usize>();
+    // `picture_mask` is the vetted semantic owner. Qualification happens once
+    // in picture.rs before this function; re-filtering here was the source of
+    // the old non-monotonic state where diagnostics saw tone but mode selection
+    // reduced pictureFraction to zero.
+    let picture_pixels = evidence.picture_mask.count_black();
     let picture_fraction = picture_pixels as f64 / pixel_count as f64;
     let significant_picture = picture_fraction >= PICTURE_NOISE_FLOOR;
-    let corroborated_picture = picture_fraction >= CORROBORATED_PICTURE_NOISE_FLOOR;
     let has_text = evidence.text_line_count >= MIN_TEXT_LINES;
 
     if significant_color
@@ -764,7 +748,7 @@ pub(crate) fn recommend_output_mode(
     // text-with-picture pages in the calibrated book measure picture
     // fractions of 0.1-0.45, while a full-bleed tonal sheet measures 0.59
     // even when only its darker half seeds zones.
-    if corroborated_picture && has_text && picture_fraction < 0.55 {
+    if confirmed_picture(evidence.picture_mask) && has_text && picture_fraction < 0.55 {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let text_margin = (evidence.text_line_count as f64 / 8.0).clamp(0.0, 1.0);
         return recommendation(
@@ -779,7 +763,7 @@ pub(crate) fn recommend_output_mode(
         );
     }
 
-    if significant_picture {
+    if confirmed_picture(evidence.picture_mask) {
         let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
         let tonal_margin = (luminance.midtone_fraction / TONAL_MIDTONE_FRACTION).clamp(0.0, 1.0);
         let weak_bimodality = ((STRONG_BIMODALITY - luminance.bimodality) / 0.35).clamp(0.0, 1.0);
@@ -1342,85 +1326,12 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
     })
 }
 
-fn is_border_artifact_picture_component(
-    picture_map: &ComponentMap,
-    component: &Component,
-    border_artifacts: &BinaryImage,
-    analysis: &GrayImage,
-    gutter_shadow: bool,
-) -> bool {
-    let page_width = analysis.width();
-    let page_height = analysis.height();
-    let width = component.right - component.left + 1;
-    let height = component.bottom - component.top + 1;
-    let horizontal_edge_zone = page_width.div_ceil(40).max(1);
-    let vertical_edge_zone = page_height.div_ceil(40).max(1);
-    let vertical_shadow = (component.top < vertical_edge_zone
-        || component.bottom.saturating_add(vertical_edge_zone) >= page_height)
-        && height.saturating_mul(2) >= page_height
-        && height >= width.saturating_mul(4)
-        && width.saturating_mul(5) <= page_width;
-    let horizontal_shadow = (component.left < horizontal_edge_zone
-        || component.right.saturating_add(horizontal_edge_zone) >= page_width)
-        && width.saturating_mul(2) >= page_width
-        && width >= height.saturating_mul(4)
-        && height.saturating_mul(5) <= page_height;
-    if vertical_shadow || horizontal_shadow {
-        return true;
-    }
-
-    let mut overlap = 0usize;
-    let mut midtones = 0usize;
-    for y in component.top..=component.bottom {
-        for x in component.left..=component.right {
-            if picture_map.label_at(x, y) == component.label {
-                overlap += usize::from(border_artifacts.get(x, y));
-                midtones += usize::from((40..=224).contains(&analysis.get(x, y)));
-            }
-        }
-    }
-    if overlap >= 16 && overlap.saturating_mul(100) >= component.area {
-        return true;
-    }
-
-    let touches_vertical_edge = component.top < vertical_edge_zone
-        || component.bottom.saturating_add(vertical_edge_zone) >= page_height;
-    let center = page_width / 2;
-    let crosses_gutter = component.left <= center.saturating_add(horizontal_edge_zone)
-        && component.right.saturating_add(horizontal_edge_zone) >= center;
-    let page_filling = width.saturating_mul(5) >= page_width.saturating_mul(4)
-        && height.saturating_mul(5) >= page_height.saturating_mul(4);
-    let sparse_midtones = midtones.saturating_mul(100) <= component.area.saturating_mul(8);
-    gutter_shadow && touches_vertical_edge && crosses_gutter && !page_filling && sparse_midtones
-}
-
-fn has_gutter_shadow(analysis: &GrayImage) -> bool {
-    if analysis.width() <= analysis.height() || analysis.width() < 100 {
-        return false;
-    }
-    let window_width = analysis.width().div_ceil(100).max(1);
-    let column_ink = (0..analysis.width())
-        .map(|x| {
-            (0..analysis.height())
-                .filter(|&y| analysis.get(x, y) <= BORDER_INK_LUMINANCE_CUTOFF)
-                .count()
-        })
-        .collect::<Vec<_>>();
-    let central_left = analysis.width() * 3 / 10;
-    let central_right = analysis.width() * 7 / 10;
-    let mut windows = (central_left..central_right.saturating_sub(window_width))
-        .map(|left| {
-            column_ink[left..left + window_width].iter().sum::<usize>() as f64
-                / window_width.saturating_mul(analysis.height()).max(1) as f64
-        })
-        .collect::<Vec<_>>();
-    if windows.is_empty() {
-        return false;
-    }
-    windows.sort_unstable_by(f64::total_cmp);
-    let median = windows[windows.len() / 2];
-    let maximum = windows[windows.len() - 1];
-    maximum >= 0.12 && maximum >= (median + 0.01) * 4.0
+fn confirmed_picture(picture_mask: &BinaryImage) -> bool {
+    let pixels = picture_mask
+        .width()
+        .saturating_mul(picture_mask.height())
+        .max(1);
+    picture_mask.count_black() as f64 / pixels as f64 >= CORROBORATED_PICTURE_NOISE_FLOOR
 }
 
 fn chroma_vector(pixel: [f64; 3]) -> [f64; 3] {
@@ -2704,6 +2615,9 @@ mod tests {
             outside_tone,
         );
         assert_eq!(unowned.mode, OutputMode::Bw, "{unowned:?}");
+        assert_eq!(unowned.reason, OutputModeRecommendationReason::BimodalText);
+        assert_eq!(unowned.diagnostics.picture_fraction, 0.0);
+        assert!(!unowned.diagnostics.significant_picture);
     }
 
     #[test]

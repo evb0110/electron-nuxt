@@ -33,6 +33,8 @@ const TONE_PRESERVATION_MINIMUM_COMPONENT_SPAN_FRACTION: f64 = 0.01;
 const TONE_PRESERVATION_FEATHER_RADIUS: usize = 4;
 const PHOTO_RECTANGLE_MINIMUM_TONE_MATCH_FRACTION: f64 = 0.85;
 const PHOTO_RECTANGLE_MINIMUM_BOUNDARY_MATCH_FRACTION: f64 = 0.70;
+const PICTURE_OWNER_MIN_COMPONENT_PIXELS: usize = 1_024;
+const BORDER_INK_LUMINANCE_CUTOFF: u8 = 160;
 // The raw darkness and texture fields are already normalized against the
 // page's measured paper center and noise. Their shallow tail represents paper
 // shoulders and fit residuals, not material picture evidence. Removing that
@@ -984,6 +986,136 @@ fn corroborate_picture_components(
     })
 }
 
+/// Applies the last semantic ownership veto to a detector candidate.
+///
+/// Continuous-tone fields are corroborating evidence only; they are never an
+/// owner by themselves. The candidate also has to be a sufficiently large
+/// component that is not a scanner rail, fold shadow, gutter shadow, or edge
+/// ghost. Keeping this gate here gives the render pipeline one automatic
+/// picture owner to pass to content analysis, mode selection, and composition.
+pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage) -> BinaryImage {
+    debug_assert_eq!(
+        (source.width(), source.height()),
+        (candidate.width(), candidate.height())
+    );
+    if candidate.count_black() == 0 {
+        return BinaryImage::new(candidate.width(), candidate.height());
+    }
+
+    let border_artifacts = crate::content::border_artifact_mask(source);
+    let gutter_shadow = has_gutter_shadow(source);
+    let picture_map = ComponentMap::from_binary(candidate);
+    let mut owner = candidate.clone();
+    for component in picture_map.components() {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let page_width = source.width();
+        let page_height = source.height();
+        let horizontal_edge_zone = page_width.div_ceil(40).max(1);
+        let vertical_edge_zone = page_height.div_ceil(40).max(1);
+        let vertical_shadow = (component.top < vertical_edge_zone
+            || component.bottom.saturating_add(vertical_edge_zone) >= page_height)
+            && height.saturating_mul(2) >= page_height
+            && height >= width.saturating_mul(4)
+            && width.saturating_mul(5) <= page_width;
+        let horizontal_shadow = (component.left < horizontal_edge_zone
+            || component.right.saturating_add(horizontal_edge_zone) >= page_width)
+            && width.saturating_mul(2) >= page_width
+            && width >= height.saturating_mul(4)
+            && height.saturating_mul(5) <= page_height;
+        let mut border_overlap = 0usize;
+        let mut midtones = 0usize;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if picture_map.label_at(x, y) == component.label {
+                    border_overlap += usize::from(border_artifacts.get(x, y));
+                    midtones += usize::from((40..=224).contains(&source.get(x, y)));
+                }
+            }
+        }
+        let touches_vertical_edge = component.top < vertical_edge_zone
+            || component.bottom.saturating_add(vertical_edge_zone) >= page_height;
+        let center = page_width / 2;
+        let crosses_gutter = component.left <= center.saturating_add(horizontal_edge_zone)
+            && component.right.saturating_add(horizontal_edge_zone) >= center;
+        let page_filling = width.saturating_mul(5) >= page_width.saturating_mul(4)
+            && height.saturating_mul(5) >= page_height.saturating_mul(4);
+        let component_bounds_area = width.saturating_mul(height).max(1);
+        // Border evidence can overlap the authored edge of a full-bleed scan.
+        // It may veto a sparse edge ghost or frame, but not a dense component
+        // that already owns most of both page axes. The Bar Zobi manuscript
+        // candidate is 99.9% dense in its 91% x 95% enclosure; the old 1%
+        // overlap rule revoked all 576k corroborated pixels because 2.6% also
+        // touched the rough leaf/black-stage boundary.
+        let dense_page_filling = page_filling
+            && component.area.saturating_mul(5) >= component_bounds_area.saturating_mul(4);
+        let edge_artifact = border_overlap >= 16
+            && border_overlap.saturating_mul(100) >= component.area
+            && !dense_page_filling;
+        let sparse_midtones = midtones.saturating_mul(100) <= component.area.saturating_mul(8);
+        let gutter_artifact = gutter_shadow
+            && touches_vertical_edge
+            && crosses_gutter
+            && !page_filling
+            && sparse_midtones;
+        // A fold can disappear at the crop boundary before ownership is
+        // qualified, so requiring contact with the top/bottom edge is not
+        // sufficient. A narrow, long component centered on the gutter is
+        // scanner geometry rather than a photographic plate; real plates need
+        // a materially wider enclosure before they can own tone.
+        let near_central_gutter = component.left.saturating_mul(100) <= page_width * 62
+            && component.right.saturating_mul(100) >= page_width * 40;
+        let central_narrow_shadow = near_central_gutter
+            && width.saturating_mul(12) <= page_width
+            && height.saturating_mul(5) >= page_height;
+        if component.area < PICTURE_OWNER_MIN_COMPONENT_PIXELS
+            || vertical_shadow
+            || horizontal_shadow
+            || edge_artifact
+            || gutter_artifact
+            || central_narrow_shadow
+        {
+            for y in component.top..=component.bottom {
+                for x in component.left..=component.right {
+                    if picture_map.label_at(x, y) == component.label {
+                        owner.set(x, y, false);
+                    }
+                }
+            }
+        }
+    }
+    owner
+}
+
+fn has_gutter_shadow(source: &GrayImage) -> bool {
+    if source.width() <= source.height() || source.width() < 100 {
+        return false;
+    }
+    let window_width = source.width().div_ceil(100).max(1);
+    let column_ink = (0..source.width())
+        .map(|x| {
+            (0..source.height())
+                .filter(|&y| source.get(x, y) <= BORDER_INK_LUMINANCE_CUTOFF)
+                .count()
+        })
+        .collect::<Vec<_>>();
+    let central_left = source.width() * 3 / 10;
+    let central_right = source.width() * 7 / 10;
+    let mut windows = (central_left..central_right.saturating_sub(window_width))
+        .map(|left| {
+            column_ink[left..left + window_width].iter().sum::<usize>() as f64
+                / window_width.saturating_mul(source.height()).max(1) as f64
+        })
+        .collect::<Vec<_>>();
+    if windows.is_empty() {
+        return false;
+    }
+    windows.sort_unstable_by(f64::total_cmp);
+    let median = windows[windows.len() / 2];
+    let maximum = windows[windows.len() - 1];
+    maximum >= 0.12 && maximum >= (median + 0.01) * 4.0
+}
+
 /// Expands an already-corroborated, irregular photo owner to the rectangular
 /// crop that authored book photographs conventionally occupy.
 ///
@@ -1620,6 +1752,74 @@ mod tests {
         assert!(
             text_pixels < 200,
             "misclassified {text_pixels} text-area pixels"
+        );
+    }
+
+    #[test]
+    fn fold_shadow_and_showthrough_have_no_vetted_picture_owner() {
+        let mut page = GrayImage::new(760, 300, 245);
+        // A full-width fold/edge shadow is large enough to look like a tone
+        // candidate but is not page content.
+        let mut candidate = BinaryImage::new(page.width(), page.height());
+        for y in 0..7 {
+            for x in 0..page.width() {
+                page.set(x, y, 82);
+                candidate.set(x, y, true);
+            }
+        }
+        // The central dark column models a gutter shadow. Offset gray copies
+        // of text model show-through without introducing a plate.
+        for y in 80..245 {
+            for x in 370..390 {
+                page.set(x, y, 48);
+                candidate.set(x, y, true);
+            }
+        }
+        for line in 0..8 {
+            let top = 48 + line * 25;
+            for glyph in 0..18 {
+                let left = 42 + glyph * 32;
+                for y in top..top + 3 {
+                    page.set(left, y, 32);
+                    page.set(left + 2, y, 32);
+                    page.set(left + 7, y, 156);
+                    page.set(left + 9, y, 156);
+                }
+            }
+        }
+        assert!(candidate.count_black() > 1_000);
+        let owner = qualify_picture_owner(&page, &candidate);
+        assert_eq!(
+            owner.count_black(),
+            0,
+            "artifact-only tone must be rejected before mode/UI ownership"
+        );
+    }
+
+    #[test]
+    fn dense_full_bleed_photo_owner_survives_leaf_edge_overlap() {
+        let mut page = GrayImage::new(500, 340, 8);
+        let mut candidate = BinaryImage::new(page.width(), page.height());
+        for y in 18..page.height() {
+            for x in 18..482 {
+                candidate.set(x, y, true);
+                if y < 320 {
+                    page.set(x, y, 72 + ((x * 17 + y * 29 + x * y % 71) % 164) as u8);
+                }
+            }
+        }
+        let border = crate::content::border_artifact_mask(&page);
+        let border_overlap = border.and(&candidate).count_black();
+        assert!(
+            border_overlap >= 16 && border_overlap.saturating_mul(100) >= candidate.count_black(),
+            "fixture must exercise the old one-percent edge veto"
+        );
+
+        let owner = qualify_picture_owner(&page, &candidate);
+        assert_eq!(
+            owner.count_black(),
+            candidate.count_black(),
+            "a dense full-bleed photo cannot be revoked by its authored leaf edge"
         );
     }
 

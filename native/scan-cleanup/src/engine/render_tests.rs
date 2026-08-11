@@ -111,9 +111,11 @@ mod tests {
     }
 
     #[test]
-    fn mixed_partition_keeps_completed_zone_outside_text_owned_mask() {
+    fn mixed_partition_does_not_carve_a_confirmed_owner() {
         let mut picture = BinaryImage::new(8, 1);
         picture.set(1, 0, true);
+        picture.set(4, 0, true);
+        picture.set(6, 0, true);
         let mut zone = BinaryImage::new(8, 1);
         zone.set(4, 0, true);
         zone.set(6, 0, true);
@@ -125,6 +127,7 @@ mod tests {
 
         partition_mixed_picture_mask(
             &mut picture_mask,
+            true,
             None,
             None,
             None,
@@ -134,27 +137,28 @@ mod tests {
             0,
         );
 
-        let picture_mask = picture_mask.expect("zone must create a Mixed ownership mask");
+        let picture_mask = picture_mask.expect("vetted owner must survive the Mixed partition");
         assert!(
-            !picture_mask.get(1, 0),
-            "ordinary text vicinity stays foreground-owned"
+            picture_mask.get(1, 0),
+            "text refinement must not revoke confirmed photo ownership"
         );
         assert!(picture_mask.get(4, 0), "zone pixel remains tone-owned");
         assert!(
             picture_mask.get(6, 0),
             "completed zone pixel remains tone-owned"
         );
-        assert_eq!(picture_mask.count_black(), 2);
+        assert_eq!(picture_mask.count_black(), 3);
     }
 
     #[test]
-    fn mixed_partition_zone_alone_selects_layered_ownership() {
+    fn mixed_partition_zone_alone_does_not_create_picture_ownership() {
         let mut zone = BinaryImage::new(4, 1);
         zone.set(2, 0, true);
         let mut picture_mask = None;
 
         partition_mixed_picture_mask(
             &mut picture_mask,
+            false,
             None,
             None,
             None,
@@ -164,9 +168,10 @@ mod tests {
             0,
         );
 
-        let picture_mask = picture_mask.expect("an exact zone is a Mixed ownership mask");
-        assert_eq!(picture_mask.count_black(), 1);
-        assert!(picture_mask.get(2, 0));
+        assert!(
+            picture_mask.is_none(),
+            "halftone evidence alone must not become a picture owner"
+        );
     }
 
     #[test]
@@ -190,6 +195,7 @@ mod tests {
         // pixel for this compact geometry fixture.
         partition_mixed_picture_mask(
             &mut picture_mask,
+            false,
             None,
             None,
             Some(&tone),
@@ -233,6 +239,7 @@ mod tests {
 
         partition_mixed_picture_mask(
             &mut picture_mask,
+            false,
             None,
             None,
             None,
@@ -281,6 +288,7 @@ mod tests {
 
         partition_mixed_picture_mask(
             &mut picture_mask,
+            false,
             None,
             None,
             None,
@@ -321,6 +329,7 @@ mod tests {
 
         partition_mixed_picture_mask(
             &mut picture_mask,
+            false,
             None,
             None,
             None,
@@ -378,6 +387,7 @@ mod tests {
             let mut picture_mask = Some(picture);
             partition_mixed_picture_mask(
                 &mut picture_mask,
+                false,
                 None,
                 Some(&chroma),
                 None,
@@ -433,6 +443,7 @@ mod tests {
 
         partition_mixed_picture_mask(
             &mut picture_mask,
+            false,
             None,
             None,
             None,
@@ -463,6 +474,7 @@ mod tests {
 
         partition_mixed_picture_mask(
             &mut picture_mask,
+            false,
             None,
             None,
             None,
@@ -3138,7 +3150,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_picture_zone_preserves_tones_and_reserves_layer_endpoints() {
+    fn mixed_picture_zone_preserves_exact_source_tones_including_endpoints() {
         let mut gray = GrayImage::new(180, 120, 255);
         let mut color = RgbImage::new(180, 120, [255; 3]);
         for y in 20..100 {
@@ -3193,9 +3205,12 @@ mod tests {
             for x in 85..165 {
                 let gray_value = output.image.get(x, y);
                 let color_value = mixed_color.get(x, y);
-                assert!(!matches!(gray_value, 0 | 255));
-                assert_ne!(color_value, [0, 0, 0]);
-                assert_ne!(color_value, [255, 255, 255]);
+                assert_eq!(gray_value, gray.get(x, y));
+                assert_eq!(color_value, color.get(x, y));
+                assert!(
+                    !layers.foreground_mask.get(x, y),
+                    "confirmed picture ownership was reclaimed by the foreground stencil"
+                );
                 if !matches!(gray_value, 1 | 254) {
                     tonal_pixels += 1;
                 }
@@ -3341,6 +3356,131 @@ mod tests {
             retained_tones > 2_000,
             "retained only {retained_tones} photo tones"
         );
+    }
+
+    #[test]
+    fn automatic_picture_owner_survives_rotated_halftone_and_normalization() {
+        let mut source = GrayImage::new(620, 560, 242);
+        for row in 0..12 {
+            for column in 0..12 {
+                let left = 30 + column * 22;
+                let top = 40 + row * 36;
+                for y in top..top + 18 {
+                    for x in left..left + 14 {
+                        if x < left + 3 || y < top + 3 || y >= top + 15 {
+                            source.set(x, y, 28);
+                        }
+                    }
+                }
+            }
+        }
+        for y in 100..420 {
+            for x in 340..580 {
+                let value = if (x / 48 + y / 48) % 2 == 0 {
+                    38 + ((x * 37 + y * 61) % 32) as u8
+                } else {
+                    116 + ((x * 13 + y * 41) % 56) as u8
+                };
+                source.set(x, y, value);
+            }
+        }
+        // A caption is horizontal in source space and therefore vertical
+        // after the 90-degree render rotation. It must not veto tonal owner
+        // confirmation merely because no horizontal text rows remain.
+        for x in 390..530 {
+            for y in 270..274 {
+                source.set(x, y, 24);
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 300.0,
+            source_dpi: Some(300.0),
+            output_mode: OutputMode::Auto,
+            normalize_illumination: true,
+            crop_content: false,
+            match_page_size: false,
+            layout: crate::LayoutMode::Single,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            ..CleanupOptions::default()
+        };
+        let prepare = |options: &CleanupOptions| {
+            prepare_analysis_page(
+                &source,
+                None,
+                options,
+                true,
+                PageRenderPolicy::COMPLETE,
+                None,
+                CalibrationConfig::default(),
+                None,
+                None,
+                &mut PageStageTimings::default(),
+            )
+        };
+        let prepared = prepare(&options);
+        let owner = prepared
+            .picture_mask
+            .as_deref()
+            .expect("the halftone plate must publish a vetted owner");
+        assert!(owner.count_black() > 2_000);
+        assert_ne!(prepared.resolved_output_mode, OutputMode::Bw);
+        assert!(
+            prepared
+                .tonal_protection_mask
+                .as_deref()
+                .is_some_and(|protection| owner.and(protection).count_black() == owner.count_black()),
+            "the owner must also survive the illumination exclusion handoff"
+        );
+
+        let rotated_options = CleanupOptions {
+            rotation: OrthogonalRotation::Clockwise90,
+            ..options.clone()
+        };
+        let rotated = prepare(&rotated_options);
+        let rotated_owner = rotated
+            .picture_mask
+            .as_deref()
+            .expect("rotation must not erase the tonal owner");
+        assert!(rotated_owner.count_black() > 2_000);
+        assert_ne!(rotated.resolved_output_mode, OutputMode::Bw);
+
+        let output = clean_page(&source, &options, 0)
+            .unwrap()
+            .outputs
+            .remove(0);
+        assert_ne!(output.metadata.output_mode, OutputMode::Bw);
+        let rendered = output.image.to_gray();
+        let mut retained_tones = 0usize;
+        for y in 150..400 {
+            for x in 360..570 {
+                if (8..=247).contains(&rendered.get(x, y)) {
+                    retained_tones += 1;
+                }
+            }
+        }
+        assert!(
+            retained_tones > 10_000,
+            "illumination/background flattening collapsed the owned plate: {retained_tones} tones"
+        );
+    }
+
+    #[test]
+    fn photo_descreen_filter_is_scoped_to_the_confirmed_owner() {
+        let mut image = GrayImage::new(9, 9, 242);
+        let mut owner = BinaryImage::new(9, 9);
+        for y in 2..7 {
+            for x in 2..7 {
+                owner.set(x, y, true);
+                image.set(x, y, if (x + y) % 2 == 0 { 48 } else { 208 });
+            }
+        }
+        let outside_before = image.get(1, 4);
+        let center_before = image.get(4, 4);
+        prefilter_confirmed_photo_regions(&mut image, &owner);
+        assert_eq!(image.get(1, 4), outside_before);
+        assert_ne!(image.get(4, 4), center_before);
+        assert!((48..=208).contains(&image.get(4, 4)));
     }
 
     #[test]
@@ -4561,17 +4701,20 @@ mod tests {
 
     #[test]
     fn approved_small_photo_owner_preserves_tone_near_stencil() {
+        let mut vetted_owner = BinaryImage::new(4, 4);
+        vetted_owner.set(2, 2, true);
         assert!(
-            confirmed_photo_preservation_policy(false, true, false),
-            "a corroborated automatic owner stays exact when rectangular expansion is vetoed"
+            confirmed_photo_preservation_policy(Some(&vetted_owner)),
+            "a nonempty vetted owner always receives exact preservation"
         );
         assert!(
-            !confirmed_photo_preservation_policy(false, false, false),
+            !confirmed_photo_preservation_policy(None),
             "unowned tone must not gain exact photo preservation"
         );
+        let empty_owner = BinaryImage::new(4, 4);
         assert!(
-            !confirmed_photo_preservation_policy(true, true, true),
-            "line-art refinement must retain its material-pixel policy"
+            !confirmed_photo_preservation_policy(Some(&empty_owner)),
+            "an empty evidence mask is not a picture owner"
         );
         // Keep the approved owner between the corroborated (0.5%) and legacy
         // significant-picture (1.2%) floors. This is the interval in which an

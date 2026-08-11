@@ -42,7 +42,7 @@ use crate::{
     picture::{
         apply_manual_zones, detect_continuous_tone_mask, detect_picture_mask_with_continuous_tone,
         extend_picture_mask_for_content, extend_tone_mask_for_content,
-        flat_graphic_tone_preservation_alpha, photo_tone_preservation_alpha,
+        flat_graphic_tone_preservation_alpha, photo_tone_preservation_alpha, qualify_picture_owner,
         rectangularize_corroborated_photos, refine_line_art_preservation_alpha,
         refine_tone_preservation_alpha, resample_binary_mask_nearest,
         semantic_tone_preservation_alpha, veto_text_like_regions,
@@ -2695,7 +2695,11 @@ fn prepare_page<'a>(
     // rebuilding the same mask over a 15–35 MP source dominated mixed-page
     // cleanup and only created an intermediate mask that was immediately
     // resampled again.
-    let mut picture_mask = if options.output_mode != OutputMode::Bw {
+    let mut picture_mask = if options.output_mode != OutputMode::Bw
+        || analysis_picture_mask
+            .as_deref()
+            .is_some_and(|owner| owner.count_black() > 0)
+    {
         analysis_picture_mask.clone()
     } else {
         None
@@ -2944,7 +2948,7 @@ fn prepare_analysis_page(
             })
         });
         let detected_picture_mask = render_policy.analyze_layout.then(|| {
-            Arc::new(if blank_scan_candidate {
+            let candidate = if blank_scan_candidate {
                 BinaryImage::new(rotated.width(), rotated.height())
             } else {
                 detect_picture_mask_with_continuous_tone(
@@ -2955,20 +2959,13 @@ fn prepare_analysis_page(
                         .as_deref()
                         .expect("layout analysis must prepare continuous-tone evidence"),
                 )
-            })
+            };
+            // Tone evidence corroborates a candidate; it is not itself a
+            // semantic owner. Apply artifact/size vetoes once here so every
+            // downstream consumer sees exactly the same vetted owner.
+            Arc::new(qualify_picture_owner(&rotated, &candidate))
         });
-        let automatic_picture_mask = render_policy.analyze_layout.then(|| {
-            Arc::new(if blank_scan_candidate {
-                BinaryImage::new(rotated.width(), rotated.height())
-            } else {
-                detected_picture_mask
-                    .as_deref()
-                    .expect("layout analysis must prepare detected picture evidence")
-                    .or(continuous_tone_mask
-                        .as_deref()
-                        .expect("layout analysis must prepare continuous-tone evidence"))
-            })
-        });
+        let automatic_picture_mask = detected_picture_mask.clone();
         let mut picture_mask = automatic_picture_mask.as_deref().map(|automatic| {
             let mut mask = automatic.clone();
             apply_manual_zones(&mut mask, options);
@@ -3106,14 +3103,6 @@ fn prepare_analysis_page(
             automatic_picture_mask.as_ref(),
             trusted_mrc_owned_tone_mask.as_ref(),
         );
-        // `automatic_picture_owner` contains only detector-corroborated tone or
-        // trusted producer tone that survived the text/component veto above.
-        // Rectangularization may still decline to enlarge it; that decision
-        // must not revoke exact source appearance inside the original owner.
-        let confirmed_automatic_photo_owner = automatic_picture_owner
-            .as_deref()
-            .is_some_and(|owner| owner.count_black() > 0);
-        let mut exact_photo_owner = None;
         if let Some(automatic) = automatic_picture_owner.as_deref() {
             let empty_text = BinaryImage::new(rotated.width(), rotated.height());
             let rectangular = rectangularize_corroborated_photos(
@@ -3123,18 +3112,13 @@ fn prepare_analysis_page(
                 text_vicinity_mask.as_deref().unwrap_or(&empty_text),
                 effective_dpi,
             );
-            let rectangle_added = rectangular.count_black() > automatic.count_black();
             let mut final_owner = rectangular;
             apply_manual_zones(&mut final_owner, options);
-            let final_owner = Arc::new(final_owner);
-            if rectangle_added || trusted_mrc_owned_tone_mask.is_some() {
-                // Once a component has passed the text and tone safeguards,
-                // its whole rectangle is one source-preserved owner. Keeping
-                // the final manual-zone result here prevents later text-field
-                // partitioning from recreating detector-shaped holes.
-                exact_photo_owner = Some(Arc::clone(&final_owner));
-            }
-            picture_mask = Some(final_owner);
+            // This final manual-zone result is the one semantic owner. Every
+            // mode, label, normalization, and composition view below derives
+            // from it; rectangularization declining to grow the component
+            // cannot revoke source preservation inside the vetted pixels.
+            picture_mask = Some(Arc::new(final_owner));
         }
         if options.crop_content && !content_evidence_complete {
             content_picture_mask = picture_mask
@@ -3182,23 +3166,11 @@ fn prepare_analysis_page(
             .coherent()
             .then(|| destructive_tone_mask.as_ref().map(Arc::clone))
             .flatten();
-        // This is a representation-policy channel, not the broad tonal
-        // protection web used by normalization. It is the tile-resolution
-        // outside-text evidence that caused a spatial-tone decision, kept
-        // separate so Mixed can preserve a neutral illustration without
-        // granting every protected-tone pixel ownership of the stencil
-        // partition. The exact halftone zone remains the stronger channel for
-        // classifier-owned pixels.
-        let outside_spatial_tone_mask = (outside_tone.vetoes_destructive_mode()
-            && picture_mask
-                .as_ref()
-                .is_none_or(|mask| mask.count_black() == 0))
-        .then(|| (tonal_seed_mask.count_black() > 0).then(|| Arc::new(tonal_seed_mask.clone())))
-        .flatten();
-        let spatial_tone_mask = union_optional_masks(
-            flat_graphic_picture_mask.as_ref(),
-            outside_spatial_tone_mask.as_ref(),
-        );
+        // A flat graphic is a separate explicit representation channel. Raw
+        // outside-text tone is deliberately not promoted here: without a
+        // vetted picture owner it must not become a Mixed stencil owner or a
+        // second source of the UI's picture label.
+        let spatial_tone_mask = flat_graphic_picture_mask;
         if options.crop_content && !content_evidence_complete {
             // The crop planner needs the same vetted map/illustration geometry
             // as the tone-preservation path. Picture detection can be empty on
@@ -3210,14 +3182,10 @@ fn prepare_analysis_page(
         }
         let continuous_tone_mask =
             continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
-        // On pages that carry text, the calibrated halftone classifier is
-        // the sole owner of layered tone: granting the destructive-tone
-        // field ownership there let verso show-through — coherent gray
-        // outside every text line — carve tone holes through stencils and
-        // republish bleed as "photograph" on plain text pages. A textless
-        // sheet has no stencil to protect and no show-through/text
-        // ambiguity; its broad tone evidence (a full-page plate or wash)
-        // keeps the wider protection.
+        // These masks are protection/normalization evidence, not picture
+        // ownership. The semantic owner remains `picture_mask`; keeping the
+        // channels separate prevents show-through and fold tone from being
+        // republished as a photograph.
         let ordinary_tonal_protection_mask = union_optional_masks(
             destructive_tone_mask.as_ref(),
             continuous_tone_mask.as_ref(),
@@ -3232,9 +3200,13 @@ fn prepare_analysis_page(
             ordinary_tonal_protection_mask.as_ref(),
             trusted_mrc_owned_tone_mask.as_ref(),
         );
+        // The final picture owner is the authoritative illumination exclusion
+        // too. Keep broader tone evidence as a separate fallback, but always
+        // derive this protection view from the same owner that mode selection
+        // and composition receive.
         let tonal_protection_mask = union_optional_masks(
             trusted_tonal_protection_mask.as_ref(),
-            exact_photo_owner.as_ref(),
+            picture_mask.as_ref(),
         );
         // A textless illustration may legitimately use smooth tone across its
         // full vetted enclosure. On document-like pages, isolate semantic tone
@@ -3387,37 +3359,17 @@ fn prepare_analysis_page(
             recommendation.diagnostics.bilevel_fidelity_veto |= mixed_foreground_fidelity_veto;
         }
         let protect_tonal_text_vicinity = significant_picture && !refine_picture_ownership;
-        // Keep confirmed ownership distinct from the broader policy that
-        // suppresses semantic tone around text. A small (0.5--1.2% of page)
-        // corroborated photo is intentionally below `significant_picture`, but
-        // whitening it locally beside stencil ink would recreate the patchwork
-        // boundary that rectangular ownership exists to remove. A rejected
-        // rectangle retains exact appearance inside its original vetted mask.
-        let preserve_confirmed_photo_tones = confirmed_photo_preservation_policy(
-            significant_picture,
-            confirmed_automatic_photo_owner,
-            refine_picture_ownership,
-        );
+        // Exact preservation is a direct view of the sole vetted owner. Size
+        // heuristics and line-art diagnostics may choose representation
+        // details, but cannot revoke ownership once this mask is nonempty.
+        let preserve_confirmed_photo_tones =
+            confirmed_photo_preservation_policy(picture_mask.as_deref());
         let mut output_picture_mask = if resolved_output_mode == OutputMode::Mixed {
-            // A directly detected photograph needs one coherent owner across
-            // all of its continuous-tone enclosure. The permissive picture
-            // detector can cover only one tonal lobe (for example, the dark
-            // upper half of a portrait), while the continuous-tone detector
-            // correctly covers the whole photograph. Splitting ownership at
-            // that detector boundary sends the remainder through bilevel
-            // routing and creates a hard posterization seam. Large bimodal
-            // line art deliberately keeps the narrower destructive-tone mask
-            // so its paper can still be normalized to white.
-            // Published Mixed layers carry a stencil, and stencil tone
-            // ownership belongs to the calibrated halftone classifier alone:
-            // the broader protection field admits verso show-through —
-            // coherent gray outside every text line — which carved tone
-            // holes through stencils and republished bleed as "photograph"
-            // on plain text pages. The wider union still guards
-            // normalization and semantic alphas on stencil-free pages.
-            let layer_tone_mask = continuous_tone_mask.as_ref();
-            let tonal_picture_mask = union_optional_masks(picture_mask.as_ref(), layer_tone_mask);
-            union_optional_masks(tonal_picture_mask.as_ref(), chroma_picture_mask.as_ref())
+            // Only the vetted owner may enter the Mixed partition. The
+            // continuous-tone mask remains corroborating/protection evidence;
+            // OR-ing it here recreated the non-monotonic ownership bug after
+            // mode selection and let paper/show-through become "Text+pics".
+            union_optional_masks(picture_mask.as_ref(), chroma_picture_mask.as_ref())
         } else {
             picture_mask.clone()
         };
@@ -3440,7 +3392,9 @@ fn prepare_analysis_page(
         let detected_photo_preservation_alpha = photographic_picture_mask
             .as_deref()
             .and_then(|mask| {
-                if refine_picture_ownership {
+                if preserve_confirmed_photo_tones {
+                    photo_tone_preservation_alpha(mask)
+                } else if refine_picture_ownership {
                     refine_line_art_preservation_alpha(&layout_normalized, &rotated, Some(mask))
                 } else {
                     photo_tone_preservation_alpha(mask)
@@ -3462,9 +3416,10 @@ fn prepare_analysis_page(
         } else {
             detected_photo_preservation_alpha
         };
-        let coherent_photo_mask = exact_photo_owner
-            .clone()
-            .or_else(|| trusted_mrc_owned_tone_mask.clone())
+        let coherent_photo_mask = picture_mask
+            .as_ref()
+            .filter(|owner| owner.count_black() > 0)
+            .map(Arc::clone)
             .or_else(|| {
                 (matches!(
                     resolved_output_mode,
@@ -3491,8 +3446,7 @@ fn prepare_analysis_page(
                 // classifier zone that selected the layered owner. Keep the
                 // zone in the normalization/photo owner as well as carrying
                 // it separately into the final Mixed partition.
-                output_picture_mask =
-                    union_optional_masks(field_and_chroma.as_ref(), continuous_tone_mask.as_ref());
+                output_picture_mask = field_and_chroma;
                 photographic_picture_mask = output_picture_mask.clone();
             } else {
                 photographic_picture_mask = Some(Arc::clone(field));
@@ -3849,12 +3803,8 @@ fn should_refine_line_art_picture_ownership(diagnostics: &OutputModeDiagnostics)
     is_line_art_picture(diagnostics)
 }
 
-fn confirmed_photo_preservation_policy(
-    significant_picture: bool,
-    confirmed_automatic_photo_owner: bool,
-    refine_picture_ownership: bool,
-) -> bool {
-    (significant_picture || confirmed_automatic_photo_owner) && !refine_picture_ownership
+fn confirmed_photo_preservation_policy(picture_owner: Option<&BinaryImage>) -> bool {
+    picture_owner.is_some_and(|owner| owner.count_black() > 0)
 }
 
 /// Illumination fitting can occasionally model a small isolated mark as part
@@ -4300,7 +4250,8 @@ fn normalize_tone_to_paper_with_shoulder(sample: u8, paper: u8, shoulder: f64) -
 /// bilevel output.
 fn partition_mixed_picture_mask(
     picture_mask: &mut Option<BinaryImage>,
-    spatial_tone_mask: Option<&BinaryImage>,
+    preserve_confirmed_photo_tones: bool,
+    _spatial_tone_mask: Option<&BinaryImage>,
     chroma_picture_mask: Option<&BinaryImage>,
     tone_picture_mask: Option<&BinaryImage>,
     halftone_zone_mask: Option<&BinaryImage>,
@@ -4308,19 +4259,13 @@ fn partition_mixed_picture_mask(
     dpi: f64,
     text_line_count: usize,
 ) {
-    if let Some(spatial_tone) = spatial_tone_mask {
-        *picture_mask = Some(match picture_mask.take() {
-            Some(picture) => picture.or(spatial_tone),
-            None => spatial_tone.clone(),
-        });
+    // A confirmed owner's exact pixels are immutable. This partition remains
+    // useful for ownerless/chroma-only Mixed representations, but text-row
+    // refinement cannot turn any part of a vetted photo back into paper or
+    // bilevel foreground.
+    if preserve_confirmed_photo_tones {
+        return;
     }
-    if let Some(zone) = halftone_zone_mask {
-        *picture_mask = Some(match picture_mask.take() {
-            Some(picture) => picture.or(zone),
-            None => zone.clone(),
-        });
-    }
-
     let (Some(picture_mask), Some(text_vicinity)) = (picture_mask.as_mut(), text_vicinity_mask)
     else {
         return;
@@ -4365,6 +4310,48 @@ fn partition_mixed_picture_mask(
         text_owned = text_owned.subtract(zone);
     }
     *picture_mask = picture_mask.subtract(&text_owned);
+}
+
+/// Applies one mild descreening pass inside a confirmed photo owner.
+///
+/// The sample outside the owner is replaced with the target center value, so
+/// the filter cannot bleed normalized paper or nearby text into a photo edge.
+/// This is intentionally a render-input filter, not a general page blur.
+fn prefilter_confirmed_photo_regions(image: &mut GrayImage, owner: &BinaryImage) {
+    debug_assert_eq!(
+        (image.width(), image.height()),
+        (owner.width(), owner.height())
+    );
+    if image.width() < 3 || image.height() < 3 || owner.count_black() == 0 {
+        return;
+    }
+    let original = image.clone();
+    let kernel = [1u32, 2, 1];
+    for y in 1..image.height() - 1 {
+        for x in 1..image.width() - 1 {
+            if !owner.get(x, y) {
+                continue;
+            }
+            let center = u32::from(original.get(x, y));
+            let mut weighted_sum = 0u32;
+            let mut weight_sum = 0u32;
+            for (ky, &row_weight) in kernel.iter().enumerate() {
+                for (kx, &column_weight) in kernel.iter().enumerate() {
+                    let sample_x = x + kx - 1;
+                    let sample_y = y + ky - 1;
+                    let weight = row_weight * column_weight;
+                    let sample = if owner.get(sample_x, sample_y) {
+                        u32::from(original.get(sample_x, sample_y))
+                    } else {
+                        center
+                    };
+                    weighted_sum += sample * weight;
+                    weight_sum += weight;
+                }
+            }
+            image.set(x, y, (weighted_sum / weight_sum.max(1)) as u8);
+        }
+    }
 }
 
 /// Joins only a repeated chain of wide, vertically separated row fields.
@@ -5134,6 +5121,30 @@ fn clean_region(
 
     let render_started = Instant::now();
     let rasterization_started = Instant::now();
+    // Halftone plates can alias into horizontal bands when a confirmed photo
+    // is reduced to a smaller tonal layer. Descreen only the owner, and only
+    // when the render is genuinely downscaled; the routing raster and every
+    // unowned paper/text pixel continue to use the original normalized image.
+    let descreened_normalized = if preserve_confirmed_photo_tones
+        && matches!(
+            options.output_mode,
+            OutputMode::Grayscale | OutputMode::Mixed
+        )
+        && (rendered_width < normalized.width() || rendered_height < normalized.height())
+    {
+        source_picture_mask
+            .filter(|mask| mask.count_black() > 0)
+            .map(|mask| {
+                let normalized_owner =
+                    resample_binary_mask_nearest(mask, normalized.width(), normalized.height());
+                let mut filtered = normalized.clone();
+                prefilter_confirmed_photo_regions(&mut filtered, &normalized_owner);
+                filtered
+            })
+    } else {
+        None
+    };
+    let tonal_render_source = descreened_normalized.as_ref().unwrap_or(normalized);
     // A colour page publishes its RGB raster; the gray twin is never encoded, so
     // the only question it answered — blankness — moves to the analysis level.
     let skips_gray_twin = options.output_mode == OutputMode::Color
@@ -5141,10 +5152,12 @@ fn clean_region(
         && !render_plan.has_dewarp();
     let (mut rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
         if render_plan.has_dewarp() {
-            let gray =
-                rasterize_inverse_area_with(normalized, rendered_width, rendered_height, |point| {
-                    render_plan.output_to_source(point)
-                });
+            let gray = rasterize_inverse_area_with(
+                tonal_render_source,
+                rendered_width,
+                rendered_height,
+                |point| render_plan.output_to_source(point),
+            );
             let color = color_source.map(|source| {
                 rasterize_inverse_area_rgb_with(source, rendered_width, rendered_height, |point| {
                     render_plan.output_to_source(point)
@@ -5182,7 +5195,12 @@ fn clean_region(
                 if skips_gray_twin {
                     GrayImage::new(rendered_width, rendered_height, 255)
                 } else {
-                    render_affine_gray(normalized, rendered_width, rendered_height, inverse)
+                    render_affine_gray(
+                        tonal_render_source,
+                        rendered_width,
+                        rendered_height,
+                        inverse,
+                    )
                 },
                 color_source.map(|color| {
                     render_affine_rgb(color, rendered_width, rendered_height, inverse)
@@ -5393,6 +5411,7 @@ fn clean_region(
     if options.output_mode == OutputMode::Mixed {
         partition_mixed_picture_mask(
             &mut rendered_picture_mask,
+            preserve_confirmed_photo_tones,
             rendered_spatial_tone_mask.as_ref(),
             rendered_chroma_picture_mask.as_ref(),
             rendered_tone_picture_mask.as_ref(),
