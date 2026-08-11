@@ -6425,6 +6425,382 @@ mod tests {
         assert!(!pale_bilevel_collapse(&with_ink(101), true));
     }
 
+    fn fold_test_split(total_width: usize, height: usize) -> SplitResult {
+        crate::split::detect_split(
+            &GrayImage::new(total_width, height, 255),
+            300.0,
+            crate::LayoutMode::TwoPage,
+            None,
+        )
+    }
+
+    fn fold_test_plan(region: Rect) -> ComposedRenderPlan {
+        ComposedRenderPlan::new(
+            region,
+            Affine::IDENTITY,
+            Affine::IDENTITY,
+            None,
+            region.width.ceil().max(1.0) as usize,
+            region.height.ceil().max(1.0) as usize,
+            Rect::new(0.0, 0.0, region.width, region.height),
+        )
+    }
+
+    #[test]
+    fn fold_margin_fragments_are_removed_on_both_leaf_sides() {
+        let height = 120;
+        let split = fold_test_split(200, height);
+
+        let left_region = Rect::new(0.0, 0.0, 100.0, height as f64);
+        let left_plan = fold_test_plan(left_region);
+        let mut left = BinaryImage::new(100, height);
+        for y in 50..52 {
+            for x in 98..100 {
+                left.set(x, y, true);
+            }
+        }
+        let left_filtered = filter_fold_edge_fragments(
+            &left,
+            None,
+            None,
+            None,
+            PageHalf::Left,
+            &split,
+            left_region,
+            &left_plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(left_filtered.count_black(), 0, "left fold fragment survived");
+
+        let right_region = Rect::new(100.0, 0.0, 100.0, height as f64);
+        let right_plan = fold_test_plan(right_region);
+        let mut right = BinaryImage::new(100, height);
+        for y in 50..52 {
+            for x in 0..2 {
+                right.set(x, y, true);
+            }
+        }
+        let right_filtered = filter_fold_edge_fragments(
+            &right,
+            None,
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            right_region,
+            &right_plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(right_filtered.count_black(), 0, "right fold fragment survived");
+    }
+
+    #[test]
+    fn fold_margin_text_is_pinned_in_a_tight_rebind_leaf() {
+        let height = 120;
+        let split = fold_test_split(800, height);
+        let region = Rect::new(400.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(400, height);
+        let mut text_vicinity = BinaryImage::new(400, height);
+        for y in 50..53 {
+            for x in 0..4 {
+                binary.set(x, y, true);
+            }
+            for x in 0..16 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+        let filtered = filter_fold_edge_fragments(
+            &binary,
+            None,
+            None,
+            Some(&text_vicinity),
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(filtered.count_black(), binary.count_black());
+    }
+
+    #[test]
+    fn facing_text_masks_that_terminate_at_the_fold_do_not_claim_a_fragment() {
+        let height = 120;
+        let split = fold_test_split(800, height);
+        let region = Rect::new(400.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(400, height);
+        let mut text = BinaryImage::new(400, height);
+        let mut vicinity = BinaryImage::new(400, height);
+        for y in 50..53 {
+            for x in 0..4 {
+                binary.set(x, y, true);
+                text.set(x, y, true);
+            }
+            for x in 0..6 {
+                vicinity.set(x, y, true);
+            }
+        }
+        let filtered = filter_fold_edge_fragments(
+            &binary,
+            None,
+            Some(&text),
+            Some(&vicinity),
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            Some(Rect::new(0.0, 0.0, region.width, region.height)),
+            false,
+            300.0,
+        );
+        assert_eq!(
+            filtered.count_black(),
+            0,
+            "spread-wide masks and a contaminated crop must not own facing text"
+        );
+    }
+
+    #[test]
+    fn a_rule_touching_the_fold_is_not_treated_as_a_glyph_fragment() {
+        let height = 160;
+        let split = fold_test_split(800, height);
+        let region = Rect::new(400.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(400, height);
+        for y in 50..95 {
+            for x in 0..3 {
+                binary.set(x, y, true);
+            }
+        }
+        let filtered = filter_fold_edge_fragments(
+            &binary,
+            None,
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(filtered.count_black(), binary.count_black());
+    }
+
+    #[test]
+    fn a_measured_fold_can_drop_a_ragged_scanner_rail_but_not_a_solid_rule() {
+        let height = 180;
+        let mut split = fold_test_split(800, height);
+        split.cutter_x = Some(400.0);
+        split.gutter_left_x = Some(390.0);
+        split.gutter_right_x = Some(410.0);
+        let region = Rect::new(400.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+
+        let mut ragged = BinaryImage::new(400, height);
+        for y in 25..145 {
+            ragged.set(0, y, true);
+            ragged.set(1, y, true);
+            if y % 4 != 0 {
+                for x in 2..6 {
+                    ragged.set(x, y, true);
+                }
+            }
+        }
+        let filtered = filter_fold_edge_fragments(
+            &ragged,
+            None,
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(filtered.count_black(), 0, "ragged scanner rail survived");
+
+        let mut solid = BinaryImage::new(400, height);
+        for y in 25..145 {
+            for x in 0..3 {
+                solid.set(x, y, true);
+            }
+        }
+        let filtered = filter_fold_edge_fragments(
+            &solid,
+            None,
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(filtered.count_black(), solid.count_black());
+    }
+
+    #[test]
+    fn aligned_broken_scanner_rail_segments_are_filtered_as_one_chain() {
+        let height = 360;
+        let mut split = fold_test_split(800, height);
+        split.cutter_x = Some(400.0);
+        split.gutter_left_x = Some(390.0);
+        split.gutter_right_x = Some(410.0);
+        let region = Rect::new(400.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(400, height);
+        for top in [25, 105, 185, 265] {
+            for y in top..top + 20 {
+                for x in 0..3 {
+                    binary.set(x, y, true);
+                }
+            }
+        }
+        let filtered = filter_fold_edge_fragments(
+            &binary,
+            None,
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(filtered.count_black(), 0, "broken rail chain survived");
+    }
+
+    #[test]
+    fn fold_margin_picture_ownership_is_pinned_on_a_nonblank_leaf() {
+        let height = 120;
+        let split = fold_test_split(800, height);
+        let region = Rect::new(400.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(400, height);
+        let mut picture = BinaryImage::new(400, height);
+        for y in 50..52 {
+            for x in 0..2 {
+                binary.set(x, y, true);
+                picture.set(x, y, true);
+            }
+        }
+        let filtered = filter_fold_edge_fragments(
+            &binary,
+            Some(&picture),
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(filtered.count_black(), binary.count_black());
+    }
+
+    #[test]
+    fn blank_leaf_speck_pass_removes_isolated_marks_inside_the_fold_corridor() {
+        let height = 120;
+        let split = fold_test_split(800, height);
+        let region = Rect::new(400.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(400, height);
+        for y in 50..52 {
+            for x in 5..7 {
+                binary.set(x, y, true);
+            }
+        }
+        let mut picture = BinaryImage::new(400, height);
+        for y in 50..52 {
+            for x in 5..7 {
+                picture.set(x, y, true);
+            }
+        }
+        let filtered = filter_fold_edge_fragments(
+            &binary,
+            Some(&picture),
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            true,
+            300.0,
+        );
+        assert_eq!(filtered.count_black(), 0, "blank-leaf fold speck survived");
+    }
+
+    #[test]
+    fn mixed_composition_whitens_pixels_removed_from_the_fold_foreground() {
+        let height = 120;
+        let split = fold_test_split(200, height);
+        let region = Rect::new(100.0, 0.0, 100.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(100, height);
+        for y in 50..52 {
+            for x in 0..2 {
+                binary.set(x, y, true);
+            }
+        }
+
+        let (filtered, removed) = filter_fold_edge_fragments_with_removed(
+            &binary,
+            None,
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(filtered.count_black(), 0);
+        assert_eq!(removed.count_black(), binary.count_black());
+
+        let gray = GrayImage::new(100, height, 182);
+        let picture_mask = BinaryImage::new(100, height);
+        let (mixed, _, _) = compose_mixed(
+            &gray,
+            None,
+            None,
+            &filtered,
+            &picture_mask,
+            None,
+            Some(&removed),
+            None,
+            None,
+            300.0,
+            false,
+            false,
+            true,
+            true,
+        );
+        assert_eq!(mixed.get(0, 50), 255);
+        assert_eq!(mixed.get(2, 50), 255);
+    }
+
     #[test]
     fn leaf_blankness_is_read_past_the_fold_shadow_but_not_past_the_text() {
         let mut shadowed = GrayImage::new(600, 800, 250);
@@ -6448,5 +6824,24 @@ mod tests {
             !leaf_interior_is_blank(&printed, 150.0),
             "a printed leaf was treated as blank",
         );
+    }
+
+    #[test]
+    fn either_collapsed_gutter_side_requests_raw_remeasurement() {
+        let mut split = fold_test_split(800, 120);
+        split.cutter_x = Some(400.0);
+        split.gutter_left_x = Some(390.0);
+        split.gutter_right_x = Some(410.0);
+        assert!(!gutter_band_needs_raw_remeasurement(&split));
+
+        split.gutter_left_x = Some(400.0);
+        assert!(gutter_band_needs_raw_remeasurement(&split));
+
+        split.gutter_left_x = Some(390.0);
+        split.gutter_right_x = Some(400.0);
+        assert!(gutter_band_needs_raw_remeasurement(&split));
+
+        split.gutter_right_x = None;
+        assert!(gutter_band_needs_raw_remeasurement(&split));
     }
 }

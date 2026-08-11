@@ -1275,6 +1275,516 @@ fn pale_bilevel_collapse(binary: &BinaryImage, pale_tonal_structure: bool) -> bo
     (binary.count_black() as f64) < area as f64 * ink_fraction
 }
 
+/// The physical fold margin is deliberately much narrower than an ordinary
+/// page margin. Only fragments that are both cut by the fold-side boundary and
+/// small enough to be a piece of a glyph may be removed here. Picture
+/// ownership remains an absolute veto, while text ownership has to continue
+/// into the leaf: a tight rebind can put real type in this same corridor, and
+/// a map or marginal illustration must not be mistaken for a facing-page
+/// sliver.
+const FOLD_EDGE_FRAGMENT_MARGIN_FRACTION: f64 = 0.015;
+const FOLD_EDGE_FRAGMENT_CONTACT_MM: f64 = 0.25;
+const FOLD_EDGE_FRAGMENT_MAX_MAJOR_MM: f64 = 4.0;
+const FOLD_EDGE_FRAGMENT_MAX_MINOR_MM: f64 = 2.5;
+const FOLD_EDGE_FRAGMENT_MAX_AREA_MM2: f64 = 2.5;
+const FOLD_EDGE_RULE_MIN_MAJOR_MM: f64 = 3.0;
+const FOLD_EDGE_RAIL_MAX_WIDTH_MM: f64 = 2.5;
+const FOLD_EDGE_RAIL_ALIGNMENT_MM: f64 = 1.0;
+const FOLD_EDGE_RAIL_MIN_SINGLE_HEIGHT_MM: f64 = 8.0;
+const FOLD_EDGE_RAIL_MIN_CHAIN_SPAN_MM: f64 = 20.0;
+const FOLD_EDGE_RAIL_MIN_CHAIN_COVERAGE_MM: f64 = 6.0;
+const FOLD_EDGE_RAIL_MAX_SINGLE_FILL: f64 = 0.85;
+const FOLD_EDGE_BLANK_SPECK_MAX_MAJOR_MM: f64 = 2.0;
+const FOLD_EDGE_BLANK_SPECK_MAX_MINOR_MM: f64 = 1.25;
+const FOLD_EDGE_BLANK_SPECK_MAX_AREA_MM2: f64 = 0.5;
+
+fn filter_fold_edge_fragments(
+    binary: &BinaryImage,
+    picture_mask: Option<&BinaryImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+    half: PageHalf,
+    split: &SplitResult,
+    region: Rect,
+    render_plan: &ComposedRenderPlan,
+    source_content_box: Option<Rect>,
+    blank_leaf: bool,
+    dpi: f64,
+) -> BinaryImage {
+    let (kept, _removed) = filter_fold_edge_fragments_with_removed(
+        binary,
+        picture_mask,
+        text_mask,
+        text_vicinity_mask,
+        half,
+        split,
+        region,
+        render_plan,
+        source_content_box,
+        blank_leaf,
+        dpi,
+    );
+    kept
+}
+
+#[allow(clippy::too_many_arguments)]
+fn filter_fold_edge_fragments_with_removed(
+    binary: &BinaryImage,
+    picture_mask: Option<&BinaryImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+    half: PageHalf,
+    split: &SplitResult,
+    region: Rect,
+    render_plan: &ComposedRenderPlan,
+    source_content_box: Option<Rect>,
+    blank_leaf: bool,
+    dpi: f64,
+) -> (BinaryImage, BinaryImage) {
+    if split.classification != LayoutClassification::TwoPageSpread
+        || half == PageHalf::Full
+        || binary.width() == 0
+        || binary.height() == 0
+    {
+        return (
+            binary.clone(),
+            BinaryImage::new(binary.width(), binary.height()),
+        );
+    }
+    debug_assert!(picture_mask
+        .is_none_or(|mask| (mask.width(), mask.height()) == (binary.width(), binary.height())));
+    debug_assert!(text_mask
+        .is_none_or(|mask| (mask.width(), mask.height()) == (binary.width(), binary.height())));
+    debug_assert!(text_vicinity_mask
+        .is_none_or(|mask| (mask.width(), mask.height()) == (binary.width(), binary.height())));
+
+    let fold_source_x = match half {
+        PageHalf::Left => region.right(),
+        PageHalf::Right => region.x,
+        PageHalf::Full => {
+            return (
+                binary.clone(),
+                BinaryImage::new(binary.width(), binary.height()),
+            )
+        }
+    };
+    let mut fold_samples = (0..=8)
+        .filter_map(|index| {
+            let fraction = index as f64 / 8.0;
+            render_plan
+                .source_to_output(Point::new(
+                    fold_source_x,
+                    region.y + region.height * fraction,
+                ))
+                .map(|point| (point.y, point.x))
+        })
+        .collect::<Vec<_>>();
+    if fold_samples.is_empty() {
+        return (
+            binary.clone(),
+            BinaryImage::new(binary.width(), binary.height()),
+        );
+    }
+    fold_samples.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+    let fold_edge_x_at = |output_y: f64| {
+        if fold_samples.len() == 1 {
+            return fold_samples[0].1;
+        }
+        let segment = fold_samples.windows(2).find(|window| {
+            output_y >= window[0].0.min(window[1].0) && output_y <= window[0].0.max(window[1].0)
+        });
+        let Some(segment) = segment else {
+            return if output_y < fold_samples[0].0 {
+                fold_samples[0].1
+            } else {
+                fold_samples.last().map_or(0.0, |sample| sample.1)
+            };
+        };
+        let delta_y = segment[1].0 - segment[0].0;
+        if delta_y.abs() <= f64::EPSILON {
+            return segment[0].1.min(segment[1].1);
+        }
+        let fraction = ((output_y - segment[0].0) / delta_y).clamp(0.0, 1.0);
+        segment[0].1 + (segment[1].1 - segment[0].1) * fraction
+    };
+    let rendered_content_rect = source_content_box.and_then(|content| {
+        let points = [
+            Point::new(content.x, content.y),
+            Point::new(content.right(), content.y),
+            Point::new(content.x, content.bottom()),
+            Point::new(content.right(), content.bottom()),
+        ]
+        .into_iter()
+        .filter_map(|point| {
+            render_plan.source_to_output(Point::new(point.x + region.x, point.y + region.y))
+        })
+        .collect::<Vec<_>>();
+        (points.len() == 4).then(|| {
+            let left = points
+                .iter()
+                .map(|point| point.x)
+                .fold(f64::INFINITY, f64::min);
+            let top = points
+                .iter()
+                .map(|point| point.y)
+                .fold(f64::INFINITY, f64::min);
+            let right = points
+                .iter()
+                .map(|point| point.x)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let bottom = points
+                .iter()
+                .map(|point| point.y)
+                .fold(f64::NEG_INFINITY, f64::max);
+            Rect::new(left, top, right - left, bottom - top)
+        })
+    });
+
+    let margin = (binary.width() as f64 * FOLD_EDGE_FRAGMENT_MARGIN_FRACTION)
+        .ceil()
+        .max(1.0);
+    let contact = (dpi.max(1.0) * FOLD_EDGE_FRAGMENT_CONTACT_MM / 25.4)
+        .round()
+        .max(1.0);
+    let dpi_scale = dpi.max(1.0) / 25.4;
+    let maximum_major = (dpi_scale * FOLD_EDGE_FRAGMENT_MAX_MAJOR_MM)
+        .round()
+        .max(4.0) as usize;
+    let maximum_minor = (dpi_scale * FOLD_EDGE_FRAGMENT_MAX_MINOR_MM)
+        .round()
+        .max(2.0) as usize;
+    let maximum_area = (dpi_scale.powi(2) * FOLD_EDGE_FRAGMENT_MAX_AREA_MM2)
+        .round()
+        .max(8.0) as usize;
+    let minimum_rule_major = (dpi_scale * FOLD_EDGE_RULE_MIN_MAJOR_MM).round().max(4.0) as usize;
+    let blank_maximum_major = (dpi_scale * FOLD_EDGE_BLANK_SPECK_MAX_MAJOR_MM)
+        .round()
+        .max(3.0) as usize;
+    let blank_maximum_minor = (dpi_scale * FOLD_EDGE_BLANK_SPECK_MAX_MINOR_MM)
+        .round()
+        .max(2.0) as usize;
+    let blank_maximum_area = (dpi_scale.powi(2) * FOLD_EDGE_BLANK_SPECK_MAX_AREA_MM2)
+        .round()
+        .max(4.0) as usize;
+    let components = ComponentMap::from_binary(binary);
+    let text_components = text_mask.map(ComponentMap::from_binary);
+    let text_vicinity_components = text_vicinity_mask.map(ComponentMap::from_binary);
+    let overlaps_mask = |component: &scan_primitives::Component, mask: &BinaryImage| {
+        (component.top..=component.bottom).any(|y| {
+            (component.left..=component.right)
+                .any(|x| components.label_at(x, y) == component.label && mask.get(x, y))
+        })
+    };
+    let component_inside = |component: &scan_primitives::Component, rect: Rect| {
+        component.left as f64 >= rect.x
+            && component.top as f64 >= rect.y
+            && component.right as f64 + 1.0 <= rect.right()
+            && component.bottom as f64 + 1.0 <= rect.bottom()
+    };
+    let ownership_reaches_leaf_interior =
+        |component: &scan_primitives::Component, ownership: &ComponentMap| {
+            for y in component.top..=component.bottom {
+                for x in component.left..=component.right {
+                    if components.label_at(x, y) != component.label {
+                        continue;
+                    }
+                    let label = ownership.label_at(x, y);
+                    if label == 0 {
+                        continue;
+                    }
+                    let owner = &ownership.components()[label as usize - 1];
+                    let rows = [owner.top, (owner.top + owner.bottom) / 2, owner.bottom];
+                    let reaches_interior = rows.into_iter().any(|row| {
+                        let edge = fold_edge_x_at(row as f64);
+                        match half {
+                            PageHalf::Left => (owner.left as f64) < edge - margin,
+                            PageHalf::Right => owner.right as f64 + 1.0 > edge + margin,
+                            PageHalf::Full => false,
+                        }
+                    });
+                    if reaches_interior {
+                        return true;
+                    }
+                }
+            }
+            false
+        };
+    let touches_non_fold_edge = |component: &scan_primitives::Component| {
+        component.top == 0
+            || component.bottom + 1 == binary.height()
+            || match half {
+                PageHalf::Left => component.left == 0,
+                PageHalf::Right => component.right + 1 == binary.width(),
+                PageHalf::Full => true,
+            }
+    };
+    let fold_geometry = |component: &scan_primitives::Component| {
+        let sample_rows = [
+            component.top,
+            (component.top + component.bottom) / 2,
+            component.bottom,
+        ];
+        let mut near_boundary = false;
+        let mut inward_depth = 0.0_f64;
+        for row in sample_rows {
+            let edge = fold_edge_x_at(row as f64);
+            let facing_distance = match half {
+                PageHalf::Left => edge - component.right as f64,
+                PageHalf::Right => component.left as f64 - edge,
+                PageHalf::Full => f64::INFINITY,
+            };
+            near_boundary |= facing_distance.abs() <= contact
+                || match half {
+                    PageHalf::Left => component.right as f64 >= edge - contact,
+                    PageHalf::Right => component.left as f64 <= edge + contact,
+                    PageHalf::Full => false,
+                };
+            inward_depth = inward_depth.max(match half {
+                PageHalf::Left => (edge - component.left as f64).max(0.0),
+                PageHalf::Right => (component.right as f64 - edge).max(0.0),
+                PageHalf::Full => f64::INFINITY,
+            });
+        }
+        (near_boundary, inward_depth)
+    };
+    let component_has_text_ownership = |component: &scan_primitives::Component| {
+        text_components
+            .as_ref()
+            .is_some_and(|mask| ownership_reaches_leaf_interior(component, mask))
+            || text_vicinity_components
+                .as_ref()
+                .is_some_and(|mask| ownership_reaches_leaf_interior(component, mask))
+    };
+    let component_has_content_ownership = |component: &scan_primitives::Component| {
+        rendered_content_rect.is_some_and(|rect| {
+            if !component_inside(component, rect) {
+                return false;
+            }
+            let edge = fold_edge_x_at(((component.top + component.bottom) / 2) as f64);
+            match half {
+                PageHalf::Left => component.right as f64 + 1.0 < edge - margin,
+                PageHalf::Right => component.left as f64 > edge + margin,
+                PageHalf::Full => true,
+            }
+        })
+    };
+
+    // Gutter geometry handles continuous shadow. A scanner rail can instead
+    // be one ragged vertical component, or several aligned components, whose
+    // bright gaps intentionally stop the column-only band walk. Remove that
+    // rail locally rather than weakening the band's no-ink guarantee. This
+    // path needs independent gutter evidence, fold contact, substantial
+    // physical span, and no picture, text, or content ownership. A solid
+    // marginal rule remains pinned.
+    #[derive(Clone, Copy)]
+    struct RailCandidate {
+        label: u32,
+        distance: f64,
+        top: usize,
+        bottom: usize,
+        height: usize,
+        fill: f64,
+    }
+    let measured_gutter_band = split.cutter_x.is_some_and(|cutter| {
+        split.gutter_left_x.is_some_and(|left| left < cutter - 0.5)
+            || split
+                .gutter_right_x
+                .is_some_and(|right| right > cutter + 0.5)
+    });
+    let rail_max_width = (dpi_scale * FOLD_EDGE_RAIL_MAX_WIDTH_MM).round().max(2.0) as usize;
+    let rail_alignment = (dpi_scale * FOLD_EDGE_RAIL_ALIGNMENT_MM).round().max(1.0);
+    let rail_min_single_height = (dpi_scale * FOLD_EDGE_RAIL_MIN_SINGLE_HEIGHT_MM)
+        .round()
+        .max(8.0) as usize;
+    let rail_min_chain_span = (dpi_scale * FOLD_EDGE_RAIL_MIN_CHAIN_SPAN_MM)
+        .round()
+        .max(16.0) as usize;
+    let rail_min_chain_coverage = (dpi_scale * FOLD_EDGE_RAIL_MIN_CHAIN_COVERAGE_MM)
+        .round()
+        .max(8.0) as usize;
+    let mut rail_labels = vec![false; components.components().len() + 1];
+    if measured_gutter_band {
+        let rail_candidates = components
+            .components()
+            .iter()
+            .filter_map(|component| {
+                let width = component.right - component.left + 1;
+                let height = component.bottom - component.top + 1;
+                let (near_boundary, inward_depth) = fold_geometry(component);
+                if touches_non_fold_edge(component)
+                    || !near_boundary
+                    || inward_depth > margin
+                    || width > rail_max_width
+                    || height < width.saturating_mul(2)
+                    || picture_mask.is_some_and(|mask| overlaps_mask(component, mask))
+                    || component_has_text_ownership(component)
+                    || component_has_content_ownership(component)
+                {
+                    return None;
+                }
+                let edge = fold_edge_x_at(((component.top + component.bottom) / 2) as f64);
+                let center = (component.left + component.right) as f64 * 0.5;
+                Some(RailCandidate {
+                    label: component.label,
+                    distance: (center - edge).abs(),
+                    top: component.top,
+                    bottom: component.bottom,
+                    height,
+                    fill: component.area as f64 / width.saturating_mul(height).max(1) as f64,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut assigned = vec![false; rail_candidates.len()];
+        for anchor in 0..rail_candidates.len() {
+            if assigned[anchor] {
+                continue;
+            }
+            let mut group = Vec::new();
+            for candidate in anchor..rail_candidates.len() {
+                if !assigned[candidate]
+                    && (rail_candidates[candidate].distance - rail_candidates[anchor].distance)
+                        .abs()
+                        <= rail_alignment
+                {
+                    assigned[candidate] = true;
+                    group.push(rail_candidates[candidate]);
+                }
+            }
+            let mut intervals = group
+                .iter()
+                .map(|candidate| (candidate.top, candidate.bottom))
+                .collect::<Vec<_>>();
+            intervals.sort_unstable();
+            let mut coverage = 0usize;
+            let mut covered: Option<(usize, usize)> = None;
+            for (top, bottom) in intervals {
+                match covered {
+                    Some((covered_top, covered_bottom)) if top <= covered_bottom + 1 => {
+                        covered = Some((covered_top, covered_bottom.max(bottom)));
+                    }
+                    Some((covered_top, covered_bottom)) => {
+                        coverage += covered_bottom - covered_top + 1;
+                        covered = Some((top, bottom));
+                    }
+                    None => covered = Some((top, bottom)),
+                }
+            }
+            if let Some((covered_top, covered_bottom)) = covered {
+                coverage += covered_bottom - covered_top + 1;
+            }
+            let top = group
+                .iter()
+                .map(|candidate| candidate.top)
+                .min()
+                .unwrap_or(0);
+            let bottom = group
+                .iter()
+                .map(|candidate| candidate.bottom)
+                .max()
+                .unwrap_or(0);
+            let span = bottom.saturating_sub(top) + 1;
+            let ragged_single = group.len() == 1
+                && group[0].height >= rail_min_single_height
+                && group[0].fill <= FOLD_EDGE_RAIL_MAX_SINGLE_FILL;
+            let broken_chain = group.len() >= 2
+                && span >= rail_min_chain_span
+                && coverage >= rail_min_chain_coverage;
+            if ragged_single || broken_chain {
+                for candidate in group {
+                    rail_labels[candidate.label as usize] = true;
+                }
+            }
+        }
+    }
+    let kept = components.retain(|component| {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let major = width.max(height);
+        let minor = width.min(height);
+        // A clipped vertical glyph stem is often much longer than it is wide.
+        // It is still a glyph-scale fragment; reserve the rule veto for a
+        // high-aspect component at least 3 mm long. Long or chained scanner
+        // rails remain outside the fragment envelope altogether.
+        let line_like = major >= minimum_rule_major && major >= minor.saturating_mul(4);
+        let small_fragment = component.area <= maximum_area
+            && major <= maximum_major
+            && minor <= maximum_minor
+            && !line_like;
+        let blank_speck = blank_leaf
+            && component.area <= blank_maximum_area
+            && major <= blank_maximum_major
+            && minor <= blank_maximum_minor
+            && !line_like;
+        // Do not treat the physical outer/top/bottom edges as fold edges. This
+        // is intentionally checked on the rendered raster as well as against
+        // the mapped fold line: a crop margin can move the fold away from the
+        // payload boundary without changing which payload edge is outer.
+        if touches_non_fold_edge(component) {
+            return true;
+        }
+        let (near_boundary, inward_depth) = fold_geometry(component);
+        let within_fold_margin = inward_depth <= margin;
+        if !within_fold_margin {
+            return true;
+        }
+        let picture_ownership = picture_mask.is_some_and(|mask| overlaps_mask(component, mask));
+        // Text masks are detected on the whole spread, so a facing-page line
+        // that crosses the cutter can mark its clipped end as "text" on the
+        // wrong leaf. It becomes leaf ownership only when the same connected
+        // text or text-vicinity component continues beyond the narrow fold
+        // corridor. This is the tight-rebind pin: genuine near-binding text
+        // connects inward, while a foreign line end terminates at the fold.
+        let text_ownership = component_has_text_ownership(component);
+        // Content crops can themselves be pulled to the fold by the foreign
+        // fragment being rejected. Only the part beyond the independently
+        // bounded fold corridor is content interior for this filter.
+        let content_ownership = component_has_content_ownership(component);
+        if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_FOLD_COMPONENTS").is_some() {
+            let edge = fold_edge_x_at(((component.top + component.bottom) / 2) as f64);
+            let near_fold = match half {
+                PageHalf::Left => component.right as f64 >= edge - margin,
+                PageHalf::Right => component.left as f64 <= edge + margin,
+                PageHalf::Full => false,
+            };
+            if near_fold {
+                eprintln!(
+                    "fold-component half={half:?} raster={}x{} edge={edge:.1} bbox={}x{}+{}+{} area={} small={small_fragment} line={line_like} inward={inward_depth:.1}/{margin:.1} picture={picture_ownership} textRaw={} vicinityRaw={} textOwned={text_ownership} contentRaw={} contentOwned={content_ownership}",
+                    binary.width(),
+                    binary.height(),
+                    width,
+                    height,
+                    component.left,
+                    component.top,
+                    component.area,
+                    text_mask.is_some_and(|mask| overlaps_mask(component, mask)),
+                    text_vicinity_mask.is_some_and(|mask| overlaps_mask(component, mask)),
+                    rendered_content_rect.is_some_and(|rect| component_inside(component, rect)),
+                );
+            }
+        }
+        if (picture_ownership && !blank_speck) || text_ownership || content_ownership {
+            return true;
+        }
+        if rail_labels[component.label as usize] {
+            return false;
+        }
+        if !small_fragment && !blank_speck {
+            return true;
+        }
+        if near_boundary && small_fragment {
+            return false;
+        }
+        if blank_speck {
+            // Blank leaves get one extra cosmetic pass, but only for isolated
+            // sub-glyph-scale marks already confined to the fold corridor.
+            return false;
+        }
+        true
+    });
+    let removed = binary.subtract(&kept);
+    (kept, removed)
+}
+
 fn manual_picture_crop_authority(
     options: &CleanupOptions,
     width: usize,
@@ -1621,17 +2131,34 @@ fn analyze_page_with_color_and_document_prior_impl(
         None,
         timings,
     );
+    let mut split = prepared.split;
+    let needs_raw_gutter_remeasurement = gutter_band_needs_raw_remeasurement(&split);
+    if plan_content
+        && split.classification == LayoutClassification::TwoPageSpread
+        && needs_raw_gutter_remeasurement
+    {
+        // Analysis geometry is published before the final cleanup pass. Use
+        // the rotated full-resolution source here as well, otherwise the
+        // final renderer can discover the right edge only after the analyze
+        // pass has already fixed both leaf origins at the cutter.
+        let raw_source = rotate_orthogonal(source, options.rotation);
+        split.remeasure_gutter_band_from_source(
+            &raw_source,
+            raw_source.width(),
+            raw_source.height(),
+        );
+    }
     if !plan_content {
         return Ok(PageAnalysisResult {
             outputs: Vec::new(),
-            classification: prepared.split.classification,
-            confidence: prepared.split.confidence,
-            cutter_x: prepared.split.cutter_x,
-            split_seam: prepared.split.split_seam,
+            classification: split.classification,
+            confidence: split.confidence,
+            cutter_x: split.cutter_x,
+            split_seam: split.split_seam,
             excluded: false,
             rotation: options.rotation,
-            reconciliation: prepared.split.reconciliation,
-            split_diagnostics: prepared.split.diagnostics,
+            reconciliation: split.reconciliation,
+            split_diagnostics: split.diagnostics,
             rotated_width: prepared.full_width,
             rotated_height: prepared.full_height,
             candidate_cutter_ratio: prepared.candidate_cutter_ratio,
@@ -1649,7 +2176,7 @@ fn analyze_page_with_color_and_document_prior_impl(
     let outputs = output_regions(
         prepared.full_width,
         prepared.full_height,
-        &prepared.split,
+        &split,
         options.layout,
     )
     .into_iter()
@@ -1782,14 +2309,14 @@ fn analyze_page_with_color_and_document_prior_impl(
     timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
     Ok(PageAnalysisResult {
         outputs,
-        classification: prepared.split.classification,
-        confidence: prepared.split.confidence,
-        cutter_x: prepared.split.cutter_x,
-        split_seam: prepared.split.split_seam,
+        classification: split.classification,
+        confidence: split.confidence,
+        cutter_x: split.cutter_x,
+        split_seam: split.split_seam,
         excluded: false,
         rotation: options.rotation,
-        reconciliation: prepared.split.reconciliation,
-        split_diagnostics: prepared.split.diagnostics,
+        reconciliation: split.reconciliation,
+        split_diagnostics: split.diagnostics,
         rotated_width: prepared.full_width,
         rotated_height: prepared.full_height,
         candidate_cutter_ratio: prepared.candidate_cutter_ratio,
@@ -2038,6 +2565,23 @@ fn clean_page_with_color_and_calibration_config(
         use_soft_alpha_foreground,
         resolved_output_mode: _,
     } = prepared;
+    let mut split = split;
+    let needs_raw_gutter_remeasurement = gutter_band_needs_raw_remeasurement(&split);
+    if split.classification == LayoutClassification::TwoPageSpread && needs_raw_gutter_remeasurement
+    {
+        // apply_document_prior intentionally clears stale bands. If the
+        // bounded layout raster flattened a broad fold ramp, or an automatic
+        // cutter was handed across without a band, use the raw source at the
+        // same physical scale to prove a fresh pair of edges. This is new
+        // evidence, never a carried cutter-relative offset.
+        if let Some(raw_source) = rotated_source.as_deref() {
+            split.remeasure_gutter_band_from_source(
+                raw_source,
+                raw_source.width(),
+                raw_source.height(),
+            );
+        }
+    }
     let regions = output_regions(
         normalized.width(),
         normalized.height(),
@@ -3289,6 +3833,16 @@ fn split_result_bytes(split: &SplitResult) -> usize {
         .saturating_add(binary)
 }
 
+fn gutter_band_needs_raw_remeasurement(split: &SplitResult) -> bool {
+    split.classification == LayoutClassification::TwoPageSpread
+        && split.cutter_x.is_some_and(|cutter| {
+            split.gutter_left_x.is_none_or(|left| left >= cutter - 0.5)
+                || split
+                    .gutter_right_x
+                    .is_none_or(|right| right <= cutter + 0.5)
+        })
+}
+
 fn scale_split_result(
     split: &mut SplitResult,
     scale_x: f64,
@@ -3299,6 +3853,9 @@ fn scale_split_result(
     split.cutter_x = split.cutter_x.map(|x| x / scale_x);
     split.gutter_left_x = split
         .gutter_left_x
+        .map(|x| (x / scale_x).clamp(0.0, full_width as f64));
+    split.gutter_right_x = split
+        .gutter_right_x
         .map(|x| (x / scale_x).clamp(0.0, full_width as f64));
     if let Some(seam) = &mut split.split_seam {
         for point in &mut seam.points {
@@ -4892,18 +5449,20 @@ fn clean_region(
             });
     // A verso whose only survivor is the fold shadow along the leaf edge is a
     // blank page, and publishing the streak serves nobody. The leaf has to own
-    // no text and no picture ink at all before this applies, so a pale page
-    // that still carries structure can never be erased by it.
+    // no text or picture ink and its inset interior must independently remain
+    // blank. A pale plate therefore survives even when an edge shadow is also
+    // present; only edge-confined unowned residue earns the white page.
+    let leaf_interior_blank = leaf_interior_is_blank(&rendered_gray, options.dpi);
     let unowned_edge_residue = !pale_tonal_structure
         && !effectively_blank
         && content.content.is_none()
         && ink_ownership_mask
             .as_ref()
             .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
-        && leaf_interior_is_blank(&rendered_gray, options.dpi);
+        && leaf_interior_blank;
     if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_INK").is_some() {
         eprintln!(
-            "blank-residue page={} half={half:?} effectivelyBlank={effectively_blank} content={} owned={:?} residue={unowned_edge_residue}",
+            "blank-residue page={} half={half:?} effectivelyBlank={effectively_blank} pale={pale_tonal_structure} interiorBlank={leaf_interior_blank} content={} owned={:?} residue={unowned_edge_residue}",
             source_page_index + 1,
             content.content.is_some(),
             ink_ownership_mask.as_ref().map(|mask| mask.count_black()),
@@ -4913,6 +5472,15 @@ fn clean_region(
         || (!pale_tonal_structure
             && content.content.is_none()
             && (effectively_blank || unowned_edge_residue));
+    // A sparse false-positive picture mask is common on a blank verso beside
+    // a fold shadow. Strict text evidence is the blank-page veto here; normal
+    // picture ownership still pins components, while the helper's separate
+    // blank-speck branch may remove only isolated sub-glyph marks in the
+    // fold corridor.
+    let fold_edge_blank_leaf = content.content.is_none()
+        && rendered_text_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
     // Whole-page abstention guarded against the old destructive whitening.
     // Picture zones now preserve continuous tone exactly while everything
     // else is smoothly normalized toward white, so cleanup is always safe and
@@ -5002,6 +5570,19 @@ fn clean_region(
                                 stabilized
                             },
                         );
+                        let trusted_foreground = filter_fold_edge_fragments(
+                            &trusted_foreground,
+                            rendered_picture_mask.as_ref(),
+                            rendered_text_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
+                            half,
+                            split,
+                            region,
+                            &render_plan,
+                            source_content_box,
+                            fold_edge_blank_leaf,
+                            options.dpi,
+                        );
                         (
                             CleanupRaster::Bilevel(trusted_foreground),
                             None,
@@ -5086,6 +5667,19 @@ fn clean_region(
                         source_page_index,
                         half,
                         &mut conservation_warnings,
+                    );
+                    let binary = filter_fold_edge_fragments(
+                        &binary,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        half,
+                        split,
+                        region,
+                        &render_plan,
+                        source_content_box,
+                        fold_edge_blank_leaf,
+                        options.dpi,
                     );
                     if !effectively_blank && pale_bilevel_collapse(&binary, pale_tonal_structure) {
                         conservation_warnings.push(format!(
@@ -5184,6 +5778,19 @@ fn clean_region(
                         source_page_index,
                         half,
                         &mut conservation_warnings,
+                    );
+                    let binary = filter_fold_edge_fragments(
+                        &binary,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        half,
+                        split,
+                        region,
+                        &render_plan,
+                        source_content_box,
+                        fold_edge_blank_leaf,
+                        options.dpi,
                     );
                     if !effectively_blank && pale_bilevel_collapse(&binary, pale_tonal_structure) {
                         conservation_warnings.push(format!(
@@ -5319,7 +5926,26 @@ fn clean_region(
                         half,
                         &mut conservation_warnings,
                     );
-                    let removed_edge_bands = (!conserved).then_some(&removed_edge_bands);
+                    let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
+                        &binary,
+                        Some(picture_mask),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        half,
+                        split,
+                        region,
+                        &render_plan,
+                        source_content_box,
+                        fold_edge_blank_leaf,
+                        options.dpi,
+                    );
+                    let removed_edge_bands = if !conserved {
+                        Some(removed_edge_bands.or(&fold_removed_edge_bands))
+                    } else if fold_removed_edge_bands.count_black() > 0 {
+                        Some(fold_removed_edge_bands)
+                    } else {
+                        None
+                    };
                     let reuse_source_mrc_foreground = can_reuse_source_mrc_foreground(
                         options,
                         rendered_trusted_foreground_mask.as_ref(),
@@ -5337,7 +5963,7 @@ fn clean_region(
                         &binary,
                         picture_mask,
                         rendered_chroma_picture_mask.as_ref(),
-                        removed_edge_bands,
+                        removed_edge_bands.as_ref(),
                         rendered_text_mask.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,

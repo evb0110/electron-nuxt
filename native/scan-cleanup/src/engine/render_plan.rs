@@ -151,14 +151,17 @@ pub(crate) fn output_regions(
         return vec![(full, PageHalf::Full)];
     }
     let cutter = cutter.round().clamp(1.0, width.saturating_sub(1) as f64);
-    // The fold the cutter runs through is not page, so the left leaf stops at
-    // its near edge. The cutter stays put: moving it would hand the right leaf
-    // strip the left leaf had already been assigned.
+    // The fold the cutter runs through is not page, so both leaves stop at
+    // their near edge. The cutter stays put: moving it would hand one leaf
+    // material the other leaf had already been assigned.
     let left_edge = split
         .gutter_left_x
         .map_or(cutter, |x| x.round().clamp(1.0, cutter));
+    let right_edge = split.gutter_right_x.map_or(cutter, |x| {
+        x.round().clamp(cutter, width.saturating_sub(1) as f64)
+    });
     let left = Rect::new(0.0, 0.0, left_edge, height as f64);
-    let right = Rect::new(cutter, 0.0, width as f64 - cutter, height as f64);
+    let right = Rect::new(right_edge, 0.0, width as f64 - right_edge, height as f64);
     match split.classification {
         LayoutClassification::TwoPageSpread => {
             vec![(left, PageHalf::Left), (right, PageHalf::Right)]
