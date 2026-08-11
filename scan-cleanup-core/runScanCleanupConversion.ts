@@ -121,6 +121,7 @@ import {
     describePageNumbers,
     type IRenderedCleanupOutputPage,
     resolveCompactSourcePreservation,
+    resolveFullSourcePagePreservation,
     sourceMrcForegroundPdfMatrix,
 } from '@scan-cleanup-core/assembleCompactScanCleanupPages';
 export type {
@@ -128,6 +129,23 @@ export type {
     IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
 } from '@scan-cleanup-core/types';
+
+const FALLBACK_MIXED_LAYER_PPM = Uint8Array.from([
+    0x50,
+    0x36,
+    0x0a,
+    0x31,
+    0x20,
+    0x31,
+    0x0a,
+    0x32,
+    0x35,
+    0x35,
+    0x0a,
+    0xff,
+    0xff,
+    0xff,
+]);
 
 async function readOptionalFileSize(path: string) {
     try {
@@ -1114,8 +1132,10 @@ export async function runScanCleanupConversion(
                 let foregroundMaskPath: string | undefined;
                 let foregroundAlphaPath: string | undefined;
                 let backgroundIsColor: boolean | undefined;
+                let compositePath = output.outputPath;
+                let validationFallbackSource: IRenderedCleanupOutputPage['preservedSource'];
                 if (metadata.layeredWritten) {
-                    backgroundPath = await requireProducedRasterFile(
+                    const candidateBackgroundPath = await requireProducedRasterFile(
                         requirePublishedRaster,
                         output.backgroundOutputPath,
                         pageNumber,
@@ -1140,7 +1160,7 @@ export async function runScanCleanupConversion(
                         backgroundHeader,
                         foregroundHeader,
                     ] = await Promise.all([
-                        readPpmDimensions(backgroundPath),
+                        readPpmDimensions(candidateBackgroundPath),
                         foregroundAlphaPath === undefined
                             ? readPbmDimensions(foregroundMaskPath!)
                             : readPpmDimensions(foregroundAlphaPath),
@@ -1166,11 +1186,21 @@ export async function runScanCleanupConversion(
                     }
                     const expectedBackgroundWidth = Math.max(
                         1,
-                        Math.round(metadata.canvasWidthPx * backgroundDpi / renderDpi),
+                        metadata.matchedCanvasTargetWidthPoints !== null
+                            && metadata.matchedCanvasTargetWidthPoints !== undefined
+                            && Number.isFinite(metadata.matchedCanvasTargetWidthPoints)
+                            && metadata.matchedCanvasTargetWidthPoints > 0
+                            ? Math.round(metadata.matchedCanvasTargetWidthPoints / 72 * backgroundDpi)
+                            : Math.round(metadata.canvasWidthPx * backgroundDpi / renderDpi),
                     );
                     const expectedBackgroundHeight = Math.max(
                         1,
-                        Math.round(metadata.canvasHeightPx * backgroundDpi / renderDpi),
+                        metadata.matchedCanvasTargetHeightPoints !== null
+                            && metadata.matchedCanvasTargetHeightPoints !== undefined
+                            && Number.isFinite(metadata.matchedCanvasTargetHeightPoints)
+                            && metadata.matchedCanvasTargetHeightPoints > 0
+                            ? Math.round(metadata.matchedCanvasTargetHeightPoints / 72 * backgroundDpi)
+                            : Math.round(metadata.canvasHeightPx * backgroundDpi / renderDpi),
                     );
                     const expectedForegroundWidth = Math.max(
                         1,
@@ -1180,21 +1210,60 @@ export async function runScanCleanupConversion(
                         1,
                         Math.round(metadata.canvasHeightPx * foregroundDpi / renderDpi),
                     );
-                    if (
+                    const dimensionsMismatch =
                         foregroundHeader.width !== expectedForegroundWidth
                         || foregroundHeader.height !== expectedForegroundHeight
                         || backgroundHeader.width !== expectedBackgroundWidth
-                        || backgroundHeader.height !== expectedBackgroundHeight
-                    ) {
-                        throw new Error(
+                        || backgroundHeader.height !== expectedBackgroundHeight;
+                    if (dimensionsMismatch) {
+                        backgroundPath = undefined;
+                        foregroundMaskPath = undefined;
+                        foregroundAlphaPath = undefined;
+                        backgroundIsColor = undefined;
+                        let fallbackDescription = 'the non-MRC composite path';
+                        try {
+                            compositePath = await requireProducedRasterFile(
+                                requirePublishedRaster,
+                                output.outputPath,
+                                pageNumber,
+                                'non-MRC composite fallback after invalid mixed layers',
+                            );
+                        } catch (error) {
+                            if (!(error instanceof ScanCleanupMissingOutputError)) throw error;
+                            validationFallbackSource = pageMetadata.layoutClassification === 'single-uncut-page'
+                                && pageMetadata.outputCount === 1
+                                && metadata.half === 'full'
+                                ? resolveFullSourcePagePreservation(
+                                    pageNumber,
+                                    pageSizes[pageNumber - 1],
+                                )
+                                : undefined;
+                            if (
+                                validationFallbackSource === undefined
+                                || paths.pdfPageOpsBinary === undefined
+                            ) {
+                                throw error;
+                            }
+                            compositePath = join(
+                                scratch,
+                                `mixed-layer-fallback-${String(pageNumber)}-${String(outputIndex)}.ppm`,
+                            );
+                            await writeFile(compositePath, FALLBACK_MIXED_LAYER_PPM);
+                            fallbackDescription = 'the original source page';
+                        }
+                        const warning =
                             `Page ${pageNumber} mixed layer dimensions do not match metadata `
                             + `(background ${backgroundHeader.width}x${backgroundHeader.height}, `
                             + `expected ${expectedBackgroundWidth}x${expectedBackgroundHeight}; `
                             + `foreground ${foregroundHeader.width}x${foregroundHeader.height}, `
-                            + `expected ${expectedForegroundWidth}x${expectedForegroundHeight})`,
-                        );
+                            + `expected ${expectedForegroundWidth}x${expectedForegroundHeight}); `
+                            + `using ${fallbackDescription}`;
+                        summary.warnings.push(warning);
+                        log('error', `Scan cleanup: ${warning}`);
+                    } else {
+                        backgroundPath = candidateBackgroundPath;
+                        backgroundIsColor = backgroundHeader.isColor;
                     }
-                    backgroundIsColor = backgroundHeader.isColor;
                 } else if (metadata.bilevelWritten) {
                     bilevelPath = await requireProducedRasterFile(
                         requirePublishedRaster,
@@ -1212,7 +1281,7 @@ export async function runScanCleanupConversion(
                 }
                 const renderedOutput: Omit<IRenderedCleanupOutputPage, 'preservedSource'> = {
                     sourcePageNumber: pageNumber,
-                    path: output.outputPath,
+                    path: compositePath,
                     ...(bilevelPath === undefined ? {} : {bilevelPath}),
                     ...(backgroundPath === undefined ? {} : {backgroundPath}),
                     ...(foregroundMaskPath === undefined ? {} : {foregroundMaskPath}),
@@ -1228,14 +1297,15 @@ export async function runScanCleanupConversion(
                         ?? 'color',
                     metadata,
                 };
-                const preservedSource = resolveCompactSourcePreservation(
-                    request,
-                    pageNumber,
-                    pageMetadata,
-                    renderedOutput,
-                    pageSizes?.[pageNumber - 1],
-                    detectedRasterByPage.get(pageNumber),
-                );
+                const preservedSource = validationFallbackSource
+                    ?? resolveCompactSourcePreservation(
+                        request,
+                        pageNumber,
+                        pageMetadata,
+                        renderedOutput,
+                        pageSizes?.[pageNumber - 1],
+                        detectedRasterByPage.get(pageNumber),
+                    );
                 pageOutputPages.push({
                     ...renderedOutput,
                     ...(preservedSource === undefined ? {} : {preservedSource}),

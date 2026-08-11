@@ -78,6 +78,27 @@ fn layered_foreground_dpi(options: &CleanupOptions) -> f64 {
         .min(SOFT_FOREGROUND_MAX_DPI)
 }
 
+fn background_canvas_dimensions(canvas: &DocumentCanvas, background_dpi: f64) -> (usize, usize) {
+    let background_canvas = canvas.at_dpi(background_dpi);
+    (background_canvas.width_px, background_canvas.height_px)
+}
+
+fn background_dimensions_to_publish(
+    actual_width: usize,
+    actual_height: usize,
+    target_width: usize,
+    target_height: usize,
+) -> (usize, usize) {
+    // An exact match must stay on its existing coarse grid. Any one-pixel
+    // rounding discrepancy is corrected to the authoritative physical target,
+    // never multiplied by another DPI ratio from the current dimensions.
+    if actual_width == target_width && actual_height == target_height {
+        (actual_width, actual_height)
+    } else {
+        (target_width, target_height)
+    }
+}
+
 /// A PDF soft mask describes opacity, not semantic ink ownership. Some compact
 /// MRC producers attach the high-resolution image to the paper samples and
 /// leave the text transparent; others do the opposite. Treating every white
@@ -2037,33 +2058,28 @@ fn run_page(
                         && !layers.source_mrc;
                     let background_dpi = layered_background_dpi(&options, confirmed_picture);
                     let layer_result = (|| -> Result<(), String> {
-                        let matched_background_width =
-                            ((layers.foreground_mask.width() as f64 * background_dpi / options.dpi)
-                                .round() as usize)
-                                .max(1);
-                        let matched_background_height = ((layers.foreground_mask.height() as f64
-                            * background_dpi
-                            / options.dpi)
-                            .round()
-                            as usize)
-                            .max(1);
-                        let background_is_already_matched = layers.background.width()
-                            == matched_background_width
-                            && layers.background.height() == matched_background_height;
-                        let background_width = if background_is_already_matched {
-                            matched_background_width
-                        } else {
-                            ((layers.background.width() as f64 * background_dpi / options.dpi)
-                                .round() as usize)
-                                .max(1)
-                        };
-                        let background_height = if background_is_already_matched {
-                            matched_background_height
-                        } else {
-                            ((layers.background.height() as f64 * background_dpi / options.dpi)
-                                .round() as usize)
-                                .max(1)
-                        };
+                        let (target_background_width, target_background_height) =
+                            if let Some((_, canvas)) = matched_placement.as_ref() {
+                                background_canvas_dimensions(canvas, background_dpi)
+                            } else {
+                                (
+                                    ((layers.foreground_mask.width() as f64 * background_dpi
+                                        / options.dpi)
+                                        .round() as usize)
+                                        .max(1),
+                                    ((layers.foreground_mask.height() as f64 * background_dpi
+                                        / options.dpi)
+                                        .round() as usize)
+                                        .max(1),
+                                )
+                            };
+                        let (background_width, background_height) =
+                            background_dimensions_to_publish(
+                                layers.background.width(),
+                                layers.background.height(),
+                                target_background_width,
+                                target_background_height,
+                            );
                         if let Some(color) = &layers.color_background {
                             if color.width() != background_width
                                 || color.height() != background_height
@@ -2110,14 +2126,9 @@ fn run_page(
                     if let Err(error) = layer_result {
                         let _ = fs::remove_file(background_path);
                         let _ = fs::remove_file(foreground_path);
-                        if layers.source_mrc {
-                            return Err(Box::new(invalid(format!(
-                                "Source MRC layers could not be published safely: {error}"
-                            ))));
-                        }
                         restore_mixed_composite_from_layers(output);
                         output.metadata.warnings.push(format!(
-                            "Mixed layers were not written; the composite fallback was published instead: {error}"
+                            "Mixed layers were not written safely; the composite fallback was published instead: {error}"
                         ));
                         (None, None, None)
                     } else {
@@ -2906,9 +2917,8 @@ fn match_layers_in_memory(
     // upscaled it whenever the document canvas used a finer B&W DPI than the
     // source page. Derive the plate from physical PDF points and map placement
     // proportionally between the two grids instead.
-    let background_canvas = canvas.at_dpi(background_dpi);
-    let background_width = background_canvas.width_px;
-    let background_height = background_canvas.height_px;
+    let (background_width, background_height) =
+        background_canvas_dimensions(canvas, background_dpi);
     let scale_x = background_width as f64 / canvas.width_px.max(1) as f64;
     let scale_y = background_height as f64 / canvas.height_px.max(1) as f64;
     let content_width = ((placement.content_width as f64 * scale_x).round() as usize)
@@ -3366,8 +3376,9 @@ fn map_image_error(message: String) -> NativeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_thread_count, estimate_peak_page_bytes, manifest_cache, manifest_worker_threads,
-        map_image_error, matched_output_paper_dimensions_for, materialize_stream_page,
+        adaptive_thread_count, background_canvas_dimensions, background_dimensions_to_publish,
+        estimate_peak_page_bytes, manifest_cache, manifest_worker_threads, map_image_error,
+        matched_output_paper_dimensions_for, materialize_stream_page,
         normalize_trusted_foreground_selection, page_worker_threads, parse_cli_args,
         place_on_white_canvas, plan_canvas_placement_for, preflight_manifest_paths,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
@@ -3609,6 +3620,34 @@ mod tests {
             robust_quantile_dimension([80, 80, 80, 80, 80, 80, 80, 80, 80, 140].into_iter()),
             80
         );
+    }
+
+    #[test]
+    fn background_publication_guard_handles_coarse_grid_rounding_boundary() {
+        let canvas = DocumentCanvas {
+            width_points: 411.0,
+            height_points: 595.0,
+            width_px: 1_713,
+            height_px: 2_479,
+        };
+        let expected = background_canvas_dimensions(&canvas, 150.0);
+        assert_eq!(expected, (856, 1_240));
+        for (actual, expected_target) in [
+            (expected, expected),
+            ((855, 1_239), expected),
+            ((857, 1_241), expected),
+        ] {
+            assert_eq!(
+                background_dimensions_to_publish(
+                    actual.0,
+                    actual.1,
+                    expected_target.0,
+                    expected_target.1,
+                ),
+                expected,
+                "actual background dimensions: {actual:?}",
+            );
+        }
     }
 
     #[test]

@@ -52,7 +52,8 @@ export interface IRenderedCleanupOutputPage {
     preservedSource?: {
         reason:
             | 'auto-color-compact-layered-no-raster-change'
-            | 'auto-mixed-trusted-mrc-tone-preserved';
+            | 'auto-mixed-trusted-mrc-tone-preserved'
+            | 'mixed-layer-validation-fallback';
         sourcePageIndex: number;
         rotationQuarterTurns: number;
         cropRect: IScanCleanupRect;
@@ -215,6 +216,39 @@ export function resolveCompactSourcePreservation(
             scale,
             translateX: -placed.x,
             translateY: -placed.y,
+        },
+    };
+}
+
+export function resolveFullSourcePagePreservation(
+    sourcePageNumber: number,
+    pageSize: IPdfPageSize | undefined,
+) {
+    if (
+        pageSize === undefined
+        || !Number.isFinite(pageSize.xPoints)
+        || !Number.isFinite(pageSize.yPoints)
+        || !Number.isFinite(pageSize.widthPoints)
+        || pageSize.widthPoints <= 0
+        || !Number.isFinite(pageSize.heightPoints)
+        || pageSize.heightPoints <= 0
+    ) {
+        return undefined;
+    }
+    return {
+        reason: 'mixed-layer-validation-fallback' as const,
+        sourcePageIndex: sourcePageNumber - 1,
+        rotationQuarterTurns: 0,
+        cropRect: {
+            x: pageSize.xPoints,
+            y: pageSize.yPoints,
+            width: pageSize.widthPoints,
+            height: pageSize.heightPoints,
+        },
+        contentTransform: {
+            scale: 1,
+            translateX: 0,
+            translateY: 0,
         },
     };
 }

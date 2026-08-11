@@ -2928,6 +2928,102 @@ describe('scan cleanup pipeline', () => {
         )).rejects.toThrow(expected);
     });
 
+    it('falls back to the composite when published mixed-layer dimensions are inconsistent', async () => {
+        const fixture = await setup();
+        let combineManifest = '';
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {dpi: number};
+                outputs: ICleanupOutput[]
+            }>};
+            const page = manifest.pages[0]!;
+            await writeFile(page.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
+            const output = page.outputs[0]!;
+            await writeCleanupOutput(
+                output,
+                'single-uncut-page',
+                true,
+                false,
+                page.options.dpi,
+                false,
+                true,
+            );
+            // A successfully layered native publication normally omits the
+            // composite. Keep one here to pin the TS boundary's non-MRC path.
+            await writeFile(output.outputPath, 'PNG-CLEAN');
+            await writeFile(output.backgroundOutputPath!, ppm(999, 1_400));
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            1,
+            300,
+        ]]));
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
+            const manifestIndex = args.indexOf('--compact-manifest');
+            if (manifestIndex !== -1) {
+                combineManifest = await readFile(args[manifestIndex + 1]!, 'utf8');
+            }
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const log = vi.fn();
+
+        const summary = await runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'mixed',
+                    matchPageSize: false,
+                },
+                sourcePageMetadataByPage: {'1': {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 240,
+                    heightPoints: 336,
+                    rotation: 0,
+                    sourceDpi: 300,
+                }},
+            },
+            pipelinePaths(fixture.dir),
+            new AbortController().signal,
+            vi.fn(),
+            highTierPolicy,
+            log,
+            pipelineDependencies,
+        );
+
+        expect(summary.warnings).toEqual(expect.arrayContaining([expect.stringContaining('Page 1 mixed layer dimensions do not match metadata')]));
+        expect(log).toHaveBeenCalledWith(
+            'error',
+            expect.stringContaining('Page 1 mixed layer dimensions do not match metadata'),
+        );
+        expect(combineManifest.trim().split('\t')[0]).toBe('image-jpeg');
+        expect(combineManifest).not.toContain('layered-jpeg');
+    });
+
     it('keeps detected BW rasters on the finest measured source grid', async () => {
         const fixture = await setup();
         let finalOptions: Array<{
