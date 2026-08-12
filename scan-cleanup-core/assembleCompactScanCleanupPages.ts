@@ -79,6 +79,8 @@ export function sourceMrcForegroundPdfMatrix(
         || metadata.inputHeightPx === undefined
         || metadata.outputWidthPx <= 0
         || metadata.outputHeightPx <= 0
+        || (metadata.intrinsicRasterWidthPx !== undefined && metadata.intrinsicRasterWidthPx <= 0)
+        || (metadata.intrinsicRasterHeightPx !== undefined && metadata.intrinsicRasterHeightPx <= 0)
         || metadata.rotationDegrees !== 0
         || metadata.dewarpMapping != null
     ) {
@@ -91,8 +93,10 @@ export function sourceMrcForegroundPdfMatrix(
     const inputScaleY = metadata.inputHeightPx / layers.foregroundHeight;
     const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const contentHeight = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const matchScaleX = contentWidth / metadata.outputWidthPx;
-    const matchScaleY = contentHeight / metadata.outputHeightPx;
+    const intrinsicWidth = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
+    const intrinsicHeight = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
+    const matchScaleX = contentWidth / intrinsicWidth;
+    const matchScaleY = contentHeight / intrinsicHeight;
     const offsetX = metadata.placementOffsetXPx;
     const offsetY = metadata.placementOffsetYPx;
     const sourceToCanvas = {

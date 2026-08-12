@@ -739,6 +739,9 @@ export async function runScanCleanupConversion(
                     ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
                         ? {}
                         : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
+                    ...(request.documentPriorByPage?.[String(plan.pageNumber)] === undefined
+                        ? {}
+                        : {documentPrior: request.documentPriorByPage[String(plan.pageNumber)]}),
                     ...resolvedPagePlanByNumber.get(plan.pageNumber),
                     pageMetadataPath: '',
                 };
@@ -903,6 +906,9 @@ export async function runScanCleanupConversion(
                 ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
                     ? {}
                     : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
+                ...(request.documentPriorByPage?.[String(plan.pageNumber)] === undefined
+                    ? {}
+                    : {documentPrior: request.documentPriorByPage[String(plan.pageNumber)]}),
                 ...resolvedPagePlanByNumber.get(plan.pageNumber),
                 pageMetadataPath: join(scratch, `clean-${plan.pageNumber}-page.json`),
                 outputs: [
@@ -1731,6 +1737,12 @@ export async function runScanCleanupConversion(
                         ...(output.metadata.inputWidthPx === undefined
                             ? {}
                             : {inputWidthPx: output.metadata.inputWidthPx}),
+                        ...(output.metadata.intrinsicRasterHeightPx === undefined
+                            ? {}
+                            : {intrinsicRasterHeightPx: output.metadata.intrinsicRasterHeightPx}),
+                        ...(output.metadata.intrinsicRasterWidthPx === undefined
+                            ? {}
+                            : {intrinsicRasterWidthPx: output.metadata.intrinsicRasterWidthPx}),
                         ...(output.metadata.matchedCanvasContentHeightPx === undefined
                             ? {}
                             : {matchedCanvasContentHeightPx: output.metadata.matchedCanvasContentHeightPx}),

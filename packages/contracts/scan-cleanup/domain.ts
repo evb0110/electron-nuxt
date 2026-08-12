@@ -58,6 +58,9 @@ export interface IScanCleanupDocumentPrior {
     cutterRatioMedian: number | null;
     clusterDims: IScanCleanupClusterDimensions;
     agreementStrength: number;
+    /** Optional robust body-text calibration carried by the native planner. */
+    strokeWidthMedianPx?: number;
+    xHeightMedianPx?: number;
 }
 
 export interface IScanCleanupReconciliationMetadata {

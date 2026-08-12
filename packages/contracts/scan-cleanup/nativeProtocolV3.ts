@@ -127,6 +127,8 @@ export interface INativeScanCleanupOutputMetadataV3 {
     inputHeightPx?: number;
     outputWidthPx: number;
     outputHeightPx: number;
+    intrinsicRasterWidthPx?: number;
+    intrinsicRasterHeightPx?: number;
     canvasWidthPx: number;
     canvasHeightPx: number;
     layoutClassification: TScanCleanupLayoutClassification;
@@ -157,6 +159,12 @@ export interface INativeScanCleanupOutputMetadataV3 {
     matchedCanvasTargetHeightPoints?: number | null;
     matchedCanvasContentWidthPx?: number | null;
     matchedCanvasContentHeightPx?: number | null;
+    /** True when the transformed optical content, rather than the retained raster rectangle, owns horizontal placement. */
+    matchedCanvasOpticalPlacement?: boolean;
+    matchedCanvasOpticalContentLeftPx?: number | null;
+    matchedCanvasOpticalContentRightPx?: number | null;
+    matchedCanvasIntrinsicOverflowLeftPx?: number;
+    matchedCanvasIntrinsicOverflowRightPx?: number;
     /** Optional source-grid continuous-tone rectangle in PDF user-space points. */
     pdfImagePlacement?: INativeScanCleanupPdfImagePlacementV3;
     placementOffsetXPx: number;
@@ -358,6 +366,28 @@ export interface INativeScanCleanupBinarizationDiagnosticsV3 {
     estimatedStrokeWidthPx: number;
     darkBorderCoverage: number;
     otsuAdaptiveAgreement: number;
+    /** The spread-loop decision that supplied the route and threshold scale. */
+    spreadPlan?: INativeScanCleanupSpreadBinarizationPlanDiagnosticsV3;
+}
+
+export type TNativeScanCleanupSpreadBinarizationPlanDecisionV3 =
+    | 'sharedJoint'
+    | 'perLeafRouteMismatch'
+    | 'perLeafAnchorDrift'
+    | 'perLeafRadiusDrift'
+    | 'perLeafFaintInkDrift';
+
+export interface INativeScanCleanupSpreadBinarizationPlanDiagnosticsV3 {
+    route: TScanCleanupBinarizationMethod;
+    thresholdAnchor: number;
+    thresholdRadius: number;
+    strokeWidthAnchorPx: number;
+    xHeightAnchorPx: number;
+    documentAnchor: boolean;
+    jointCandidateRoute: TScanCleanupBinarizationMethod;
+    leftCandidateRoute: TScanCleanupBinarizationMethod;
+    rightCandidateRoute: TScanCleanupBinarizationMethod;
+    decision: TNativeScanCleanupSpreadBinarizationPlanDecisionV3;
 }
 
 export interface INativeScanCleanupContentSideConfidenceV3 {
@@ -520,6 +550,14 @@ const documentPrior = s.refine(s.object({
         message: 'Invalid evb-scan-cleanup document prior',
     }),
     agreementStrength: confidence('Invalid evb-scan-cleanup document prior'),
+    strokeWidthMedianPx: s.optional(s.number({
+        min: Number.MIN_VALUE,
+        message: 'Invalid evb-scan-cleanup document prior',
+    })),
+    xHeightMedianPx: s.optional(s.number({
+        min: Number.MIN_VALUE,
+        message: 'Invalid evb-scan-cleanup document prior',
+    })),
 }, {
     exact: true,
     message: 'Invalid evb-scan-cleanup document prior',

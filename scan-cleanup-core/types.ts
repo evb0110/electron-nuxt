@@ -1,5 +1,6 @@
 import type {
     INativeScanCleanupOutputMetadataV3,
+    IScanCleanupDocumentPrior,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
@@ -295,6 +296,8 @@ export interface IRunScanCleanupPipelineRequest {
     softAlphaForegroundRecommendations?: Partial<Record<string, boolean>>;
     layoutByPage?: TScanCleanupLayoutByPage;
     sourcePageMetadataByPage?: Partial<Record<string, IScanCleanupSourcePageMetadata>>;
+    /** Document-level calibration priors produced by the completed analysis pass. */
+    documentPriorByPage?: Partial<Record<string, IScanCleanupDocumentPrior>>;
     pagePlanEvidenceByPage?: Partial<Record<string, IScanCleanupPagePlanEvidence>>;
     assemblyBackend?: TScanCleanupAssemblerBackend;
     transportMode?: TScanCleanupTransportMode;
@@ -358,6 +361,8 @@ export interface IScanCleanupOutputPageForSummary {
         | 'forwardTransform'
         | 'inputHeightPx'
         | 'inputWidthPx'
+        | 'intrinsicRasterHeightPx'
+        | 'intrinsicRasterWidthPx'
         | 'matchedCanvasContentHeightPx'
         | 'matchedCanvasContentWidthPx'
         | 'outputHeightPx'

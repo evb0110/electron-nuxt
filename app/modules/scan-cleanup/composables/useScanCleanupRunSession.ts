@@ -1,4 +1,5 @@
 import type {
+    IScanCleanupDocumentPrior,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
@@ -48,6 +49,7 @@ interface IUseScanCleanupRunSessionOptions {
     detectionPending: ComputedRef<boolean>;
     detectionStatus: ComputedRef<Extract<TScanCleanupDetectionJobState['status'], 'completed' | 'failed' | 'canceled'> | null>;
     documentRevision: ComputedRef<string>;
+    documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
     onCompleted: () => void;
     ownerId: string;
     previewTotalPages: () => number;
@@ -213,6 +215,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ...(options.sourcePageMetadataByPage.value.size === 0
                     ? {}
                     : {sourcePageMetadataByPage: Object.fromEntries(options.sourcePageMetadataByPage.value)}),
+                ...(options.documentPriorByPage.size === 0
+                    ? {}
+                    : {documentPriorByPage: Object.fromEntries(options.documentPriorByPage)}),
                 ...(pagePlanEvidence.size === 0
                     ? {}
                     : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidence)}),

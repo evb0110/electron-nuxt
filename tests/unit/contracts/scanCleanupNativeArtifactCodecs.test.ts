@@ -166,6 +166,76 @@ describe('scan-cleanup native artifact codecs', () => {
         })).toThrow('length does not match its grid');
     });
 
+    it('validates persisted spread binarization decisions', () => {
+        const output = {
+            ...outputMetadata(),
+            binarizationMode: 'otsu',
+            binarizationDiagnostics: {
+                route: 'otsu',
+                robustContrast: 80,
+                illuminationDeviation: 4,
+                edgeDensity: 0.12,
+                estimatedStrokeWidthPx: 3,
+                darkBorderCoverage: 0,
+                otsuAdaptiveAgreement: 0.98,
+                spreadPlan: {
+                    route: 'otsu',
+                    thresholdAnchor: 127,
+                    thresholdRadius: 27,
+                    strokeWidthAnchorPx: 2.5,
+                    xHeightAnchorPx: 18,
+                    documentAnchor: true,
+                    jointCandidateRoute: 'otsu',
+                    leftCandidateRoute: 'wolf',
+                    rightCandidateRoute: 'otsu',
+                    decision: 'perLeafRouteMismatch',
+                },
+            },
+        };
+
+        expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            binarizationDiagnostics: {
+                ...output.binarizationDiagnostics,
+                spreadPlan: {
+                    ...output.binarizationDiagnostics.spreadPlan,
+                    thresholdAnchor: 256,
+                },
+            },
+        })).toThrow('thresholdAnchor must be <= 255');
+    });
+
+    it('accepts a recorded left white-tail overhang when the optical box stays bounded', () => {
+        const output = {
+            ...outputMetadata(),
+            matchedCanvasContentWidthPx: 1000,
+            matchedCanvasContentHeightPx: 500,
+            intrinsicRasterWidthPx: 1000,
+            intrinsicRasterHeightPx: 500,
+            canvasWidthPx: 1000,
+            canvasHeightPx: 500,
+            matchedCanvasOpticalPlacement: true,
+            matchedCanvasOpticalContentLeftPx: 300,
+            matchedCanvasOpticalContentRightPx: 950,
+            matchedCanvasIntrinsicOverflowLeftPx: 125,
+            softMarginsPx: [
+                0,
+                0,
+                0,
+                0,
+            ],
+            placementOffsetXPx: 0,
+            placementOffsetYPx: 0,
+        };
+
+        expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...output,
+            matchedCanvasIntrinsicOverflowLeftPx: 1001,
+        })).toThrow('intrinsic content placement exceeds its canvas');
+    });
+
     it('enforces preview-only required metadata at the native preview boundary', () => {
         const page = pageMetadata();
         delete (page.outputs[0] as Partial<typeof page.outputs[number]>).appliedMargins;

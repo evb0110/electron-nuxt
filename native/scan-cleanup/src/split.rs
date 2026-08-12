@@ -57,6 +57,14 @@ pub struct DocumentPrior {
     pub cutter_ratio_median: Option<f64>,
     pub cluster_dims: ClusterDimensions,
     pub agreement_strength: f64,
+    /// Robust document-level body-text calibration, measured in the analysis
+    /// raster's effective-DPI pixels. These anchors let a spread share one
+    /// threshold scale without making a noisy leaf's local estimate the
+    /// document policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke_width_median_px: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_height_median_px: Option<f64>,
 }
 
 impl DocumentPrior {
@@ -70,6 +78,16 @@ impl DocumentPrior {
         }
         if !self.agreement_strength.is_finite() || !(0.0..=1.0).contains(&self.agreement_strength) {
             return Err("Document prior agreement strength must be within 0..=1".into());
+        }
+        for (value, label) in [
+            (self.stroke_width_median_px, "stroke width"),
+            (self.x_height_median_px, "x-height"),
+        ] {
+            if value.is_some_and(|value| !value.is_finite() || value <= 0.0) {
+                return Err(format!(
+                    "Document prior {label} median must be positive and finite"
+                ));
+            }
         }
         if self
             .cutter_ratio_median
@@ -2969,6 +2987,8 @@ mod tests {
                 height: 870.0,
             },
             agreement_strength: 0.85,
+            stroke_width_median_px: None,
+            x_height_median_px: None,
         };
         let matching = reconcile_layout_decision(
             LayoutClassification::TwoPageSpread,
@@ -3278,6 +3298,8 @@ mod tests {
                 height: 800.0,
             },
             agreement_strength: 0.90,
+            stroke_width_median_px: None,
+            x_height_median_px: None,
         };
         let mut moved = split_at(
             1200,
@@ -3332,6 +3354,8 @@ mod tests {
                 height: 900.0,
             },
             agreement_strength: 0.94,
+            stroke_width_median_px: None,
+            x_height_median_px: None,
         };
         let decision = reconcile_layout_decision(
             LayoutClassification::SingleUncutPage,

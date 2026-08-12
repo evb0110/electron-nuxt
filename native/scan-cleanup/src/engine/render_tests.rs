@@ -696,6 +696,7 @@ mod tests {
             crate::BinarizationMode::Wolf,
             crate::BinarizationMode::Wolf,
             360.0,
+            false,
         );
         let filtered =
             filter_soft_shallow_bleed_components(&rescued, &raw, None, None, None, 360.0);
@@ -868,6 +869,7 @@ mod tests {
             calibration,
             None,
             Some(&text_vicinity),
+            None,
         );
         let binary = restore_genuine_horizontal_rules(
             &binary,
@@ -1982,6 +1984,8 @@ mod tests {
                 height: source.height() as f64,
             },
             agreement_strength: 0.9,
+            stroke_width_median_px: None,
+            x_height_median_px: None,
         };
         let with_prior =
             analyze_page_with_document_prior(&source, &options, Some(matching_prior)).unwrap();
@@ -4460,6 +4464,7 @@ mod tests {
             &options,
             calibration,
             &picture_mask,
+            None,
             None,
         );
         let (_, _, layers) = compose_mixed(

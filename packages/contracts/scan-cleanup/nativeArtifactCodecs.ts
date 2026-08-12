@@ -237,6 +237,28 @@ function binarizationDiagnostics(value: unknown, artifact: TArtifact, label: str
         'darkBorderCoverage',
         'otsuAdaptiveAgreement',
     ] as const) finite(source[key], artifact, `${label}.${key}`);
+    if (source.spreadPlan !== undefined) {
+        const plan = record(source.spreadPlan, artifact, `${label}.spreadPlan`);
+        oneOf(plan.route, BINARIZATION_MODES, artifact, `${label}.spreadPlan.route`);
+        oneOf(plan.jointCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.jointCandidateRoute`);
+        oneOf(plan.leftCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.leftCandidateRoute`);
+        oneOf(plan.rightCandidateRoute, BINARIZATION_MODES, artifact, `${label}.spreadPlan.rightCandidateRoute`);
+        const thresholdAnchor = integer(plan.thresholdAnchor, artifact, `${label}.spreadPlan.thresholdAnchor`);
+        if (thresholdAnchor > 255) fail(artifact, `${label}.spreadPlan.thresholdAnchor must be <= 255`);
+        integer(plan.thresholdRadius, artifact, `${label}.spreadPlan.thresholdRadius`, 1);
+        if (finite(plan.strokeWidthAnchorPx, artifact, `${label}.spreadPlan.strokeWidthAnchorPx`) <= 0
+            || finite(plan.xHeightAnchorPx, artifact, `${label}.spreadPlan.xHeightAnchorPx`) <= 0) {
+            fail(artifact, `${label}.spreadPlan anchors must be positive`);
+        }
+        if (typeof plan.documentAnchor !== 'boolean') fail(artifact, `${label}.spreadPlan.documentAnchor must be boolean`);
+        oneOf(plan.decision, [
+            'sharedJoint',
+            'perLeafRouteMismatch',
+            'perLeafAnchorDrift',
+            'perLeafRadiusDrift',
+            'perLeafFaintInkDrift',
+        ] as const, artifact, `${label}.spreadPlan.decision`);
+    }
 }
 
 function contentDiagnostics(value: unknown, artifact: TArtifact, label: string) {
@@ -436,6 +458,14 @@ function documentPrior(value: unknown, artifact: TArtifact, label: string) {
     const source = record(value, artifact, label);
     oneOf(source.dominantLayout, LAYOUTS, artifact, `${label}.dominantLayout`);
     nullableFinite(source.cutterRatioMedian, artifact, `${label}.cutterRatioMedian`);
+    if (source.strokeWidthMedianPx !== undefined
+        && finite(source.strokeWidthMedianPx, artifact, `${label}.strokeWidthMedianPx`) <= 0) {
+        fail(artifact, `${label}.strokeWidthMedianPx must be positive`);
+    }
+    if (source.xHeightMedianPx !== undefined
+        && finite(source.xHeightMedianPx, artifact, `${label}.xHeightMedianPx`) <= 0) {
+        fail(artifact, `${label}.xHeightMedianPx must be positive`);
+    }
     const dimensions = record(source.clusterDims, artifact, `${label}.clusterDims`);
     if (finite(dimensions.widthPx, artifact, `${label}.clusterDims.widthPx`) <= 0
         || finite(dimensions.heightPx, artifact, `${label}.clusterDims.heightPx`) <= 0) {
@@ -580,10 +610,14 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
     for (const key of [
         'inputWidthPx',
         'inputHeightPx',
+        'intrinsicRasterWidthPx',
+        'intrinsicRasterHeightPx',
         'matchedCanvasTargetWidthPx',
         'matchedCanvasTargetHeightPx',
         'matchedCanvasContentWidthPx',
         'matchedCanvasContentHeightPx',
+        'matchedCanvasIntrinsicOverflowLeftPx',
+        'matchedCanvasIntrinsicOverflowRightPx',
         'resamplePasses',
     ] as const) if (source[key] !== undefined && source[key] !== null) integer(source[key], artifact, key, key === 'resamplePasses' ? 0 : 1);
     for (const key of [
@@ -618,6 +652,7 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'canvasOverflow',
         'rasterScaleLimited',
         'matchedInMemory',
+        'matchedCanvasOpticalPlacement',
     ] as const) optionalBoolean(source, key, artifact);
     if (source.layeredForegroundKind !== undefined) oneOf(source.layeredForegroundKind, [
         'stencil',
@@ -650,6 +685,13 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'page',
         'document',
     ] as const, artifact, 'canvasScope');
+    for (const key of [
+        'matchedCanvasOpticalContentLeftPx',
+        'matchedCanvasOpticalContentRightPx',
+    ] as const) if (source[key] !== undefined && source[key] !== null) {
+        const value = finite(source[key], artifact, key);
+        if (value < 0) fail(artifact, `${key} must be non-negative`);
+    }
     if (source.inverseTransform !== undefined) affine(source.inverseTransform, artifact, 'inverseTransform');
     if (source.dewarpModel !== undefined && source.dewarpModel !== null) {
         const model = record(source.dewarpModel, artifact, 'dewarpModel');
@@ -721,10 +763,42 @@ export function decodeNativeScanCleanupOutputMetadata(
     }
     const contentWidth = source.matchedCanvasContentWidthPx ?? outputWidthPx;
     const contentHeight = source.matchedCanvasContentHeightPx ?? outputHeightPx;
+    const intrinsicWidth = source.intrinsicRasterWidthPx ?? outputWidthPx;
+    const intrinsicHeight = source.intrinsicRasterHeightPx ?? outputHeightPx;
+    const opticalPlacement = source.matchedCanvasOpticalPlacement === true;
+    const opticalLeft = source.matchedCanvasOpticalContentLeftPx;
+    const opticalRight = source.matchedCanvasOpticalContentRightPx;
+    const opticalScaleX = typeof contentWidth === 'number' && typeof intrinsicWidth === 'number'
+        ? contentWidth / intrinsicWidth
+        : Number.NaN;
+    const contentWidthNumber = typeof contentWidth === 'number' ? contentWidth : Number.NaN;
+    const recordedIntrinsicOverflowLeft = typeof source.matchedCanvasIntrinsicOverflowLeftPx === 'number'
+        ? source.matchedCanvasIntrinsicOverflowLeftPx
+        : 0;
+    const recordedIntrinsicOverflowRight = typeof source.matchedCanvasIntrinsicOverflowRightPx === 'number'
+        ? source.matchedCanvasIntrinsicOverflowRightPx
+        : 0;
+    const effectivePlacementOffsetX = placementOffsetXPx - recordedIntrinsicOverflowLeft;
+    const actualIntrinsicOverflowRight = Number.isFinite(contentWidthNumber)
+        ? Math.max(0, effectivePlacementOffsetX + contentWidthNumber - canvasWidthPx)
+        : Number.NaN;
+    const softMargins: unknown[] = Array.isArray(source.softMarginsPx) ? source.softMarginsPx : [];
+    const marginLeft = typeof softMargins[0] === 'number' ? softMargins[0] : 0;
+    const marginRight = typeof softMargins[2] === 'number' ? softMargins[2] : 0;
     if (
         typeof contentWidth !== 'number'
         || typeof contentHeight !== 'number'
-        || placementOffsetXPx + contentWidth > canvasWidthPx
+        || typeof intrinsicWidth !== 'number'
+        || typeof intrinsicHeight !== 'number'
+        || recordedIntrinsicOverflowLeft > contentWidthNumber
+        || actualIntrinsicOverflowRight !== recordedIntrinsicOverflowRight
+        || (opticalPlacement && (
+            typeof opticalLeft !== 'number'
+            || typeof opticalRight !== 'number'
+            || opticalLeft >= opticalRight
+            || effectivePlacementOffsetX + opticalLeft * opticalScaleX < marginLeft
+            || effectivePlacementOffsetX + opticalRight * opticalScaleX > canvasWidthPx - marginRight
+        ))
         || placementOffsetYPx + contentHeight > canvasHeightPx
     ) fail(artifact, 'intrinsic content placement exceeds its canvas');
     return decoded<INativeScanCleanupOutputMetadataV3>(source);

@@ -39,17 +39,14 @@ export function resolvePreviewMetadataPlacement(
 ): IScanCleanupPreviewPlacement {
     const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const offset = alignment === undefined
-        ? {
-            x: metadata.placementOffsetXPx,
-            y: metadata.placementOffsetYPx,
-        }
-        : resolveAlignedPreviewPlacement(
-            metadata,
-            contentWidthPx,
-            contentHeightPx,
-            alignment,
-        );
+    const offset = resolvePreviewMetadataOffset(
+        metadata,
+        contentWidthPx,
+        contentHeightPx,
+        alignment,
+    );
+    const intrinsicRasterWidthPx = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
+    const intrinsicRasterHeightPx = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
     return {
         canvasWidthPx: metadata.canvasWidthPx,
         canvasHeightPx: metadata.canvasHeightPx,
@@ -57,9 +54,40 @@ export function resolvePreviewMetadataPlacement(
         contentHeightPx,
         left: offset.x,
         top: offset.y,
-        scaleX: contentWidthPx / Math.max(1, metadata.outputWidthPx),
-        scaleY: contentHeightPx / Math.max(1, metadata.outputHeightPx),
+        scaleX: contentWidthPx / Math.max(1, intrinsicRasterWidthPx),
+        scaleY: contentHeightPx / Math.max(1, intrinsicRasterHeightPx),
     };
+}
+
+function resolvePreviewMetadataOffset(
+    metadata: IScanCleanupPreviewMetadata,
+    contentWidthPx: number,
+    contentHeightPx: number,
+    alignment: TScanCleanupPageAlignment | undefined,
+) {
+    if (alignment === undefined) {
+        return {
+            x: metadata.placementOffsetXPx,
+            y: metadata.placementOffsetYPx,
+        };
+    }
+    const aligned = resolveAlignedPreviewPlacement(
+        metadata,
+        contentWidthPx,
+        contentHeightPx,
+        alignment,
+    );
+    return metadata.matchedCanvasOpticalPlacement === true
+        && (
+            alignment === 'top-center'
+            || alignment === 'center'
+            || alignment === 'bottom-center'
+        )
+        ? {
+            x: metadata.placementOffsetXPx,
+            y: aligned.y,
+        }
+        : aligned;
 }
 
 function resolveAlignedPreviewPlacement(

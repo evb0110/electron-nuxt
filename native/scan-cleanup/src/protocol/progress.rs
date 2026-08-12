@@ -217,6 +217,8 @@ mod tests {
                     height: 1600.0,
                 },
                 agreement_strength: 0.885,
+                stroke_width_median_px: None,
+                x_height_median_px: None,
             }),
             text_axis: Some(TextAxisHint {
                 sideways: true,

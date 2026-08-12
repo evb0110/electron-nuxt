@@ -72,6 +72,7 @@ import {
     type ICliPdfCombineWasmPage,
     type ICliRawMaskEvidence,
 } from '@scripts/scanCleanupCliAdapters';
+import {flattenLayeredManifestPage} from '@scripts/flattenLayeredManifestPage';
 
 const PAGE_OPS_FALLBACK = '__scan_cleanup_cli_page_ops_fallback__';
 const IMAGE_COMBINE_FALLBACK = '__scan_cleanup_cli_image_combine_fallback__';
@@ -423,86 +424,6 @@ function nativeOptions(
     };
 }
 
-async function identifyDimensions(
-    magickBinary: string,
-    inputPath: string,
-    options: IScanCleanupRunCommandOptions,
-) {
-    const result = await runCliNativeToolCommand(
-        magickBinary,
-        [
-            'identify',
-            '-format',
-            '%wx%h',
-            inputPath,
-        ],
-        options,
-    );
-    const match = /^(\d+)x(\d+)$/u.exec(result.stdout.trim());
-    if (!match) throw new Error(`Could not read image dimensions for ${inputPath}`);
-    return {
-        height: Number.parseInt(match[2]!, 10),
-        width: Number.parseInt(match[1]!, 10),
-    };
-}
-
-async function flattenLayeredManifestPage(
-    parts: string[],
-    pageDirectory: string,
-    magickBinary: string,
-    options: IScanCleanupRunCommandOptions,
-) {
-    const kind = parts[0]!;
-    const backgroundPath = parts[4]!;
-    const dimensions = await identifyDimensions(magickBinary, backgroundPath, options);
-    const size = `${String(dimensions.width)}x${String(dimensions.height)}!`;
-    const isAffine = kind === 'affine-masked-layered-jpeg';
-    const foregroundPath = isAffine ? parts[5] : undefined;
-    const maskPath = isAffine ? parts[6]! : parts[5]!;
-    const decode = isAffine ? parts[13] : undefined;
-    const foregroundColor = kind === 'layered-color-jpeg'
-        ? `rgb(${parts[6]},${parts[7]},${parts[8]})`
-        : 'black';
-    const layerPath = join(pageDirectory, 'foreground.png');
-    const layerInputs = foregroundPath === undefined
-        ? [
-            '-size',
-            `${String(dimensions.width)}x${String(dimensions.height)}`,
-            `xc:${foregroundColor}`,
-        ]
-        : [
-            foregroundPath,
-            '-resize',
-            size,
-        ];
-    const maskInputs = [
-        maskPath,
-        '-resize',
-        size,
-    ];
-    if (decode === 'inverted') maskInputs.push('-negate');
-    await runCliNativeToolCommand(magickBinary, [
-        ...layerInputs,
-        ...maskInputs,
-        '-alpha',
-        'off',
-        '-compose',
-        'CopyOpacity',
-        '-composite',
-        layerPath,
-    ], options);
-    const flattenedPath = join(pageDirectory, 'flattened.png');
-    await runCliNativeToolCommand(magickBinary, [
-        backgroundPath,
-        layerPath,
-        '-compose',
-        'Over',
-        '-composite',
-        flattenedPath,
-    ], options);
-    return flattenedPath;
-}
-
 function resolveWasmManifestPage(parts: string[]): ICliPdfCombineWasmPage | null {
     const kind = parts[0];
     const widthPoints = Number.parseFloat(parts[1] ?? '');
@@ -664,7 +585,11 @@ async function runImageCombineFallback(
                         options,
                     );
                 } else {
-                    inputPath = parts.at(-1)!;
+                    const manifestInputPath = parts.at(-1);
+                    if (manifestInputPath === undefined) {
+                        throw new Error(`Image-combine manifest page ${String(index + 1)} has no input path`);
+                    }
+                    inputPath = manifestInputPath;
                 }
                 await runCliNativeToolCommand(img2pdfBinary, [
                     '--nodate',
@@ -816,8 +741,14 @@ async function main() {
     const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-cli-'));
     const detectionEvidenceDirectory = join(temporaryRoot, 'detection-evidence');
     const conversionEvidenceDirectory = join(temporaryRoot, 'conversion-evidence');
+    const nativeEvidenceDirectory = argumentsValue.diagnosticEvidenceDirectory === undefined
+        ? conversionEvidenceDirectory
+        : join(argumentsValue.diagnosticEvidenceDirectory, 'native');
     await mkdir(detectionEvidenceDirectory, {recursive: true});
     await mkdir(conversionEvidenceDirectory, {recursive: true});
+    if (argumentsValue.diagnosticEvidenceDirectory !== undefined) {
+        await mkdir(join(argumentsValue.diagnosticEvidenceDirectory, 'native'), {recursive: true});
+    }
     const log = cliLog satisfies TScanCleanupLog;
     let rawMaskEvidence: ICliRawMaskEvidence[] = [];
     const runCommand: TScanCleanupRunCommand = async (command, args, options) => {
@@ -1055,7 +986,37 @@ async function main() {
                     result.sourcePageMetadata,
                 ] as const],
         ));
-        process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = conversionEvidenceDirectory;
+        const documentPriorByPage = Object.fromEntries(detection.results.flatMap(result =>
+            result.documentPrior === null
+                ? []
+                : [[
+                    String(result.pageNumber),
+                    result.documentPrior,
+                ] as const],
+        ));
+        if (argumentsValue.diagnosticEvidenceDirectory !== undefined) {
+            const evidenceDirectory = argumentsValue.diagnosticEvidenceDirectory;
+            await Promise.all(detection.results.map(result => writeFile(
+                join(
+                    evidenceDirectory,
+                    `analysis-${String(result.pageNumber)}.json`,
+                ),
+                JSON.stringify({
+                    pageNumber: result.pageNumber,
+                    classification: result.classification,
+                    ...(result.recommendedOutputMode === undefined
+                        ? {}
+                        : {recommendedOutputMode: result.recommendedOutputMode}),
+                    ...(result.recommendedOutputModeReason === undefined
+                        ? {}
+                        : {recommendedOutputModeReason: result.recommendedOutputModeReason}),
+                    ...(result.outputModeDiagnostics === undefined
+                        ? {}
+                        : {outputModeDiagnostics: result.outputModeDiagnostics}),
+                }, null, 2) + '\n',
+            )));
+        }
+        process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = nativeEvidenceDirectory;
         const conversionStartedAt = performance.now();
         const conversionDependencies: IRunScanCleanupPipelineDependencies = {
             getPageCount,
@@ -1104,6 +1065,7 @@ async function main() {
             outputModeRecommendations,
             softAlphaForegroundRecommendations,
             sourcePageMetadataByPage,
+            documentPriorByPage,
         };
         const summary = await runScanCleanupConversion(
             request,
@@ -1122,11 +1084,11 @@ async function main() {
         const conversionDurationMs = performance.now() - conversionStartedAt;
         const outputStats = await stat(argumentsValue.outputPdfPath);
         const report = JSON.parse(await readFile(
-            join(conversionEvidenceDirectory, 'scan-cleanup-representation-report.json'),
+            join(nativeEvidenceDirectory, 'scan-cleanup-representation-report.json'),
             'utf8',
         )) as IScanCleanupRepresentationReport;
         const stamp = JSON.parse(await readFile(
-            join(conversionEvidenceDirectory, 'scan-cleanup-provenance-stamp.json'),
+            join(nativeEvidenceDirectory, 'scan-cleanup-provenance-stamp.json'),
             'utf8',
         )) as IScanCleanupProvenanceStamp;
         const summaryPath = `${argumentsValue.outputPdfPath}.summary.json`;

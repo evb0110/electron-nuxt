@@ -57,36 +57,69 @@ fn unmatched_options() -> CleanupOptions {
     }
 }
 
-fn assert_pdf_image_placement_matches_canvas(metadata: &Value) {
-    let placement = &metadata["pdfImagePlacement"];
+fn assert_native_canvas_owns_image(metadata: &Value) {
     assert!(
-        placement.is_object(),
-        "missing PDF image placement: {metadata}"
+        metadata["pdfImagePlacement"].is_null(),
+        "native canvas materialization must clear the legacy placement record: {metadata}"
     );
-    let canvas_width = metadata["canvasWidthPx"].as_f64().unwrap();
-    let canvas_height = metadata["canvasHeightPx"].as_f64().unwrap();
-    let page_width = metadata["matchedCanvasTargetWidthPoints"].as_f64().unwrap();
-    let page_height = metadata["matchedCanvasTargetHeightPoints"]
-        .as_f64()
-        .unwrap();
-    let content_width = metadata["matchedCanvasContentWidthPx"].as_f64().unwrap();
-    let content_height = metadata["matchedCanvasContentHeightPx"].as_f64().unwrap();
-    let offset_x = metadata["placementOffsetXPx"].as_f64().unwrap();
-    let offset_y = metadata["placementOffsetYPx"].as_f64().unwrap();
-    let expected = [
-        offset_x / canvas_width * page_width,
-        page_height - (offset_y + content_height) / canvas_height * page_height,
-        content_width / canvas_width * page_width,
-        content_height / canvas_height * page_height,
-    ];
-    for (field, expected) in ["xPoints", "yPoints", "widthPoints", "heightPoints"]
-        .into_iter()
-        .zip(expected)
-    {
-        let actual = placement[field].as_f64().unwrap();
+    let canvas_width = metadata["canvasWidthPx"].as_u64().unwrap();
+    let canvas_height = metadata["canvasHeightPx"].as_u64().unwrap();
+    let content_width = metadata["matchedCanvasContentWidthPx"]
+        .as_u64()
+        .unwrap_or_else(|| metadata["outputWidthPx"].as_u64().unwrap());
+    let content_height = metadata["matchedCanvasContentHeightPx"]
+        .as_u64()
+        .unwrap_or_else(|| metadata["outputHeightPx"].as_u64().unwrap());
+    let offset_x = metadata["placementOffsetXPx"].as_u64().unwrap();
+    let offset_y = metadata["placementOffsetYPx"].as_u64().unwrap();
+    let recorded_overflow_left = metadata["matchedCanvasIntrinsicOverflowLeftPx"]
+        .as_u64()
+        .unwrap_or(0);
+    let recorded_overflow_right = metadata["matchedCanvasIntrinsicOverflowRightPx"]
+        .as_u64()
+        .unwrap_or(0);
+    assert!(
+        recorded_overflow_left <= content_width,
+        "native canvas source overhang exceeds its content width: {metadata}"
+    );
+    let effective_offset_x = offset_x as i64 - recorded_overflow_left as i64;
+    let actual_overflow_right =
+        (effective_offset_x + content_width as i64 - canvas_width as i64).max(0) as u64;
+    assert_eq!(
+        actual_overflow_right, recorded_overflow_right,
+        "native canvas must record the complete raster overhang: {metadata}"
+    );
+    assert!(
+        offset_y + content_height <= canvas_height,
+        "native canvas vertical geometry exceeds its canvas: {metadata}"
+    );
+    if metadata["matchedCanvasOpticalPlacement"] == Value::Bool(true) {
+        let intrinsic_width = metadata["intrinsicRasterWidthPx"]
+            .as_u64()
+            .unwrap_or_else(|| metadata["outputWidthPx"].as_u64().unwrap());
+        let optical_left = metadata["matchedCanvasOpticalContentLeftPx"]
+            .as_f64()
+            .unwrap();
+        let optical_right = metadata["matchedCanvasOpticalContentRightPx"]
+            .as_f64()
+            .unwrap();
+        let scale = content_width as f64 / intrinsic_width.max(1) as f64;
+        let margins = metadata["softMarginsPx"].as_array().unwrap();
+        let margin_left = margins[0].as_u64().unwrap();
+        let margin_right = margins[2].as_u64().unwrap();
         assert!(
-            (actual - expected).abs() <= 1e-9,
-            "{field}={actual} expected {expected}"
+            effective_offset_x as f64 + optical_left * scale >= margin_left as f64 - 1e-6,
+            "native optical left bound escaped its margin: {metadata}"
+        );
+        assert!(
+            effective_offset_x as f64 + optical_right * scale
+                <= canvas_width.saturating_sub(margin_right) as f64 + 1e-6,
+            "native optical right bound escaped its margin: {metadata}"
+        );
+    } else {
+        assert!(
+            offset_x + content_width <= canvas_width + recorded_overflow_right,
+            "native canvas content geometry exceeds its canvas: {metadata}"
         );
     }
 }
@@ -1677,7 +1710,7 @@ fn matched_canvas_places_an_automatic_crop_by_content_alignment() {
     assert_eq!(metadata["matchedCanvasContentHeightPx"], 70);
     assert_eq!(metadata["placementOffsetXPx"], 0);
     assert_eq!(metadata["placementOffsetYPx"], 0);
-    assert_pdf_image_placement_matches_canvas(&metadata);
+    assert_native_canvas_owns_image(&metadata);
 }
 
 #[test]
@@ -2894,11 +2927,11 @@ fn batch_applies_per_output_placement_over_document_default() {
 
     let matched_small = decode_gray(&fs::read(&output_small).unwrap(), 20_000, 200).unwrap();
     let matched_large = decode_gray(&fs::read(&output_large).unwrap(), 20_000, 200).unwrap();
-    assert_eq!((matched_small.width(), matched_small.height()), (80, 60));
+    assert_eq!((matched_small.width(), matched_small.height()), (100, 90));
     assert_eq!((matched_large.width(), matched_large.height()), (100, 90));
-    assert!(matched_small.get(5, 7) < 200);
-    // The smaller page stays at source resolution; its metadata scales it to
-    // the document width and places it at the bottom per its override.
+    assert!((15..90).any(|y| (0..100).any(|x| matched_small.get(x, y) < 200)));
+    // Native final output owns the document canvas; metadata retains the
+    // intrinsic content dimensions and the offset inside that canvas.
 
     let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata_small).unwrap()).unwrap();
     assert_eq!(
@@ -2906,15 +2939,15 @@ fn batch_applies_per_output_placement_over_document_default() {
         serde_json::json!([0, 15, 0, 0])
     );
     assert_eq!(metadata_json["uniformCanvas"], true);
-    assert_eq!(metadata_json["outputWidthPx"], 80);
-    assert_eq!(metadata_json["outputHeightPx"], 60);
+    assert_eq!(metadata_json["outputWidthPx"], 100);
+    assert_eq!(metadata_json["outputHeightPx"], 75);
     assert_eq!(metadata_json["matchedCanvasContentWidthPx"], 100);
     assert_eq!(metadata_json["matchedCanvasContentHeightPx"], 75);
     assert_eq!(metadata_json["canvasWidthPx"], 100);
     assert_eq!(metadata_json["canvasHeightPx"], 90);
     assert_eq!(metadata_json["placementOffsetXPx"], 0);
     assert_eq!(metadata_json["placementOffsetYPx"], 15);
-    assert_pdf_image_placement_matches_canvas(&metadata_json);
+    assert_native_canvas_owns_image(&metadata_json);
     assert_eq!(metadata_json["forwardTransform"]["matrix"][0][2], 0.0);
     assert_eq!(metadata_json["forwardTransform"]["matrix"][1][2], 0.0);
 
@@ -3078,6 +3111,7 @@ fn matched_canvas_real_binary_keeps_native_density_on_one_physical_rectangle() {
         assert_eq!(metadata["canvasOverflow"], false);
         assert_eq!(metadata["matchedCanvasContentWidthPx"], expected_dimension);
         assert_eq!(metadata["matchedCanvasContentHeightPx"], expected_dimension);
+        assert_native_canvas_owns_image(&metadata);
         let ink_rows = (0..image.height())
             .filter(|&y| (0..image.width()).any(|x| image.get(x, y) < 128))
             .collect::<Vec<_>>();
@@ -3097,12 +3131,12 @@ fn matched_canvas_real_binary_keeps_native_density_on_one_physical_rectangle() {
         );
     }
     let color_raster = decode_gray(&fs::read(color_output).unwrap(), 50_000, 300).unwrap();
-    assert_eq!((color_raster.width(), color_raster.height()), (80, 60));
+    assert_eq!((color_raster.width(), color_raster.height()), (100, 100));
     let color_metadata: Value = serde_json::from_slice(&fs::read(color_metadata).unwrap()).unwrap();
     assert_eq!(color_metadata["outputMode"], "color");
-    assert_eq!(color_metadata["outputWidthPx"], 80);
-    assert_eq!(color_metadata["outputHeightPx"], 60);
-    assert_pdf_image_placement_matches_canvas(&color_metadata);
+    assert_eq!(color_metadata["outputWidthPx"], 100);
+    assert_eq!(color_metadata["outputHeightPx"], 75);
+    assert_native_canvas_owns_image(&color_metadata);
 }
 
 #[test]
@@ -3177,7 +3211,7 @@ fn matched_canvas_fits_an_oversized_page_instead_of_growing_the_document() {
     for (index, metadata_path) in metadata_paths.iter().enumerate() {
         let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 50_000, 300).unwrap();
         let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
-        let expected_dimensions = if index == 0 { (100, 140) } else { (210, 100) };
+        let expected_dimensions = (100, 140);
         assert_eq!((image.width(), image.height()), expected_dimensions);
         assert_eq!(metadata["canvasWidthPx"], 100);
         assert_eq!(metadata["canvasHeightPx"], 140);
@@ -3193,10 +3227,8 @@ fn matched_canvas_fits_an_oversized_page_instead_of_growing_the_document() {
                 "the oversized page lost its aspect ratio ({content_width}x{content_height})"
             );
             assert!(metadata["placementOffsetYPx"].as_f64().unwrap() > 0.0);
-            assert_pdf_image_placement_matches_canvas(&metadata);
-        } else {
-            assert!(metadata["pdfImagePlacement"].is_null());
         }
+        assert_native_canvas_owns_image(&metadata);
     }
 }
 
@@ -3273,25 +3305,12 @@ fn matched_canvas_keeps_rotation_and_margins_inside_the_document_rectangle() {
     for (index, metadata_path) in metadata_paths.iter().enumerate() {
         let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 300_000, 500).unwrap();
         let metadata: Value = serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
-        assert_eq!(
-            (image.width(), image.height()),
-            (
-                usize::try_from(metadata["outputWidthPx"].as_u64().unwrap()).unwrap(),
-                usize::try_from(metadata["outputHeightPx"].as_u64().unwrap()).unwrap(),
-            ),
-        );
+        assert_eq!((image.width(), image.height()), (240, 320));
         assert_eq!(metadata["canvasWidthPx"], 240);
         assert_eq!(metadata["canvasHeightPx"], 320);
         assert!(metadata["matchedCanvasContentWidthPx"].as_f64().unwrap() <= 240.0);
         assert!(metadata["matchedCanvasContentHeightPx"].as_f64().unwrap() <= 320.0);
-        if metadata["pdfImagePlacement"].is_object() {
-            assert_pdf_image_placement_matches_canvas(&metadata);
-        } else {
-            assert_eq!(metadata["matchedCanvasContentWidthPx"], 240);
-            assert_eq!(metadata["matchedCanvasContentHeightPx"], 320);
-            assert_eq!(metadata["placementOffsetXPx"], 0);
-            assert_eq!(metadata["placementOffsetYPx"], 0);
-        }
+        assert_native_canvas_owns_image(&metadata);
     }
 }
 
@@ -3390,16 +3409,15 @@ fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
             "preview and final disagree about {field}"
         );
     }
-    // Both modes retain the raster they rendered. The final adds the PDF
-    // placement contract while the preview already has the canvas fields its
-    // renderer consumes.
-    assert_eq!(final_dimensions, (60, 28));
+    // Final native output owns the target canvas; preview retains its intrinsic
+    // payload while reporting the same placement metadata.
+    assert_eq!(final_dimensions, (140, 100));
     assert_eq!(preview_dimensions, (60, 28));
-    assert_eq!(final_metadata["outputWidthPx"], 60);
+    assert_eq!(final_metadata["outputWidthPx"], 100);
     assert_eq!(preview_metadata["outputWidthPx"], 60);
     assert_eq!(final_metadata["placementOffsetXPx"], 20);
     assert_eq!(final_metadata["placementOffsetYPx"], 26);
-    assert_pdf_image_placement_matches_canvas(&final_metadata);
+    assert_native_canvas_owns_image(&final_metadata);
     assert!(preview_metadata["pdfImagePlacement"].is_null());
 }
 
@@ -3478,11 +3496,11 @@ fn matched_canvas_renders_at_exactly_the_pixel_budget_and_refuses_one_past_it() 
         String::from_utf8_lossy(&accepted.stderr)
     );
     let rendered = decode_gray(&fs::read(&accepted_output).unwrap(), 14_000, 400).unwrap();
-    assert_eq!((rendered.width(), rendered.height()), (80, 60));
+    assert_eq!((rendered.width(), rendered.height()), (140, 100));
     let metadata: Value = serde_json::from_slice(&fs::read(&accepted_metadata).unwrap()).unwrap();
     assert_eq!(metadata["canvasWidthPx"], 140);
     assert_eq!(metadata["canvasHeightPx"], 100);
-    assert_pdf_image_placement_matches_canvas(&metadata);
+    assert_native_canvas_owns_image(&metadata);
     assert!(accepted_page_metadata.exists());
 
     let (refused, refused_output, refused_metadata, refused_page_metadata) = run("over", 13_999);
@@ -3908,9 +3926,8 @@ fn matched_canvas_measures_a_kept_half_by_the_paper_it_kept() {
 #[test]
 fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
     // The canvas grid is rounded up from points the way Poppler rounds a page
-    // into pixels, so the page the canvas was measured from arrives exactly on
-    // it. A one-pixel disagreement must not put the page through a resample or
-    // report it as a page that could not hold the document's scale.
+    // into pixels. Native final output owns that target grid, so a source that
+    // is one pixel wider is fitted onto the 100x100 canvas without overflow.
     let scratch = Scratch::new("matched-tolerance");
     let manifest = scratch.path("matched-tolerance-manifest.json");
     let input = scratch.path("matched-tolerance-input.png");
@@ -3975,8 +3992,8 @@ fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
         "a page within a pixel of the grid is not reported as fitted below it"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
-    assert_eq!((image.width(), image.height()), (101, 100));
-    assert_pdf_image_placement_matches_canvas(&metadata_json);
+    assert_eq!((image.width(), image.height()), (100, 100));
+    assert_native_canvas_owns_image(&metadata_json);
 }
 
 #[test]
@@ -4057,15 +4074,15 @@ fn matched_canvas_reserves_requested_output_padding_inside_the_physical_page() {
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
     assert_eq!((image.width(), image.height()), (100, 100));
-    assert_pdf_image_placement_matches_canvas(&metadata_json);
+    assert_native_canvas_owns_image(&metadata_json);
     assert_eq!(metadata_json["appliedMargins"]["leftPx"], 24.0);
     assert_eq!(metadata_json["appliedMargins"]["topPx"], 24.0);
     assert_eq!(metadata_json["appliedMargins"]["rightPx"], 24.0);
     assert_eq!(metadata_json["appliedMargins"]["bottomPx"], 24.0);
-    // Six millimetres at 100 DPI rounds to 24 pixels on every edge. A
-    // continuous-tone page keeps its intrinsic samples and carries that inset
-    // as PDF placement rather than baking redundant white pixels into PNG.
-    assert!((0..image.width()).all(|x| (0..image.height()).all(|y| image.get(x, y) < 128)));
+    // Six millimetres at 100 DPI rounds to 24 pixels on every edge. Native
+    // canvas ownership makes the white inset part of the published raster.
+    assert_eq!(image.get(0, 0), 255);
+    assert!(image.get(24, 24) < 128);
 }
 
 #[test]
@@ -4144,8 +4161,8 @@ fn matched_canvas_reports_a_sheet_larger_than_the_rectangle_it_was_measured_for(
         "warnings={warnings:?}"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
-    assert_eq!((image.width(), image.height()), (100, 100));
-    assert_pdf_image_placement_matches_canvas(&metadata_json);
+    assert_eq!((image.width(), image.height()), (50, 100));
+    assert_native_canvas_owns_image(&metadata_json);
 }
 
 /// The same overflow, previewed. Preview and final renders share the exact
@@ -4344,9 +4361,9 @@ fn luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_p
     }
     fs::write(&selection_path, encode_gray(&selection).unwrap()).unwrap();
 
-    // Producer MRC tone calls the gutter a coherent picture owner. The crop
-    // path must let independent fragmented-frame evidence overrule that false
-    // ownership without weakening picture ownership anywhere else.
+    // Producer MRC tone suggests the gutter as a coherent picture owner. The
+    // vetted owner must reject that rail before semantic ownership is
+    // published, while the crop path still preserves the authored content.
     let mut trusted_background = GrayImage::new(image.width(), image.height(), 244);
     for y in 0..trusted_background.height() {
         for x in 14..68 {
@@ -4438,7 +4455,7 @@ fn luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_p
     assert_eq!(
         picture_mask.get(40, 400),
         0,
-        "fixture did not reproduce false tonal ownership of the gutter; ownerPixels={}",
+        "fragmented gutter evidence must overrule false tonal ownership; ownerPixels={}",
         picture_mask
             .data()
             .iter()

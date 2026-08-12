@@ -228,6 +228,7 @@ fn detect_content_at_analysis_scale(
             BinarizationMode::Wolf,
             BinarizationMode::Wolf,
             calibration.content_despeckle_dpi(),
+            false,
         ),
     };
     let map = ComponentMap::from_binary(&cleaned);

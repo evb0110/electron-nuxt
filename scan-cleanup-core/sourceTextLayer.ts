@@ -97,6 +97,8 @@ export function resolveScanCleanupTextLayerInstruction(
         || !finitePositive(metadata.inputHeightPx)
         || !finitePositive(metadata.outputWidthPx)
         || !finitePositive(metadata.outputHeightPx)
+        || (metadata.intrinsicRasterWidthPx !== undefined && !finitePositive(metadata.intrinsicRasterWidthPx))
+        || (metadata.intrinsicRasterHeightPx !== undefined && !finitePositive(metadata.intrinsicRasterHeightPx))
         || !finitePositive(metadata.canvasWidthPx)
         || !finitePositive(metadata.canvasHeightPx)
         || !finitePositive(pageSize.widthPoints)
@@ -110,11 +112,15 @@ export function resolveScanCleanupTextLayerInstruction(
         ?? metadata.canvasHeightPx / output.dpi * 72;
     const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
+    const intrinsicRasterWidthPx = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
+    const intrinsicRasterHeightPx = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
     if (
         !finitePositive(pageWidthPoints)
         || !finitePositive(pageHeightPoints)
         || !finitePositive(contentWidthPx)
         || !finitePositive(contentHeightPx)
+        || !finitePositive(intrinsicRasterWidthPx)
+        || !finitePositive(intrinsicRasterHeightPx)
     ) {
         return null;
     }
@@ -152,8 +158,8 @@ export function resolveScanCleanupTextLayerInstruction(
     const pixelYFromPdfY = sourceY.y - sourceOrigin.y;
 
     // intrinsic output -> matched canvas -> output PDF
-    const matchX = contentWidthPx / metadata.outputWidthPx;
-    const matchY = contentHeightPx / metadata.outputHeightPx;
+    const matchX = contentWidthPx / intrinsicRasterWidthPx;
+    const matchY = contentHeightPx / intrinsicRasterHeightPx;
     const pdfXFromCanvas = pageWidthPoints / metadata.canvasWidthPx;
     const pdfYFromCanvas = -pageHeightPoints / metadata.canvasHeightPx;
     const f00 = forward[0]![0]!;

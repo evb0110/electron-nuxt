@@ -134,6 +134,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         detectionErrorCode: detection.errorCode,
         detectionPending: detection.pending,
         detectionStatus: detection.terminalStatus,
+        documentPriorByPage: detection.documentPriorByPage,
         documentRevision,
         onCompleted: settings.dismissFirstRunGuidance,
         ownerId,

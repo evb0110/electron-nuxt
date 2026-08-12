@@ -69,6 +69,82 @@ pub struct BinarizationDiagnostics {
     pub estimated_stroke_width_px: f64,
     pub dark_border_coverage: f64,
     pub otsu_adaptive_agreement: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spread_plan: Option<SpreadBinarizationPlanDiagnostics>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpreadBinarizationPlanDiagnostics {
+    pub route: BinarizationMode,
+    pub threshold_anchor: u8,
+    pub threshold_radius: usize,
+    pub stroke_width_anchor_px: f64,
+    pub x_height_anchor_px: f64,
+    pub document_anchor: bool,
+    pub joint_candidate_route: BinarizationMode,
+    pub left_candidate_route: BinarizationMode,
+    pub right_candidate_route: BinarizationMode,
+    pub decision: SpreadBinarizationPlanDecision,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpreadBinarizationPlanDecision {
+    SharedJoint,
+    PerLeafRouteMismatch,
+    PerLeafAnchorDrift,
+    PerLeafRadiusDrift,
+    PerLeafFaintInkDrift,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpreadBinarizationPlan {
+    route: BinarizationMode,
+    threshold_anchor: u8,
+    threshold_radius: usize,
+    x_height_anchor_px: f64,
+    diagnostics: SpreadBinarizationPlanDiagnostics,
+}
+
+impl SpreadBinarizationPlan {
+    pub(crate) fn route(self) -> BinarizationMode {
+        self.route
+    }
+
+    pub(crate) fn diagnostics_for(
+        self,
+        routing_sample: &GrayImage,
+        options: &CleanupOptions,
+    ) -> BinarizationDiagnostics {
+        let mut diagnostics = measure_binarization_diagnostics(routing_sample, options);
+        diagnostics.route = self.route;
+        diagnostics.spread_plan = Some(self.diagnostics);
+        diagnostics
+    }
+
+    pub(crate) fn uses_per_leaf_fallback(self) -> bool {
+        self.diagnostics.decision != SpreadBinarizationPlanDecision::SharedJoint
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpreadBinarizationPlans {
+    pub left: SpreadBinarizationPlan,
+    pub right: SpreadBinarizationPlan,
+}
+
+impl SpreadBinarizationPlans {
+    pub(crate) fn for_half(
+        self,
+        half: crate::domain::geometry::PageHalf,
+    ) -> SpreadBinarizationPlan {
+        match half {
+            crate::domain::geometry::PageHalf::Left => self.left,
+            crate::domain::geometry::PageHalf::Right => self.right,
+            crate::domain::geometry::PageHalf::Full => self.left,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -149,6 +225,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     calibration: PageCalibration,
     picture_mask: Option<&BinaryImage>,
     text_vicinity: Option<&BinaryImage>,
+    spread_plan: Option<&SpreadBinarizationPlan>,
 ) -> (
     BinaryImage,
     BinarizationDiagnostics,
@@ -158,7 +235,10 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     let mut timings = BinarizationStageTimings::default();
     let preparation_started = Instant::now();
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
-    let diagnostics = resolve_binarization_diagnostics(routing_sample, options);
+    let diagnostics = spread_plan.map_or_else(
+        || resolve_binarization_diagnostics(routing_sample, options),
+        |plan| plan.diagnostics_for(routing_sample, options),
+    );
     timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
     let thresholding_started = Instant::now();
     let binary = threshold_with_mode(
@@ -168,6 +248,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
         options,
         diagnostics.route,
         calibration,
+        spread_plan,
     );
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
@@ -187,6 +268,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
         options.binarization,
         diagnostics.route,
         options.dpi,
+        should_rescue_spread_fallback(spread_plan, &diagnostics),
     );
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (binary, diagnostics, despeckle_fallback, timings)
@@ -202,6 +284,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     calibration: PageCalibration,
     picture_mask: &BinaryImage,
     text_vicinity: Option<&BinaryImage>,
+    spread_plan: Option<&SpreadBinarizationPlan>,
 ) -> (
     BinaryImage,
     BinarizationDiagnostics,
@@ -236,7 +319,10 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
             }
         });
     let threshold_input = smooth_for_binarization(&masked_input, options.dpi);
-    let diagnostics = resolve_binarization_diagnostics(&masked_input, options);
+    let diagnostics = spread_plan.map_or_else(
+        || resolve_binarization_diagnostics(&masked_input, options),
+        |plan| plan.diagnostics_for(&masked_input, options),
+    );
     timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
     let thresholding_started = Instant::now();
     let binary = threshold_with_mode_excluding(
@@ -247,6 +333,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         diagnostics.route,
         calibration,
         &protected_picture_mask,
+        spread_plan,
     );
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
@@ -266,6 +353,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         options.binarization,
         diagnostics.route,
         options.dpi,
+        should_rescue_spread_fallback(spread_plan, &diagnostics),
     )
     .subtract(&protected_picture_mask);
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
@@ -274,6 +362,27 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
 
 pub(crate) fn picture_protection_radius(dpi: f64) -> usize {
     (dpi * 0.35 / 25.4).round().clamp(1.0, 12.0) as usize
+}
+
+fn should_rescue_spread_fallback(
+    spread_plan: Option<&SpreadBinarizationPlan>,
+    diagnostics: &BinarizationDiagnostics,
+) -> bool {
+    let Some(plan) = spread_plan else {
+        return false;
+    };
+    if !plan.uses_per_leaf_fallback() {
+        return false;
+    }
+
+    // Local routes already have their own faint-stroke rescue. A divergent
+    // Otsu leaf needs the same protection only when its evidence is sparse;
+    // dense Otsu leaves must retain ordinary Otsu mass (the joint plan's
+    // fallback rescue can otherwise add a visible amount of extra ink).
+    matches!(
+        diagnostics.route,
+        BinarizationMode::Sauvola | BinarizationMode::Wolf
+    ) || (diagnostics.route == BinarizationMode::Otsu && diagnostics.edge_density <= 0.32)
 }
 
 fn binarize_with_mode(
@@ -293,6 +402,7 @@ fn binarize_with_mode(
         options,
         mode,
         calibration,
+        None,
     );
     let binary = postprocess_binary_with_raw(
         &binary,
@@ -310,6 +420,7 @@ fn binarize_with_mode(
         options.binarization,
         mode,
         options.dpi,
+        false,
     )
 }
 
@@ -320,13 +431,21 @@ fn threshold_with_mode(
     options: &CleanupOptions,
     mode: BinarizationMode,
     calibration: PageCalibration,
+    spread_plan: Option<&SpreadBinarizationPlan>,
 ) -> BinaryImage {
-    let radius = calibration.threshold_radius(options.dpi);
+    let radius = spread_plan.map_or_else(
+        || calibration.threshold_radius(options.dpi),
+        |plan| plan.threshold_radius,
+    );
     let bias = i16::from(options.thickness) * crate::THICKNESS_GRAY_STEP;
     match mode {
         BinarizationMode::Otsu => {
             let source = global_threshold_source.unwrap_or(normalized);
-            threshold_global_biased(source, paper_ink_midpoint_threshold(source, None), bias)
+            let threshold = spread_plan.map_or_else(
+                || paper_ink_midpoint_threshold(source, None),
+                |plan| plan.threshold_anchor,
+            );
+            threshold_global_biased(source, threshold, bias)
         }
         BinarizationMode::Sauvola => threshold_local_for_route(
             threshold_input,
@@ -336,6 +455,8 @@ fn threshold_with_mode(
             bias,
             calibration,
             options.dpi,
+            spread_plan.map(|plan| plan.threshold_radius),
+            spread_plan.map(|plan| plan.x_height_anchor_px),
         ),
         BinarizationMode::Wolf | BinarizationMode::Auto => threshold_local_for_route(
             threshold_input,
@@ -351,6 +472,8 @@ fn threshold_with_mode(
             bias,
             calibration,
             options.dpi,
+            spread_plan.map(|plan| plan.threshold_radius),
+            spread_plan.map(|plan| plan.x_height_anchor_px),
         ),
     }
 }
@@ -363,18 +486,21 @@ fn threshold_with_mode_excluding(
     mode: BinarizationMode,
     calibration: PageCalibration,
     picture_mask: &BinaryImage,
+    spread_plan: Option<&SpreadBinarizationPlan>,
 ) -> BinaryImage {
-    let radius = calibration.threshold_radius(options.dpi);
+    let radius = spread_plan.map_or_else(
+        || calibration.threshold_radius(options.dpi),
+        |plan| plan.threshold_radius,
+    );
     let bias = i16::from(options.thickness) * crate::THICKNESS_GRAY_STEP;
     match mode {
         BinarizationMode::Otsu => {
             let source = global_threshold_source.unwrap_or(normalized);
-            threshold_global_biased(
-                source,
-                paper_ink_midpoint_threshold(source, Some(picture_mask)),
-                bias,
-            )
-            .subtract(picture_mask)
+            let threshold = spread_plan.map_or_else(
+                || paper_ink_midpoint_threshold(source, Some(picture_mask)),
+                |plan| plan.threshold_anchor,
+            );
+            threshold_global_biased(source, threshold, bias).subtract(picture_mask)
         }
         BinarizationMode::Sauvola => threshold_local_for_route_excluding(
             threshold_input,
@@ -385,6 +511,8 @@ fn threshold_with_mode_excluding(
             bias,
             calibration,
             options.dpi,
+            spread_plan.map(|plan| plan.threshold_radius),
+            spread_plan.map(|plan| plan.x_height_anchor_px),
         ),
         BinarizationMode::Wolf | BinarizationMode::Auto => threshold_local_for_route_excluding(
             threshold_input,
@@ -401,6 +529,8 @@ fn threshold_with_mode_excluding(
             bias,
             calibration,
             options.dpi,
+            spread_plan.map(|plan| plan.threshold_radius),
+            spread_plan.map(|plan| plan.x_height_anchor_px),
         ),
     }
 }
@@ -462,6 +592,8 @@ fn threshold_local_for_route_excluding(
     bias: i16,
     calibration: PageCalibration,
     raster_dpi: f64,
+    shared_threshold_radius: Option<usize>,
+    shared_x_height_px: Option<f64>,
 ) -> BinaryImage {
     if !calibration.config.multiscale_local_threshold {
         return threshold_local_biased_excluding(
@@ -473,8 +605,12 @@ fn threshold_local_for_route_excluding(
         );
     }
     let integrals = MaskedIntegralImages::new(threshold_input, picture_mask);
-    let [small_radius, medium_radius, large_radius] =
-        calibration.multiscale_threshold_radii(raster_dpi);
+    let [small_radius, medium_radius, large_radius] = multiscale_threshold_radii(
+        calibration,
+        raster_dpi,
+        shared_threshold_radius,
+        shared_x_height_px,
+    );
     threshold_local_multiscale_biased_excluding_with_integrals_for_consensus(
         threshold_input,
         picture_mask,
@@ -494,14 +630,20 @@ fn threshold_local_for_route(
     bias: i16,
     calibration: PageCalibration,
     raster_dpi: f64,
+    shared_threshold_radius: Option<usize>,
+    shared_x_height_px: Option<f64>,
 ) -> BinaryImage {
     if !calibration.config.multiscale_local_threshold {
         return threshold_local_biased(threshold_input, legacy_radius, method, bias);
     }
 
     let integrals = IntegralImages::new(threshold_input);
-    let [small_radius, medium_radius, large_radius] =
-        calibration.multiscale_threshold_radii(raster_dpi);
+    let [small_radius, medium_radius, large_radius] = multiscale_threshold_radii(
+        calibration,
+        raster_dpi,
+        shared_threshold_radius,
+        shared_x_height_px,
+    );
     let small = threshold_local_biased_with_integrals_for_consensus(
         threshold_input,
         &integrals,
@@ -524,6 +666,29 @@ fn threshold_local_for_route(
         bias,
     );
     multiscale_consensus(normalized, &small, &medium, &large)
+}
+
+fn multiscale_threshold_radii(
+    calibration: PageCalibration,
+    raster_dpi: f64,
+    shared_threshold_radius: Option<usize>,
+    shared_x_height_px: Option<f64>,
+) -> [usize; 3] {
+    shared_threshold_radius.map_or_else(
+        || calibration.multiscale_threshold_radii(raster_dpi),
+        |base_radius| {
+            let shared_x_height = shared_x_height_px.unwrap_or_else(|| {
+                // Legacy callers without a spread plan have no explicit
+                // x-height. Keep their old radius-derived behavior, while
+                // spread plans carry the unclamped document/leaf estimate.
+                base_radius as f64 / 1.5
+            }) * raster_dpi.max(1.0)
+                / calibration.effective_dpi.max(1.0);
+            [1.0, 2.5, 5.0]
+                .map(|scale| (scale * shared_x_height).round() as usize)
+                .map(|radius| radius.clamp(8, 256))
+        },
+    )
 }
 
 fn multiscale_consensus(
@@ -623,6 +788,25 @@ pub(crate) fn resolve_binarization_diagnostics(
     image: &GrayImage,
     options: &CleanupOptions,
 ) -> BinarizationDiagnostics {
+    let mut diagnostics = measure_binarization_diagnostics(image, options);
+    diagnostics.route = match options.binarization {
+        BinarizationMode::Auto => choose_mode(
+            diagnostics.robust_contrast,
+            diagnostics.illumination_deviation,
+            diagnostics.edge_density,
+            diagnostics.estimated_stroke_width_px,
+            diagnostics.dark_border_coverage,
+            diagnostics.otsu_adaptive_agreement,
+        ),
+        explicit => explicit,
+    };
+    diagnostics
+}
+
+fn measure_binarization_diagnostics(
+    image: &GrayImage,
+    options: &CleanupOptions,
+) -> BinarizationDiagnostics {
     let sample = image.downscale_to_fit(256, 256);
     let otsu = threshold_global(&sample, otsu_threshold(&sample));
     let adaptive_radius =
@@ -647,25 +831,365 @@ pub(crate) fn resolve_binarization_diagnostics(
     let estimated_stroke_width_px = estimated_stroke_width(&otsu) * sample_scale;
     let dark_border_coverage = dark_border_coverage(&sample, otsu_threshold(&sample));
     let otsu_adaptive_agreement = binary_agreement(&otsu, &adaptive);
-    let route = match options.binarization {
-        BinarizationMode::Auto => choose_mode(
-            robust_contrast,
-            illumination_deviation,
-            edge_density,
-            estimated_stroke_width_px,
-            dark_border_coverage,
-            otsu_adaptive_agreement,
-        ),
-        explicit => explicit,
-    };
     BinarizationDiagnostics {
-        route,
+        route: options.binarization,
         robust_contrast,
         illumination_deviation,
         edge_density,
         estimated_stroke_width_px,
         dark_border_coverage,
         otsu_adaptive_agreement,
+        spread_plan: None,
+    }
+}
+
+/// Resolves a symmetric spread candidate first, then keeps each leaf's own
+/// route/threshold scale whenever the evidence is materially different. The
+/// joint route is evidence from the whole spread, not a left-leaf tie-breaker;
+/// it is only allowed to control both leaves after the leaf agreement gates
+/// pass.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_spread_binarization_plans(
+    normalized: &GrayImage,
+    left: &GrayImage,
+    right: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    left_picture_mask: Option<&BinaryImage>,
+    right_picture_mask: Option<&BinaryImage>,
+    options: &CleanupOptions,
+    calibration: PageCalibration,
+    document_stroke_width_px: Option<f64>,
+    document_x_height_px: Option<f64>,
+) -> SpreadBinarizationPlans {
+    let joint_input = masked_spread_input(normalized, picture_mask, options);
+    let left_input = masked_spread_input(left, left_picture_mask, options);
+    let right_input = masked_spread_input(right, right_picture_mask, options);
+    let joint = measure_binarization_diagnostics(&joint_input, options);
+    let left_candidate = measure_binarization_diagnostics(&left_input, options);
+    let right_candidate = measure_binarization_diagnostics(&right_input, options);
+    let joint_route = match options.binarization {
+        BinarizationMode::Auto => resolve_route_for_diagnostics(&joint, options),
+        explicit => explicit,
+    };
+    let left_route = resolve_route_for_diagnostics(&left_candidate, options);
+    let right_route = resolve_route_for_diagnostics(&right_candidate, options);
+    let left_protected_picture_mask =
+        left_picture_mask.map(|mask| protected_picture_mask(mask, options));
+    let right_protected_picture_mask =
+        right_picture_mask.map(|mask| protected_picture_mask(mask, options));
+    let left_anchor = paper_ink_midpoint_threshold(left, left_protected_picture_mask.as_ref());
+    let right_anchor = paper_ink_midpoint_threshold(right, right_protected_picture_mask.as_ref());
+    // `left` and `right` are the full working-resolution leaves, while the
+    // calibration carried into this function was measured on the bounded
+    // analysis raster (normally 150 DPI).  Measuring a full leaf with the
+    // analysis DPI makes its pixel x-height look twice as large physically;
+    // the resulting radius then clamps at 64 and destroys the thinner leaf on
+    // a route-mismatch fallback.  Measure leaf evidence in working pixels,
+    // then express it in the analysis calibration's reference pixels below.
+    let working_dpi = options.dpi.max(1.0);
+    let left_calibration = PageCalibration::estimate(left, working_dpi, calibration.config);
+    let right_calibration = PageCalibration::estimate(right, working_dpi, calibration.config);
+    // Agreement is measured from each leaf's own calibration. The document
+    // prior anchors a shared plan, but must not mask a real per-leaf radius
+    // drift and thereby force a damaging shared threshold onto one leaf.
+    let left_x_height = leaf_x_height(left_calibration, None, calibration, working_dpi);
+    let right_x_height = leaf_x_height(right_calibration, None, calibration, working_dpi);
+    let left_radius = threshold_radius_for_x_height(left_x_height, options, calibration);
+    let right_radius = threshold_radius_for_x_height(right_x_height, options, calibration);
+    let route_mismatch = left_route != right_route;
+    let anchor_drift = relative_difference(f64::from(left_anchor), f64::from(right_anchor)) > 0.20;
+    let radius_drift = relative_difference(left_radius as f64, right_radius as f64) > 0.20;
+    let faint_ink_drift = relative_difference(
+        faint_ink_fraction(&left_input),
+        faint_ink_fraction(&right_input),
+    ) > 0.20;
+    let decision = if route_mismatch {
+        SpreadBinarizationPlanDecision::PerLeafRouteMismatch
+    } else if anchor_drift {
+        SpreadBinarizationPlanDecision::PerLeafAnchorDrift
+    } else if radius_drift {
+        SpreadBinarizationPlanDecision::PerLeafRadiusDrift
+    } else if faint_ink_drift {
+        SpreadBinarizationPlanDecision::PerLeafFaintInkDrift
+    } else {
+        SpreadBinarizationPlanDecision::SharedJoint
+    };
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_SPREAD_PLAN").is_some() {
+        eprintln!(
+            "spread-plan left-anchor={} right-anchor={} left-radius={} right-radius={} left-route={:?} right-route={:?} decision={decision:?}",
+            left_anchor, right_anchor, left_radius, right_radius, left_route, right_route,
+        );
+    }
+
+    let shared_x_height = document_x_height_px
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or((left_x_height + right_x_height) / 2.0);
+    let shared_anchor = midpoint_u8(left_anchor, right_anchor);
+    let shared_stroke_width = document_stroke_width_px
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or_else(|| {
+            let left_stroke = leaf_stroke_width(
+                left_calibration,
+                left_candidate.estimated_stroke_width_px,
+                calibration,
+                working_dpi,
+            );
+            let right_stroke = leaf_stroke_width(
+                right_calibration,
+                right_candidate.estimated_stroke_width_px,
+                calibration,
+                working_dpi,
+            );
+            (left_stroke + right_stroke) / 2.0
+        });
+    let common_diagnostics =
+        |route: BinarizationMode,
+         threshold_anchor: u8,
+         threshold_radius: usize,
+         x_height_anchor_px: f64,
+         document_anchor: bool,
+         decision: SpreadBinarizationPlanDecision| {
+            SpreadBinarizationPlanDiagnostics {
+                route,
+                threshold_anchor,
+                threshold_radius,
+                stroke_width_anchor_px: shared_stroke_width,
+                x_height_anchor_px,
+                document_anchor,
+                joint_candidate_route: joint_route,
+                left_candidate_route: left_route,
+                right_candidate_route: right_route,
+                decision,
+            }
+        };
+    let shared_plan = SpreadBinarizationPlan {
+        route: joint_route,
+        threshold_anchor: shared_anchor,
+        threshold_radius: threshold_radius_for_x_height(shared_x_height, options, calibration),
+        x_height_anchor_px: shared_x_height,
+        diagnostics: common_diagnostics(
+            joint_route,
+            shared_anchor,
+            threshold_radius_for_x_height(shared_x_height, options, calibration),
+            shared_x_height,
+            document_x_height_px.is_some() || document_stroke_width_px.is_some(),
+            decision,
+        ),
+    };
+    if decision == SpreadBinarizationPlanDecision::SharedJoint {
+        return SpreadBinarizationPlans {
+            left: shared_plan,
+            right: shared_plan,
+        };
+    }
+
+    let left_plan = leaf_plan(
+        left_route,
+        left_anchor,
+        left_calibration,
+        left_candidate.estimated_stroke_width_px,
+        options,
+        calibration,
+        working_dpi,
+        document_stroke_width_px,
+        document_x_height_px,
+        common_diagnostics,
+        decision,
+    );
+    let right_plan = leaf_plan(
+        right_route,
+        right_anchor,
+        right_calibration,
+        right_candidate.estimated_stroke_width_px,
+        options,
+        calibration,
+        working_dpi,
+        document_stroke_width_px,
+        document_x_height_px,
+        common_diagnostics,
+        decision,
+    );
+    SpreadBinarizationPlans {
+        left: left_plan,
+        right: right_plan,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn leaf_plan<F>(
+    route: BinarizationMode,
+    threshold_anchor: u8,
+    leaf_calibration: PageCalibration,
+    estimated_stroke_width_px: f64,
+    options: &CleanupOptions,
+    spread_calibration: PageCalibration,
+    working_dpi: f64,
+    document_stroke_width_px: Option<f64>,
+    document_x_height_px: Option<f64>,
+    diagnostics: F,
+    decision: SpreadBinarizationPlanDecision,
+) -> SpreadBinarizationPlan
+where
+    F: Fn(
+        BinarizationMode,
+        u8,
+        usize,
+        f64,
+        bool,
+        SpreadBinarizationPlanDecision,
+    ) -> SpreadBinarizationPlanDiagnostics,
+{
+    let x_height_anchor_px = if leaf_calibration.valid {
+        leaf_x_height(leaf_calibration, None, spread_calibration, working_dpi)
+    } else {
+        document_x_height_px
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .unwrap_or_else(|| {
+                leaf_x_height(leaf_calibration, None, spread_calibration, working_dpi)
+            })
+    };
+    let threshold_radius =
+        threshold_radius_for_x_height(x_height_anchor_px, options, spread_calibration);
+    let stroke_width_anchor_px = document_stroke_width_px
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or_else(|| {
+            leaf_stroke_width(
+                leaf_calibration,
+                estimated_stroke_width_px,
+                spread_calibration,
+                working_dpi,
+            )
+        });
+    let mut plan_diagnostics = diagnostics(
+        route,
+        threshold_anchor,
+        threshold_radius,
+        x_height_anchor_px,
+        document_x_height_px.is_some() || document_stroke_width_px.is_some(),
+        decision,
+    );
+    plan_diagnostics.stroke_width_anchor_px = stroke_width_anchor_px;
+    SpreadBinarizationPlan {
+        route,
+        threshold_anchor,
+        threshold_radius,
+        x_height_anchor_px,
+        diagnostics: plan_diagnostics,
+    }
+}
+
+fn masked_spread_input(
+    image: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    options: &CleanupOptions,
+) -> GrayImage {
+    let Some(picture_mask) = picture_mask else {
+        return image.clone();
+    };
+    let protected = protected_picture_mask(picture_mask, options);
+    let mut masked = image.clone();
+    for y in 0..masked.height() {
+        for x in 0..masked.width() {
+            if protected.get(x, y) {
+                masked.set(x, y, 255);
+            }
+        }
+    }
+    masked
+}
+
+fn faint_ink_fraction(image: &GrayImage) -> f64 {
+    let paper = paper_reference(image);
+    let threshold = paper.saturating_sub(24);
+    let total = image.width().saturating_mul(image.height()).max(1);
+    image
+        .data()
+        .iter()
+        .filter(|&&value| value < threshold)
+        .count() as f64
+        / total as f64
+}
+
+fn protected_picture_mask(mask: &BinaryImage, options: &CleanupOptions) -> BinaryImage {
+    dilate(
+        mask,
+        picture_protection_radius(options.dpi),
+        picture_protection_radius(options.dpi),
+    )
+}
+
+fn leaf_x_height(
+    leaf_calibration: PageCalibration,
+    document_x_height_px: Option<f64>,
+    spread_calibration: PageCalibration,
+    working_dpi: f64,
+) -> f64 {
+    document_x_height_px
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .or_else(|| {
+            leaf_calibration
+                .valid
+                .then_some(
+                    leaf_calibration.x_height_px * spread_calibration.effective_dpi.max(1.0)
+                        / working_dpi.max(1.0),
+                )
+                .filter(|value| value.is_finite() && *value > 0.0)
+        })
+        .unwrap_or(17.0 * spread_calibration.effective_dpi.max(1.0) / 300.0)
+}
+
+fn leaf_stroke_width(
+    leaf_calibration: PageCalibration,
+    estimated_stroke_width_px: f64,
+    spread_calibration: PageCalibration,
+    working_dpi: f64,
+) -> f64 {
+    leaf_calibration
+        .valid
+        .then_some(
+            leaf_calibration.stroke_width_px * spread_calibration.effective_dpi.max(1.0)
+                / working_dpi.max(1.0),
+        )
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .or_else(|| {
+            (estimated_stroke_width_px.is_finite() && estimated_stroke_width_px > 0.0)
+                .then_some(estimated_stroke_width_px)
+        })
+        .unwrap_or_else(|| spread_calibration.stroke_width_px.max(1.0))
+}
+
+fn threshold_radius_for_x_height(
+    x_height_anchor_px: f64,
+    options: &CleanupOptions,
+    calibration: PageCalibration,
+) -> usize {
+    (1.5 * x_height_anchor_px * options.dpi.max(1.0) / calibration.effective_dpi.max(1.0))
+        .round()
+        .clamp(8.0, 64.0) as usize
+}
+
+fn relative_difference(left: f64, right: f64) -> f64 {
+    (left - right).abs() / left.abs().max(right.abs()).max(f64::EPSILON)
+}
+
+fn midpoint_u8(left: u8, right: u8) -> u8 {
+    ((u16::from(left) + u16::from(right)) / 2) as u8
+}
+
+fn resolve_route_for_diagnostics(
+    diagnostics: &BinarizationDiagnostics,
+    options: &CleanupOptions,
+) -> BinarizationMode {
+    match options.binarization {
+        BinarizationMode::Auto => choose_mode(
+            diagnostics.robust_contrast,
+            diagnostics.illumination_deviation,
+            diagnostics.edge_density,
+            diagnostics.estimated_stroke_width_px,
+            diagnostics.dark_border_coverage,
+            diagnostics.otsu_adaptive_agreement,
+        ),
+        explicit => explicit,
     }
 }
 
@@ -766,14 +1290,17 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
     requested_mode: BinarizationMode,
     selected_mode: BinarizationMode,
     dpi: f64,
+    spread_fallback: bool,
 ) -> BinaryImage {
-    if !matches!(
-        requested_mode,
-        BinarizationMode::Sauvola | BinarizationMode::Wolf
-    ) || !matches!(
-        selected_mode,
-        BinarizationMode::Sauvola | BinarizationMode::Wolf
-    ) || damaged.width() == 0
+    if (!spread_fallback
+        && (!matches!(
+            requested_mode,
+            BinarizationMode::Sauvola | BinarizationMode::Wolf
+        ) || !matches!(
+            selected_mode,
+            BinarizationMode::Sauvola | BinarizationMode::Wolf
+        )))
+        || damaged.width() == 0
         || damaged.height() == 0
     {
         return damaged.clone();
@@ -1788,6 +2315,165 @@ mod tests {
     }
 
     #[test]
+    fn spread_plan_is_symmetric_and_overrides_leaf_route_selection() {
+        let options = CleanupOptions {
+            dpi: 300.0,
+            binarization: BinarizationMode::Auto,
+            normalize_illumination: false,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+        let mut left = GrayImage::new(256, 256, 242);
+        let mut right = GrayImage::new(256, 256, 242);
+        for y in 32..224 {
+            for x in 24..232 {
+                if (x / 12 + y / 18) % 5 == 0 {
+                    left.set(x, y, 54);
+                    right.set(x, y, if x < 128 { 54 } else { 92 });
+                }
+            }
+        }
+        let mut normalized = GrayImage::new(512, 256, 242);
+        for y in 0..256 {
+            for x in 0..256 {
+                normalized.set(x, y, left.get(x, y));
+                normalized.set(x + 256, y, right.get(x, y));
+            }
+        }
+        let calibration =
+            PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
+        let plans = resolve_spread_binarization_plans(
+            &normalized,
+            &left,
+            &right,
+            None,
+            None,
+            None,
+            &options,
+            calibration,
+            Some(2.5),
+            Some(18.0),
+        );
+        let swapped = resolve_spread_binarization_plans(
+            &normalized,
+            &right,
+            &left,
+            None,
+            None,
+            None,
+            &options,
+            calibration,
+            Some(2.5),
+            Some(18.0),
+        );
+
+        assert_eq!(plans.left.route(), swapped.right.route());
+        assert_eq!(plans.right.route(), swapped.left.route());
+        assert_eq!(plans.left.threshold_anchor, swapped.right.threshold_anchor);
+        assert_eq!(plans.left.threshold_radius, 27);
+        assert_eq!(plans.left.threshold_radius, swapped.right.threshold_radius);
+        assert!(plans.left.diagnostics.document_anchor);
+        assert_eq!(
+            plans.left.diagnostics.left_candidate_route,
+            swapped.right.diagnostics.right_candidate_route
+        );
+        assert_eq!(
+            plans.left.diagnostics.right_candidate_route,
+            swapped.right.diagnostics.left_candidate_route
+        );
+
+        let (_, left_diagnostics, _, _) = binarize_normalized_with_diagnostics(
+            &left,
+            &left,
+            &left,
+            None,
+            &options,
+            calibration,
+            None,
+            None,
+            Some(&plans.left),
+        );
+        let (_, right_diagnostics, _, _) = binarize_normalized_with_diagnostics(
+            &right,
+            &right,
+            &right,
+            None,
+            &options,
+            calibration,
+            None,
+            None,
+            Some(&plans.right),
+        );
+        assert_eq!(left_diagnostics.route, plans.left.route());
+        assert_eq!(right_diagnostics.route, plans.right.route());
+        assert_eq!(
+            left_diagnostics.spread_plan.unwrap().threshold_radius,
+            plans.left.threshold_radius
+        );
+        assert_eq!(
+            right_diagnostics.spread_plan.unwrap().threshold_radius,
+            plans.right.threshold_radius
+        );
+    }
+
+    #[test]
+    fn spread_plan_falls_back_to_leaf_anchors_when_threshold_evidence_drifts() {
+        let options = CleanupOptions {
+            dpi: 300.0,
+            binarization: BinarizationMode::Auto,
+            normalize_illumination: false,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+        let mut left = GrayImage::new(256, 256, 242);
+        let mut right = GrayImage::new(256, 256, 242);
+        for y in 32..224 {
+            for x in 24..232 {
+                if (x / 12 + y / 18) % 5 == 0 {
+                    left.set(x, y, 48);
+                    right.set(x, y, 156);
+                }
+            }
+        }
+        let mut normalized = GrayImage::new(512, 256, 242);
+        for y in 0..256 {
+            for x in 0..256 {
+                normalized.set(x, y, left.get(x, y));
+                normalized.set(x + 256, y, right.get(x, y));
+            }
+        }
+        let calibration =
+            PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
+        let plans = resolve_spread_binarization_plans(
+            &normalized,
+            &left,
+            &right,
+            None,
+            None,
+            None,
+            &options,
+            calibration,
+            Some(2.5),
+            Some(18.0),
+        );
+
+        assert_eq!(plans.left.route(), BinarizationMode::Otsu);
+        assert_eq!(plans.right.route(), BinarizationMode::Otsu);
+        assert_eq!(
+            plans.left.diagnostics.decision,
+            SpreadBinarizationPlanDecision::PerLeafAnchorDrift
+        );
+        assert_eq!(
+            plans.right.diagnostics.decision,
+            SpreadBinarizationPlanDecision::PerLeafAnchorDrift
+        );
+        assert_ne!(
+            plans.left.threshold_anchor, plans.right.threshold_anchor,
+            "the fallback must retain each leaf's measured threshold anchor"
+        );
+    }
+
+    #[test]
     fn multiscale_consensus_recovers_faint_thin_stroke_only_with_gradient_support() {
         let mut normalized = GrayImage::new(15, 15, 220);
         let mut small = BinaryImage::new(15, 15);
@@ -1852,7 +2538,15 @@ mod tests {
             let calibration =
                 PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
             let damaged = postprocess_binary_with_raw(
-                &threshold_with_mode(&normalized, &normalized, None, &options, mode, calibration),
+                &threshold_with_mode(
+                    &normalized,
+                    &normalized,
+                    None,
+                    &options,
+                    mode,
+                    calibration,
+                    None,
+                ),
                 Some(&normalized),
                 Some(&normalized),
                 &options,
@@ -1868,6 +2562,7 @@ mod tests {
                 calibration,
                 None,
                 Some(&text_vicinity),
+                None,
             );
             assert_eq!(diagnostics.route, mode);
             assert!(
@@ -1883,6 +2578,7 @@ mod tests {
                 mode,
                 mode,
                 options.dpi,
+                false,
             );
             assert!(
                 rescued.get(38, 40),
@@ -1947,6 +2643,7 @@ mod tests {
             BinarizationMode::Wolf,
             BinarizationMode::Wolf,
             300.0,
+            false,
         );
         assert_eq!(rescued.count_black(), 0);
     }
@@ -1976,6 +2673,7 @@ mod tests {
             BinarizationMode::Wolf,
             BinarizationMode::Wolf,
             300.0,
+            false,
         );
         let rescued_without_rail = rescue_component_scoped_faint_strokes(
             &damaged,
@@ -1986,6 +2684,7 @@ mod tests {
             BinarizationMode::Wolf,
             BinarizationMode::Wolf,
             300.0,
+            false,
         );
 
         assert!(
@@ -2028,6 +2727,7 @@ mod tests {
                 &options,
                 BinarizationMode::Wolf,
                 calibration,
+                None,
             ),
             expected
         );

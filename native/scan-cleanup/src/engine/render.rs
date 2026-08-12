@@ -25,7 +25,8 @@ use crate::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
         binary_to_gray, paper_reference, picture_protection_radius,
         postprocess_binary_with_diagnostics_and_raw, resolve_binarization_diagnostics,
-        BinarizationDiagnostics, BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
+        resolve_spread_binarization_plans, BinarizationDiagnostics, SpreadBinarizationPlan,
+        BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
@@ -142,6 +143,37 @@ pub struct CleanupMetadata {
     pub matched_canvas_content_width: Option<usize>,
     #[serde(default, rename = "matchedCanvasContentHeightPx")]
     pub matched_canvas_content_height: Option<usize>,
+    /// True when placement is anchored to the transformed optical content
+    /// rather than requiring the retained white raster rectangle to fit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub matched_canvas_optical_placement: bool,
+    /// Horizontal optical bounds in the intrinsic raster coordinate space.
+    /// Consumers use these with `intrinsicRasterWidthPx` to validate the
+    /// optical placement in canvas pixels.
+    #[serde(
+        default,
+        rename = "matchedCanvasOpticalContentLeftPx",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub matched_canvas_optical_content_left: Option<f64>,
+    #[serde(
+        default,
+        rename = "matchedCanvasOpticalContentRightPx",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub matched_canvas_optical_content_right: Option<f64>,
+    #[serde(
+        default,
+        rename = "matchedCanvasIntrinsicOverflowLeftPx",
+        skip_serializing_if = "is_zero_usize"
+    )]
+    pub matched_canvas_intrinsic_overflow_left: usize,
+    #[serde(
+        default,
+        rename = "matchedCanvasIntrinsicOverflowRightPx",
+        skip_serializing_if = "is_zero_usize"
+    )]
+    pub matched_canvas_intrinsic_overflow_right: usize,
     /// Physical PDF rectangle for a source-grid continuous-tone raster. When
     /// absent, assemblers retain the legacy behavior of covering the MediaBox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -192,6 +224,21 @@ pub struct CleanupMetadata {
     /// Intrinsic, unpadded cleaned-raster height.
     #[serde(rename = "outputHeightPx")]
     pub output_height: usize,
+    /// Width of the raster before matched-canvas materialization. The
+    /// post-match output dimensions describe the content box, while this
+    /// field keeps OCR and PDF geometry tied to the visible source raster.
+    #[serde(
+        default,
+        rename = "intrinsicRasterWidthPx",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intrinsic_raster_width: Option<usize>,
+    #[serde(
+        default,
+        rename = "intrinsicRasterHeightPx",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intrinsic_raster_height: Option<usize>,
     /// Actual preview payload bounds inside the full intrinsic output.
     #[serde(
         default,
@@ -218,6 +265,10 @@ pub struct CleanupMetadata {
     pub requested_render_dpi: f64,
     pub raster_scale_limited: bool,
     pub warnings: Vec<String>,
+}
+
+fn is_zero_usize(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -898,6 +949,12 @@ fn scale_detail_metadata(base: &CleanupMetadata, scale: f64) -> CleanupMetadata 
     }
     metadata.output_width = (metadata.output_width as f64 * scale).round().max(1.0) as usize;
     metadata.output_height = (metadata.output_height as f64 * scale).round().max(1.0) as usize;
+    metadata.intrinsic_raster_width = metadata
+        .intrinsic_raster_width
+        .map(|value| (value as f64 * scale).round().max(1.0) as usize);
+    metadata.intrinsic_raster_height = metadata
+        .intrinsic_raster_height
+        .map(|value| (value as f64 * scale).round().max(1.0) as usize);
     metadata.canvas_width = metadata.output_width;
     metadata.canvas_height = metadata.output_height;
     metadata.placement_offset_x = 0;
@@ -908,6 +965,11 @@ fn scale_detail_metadata(base: &CleanupMetadata, scale: f64) -> CleanupMetadata 
     metadata.matched_canvas_target_height_points = None;
     metadata.matched_canvas_content_width = None;
     metadata.matched_canvas_content_height = None;
+    metadata.matched_canvas_optical_placement = false;
+    metadata.matched_canvas_optical_content_left = None;
+    metadata.matched_canvas_optical_content_right = None;
+    metadata.matched_canvas_intrinsic_overflow_left = 0;
+    metadata.matched_canvas_intrinsic_overflow_right = 0;
     metadata.canvas_policy = MatchedCanvasPolicy::Intrinsic;
     metadata.canvas_overflow = false;
     metadata
@@ -1043,6 +1105,11 @@ pub struct PageAnalysisResult {
     pub split_diagnostics: SplitDiagnostics,
     pub rotated_width: usize,
     pub rotated_height: usize,
+    /// Page-local calibration evidence carried into the batch document plan.
+    /// The batch layer takes a robust median before serializing it into the
+    /// document prior used by final spread rendering.
+    pub calibration_stroke_width_px: Option<f64>,
+    pub calibration_x_height_px: Option<f64>,
     pub candidate_cutter_ratio: Option<f64>,
     pub whitespace_score: f64,
     pub text_axis: Option<TextAxisHint>,
@@ -2076,6 +2143,8 @@ fn analyze_page_with_color_and_document_prior_impl(
             split_diagnostics: SplitDiagnostics::default(),
             rotated_width: source.width(),
             rotated_height: source.height(),
+            calibration_stroke_width_px: None,
+            calibration_x_height_px: None,
             candidate_cutter_ratio: None,
             whitespace_score: 0.0,
             text_axis: None,
@@ -2129,6 +2198,14 @@ fn analyze_page_with_color_and_document_prior_impl(
             split_diagnostics: split.diagnostics,
             rotated_width: prepared.full_width,
             rotated_height: prepared.full_height,
+            calibration_stroke_width_px: prepared
+                .calibration
+                .valid
+                .then_some(prepared.calibration.stroke_width_px),
+            calibration_x_height_px: prepared
+                .calibration
+                .valid
+                .then_some(prepared.calibration.x_height_px),
             candidate_cutter_ratio: prepared.candidate_cutter_ratio,
             whitespace_score: prepared.whitespace_score,
             text_axis: prepared.text_axis,
@@ -2287,6 +2364,14 @@ fn analyze_page_with_color_and_document_prior_impl(
         split_diagnostics: split.diagnostics,
         rotated_width: prepared.full_width,
         rotated_height: prepared.full_height,
+        calibration_stroke_width_px: prepared
+            .calibration
+            .valid
+            .then_some(prepared.calibration.stroke_width_px),
+        calibration_x_height_px: prepared
+            .calibration
+            .valid
+            .then_some(prepared.calibration.x_height_px),
         candidate_cutter_ratio: prepared.candidate_cutter_ratio,
         whitespace_score: prepared.whitespace_score,
         text_axis: prepared.text_axis,
@@ -2556,8 +2641,46 @@ fn clean_page_with_color_and_calibration_config(
         &split,
         options.layout,
     );
+    let spread_plans = if split.classification == LayoutClassification::TwoPageSpread
+        && regions.len() == 2
+        && matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed)
+    {
+        // Route selection follows the existing single-leaf path's raw
+        // routing raster. The normalized leaves still feed the actual
+        // threshold operation below, but using the raw working-resolution
+        // leaves here preserves uneven paper evidence instead of allowing
+        // the spread-wide illumination model to make a weak leaf look
+        // artificially uniform. Anchors remain picture-mask aware.
+        let routing_spread = rotated_source.as_deref().unwrap_or(&normalized);
+        let left = crop_gray(routing_spread, regions[0].0);
+        let right = crop_gray(routing_spread, regions[1].0);
+        let normalized_picture_mask = picture_mask.as_deref().map(|mask| {
+            resample_binary_mask_nearest(mask, normalized.width(), normalized.height())
+        });
+        let left_picture_mask = normalized_picture_mask
+            .as_ref()
+            .map(|mask| crop_binary(mask, regions[0].0));
+        let right_picture_mask = normalized_picture_mask
+            .as_ref()
+            .map(|mask| crop_binary(mask, regions[1].0));
+        Some(resolve_spread_binarization_plans(
+            &normalized,
+            &left,
+            &right,
+            normalized_picture_mask.as_ref(),
+            left_picture_mask.as_ref(),
+            right_picture_mask.as_ref(),
+            options,
+            calibration,
+            document_prior.and_then(|prior| prior.stroke_width_median_px),
+            document_prior.and_then(|prior| prior.x_height_median_px),
+        ))
+    } else {
+        None
+    };
     let mut outputs = Vec::with_capacity(regions.len());
     for (region, half) in regions {
+        let spread_plan = spread_plans.as_ref().map(|plans| plans.for_half(half));
         outputs.push(clean_region(
             source,
             rotated_source.as_deref().unwrap_or(&normalized),
@@ -2582,6 +2705,7 @@ fn clean_page_with_color_and_calibration_config(
             options,
             source_page_index,
             &split,
+            spread_plan.as_ref(),
             region,
             half,
             cache,
@@ -2979,10 +3103,8 @@ fn prepare_analysis_page(
         let corroborated_picture_owner_pixels = detected_picture_mask
             .as_deref()
             .map_or(0, BinaryImage::count_black);
-        let trusted_mrc_tone_mask = picture_mask
-            .as_deref()
+        let trusted_mrc_tone_mask = trusted_mrc_background
             .filter(|_| options.trusted_mrc_source_available)
-            .and(trusted_mrc_background)
             .map(|background| {
                 let native_tone =
                     detect_continuous_tone_mask(background, options.source_background_dpi());
@@ -3095,17 +3217,25 @@ fn prepare_analysis_page(
         // corroborated evidence. Explicit painter/eraser zones stay outside
         // the inference and are applied once, last, so an operator override
         // cannot be enlarged and a final eraser cannot be silently undone.
-        let automatic_picture_owner = union_optional_masks(
-            automatic_picture_mask.as_ref(),
-            trusted_mrc_owned_tone_mask.as_ref(),
-        )
-        .and_then(|candidate| {
-            // Producer tone is evidence, not ownership. Qualify the union so
-            // an MRC background cannot bypass the same artifact vetoes as a
-            // flattened-page candidate before it reaches mode/label views.
-            let qualified = qualify_picture_owner(&rotated, &candidate);
-            (qualified.count_black() > 0).then(|| Arc::new(qualified))
-        });
+        let automatic_picture_owner = {
+            // Flattened-page candidates still pass the ordinary artifact
+            // qualifier. Trusted MRC tone has already passed the independent
+            // text-component veto and component/span gate above; qualifying
+            // that owner a second time as a flattened edge artifact would
+            // erase producer-authored ownership before it can reach Mixed
+            // composition. Crop geometry remains independent below.
+            let qualified_flattened = automatic_picture_mask
+                .as_ref()
+                .map(|candidate| qualify_picture_owner(&rotated, candidate));
+            let mut owner = qualified_flattened.as_ref().map_or_else(
+                || BinaryImage::new(rotated.width(), rotated.height()),
+                Clone::clone,
+            );
+            if let Some(trusted) = trusted_mrc_owned_tone_mask.as_deref() {
+                owner = owner.or(trusted);
+            }
+            (owner.count_black() > 0).then(|| Arc::new(owner))
+        };
         if let Some(automatic) = automatic_picture_owner.as_deref() {
             let empty_text = BinaryImage::new(rotated.width(), rotated.height());
             let rectangular = rectangularize_corroborated_photos(
@@ -4780,6 +4910,7 @@ fn clean_region(
     options: &CleanupOptions,
     source_page_index: usize,
     split: &SplitResult,
+    spread_plan: Option<&SpreadBinarizationPlan>,
     region: Rect,
     half: PageHalf,
     cache: Option<&PageCache>,
@@ -5523,10 +5654,28 @@ fn clean_region(
             .as_ref()
             .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
         && leaf_interior_is_blank(&rendered_gray, options.dpi);
+    // A pale reverse-side bleed-through can establish page-scale tonal
+    // structure even when the leaf itself has no authored content. Treat that
+    // combination as blank only when both ownership masks are below the same
+    // minimum and the transformed interior is independently blank. A real
+    // faint plate/text block either owns enough pixels or fails the interior
+    // blank test, while the fold rail remains safely unowned.
+    let pale_blank_leaf = pale_tonal_structure
+        && !preserve_confirmed_photo_tones
+        && half != PageHalf::Full
+        && content.content.is_none()
+        && ink_ownership_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && rendered_picture_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && leaf_interior_is_blank(&rendered_gray, options.dpi);
     let fail_closed_blank = force_clean_blank
         || (!pale_tonal_structure
             && content.content.is_none()
-            && (effectively_blank || unowned_edge_residue));
+            && (effectively_blank || unowned_edge_residue))
+        || pale_blank_leaf;
     // A sparse false-positive picture mask is common on a blank verso beside
     // a fold shadow. Strict text evidence is the blank-page veto here; normal
     // picture ownership still pins components, while the helper's separate
@@ -5574,8 +5723,10 @@ fn clean_region(
         match options.output_mode {
             OutputMode::Bw => {
                 let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                let routing_diagnostics =
-                    resolve_binarization_diagnostics(&routing_sample, options);
+                let routing_diagnostics = spread_plan.map_or_else(
+                    || resolve_binarization_diagnostics(&routing_sample, options),
+                    |plan| plan.diagnostics_for(&routing_sample, options),
+                );
                 let mode = routing_diagnostics.route;
                 let complete_trusted_foreground =
                     rendered_trusted_foreground_mask.as_ref().filter(|_| {
@@ -5661,6 +5812,7 @@ fn clean_region(
                             calibration,
                             rendered_picture_mask.as_ref(),
                             rendered_text_vicinity_mask.as_ref(),
+                            spread_plan,
                         );
                     timings.threshold_preparation_ms += stage_timings.preparation_ms;
                     timings.thresholding_ms += stage_timings.thresholding_ms;
@@ -5781,7 +5933,10 @@ fn clean_region(
                     .expect("mixed output prepares a picture mask");
                 if picture_mask.count_black() == 0 {
                     let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                    let route = resolve_binarization_diagnostics(&routing_sample, options).route;
+                    let route = spread_plan.map_or_else(
+                        || resolve_binarization_diagnostics(&routing_sample, options).route,
+                        |plan| plan.route(),
+                    );
                     let global_threshold_source =
                         (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
                     let binarization_started = Instant::now();
@@ -5795,6 +5950,7 @@ fn clean_region(
                             calibration,
                             rendered_picture_mask.as_ref(),
                             rendered_text_vicinity_mask.as_ref(),
+                            spread_plan,
                         );
                     timings.threshold_preparation_ms += stage_timings.preparation_ms;
                     timings.thresholding_ms += stage_timings.thresholding_ms;
@@ -5900,6 +6056,7 @@ fn clean_region(
                             calibration,
                             picture_mask,
                             rendered_text_vicinity_mask.as_ref(),
+                            spread_plan,
                         );
                     timings.threshold_preparation_ms += stage_timings.preparation_ms;
                     timings.thresholding_ms += stage_timings.thresholding_ms;
@@ -6173,6 +6330,11 @@ fn clean_region(
             matched_canvas_target_height_points: None,
             matched_canvas_content_width: None,
             matched_canvas_content_height: None,
+            matched_canvas_optical_placement: false,
+            matched_canvas_optical_content_left: None,
+            matched_canvas_optical_content_right: None,
+            matched_canvas_intrinsic_overflow_left: 0,
+            matched_canvas_intrinsic_overflow_right: 0,
             pdf_image_placement: None,
             output_mode: emitted_output_mode,
             bilevel_written: false,
@@ -6197,6 +6359,8 @@ fn clean_region(
             input_height: source.height(),
             output_width,
             output_height,
+            intrinsic_raster_width: Some(output_width),
+            intrinsic_raster_height: Some(output_height),
             render_region,
             canvas_width: output_width,
             canvas_height: output_height,

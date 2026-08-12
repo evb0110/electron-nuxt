@@ -243,6 +243,9 @@ export interface IScanCleanupPreviewMetadata {
     /** Intrinsic dimensions of the unpadded cleaned raster. */
     outputWidthPx: number;
     outputHeightPx: number;
+    /** Intrinsic raster extent before matched-canvas materialization. */
+    intrinsicRasterWidthPx?: number;
+    intrinsicRasterHeightPx?: number;
     /**
      * Actual image payload bounds inside the intrinsic cleaned raster.
      * Absent payloads cover the complete intrinsic raster.
@@ -266,6 +269,12 @@ export interface IScanCleanupPreviewMetadata {
      */
     matchedCanvasContentWidthPx?: number | null;
     matchedCanvasContentHeightPx?: number | null;
+    /** True when horizontal placement is anchored to transformed optical content. */
+    matchedCanvasOpticalPlacement?: boolean;
+    matchedCanvasOpticalContentLeftPx?: number | null;
+    matchedCanvasOpticalContentRightPx?: number | null;
+    matchedCanvasIntrinsicOverflowLeftPx?: number;
+    matchedCanvasIntrinsicOverflowRightPx?: number;
     /** Intrinsic raster origin within the logical canvas. */
     placementOffsetXPx: number;
     placementOffsetYPx: number;
@@ -458,6 +467,8 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     sourcePageNumbers?: number[];
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
     softAlphaForegroundRecommendations?: Partial<Record<string, boolean>>;
+    /** Document-level calibration priors settled by the completed detection pass. */
+    documentPriorByPage?: Partial<Record<string, IScanCleanupDocumentPrior>>;
     /** The layouts the preview was measured against, so this run matches the same rectangle. */
     layoutByPage?: TScanCleanupLayoutByPage;
     sourcePageMetadataByPage?: Partial<Record<string, IScanCleanupSourcePageMetadata>>;

@@ -308,6 +308,39 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it('keeps native optical placement for centered horizontal preview alignment', () => {
+        const matchedMetadata = metadata({
+            appliedMargins: {
+                leftPx: 10,
+                topPx: 20,
+                rightPx: 30,
+                bottomPx: 40,
+            },
+            outputWidthPx: 60,
+            outputHeightPx: 100,
+            canvasWidthPx: 200,
+            canvasHeightPx: 300,
+            matchedCanvasContentWidthPx: 180,
+            matchedCanvasContentHeightPx: 200,
+            matchedCanvasOpticalPlacement: true,
+            placementOffsetXPx: 72,
+            placementOffsetYPx: 20,
+        });
+
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center')).toMatchObject({
+            left: 72,
+            top: 40,
+        });
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center-left')).toMatchObject({
+            left: 10,
+            top: 40,
+        });
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-center')).toMatchObject({
+            left: 72,
+            top: 60,
+        });
+    });
+
     it.each([
         {
             half: 'left' as const,

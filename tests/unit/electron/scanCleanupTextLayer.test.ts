@@ -120,6 +120,22 @@ describe('scan-cleanup source text layer', () => {
         expect(instruction!.outputPageIndex).toBe(3);
     });
 
+    it('uses the intrinsic raster extent for matched grayscale geometry', () => {
+        const instruction = resolveScanCleanupTextLayerInstruction(output({
+            outputWidthPx: 845,
+            outputHeightPx: 507,
+            intrinsicRasterWidthPx: 1_000,
+            intrinsicRasterHeightPx: 600,
+            canvasWidthPx: 1_000,
+            canvasHeightPx: 600,
+            matchedCanvasContentWidthPx: 845,
+            matchedCanvasContentHeightPx: 507,
+        }), 0, pageSize);
+
+        expect(instruction!.matrix[0]).toBeCloseTo(0.845, 12);
+        expect(instruction!.matrix[3]).toBeCloseTo(0.845, 12);
+    });
+
     it('keeps cropped source text registered when content alignment moves the raster', () => {
         const instruction = resolveScanCleanupTextLayerInstruction(output({
             outputWidthPx: 800,

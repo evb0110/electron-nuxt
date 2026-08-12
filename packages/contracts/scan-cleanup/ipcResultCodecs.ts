@@ -197,6 +197,47 @@ function decodeBinarizationDiagnostics(
             'wolf',
         ].includes(String(value.route))
     ) throw new Error('invalid scan-cleanup preview binarization diagnostics');
+    const decodeRoute = (candidate: unknown, label: string) => {
+        if (![
+            'auto',
+            'otsu',
+            'sauvola',
+            'wolf',
+        ].includes(String(candidate))) {
+            throw new Error(`invalid scan-cleanup preview ${label}`);
+        }
+        return candidate as NonNullable<IScanCleanupPreviewMetadata['binarizationMode']>;
+    };
+    const spreadPlan = value.spreadPlan === undefined
+        ? undefined
+        : (() => {
+            if (!isRecord(value.spreadPlan)) throw new Error('invalid scan-cleanup preview spread plan');
+            const plan = value.spreadPlan;
+            const thresholdAnchor = decodeNonNegativeInteger(plan.thresholdAnchor, 'spread threshold anchor');
+            if (thresholdAnchor > 255) throw new Error('invalid scan-cleanup preview spread threshold anchor');
+            if (typeof plan.documentAnchor !== 'boolean') throw new Error('invalid scan-cleanup preview spread document anchor');
+            if (![
+                'sharedJoint',
+                'perLeafRouteMismatch',
+                'perLeafAnchorDrift',
+                'perLeafRadiusDrift',
+                'perLeafFaintInkDrift',
+            ].includes(String(plan.decision))) {
+                throw new Error('invalid scan-cleanup preview spread decision');
+            }
+            return {
+                route: decodeRoute(plan.route, 'spread route'),
+                thresholdAnchor,
+                thresholdRadius: decodePositiveInteger(plan.thresholdRadius, 'spread threshold radius'),
+                strokeWidthAnchorPx: decodePositiveFiniteNumber(plan.strokeWidthAnchorPx, 'spread stroke width anchor'),
+                xHeightAnchorPx: decodePositiveFiniteNumber(plan.xHeightAnchorPx, 'spread x-height anchor'),
+                documentAnchor: plan.documentAnchor,
+                jointCandidateRoute: decodeRoute(plan.jointCandidateRoute, 'spread joint candidate route'),
+                leftCandidateRoute: decodeRoute(plan.leftCandidateRoute, 'spread left candidate route'),
+                rightCandidateRoute: decodeRoute(plan.rightCandidateRoute, 'spread right candidate route'),
+                decision: plan.decision as 'sharedJoint' | 'perLeafRouteMismatch' | 'perLeafAnchorDrift' | 'perLeafRadiusDrift' | 'perLeafFaintInkDrift',
+            };
+        })();
     return {
         route: value.route as NonNullable<IScanCleanupPreviewMetadata['binarizationMode']>,
         robustContrast: decodeFiniteNumber(value.robustContrast, 'binarization robust contrast'),
@@ -205,6 +246,7 @@ function decodeBinarizationDiagnostics(
         estimatedStrokeWidthPx: decodeFiniteNumber(value.estimatedStrokeWidthPx, 'binarization stroke width'),
         darkBorderCoverage: decodeFiniteNumber(value.darkBorderCoverage, 'binarization border coverage'),
         otsuAdaptiveAgreement: decodeFiniteNumber(value.otsuAdaptiveAgreement, 'binarization agreement'),
+        ...(spreadPlan === undefined ? {} : {spreadPlan}),
     };
 }
 
@@ -306,6 +348,13 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             'strict-maximum',
         ].includes(String(value.canvasPolicy)))
         || (value.canvasOverflow !== undefined && typeof value.canvasOverflow !== 'boolean')
+        || (value.matchedCanvasOpticalPlacement !== undefined && typeof value.matchedCanvasOpticalPlacement !== 'boolean')
+        || (value.intrinsicRasterWidthPx !== undefined && (!Number.isSafeInteger(value.intrinsicRasterWidthPx) || Number(value.intrinsicRasterWidthPx) < 1))
+        || (value.intrinsicRasterHeightPx !== undefined && (!Number.isSafeInteger(value.intrinsicRasterHeightPx) || Number(value.intrinsicRasterHeightPx) < 1))
+        || (value.matchedCanvasOpticalContentLeftPx !== undefined && value.matchedCanvasOpticalContentLeftPx !== null && (!Number.isFinite(Number(value.matchedCanvasOpticalContentLeftPx)) || Number(value.matchedCanvasOpticalContentLeftPx) < 0))
+        || (value.matchedCanvasOpticalContentRightPx !== undefined && value.matchedCanvasOpticalContentRightPx !== null && (!Number.isFinite(Number(value.matchedCanvasOpticalContentRightPx)) || Number(value.matchedCanvasOpticalContentRightPx) < 0))
+        || (value.matchedCanvasIntrinsicOverflowLeftPx !== undefined && (!Number.isSafeInteger(value.matchedCanvasIntrinsicOverflowLeftPx) || Number(value.matchedCanvasIntrinsicOverflowLeftPx) < 0))
+        || (value.matchedCanvasIntrinsicOverflowRightPx !== undefined && (!Number.isSafeInteger(value.matchedCanvasIntrinsicOverflowRightPx) || Number(value.matchedCanvasIntrinsicOverflowRightPx) < 0))
         || (value.illuminationNormalized !== undefined && typeof value.illuminationNormalized !== 'boolean')
         || (value.outputMode !== undefined && !isScanCleanupOutputMode(value.outputMode))
         || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
@@ -358,6 +407,12 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         },
         outputWidthPx: decodePositiveInteger(value.outputWidthPx, 'output width'),
         outputHeightPx: decodePositiveInteger(value.outputHeightPx, 'output height'),
+        ...(value.intrinsicRasterWidthPx === undefined
+            ? {}
+            : {intrinsicRasterWidthPx: decodePositiveInteger(value.intrinsicRasterWidthPx, 'intrinsic raster width')}),
+        ...(value.intrinsicRasterHeightPx === undefined
+            ? {}
+            : {intrinsicRasterHeightPx: decodePositiveInteger(value.intrinsicRasterHeightPx, 'intrinsic raster height')}),
         ...(value.renderRegion === undefined
             ? {}
             : {renderRegion: decodePreviewRect(value.renderRegion, 'render region')}),
@@ -391,6 +446,23 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             || value.matchedCanvasContentHeightPx === undefined
             ? null
             : decodePositiveInteger(value.matchedCanvasContentHeightPx, 'matched canvas content height'),
+        ...(value.matchedCanvasOpticalPlacement === undefined
+            ? {}
+            : {matchedCanvasOpticalPlacement: value.matchedCanvasOpticalPlacement}),
+        matchedCanvasOpticalContentLeftPx: value.matchedCanvasOpticalContentLeftPx === null
+            || value.matchedCanvasOpticalContentLeftPx === undefined
+            ? null
+            : decodeNonNegativeFiniteNumber(value.matchedCanvasOpticalContentLeftPx, 'optical content left'),
+        matchedCanvasOpticalContentRightPx: value.matchedCanvasOpticalContentRightPx === null
+            || value.matchedCanvasOpticalContentRightPx === undefined
+            ? null
+            : decodeNonNegativeFiniteNumber(value.matchedCanvasOpticalContentRightPx, 'optical content right'),
+        ...(value.matchedCanvasIntrinsicOverflowLeftPx === undefined
+            ? {}
+            : {matchedCanvasIntrinsicOverflowLeftPx: decodeNonNegativeInteger(value.matchedCanvasIntrinsicOverflowLeftPx, 'intrinsic overflow left')}),
+        ...(value.matchedCanvasIntrinsicOverflowRightPx === undefined
+            ? {}
+            : {matchedCanvasIntrinsicOverflowRightPx: decodeNonNegativeInteger(value.matchedCanvasIntrinsicOverflowRightPx, 'intrinsic overflow right')}),
         placementOffsetXPx: decodeNonNegativeInteger(value.placementOffsetXPx, 'placement offset x'),
         placementOffsetYPx: decodeNonNegativeInteger(value.placementOffsetYPx, 'placement offset y'),
         forwardTransform: decodePreviewAffine(value.forwardTransform),
@@ -452,10 +524,31 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     // content box, and there the two are the same thing.
     const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
+    const intrinsicWidthPx = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
+    const opticalScaleX = contentWidthPx / intrinsicWidthPx;
+    const opticalLeft = metadata.matchedCanvasOpticalContentLeftPx;
+    const opticalRight = metadata.matchedCanvasOpticalContentRightPx;
+    const recordedIntrinsicOverflowLeft = metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0;
+    const recordedIntrinsicOverflowRight = metadata.matchedCanvasIntrinsicOverflowRightPx ?? 0;
+    const effectivePlacementOffsetX = metadata.placementOffsetXPx - recordedIntrinsicOverflowLeft;
+    const actualIntrinsicOverflowRight = Math.max(
+        0,
+        effectivePlacementOffsetX + contentWidthPx - metadata.canvasWidthPx,
+    );
     if (
         metadata.canvasWidthPx < contentWidthPx
         || metadata.canvasHeightPx < contentHeightPx
-        || metadata.placementOffsetXPx + contentWidthPx > metadata.canvasWidthPx
+        || recordedIntrinsicOverflowLeft > contentWidthPx
+        || actualIntrinsicOverflowRight !== recordedIntrinsicOverflowRight
+        || (metadata.matchedCanvasOpticalPlacement === true && (
+            opticalLeft === null
+            || opticalLeft === undefined
+            || opticalRight === null
+            || opticalRight === undefined
+            || opticalLeft >= opticalRight
+            || effectivePlacementOffsetX + opticalLeft * opticalScaleX < metadata.appliedMargins.leftPx
+            || effectivePlacementOffsetX + opticalRight * opticalScaleX > metadata.canvasWidthPx - metadata.appliedMargins.rightPx
+        ))
         || metadata.placementOffsetYPx + contentHeightPx > metadata.canvasHeightPx
     ) {
         throw new Error('invalid scan-cleanup preview intrinsic/canvas placement');

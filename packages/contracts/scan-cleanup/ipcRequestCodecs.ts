@@ -296,6 +296,14 @@ export function decodeDocumentPrior(value: unknown): IScanCleanupDocumentPrior {
         || !Number.isFinite(value.agreementStrength)
         || value.agreementStrength < 0
         || value.agreementStrength > 1
+        || !(value.strokeWidthMedianPx === undefined
+            || (typeof value.strokeWidthMedianPx === 'number'
+                && Number.isFinite(value.strokeWidthMedianPx)
+                && value.strokeWidthMedianPx > 0))
+        || !(value.xHeightMedianPx === undefined
+            || (typeof value.xHeightMedianPx === 'number'
+                && Number.isFinite(value.xHeightMedianPx)
+                && value.xHeightMedianPx > 0))
         || !(value.cutterRatioMedian === null || (
             typeof value.cutterRatioMedian === 'number'
             && Number.isFinite(value.cutterRatioMedian)
@@ -312,6 +320,12 @@ export function decodeDocumentPrior(value: unknown): IScanCleanupDocumentPrior {
             heightPx: value.clusterDims.heightPx,
         },
         agreementStrength: value.agreementStrength,
+        ...(value.strokeWidthMedianPx === undefined
+            ? {}
+            : {strokeWidthMedianPx: value.strokeWidthMedianPx}),
+        ...(value.xHeightMedianPx === undefined
+            ? {}
+            : {xHeightMedianPx: value.xHeightMedianPx}),
     };
 }
 
@@ -787,6 +801,21 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                 item,
             ])) as NonNullable<IScanCleanupStartRequest['softAlphaForegroundRecommendations']>;
         })();
+    const documentPriorByPage = value.documentPriorByPage === undefined
+        ? undefined
+        : (() => {
+            const entries = decodePageMapEntries(
+                value.documentPriorByPage,
+                'document-prior map',
+            );
+            return Object.fromEntries(entries.map(({
+                item,
+                key,
+            }) => [
+                key,
+                decodeDocumentPrior(item),
+            ])) as NonNullable<IScanCleanupStartRequest['documentPriorByPage']>;
+        })();
     const sourcePageNumbers = value.sourcePageNumbers === undefined
         ? undefined
         : (() => {
@@ -928,6 +957,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
         ...(softAlphaForegroundRecommendations === undefined
             ? {}
             : {softAlphaForegroundRecommendations}),
+        ...(documentPriorByPage === undefined ? {} : {documentPriorByPage}),
         ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
         ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
         ...(pagePlanEvidenceByPage === undefined ? {} : {pagePlanEvidenceByPage}),
