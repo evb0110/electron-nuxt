@@ -294,15 +294,15 @@ describe('scan cleanup preview geometry', () => {
             placementOffsetYPx: 20,
         });
 
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'top-center')).toMatchObject({
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'top-center', true)).toMatchObject({
             left: 30,
             top: 20,
         });
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center')).toMatchObject({
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center', true)).toMatchObject({
             left: 30,
             top: 20,
         });
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right')).toMatchObject({
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right', true)).toMatchObject({
             left: 50,
             top: 20,
         });
@@ -324,9 +324,15 @@ describe('scan cleanup preview geometry', () => {
             placementOffsetYPx: 37,
         });
 
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right')).toMatchObject({
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right', true)).toMatchObject({
             left: 50,
             top: 37,
+        });
+        // A result rendered under an older alignment repositions optimistically
+        // until the fresh native render replaces it.
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right')).toMatchObject({
+            left: 50,
+            top: 60,
         });
     });
 
@@ -349,15 +355,15 @@ describe('scan cleanup preview geometry', () => {
             placementOffsetYPx: 20,
         });
 
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center')).toMatchObject({
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center', true)).toMatchObject({
             left: 72,
             top: 20,
         });
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center-left')).toMatchObject({
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center-left', true)).toMatchObject({
             left: 10,
             top: 20,
         });
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-center')).toMatchObject({
+        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-center', true)).toMatchObject({
             left: 72,
             top: 20,
         });
@@ -432,7 +438,7 @@ describe('scan cleanup preview geometry', () => {
             placementOffsetYPx: 20,
         });
         const reference = resolvePreviewAlignmentReferenceRect(matchedMetadata, 120, 200);
-        const placement = resolvePreviewMetadataPlacement(matchedMetadata, alignment);
+        const placement = resolvePreviewMetadataPlacement(matchedMetadata, alignment, true);
         const horizontalRatio = (placement.left - reference.originX) / reference.spanX;
         const horizontal = horizontalRatio < 0.25
             ? 'left'

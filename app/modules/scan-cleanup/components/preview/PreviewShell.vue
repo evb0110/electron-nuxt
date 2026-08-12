@@ -482,6 +482,7 @@ interface IPlacementDragGeometry {
 type TScanCleanupDragGeometry = ICutterDragGeometry | IContentDragGeometry | IPlacementDragGeometry;
 const props = defineProps<{
     result: IScanCleanupPreviewResult | null;
+    resultCurrent?: boolean;
     detailResult?: IScanCleanupPreviewResult | null;
     rawResult?: IScanCleanupRawPreviewResult | null;
     loading: boolean;
@@ -1469,6 +1470,7 @@ const renderedOutputs = computed(() => {
         const placement = resolvePreviewMetadataPlacement(
             metadata,
             props.placementOverrides?.[metadata.half] ?? props.alignment,
+            props.resultCurrent === true,
         );
         const imageStyle = toPreviewStyleRect({
             xPx: 0,

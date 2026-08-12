@@ -129,6 +129,7 @@
             <div class="scan-cleanup-preview-hero">
                 <ScanCleanupPreviewPane
                     :result="previewResult"
+                    :result-current="previewResultCurrent"
                     :detail-result="previewDetailResult"
                     :raw-result="previewRawResult"
                     :loading="previewLoading"

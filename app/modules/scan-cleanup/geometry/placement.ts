@@ -36,6 +36,7 @@ export interface IScanCleanupPreviewPlacement {
 export function resolvePreviewMetadataPlacement(
     metadata: IScanCleanupPreviewMetadata,
     alignment?: TScanCleanupPageAlignment,
+    nativeVerticalCurrent = false,
 ): IScanCleanupPreviewPlacement {
     const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
@@ -44,6 +45,7 @@ export function resolvePreviewMetadataPlacement(
         contentWidthPx,
         contentHeightPx,
         alignment,
+        nativeVerticalCurrent,
     );
     const intrinsicRasterWidthPx = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
     const intrinsicRasterHeightPx = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
@@ -64,6 +66,7 @@ function resolvePreviewMetadataOffset(
     contentWidthPx: number,
     contentHeightPx: number,
     alignment: TScanCleanupPageAlignment | undefined,
+    nativeVerticalCurrent: boolean,
 ) {
     if (alignment === undefined) {
         return {
@@ -85,9 +88,13 @@ function resolvePreviewMetadataOffset(
         )
         ? metadata.placementOffsetXPx
         : aligned.x;
+    // Native Y carries the spread pair anchor, but only describes the
+    // alignment the result was rendered under. A result that predates the
+    // currently requested alignment must reposition optimistically until the
+    // fresh native render replaces it.
     return {
         x,
-        y: metadata.placementOffsetYPx ?? aligned.y,
+        y: nativeVerticalCurrent ? metadata.placementOffsetYPx ?? aligned.y : aligned.y,
     };
 }
 
