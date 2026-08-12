@@ -58,6 +58,10 @@ pub(crate) const BLEED_SHALLOW_DEPTH: u8 = 80;
 const RESCUE_CANDIDATE_DEPTH: u8 = 24;
 const RESCUE_ROW_SIGNAL_DEPTH: u8 = 24;
 const RESCUE_ROW_SIGNAL_CRISPNESS: u16 = 18;
+// Must classify only genuinely dark missing body pixels, not a healthy stroke's gray halo.
+const RESCUE_SOLID_DEPTH: u8 = 128;
+// Must recognize captured healthy ink while leaving pale captured skeletons rescue-eligible.
+const RESCUE_SOLID_CAPTURED_MEDIAN: u8 = 96;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1370,7 +1374,9 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
             continue;
         }
         let mut missing = 0usize;
+        let mut deep_missing = 0usize;
         let mut qualifying_missing = 0usize;
+        let mut captured_raw = Vec::new();
         let mut component_rows = vec![0usize; component.bottom - component.top + 1];
         let mut row_aligned = false;
         let mut touches_picture_owner = false;
@@ -1387,15 +1393,28 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
                     row_aligned = true;
                 }
                 if damaged.get(x, y) {
+                    captured_raw.push(raw.get(x, y));
                     continue;
                 }
                 missing += 1;
+                if raw.get(x, y) <= local_paper.get(x, y).saturating_sub(RESCUE_SOLID_DEPTH) {
+                    deep_missing += 1;
+                }
                 let gradient = raw_max.get(x, y).saturating_sub(raw_min.get(x, y));
                 if is_crisp_or_deep_sample(raw.get(x, y), local_paper.get(x, y), gradient) {
                     qualifying_missing += 1;
                 }
             }
         }
+        captured_raw.sort_unstable();
+        let captured_median_raw = (!captured_raw.is_empty()).then(|| {
+            let middle = captured_raw.len() / 2;
+            if captured_raw.len() % 2 == 0 {
+                ((u16::from(captured_raw[middle - 1]) + u16::from(captured_raw[middle])) / 2) as u8
+            } else {
+                captured_raw[middle]
+            }
+        });
         if let Some(profile) = raw_row_profile.as_ref() {
             row_aligned = (component.top..=component.bottom).any(|y| {
                 profile[y] >= minimum_independent_row_support + component_rows[y - component.top]
@@ -1404,6 +1423,9 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
         if touches_picture_owner
             || !row_aligned
             || missing == 0
+            || captured_median_raw.is_some_and(|median| {
+                median <= RESCUE_SOLID_CAPTURED_MEDIAN && deep_missing.saturating_mul(16) < missing
+            })
             || qualifying_missing < 2
             || qualifying_missing.saturating_mul(4) < missing
         {
@@ -1657,7 +1679,25 @@ enum SmoothProfile {
 }
 
 fn smooth_edges_for_page(source: &BinaryImage, dpi: f64) -> BinaryImage {
-    smooth_edges_with_profile(source, resolve_smooth_profile(source, dpi))
+    let source_ink = source.count_black();
+    let profile = resolve_smooth_profile(source, dpi);
+    let smoothed = smooth_edges_with_profile(source, profile);
+    if !smoothing_exceeds_ink_growth_limit(source_ink, smoothed.count_black()) {
+        return smoothed;
+    }
+    if profile == SmoothProfile::TopologySafe {
+        return source.clone();
+    }
+    let topology_safe = smooth_edges_with_profile(source, SmoothProfile::TopologySafe);
+    if smoothing_exceeds_ink_growth_limit(source_ink, topology_safe.count_black()) {
+        source.clone()
+    } else {
+        topology_safe
+    }
+}
+
+fn smoothing_exceeds_ink_growth_limit(source_ink: usize, smoothed_ink: usize) -> bool {
+    (smoothed_ink as u128) * 100 > (source_ink as u128) * 108
 }
 
 fn resolve_smooth_profile(source: &BinaryImage, _dpi: f64) -> SmoothProfile {
@@ -2649,6 +2689,73 @@ mod tests {
     }
 
     #[test]
+    fn faint_rescue_skips_a_solid_stroke_component_with_a_full_gray_halo() {
+        let mut raw = GrayImage::new(120, 80, 232);
+        let mut damaged = BinaryImage::new(raw.width(), raw.height());
+        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
+        for y in 23..57 {
+            for x in 49..56 {
+                raw.set(x, y, 170);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 24..56 {
+            for x in 50..55 {
+                raw.set(x, y, 40);
+                damaged.set(x, y, true);
+            }
+        }
+
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            None,
+            BinarizationMode::Otsu,
+            BinarizationMode::Otsu,
+            300.0,
+            true,
+        );
+
+        assert_eq!(
+            rescued, damaged,
+            "a healthy stroke's halo must not become ink"
+        );
+    }
+
+    #[test]
+    fn faint_rescue_keeps_a_pale_captured_skeleton_with_a_deep_missing_body() {
+        let mut raw = GrayImage::new(120, 80, 232);
+        let mut damaged = BinaryImage::new(raw.width(), raw.height());
+        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
+        for y in 24..56 {
+            for x in 50..56 {
+                raw.set(x, y, 60);
+                text_vicinity.set(x, y, true);
+            }
+            raw.set(52, y, 90);
+            damaged.set(52, y, true);
+        }
+
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            None,
+            BinarizationMode::Otsu,
+            BinarizationMode::Otsu,
+            300.0,
+            true,
+        );
+
+        assert!(rescued.get(50, 40));
+        assert!(rescued.get(55, 40));
+        assert!(rescued.count_black() > damaged.count_black());
+    }
+
+    #[test]
     fn row_evidence_exclusion_prevents_a_scanner_rail_from_supporting_specks() {
         let mut raw = GrayImage::new(160, 100, 232);
         let mut rail = BinaryImage::new(160, 100);
@@ -3261,6 +3368,52 @@ mod tests {
         let smoothed = smooth_edges(&image);
         assert!(smoothed.get(3, 3), "one-pixel dent must be filled");
         assert!(!smoothed.get(5, 5), "one-pixel bump must be trimmed");
+    }
+
+    #[test]
+    fn page_edge_smoothing_rejects_legacy_dilation_over_eight_percent() {
+        let mut image = BinaryImage::new(96, 96);
+        for y in 16..80 {
+            for x in 20..33 {
+                image.set(x, y, true);
+            }
+            if y % 2 == 0 {
+                image.set(20, y, false);
+                image.set(32, y, false);
+            }
+        }
+        assert_eq!(resolve_smooth_profile(&image, 300.0), SmoothProfile::Legacy);
+
+        let source_ink = image.count_black();
+        let legacy = smooth_edges_with_profile(&image, SmoothProfile::Legacy);
+        assert!(smoothing_exceeds_ink_growth_limit(
+            source_ink,
+            legacy.count_black()
+        ));
+        let topology_safe = smooth_edges_with_profile(&image, SmoothProfile::TopologySafe);
+        let expected =
+            if smoothing_exceeds_ink_growth_limit(source_ink, topology_safe.count_black()) {
+                image.clone()
+            } else {
+                topology_safe
+            };
+
+        assert_eq!(smooth_edges_for_page(&image, 300.0), expected);
+    }
+
+    #[test]
+    fn page_edge_smoothing_passes_through_neutral_legacy_result() {
+        let mut image = BinaryImage::new(48, 48);
+        for y in 12..36 {
+            for x in 12..36 {
+                image.set(x, y, true);
+            }
+        }
+        assert_eq!(resolve_smooth_profile(&image, 300.0), SmoothProfile::Legacy);
+
+        let legacy = smooth_edges_with_profile(&image, SmoothProfile::Legacy);
+        assert_eq!(legacy, image);
+        assert_eq!(smooth_edges_for_page(&image, 300.0), legacy);
     }
 
     #[test]
