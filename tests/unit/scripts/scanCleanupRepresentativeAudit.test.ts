@@ -2,6 +2,7 @@ import {
     alignBitmapForComparison,
     buildExpectationInfos,
     buildExpectedMapping,
+    measureSpreadLeafScale,
     measureSpreadLeafVerticalAlignment,
 } from '@scripts/diagnostics/scan-cleanup-representative-audit.mjs';
 import {
@@ -57,11 +58,11 @@ function makeSyntheticBitmap(offsetX = 0, includeContent = true) {
     };
 }
 
-function makeContentTopBitmap(top: number, contentValue = 0) {
+function makeContentTopBitmap(top: number, contentValue = 0, span = 80) {
     const width = 160;
     const height = 224;
     const data = new Uint8Array(width * height).fill(255);
-    for (let y = top; y < top + 80; y += 1) {
+    for (let y = top; y < top + span; y += 1) {
         for (let x = 20; x < 140; x += 1) {
             data[y * width + x] = contentValue;
         }
@@ -179,5 +180,40 @@ describe('scan cleanup representative audit mapping inference', () => {
         expect(aligned.status).toBe('pass');
         expect(aligned.source.leftTopPx).toBe(32);
         expect(aligned.cleaned.rightTopPx).toBe(34);
+    });
+
+    it('flags unequal source-relative leaf content scales and reports unmeasured pairs', () => {
+        const sourceLeft = makeContentTopBitmap(32, 0, 80);
+        const sourceRight = makeContentTopBitmap(34, 0, 80);
+        const mismatch = measureSpreadLeafScale({
+            cleanedLeft: makeContentTopBitmap(32, 0, 80),
+            cleanedRight: makeContentTopBitmap(34, 0, 72),
+            sourceLeft,
+            sourceRight,
+        });
+        expect(mismatch.status).toBe('violation');
+        expect(mismatch.violations).toContain('leaf-scale-mismatch');
+        expect(mismatch.scales.left).toBe(1);
+        expect(mismatch.scales.right).toBe(0.9);
+
+        const unmeasured = measureSpreadLeafScale({
+            cleanedLeft: makeContentTopBitmap(32, 0, 80),
+            cleanedRight: makeContentTopBitmap(34, 0, 0),
+            sourceLeft,
+            sourceRight,
+        });
+        expect(unmeasured.status).toBe('unmeasured');
+        expect(unmeasured.reason).toBe('content-span-not-measurable');
+        expect(unmeasured.violations).toEqual([]);
+
+        const incomparableSourceSpans = measureSpreadLeafScale({
+            cleanedLeft: makeContentTopBitmap(32, 0, 80),
+            cleanedRight: makeContentTopBitmap(34, 0, 72),
+            sourceLeft,
+            sourceRight: makeContentTopBitmap(34, 0, 60),
+        });
+        expect(incomparableSourceSpans.status).toBe('unmeasured');
+        expect(incomparableSourceSpans.reason).toBe('source-content-spans-not-comparable');
+        expect(incomparableSourceSpans.violations).toEqual([]);
     });
 });

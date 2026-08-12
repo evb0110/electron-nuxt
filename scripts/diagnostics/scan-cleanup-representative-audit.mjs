@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable max-lines */
 // Oracle audit for scan-cleanup representative fixtures. Renders source and
 // cleaned PDFs to low-DPI grayscale PGM with pdftoppm and infers the source to
 // output mapping from the rendered output count and page evidence. It checks
@@ -27,7 +28,9 @@ import {tsImport} from 'tsx/esm/api';
 import {
     buildExpectationInfos as buildExpectationInfosImpl,
     buildSpreadLeafAlignment,
+    buildSpreadLeafScale,
     contentBboxHeightFraction,
+    measureSpreadLeafScale as measureSpreadLeafScaleImpl,
     measureSpreadLeafVerticalAlignment as measureSpreadLeafVerticalAlignmentImpl,
 } from './scan-cleanup-representative-audit-leaf-alignment.mjs';
 
@@ -69,6 +72,7 @@ async function run(command, args) {
 // Render resolution: low DPI keeps rendering + grid math cheap given how
 // coarse the grids below are.
 const DEFAULT_DPI = 50;
+const SCALE_DPI = 100;
 // Per-pixel darkness threshold on the 0-255 grayscale sample.
 const INK_THRESHOLD = 128;
 // Coarse grid for ink-fraction/similarity. Min-pooling (darkest sample wins
@@ -762,6 +766,10 @@ export function measureSpreadLeafVerticalAlignment(args) {
     });
 }
 
+export function measureSpreadLeafScale(args) {
+    return measureSpreadLeafScaleImpl(args);
+}
+
 function round(value) {
     return Math.round(value * 10_000) / 10_000;
 }
@@ -1066,10 +1074,14 @@ async function main() {
     let pages;
     let sourcePages;
     let cleanedPages;
+    let scaleCleanedPages;
+    let scaleSourcePages;
     try {
         [
             sourcePages,
             cleanedPages,
+            scaleSourcePages,
+            scaleCleanedPages,
         ] = await Promise.all([
             renderPdfPagesGray({
                 dpi: options.dpi,
@@ -1081,6 +1093,20 @@ async function main() {
             renderPdfPagesGray({
                 dpi: options.dpi,
                 label: 'clean',
+                pageCount: actualCleanedCount,
+                pdfPath: options.cleaned,
+                workDirectory,
+            }),
+            renderPdfPagesGray({
+                dpi: SCALE_DPI,
+                label: 'scale-src',
+                pageCount: sourcePageCount,
+                pdfPath: options.source,
+                workDirectory,
+            }),
+            renderPdfPagesGray({
+                dpi: SCALE_DPI,
+                label: 'scale-clean',
                 pageCount: actualCleanedCount,
                 pdfPath: options.cleaned,
                 workDirectory,
@@ -1113,6 +1139,12 @@ async function main() {
             sourcePages,
             splitHalves,
         });
+        const leafPairScale = buildSpreadLeafScale({
+            cleanedPages: scaleCleanedPages,
+            entries,
+            sourcePages: scaleSourcePages,
+            splitHalves,
+        });
 
         const infos = buildExpectationInfosImpl({
             expectSingles: options.expectSingles,
@@ -1123,6 +1155,7 @@ async function main() {
             'content-loss': 0,
             geometry: 0,
             'leaf-misalignment': 0,
+            'leaf-scale-mismatch': 0,
             'page-count': pageCountMismatch ? 1 : 0,
         };
         for (const page of pages) {
@@ -1135,6 +1168,14 @@ async function main() {
                 violationCounts[violation] += 1;
             }
         }
+        for (const pair of leafPairScale) {
+            for (const violation of pair.violations) {
+                violationCounts[violation] += 1;
+            }
+        }
+        const leafScaleUnmeasuredPairs = leafPairScale.filter(
+            pair => pair.status === 'unmeasured',
+        ).length;
         const totalViolations = Object.values(violationCounts).reduce((sum, count) => sum + count, 0);
 
         const report = {
@@ -1147,6 +1188,7 @@ async function main() {
                 visualExpectedCount: mapping.visualExpectedCount,
             },
             leafPairAlignment,
+            leafPairScale,
             pages,
             source: options.source,
             summary: {
@@ -1154,7 +1196,10 @@ async function main() {
                 expectedCleanedCount,
                 infoCount: infos.length,
                 leafPairCount: leafPairAlignment.length,
+                leafScaleDpi: SCALE_DPI,
                 leafMisalignmentPairs: leafPairAlignment.filter(pair => pair.status === 'violation').length,
+                leafScaleMismatchPairs: leafPairScale.filter(pair => pair.status === 'violation').length,
+                leafScaleUnmeasuredPairs,
                 pageCountMismatch,
                 sourcePageCount,
                 totalViolations,
@@ -1165,6 +1210,7 @@ async function main() {
         console.log(`Wrote ${options.out}`);
         console.log(`Source pages: ${String(sourcePageCount)}, inferred cleaned pages: ${String(expectedCleanedCount)}, actual cleaned pages: ${String(actualCleanedCount)}`);
         console.log(`Violations: ${JSON.stringify(violationCounts)}`);
+        console.log(`Leaf scale pairs unmeasured: ${String(leafScaleUnmeasuredPairs)}`);
         if (infos.length > 0) {
             console.log(`Infos: ${JSON.stringify(infos.map(info => info.code))}`);
         }

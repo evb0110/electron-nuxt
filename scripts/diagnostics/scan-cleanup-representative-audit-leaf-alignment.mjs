@@ -1,4 +1,9 @@
 const DEFAULT_TOLERANCE_MM = 3;
+const DEFAULT_SCALE_TOLERANCE = 0.02;
+const CONTENT_BELOW_PAPER = 245;
+const SCALE_CONTENT_BELOW_PAPER = 64;
+const MINIMUM_ROW_PIXELS = 3;
+const SCALE_MINIMUM_ROW_PIXELS = 3;
 
 function round(value) {
     return Math.round(value * 10_000) / 10_000;
@@ -44,26 +49,42 @@ export function buildExpectationInfos({
     }];
 }
 
-function contentTopPixels(bitmap) {
+function contentVerticalBounds(
+    bitmap,
+    threshold = CONTENT_BELOW_PAPER,
+    minimumPixels = MINIMUM_ROW_PIXELS,
+) {
     // Keep the oracle's vertical anchor in the same pixel space as the native
     // matched-canvas planner. A dark-ink grid misses pale photo skies and can
     // report different tops for otherwise aligned leaves. The row guard
     // rejects isolated dust while retaining genuine low-contrast content.
-    const contentBelowPaper = 245;
-    const minimumRowPixels = 3;
+    let top = null;
+    let bottom = null;
     for (let y = 0; y < bitmap.height; y += 1) {
         let contentPixels = 0;
         const rowOffset = y * bitmap.width;
         for (let x = 0; x < bitmap.width; x += 1) {
-            if (bitmap.data[rowOffset + x] < contentBelowPaper) {
+            if (bitmap.data[rowOffset + x] < threshold) {
                 contentPixels += 1;
-                if (contentPixels >= minimumRowPixels) {
-                    return y;
+                if (contentPixels >= minimumPixels) {
+                    top ??= y;
+                    bottom = y + 1;
+                    break;
                 }
             }
         }
     }
-    return null;
+    return top === null
+        ? null
+        : {
+            bottom,
+            span: bottom - top,
+            top,
+        };
+}
+
+function contentTopPixels(bitmap) {
+    return contentVerticalBounds(bitmap)?.top ?? null;
 }
 
 export function measureSpreadLeafVerticalAlignment({
@@ -123,6 +144,84 @@ export function measureSpreadLeafVerticalAlignment({
     return result;
 }
 
+export function measureSpreadLeafScale({
+    cleanedLeft,
+    cleanedRight,
+    sourceLeft,
+    sourceRight,
+    tolerance = DEFAULT_SCALE_TOLERANCE,
+}) {
+    const sourceLeftBounds = contentVerticalBounds(
+        sourceLeft,
+        SCALE_CONTENT_BELOW_PAPER,
+        SCALE_MINIMUM_ROW_PIXELS,
+    );
+    const sourceRightBounds = contentVerticalBounds(
+        sourceRight,
+        SCALE_CONTENT_BELOW_PAPER,
+        SCALE_MINIMUM_ROW_PIXELS,
+    );
+    const cleanedLeftBounds = cleanedLeft
+        ? contentVerticalBounds(cleanedLeft, SCALE_CONTENT_BELOW_PAPER, SCALE_MINIMUM_ROW_PIXELS)
+        : null;
+    const cleanedRightBounds = cleanedRight
+        ? contentVerticalBounds(cleanedRight, SCALE_CONTENT_BELOW_PAPER, SCALE_MINIMUM_ROW_PIXELS)
+        : null;
+    const result = {
+        cleaned: {
+            leftSpanPx: cleanedLeftBounds?.span ?? null,
+            rightSpanPx: cleanedRightBounds?.span ?? null,
+        },
+        scales: {
+            left: null,
+            right: null,
+        },
+        source: {
+            leftSpanPx: sourceLeftBounds?.span ?? null,
+            rightSpanPx: sourceRightBounds?.span ?? null,
+        },
+        status: 'unmeasured',
+        reason: null,
+        scaleDifferenceRatio: null,
+        sourceSpanDifferenceRatio: null,
+        tolerance,
+        violations: [],
+    };
+    if (
+        sourceLeftBounds === null
+        || sourceRightBounds === null
+        || cleanedLeftBounds === null
+        || cleanedRightBounds === null
+    ) {
+        result.reason = 'content-span-not-measurable';
+        return result;
+    }
+
+    const sourceSpanDifferenceRatio = Math.abs(sourceLeftBounds.span - sourceRightBounds.span)
+        / Math.max(sourceLeftBounds.span, sourceRightBounds.span);
+    result.sourceSpanDifferenceRatio = round(sourceSpanDifferenceRatio);
+    // A single bounding span is not a reliable scale marker when the two
+    // source leaves contain materially different vertical extents. Keep that
+    // pair visible as unmeasured instead of mistaking genuine page-layout
+    // differences for a raster-scale defect.
+    if (sourceSpanDifferenceRatio > tolerance) {
+        result.reason = 'source-content-spans-not-comparable';
+        return result;
+    }
+
+    const leftScale = cleanedLeftBounds.span / sourceLeftBounds.span;
+    const rightScale = cleanedRightBounds.span / sourceRightBounds.span;
+    const scaleDifferenceRatio = Math.abs(leftScale - rightScale) / Math.max(leftScale, rightScale);
+    result.scales.left = round(leftScale);
+    result.scales.right = round(rightScale);
+    result.scaleDifferenceRatio = round(scaleDifferenceRatio);
+    result.status = scaleDifferenceRatio > tolerance ? 'violation' : 'pass';
+    if (result.status === 'violation') {
+        result.violations.push('leaf-scale-mismatch');
+    }
+    return result;
+}
+
 export function buildSpreadLeafAlignment({
     cleanedPages,
     dpi,
@@ -150,6 +249,44 @@ export function buildSpreadLeafAlignment({
             cleanedLeft: cleanedPages.get(leftEntry.cleanedPage) ?? null,
             cleanedRight: cleanedPages.get(rightEntry.cleanedPage) ?? null,
             dpi,
+            sourceLeft: sourceHalves.left,
+            sourceRight: sourceHalves.right,
+        });
+        pairs.push({
+            leftCleanedPage: leftEntry.cleanedPage,
+            rightCleanedPage: rightEntry.cleanedPage,
+            sourcePage: leftEntry.sourcePage,
+            ...measurement,
+        });
+    }
+    return pairs;
+}
+
+export function buildSpreadLeafScale({
+    cleanedPages,
+    entries,
+    sourcePages,
+    splitHalves,
+}) {
+    const pairs = [];
+    for (let index = 0; index < entries.length; index += 2) {
+        const leftEntry = entries[index];
+        const rightEntry = entries[index + 1];
+        if (
+            !leftEntry
+            || !rightEntry
+            || leftEntry.side !== 'left'
+            || rightEntry.side !== 'right'
+            || leftEntry.sourceLayout !== 'spread'
+            || rightEntry.sourceLayout !== 'spread'
+            || leftEntry.sourcePage !== rightEntry.sourcePage
+        ) {
+            continue;
+        }
+        const sourceHalves = splitHalves(sourcePages.get(leftEntry.sourcePage));
+        const measurement = measureSpreadLeafScale({
+            cleanedLeft: cleanedPages.get(leftEntry.cleanedPage) ?? null,
+            cleanedRight: cleanedPages.get(rightEntry.cleanedPage) ?? null,
             sourceLeft: sourceHalves.left,
             sourceRight: sourceHalves.right,
         });

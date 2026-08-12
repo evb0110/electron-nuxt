@@ -35,7 +35,7 @@ use rayon::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage};
 use serde::Serialize;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     error::Error,
     ffi::OsString,
     fs,
@@ -156,6 +156,7 @@ struct WrittenOutput {
     picture_mask_output_path: Option<PathBuf>,
     tone_preservation_alpha_output_path: Option<PathBuf>,
     options: CleanupOptions,
+    source_page_index: usize,
     is_color: bool,
     half: crate::pipeline::PageHalf,
     width: usize,
@@ -2012,6 +2013,12 @@ fn run_page(
     } else {
         None
     };
+    let shared_spread_overflow_fit = matched_canvas
+        .and_then(|canvas| {
+            (result.classification == LayoutClassification::TwoPageSpread)
+                .then(|| shared_spread_overflow_fit_for_outputs(&result.outputs, &options, &canvas))
+        })
+        .flatten();
     let mut matched_placements = result
         .outputs
         .iter()
@@ -2024,7 +2031,7 @@ fn run_page(
                     .is_some()
                     .then(|| optical_content_bounds_x_for_output(output))
                     .flatten();
-                let placement = plan_canvas_placement_for_with_optical_center(
+                let placement = plan_canvas_placement_for_with_optical_center_and_fit(
                     output.image.width(),
                     output.image.height(),
                     paper_width,
@@ -2034,6 +2041,7 @@ fn run_page(
                     output.metadata.half,
                     &canvas,
                     optical_content_bounds_x,
+                    shared_spread_overflow_fit,
                 );
                 (placement, canvas)
             })
@@ -2315,6 +2323,7 @@ fn run_page(
                 picture_mask_output_path,
                 tone_preservation_alpha_output_path,
                 options: options.clone(),
+                source_page_index: page.source_page_index,
                 is_color: output.color_image.is_some(),
                 half: output.metadata.half,
                 width: output.image.width(),
@@ -2619,65 +2628,29 @@ fn matched_output_paper_dimensions_for(
     (oriented_width as f64 / shares, oriented_height as f64)
 }
 
-/// Normalizes one output onto the canvas: the scale that takes the *paper* it
-/// was cut from to the canvas rectangle, expressed on the canvas pixel grid.
-///
-/// Scaling by the paper rather than by the cropped raster is what keeps a
-/// document at one visual scale. A page cropped to a small content box is not
-/// zoomed to fill the sheet because its margins were trimmed; a page whose
-/// paper is half the size of the canvas — a lower-resolution scan of the same
-/// original, a genuinely smaller sheet, or one half of a spread — is resampled
-/// up until its ink matches everything around it.
-fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> CanvasPlacement {
-    plan_canvas_placement_for(
-        output.width,
-        output.height,
-        output.paper_width,
-        output.paper_height,
-        output.content_detected,
-        &output.options,
-        output.half,
-        canvas,
-    )
+#[derive(Clone, Copy, Debug)]
+struct CanvasFit {
+    requested_margins: [usize; 4],
+    margins_reduced: bool,
+    margins_unavailable: bool,
+    inner_width: usize,
+    inner_height: usize,
+    paper_scale: f64,
+    pixel_scale: f64,
+    overflow_fit: f64,
+    overflow: bool,
+    undersized_paper: bool,
 }
 
-// Kept as explicit scalar geometry at the test seam: grouping these values
-// would hide which coordinate space each call supplies.
-fn plan_canvas_placement_for(
+fn canvas_fit_for(
     width: usize,
     height: usize,
     paper_width: f64,
     paper_height: f64,
     content_detected: bool,
     options: &CleanupOptions,
-    half: crate::pipeline::PageHalf,
     canvas: &DocumentCanvas,
-) -> CanvasPlacement {
-    plan_canvas_placement_for_with_optical_center(
-        width,
-        height,
-        paper_width,
-        paper_height,
-        content_detected,
-        options,
-        half,
-        canvas,
-        None,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn plan_canvas_placement_for_with_optical_center(
-    width: usize,
-    height: usize,
-    paper_width: f64,
-    paper_height: f64,
-    content_detected: bool,
-    options: &CleanupOptions,
-    half: crate::pipeline::PageHalf,
-    canvas: &DocumentCanvas,
-    optical_content_bounds_x: Option<(f64, f64)>,
-) -> CanvasPlacement {
+) -> CanvasFit {
     let configured_margins = if let Some(margins) = options.margins_pixels {
         margins.map(|pixels| (pixels * canvas.dpi() / options.dpi).round().max(0.0) as usize)
     } else {
@@ -2735,16 +2708,242 @@ fn plan_canvas_placement_for_with_optical_center(
         || paper_height_points / canvas.height_points * canvas.height_px as f64
             > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
     let pixel_scale = paper_scale * canvas.dpi() / options.dpi;
-    let mut scaled_width = width as f64 * pixel_scale;
-    let mut scaled_height = height as f64 * pixel_scale;
+    let scaled_width = width as f64 * pixel_scale;
+    let scaled_height = height as f64 * pixel_scale;
     let overflow = scaled_width > inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
         || scaled_height > inner_height as f64 + CANVAS_GRID_TOLERANCE_PX;
-    if overflow {
-        let fit = (inner_width as f64 / scaled_width.max(1.0))
-            .min(inner_height as f64 / scaled_height.max(1.0));
-        scaled_width *= fit;
-        scaled_height *= fit;
+    let overflow_fit = if overflow {
+        (inner_width as f64 / scaled_width.max(1.0))
+            .min(inner_height as f64 / scaled_height.max(1.0))
+    } else {
+        1.0
+    };
+    CanvasFit {
+        requested_margins,
+        margins_reduced,
+        margins_unavailable,
+        inner_width,
+        inner_height,
+        paper_scale,
+        pixel_scale,
+        overflow_fit,
+        overflow,
+        undersized_paper,
     }
+}
+
+fn shared_spread_overflow_fit_for_outputs(
+    outputs: &[CleanupResult],
+    options: &CleanupOptions,
+    canvas: &DocumentCanvas,
+) -> Option<f64> {
+    if outputs.len() != 2
+        || !outputs
+            .iter()
+            .any(|output| output.metadata.half == crate::pipeline::PageHalf::Left)
+        || !outputs
+            .iter()
+            .any(|output| output.metadata.half == crate::pipeline::PageHalf::Right)
+    {
+        return None;
+    }
+    outputs
+        .iter()
+        .map(|output| {
+            let (paper_width, paper_height) = matched_output_paper_dimensions(&output.metadata);
+            canvas_fit_for(
+                output.image.width(),
+                output.image.height(),
+                paper_width,
+                paper_height,
+                output.metadata.content_box.is_some(),
+                options,
+                canvas,
+            )
+            .overflow_fit
+        })
+        .reduce(f64::min)
+}
+
+fn shared_spread_overflow_fits_for_written_outputs(
+    outputs: &[&WrittenOutput],
+    canvas: &DocumentCanvas,
+) -> HashMap<usize, f64> {
+    let mut by_source_page = HashMap::<usize, Vec<&WrittenOutput>>::new();
+    for output in outputs {
+        by_source_page
+            .entry(output.source_page_index)
+            .or_default()
+            .push(*output);
+    }
+    by_source_page
+        .into_iter()
+        .filter_map(|(source_page_index, pair)| {
+            if pair.len() != 2
+                || !pair
+                    .iter()
+                    .any(|output| output.half == crate::pipeline::PageHalf::Left)
+                || !pair
+                    .iter()
+                    .any(|output| output.half == crate::pipeline::PageHalf::Right)
+            {
+                return None;
+            }
+            let shared_fit = pair
+                .iter()
+                .map(|output| {
+                    canvas_fit_for(
+                        output.width,
+                        output.height,
+                        output.paper_width,
+                        output.paper_height,
+                        output.content_detected,
+                        &output.options,
+                        canvas,
+                    )
+                    .overflow_fit
+                })
+                .reduce(f64::min)?;
+            Some((source_page_index, shared_fit))
+        })
+        .collect()
+}
+
+/// Normalizes one output onto the canvas: the scale that takes the *paper* it
+/// was cut from to the canvas rectangle, expressed on the canvas pixel grid.
+///
+/// Scaling by the paper rather than by the cropped raster is what keeps a
+/// document at one visual scale. A page cropped to a small content box is not
+/// zoomed to fill the sheet because its margins were trimmed; a page whose
+/// paper is half the size of the canvas — a lower-resolution scan of the same
+/// original, a genuinely smaller sheet, or one half of a spread — is resampled
+/// up until its ink matches everything around it.
+fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> CanvasPlacement {
+    plan_canvas_placement_for(
+        output.width,
+        output.height,
+        output.paper_width,
+        output.paper_height,
+        output.content_detected,
+        &output.options,
+        output.half,
+        canvas,
+    )
+}
+
+fn plan_canvas_placement_with_shared_fit(
+    output: &WrittenOutput,
+    canvas: &DocumentCanvas,
+    shared_overflow_fit: Option<f64>,
+) -> CanvasPlacement {
+    if shared_overflow_fit.is_none() {
+        return plan_canvas_placement(output, canvas);
+    }
+    plan_canvas_placement_for_with_optical_center_and_fit(
+        output.width,
+        output.height,
+        output.paper_width,
+        output.paper_height,
+        output.content_detected,
+        &output.options,
+        output.half,
+        canvas,
+        None,
+        shared_overflow_fit,
+    )
+}
+
+// Kept as explicit scalar geometry at the test seam: grouping these values
+// would hide which coordinate space each call supplies.
+fn plan_canvas_placement_for(
+    width: usize,
+    height: usize,
+    paper_width: f64,
+    paper_height: f64,
+    content_detected: bool,
+    options: &CleanupOptions,
+    half: crate::pipeline::PageHalf,
+    canvas: &DocumentCanvas,
+) -> CanvasPlacement {
+    plan_canvas_placement_for_with_optical_center(
+        width,
+        height,
+        paper_width,
+        paper_height,
+        content_detected,
+        options,
+        half,
+        canvas,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_canvas_placement_for_with_optical_center(
+    width: usize,
+    height: usize,
+    paper_width: f64,
+    paper_height: f64,
+    content_detected: bool,
+    options: &CleanupOptions,
+    half: crate::pipeline::PageHalf,
+    canvas: &DocumentCanvas,
+    optical_content_bounds_x: Option<(f64, f64)>,
+) -> CanvasPlacement {
+    plan_canvas_placement_for_with_optical_center_and_fit(
+        width,
+        height,
+        paper_width,
+        paper_height,
+        content_detected,
+        options,
+        half,
+        canvas,
+        optical_content_bounds_x,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_canvas_placement_for_with_optical_center_and_fit(
+    width: usize,
+    height: usize,
+    paper_width: f64,
+    paper_height: f64,
+    content_detected: bool,
+    options: &CleanupOptions,
+    half: crate::pipeline::PageHalf,
+    canvas: &DocumentCanvas,
+    optical_content_bounds_x: Option<(f64, f64)>,
+    shared_overflow_fit: Option<f64>,
+) -> CanvasPlacement {
+    let CanvasFit {
+        requested_margins,
+        margins_reduced,
+        margins_unavailable,
+        inner_width,
+        inner_height,
+        paper_scale,
+        pixel_scale,
+        overflow_fit,
+        overflow: own_overflow,
+        undersized_paper,
+    } = canvas_fit_for(
+        width,
+        height,
+        paper_width,
+        paper_height,
+        content_detected,
+        options,
+        canvas,
+    );
+    let [margin_left, margin_top, margin_right, _margin_bottom] = requested_margins;
+    let fit = shared_overflow_fit
+        .map(|shared| shared.clamp(0.0, 1.0).min(overflow_fit))
+        .unwrap_or(overflow_fit);
+    let scaled_width = width as f64 * pixel_scale * fit;
+    let scaled_height = height as f64 * pixel_scale * fit;
+    let overflow = own_overflow || fit < 1.0;
     let content_width = (scaled_width.round() as usize).clamp(1, inner_width);
     let content_height = (scaled_height.round() as usize).clamp(1, inner_height);
     // Paper geometry owns scale; the intrinsic cleaned raster owns placement.
@@ -3228,6 +3427,7 @@ fn match_page_sizes(
 ) -> Result<(), Box<dyn Error>> {
     let eligible = outputs
         .iter()
+        .copied()
         .filter(|output| {
             output.options.match_page_size && !output.options.ocr_mode && !output.matched_in_memory
         })
@@ -3247,11 +3447,16 @@ fn match_page_sizes(
     };
     let target_width = canvas.width_px;
     let target_height = canvas.height_px;
+    let shared_spread_fits = shared_spread_overflow_fits_for_written_outputs(&eligible, &canvas);
 
     for output in eligible {
         let repad_result = (|| -> Result<(), Box<dyn Error>> {
             validate_canvas(target_width, target_height, output)?;
-            let placement = plan_canvas_placement(output, &canvas);
+            let placement = plan_canvas_placement_with_shared_fit(
+                output,
+                &canvas,
+                shared_spread_fits.get(&output.source_page_index).copied(),
+            );
             let CanvasPlacement {
                 content_width,
                 content_height,
@@ -4017,13 +4222,14 @@ fn map_image_error(message: String) -> NativeError {
 mod tests {
     use super::{
         adaptive_thread_count, align_spread_vertical_placements, background_canvas_dimensions,
-        background_dimensions_to_publish, estimate_peak_page_bytes, manifest_cache,
+        background_dimensions_to_publish, canvas_fit_for, estimate_peak_page_bytes, manifest_cache,
         manifest_worker_threads, map_image_error, matched_output_paper_dimensions_for,
         materialize_gray_primary_on_canvas, materialize_stream_page,
         normalize_trusted_foreground_selection, optical_binary_bounds_x, optical_content_bounds_x,
         optical_content_center_x, page_worker_threads, parse_cli_args, place_on_white_canvas,
         place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
-        plan_canvas_placement_for_with_optical_center, preflight_manifest_paths,
+        plan_canvas_placement_for_with_optical_center,
+        plan_canvas_placement_for_with_optical_center_and_fit, preflight_manifest_paths,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
         robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs, CanvasPlacement,
         CleanupRaster, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
@@ -4350,6 +4556,73 @@ mod tests {
         assert_eq!((right.left, right.top), (247, 30));
         assert_eq!(canvas.width_px - left.left - left.content_width, left.left);
         assert!((canvas.width_px - right.left - right.content_width).abs_diff(right.left) <= 1);
+    }
+
+    #[test]
+    fn matched_canvas_uses_one_overflow_fit_across_an_off_center_spread_cutter() {
+        let options = CleanupOptions {
+            dpi: 150.0,
+            margins_pixels: Some([0.0; 4]),
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 1_102.0 / 150.0 * 72.0,
+            height_points: 1_626.0 / 150.0 * 72.0,
+            width_px: 1_102,
+            height_px: 1_626,
+        };
+        let paper = matched_output_paper_dimensions_for(
+            2_261,
+            1_573,
+            OrthogonalRotation::None,
+            crate::pipeline::PageHalf::Left,
+        );
+        let leaves = [(1_198, 1_198), (599, 599)];
+        let shared_fit = leaves
+            .into_iter()
+            .map(|(width, height)| {
+                canvas_fit_for(width, height, paper.0, paper.1, true, &options, &canvas)
+                    .overflow_fit
+            })
+            .reduce(f64::min)
+            .unwrap();
+        assert!(shared_fit < 1.0);
+
+        let left = plan_canvas_placement_for_with_optical_center_and_fit(
+            leaves[0].0,
+            leaves[0].1,
+            paper.0,
+            paper.1,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Left,
+            &canvas,
+            None,
+            Some(shared_fit),
+        );
+        let right = plan_canvas_placement_for_with_optical_center_and_fit(
+            leaves[1].0,
+            leaves[1].1,
+            paper.0,
+            paper.1,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Right,
+            &canvas,
+            None,
+            Some(shared_fit),
+        );
+
+        assert!(left.overflow);
+        assert!(right.overflow);
+        assert_eq!(
+            left.content_width * leaves[1].0,
+            right.content_width * leaves[0].0
+        );
+        assert_eq!(
+            left.content_height * leaves[1].1,
+            right.content_height * leaves[0].1
+        );
     }
 
     #[test]
