@@ -147,6 +147,37 @@ describe('pdfViewportGeometry', () => {
         expect(rightPageAnchor.page).toBe(3);
     });
 
+    it('keeps both outer edges of a narrow mixed-width facing spread in the analytical scroll domain', () => {
+        const geometry = computePdfViewportGeometry({
+            revision: 4,
+            pages: [
+                {
+                    width: 700,
+                    height: 900,
+                },
+                {
+                    width: 500,
+                    height: 800,
+                },
+            ],
+            viewportWidth: 430,
+            viewportHeight: 700,
+            zoom: 1.29,
+            viewMode: 'facing',
+            gap: 20,
+            padding: 20,
+        });
+        const leftPage = geometry.pageRects[0]!;
+        const rightPage = geometry.pageRects[1]!;
+        const maxScrollLeft = geometry.contentWidth - geometry.viewportWidth;
+
+        expect(leftPage.left).toBe(20);
+        expect(rightPage.left).toBe(leftPage.left + leftPage.width + 20);
+        expect(geometry.contentWidth).toBe(700 * 1.29 + 20 + 500 * 1.29 + 40);
+        expect(leftPage.left).toBeGreaterThanOrEqual(0);
+        expect(rightPage.left + rightPage.width - maxScrollLeft).toBe(410);
+    });
+
     it('keeps fit-height spread geometry identical to the physical page-track padding and gap', () => {
         const viewport = {
             width: 1_200,

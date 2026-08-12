@@ -21,6 +21,26 @@ function pageRangesIntersect(left: IPageRange, right: IPageRange) {
         && right.start <= left.end;
 }
 
+function expandRangeToCompleteRows(options: IResolvePdfProtectedVisibleRangeOptions) {
+    if (!isFinitePageRange(options.visibleRange) || options.totalPages <= 0) {
+        return options.visibleRange;
+    }
+    const firstRow = getPageRowBoundsForViewMode({
+        pageNumber: options.visibleRange.start,
+        viewMode: options.viewMode,
+        totalPages: options.totalPages,
+    });
+    const lastRow = getPageRowBoundsForViewMode({
+        pageNumber: options.visibleRange.end,
+        viewMode: options.viewMode,
+        totalPages: options.totalPages,
+    });
+    return {
+        start: firstRow.start,
+        end: lastRow.end,
+    };
+}
+
 interface IIsPdfVisibleRenderRangeCurrentOptions {
     range: IPageRange;
     visibleRange: IPageRange;
@@ -39,14 +59,22 @@ interface IResolvePdfProtectedVisibleRangeOptions {
 export function resolvePdfProtectedVisibleRange(
     options: IResolvePdfProtectedVisibleRangeOptions,
 ) {
+    const visibleRows = expandRangeToCompleteRows(options);
     if (options.navigationTargetPage !== null && options.totalPages > 0) {
-        return getPageRowBoundsForViewMode({
+        const targetRow = getPageRowBoundsForViewMode({
             pageNumber: options.navigationTargetPage,
             viewMode: options.viewMode,
             totalPages: options.totalPages,
         });
+        // A disjoint committed range is stale while navigation owns the viewport.
+        // Once measured geometry reaches the target row, however, every row that
+        // intersects the viewport is authoritative raster demand too.
+        return pageRangesIntersect(visibleRows, targetRow) ? {
+            start: Math.min(visibleRows.start, targetRow.start),
+            end: Math.max(visibleRows.end, targetRow.end),
+        } : targetRow;
     }
-    return options.visibleRange;
+    return visibleRows;
 }
 
 export function isPdfVisibleRenderRangeCurrent(
@@ -58,5 +86,5 @@ export function isPdfVisibleRenderRangeCurrent(
             || pageRangeContainsPage(options.range, options.navigationTargetPage);
     }
 
-    return pageRangesIntersect(options.range, options.visibleRange);
+    return pageRangesIntersect(options.range, resolvePdfProtectedVisibleRange(options));
 }

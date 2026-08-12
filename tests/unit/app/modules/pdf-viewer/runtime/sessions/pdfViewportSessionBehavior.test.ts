@@ -44,6 +44,27 @@ function defineDimension(element: HTMLElement, property: string, value: number) 
     });
 }
 
+function appendPageBox(
+    container: HTMLElement,
+    page: number,
+    box: {
+        height: number;
+        left?: number;
+        top: number;
+        width?: number;
+    },
+) {
+    const element = document.createElement('div');
+    element.className = 'page_container';
+    element.dataset.page = String(page);
+    defineDimension(element, 'offsetTop', box.top);
+    defineDimension(element, 'offsetHeight', box.height);
+    defineDimension(element, 'offsetLeft', box.left ?? 0);
+    defineDimension(element, 'offsetWidth', box.width ?? 600);
+    container.append(element);
+    return element;
+}
+
 function createDocumentFixture(pageCount = 100) {
     const subscribers: Array<(transition: IPdfDocumentTransition) => void | Promise<void>> = [];
     const pageMetrics = ref(Array.from({ length: pageCount }, () => ({
@@ -208,6 +229,89 @@ function transition(
 }
 
 describe('PdfViewportSession behavior', () => {
+    it('remeasures continuous facing visibility as newly mounted rows settle without user scroll', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 30,
+            viewMode: 'facing',
+            zoomMode: 'custom',
+        });
+        try {
+            setCurrentPage(fixture.viewport, 9);
+            fixture.viewport.visibleRange.value = {
+                start: 9,
+                end: 10,
+            };
+            await nextTick();
+
+            const settlingRow: HTMLElement[] = [];
+            for (const [
+                page,
+                top,
+            ] of [
+                    [
+                        9,
+                        0,
+                    ],
+                    [
+                        10,
+                        0,
+                    ],
+                    [
+                        11,
+                        400,
+                    ],
+                    [
+                        12,
+                        400,
+                    ],
+                    [
+                        13,
+                        810,
+                    ],
+                    [
+                        14,
+                        810,
+                    ],
+                ] as const) {
+                const element = appendPageBox(fixture.container, page, {
+                    height: 390,
+                    top,
+                });
+                if (page >= 13) {
+                    settlingRow.push(element);
+                }
+                fixture.viewport.markPageMounted(page);
+            }
+            expect(fixture.viewport.visibleRange.value).toEqual({
+                start: 9,
+                end: 12,
+            });
+            settlingRow.forEach(element => defineDimension(element, 'offsetTop', 790));
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+            expect(fixture.viewport.visibleRange.value).toEqual({
+                start: 9,
+                end: 14,
+            });
+            expect(fixture.viewport.demand.value.visibleRange).toEqual({
+                start: 9,
+                end: 14,
+            });
+            expect(fixture.viewport.demand.value.requiredPages).toEqual([
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+            ]);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('orders required and nearby mounted demand within the shared pixel budget', async () => {
         const fixture = createViewportFixture({
             bufferPages: 4,

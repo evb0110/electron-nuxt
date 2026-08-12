@@ -85,6 +85,7 @@
     "diag:ocr-profile-benchmark": "python3 scripts/devkit/ocr-profile-benchmark.py",
     "test:ocr:native-smoke:required": "EVB_OCR_NATIVE_SMOKE_REQUIRED=1 node scripts/test-ocr-native-smoke.mjs",
     "diag:pdf-skeleton-navigation": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts",
+    "diag:pdf-facing-continuous": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/pdfFacingContinuousRegression.ts",
     "diag:pdf-tabs": "pnpm exec tsx scripts/diagnostics/pdfTabPressure.ts",
     "diag:arnold-pdf-open": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runArnoldPdfOpenDiagnostics.ts",
     "diag:scan-cleanup-corpus-verify": "node scripts/diagnostics/scan-cleanup-corpus-verify.mjs",

@@ -442,7 +442,7 @@ export function createPdfPageRasterScheduler(
             const category = work.demand.lane.startsWith('thumbnail')
                 ? 'pdf-thumbnail-canvas'
                 : 'pdf-page-canvas';
-            work.reservation = surfaceBudget.tryReserve({
+            const reservationRequest: Parameters<typeof surfaceBudget.reserve>[0] = {
                 scopeId: surfaceScopeId,
                 category,
                 bytes: Math.max(1, Math.ceil(work.demand.estimatedPixels)) * 4,
@@ -452,14 +452,22 @@ export function createPdfPageRasterScheduler(
                 // for the gap before its replacement commits. Budget pressure
                 // falls on genuinely cold residents instead.
                 canEvict: () => residents.has(work.key)
-                    && !hasPendingWorkForPage(work.target.id, work.demand.pageNumber),
+                    && !hasPendingWorkForPage(work.target.id, work.demand.pageNumber)
+                    && !(isDemandCurrent(work) && (
+                        work.demand.lane === 'navigation-target'
+                        || work.demand.lane === 'viewport-visible'
+                    )),
                 evict: () => {
                     const resident = residents.get(work.key);
                     if (resident) {
                         releaseResident(resident, 'surface-budget-eviction');
                     }
                 },
-            });
+            };
+            work.reservation = work.demand.lane === 'navigation-target'
+                || work.demand.lane === 'viewport-visible'
+                ? surfaceBudget.reserve(reservationRequest)
+                : surfaceBudget.tryReserve(reservationRequest);
             if (!work.reservation) {
                 throw new Error(`PDF raster surface budget unavailable for page ${String(work.demand.pageNumber)}`);
             }

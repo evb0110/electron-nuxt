@@ -45,6 +45,9 @@ describe('PDF physical page-track contract', () => {
         expect(trackRule).toContain('display: flex');
         expect(trackRule).toContain('display: grid');
         expect(trackRule).toContain('grid-template-columns: repeat(2, max-content)');
+        expect(trackRule).toContain('width: max-content');
+        expect(trackRule).toContain('place-content: flex-start safe center');
+        expect(css).toMatch(/\.pdf-viewer-page-track\.pdfViewer\.pdfViewer--mode-facing,[^{]+\{[^}]*width:\s*100%;/su);
         expect(viewerRule).not.toContain('display: flex');
         expect(viewerRule).not.toContain('display: grid');
     });

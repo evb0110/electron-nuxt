@@ -71,4 +71,74 @@ describe('isPdfVisibleRenderRangeCurrent', () => {
             end: 21,
         });
     });
+
+    it('protects every partially intersecting facing row once geometry reaches the navigation target', () => {
+        expect(resolvePdfProtectedVisibleRange({
+            visibleRange: {
+                start: 9,
+                end: 13,
+            },
+            navigationTargetPage: 9,
+            viewMode: 'facing',
+            totalPages: 120,
+        })).toEqual({
+            start: 9,
+            end: 14,
+        });
+        expect(isPdfVisibleRenderRangeCurrent({
+            range: {
+                start: 14,
+                end: 14,
+            },
+            visibleRange: {
+                start: 9,
+                end: 13,
+            },
+            navigationTargetPage: 9,
+            viewMode: 'facing',
+            totalPages: 120,
+        })).toBe(true);
+    });
+
+    it('expands a partially intersecting facing row without a navigation target', () => {
+        expect(resolvePdfProtectedVisibleRange({
+            visibleRange: {
+                start: 13,
+                end: 13,
+            },
+            navigationTargetPage: null,
+            viewMode: 'facing',
+            totalPages: 120,
+        })).toEqual({
+            start: 13,
+            end: 14,
+        });
+    });
+
+    it('does not retain rows that no longer intersect the live viewport', () => {
+        expect(resolvePdfProtectedVisibleRange({
+            visibleRange: {
+                start: 9,
+                end: 14,
+            },
+            navigationTargetPage: 11,
+            viewMode: 'facing',
+            totalPages: 120,
+        })).toEqual({
+            start: 9,
+            end: 14,
+        });
+        expect(resolvePdfProtectedVisibleRange({
+            visibleRange: {
+                start: 11,
+                end: 12,
+            },
+            navigationTargetPage: 11,
+            viewMode: 'facing',
+            totalPages: 120,
+        })).toEqual({
+            start: 11,
+            end: 12,
+        });
+    });
 });

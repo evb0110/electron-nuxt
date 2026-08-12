@@ -351,9 +351,10 @@
 
     &.pdfViewer--mode-facing,
     &.pdfViewer--mode-facing-first-single {
+        width: max-content;
         display: grid;
         grid-template-columns: repeat(2, max-content);
-        place-content: flex-start center;
+        place-content: flex-start safe center;
     }
 
     /*
@@ -366,6 +367,13 @@
      * snap engine pulled the position back. JS owns paging end-to-end now.
      */
 
+}
+
+/* Without a chassis the track is also the scroll root, so it must retain the
+ * viewport width and let safe grid alignment keep oversized spreads reachable. */
+.pdf-viewer-page-track.pdfViewer.pdfViewer--mode-facing,
+.pdf-viewer-page-track.pdfViewer.pdfViewer--mode-facing-first-single {
+    width: 100%;
 }
 
 .pdf-viewer-page-track.pdfViewer--mode-facing .page_container,

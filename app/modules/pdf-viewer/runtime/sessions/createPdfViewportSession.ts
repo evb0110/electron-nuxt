@@ -544,6 +544,39 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     function publishDemand() {
         demand.value = resolveDemand();
     }
+    let mountedVisibilityFrameId: number | null = null;
+    let mountedVisibilityProjectionDisposed = false;
+    function cancelMountedVisibilityProjection() {
+        if (mountedVisibilityFrameId !== null) {
+            window.cancelAnimationFrame(mountedVisibilityFrameId);
+            mountedVisibilityFrameId = null;
+        }
+    }
+    function scheduleMountedVisibilityProjection() {
+        if (!options.continuousScroll.value) {
+            return;
+        }
+        cancelMountedVisibilityProjection();
+        void nextTick(() => {
+            if (mountedVisibilityProjectionDisposed) {
+                return;
+            }
+            mountedVisibilityFrameId = window.requestAnimationFrame(() => {
+                if (mountedVisibilityProjectionDisposed) {
+                    mountedVisibilityFrameId = null;
+                    return;
+                }
+                mountedVisibilityFrameId = window.requestAnimationFrame(() => {
+                    mountedVisibilityFrameId = null;
+                    if (mountedVisibilityProjectionDisposed) {
+                        return;
+                    }
+                    projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
+                    publishDemand();
+                });
+            });
+        });
+    }
     function requestMandatoryRaster(
         range: IPageRange,
         renderOptions: IRenderVisiblePagesOptions = {},
@@ -804,6 +837,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         ] as const,
         () => {
             void nextTick(viewModel.syncHorizontalScrollForZoomMode);
+            scheduleMountedVisibilityProjection();
         },
         { immediate: true },
     );
@@ -816,6 +850,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
     });
     onBeforeUnmount(() => {
+        mountedVisibilityProjectionDisposed = true;
+        cancelMountedVisibilityProjection();
         viewportPin.clearPinnedViewportPage('before-unmount');
         options.clearPendingImagePlacement();
         scroll.setPageLayoutMetrics(null);
@@ -1040,6 +1076,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
     });
     documentSession.registerDisposable(() => {
+        mountedVisibilityProjectionDisposed = true;
+        cancelMountedVisibilityProjection();
         unsubscribeDocumentTransitions();
         cancelMandatoryRaster();
         pageSlots.dispose();
@@ -1087,6 +1125,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         },
         markPageMounted(pageNumber: number) {
             pageSlots.markMounted(pageNumber);
+            if (options.continuousScroll.value) {
+                projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
+                scheduleMountedVisibilityProjection();
+            }
             publishDemand();
         },
         markPageUnmounted(pageNumber: number) {

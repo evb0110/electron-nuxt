@@ -591,6 +591,53 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(800);
     });
 
+    it('admits every required visible page while releasing overflow when visibility contracts', async () => {
+        const budget = createWorkspaceSurfaceBudgetController(800);
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async pageNumber => ({
+                page: {pageNumber} as PDFPageProxy,
+                release: vi.fn(),
+            }),
+            maxConcurrency: 1,
+            surfaceBudget: budget,
+        });
+        const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
+            id: 'required-overflow',
+            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            start: () => createTask(),
+            commit: () => true,
+            discard: vi.fn(),
+            release: vi.fn(),
+        };
+        const setVisible = (pages: number[]) => scheduler.setDemand({
+            sourceId: 'viewport',
+            input: pages.map(page => createDemand(page, 'viewport-visible')),
+            policy: {
+                expand: input => input,
+                compareWithinLane: (left, right) => left.pageNumber - right.pageNumber,
+            },
+            target,
+        });
+
+        setVisible([
+            1,
+            2,
+            3,
+        ]);
+        await vi.waitFor(() => expect(scheduler.snapshot().residentPages).toHaveLength(3));
+        expect(budget.getSnapshot().reservedBytes).toBe(1_200);
+
+        setVisible([3]);
+        await vi.waitFor(() => expect(scheduler.snapshot().residentPages).toEqual([{
+            lane: 'viewport-visible',
+            pageNumber: 3,
+            sourceId: 'viewport',
+            targetId: 'required-overflow',
+        }]));
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+    });
+
     it('cancels viewport and thumbnail work on rapid source replacement', async () => {
         const renders = new Map<number, ReturnType<typeof Promise.withResolvers<undefined>>>();
         const cancelled: number[] = [];
