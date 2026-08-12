@@ -193,12 +193,39 @@ fn detect_content_at_analysis_scale(
         ContentAnalysisPurpose::Crop {
             manual_picture_authority,
         } => picture_mask.map(|mask| {
-            qualify_picture_mask_for_crop_with_authority(
+            let mut qualification = qualify_picture_mask_for_crop_with_authority(
                 mask,
                 manual_picture_authority,
                 0,
                 calibration,
-            )
+            );
+            // A vetted owner can contain a detached text-shaped island inside
+            // a rejected frame rail. Keep that island out of picture bounds,
+            // but do not let the rail veto erase its underlying glyph ink
+            // before content blocks can recognize it.
+            let faint_stroke_binary = rescue_component_scoped_faint_strokes(
+                &binary,
+                working,
+                Some(&qualification.included),
+                None,
+                Some(&qualification.excluded),
+                BinarizationMode::Wolf,
+                BinarizationMode::Wolf,
+                calibration.content_despeckle_dpi(),
+                false,
+            );
+            let structured_text = restore_structured_text_from_rejected_picture_rail(
+                &faint_stroke_binary.subtract(&qualification.included),
+                &qualification.excluded,
+                calibration,
+            );
+            qualification.structured_text = structured_text;
+            qualification.structured_text_edge_sides = structured_text_edge_sides(
+                &qualification.excluded,
+                &qualification.structured_text,
+                calibration,
+            );
+            qualification
         }),
     };
     let analysis_picture_mask = early_picture_qualification
@@ -208,7 +235,10 @@ fn detect_content_at_analysis_scale(
     let crop_artifacts = early_picture_qualification
         .as_ref()
         .map(|qualification| borders.or(&qualification.excluded));
-    let artifact_free_binary = binary.subtract(crop_artifacts.as_ref().unwrap_or(&borders));
+    let mut artifact_free_binary = binary.subtract(crop_artifacts.as_ref().unwrap_or(&borders));
+    if let Some(qualification) = early_picture_qualification.as_ref() {
+        artifact_free_binary = artifact_free_binary.or(&qualification.structured_text);
+    }
     let cleaned = match purpose {
         ContentAnalysisPurpose::Semantic => despeckle_connected_calibrated(
             &artifact_free_binary,
@@ -230,6 +260,11 @@ fn detect_content_at_analysis_scale(
             calibration.content_despeckle_dpi(),
             false,
         ),
+    };
+    let cleaned = if let Some(qualification) = early_picture_qualification.as_ref() {
+        cleaned.or(&qualification.structured_text)
+    } else {
+        cleaned
     };
     let map = ComponentMap::from_binary(&cleaned);
     let distance_to_white = squared_euclidean_distance(&cleaned.invert());
@@ -319,6 +354,16 @@ fn detect_content_at_analysis_scale(
         garbage,
         calibration,
     );
+    if matches!(purpose, ContentAnalysisPurpose::Crop { .. }) {
+        if let Some(qualification) = early_picture_qualification.as_ref() {
+            expand_bounds_for_structured_edge_text(
+                &mut bounds,
+                qualification.structured_text_edge_sides,
+                working.width(),
+                working.height(),
+            );
+        }
+    }
     if matches!(purpose, ContentAnalysisPurpose::Crop { .. })
         && !crop_evidence_supports_bounds(
             text.summary.ink_pixels,
@@ -885,6 +930,8 @@ fn crop_qualified_picture_bounds_with_authority(
 struct CropPictureQualification {
     included: BinaryImage,
     excluded: BinaryImage,
+    structured_text: BinaryImage,
+    structured_text_edge_sides: u8,
 }
 
 fn qualify_picture_mask_for_crop_with_authority(
@@ -982,7 +1029,240 @@ fn qualify_picture_mask_for_crop_with_authority(
         !excluded
     });
     let excluded = picture_mask.subtract(&included);
-    CropPictureQualification { included, excluded }
+    CropPictureQualification {
+        included,
+        excluded,
+        structured_text: BinaryImage::new(picture_mask.width(), picture_mask.height()),
+        structured_text_edge_sides: 0,
+    }
+}
+
+/// Restores authored glyph components that a rejected picture rail happened
+/// to cover. Picture masks are deliberately allowed to grow around tonal
+/// evidence, so a sparse margin number can become a detached mask island in
+/// the same outer corridor as scanner/fold ink. The island must remain
+/// non-authoritative for crop geometry; only its compact, glyph-like source
+/// components may return to the content binary.
+fn restore_structured_text_from_rejected_picture_rail(
+    binary: &BinaryImage,
+    excluded_picture: &BinaryImage,
+    calibration: PageCalibration,
+) -> BinaryImage {
+    debug_assert_eq!(
+        (binary.width(), binary.height()),
+        (excluded_picture.width(), excluded_picture.height())
+    );
+    let mut restored = BinaryImage::new(binary.width(), binary.height());
+    if binary.count_black() == 0 || excluded_picture.count_black() == 0 {
+        return restored;
+    }
+
+    let nominal_height = if calibration.valid {
+        calibration.x_height_px.max(1.0)
+    } else {
+        (8.0 * calibration.effective_dpi / 150.0).max(4.0)
+    };
+    let edge_corridor = binary.width().div_ceil(8).max(1);
+    // The rejected owner rail can stop several pixels before the authored
+    // margin column. Keep the allowance tied to calibrated type height, not
+    // to the broad edge corridor: a sparse footnote/line-number column may
+    // sit one glyph-width away from the rail after resampling and deskew.
+    let maximum_gap = (3.0 * nominal_height).round().max(8.0) as usize;
+    let maximum_extent = (4.5 * nominal_height).round().max(8.0) as usize;
+    let maximum_area = (8.0 * nominal_height.powi(2)).round().max(32.0) as usize;
+    let minimum_row_ink = (nominal_height * 0.75).round().max(8.0) as usize;
+    let mut interior_row_ink = vec![0usize; binary.height()];
+    for (y, row_ink) in interior_row_ink.iter_mut().enumerate() {
+        for x in 0..binary.width() {
+            if binary.get(x, y) && !excluded_picture.get(x, y) {
+                *row_ink += 1;
+            }
+        }
+    }
+    let left_excluded_right = (0..edge_corridor.min(binary.width()))
+        .filter(|&x| (0..binary.height()).any(|y| excluded_picture.get(x, y)))
+        .max();
+    let right_excluded_left = (edge_corridor.min(binary.width())..binary.width())
+        .filter(|&x| (0..binary.height()).any(|y| excluded_picture.get(x, y)))
+        .min();
+
+    // Do not let the rejected owner rail join authored glyphs into one large
+    // edge component. The rail remains an adjacency witness below, but its
+    // pixels are never eligible for restoration or crop evidence.
+    let candidate_binary = binary.subtract(excluded_picture);
+    let map = ComponentMap::from_binary(&candidate_binary);
+    let mut candidates = Vec::new();
+    for component in map.components() {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let major = width.max(height);
+        let minor = width.min(height);
+        let box_area = width.saturating_mul(height).max(1);
+        let compact_glyph = component.area >= 2
+            && major <= maximum_extent
+            && minor >= 1
+            && component.area <= maximum_area
+            && component.area.saturating_mul(100) < box_area.saturating_mul(90)
+            && major <= minor.saturating_mul(10);
+        let near_left = component.right < edge_corridor.saturating_mul(2);
+        let near_right = component
+            .left
+            .saturating_add(edge_corridor.saturating_mul(2))
+            >= binary.width();
+        if !near_left && !near_right {
+            continue;
+        }
+        let adjacent_to_excluded = (near_left
+            && left_excluded_right.is_some_and(|right| {
+                component.left > right && component.left - right - 1 <= maximum_gap
+            }))
+            || (near_right
+                && right_excluded_left.is_some_and(|left| {
+                    component.right < left && left - component.right - 1 <= maximum_gap
+                }));
+        let row_supported =
+            (component.top..=component.bottom).any(|y| interior_row_ink[y] >= minimum_row_ink);
+        if !compact_glyph
+            || component.left == 0
+            || component.top == 0
+            || component.right + 1 == binary.width()
+            || component.bottom + 1 == binary.height()
+        {
+            continue;
+        }
+        if !adjacent_to_excluded {
+            continue;
+        }
+        if !row_supported {
+            continue;
+        }
+        candidates.push(component);
+    }
+
+    if candidates.len() < 2 {
+        return restored;
+    }
+    let candidate_count = candidates.len();
+    for component in &candidates {
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if map.label_at(x, y) == component.label {
+                    restored.set(x, y, true);
+                }
+            }
+        }
+    }
+    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
+        let left = candidates.iter().map(|component| component.left).min();
+        let right = candidates.iter().map(|component| component.right).max();
+        eprintln!(
+            "{{\"event\":\"crop-structured-text-rescue\",\"components\":{},\"pixels\":{},\"left\":{:?},\"right\":{:?}}}",
+            candidate_count,
+            restored.count_black(),
+            left,
+            right,
+        );
+    }
+    restored
+}
+
+/// A crop envelope may safely include an excluded frame rail when authored
+/// text has been proved to sit immediately on its page-facing side. The rail
+/// remains excluded from every ink mask; this only keeps a later render-side
+/// remeasurement from moving the crop boundary through the text column.
+fn structured_text_edge_sides(
+    excluded_picture: &BinaryImage,
+    structured_text: &BinaryImage,
+    calibration: PageCalibration,
+) -> u8 {
+    debug_assert_eq!(
+        (excluded_picture.width(), excluded_picture.height()),
+        (structured_text.width(), structured_text.height())
+    );
+    if excluded_picture.count_black() == 0 || structured_text.count_black() == 0 {
+        return 0;
+    }
+    let nominal_height = if calibration.valid {
+        calibration.x_height_px.max(1.0)
+    } else {
+        (8.0 * calibration.effective_dpi / 150.0).max(4.0)
+    };
+    let maximum_gap = (3.0 * nominal_height).round().max(8.0) as usize;
+    let horizontal_corridor = excluded_picture.width().div_ceil(8).max(1);
+    let vertical_corridor = excluded_picture.height().div_ceil(8).max(1);
+    let excluded_map = ComponentMap::from_binary(excluded_picture);
+    let structured_components = ComponentMap::from_binary(structured_text);
+    let mut sides = 0;
+    for rail in excluded_map.components() {
+        let left_rail = rail.left == 0 && rail.right < horizontal_corridor;
+        let right_rail = rail.right + 1 == excluded_picture.width()
+            && rail.left.saturating_add(horizontal_corridor) >= excluded_picture.width();
+        let top_rail = rail.top == 0 && rail.bottom < vertical_corridor;
+        let bottom_rail = rail.bottom + 1 == excluded_picture.height()
+            && rail.top.saturating_add(vertical_corridor) >= excluded_picture.height();
+
+        for text in structured_components.components() {
+            if left_rail
+                && text.left > rail.right
+                && text.left - rail.right - 1 <= maximum_gap
+                && text.left < horizontal_corridor.saturating_mul(2)
+            {
+                sides |= CROP_ARTIFACT_LEFT;
+            }
+            if right_rail
+                && text.right < rail.left
+                && rail.left - text.right - 1 <= maximum_gap
+                && text
+                    .right
+                    .saturating_add(horizontal_corridor.saturating_mul(2))
+                    >= excluded_picture.width()
+            {
+                sides |= CROP_ARTIFACT_RIGHT;
+            }
+            if top_rail
+                && text.top > rail.bottom
+                && text.top - rail.bottom - 1 <= maximum_gap
+                && text.top < vertical_corridor.saturating_mul(2)
+            {
+                sides |= CROP_ARTIFACT_TOP;
+            }
+            if bottom_rail
+                && text.bottom < rail.top
+                && rail.top - text.bottom - 1 <= maximum_gap
+                && text
+                    .bottom
+                    .saturating_add(vertical_corridor.saturating_mul(2))
+                    >= excluded_picture.height()
+            {
+                sides |= CROP_ARTIFACT_BOTTOM;
+            }
+        }
+    }
+    sides
+}
+
+fn expand_bounds_for_structured_edge_text(
+    bounds: &mut Option<PixelBounds>,
+    edge_sides: u8,
+    width: usize,
+    height: usize,
+) {
+    let Some(mut bounds_value) = *bounds else {
+        return;
+    };
+    if edge_sides & CROP_ARTIFACT_LEFT != 0 {
+        bounds_value.left = 0;
+    }
+    if edge_sides & CROP_ARTIFACT_TOP != 0 {
+        bounds_value.top = 0;
+    }
+    if edge_sides & CROP_ARTIFACT_RIGHT != 0 {
+        bounds_value.right = width.saturating_sub(1);
+    }
+    if edge_sides & CROP_ARTIFACT_BOTTOM != 0 {
+        bounds_value.bottom = height.saturating_sub(1);
+    }
+    *bounds = Some(bounds_value);
 }
 
 fn retained_content_blocks(
@@ -2989,6 +3269,96 @@ mod tests {
             }),
             "an explicit Painter2 corner photo must remain crop-authoritative"
         );
+    }
+
+    #[test]
+    fn sparse_numeric_margin_inside_rejected_picture_rail_stays_in_crop_box() {
+        let mut image = GrayImage::new(520, 720, 244);
+        for row in 0..14 {
+            let top = 150 + row * 34;
+            draw_glyph_line(&mut image, 120, top, 22, 5, 14, 5);
+            if row % 3 == 0 {
+                draw_glyph_line(&mut image, 36, top, 2, 5, 12, 2);
+            }
+        }
+
+        let mut picture = BinaryImage::new(image.width(), image.height());
+        // A full-height outer rail is rejected as crop authority. The small
+        // rectangles are the owner’s detached edge islands over the sparse
+        // numeric margin column; they must remain rejected as picture, while
+        // their underlying glyph ink returns as text content.
+        for y in 0..image.height() {
+            for x in 0..25 {
+                picture.set(x, y, true);
+            }
+        }
+        for row in (0..14).step_by(3) {
+            let top = 150 + row * 34;
+            for y in top..top + 14 {
+                for x in 30..35 {
+                    picture.set(x, y, true);
+                }
+            }
+        }
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 14.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let qualification =
+            qualify_picture_mask_for_crop_with_authority(&picture, None, 0, calibration);
+        assert_eq!(binary_bounds(&qualification.included), None);
+        assert!(
+            qualification.excluded.get(5, 300),
+            "the rail was not rejected"
+        );
+        let thresholded = threshold_local(
+            &image,
+            25,
+            LocalThreshold::Wolf {
+                k: 0.5,
+                deviation_floor: 3.0,
+                minimum_percentile: 0.01,
+                hard_ink: 48,
+                hard_paper: 248,
+            },
+        );
+        let restored = restore_structured_text_from_rejected_picture_rail(
+            &thresholded,
+            &qualification.excluded,
+            calibration,
+        );
+        assert!(
+            restored.count_black() > 0,
+            "the sparse margin column did not earn structured-text rescue"
+        );
+        assert!(
+            (0..25).all(|x| (0..image.height()).all(|y| !restored.get(x, y))),
+            "picture-rail pixels were restored as text"
+        );
+        assert_eq!(
+            structured_text_edge_sides(&qualification.excluded, &restored, calibration),
+            CROP_ARTIFACT_LEFT,
+            "the crop envelope did not recognize text beside the rejected rail"
+        );
+
+        let bounds = detect_content_and_margins_calibrated(
+            &image,
+            Some(&picture),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .content
+        .expect("body and margin text are content");
+        assert!(
+            bounds.x <= 36.0,
+            "the numeric margin was cropped with the rejected rail: {bounds:?}"
+        );
+        assert!(bounds.right() >= 335.0, "body text was cropped: {bounds:?}");
     }
 
     #[test]
