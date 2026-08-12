@@ -73,6 +73,11 @@ import {
     type ICliRawMaskEvidence,
 } from '@scripts/scanCleanupCliAdapters';
 import {flattenLayeredManifestPage} from '@scripts/flattenLayeredManifestPage';
+import {
+    createScanCleanupDetectionCacheKey,
+    DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH,
+    runScanCleanupDetectionWithCache,
+} from '@scripts/scanCleanupDetectionCache';
 
 const PAGE_OPS_FALLBACK = '__scan_cleanup_cli_page_ops_fallback__';
 const IMAGE_COMBINE_FALLBACK = '__scan_cleanup_cli_image_combine_fallback__';
@@ -84,6 +89,8 @@ interface IScanCleanupCliArguments {
     parity: boolean;
     diagnosticEvidenceDirectory?: string;
     diagnosticMaskPages?: number[];
+    detectionCachePath?: string;
+    refreshDetection: boolean;
     options: IScanCleanupOptions;
 }
 
@@ -139,6 +146,8 @@ function printUsage() {
         '  --auto-dewarp [--auto-dewarp-depth <number>]',
         '  --skip-blank-pages',
         '  --parity',
+        `  --detection-cache [<directory-or-json-path>] (default: ${DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH})`,
+        '  --refresh-detection',
         '  --diagnostic-evidence-dir <directory>',
         '  --diagnostic-mask-pages <output-page-list-or-ranges>',
     ].join('\n') + '\n');
@@ -231,6 +240,8 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
     let parity = false;
     let diagnosticEvidenceDirectory: string | undefined;
     let diagnosticMaskPages: number[] | undefined;
+    let detectionCachePath: string | undefined;
+    let refreshDetection = false;
     const valueFor = (index: number, flag: string) => {
         const value = argv[index + 1];
         if (value === undefined || value.startsWith('--')) {
@@ -362,6 +373,17 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
             case '--parity':
                 parity = true;
                 break;
+            case '--detection-cache': {
+                const value = argv[index + 1];
+                detectionCachePath = value === undefined || value.startsWith('--')
+                    ? resolve(DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH)
+                    : resolve(value);
+                if (value !== undefined && !value.startsWith('--')) index += 1;
+                break;
+            }
+            case '--refresh-detection':
+                refreshDetection = true;
+                break;
             case '--diagnostic-evidence-dir':
                 diagnosticEvidenceDirectory = resolve(valueFor(index, argument));
                 index += 1;
@@ -392,6 +414,8 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
         outputPdfPath,
         ...(pages === undefined ? {} : {pages}),
         parity,
+        ...(detectionCachePath === undefined ? {} : {detectionCachePath}),
+        refreshDetection,
         ...(diagnosticEvidenceDirectory === undefined ? {} : {diagnosticEvidenceDirectory}),
         ...(diagnosticMaskPages === undefined ? {} : {diagnosticMaskPages}),
         options,
@@ -916,6 +940,12 @@ async function main() {
     };
     const startedAt = performance.now();
     try {
+        const detectionCacheKey = argumentsValue.detectionCachePath === undefined
+            ? undefined
+            : await createScanCleanupDetectionCacheKey(
+                argumentsValue.sourcePdfPath,
+                argumentsValue.options,
+            );
         const documentPageCount = await getPageCount(argumentsValue.sourcePdfPath);
         const sourcePageNumbers = resolveScanCleanupPageScope(argumentsValue.pages, documentPageCount);
         process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = detectionEvidenceDirectory;
@@ -935,20 +965,26 @@ async function main() {
             },
             runSidecar: runCliScanCleanupSidecar,
         };
-        const detection = await runScanCleanupDetection(
-            {
-                ownerId: 'scan-cleanup-cli',
-                documentRevision: `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`,
-                sourcePdfPath: argumentsValue.sourcePdfPath,
-                options: argumentsValue.options,
-            },
-            new AbortController().signal,
-            retention,
-            detectionDependencies,
-            policy,
-            logProgress('detect'),
-            log,
-        );
+        const detection = await runScanCleanupDetectionWithCache({
+            cachePath: argumentsValue.detectionCachePath,
+            key: detectionCacheKey,
+            refresh: argumentsValue.refreshDetection,
+            log: message => process.stderr.write(`[scan-cleanup] ${message}\n`),
+            detect: () => runScanCleanupDetection(
+                {
+                    ownerId: 'scan-cleanup-cli',
+                    documentRevision: `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`,
+                    sourcePdfPath: argumentsValue.sourcePdfPath,
+                    options: argumentsValue.options,
+                },
+                new AbortController().signal,
+                retention,
+                detectionDependencies,
+                policy,
+                logProgress('detect'),
+                log,
+            ),
+        });
         const detectionDurationMs = performance.now() - detectionStartedAt;
         const layoutByPage = Object.fromEntries(detection.results.map(result => [
             String(result.pageNumber),
