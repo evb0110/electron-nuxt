@@ -101,10 +101,14 @@ const CONTENT_MIN_RETENTION = 0.4;
 // (observed floor ~0.24 vs. ~0.10 on pages cascaded by the unsplit spread).
 const SIMILARITY_MIN_INK_FRACTION = 0.35;
 const CONTENT_MIN_SIMILARITY = 0.2;
+const ALIGNMENT_MAX_TRANSLATION_FRACTION = 0.15;
+const ALIGNMENT_MIN_OVERLAP = CONTENT_MIN_SIMILARITY;
+const ALIGNMENT_MIN_SIMILARITY = CONTENT_MIN_SIMILARITY;
 // The cleaned page's content bounding-box height (as a fraction of page
 // height) must be at least this fraction of the source half's, or the page
 // was squeezed into part of the canvas instead of filling it.
 const GEOMETRY_MIN_HEIGHT_RATIO = 0.6;
+const GEOMETRY_INTERIOR_MARGIN_CELLS = 2;
 // A short source content island is not a reliable page-height reference. This
 // is deliberately above a one-third-page island so sparse front matter and
 // bleed-through do not turn a valid crop into a squeeze violation.
@@ -306,19 +310,26 @@ function splitHalves(bitmap) {
 // any sample within it is below INK_THRESHOLD. Min-pooling (rather than
 // averaging) is what lets a one-pixel-wide rule or a thin footnote digit
 // register instead of being diluted away by a mostly-white cell.
-function minPoolGrid(bitmap, cols, rows, threshold = INK_THRESHOLD) {
+function minPoolGrid(
+    bitmap,
+    cols,
+    rows,
+    threshold = INK_THRESHOLD,
+    offsetX = 0,
+    offsetY = 0,
+) {
     const dark = new Uint8Array(cols * rows);
     let darkCount = 0;
     for (let row = 0; row < rows; row += 1) {
-        const y0 = Math.floor((row * bitmap.height) / rows);
-        const y1 = Math.max(y0 + 1, Math.floor(((row + 1) * bitmap.height) / rows));
+        const y0 = Math.floor((row * bitmap.height) / rows) - offsetY;
+        const y1 = Math.max(y0 + 1, Math.floor(((row + 1) * bitmap.height) / rows) - offsetY);
         for (let col = 0; col < cols; col += 1) {
-            const x0 = Math.floor((col * bitmap.width) / cols);
-            const x1 = Math.max(x0 + 1, Math.floor(((col + 1) * bitmap.width) / cols));
+            const x0 = Math.floor((col * bitmap.width) / cols) - offsetX;
+            const x1 = Math.max(x0 + 1, Math.floor(((col + 1) * bitmap.width) / cols) - offsetX);
             let minValue = 255;
-            for (let y = y0; y < y1; y += 1) {
+            for (let y = Math.max(0, y0); y < Math.min(bitmap.height, y1); y += 1) {
                 const rowOffset = y * bitmap.width;
-                for (let x = x0; x < x1; x += 1) {
+                for (let x = Math.max(0, x0); x < Math.min(bitmap.width, x1); x += 1) {
                     minValue = Math.min(minValue, bitmap.data[rowOffset + x]);
                 }
             }
@@ -592,16 +603,160 @@ function jaccardSimilarity(gridA, gridB) {
     return union === 0 ? 1 : intersection / union;
 }
 
-// Fraction of grid rows spanned by the topmost-to-bottommost dark cell, i.e.
-// how much of the page height the content actually occupies. A page that got
-// squeezed into the top half of its canvas has a much smaller value here than
-// its source.
-function contentBboxHeightFraction(grid) {
+function scoreBitmapTranslation(sourceGrid, cleanedBitmap, offsetX, offsetY) {
+    const cleanedGrid = minPoolGrid(
+        cleanedBitmap,
+        sourceGrid.cols,
+        sourceGrid.rows,
+        INK_THRESHOLD,
+        offsetX,
+        offsetY,
+    );
+    let intersection = 0;
+    let cleanedDark = 0;
+    let sourceDark = 0;
+    for (let index = 0; index < sourceGrid.dark.length; index += 1) {
+        const sourceValue = sourceGrid.dark[index];
+        const cleanedValue = cleanedGrid.dark[index];
+        sourceDark += sourceValue;
+        cleanedDark += cleanedValue;
+        intersection += sourceValue && cleanedValue ? 1 : 0;
+    }
+    const union = sourceDark + cleanedDark - intersection;
+    return {
+        cleanedGrid,
+        intersection,
+        offsetX,
+        offsetY,
+        overlap: sourceDark === 0 ? 1 : intersection / sourceDark,
+        similarity: union === 0 ? 1 : intersection / union,
+    };
+}
+
+function isBetterAlignment(candidate, best) {
+    if (candidate.intersection !== best.intersection) {
+        return candidate.intersection > best.intersection;
+    }
+    const candidateDistance = Math.abs(candidate.offsetX) + Math.abs(candidate.offsetY);
+    const bestDistance = Math.abs(best.offsetX) + Math.abs(best.offsetY);
+    if (candidateDistance !== bestDistance) {
+        return candidateDistance < bestDistance;
+    }
+    if (candidate.similarity !== best.similarity) {
+        return candidate.similarity > best.similarity;
+    }
+    if (Math.abs(candidate.offsetY) !== Math.abs(best.offsetY)) {
+        return Math.abs(candidate.offsetY) < Math.abs(best.offsetY);
+    }
+    return candidate.offsetX < best.offsetX;
+}
+
+function searchBitmapTranslation({
+    centerX,
+    centerY,
+    cleanedBitmap,
+    maxX,
+    maxY,
+    radiusX,
+    radiusY,
+    sourceGrid,
+    step,
+}) {
+    const startX = Math.max(-maxX, centerX - radiusX);
+    const endX = Math.min(maxX, centerX + radiusX);
+    const startY = maxY === 0 ? 0 : Math.max(-maxY, centerY - radiusY);
+    const endY = maxY === 0 ? 0 : Math.min(maxY, centerY + radiusY);
+    let best = scoreBitmapTranslation(sourceGrid, cleanedBitmap, centerX, centerY);
+    for (let offsetY = startY; offsetY <= endY; offsetY += step) {
+        for (let offsetX = startX; offsetX <= endX; offsetX += step) {
+            const candidate = scoreBitmapTranslation(
+                sourceGrid,
+                cleanedBitmap,
+                offsetX,
+                offsetY,
+            );
+            if (isBetterAlignment(candidate, best)) {
+                best = candidate;
+            }
+        }
+    }
+    return best;
+}
+
+export function alignBitmapForComparison(sourceBitmap, cleanedBitmap) {
+    const sourceGrid = minPoolGrid(sourceBitmap, COARSE_COLS, COARSE_ROWS);
+    const maxX = Math.floor(cleanedBitmap.width * ALIGNMENT_MAX_TRANSLATION_FRACTION);
+    // Optical placement moves horizontally; keeping y fixed prevents this
+    // normalization from concealing vertical squeeze or page-cascade damage.
+    const maxY = 0;
+    const initialStep = Math.max(1, Math.floor(Math.min(
+        cleanedBitmap.width / COARSE_COLS,
+        cleanedBitmap.height / COARSE_ROWS,
+    ) / 4));
+    const steps = [
+        initialStep,
+        Math.max(1, Math.floor(initialStep / 4)),
+        1,
+    ].filter((step, index, values) => values.indexOf(step) === index);
+    let best = scoreBitmapTranslation(sourceGrid, cleanedBitmap, 0, 0);
+    let radiusX = maxX;
+    let radiusY = maxY;
+    for (const step of steps) {
+        best = searchBitmapTranslation({
+            centerX: best.offsetX,
+            centerY: best.offsetY,
+            cleanedBitmap,
+            maxX,
+            maxY,
+            radiusX,
+            radiusY,
+            sourceGrid,
+            step,
+        });
+        radiusX = step;
+        radiusY = step;
+    }
+
+    const accepted = best.overlap >= ALIGNMENT_MIN_OVERLAP
+        && best.similarity >= ALIGNMENT_MIN_SIMILARITY;
+    const appliedOffsetPixels = {
+        x: accepted ? best.offsetX : 0,
+        y: accepted ? best.offsetY : 0,
+    };
+    return {
+        grid: accepted
+            ? best.cleanedGrid
+            : minPoolGrid(cleanedBitmap, COARSE_COLS, COARSE_ROWS),
+        metrics: {
+            applied: accepted && (best.offsetX !== 0 || best.offsetY !== 0),
+            appliedOffsetPixels,
+            bestOverlap: round(best.overlap),
+            bestSimilarity: round(best.similarity),
+            maxTranslationFraction: ALIGNMENT_MAX_TRANSLATION_FRACTION,
+            maxTranslationPixels: {
+                x: maxX,
+                y: maxY,
+            },
+            offsetPixels: {
+                x: best.offsetX,
+                y: best.offsetY,
+            },
+            rejected: !accepted,
+            rejectionReason: accepted ? null : 'best-overlap-or-similarity-below-threshold',
+        },
+    };
+}
+
+// Fraction of grid rows spanned by content, used to detect a squeezed page.
+function contentBboxHeightFraction(grid, horizontalMargin = 0) {
     let minRow = -1;
     let maxRow = -1;
+    const margin = Math.min(horizontalMargin, Math.floor(grid.cols / 2));
     for (let row = 0; row < grid.rows; row += 1) {
         const rowOffset = row * grid.cols;
-        const rowHasInk = grid.dark.subarray(rowOffset, rowOffset + grid.cols).some(cell => cell === 1);
+        const rowHasInk = grid.dark
+            .subarray(rowOffset + margin, rowOffset + grid.cols - margin)
+            .some(cell => cell === 1);
         if (rowHasInk) {
             minRow = minRow === -1 ? row : minRow;
             maxRow = row;
@@ -638,14 +793,30 @@ function auditHalf({
         return record;
     }
     const cleanedAnalysis = analyzeBitmap(cleanedBitmap);
-    // Keep shape comparison on the established coarse grid. Structured ink
-    // decides whether the page is meaningful, while the coarser grid is more
-    // tolerant of crop/deskew transforms on sparse but real content.
-    const similarity = jaccardSimilarity(sourceAnalysis.coarse, cleanedAnalysis.coarse);
+    const alignment = alignBitmapForComparison(sourceBitmap, cleanedBitmap);
+    // Structured ink decides meaning; retention and shape stay on the coarse grid after bounded placement
+    // normalization so optical centering does not change the verdict merely
+    // by moving the same raster across min-pool cell boundaries.
+    const similarity = jaccardSimilarity(sourceAnalysis.coarse, alignment.grid);
     const sourceBboxHeight = contentBboxHeightFraction(sourceAnalysis.geometry);
     const cleanedBboxHeight = contentBboxHeightFraction(cleanedAnalysis.geometry);
     const bboxRatio = sourceBboxHeight === 0 ? null : cleanedBboxHeight / sourceBboxHeight;
+    // Confirm fragmented low-contrast geometry on an edge-trimmed coarse grid;
+    // the separate structured-edge branch below still catches scanner rails.
+    const sourceCoarseBboxHeight = contentBboxHeightFraction(
+        sourceAnalysis.coarse,
+        GEOMETRY_INTERIOR_MARGIN_CELLS,
+    );
+    const cleanedCoarseBboxHeight = contentBboxHeightFraction(
+        alignment.grid,
+        GEOMETRY_INTERIOR_MARGIN_CELLS,
+    );
+    const coarseBboxRatio = sourceCoarseBboxHeight === 0
+        ? null
+        : cleanedCoarseBboxHeight / sourceCoarseBboxHeight;
     record.cleanInk = round(cleanedAnalysis.coarse.inkFraction);
+    record.alignedCleanInk = round(alignment.grid.inkFraction);
+    record.alignment = alignment.metrics;
     record.structuredCleanInk = round(cleanedAnalysis.structured.inkFraction);
     record.structuredEdgeCleanInk = round(cleanedAnalysis.structuredEdge.inkFraction);
     record.similarity = round(similarity);
@@ -653,6 +824,11 @@ function auditHalf({
         cleaned: round(cleanedBboxHeight),
         ratio: bboxRatio === null ? null : round(bboxRatio),
         source: round(sourceBboxHeight),
+        coarseInterior: {
+            cleaned: round(cleanedCoarseBboxHeight),
+            ratio: coarseBboxRatio === null ? null : round(coarseBboxRatio),
+            source: round(sourceCoarseBboxHeight),
+        },
     };
 
     // A raster that collapsed to a tiny placeholder is not evidence that the
@@ -692,7 +868,7 @@ function auditHalf({
     // skipped for a short source content island; its height is not a stable
     // reference for a normalized page canvas.
     if (sourceAnalysis.structured.inkFraction > STRUCTURED_CONTENT_INK_FRACTION) {
-        const retention = cleanedAnalysis.structured.inkFraction / sourceAnalysis.structured.inkFraction;
+        const retention = alignment.grid.inkFraction / sourceAnalysis.coarse.inkFraction;
         record.retention = round(retention);
         const checkSimilarity = sourceAnalysis.coarse.inkFraction >= SIMILARITY_MIN_INK_FRACTION;
         const failedRetention = retention < CONTENT_MIN_RETENTION;
@@ -704,7 +880,12 @@ function auditHalf({
         record.bboxHeightFraction.geometryChecked = geometrySourceIsTallEnough;
         if (!geometrySourceIsTallEnough) {
             record.bboxHeightFraction.geometrySkip = 'source-content-bbox-short';
-        } else if (bboxRatio !== null && bboxRatio < GEOMETRY_MIN_HEIGHT_RATIO) {
+        } else if (
+            bboxRatio !== null
+            && bboxRatio < GEOMETRY_MIN_HEIGHT_RATIO
+            && coarseBboxRatio !== null
+            && coarseBboxRatio < GEOMETRY_MIN_HEIGHT_RATIO
+        ) {
             record.violations.push('geometry');
         }
     } else if (sourceAnalysis.structuredEdge.inkFraction >= EDGE_GEOMETRY_MIN_FRACTION) {
