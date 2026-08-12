@@ -168,8 +168,9 @@ describe('package scripts', () => {
 
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
         // The standing scan-cleanup regression net and rendered acceptance
-        // metrics are intentionally public so CI and operators share them.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(99);
+        // metrics are intentionally public so CI and operators share them, as
+        // is the facing-PDF continuous-regression diagnostic.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(100);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);
