@@ -91,6 +91,7 @@ export function createScanCleanupPreviewCacheKey(
     softAlphaForegroundRecommendation: boolean | null = null,
     pageLayoutClassification: TScanCleanupLayoutClassification | null = null,
     pagePlanEvidence: IScanCleanupPagePlanEvidence | null = null,
+    layoutDetectionComplete = false,
 ) {
     const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
     // The visible page's classification decides its own output count, while
@@ -105,6 +106,7 @@ export function createScanCleanupPreviewCacheKey(
         canvasOverrides: previewOptions.matchPageSize ? matchedCanvasOverridesSignature : '',
         pageLayoutClassification,
         pagePlanEvidence,
+        layoutDetectionComplete,
     });
     const identity = JSON.stringify({
         sourcePath: previewSourcePath,
@@ -139,6 +141,7 @@ export function createScanCleanupPreviewCacheKey(
                 picture: [],
                 fill: [],
             },
+            placementOverrides: pageOverride.placementOverrides ?? {},
             outputModeOverride: pageOverride.outputModeOverride,
             marginsMm: pageOverride.marginsMm,
         },
@@ -326,7 +329,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         previewOptions = resolvedOptions.value,
         previewSourcePath = options.sourcePath.value,
     ) {
-        const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
         const authoritativeLayout = options.authoritativeLayoutByPage.value.get(pageNumber);
         const renderedLayout = metadataByPage.get(pageNumber)?.layoutClassification;
         const unresolvedPageLayout = authoritativeLayout === renderedLayout
@@ -334,13 +336,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             : authoritativeLayout ?? null;
         return createScanCleanupPreviewCacheKey(
             pageNumber,
-            {
-                ...previewOptions,
-                pageOverrides: {[String(pageNumber)]: {
-                    ...pageOverride,
-                    placementOverrides: {},
-                }},
-            },
+            previewOptions,
             previewSourcePath,
             options.documentRevision.value,
             options.documentPriorByPage.get(pageNumber) ?? null,
@@ -350,6 +346,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             resolveSoftAlphaForegroundRecommendation(pageNumber) ?? null,
             unresolvedPageLayout,
             options.pagePlanEvidenceByPage.get(pageNumber) ?? null,
+            options.layoutDetectionComplete.value,
         ) + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`;
     }
 

@@ -2159,6 +2159,119 @@ async function runPreview(
             const canvasHeightPx = matchedCanvas === undefined
                 ? null
                 : Math.max(1, Math.round(matchedCanvas.heightPx * canvasGridScale));
+            const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
+            const requestedMargins = matchedCanvas === undefined
+                ? {
+                    leftPx: 0,
+                    topPx: 0,
+                    rightPx: 0,
+                    bottomPx: 0,
+                }
+                : {
+                    leftPx: Math.max(0, Math.round(marginsMm.leftMm / 25.4 * renderDpi)),
+                    topPx: Math.max(0, Math.round(marginsMm.topMm / 25.4 * renderDpi)),
+                    rightPx: Math.max(0, Math.round(marginsMm.rightMm / 25.4 * renderDpi)),
+                    bottomPx: Math.max(0, Math.round(marginsMm.bottomMm / 25.4 * renderDpi)),
+                };
+            const marginsRequested = Object.values(requestedMargins).some(margin => margin > 0);
+            const fitMarginAxis = (leading: number, trailing: number, total: number) => {
+                const sum = leading + trailing;
+                if (sum < total || sum === 0) {
+                    return [
+                        leading,
+                        trailing,
+                    ] as const;
+                }
+                const available = Math.max(0, total - 1);
+                const fittedLeading = Math.min(available, Math.round(available * leading / sum));
+                return [
+                    fittedLeading,
+                    available - fittedLeading,
+                ] as const;
+            };
+            const plannedOutputs = analyzedOutputs.map(output => {
+                const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
+                const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
+                // The canvas is strict: it already contains every page's
+                // content and margins, measured document-wide before this
+                // page was rendered, so growing it here for one output would
+                // be the per-page frame drift it exists to prevent.
+                const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
+                const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
+                const marginsAvailable = request.options.crop && output.contentBox !== undefined;
+                const appliedMargins = matchedCanvas === undefined
+                    ? output.appliedMargins
+                    : marginsAvailable ? requestedMargins : {
+                        leftPx: 0,
+                        topPx: 0,
+                        rightPx: 0,
+                        bottomPx: 0,
+                    };
+                const [
+                    marginLeft,
+                    marginRight,
+                ] = fitMarginAxis(appliedMargins.leftPx, appliedMargins.rightPx, resolvedCanvasWidth);
+                const [
+                    marginTop,
+                    marginBottom,
+                ] = fitMarginAxis(appliedMargins.topPx, appliedMargins.bottomPx, resolvedCanvasHeight);
+                const deliveredMargins = {
+                    leftPx: marginLeft,
+                    topPx: marginTop,
+                    rightPx: marginRight,
+                    bottomPx: marginBottom,
+                };
+                const innerCanvasWidth = Math.max(1, resolvedCanvasWidth - marginLeft - marginRight);
+                const innerCanvasHeight = Math.max(1, resolvedCanvasHeight - marginTop - marginBottom);
+                // The assembler scales this output's own objects from the
+                // paper it was cut from onto the canvas, so the preview
+                // presents it at the same scale. Measuring from the paper and
+                // not from the cropped content is what makes a spread half and
+                // a page scanned on its own land the same size.
+                const outputPaper = resolveScanCleanupOutputPaperPixels({
+                    half: output.half,
+                    inputWidthPx: output.inputWidthPx,
+                    inputHeightPx: output.inputHeightPx,
+                    rotationDegrees: pageMetadata.rotationDegrees,
+                });
+                const paperScale = canvasWidthPx === null || canvasHeightPx === null
+                    ? 1
+                    : resolveScanCleanupCanvasFitScale({
+                        widthPoints: canvasWidthPx,
+                        heightPoints: canvasHeightPx,
+                    }, {
+                        widthPoints: Math.max(1, outputPaper.widthPx),
+                        heightPoints: Math.max(1, outputPaper.heightPx),
+                    });
+                const contentScale = paperScale * Math.min(1, resolveScanCleanupCanvasFitScale({
+                    widthPoints: innerCanvasWidth,
+                    heightPoints: innerCanvasHeight,
+                }, {
+                    widthPoints: Math.max(1, outputWidthPx * paperScale),
+                    heightPoints: Math.max(1, outputHeightPx * paperScale),
+                }));
+                return {
+                    appliedMargins,
+                    contentScale,
+                    deliveredMargins,
+                    innerCanvasHeight,
+                    innerCanvasWidth,
+                    marginLeft,
+                    marginTop,
+                    marginsAvailable,
+                    output,
+                    outputHeightPx,
+                    outputWidthPx,
+                    paperScale,
+                    resolvedCanvasHeight,
+                    resolvedCanvasWidth,
+                };
+            });
+            const spreadContentScale = plannedOutputs.length === 2
+                && plannedOutputs.some(({output}) => output.half === 'left')
+                && plannedOutputs.some(({output}) => output.half === 'right')
+                ? Math.min(...plannedOutputs.map(({contentScale}) => contentScale))
+                : null;
             return {
                 pageNumber: request.pageNumber,
                 totalPages: baseRaw.totalPages,
@@ -2177,101 +2290,27 @@ async function runPreview(
                             : {textToneDiagnostics: output.textToneDiagnostics}),
                     })),
                 },
-                outputs: analyzedOutputs.map(output => {
-                    const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
-                    const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
-                    // The canvas is strict: it already contains every page's
-                    // content and margins, measured document-wide before this
-                    // page was rendered, so growing it here for one output
-                    // would be the per-page frame drift it exists to prevent.
-                    const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
-                    const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
-                    const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
-                    const requestedMargins = matchedCanvas === undefined
-                        ? {
-                            leftPx: 0,
-                            topPx: 0,
-                            rightPx: 0,
-                            bottomPx: 0,
-                        }
-                        : {
-                            leftPx: Math.max(0, Math.round(marginsMm.leftMm / 25.4 * renderDpi)),
-                            topPx: Math.max(0, Math.round(marginsMm.topMm / 25.4 * renderDpi)),
-                            rightPx: Math.max(0, Math.round(marginsMm.rightMm / 25.4 * renderDpi)),
-                            bottomPx: Math.max(0, Math.round(marginsMm.bottomMm / 25.4 * renderDpi)),
-                        };
-                    const marginsRequested = Object.values(requestedMargins).some(margin => margin > 0);
-                    const marginsAvailable = request.options.crop && output.contentBox !== undefined;
-                    const appliedMargins = matchedCanvas === undefined
-                        ? output.appliedMargins
-                        : marginsAvailable ? requestedMargins : {
-                            leftPx: 0,
-                            topPx: 0,
-                            rightPx: 0,
-                            bottomPx: 0,
-                        };
-                    const fitMarginAxis = (leading: number, trailing: number, total: number) => {
-                        const sum = leading + trailing;
-                        if (sum < total || sum === 0) {
-                            return [
-                                leading,
-                                trailing,
-                            ] as const;
-                        }
-                        const available = Math.max(0, total - 1);
-                        const fittedLeading = Math.min(available, Math.round(available * leading / sum));
-                        return [
-                            fittedLeading,
-                            available - fittedLeading,
-                        ] as const;
-                    };
-                    const [
-                        marginLeft,
-                        marginRight,
-                    ] = fitMarginAxis(appliedMargins.leftPx, appliedMargins.rightPx, resolvedCanvasWidth);
-                    const [
-                        marginTop,
-                        marginBottom,
-                    ] = fitMarginAxis(appliedMargins.topPx, appliedMargins.bottomPx, resolvedCanvasHeight);
-                    const deliveredMargins = {
-                        leftPx: marginLeft,
-                        topPx: marginTop,
-                        rightPx: marginRight,
-                        bottomPx: marginBottom,
-                    };
-                    const innerCanvasWidth = Math.max(1, resolvedCanvasWidth - marginLeft - marginRight);
-                    const innerCanvasHeight = Math.max(1, resolvedCanvasHeight - marginTop - marginBottom);
-                    // The assembler scales this output's own objects from the
-                    // paper it was cut from onto the canvas, so the preview
-                    // presents it at the same scale. Measuring from the paper
-                    // and not from the cropped content is what makes a spread
-                    // half and a page scanned on its own land the same size.
-                    const outputPaper = resolveScanCleanupOutputPaperPixels({
-                        half: output.half,
-                        inputWidthPx: output.inputWidthPx,
-                        inputHeightPx: output.inputHeightPx,
-                        rotationDegrees: pageMetadata.rotationDegrees,
-                    });
-                    const paperScale = canvasWidthPx === null || canvasHeightPx === null
-                        ? 1
-                        : resolveScanCleanupCanvasFitScale({
-                            widthPoints: canvasWidthPx,
-                            heightPoints: canvasHeightPx,
-                        }, {
-                            widthPoints: Math.max(1, outputPaper.widthPx),
-                            heightPoints: Math.max(1, outputPaper.heightPx),
-                        });
+                outputs: plannedOutputs.map(({
+                    appliedMargins,
+                    contentScale: leafContentScale,
+                    deliveredMargins,
+                    innerCanvasHeight,
+                    innerCanvasWidth,
+                    marginLeft,
+                    marginTop,
+                    marginsAvailable,
+                    output,
+                    outputHeightPx,
+                    outputWidthPx,
+                    paperScale,
+                    resolvedCanvasHeight,
+                    resolvedCanvasWidth,
+                }) => {
                     // Matched margins are final-canvas insets, so content is
                     // fitted into the remaining inner rectangle. Intrinsic
                     // previews already carry their outward crop margins in the
                     // raster and therefore use the whole output rectangle here.
-                    const contentScale = paperScale * Math.min(1, resolveScanCleanupCanvasFitScale({
-                        widthPoints: innerCanvasWidth,
-                        heightPoints: innerCanvasHeight,
-                    }, {
-                        widthPoints: Math.max(1, outputWidthPx * paperScale),
-                        heightPoints: Math.max(1, outputHeightPx * paperScale),
-                    }));
+                    const contentScale = spreadContentScale ?? leafContentScale;
                     const contentWidthPx = Math.min(
                         innerCanvasWidth,
                         Math.max(1, Math.round(outputWidthPx * contentScale)),

@@ -77,17 +77,18 @@ function resolvePreviewMetadataOffset(
         contentHeightPx,
         alignment,
     );
-    return metadata.matchedCanvasOpticalPlacement === true
+    const x = metadata.matchedCanvasOpticalPlacement === true
         && (
             alignment === 'top-center'
             || alignment === 'center'
             || alignment === 'bottom-center'
         )
-        ? {
-            x: metadata.placementOffsetXPx,
-            y: aligned.y,
-        }
-        : aligned;
+        ? metadata.placementOffsetXPx
+        : aligned.x;
+    return {
+        x,
+        y: metadata.placementOffsetYPx ?? aligned.y,
+    };
 }
 
 function resolveAlignedPreviewPlacement(

@@ -168,6 +168,11 @@ struct WrittenOutput {
     paper_width: f64,
     paper_height: f64,
     content_detected: bool,
+    /// The first visible content row in this output's intrinsic raster. Kept
+    /// in memory so deferred matched-canvas placement can use the exact same
+    /// spread anchor as the in-memory final path without adding protocol
+    /// metadata.
+    spread_content_top: Option<f64>,
     matched_in_memory: bool,
 }
 
@@ -2331,6 +2336,7 @@ fn run_page(
                 paper_width,
                 paper_height,
                 content_detected: output.metadata.content_box.is_some(),
+                spread_content_top: spread_content_top_for_output(output),
                 matched_in_memory: matched_placement.is_some(),
             });
         }
@@ -3420,6 +3426,63 @@ fn match_layers_in_memory(
     }
 }
 
+#[derive(Clone, Copy)]
+struct DeferredSpreadVerticalPlacement {
+    source_page_index: usize,
+    half: crate::pipeline::PageHalf,
+    intrinsic_height: usize,
+    content_top: Option<f64>,
+}
+
+/// Applies the in-memory spread anchor to placements planned after outputs
+/// have been written. Deferred consumers cannot transport a signed intrinsic
+/// Y origin yet, so a shared anchor that would trim crop headroom is exposed at
+/// the canvas origin instead.
+fn align_deferred_spread_vertical_placements(
+    placements: &mut [CanvasPlacement],
+    outputs: &[DeferredSpreadVerticalPlacement],
+    shared_spread_fits: &HashMap<usize, f64>,
+    canvas: &DocumentCanvas,
+) {
+    if placements.len() != outputs.len() {
+        return;
+    }
+    for source_page_index in shared_spread_fits.keys() {
+        let pair = outputs
+            .iter()
+            .enumerate()
+            .filter(|(_, output)| output.source_page_index == *source_page_index)
+            .collect::<Vec<_>>();
+        if pair.len() != 2
+            || !pair
+                .iter()
+                .any(|(_, output)| output.half == crate::pipeline::PageHalf::Left)
+            || !pair
+                .iter()
+                .any(|(_, output)| output.half == crate::pipeline::PageHalf::Right)
+        {
+            continue;
+        }
+        let mut pair_placements = vec![
+            Some((placements[pair[0].0], *canvas)),
+            Some((placements[pair[1].0], *canvas)),
+        ];
+        align_spread_vertical_placements(
+            &mut pair_placements,
+            &[pair[0].1.intrinsic_height, pair[1].1.intrinsic_height],
+            &[pair[0].1.content_top, pair[1].1.content_top],
+            canvas,
+        );
+        for ((index, _), aligned) in pair.into_iter().zip(pair_placements) {
+            let Some((mut placement, _)) = aligned else {
+                continue;
+            };
+            placement.intrinsic_overflow_top = 0;
+            placements[index] = placement;
+        }
+    }
+}
+
 fn match_page_sizes(
     outputs: &[&WrittenOutput],
     preview_mode: bool,
@@ -3448,15 +3511,35 @@ fn match_page_sizes(
     let target_width = canvas.width_px;
     let target_height = canvas.height_px;
     let shared_spread_fits = shared_spread_overflow_fits_for_written_outputs(&eligible, &canvas);
-
-    for output in eligible {
-        let repad_result = (|| -> Result<(), Box<dyn Error>> {
-            validate_canvas(target_width, target_height, output)?;
-            let placement = plan_canvas_placement_with_shared_fit(
+    let mut placements = eligible
+        .iter()
+        .map(|output| {
+            plan_canvas_placement_with_shared_fit(
                 output,
                 &canvas,
                 shared_spread_fits.get(&output.source_page_index).copied(),
-            );
+            )
+        })
+        .collect::<Vec<_>>();
+    let deferred_spread_outputs = eligible
+        .iter()
+        .map(|output| DeferredSpreadVerticalPlacement {
+            source_page_index: output.source_page_index,
+            half: output.half,
+            intrinsic_height: output.height,
+            content_top: output.spread_content_top,
+        })
+        .collect::<Vec<_>>();
+    align_deferred_spread_vertical_placements(
+        &mut placements,
+        &deferred_spread_outputs,
+        &shared_spread_fits,
+        &canvas,
+    );
+
+    for (output, placement) in eligible.into_iter().zip(placements) {
+        let repad_result = (|| -> Result<(), Box<dyn Error>> {
+            validate_canvas(target_width, target_height, output)?;
             let CanvasPlacement {
                 content_width,
                 content_height,
@@ -4221,7 +4304,8 @@ fn map_image_error(message: String) -> NativeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_thread_count, align_spread_vertical_placements, background_canvas_dimensions,
+        adaptive_thread_count, align_deferred_spread_vertical_placements,
+        align_spread_vertical_placements, background_canvas_dimensions,
         background_dimensions_to_publish, canvas_fit_for, estimate_peak_page_bytes, manifest_cache,
         manifest_worker_threads, map_image_error, matched_output_paper_dimensions_for,
         materialize_gray_primary_on_canvas, materialize_stream_page,
@@ -4232,8 +4316,8 @@ mod tests {
         plan_canvas_placement_for_with_optical_center_and_fit, preflight_manifest_paths,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
         robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs, CanvasPlacement,
-        CleanupRaster, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
-        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        CleanupRaster, DeferredSpreadVerticalPlacement, PageResultMetadata, PageRunResult,
+        ScanCleanupCliInvocation, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -4247,6 +4331,7 @@ mod tests {
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::{BinaryImage, GrayImage, Point};
     use std::{
+        collections::HashMap,
         fs,
         path::{Path, PathBuf},
         sync::atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -4710,6 +4795,105 @@ mod tests {
         assert_eq!(first.top, 170);
         assert_eq!(second.top, 100);
         assert!((first_content_top - second_content_top).abs() <= 0.5);
+    }
+
+    #[test]
+    fn deferred_spread_placement_uses_the_shared_vertical_content_anchor() {
+        let canvas = DocumentCanvas {
+            width_points: 720.0,
+            height_points: 720.0,
+            width_px: 1_000,
+            height_px: 1_000,
+        };
+        let placement = |top| CanvasPlacement {
+            content_width: 700,
+            content_height: 700,
+            left: 0,
+            top,
+            requested_margins: [0; 4],
+            optical_content_centered: false,
+            optical_content_fit_failed: false,
+            optical_content_bounds_x: None,
+            intrinsic_overflow_left: 0,
+            intrinsic_overflow_right: 0,
+            intrinsic_overflow_top: 0,
+            margins_reduced: false,
+            margins_unavailable: false,
+            overflow: false,
+            paper_scale: 1.0,
+            undersized_paper: false,
+        };
+        let mut placements = vec![placement(100), placement(100)];
+        let outputs = [
+            DeferredSpreadVerticalPlacement {
+                source_page_index: 7,
+                half: crate::pipeline::PageHalf::Left,
+                intrinsic_height: 1_000,
+                content_top: Some(20.0),
+            },
+            DeferredSpreadVerticalPlacement {
+                source_page_index: 7,
+                half: crate::pipeline::PageHalf::Right,
+                intrinsic_height: 1_000,
+                content_top: Some(120.0),
+            },
+        ];
+
+        align_deferred_spread_vertical_placements(
+            &mut placements,
+            &outputs,
+            &HashMap::from([(7, 1.0)]),
+            &canvas,
+        );
+
+        assert_eq!(placements[0].top, 170);
+        assert_eq!(placements[1].top, 100);
+        assert_eq!(placements[0].intrinsic_overflow_top, 0);
+        assert_eq!(placements[1].intrinsic_overflow_top, 0);
+    }
+
+    #[test]
+    fn deferred_vertical_alignment_leaves_a_single_page_unchanged() {
+        let canvas = DocumentCanvas {
+            width_points: 720.0,
+            height_points: 720.0,
+            width_px: 1_000,
+            height_px: 1_000,
+        };
+        let original = CanvasPlacement {
+            content_width: 700,
+            content_height: 700,
+            left: 150,
+            top: 125,
+            requested_margins: [10, 20, 30, 40],
+            optical_content_centered: false,
+            optical_content_fit_failed: false,
+            optical_content_bounds_x: None,
+            intrinsic_overflow_left: 0,
+            intrinsic_overflow_right: 0,
+            intrinsic_overflow_top: 0,
+            margins_reduced: false,
+            margins_unavailable: false,
+            overflow: false,
+            paper_scale: 1.0,
+            undersized_paper: false,
+        };
+        let mut placements = vec![original];
+        let outputs = [DeferredSpreadVerticalPlacement {
+            source_page_index: 3,
+            half: crate::pipeline::PageHalf::Full,
+            intrinsic_height: 1_000,
+            content_top: Some(60.0),
+        }];
+
+        align_deferred_spread_vertical_placements(
+            &mut placements,
+            &outputs,
+            &HashMap::new(),
+            &canvas,
+        );
+
+        assert_eq!(placements, [original]);
     }
 
     #[test]

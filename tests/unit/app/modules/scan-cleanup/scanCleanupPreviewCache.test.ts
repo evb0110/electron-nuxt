@@ -144,7 +144,7 @@ describe('scan cleanup renderer preview cache', () => {
             .not.toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {left: firstPan}));
     });
 
-    it('keys sidecar-rendered placement and order options but ignores renderer-only placement overrides', () => {
+    it('keys every alignment that can change native Y along with sidecar-rendered options', () => {
         const base = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf');
         const withAlignment = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
@@ -243,8 +243,28 @@ describe('scan cleanup renderer preview cache', () => {
             withFixedDewarpDepth,
             withManualSkew,
             withManualZones,
-        ])).toHaveLength(10);
-        expect(withPlacementOverride).toBe(base);
+            withPlacementOverride,
+        ])).toHaveLength(11);
+        expect(withPlacementOverride).not.toBe(base);
+    });
+
+    it('changes preview validity when layout detection becomes complete', () => {
+        const keyFor = (layoutDetectionComplete: boolean) => createScanCleanupPreviewCacheKey(
+            1,
+            previewOptions,
+            '/tmp/source.pdf',
+            'rev',
+            null,
+            '',
+            '',
+            null,
+            null,
+            null,
+            null,
+            layoutDetectionComplete,
+        );
+
+        expect(keyFor(true)).not.toBe(keyFor(false));
     });
 
     it('invalidates a page when its output-mode override changes', () => {

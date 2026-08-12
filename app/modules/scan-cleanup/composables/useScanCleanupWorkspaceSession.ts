@@ -166,6 +166,11 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     // is built, and the retained raw-raster cache makes the refresh a single
     // preview sidecar pass rather than another PDF rasterization.
     const runPreviewRefreshPages = new Set<number>();
+    watch(run.isRunning, (running, wasRunning) => {
+        if (wasRunning && !running) {
+            previewResult?.schedule();
+        }
+    });
     watch([
         run.isRunning,
         selection.leader,

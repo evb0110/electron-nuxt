@@ -2321,16 +2321,19 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
         harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
 
         mounted.session.settings.values.normalizeIllumination = false;
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         harness.emitDetection(detectionState('detect-2', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
 
         // With normalization already disabled, preserve-quality used to collide
         // with the same derived signature and incorrectly retain the map.
         mounted.session.settings.values.preserveOriginalQuality = true;
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(3));
         harness.emitDetection(detectionState('detect-3', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
 
         mounted.session.settings.values.pageOverrides['1'] = {
             rotationDegrees: 90,
@@ -2340,6 +2343,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         };
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(4));
         harness.emitDetection(detectionState('detect-4', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
 
         mounted.session.settings.values.pageOverrides['1'] = {
             ...mounted.session.settings.values.pageOverrides['1']!,
@@ -2491,7 +2495,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         stale.unmount();
     });
 
-    it('keeps placement-only changes in renderer geometry without requesting a sidecar preview', async () => {
+    it('requests fresh native Y when a per-output placement alignment changes', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`placement-${Date.now()}`);
@@ -2504,7 +2508,12 @@ describe('scan cleanup workspace session detection guidance', () => {
             mounted.session.selection.updateCurrentPlacement('full', 'bottom-right');
             await vi.advanceTimersByTimeAsync(300);
 
-            expect(vi.mocked(harness.value.preview).mock.calls.slice(previewCalls)).toEqual([]);
+            const refreshRequests = vi.mocked(harness.value.preview).mock.calls
+                .slice(previewCalls)
+                .map(([request]) => request);
+            expect(refreshRequests).not.toHaveLength(0);
+            expect(refreshRequests.at(-1)?.options.pageOverrides?.['1']?.placementOverrides)
+                .toEqual({full: 'bottom-right'});
         } finally {
             vi.useRealTimers();
             mounted.unmount();

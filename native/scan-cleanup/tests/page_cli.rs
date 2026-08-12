@@ -3421,6 +3421,107 @@ fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
     assert!(preview_metadata["pdfImagePlacement"].is_null());
 }
 
+#[test]
+fn matched_canvas_preview_places_a_spread_at_the_final_shared_vertical_anchor() {
+    let scratch = Scratch::new("matched-spread-preview");
+    let manifest = scratch.path("matched-spread-preview-manifest.json");
+    let input = scratch.path("matched-spread-preview-input.png");
+    let output_left = scratch.path("matched-spread-preview-left.png");
+    let output_right = scratch.path("matched-spread-preview-right.png");
+    let metadata_left = scratch.path("matched-spread-preview-left.json");
+    let metadata_right = scratch.path("matched-spread-preview-right.json");
+    let mut image = GrayImage::new(160, 80, 255);
+    for y in 8..48 {
+        for x in 10..70 {
+            if y % 6 < 2 {
+                image.set(x, y, 15);
+            }
+        }
+    }
+    for y in 20..60 {
+        for x in 90..150 {
+            if y % 6 < 2 {
+                image.set(x, y, 20);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 57.6,
+            "heightPoints": 67.2,
+            "widthPx": 120,
+            "heightPx": 140
+        },
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": scratch.path("matched-spread-preview-page.json"),
+            "options": {
+                "dpi": 150,
+                "layout": "force-two-page",
+                "normalizeIllumination": false,
+                "cropContent": false,
+                "outputMode": "grayscale",
+                "matchPageSize": true,
+                "pageAlignment": "center",
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+            },
+            "outputs": [
+                {"outputPath": output_left, "metadataPath": metadata_left},
+                {"outputPath": output_right, "metadataPath": metadata_right}
+            ]
+        }]
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+    let run = || {
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "stderr={}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        [
+            serde_json::from_slice::<Value>(&fs::read(&metadata_left).unwrap()).unwrap(),
+            serde_json::from_slice::<Value>(&fs::read(&metadata_right).unwrap()).unwrap(),
+        ]
+    };
+    let final_metadata = run();
+
+    let mut preview_payload = payload;
+    preview_payload["renderMode"] = Value::String("preview".into());
+    preview_payload["canvasScope"] = Value::String("page".into());
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&preview_payload).unwrap(),
+    )
+    .unwrap();
+    let preview_metadata = run();
+
+    for index in 0..2 {
+        assert_eq!(
+            preview_metadata[index]["placementOffsetYPx"],
+            final_metadata[index]["placementOffsetYPx"],
+            "preview and final disagree about the {} leaf's shared vertical anchor",
+            final_metadata[index]["half"],
+        );
+        assert!(preview_metadata[index]["placementOffsetYPx"]
+            .as_u64()
+            .is_some());
+    }
+    assert_ne!(
+        final_metadata[0]["placementOffsetYPx"], final_metadata[1]["placementOffsetYPx"],
+        "fixture did not exercise asymmetric spread anchoring",
+    );
+}
+
 /// `maxPixels` is a limit the matched canvas may reach and never pass. The
 /// owner measures the grid in `resolveScanCleanupDocumentCanvas` and this
 /// process is what enforces it, so the two have to agree on where the boundary

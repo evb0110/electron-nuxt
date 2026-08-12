@@ -2272,7 +2272,7 @@ describe('scan cleanup preview', () => {
         ]});
     });
 
-    it('keeps equal-height spread leaves at one scale when the gutter cutter is off center', async () => {
+    it('uses the pair-wide lossless fit when one spread leaf reaches the margin box', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         deps.getPageSizes = vi.fn(async () => [
@@ -2343,7 +2343,7 @@ describe('scan cleanup preview', () => {
                 outputCount: 2,
                 outputs: [
                     output('left', 0, 1_198, 876, 1_407),
-                    output('right', 1_198, 1_005, 607, 1_405),
+                    output('right', 1_198, 1_005, 607, 1_573),
                 ],
             }));
         });
@@ -2374,11 +2374,12 @@ describe('scan cleanup preview', () => {
 
         expect(left!.canvasWidthPx).toBe(right!.canvasWidthPx);
         expect(left!.canvasHeightPx).toBe(right!.canvasHeightPx);
-        expect(Math.abs(
-            left!.matchedCanvasContentHeightPx! - right!.matchedCanvasContentHeightPx!,
-        )).toBeLessThanOrEqual(2);
-        expect(left!.matchedCanvasContentHeightPx).toBeGreaterThan(1_400);
-        expect(right!.matchedCanvasContentHeightPx).toBeGreaterThan(1_400);
+        expect(left!.matchedCanvasContentHeightPx! / 1_407)
+            .toBeCloseTo(right!.matchedCanvasContentHeightPx! / 1_573, 3);
+        expect(left!.matchedCanvasContentWidthPx! / 876)
+            .toBeCloseTo(right!.matchedCanvasContentWidthPx! / 607, 3);
+        expect(left!.matchedCanvasContentHeightPx).toBeLessThan(1_407);
+        expect(right!.matchedCanvasContentHeightPx).toBe(1_566);
     });
 
     it('reserves exact final-canvas margins in a matched lossless preview and says when content is fitted', async () => {
