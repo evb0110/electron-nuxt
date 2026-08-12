@@ -24,6 +24,14 @@ import {
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {tsImport} from 'tsx/esm/api';
+import {
+    buildExpectationInfos as buildExpectationInfosImpl,
+    buildSpreadLeafAlignment,
+    contentBboxHeightFraction,
+    measureSpreadLeafVerticalAlignment as measureSpreadLeafVerticalAlignmentImpl,
+} from './scan-cleanup-representative-audit-leaf-alignment.mjs';
+
+export {buildExpectationInfosImpl as buildExpectationInfos};
 
 const execFileAsync = promisify(execFile);
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -747,22 +755,11 @@ export function alignBitmapForComparison(sourceBitmap, cleanedBitmap) {
     };
 }
 
-// Fraction of grid rows spanned by content, used to detect a squeezed page.
-function contentBboxHeightFraction(grid, horizontalMargin = 0) {
-    let minRow = -1;
-    let maxRow = -1;
-    const margin = Math.min(horizontalMargin, Math.floor(grid.cols / 2));
-    for (let row = 0; row < grid.rows; row += 1) {
-        const rowOffset = row * grid.cols;
-        const rowHasInk = grid.dark
-            .subarray(rowOffset + margin, rowOffset + grid.cols - margin)
-            .some(cell => cell === 1);
-        if (rowHasInk) {
-            minRow = minRow === -1 ? row : minRow;
-            maxRow = row;
-        }
-    }
-    return minRow === -1 ? 0 : (maxRow - minRow + 1) / grid.rows;
+export function measureSpreadLeafVerticalAlignment(args) {
+    return measureSpreadLeafVerticalAlignmentImpl({
+        ...args,
+        dpi: args.dpi ?? DEFAULT_DPI,
+    });
 }
 
 function round(value) {
@@ -1056,29 +1053,6 @@ export function buildExpectedMapping(sourcePageCount, actualCleanedCount, source
     };
 }
 
-export function buildExpectationInfos({
-    expectSingles,
-    inferredLayouts,
-}) {
-    const mismatches = inferredLayouts.flatMap((layout, index) => {
-        const sourcePage = index + 1;
-        const expectedLayout = expectSingles.has(sourcePage) ? 'single' : 'spread';
-        return layout === expectedLayout ? [] : [{
-            actual: layout,
-            expected: expectedLayout,
-            sourcePage,
-        }];
-    });
-    if (mismatches.length === 0) {
-        return [];
-    }
-    return [{
-        code: 'expectation-mismatch',
-        details: mismatches,
-        message: 'Rendered output/source evidence inferred a different layout than the legacy manifest hint; this is INFO only and does not count as a violation.',
-    }];
-}
-
 async function main() {
     const options = parseArgs(process.argv.slice(2));
     if (options.help) {
@@ -1132,8 +1106,15 @@ async function main() {
                 sourcePage: entry.sourcePage,
             });
         });
+        const leafPairAlignment = buildSpreadLeafAlignment({
+            cleanedPages,
+            dpi: options.dpi,
+            entries,
+            sourcePages,
+            splitHalves,
+        });
 
-        const infos = buildExpectationInfos({
+        const infos = buildExpectationInfosImpl({
             expectSingles: options.expectSingles,
             inferredLayouts: mapping.inferredLayouts,
         });
@@ -1141,10 +1122,16 @@ async function main() {
             'artifact-retention': 0,
             'content-loss': 0,
             geometry: 0,
+            'leaf-misalignment': 0,
             'page-count': pageCountMismatch ? 1 : 0,
         };
         for (const page of pages) {
             for (const violation of page.violations) {
+                violationCounts[violation] += 1;
+            }
+        }
+        for (const pair of leafPairAlignment) {
+            for (const violation of pair.violations) {
                 violationCounts[violation] += 1;
             }
         }
@@ -1159,12 +1146,15 @@ async function main() {
                 visualLayouts: mapping.visualLayouts,
                 visualExpectedCount: mapping.visualExpectedCount,
             },
+            leafPairAlignment,
             pages,
             source: options.source,
             summary: {
                 actualCleanedCount,
                 expectedCleanedCount,
                 infoCount: infos.length,
+                leafPairCount: leafPairAlignment.length,
+                leafMisalignmentPairs: leafPairAlignment.filter(pair => pair.status === 'violation').length,
                 pageCountMismatch,
                 sourcePageCount,
                 totalViolations,

@@ -2,6 +2,7 @@ import {
     alignBitmapForComparison,
     buildExpectationInfos,
     buildExpectedMapping,
+    measureSpreadLeafVerticalAlignment,
 } from '@scripts/diagnostics/scan-cleanup-representative-audit.mjs';
 import {
     describe,
@@ -47,6 +48,22 @@ function makeSyntheticBitmap(offsetX = 0, includeContent = true) {
                     data[y * width + x] = 0;
                 }
             }
+        }
+    }
+    return {
+        data,
+        height,
+        width,
+    };
+}
+
+function makeContentTopBitmap(top: number, contentValue = 0) {
+    const width = 160;
+    const height = 224;
+    const data = new Uint8Array(width * height).fill(255);
+    for (let y = top; y < top + 80; y += 1) {
+        for (let x = 20; x < 140; x += 1) {
+            data[y * width + x] = contentValue;
         }
     }
     return {
@@ -123,5 +140,44 @@ describe('scan cleanup representative audit mapping inference', () => {
             x: 0,
             y: 0,
         });
+    });
+
+    it('flags output leaf-top drift beyond the source-half delta', () => {
+        const sourceLeft = makeContentTopBitmap(32);
+        const sourceRight = makeContentTopBitmap(34);
+        const misaligned = measureSpreadLeafVerticalAlignment({
+            cleanedLeft: makeContentTopBitmap(32),
+            cleanedRight: makeContentTopBitmap(96),
+            dpi: 50,
+            sourceLeft,
+            sourceRight,
+        });
+        expect(misaligned.status).toBe('violation');
+        expect(misaligned.violations).toContain('leaf-misalignment');
+
+        const aligned = measureSpreadLeafVerticalAlignment({
+            cleanedLeft: makeContentTopBitmap(32),
+            cleanedRight: makeContentTopBitmap(34),
+            dpi: 50,
+            sourceLeft,
+            sourceRight,
+        });
+        expect(aligned.status).toBe('pass');
+        expect(aligned.violations).toEqual([]);
+    });
+
+    it('anchors pale content before the dark-ink grid begins', () => {
+        const sourceLeft = makeContentTopBitmap(32, 240);
+        const sourceRight = makeContentTopBitmap(34, 240);
+        const aligned = measureSpreadLeafVerticalAlignment({
+            cleanedLeft: makeContentTopBitmap(32, 240),
+            cleanedRight: makeContentTopBitmap(34, 240),
+            dpi: 100,
+            sourceLeft,
+            sourceRight,
+        });
+        expect(aligned.status).toBe('pass');
+        expect(aligned.source.leftTopPx).toBe(32);
+        expect(aligned.cleaned.rightTopPx).toBe(34);
     });
 });

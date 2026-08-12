@@ -196,7 +196,6 @@ const CLI_PDF_COMBINE_WASM_PAGE_KIND_CODES: Record<TCliPdfCombineWasmPageKind, n
 const CLI_PDF_COMBINE_WASM_REQUEST_HEADER_BYTES = 4 + (6 * 4);
 const CLI_PDF_COMBINE_WASM_PAGE_SPEC_HEADER_BYTES = 4 + (2 * 8) + (2 * 4);
 const CLI_WASM_IMAGE_SAMPLE_LIMIT = 200_000;
-const CLI_WASM_CONTINUOUS_TONE_ENTROPY_THRESHOLD = 5.2;
 let cliPdfCombineWasmExportsPromise: Promise<ICliPdfCombineWasmExports | null> | null = null;
 
 type TCliPdfCombineWasmPageInput =
@@ -368,10 +367,7 @@ async function normalizeCliWasmMask(
     return normalizedPath;
 }
 
-interface ICliWasmImageTone {
-    continuousTone: boolean;
-    grayscale: boolean;
-}
+interface ICliWasmImageTone { grayscale: boolean; }
 
 async function inspectCliWasmPngTone(inputPath: string): Promise<ICliWasmImageTone | null> {
     if (!inputPath.toLowerCase().endsWith('.png')) {
@@ -380,18 +376,9 @@ async function inspectCliWasmPngTone(inputPath: string): Promise<ICliWasmImageTo
     const decoded = decodePng(await readFile(inputPath));
     const pixelCount = decoded.width * decoded.height;
     const stride = Math.max(1, Math.ceil(pixelCount / CLI_WASM_IMAGE_SAMPLE_LIMIT));
-    const histogram = new Uint32Array(256);
-    let sampledPixels = 0;
     let coloredPixels = 0;
-    const maxSample = (1 << decoded.depth) - 1;
     for (let pixel = 0; pixel < pixelCount; pixel += stride) {
         const offset = pixel * decoded.channels;
-        const raw = Number(decoded.data[offset]);
-        const value = decoded.depth === 8
-            ? raw
-            : Math.round(raw * 255 / maxSample);
-        histogram[value] = histogram[value]! + 1;
-        sampledPixels += 1;
         if (
             decoded.channels >= 3
             && (
@@ -402,17 +389,8 @@ async function inspectCliWasmPngTone(inputPath: string): Promise<ICliWasmImageTo
             coloredPixels += 1;
         }
     }
-    let entropy = 0;
-    for (const count of histogram) {
-        if (count === 0) continue;
-        const probability = count / sampledPixels;
-        entropy -= probability * Math.log2(probability);
-    }
     const grayscale = coloredPixels === 0;
-    return {
-        continuousTone: grayscale && entropy >= CLI_WASM_CONTINUOUS_TONE_ENTROPY_THRESHOLD,
-        grayscale,
-    };
+    return {grayscale};
 }
 
 async function normalizeCliWasmImage(
@@ -426,23 +404,6 @@ async function normalizeCliWasmImage(
     kind: 'image' | 'mask'
 }> {
     const tone = await inspectCliWasmPngTone(inputPath);
-    if (tone?.grayscale === true && tone.continuousTone === false) {
-        const normalizedPath = join(temporaryDirectory, `wasm-mask-${String(pageIndex)}.pbm`);
-        await runCliNativeToolCommand(magickBinary, [
-            inputPath,
-            '-colorspace',
-            'Gray',
-            '-threshold',
-            '50%',
-            '-type',
-            'Bilevel',
-            normalizedPath,
-        ], options);
-        return {
-            imagePath: normalizedPath,
-            kind: 'mask',
-        };
-    }
     if (tone?.grayscale === true) {
         const normalizedPath = join(temporaryDirectory, `wasm-image-${String(pageIndex)}.pgm`);
         await runCliNativeToolCommand(magickBinary, [

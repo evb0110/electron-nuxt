@@ -1916,6 +1916,18 @@ fn run_page(
         )
         .map_err(map_image_error)?
     };
+    if final_render && result.classification == LayoutClassification::TwoPageSpread {
+        // The matched-canvas planner must measure the same visible raster that
+        // the compact manifest will publish. Mixed layers are useful for the
+        // single-page layered path, but their mask/background planes can have
+        // different crop headroom; restoring the spread composite first keeps
+        // the shared vertical anchor in the composite's source coordinates.
+        for output in &mut result.outputs {
+            if output.mixed_layers.is_some() {
+                restore_mixed_composite_from_layers(output);
+            }
+        }
+    }
     for output in &mut result.outputs {
         output.metadata.canvas_scope = canvas_scope;
     }
@@ -1986,31 +1998,25 @@ fn run_page(
         calibration_x_height_px: None,
     };
     let destinations = resolve_destinations(page, result.outputs.len(), fallback_destination)?;
-    let mut written = Vec::with_capacity(result.outputs.len());
-    let write_started = Instant::now();
-    let publication_result = (|| -> Result<(), Box<dyn Error>> {
-        for (output, destination) in result.outputs.iter_mut().zip(&destinations) {
-            let layer_destinations_available = final_render
-                && output.mixed_layers.as_ref().is_some_and(|layers| {
-                    destination.background_output_path.is_some()
-                        && if layers.foreground_alpha.is_some() {
-                            destination.foreground_alpha_output_path.is_some()
-                        } else {
-                            destination.foreground_mask_output_path.is_some()
-                        }
-                });
-            let matched_placement = if final_render && options.match_page_size && !options.ocr_mode
-            {
-                let mut canvas = document_canvas
-                    .ok_or_else(|| invalid("Matched page size requires a documentCanvas plan"))?;
-                // PDF page matching is a physical-points contract, not a
-                // same-number-of-pixels contract. Reusing the document's
-                // finest raster grid upscaled lower-DPI B&W/Mixed pages after
-                // cleanup, adding no information while changing stroke
-                // geometry and bloating masks. Each page keeps the DPI at
-                // which it was actually cleaned.
-                canvas = canvas.at_dpi(options.dpi);
-                validate_canvas_for_options(canvas.width_px, canvas.height_px, &options)?;
+    let matched_canvas = if final_render && options.match_page_size && !options.ocr_mode {
+        let mut canvas = document_canvas
+            .ok_or_else(|| invalid("Matched page size requires a documentCanvas plan"))?;
+        // PDF page matching is a physical-points contract, not a
+        // same-number-of-pixels contract. Reusing the document's finest raster
+        // grid upscaled lower-DPI B&W/Mixed pages after cleanup, adding no
+        // information while changing stroke geometry and bloating masks. Each
+        // page keeps the DPI at which it was actually cleaned.
+        canvas = canvas.at_dpi(options.dpi);
+        validate_canvas_for_options(canvas.width_px, canvas.height_px, &options)?;
+        Some(canvas)
+    } else {
+        None
+    };
+    let mut matched_placements = result
+        .outputs
+        .iter()
+        .map(|output| {
+            matched_canvas.map(|canvas| {
                 let (paper_width, paper_height) = matched_output_paper_dimensions(&output.metadata);
                 let optical_content_bounds_x = output
                     .metadata
@@ -2029,10 +2035,66 @@ fn run_page(
                     &canvas,
                     optical_content_bounds_x,
                 );
+                (placement, canvas)
+            })
+        })
+        .collect::<Vec<_>>();
+    if result.classification == LayoutClassification::TwoPageSpread {
+        let intrinsic_heights = result
+            .outputs
+            .iter()
+            .map(|output| output.image.height())
+            .collect::<Vec<_>>();
+        let content_tops = result
+            .outputs
+            .iter()
+            .map(spread_content_top_for_output)
+            .collect::<Vec<_>>();
+        if let Some(canvas) = matched_canvas {
+            align_spread_vertical_placements(
+                &mut matched_placements,
+                &intrinsic_heights,
+                &content_tops,
+                &canvas,
+            );
+        }
+    }
+    let mut written = Vec::with_capacity(result.outputs.len());
+    let write_started = Instant::now();
+    let publication_result = (|| -> Result<(), Box<dyn Error>> {
+        for ((output, destination), matched_placement) in result
+            .outputs
+            .iter_mut()
+            .zip(&destinations)
+            .zip(matched_placements.into_iter())
+        {
+            let layer_destinations_available = final_render
+                && output.mixed_layers.as_ref().is_some_and(|layers| {
+                    destination.background_output_path.is_some()
+                        && if layers.foreground_alpha.is_some() {
+                            destination.foreground_alpha_output_path.is_some()
+                        } else {
+                            destination.foreground_mask_output_path.is_some()
+                        }
+                });
+            if let Some((placement, canvas)) = matched_placement {
                 apply_canvas_metadata(&mut output.metadata, placement, &canvas);
                 match_picture_mask_in_memory(output, placement, &canvas);
                 match_tone_preservation_alpha_in_memory(output, placement, &canvas);
-                if layer_destinations_available {
+                let spread_mixed = result.classification == LayoutClassification::TwoPageSpread
+                    && output.mixed_layers.is_some();
+                if spread_mixed {
+                    // The shared spread anchor is native canvas geometry. A
+                    // compact layered manifest has no placement matrix; its
+                    // WASM/img2pdf assembler scales the background and mask
+                    // independently and can therefore reintroduce each
+                    // leaf's intrinsic crop headroom. The composite was
+                    // restored before planning, so materialize that exact
+                    // source on the native canvas. Single-page mixed output
+                    // keeps its layered representation.
+                    match_primary_raster_in_memory(output, placement, &canvas);
+                    output.mixed_layers = None;
+                } else if layer_destinations_available {
                     // Layered and bilevel publication still materializes the
                     // document canvas, so its intrinsic output is the placed
                     // content rectangle on that grid.
@@ -2042,10 +2104,7 @@ fn run_page(
                 } else {
                     match_primary_raster_in_memory(output, placement, &canvas);
                 }
-                Some((placement, canvas))
-            } else {
-                None
-            };
+            }
             // A binarized page is already packed bits, and PBM P4 is the same
             // layout: the raster itself decides whether this page has a bilevel
             // primary, so no mode/layer combination has to be re-derived here.
@@ -2494,6 +2553,11 @@ struct CanvasPlacement {
     optical_content_bounds_x: Option<(f64, f64)>,
     intrinsic_overflow_left: usize,
     intrinsic_overflow_right: usize,
+    /// Source rows trimmed above the canvas origin by a spread-level anchor.
+    /// This is white crop headroom, not content clipping: the effective
+    /// signed placement remains available to the materializer while the
+    /// public canvas offset stays non-negative.
+    intrinsic_overflow_top: usize,
     margins_reduced: bool,
     margins_unavailable: bool,
     /// The page could not hold the document's scale and was fitted below it,
@@ -2763,6 +2827,7 @@ fn plan_canvas_placement_for_with_optical_center(
         optical_content_bounds_x,
         intrinsic_overflow_left,
         intrinsic_overflow_right,
+        intrinsic_overflow_top: 0,
         margins_reduced,
         margins_unavailable,
         overflow,
@@ -2787,6 +2852,7 @@ fn apply_canvas_metadata(
         optical_content_bounds_x,
         intrinsic_overflow_left,
         intrinsic_overflow_right,
+        intrinsic_overflow_top,
         ..
     } = placement;
     let effective_left = left as isize - intrinsic_overflow_left as isize;
@@ -2802,8 +2868,10 @@ fn apply_canvas_metadata(
     metadata.applied_margins = requested_margins.map(|margin| margin as f64).into();
     metadata.uniform_canvas = true;
     metadata.canvas_policy = MatchedCanvasPolicy::StrictMaximum;
-    metadata.canvas_overflow =
-        placement.overflow || intrinsic_overflow_left > 0 || intrinsic_overflow_right > 0;
+    metadata.canvas_overflow = placement.overflow
+        || intrinsic_overflow_left > 0
+        || intrinsic_overflow_right > 0
+        || intrinsic_overflow_top > 0;
     metadata.matched_canvas_target_width = Some(canvas.width_px);
     metadata.matched_canvas_target_height = Some(canvas.height_px);
     metadata.matched_canvas_target_width_points = Some(canvas.width_points);
@@ -2843,6 +2911,11 @@ fn apply_canvas_metadata(
         metadata.warnings.push(format!(
             "Matched page raster extends beyond the canvas by {} px on the left and {} px on the right; optical content remains bounded",
             intrinsic_overflow_left, intrinsic_overflow_right,
+        ));
+    }
+    if intrinsic_overflow_top > 0 {
+        metadata.warnings.push(format!(
+            "Matched spread placement trimmed {intrinsic_overflow_top} px of source headroom above the shared content anchor"
         ));
     }
     if optical_content_fit_failed && metadata.content_box.is_some() {
@@ -2889,13 +2962,14 @@ fn match_primary_raster_in_memory(
         }
         CleanupRaster::Bilevel(image) => {
             let gray = CleanupRaster::Bilevel(image.clone()).into_gray();
-            let canvas_image = place_on_white_canvas_with_source_offset(
+            let canvas_image = place_on_white_canvas_with_source_offsets(
                 &resample_bilevel(&gray, placement.content_width, placement.content_height),
                 canvas.width_px,
                 canvas.height_px,
                 placement.left,
                 placement.top,
                 placement.intrinsic_overflow_left,
+                placement.intrinsic_overflow_top,
             );
             CleanupRaster::Bilevel(BinaryImage::from_fn_parallel(
                 canvas.width_px,
@@ -2905,13 +2979,14 @@ fn match_primary_raster_in_memory(
         }
     };
     if let Some(color) = output.color_image.take() {
-        output.color_image = Some(place_rgb_on_white_canvas_with_source_offset(
+        output.color_image = Some(place_rgb_on_white_canvas_with_source_offsets(
             &resample_rgb_if_needed(&color, placement.content_width, placement.content_height),
             canvas.width_px,
             canvas.height_px,
             placement.left,
             placement.top,
             placement.intrinsic_overflow_left,
+            placement.intrinsic_overflow_top,
         ));
     }
     // The native owner has materialized every primary continuous-tone raster
@@ -2925,13 +3000,14 @@ fn materialize_gray_primary_on_canvas(
     placement: CanvasPlacement,
     canvas: &DocumentCanvas,
 ) -> GrayImage {
-    place_on_white_canvas_with_source_offset(
+    place_on_white_canvas_with_source_offsets(
         &resample_gray_if_needed(source, placement.content_width, placement.content_height),
         canvas.width_px,
         canvas.height_px,
         placement.left,
         placement.top,
         placement.intrinsic_overflow_left,
+        placement.intrinsic_overflow_top,
     )
 }
 
@@ -2960,13 +3036,14 @@ fn match_picture_mask_in_memory(
         return;
     };
     let gray = CleanupRaster::Bilevel(picture_mask.clone()).into_gray();
-    let placed = place_on_white_canvas_with_source_offset(
+    let placed = place_on_white_canvas_with_source_offsets(
         &resample_bilevel(&gray, placement.content_width, placement.content_height),
         canvas.width_px,
         canvas.height_px,
         placement.left,
         placement.top,
         placement.intrinsic_overflow_left,
+        placement.intrinsic_overflow_top,
     );
     output.picture_mask = Some(BinaryImage::from_fn_parallel(
         canvas.width_px,
@@ -2983,7 +3060,7 @@ fn match_tone_preservation_alpha_in_memory(
     let Some(tone_preservation_alpha) = output.tone_preservation_alpha.as_ref() else {
         return;
     };
-    let placed = place_on_gray_canvas_with_source_offset(
+    let placed = place_on_gray_canvas_with_source_offsets(
         &resample_gray_if_needed(
             tone_preservation_alpha,
             placement.content_width,
@@ -2995,6 +3072,7 @@ fn match_tone_preservation_alpha_in_memory(
         placement.top,
         0,
         placement.intrinsic_overflow_left,
+        placement.intrinsic_overflow_top,
     );
     output.tone_preservation_alpha = Some(placed);
 }
@@ -3072,7 +3150,7 @@ fn match_layers_in_memory(
         return;
     };
     let foreground_gray = CleanupRaster::Bilevel(layers.foreground_mask.clone()).into_gray();
-    let foreground = place_on_white_canvas_with_source_offset(
+    let foreground = place_on_white_canvas_with_source_offsets(
         &resample_bilevel(
             &foreground_gray,
             placement.content_width,
@@ -3083,13 +3161,14 @@ fn match_layers_in_memory(
         placement.left,
         placement.top,
         placement.intrinsic_overflow_left,
+        placement.intrinsic_overflow_top,
     );
     layers.foreground_mask =
         BinaryImage::from_fn_parallel(canvas.width_px, canvas.height_px, |x, y| {
             foreground.get(x, y) < 128
         });
     if let Some(alpha) = layers.foreground_alpha.as_ref() {
-        layers.foreground_alpha = Some(place_on_gray_canvas_with_source_offset(
+        layers.foreground_alpha = Some(place_on_gray_canvas_with_source_offsets(
             &resample_gray_if_needed(alpha, placement.content_width, placement.content_height),
             canvas.width_px,
             canvas.height_px,
@@ -3097,6 +3176,7 @@ fn match_layers_in_memory(
             placement.top,
             0,
             placement.intrinsic_overflow_left,
+            placement.intrinsic_overflow_top,
         ));
     }
     let background_dpi = layered_background_dpi(options, confirmed_picture);
@@ -3119,22 +3199,24 @@ fn match_layers_in_memory(
     let source_offset_left = (placement.intrinsic_overflow_left as f64 * scale_x).round() as usize;
     let top =
         ((placement.top as f64 * scale_y).round() as usize).min(background_height - content_height);
-    layers.background = place_on_white_canvas_with_source_offset(
+    layers.background = place_on_white_canvas_with_source_offsets(
         &resample_gray_if_needed(&layers.background, content_width, content_height),
         background_width,
         background_height,
         left,
         top,
         source_offset_left,
+        (placement.intrinsic_overflow_top as f64 * scale_y).round() as usize,
     );
     if let Some(color) = layers.color_background.as_ref() {
-        layers.color_background = Some(place_rgb_on_white_canvas_with_source_offset(
+        layers.color_background = Some(place_rgb_on_white_canvas_with_source_offsets(
             &resample_rgb_if_needed(color, content_width, content_height),
             background_width,
             background_height,
             left,
             top,
             source_offset_left,
+            (placement.intrinsic_overflow_top as f64 * scale_y).round() as usize,
         ));
     }
 }
@@ -3455,7 +3537,7 @@ fn optical_content_bounds_x(raster: &CleanupRaster) -> Option<(f64, f64)> {
     raster.bilevel().and_then(optical_binary_bounds_x)
 }
 
-fn optical_content_bounds_x_for_output(output: &CleanupResult) -> Option<(f64, f64)> {
+fn output_content_ownership(output: &CleanupResult) -> Option<BinaryImage> {
     let mut ownership = output.image.bilevel().cloned();
     if let Some(picture_mask) = output.picture_mask.as_ref() {
         ownership = Some(match ownership {
@@ -3483,7 +3565,38 @@ fn optical_content_bounds_x_for_output(output: &CleanupResult) -> Option<(f64, f
             None => tone_owner,
         });
     }
-    ownership.as_ref().and_then(optical_binary_bounds_x)
+    ownership
+}
+
+fn optical_content_bounds_x_for_output(output: &CleanupResult) -> Option<(f64, f64)> {
+    output_content_ownership(output)
+        .as_ref()
+        .and_then(optical_binary_bounds_x)
+}
+
+fn spread_content_top_for_output(output: &CleanupResult) -> Option<f64> {
+    // Measure the post-cleanup raster in the same content space that is
+    // materialized. A Mixed leaf carries its tonal content in the layered
+    // background rather than the published stencil, so the anchor must take
+    // the earliest content row across every plane the viewer will composite;
+    // measuring the stencil alone aligned a facing photo against the other
+    // leaf's running head. The detector geometry remains a fallback for a
+    // raster with no measurable ownership.
+    let raster_top = gray_content_bounds_y(&output.image.to_gray()).map(|(top, _)| top);
+    let layered_top = output
+        .mixed_layers
+        .as_ref()
+        .and_then(|layers| gray_content_bounds_y(&layers.background).map(|(top, _)| top));
+    let visible_top = [raster_top, layered_top]
+        .into_iter()
+        .flatten()
+        .min_by(f64::total_cmp);
+    let geometric_top = output
+        .metadata
+        .content_box
+        .map(|content| content.y - output.metadata.crop_rect.y)
+        .filter(|top| top.is_finite() && *top >= 0.0);
+    visible_top.or(geometric_top)
 }
 
 #[cfg(test)]
@@ -3519,6 +3632,111 @@ fn optical_binary_bounds_x(binary: &BinaryImage) -> Option<(f64, f64)> {
     (left <= right).then_some((left as f64, right as f64 + 1.0))
 }
 
+fn gray_content_bounds_y(gray: &GrayImage) -> Option<(f64, f64)> {
+    // The cleaned raster sits on a white canvas, so anything meaningfully
+    // below paper is content - a pale photo sky included. An ink-dark
+    // threshold here anchored photo leaves to their first *dark* region
+    // instead of their visual top, misaligning facing plates. A small
+    // per-row count guards against a stray dust pixel defining the bound.
+    const CONTENT_BELOW_PAPER: u8 = 245;
+    const MINIMUM_ROW_PIXELS: usize = 3;
+    let mut first = None;
+    let mut last = None;
+    for y in 0..gray.height() {
+        let mut row_pixels = 0usize;
+        for x in 0..gray.width() {
+            if gray.get(x, y) < CONTENT_BELOW_PAPER {
+                row_pixels += 1;
+                if row_pixels >= MINIMUM_ROW_PIXELS {
+                    break;
+                }
+            }
+        }
+        if row_pixels >= MINIMUM_ROW_PIXELS {
+            first.get_or_insert(y);
+            last = Some(y);
+        }
+    }
+    Some((first? as f64, last? as f64 + 1.0))
+}
+
+/// Gives both leaves of a spread one vertical content anchor. The anchor is
+/// measured in the final canvas grid, after each leaf's independent paper
+/// scaling has been planned, so the existing fit-first and optical-horizontal
+/// contracts remain unchanged.
+///
+/// The union's top is used as the shared target, then clamped to the
+/// intersection of both leaves' feasible canvas ranges. A single page, an
+/// unmeasurable output, or a spread whose geometry cannot share a target keeps
+/// its existing placement.
+fn align_spread_vertical_placements(
+    placements: &mut [Option<(CanvasPlacement, DocumentCanvas)>],
+    intrinsic_heights: &[usize],
+    content_tops: &[Option<f64>],
+    canvas: &DocumentCanvas,
+) {
+    if placements.len() != 2
+        || intrinsic_heights.len() != placements.len()
+        || content_tops.len() != placements.len()
+    {
+        return;
+    }
+    let [Some((first, _)), Some((second, _))] = placements else {
+        return;
+    };
+    let Some(first_content_top) = content_tops[0] else {
+        return;
+    };
+    let Some(second_content_top) = content_tops[1] else {
+        return;
+    };
+    if !first_content_top.is_finite() || !second_content_top.is_finite() {
+        return;
+    }
+    let first_scale = first.content_height as f64 / intrinsic_heights[0].max(1) as f64;
+    let second_scale = second.content_height as f64 / intrinsic_heights[1].max(1) as f64;
+    let first_scaled_top = first_content_top * first_scale;
+    let second_scaled_top = second_content_top * second_scale;
+    // The union's top is the later of the two local anchors: this reserves
+    // enough headroom for both leaves' first meaningful content row without
+    // allowing a leaf with a shorter crop to start visibly lower.
+    let current_target =
+        (first.top as f64 + first_scaled_top).max(second.top as f64 + second_scaled_top);
+    // A spread may need to trim white crop headroom above a leaf's effective
+    // origin. Allowing that signed origin makes the shared content anchor
+    // feasible even when one leaf already occupies the full margin box; the
+    // materializer records the trimmed source rows and never clips ink.
+    let first_min = -(first.content_height.saturating_sub(1) as f64) + first_scaled_top;
+    let second_min = -(second.content_height.saturating_sub(1) as f64) + second_scaled_top;
+    let first_max_top = canvas
+        .height_px
+        .saturating_sub(first.requested_margins[3])
+        .saturating_sub(first.content_height) as f64;
+    let second_max_top = canvas
+        .height_px
+        .saturating_sub(second.requested_margins[3])
+        .saturating_sub(second.content_height) as f64;
+    let shared_min = first_min.max(second_min);
+    let shared_max = (first_max_top + first_scaled_top).min(second_max_top + second_scaled_top);
+    if shared_min > shared_max {
+        return;
+    }
+    let target = current_target.clamp(shared_min, shared_max);
+    let set_effective_top = |placement: &mut CanvasPlacement, desired: f64, max_top: f64| {
+        let minimum_top = -(placement.content_height.saturating_sub(1) as isize);
+        let effective_top = (desired.round() as isize).clamp(minimum_top, max_top as isize);
+        if effective_top < 0 {
+            placement.top = 0;
+            placement.intrinsic_overflow_top = (-effective_top) as usize;
+        } else {
+            placement.top = effective_top as usize;
+            placement.intrinsic_overflow_top = 0;
+        }
+    };
+    set_effective_top(first, target - first_scaled_top, first_max_top);
+    set_effective_top(second, target - second_scaled_top, second_max_top);
+}
+
 fn place_on_white_canvas(
     source: &GrayImage,
     width: usize,
@@ -3537,7 +3755,28 @@ fn place_on_white_canvas_with_source_offset(
     top: usize,
     source_offset_x: usize,
 ) -> GrayImage {
-    place_on_gray_canvas_with_source_offset(source, width, height, left, top, 255, source_offset_x)
+    place_on_white_canvas_with_source_offsets(source, width, height, left, top, source_offset_x, 0)
+}
+
+fn place_on_white_canvas_with_source_offsets(
+    source: &GrayImage,
+    width: usize,
+    height: usize,
+    left: usize,
+    top: usize,
+    source_offset_x: usize,
+    source_offset_y: usize,
+) -> GrayImage {
+    place_on_gray_canvas_with_source_offsets(
+        source,
+        width,
+        height,
+        left,
+        top,
+        255,
+        source_offset_x,
+        source_offset_y,
+    )
 }
 
 fn place_on_gray_canvas(
@@ -3560,6 +3799,28 @@ fn place_on_gray_canvas_with_source_offset(
     fill: u8,
     source_offset_x: usize,
 ) -> GrayImage {
+    place_on_gray_canvas_with_source_offsets(
+        source,
+        width,
+        height,
+        left,
+        top,
+        fill,
+        source_offset_x,
+        0,
+    )
+}
+
+fn place_on_gray_canvas_with_source_offsets(
+    source: &GrayImage,
+    width: usize,
+    height: usize,
+    left: usize,
+    top: usize,
+    fill: u8,
+    source_offset_x: usize,
+    source_offset_y: usize,
+) -> GrayImage {
     assert!(
         left < width || source.width() == 0,
         "canvas placement offset {left} is outside width {width}"
@@ -3573,13 +3834,22 @@ fn place_on_gray_canvas_with_source_offset(
         "canvas source offset {source_offset_x} is outside source width {}",
         source.width()
     );
+    assert!(
+        source_offset_y <= source.height(),
+        "canvas source offset {source_offset_y} is outside source height {}",
+        source.height()
+    );
     let mut canvas = GrayImage::new(width, height, fill);
     canvas
         .data_mut()
         .par_chunks_mut(width)
         .enumerate()
         .for_each(|(y, row)| {
-            if let Some(source_y) = y.checked_sub(top).filter(|&y| y < source.height()) {
+            if let Some(source_y) = y
+                .checked_sub(top)
+                .and_then(|y| y.checked_add(source_offset_y))
+                .filter(|&y| y < source.height())
+            {
                 let copy_width = width
                     .saturating_sub(left)
                     .min(source.width().saturating_sub(source_offset_x));
@@ -3611,6 +3881,26 @@ fn place_rgb_on_white_canvas_with_source_offset(
     top: usize,
     source_offset_x: usize,
 ) -> RgbImage {
+    place_rgb_on_white_canvas_with_source_offsets(
+        source,
+        width,
+        height,
+        left,
+        top,
+        source_offset_x,
+        0,
+    )
+}
+
+fn place_rgb_on_white_canvas_with_source_offsets(
+    source: &RgbImage,
+    width: usize,
+    height: usize,
+    left: usize,
+    top: usize,
+    source_offset_x: usize,
+    source_offset_y: usize,
+) -> RgbImage {
     assert!(
         left < width || source.width() == 0,
         "canvas placement offset {left} is outside width {width}"
@@ -3624,13 +3914,22 @@ fn place_rgb_on_white_canvas_with_source_offset(
         "canvas source offset {source_offset_x} is outside source width {}",
         source.width()
     );
+    assert!(
+        source_offset_y <= source.height(),
+        "canvas source offset {source_offset_y} is outside source height {}",
+        source.height()
+    );
     let mut canvas = RgbImage::new(width, height, [255; 3]);
     canvas
         .data_mut()
         .par_chunks_mut(width * 3)
         .enumerate()
         .for_each(|(y, row)| {
-            if let Some(source_y) = y.checked_sub(top).filter(|&y| y < source.height()) {
+            if let Some(source_y) = y
+                .checked_sub(top)
+                .and_then(|y| y.checked_add(source_offset_y))
+                .filter(|&y| y < source.height())
+            {
                 let copy_width = width
                     .saturating_sub(left)
                     .min(source.width().saturating_sub(source_offset_x));
@@ -3717,12 +4016,13 @@ fn map_image_error(message: String) -> NativeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_thread_count, background_canvas_dimensions, background_dimensions_to_publish,
-        estimate_peak_page_bytes, manifest_cache, manifest_worker_threads, map_image_error,
-        matched_output_paper_dimensions_for, materialize_gray_primary_on_canvas,
-        materialize_stream_page, normalize_trusted_foreground_selection, optical_binary_bounds_x,
-        optical_content_bounds_x, optical_content_center_x, page_worker_threads, parse_cli_args,
-        place_on_white_canvas, place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
+        adaptive_thread_count, align_spread_vertical_placements, background_canvas_dimensions,
+        background_dimensions_to_publish, estimate_peak_page_bytes, manifest_cache,
+        manifest_worker_threads, map_image_error, matched_output_paper_dimensions_for,
+        materialize_gray_primary_on_canvas, materialize_stream_page,
+        normalize_trusted_foreground_selection, optical_binary_bounds_x, optical_content_bounds_x,
+        optical_content_center_x, page_worker_threads, parse_cli_args, place_on_white_canvas,
+        place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
         plan_canvas_placement_for_with_optical_center, preflight_manifest_paths,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
         robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs, CanvasPlacement,
@@ -4093,6 +4393,53 @@ mod tests {
     }
 
     #[test]
+    fn spread_vertical_alignment_pins_asymmetric_crop_headroom_to_one_anchor() {
+        let canvas = DocumentCanvas {
+            width_points: 720.0,
+            height_points: 720.0,
+            width_px: 1_000,
+            height_px: 1_000,
+        };
+        let placement = |top| CanvasPlacement {
+            content_width: 700,
+            content_height: 700,
+            left: 0,
+            top,
+            requested_margins: [0; 4],
+            optical_content_centered: false,
+            optical_content_fit_failed: false,
+            optical_content_bounds_x: None,
+            intrinsic_overflow_left: 0,
+            intrinsic_overflow_right: 0,
+            intrinsic_overflow_top: 0,
+            margins_reduced: false,
+            margins_unavailable: false,
+            overflow: false,
+            paper_scale: 1.0,
+            undersized_paper: false,
+        };
+        let mut placements = vec![
+            Some((placement(100), canvas)),
+            Some((placement(100), canvas)),
+        ];
+
+        align_spread_vertical_placements(
+            &mut placements,
+            &[1_000, 1_000],
+            &[Some(20.0), Some(120.0)],
+            &canvas,
+        );
+
+        let first = placements[0].as_ref().unwrap().0;
+        let second = placements[1].as_ref().unwrap().0;
+        let first_content_top = first.top as f64 + 20.0 * 0.7;
+        let second_content_top = second.top as f64 + 120.0 * 0.7;
+        assert_eq!(first.top, 170);
+        assert_eq!(second.top, 100);
+        assert!((first_content_top - second_content_top).abs() <= 0.5);
+    }
+
+    #[test]
     fn matched_canvas_aligns_intrinsic_whitespace_with_the_raster() {
         let options = CleanupOptions {
             dpi: 100.0,
@@ -4369,6 +4716,7 @@ mod tests {
             optical_content_bounds_x: None,
             intrinsic_overflow_left: 0,
             intrinsic_overflow_right: 0,
+            intrinsic_overflow_top: 0,
             margins_reduced: false,
             margins_unavailable: false,
             overflow: false,
