@@ -10,6 +10,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    getStaticYAMLValue,
+    parseYAML,
+} from 'yaml-eslint-parser';
 import type {
     SetRequired,
     Simplify,
@@ -17,6 +21,12 @@ import type {
 } from 'type-fest';
 
 type TTsConfigJsonWithGlobs = Simplify<SetRequired<TsConfigJson, 'exclude' | 'include'>>;
+
+interface IWorkflowJob {
+    'continue-on-error'?: boolean;
+    if?: string;
+    needs?: string | string[];
+}
 
 async function readProjectFile(filePath: string) {
     return readFile(path.join(process.cwd(), filePath), 'utf8');
@@ -57,6 +67,25 @@ function workflowJob(workflow: string, jobName: string) {
     return nextJob === -1
         ? workflow.slice(start)
         : workflow.slice(start, start + 1 + nextJob);
+}
+
+function parseWorkflowJobs(workflow: string) {
+    const parsed = getStaticYAMLValue(parseYAML(workflow)) as unknown;
+    if (!isRecord(parsed) || !isRecord(parsed.jobs)) {
+        throw new Error('The CI workflow must contain a jobs mapping.');
+    }
+
+    const jobs: Record<string, IWorkflowJob> = {};
+    for (const [
+        jobName,
+        value,
+    ] of Object.entries(parsed.jobs)) {
+        if (!isRecord(value)) {
+            throw new Error(`The CI workflow job ${jobName} must be a mapping.`);
+        }
+        jobs[jobName] = value as IWorkflowJob;
+    }
+    return jobs;
 }
 
 const splitQualityCommands = [
@@ -109,6 +138,32 @@ async function collectTestFiles(directory: string): Promise<string[]> {
 }
 
 describe('CI topology policy', () => {
+    it('requires every non-advisory PR and push job through gates_ok', async () => {
+        const jobs = parseWorkflowJobs(await readProjectFile('.github/workflows/ci.yml'));
+        const gatesOk = jobs.gates_ok;
+        if (
+            !gatesOk
+            || !Array.isArray(gatesOk.needs)
+            || !gatesOk.needs.every(jobName => typeof jobName === 'string')
+        ) {
+            throw new Error('gates_ok must declare its required jobs as a needs array.');
+        }
+        const requiredJobs = new Set(Object.entries(jobs)
+            .filter(([
+                jobName,
+                job,
+            ]) => (
+                jobName !== 'gates_ok'
+                && job['continue-on-error'] !== true
+                && (job.if === undefined
+                    || job.if.includes('github.event_name == \'pull_request\'')
+                    || job.if?.includes('github.event_name == \'push\'') === true)
+            ))
+            .map(([jobName]) => jobName));
+
+        expect(new Set(gatesOk.needs)).toEqual(requiredJobs);
+    });
+
     it('keeps PR feedback bounded and release workflow checks delegated', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
@@ -122,6 +177,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('schedule:');
         expect(workflow).toContain('workflow_dispatch:');
         expect(workflow).toContain('pull_request:');
+        expect(workflow).toContain('group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == \'pull_request\' && github.ref || github.run_id }}');
+        expect(workflow).toContain('cancel-in-progress: ${{ github.event_name == \'pull_request\' }}');
         expect(workflow).toContain('name: Quality Gates');
         expect(prQuality).toContain('if: ${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}');
         expect(prQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
@@ -177,6 +234,10 @@ describe('CI topology policy', () => {
         expect(prQuality).not.toContain('run: pnpm run test:e2e:electron:large');
         expect(prQuality).not.toContain('run: pnpm run diag:pdf-tabs:ci');
         expect(prQuality).not.toContain('pnpm exec electron-builder');
+        const gatesOk = workflowJob(workflow, 'gates_ok');
+        expect(gatesOk).toContain('if: ${{ always() && (github.event_name == \'pull_request\' || github.event_name == \'push\') }}');
+        expect(gatesOk).not.toContain('nuxt_compatibility_v5');
+        expect(gatesOk).not.toContain('gates_ok is not applicable');
         expect(workflow).toContain('name: Manual Quality Gates');
         const manualQuality = workflowJob(workflow, 'manual_quality');
         expect(manualQuality).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');

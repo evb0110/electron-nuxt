@@ -1,8 +1,8 @@
 name: CI
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref || github.run_id }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 on:
   pull_request:
@@ -111,7 +111,6 @@ jobs:
         run: pnpm run typecheck
 
       - name: Unit tests
-        if: ${{ github.event_name == 'pull_request' }}
         run: pnpm run test:unit
 
       - name: Coverage zero-execution tripwire
@@ -123,7 +122,7 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_smoke == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -140,6 +139,14 @@ jobs:
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Restore staged scan-cleanup native binary
+        uses: actions/cache@v5
+        with:
+          path: .tmp/scan-cleanup
+          key: electron-scan-cleanup-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/generateNativeToolProtocols.ts', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-scan-cleanup-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Verify Electron install
         run: pnpm run check:electron:install
@@ -341,6 +348,53 @@ jobs:
           else
             EVB_NUXT_BUILD_DIR="$RUNNER_TEMP/nuxt-compat-v5-root" node scripts/run-nuxt-typecheck.mjs
           fi
+
+  gates_ok:
+    name: gates_ok
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    # Advisory continue-on-error jobs are omitted because needs.result cannot expose their failures.
+    needs:
+      - commit_attribution
+      - pr_quality
+      - pr_changed_areas
+      - pr_electron_blocking_smoke
+      - pr_browser_integration
+      - pr_native_build_safety
+      - pr_landing_quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every applicable PR and push gate
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          ELECTRON_SMOKE_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_smoke }}
+          BROWSER_INTEGRATION_CHANGED: ${{ needs.pr_changed_areas.outputs.browser_integration }}
+          NATIVE_OR_BUILD_CHANGED: ${{ needs.pr_changed_areas.outputs.native_or_build }}
+          LANDING_CHANGED: ${{ needs.pr_changed_areas.outputs.landing }}
+        run: |
+          node <<'NODE'
+          const needs = JSON.parse(process.env.NEEDS_JSON);
+          const legitimatelySkippable = new Map([
+            ['pr_electron_blocking_smoke', process.env.ELECTRON_SMOKE_CHANGED],
+            ['pr_browser_integration', process.env.BROWSER_INTEGRATION_CHANGED],
+            ['pr_native_build_safety', process.env.NATIVE_OR_BUILD_CHANGED],
+            ['pr_landing_quality', process.env.LANDING_CHANGED],
+          ]);
+          const rejected = [];
+
+          for (const [job, state] of Object.entries(needs)) {
+            if (state.result === 'success') continue;
+            if (state.result === 'skipped' && legitimatelySkippable.get(job) === 'false') continue;
+            rejected.push(`${job}: ${state.result}`);
+          }
+
+          if (rejected.length > 0) {
+            console.error(`Required CI gates did not pass:\n${rejected.join('\n')}`);
+            process.exit(1);
+          }
+          console.log('Every applicable PR and push gate passed.');
+          NODE
 
   manual_quality:
     name: Manual Quality Gates

@@ -43,7 +43,7 @@ describe('updateHealthMarker', () => {
         await expect(marker.getSuppressedUpdateVersion('2.0.0')).resolves.toBeNull();
 
         await expect(marker.markPendingUpdateHealthy('1.0.0')).resolves.toBe(false);
-        await expect(marker.markPendingUpdateHealthy('2.0.0')).resolves.toBe(true);
+        await expect(marker.markPendingUpdateHealthy(`2.0.0+${'a'.repeat(40)}`)).resolves.toBe(true);
         await expect(marker.recordPendingUpdateStartup('2.0.0')).resolves.toBeNull();
     });
 

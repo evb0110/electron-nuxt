@@ -10,6 +10,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import { normalizeVersion } from '@electron/updates/versionCompare';
 
 interface IUpdateHealthMarker {
     version: 1;
@@ -105,7 +106,7 @@ export async function recordPendingUpdateStartup(currentVersion: string) {
 export async function markPendingUpdateHealthy(currentVersion: string) {
     return runMarkerMutation(async () => {
         const marker = await readMarker();
-        if (!marker || marker.pendingVersion !== currentVersion) {
+        if (!marker || normalizeVersion(marker.pendingVersion) !== normalizeVersion(currentVersion)) {
             return false;
         }
         await rm(getMarkerPath(), {force: true});
