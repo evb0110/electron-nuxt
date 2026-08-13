@@ -305,6 +305,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         (viewerContainer.value as {clientHeight: number}).clientHeight = 815;
         resizeObserverMock.callback?.();
         expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(3);
+        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(3, semanticAnchor);
         await nextTick();
 
         expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(4);
