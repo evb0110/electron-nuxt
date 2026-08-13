@@ -322,6 +322,8 @@ const {
     outputEstimate,
     pending: detectionPending,
     progressCountText: detectionProgressCountText,
+    progressEtaText: detectionProgressEtaText,
+    progressEtaWidestText: detectionProgressEtaWidestText,
     progressPercent: detectionProgressPercent,
     progressPhaseText: detectionProgressPhaseText,
     progressText: detectionProgressText,
@@ -406,13 +408,16 @@ const progressCountWidestText = computed(() => waitingForDetection.value
     ? detectionProgressWidestText.value
     : runProgressCountWidestText.value);
 const progressEtaText = computed(() => {
-    if (waitingForDetection.value || runProgressEtaText.value === '') {
+    const eta = waitingForDetection.value
+        ? detectionProgressEtaText.value
+        : runProgressEtaText.value;
+    if (eta === '') {
         return t('scanCleanup.etaPending');
     }
-    return runProgressEtaText.value;
+    return eta;
 });
 const progressEtaWidestText = computed(() => waitingForDetection.value
-    ? t('scanCleanup.etaPending')
+    ? detectionProgressEtaWidestText.value
     : runProgressEtaWidestText.value);
 const progressPercentText = computed(() => waitingForDetection.value
     ? t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, detectionProgressPercent.value)))})
@@ -421,7 +426,7 @@ const progressPercentWidestText = computed(() => waitingForDetection.value
     ? t('scanCleanup.runPercent', {percent: 100})
     : runProgressPercentWidestText.value);
 const progressText = computed(() => waitingForDetection.value
-    ? `${detectionProgressText.value}. ${t('scanCleanup.etaPending')}`
+    ? `${detectionProgressText.value}. ${progressEtaText.value}`
     : runProgressText.value);
 const transitionText = computed(() => waitingForDetection.value ? '' : runTransitionText.value);
 const settingsBadges = computed(() => resolveScanCleanupNonDefaultSettings(settings).map(badge => ({

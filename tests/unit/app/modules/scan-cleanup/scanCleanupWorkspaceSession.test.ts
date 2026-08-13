@@ -76,6 +76,12 @@ vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
     if (key === 'scanCleanup.runStatus') {
         return `${String(values?.phase)} — ${String(values?.counter)}`;
     }
+    if (key === 'scanCleanup.etaMinutes') {
+        return `About ${String(values?.minutes)} min left`;
+    }
+    if (key === 'scanCleanup.etaSeconds') {
+        return `About ${String(values?.seconds)} sec left`;
+    }
     return values?.output === undefined ? key : `${key}:${String(values.output)}`;
 }})}));
 
@@ -986,6 +992,44 @@ describe('scan cleanup workspace session detection guidance', () => {
                 'single-uncut-page',
             ],
         ]);
+        mounted.unmount();
+    });
+
+    it('surfaces an analysis ETA after three page-complete events', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`analysis-eta-${Date.now()}`, {totalPages: () => 6});
+
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const firstCompletedAtMs = Date.now() + 1_000;
+        for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
+            harness.emitDetection({
+                jobId: 'detect-1',
+                status: 'running',
+                progress: {
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 6,
+                    percent: pageNumber / 6 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, page) => page + 1),
+                },
+                results: [{
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                    cutterXPx: null,
+                    tier1Verdict: 'single-uncut-page',
+                    reconciled: false,
+                    clusterAgreement: 0,
+                    documentPrior: null,
+                }],
+                updatedAtMs: firstCompletedAtMs + (pageNumber - 1) * 1_000,
+            });
+        }
+        await nextTick();
+
+        expect(mounted.session.detection.progressEtaText.value).toBe('About 3 sec left');
+
         mounted.unmount();
     });
 

@@ -802,6 +802,8 @@ export default {
         'runStep': 'Шаг {index} из {count}',
         'runCount': '{completed} / {total}',
         'etaPending': 'Оценка оставшегося времени…',
+        'etaMinutes': 'Осталось около {minutes} мин',
+        'etaSeconds': 'Осталось около {seconds} сек',
         'runPercent': '{percent}%',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Ход очистки',

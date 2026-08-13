@@ -795,6 +795,8 @@ export default {
         'runStep': 'Step {index} of {count}',
         'runCount': '{completed} / {total}',
         'etaPending': 'Estimating time left…',
+        'etaMinutes': 'About {minutes} min left',
+        'etaSeconds': 'About {seconds} sec left',
         'runPercent': '{percent}%',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Cleanup progress',

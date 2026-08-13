@@ -439,6 +439,8 @@ export default {
         'runStep': 'Stap {index} van {count}',
         'runCount': '{completed} / {total}',
         'etaPending': 'Resterende tijd wordt geschat…',
+        'etaMinutes': 'Nog ongeveer {minutes} min',
+        'etaSeconds': 'Nog ongeveer {seconds} sec',
         'runPercent': '{percent} %',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Voortgang van de opschoning',

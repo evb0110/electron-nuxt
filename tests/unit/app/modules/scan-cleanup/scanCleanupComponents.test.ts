@@ -140,6 +140,8 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             pending: session.detectionPending,
             progress: session.detectionProgress,
             progressCountText: session.detectionProgressCountText ?? ref(''),
+            progressEtaText: session.detectionProgressEtaText ?? ref(''),
+            progressEtaWidestText: session.detectionProgressEtaWidestText ?? ref(''),
             progressPercent: session.detectionProgressPercent ?? computed(() => {
                 const progress = (session.detectionProgress as {value: {
                     completedUnits: number;
@@ -325,6 +327,8 @@ const translations: Record<string, string> = {
     'scanCleanup.runStatusLabel': 'Cleanup progress',
     'scanCleanup.runStep': 'Step {index} of {count}',
     'scanCleanup.etaPending': 'Estimating time left…',
+    'scanCleanup.etaMinutes': 'About {minutes} min left',
+    'scanCleanup.etaSeconds': 'About {seconds} sec left',
     'scanCleanup.cancelingDetection': 'Stopping background analysis…',
     'scanCleanup.runProgress.rasterizing': 'Preparing cleanup pages',
     'scanCleanup.firstRun.title': 'How scan cleanup works',

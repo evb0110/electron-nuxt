@@ -439,6 +439,8 @@ export default {
         'runStep': 'Passaggio {index} di {count}',
         'runCount': '{completed} / {total}',
         'etaPending': 'Stima del tempo rimanente…',
+        'etaMinutes': 'Circa {minutes} min rimanenti',
+        'etaSeconds': 'Circa {seconds} sec rimanenti',
         'runPercent': '{percent} %',
         'runStatus': '{phase} — {counter}',
         'runStatusLabel': 'Avanzamento della pulizia',

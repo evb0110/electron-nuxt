@@ -27,6 +27,7 @@ import {
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
+import {useScanCleanupPageEta} from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
@@ -265,6 +266,22 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const progressPercent = computed(() => preAnalysisProgress.value.totalUnits === 0
         ? 0
         : preAnalysisProgress.value.completedUnits / preAnalysisProgress.value.totalUnits * 100);
+    const {
+        progressEtaText,
+        progressEtaWidestText,
+    } = useScanCleanupPageEta(computed(() => {
+        const state = jobState.value;
+        if (state === null || detectionIsTerminal(state)) {
+            return null;
+        }
+        return {
+            completedAtMs: state.updatedAtMs > 0 ? state.updatedAtMs : Date.now(),
+            completedUnits: preAnalysisProgress.value.completedUnits,
+            phaseKey: 'analysis',
+            runKey: state.jobId,
+            totalUnits: preAnalysisProgress.value.totalUnits,
+        };
+    }));
     // The same sentence at its widest counter, so the status line can reserve
     // its box and the cancel button beside it never moves as the count grows.
     const progressWidestText = computed(() => formatScanCleanupPreAnalysisProgress({
@@ -1016,6 +1033,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         pending,
         progress,
         progressCountText,
+        progressEtaText,
+        progressEtaWidestText,
         progressPercent,
         progressPhaseText,
         progressText,

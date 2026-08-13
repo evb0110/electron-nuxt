@@ -33,7 +33,7 @@ import {
 import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
-import {formatEtaDuration} from '@app/utils/progressFormatting';
+import {useScanCleanupPageEta} from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
 
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
@@ -156,18 +156,29 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         completed: progress.value.totalUnits,
         total: progress.value.totalUnits,
     }));
-    const progressEtaPendingText = computed(() => t('scanCleanup.etaPending'));
-    const progressEtaText = computed(() => {
-        const eta = formatEtaDuration(progress.value.etaSeconds === undefined
-            ? null
-            : progress.value.etaSeconds * 1000);
-        return eta === null ? progressEtaPendingText.value : t('emptyState.preparingBatchEta', {eta});
-    });
-    const progressEtaWidestText = computed(() => {
-        const pending = progressEtaPendingText.value;
-        const estimated = t('emptyState.preparingBatchEta', {eta: '999:59'});
-        return pending.length >= estimated.length ? pending : estimated;
-    });
+    const {
+        progressEtaText,
+        progressEtaWidestText,
+    } = useScanCleanupPageEta(computed(() => {
+        const state = scanCleanupRun.jobState;
+        if (
+            state === null
+            || scanCleanupRun.ownerId !== options.ownerId
+            || ![
+                'classifying',
+                'rendering',
+            ].includes(state.progress.stage)
+        ) {
+            return null;
+        }
+        return {
+            completedAtMs: state.updatedAtMs,
+            completedUnits: state.progress.completedUnits,
+            phaseKey: state.progress.stage,
+            runKey: state.jobId,
+            totalUnits: state.progress.totalUnits,
+        };
+    }));
     const progressText = computed(() => `${progressParts.value.text}. ${progressEtaText.value}`);
     const progressPercentText = computed(() => t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, progress.value.percent)))}));
     const progressPercentWidestText = computed(() => t('scanCleanup.runPercent', {percent: 100}));
