@@ -2411,6 +2411,26 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.refresh-indicator')).toBeNull();
     });
 
+    it('keeps the last rendered frame while the current page topology refreshes', () => {
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            loading: true,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            layoutClassification: 'single-uncut-page',
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector('.preview-result-layer')).not.toBeNull();
+        expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
+        expect(harness.host.querySelector('.refresh-indicator')).not.toBeNull();
+    });
+
     it('never presents the requested raw sheet as a cleaned output while its result is pending', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(1),
@@ -4131,7 +4151,7 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.preview-result-layer')).not.toBeNull();
     });
 
-    it('does not retain a cleaned result after authoritative output topology changes', async () => {
+    it('retains a cleaned result while authoritative output topology refreshes', async () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(1),
             loading: true,
@@ -4148,10 +4168,9 @@ describe('Scan cleanup components', () => {
 
         await nextTick();
 
-        expect(harness.host.querySelector('.preview-result-layer')).toBeNull();
-        expect(harness.host.querySelectorAll('.preview-skeleton-page')).toHaveLength(1);
-        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
-            .toBe('Building cleanup preview…');
+        expect(harness.host.querySelector('.preview-result-layer')).not.toBeNull();
+        expect(harness.host.querySelector('.refresh-indicator')).not.toBeNull();
+        expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
         harness.unmount();
     });
 

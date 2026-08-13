@@ -31,6 +31,7 @@ import type {
     TScanCleanupErrorCode,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
+import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
     decodeNativeScanCleanupPreviewOutputMetadataJson,
     decodeNativeScanCleanupPreviewPageMetadataJson,
@@ -52,6 +53,7 @@ import {
     DETECTION_DPI,
     PREVIEW_DPI,
     resolvePagePreviewDpi,
+    resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
@@ -244,6 +246,7 @@ interface IBasePreviewAnalysis {
     canonicalRasterPaths: Partial<Record<IScanCleanupPreviewMetadata['half'], string>>;
     baseMetadataPaths: Partial<Record<IScanCleanupPreviewMetadata['half'], string>>;
     canonicalRasterBytes: number;
+    baseRenderDpi: number;
 }
 
 // A run's admission is mutable for as long as it is still waiting for one: a
@@ -1549,7 +1552,7 @@ async function runDetailPreview(
         && sourceDpiCandidate > 0;
     const sourceDpi = sourceDpiDetected ? Number(sourceDpiCandidate) : DEFAULT_SOURCE_DPI;
     const requestedRenderDpi = resolveScanCleanupRequestedRenderDpi({
-        sourceDpi: Math.max(sourceDpi, baseRaw.dpi),
+        sourceDpi: Math.max(sourceDpi, analysis.baseRenderDpi),
         outputCarriesBinaryLayer: request.detail.outputMode === 'bw',
         sourceRasterDetected,
     });
@@ -1557,9 +1560,9 @@ async function runDetailPreview(
         request.detail.viewports,
         analysis.outputs,
         requestedRenderDpi,
-        baseRaw.dpi,
+        analysis.baseRenderDpi,
     );
-    if (renderDpi <= baseRaw.dpi) {
+    if (renderDpi <= analysis.baseRenderDpi) {
         return {
             pageNumber: request.pageNumber,
             totalPages: baseRaw.totalPages,
@@ -1569,9 +1572,10 @@ async function runDetailPreview(
             outputs: [],
         };
     }
-    const renderScale = renderDpi / baseRaw.dpi;
-    const fullSourceWidth = Math.max(1, Math.round(baseRaw.width * renderScale));
-    const fullSourceHeight = Math.max(1, Math.round(baseRaw.height * renderScale));
+    const renderScale = renderDpi / analysis.baseRenderDpi;
+    const rawRenderScale = renderDpi / baseRaw.dpi;
+    const fullSourceWidth = Math.max(1, Math.round(baseRaw.width * rawRenderScale));
+    const fullSourceHeight = Math.max(1, Math.round(baseRaw.height * rawRenderScale));
     const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
     const binary = dependencies.resolveBinary();
     if (!binary) throw new Error('Scan cleanup native tool is unavailable');
@@ -1926,6 +1930,48 @@ async function runPreview(
             document, request.pageNumber, signal,
         );
         const sourceRasterDetected = sourceRasterPage.pages.has(request.pageNumber);
+        sourceDpi = sourceRasterPage.sourceDpiByPage?.get(request.pageNumber) ?? sourceDpi;
+        const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+        if (request.detail === undefined) {
+            const outputMode = resolveScanCleanupEffectiveOutputMode({
+                options: request.options,
+                pageOverride,
+                detectedOutputMode: request.outputModeRecommendation,
+            });
+            const requestedPreviewProcessingDpi = resolvePreviewProcessingDpi({
+                displayDpi: basePreviewDpi,
+                outputMode,
+                sourceDpi,
+            });
+            const processingDocumentCanvas = pageSizes
+                && documentCanvas !== null
+                && requestedPreviewProcessingDpi > basePreviewDpi
+                ? resolveScanCleanupProvisionalDocumentCanvas(
+                    pageSizes,
+                    requestedPreviewProcessingDpi,
+                    request.options,
+                    request.layoutByPage,
+                    request.layoutDetectionComplete === true,
+                )
+                : null;
+            const previewProcessingDpi = processingDocumentCanvas === null
+                ? requestedPreviewProcessingDpi
+                : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(processingDocumentCanvas)));
+            if (previewProcessingDpi !== basePreviewDpi) {
+                ({path: inputPath} = await materializeRawRaster(
+                    document,
+                    request.pageNumber,
+                    signal,
+                    retention,
+                    dependencies,
+                    baseRaw.totalPages,
+                    previewProcessingDpi,
+                    pageSizes?.find(page => page.pageNumber === request.pageNumber),
+                ));
+                renderDpi = previewProcessingDpi;
+                requestedRenderDpi = previewProcessingDpi;
+            }
+        }
         let fallbackDetail = false;
         if (request.detail) {
             const {
@@ -1951,11 +1997,19 @@ async function runPreview(
                     + ` (base mode ${analysis?.outputMode ?? 'unknown'}, detail ${JSON.stringify(request.detail)})`,
                 );
             }
+            if (analysis.baseRenderDpi !== baseRaw.dpi) {
+                ({path: inputPath} = await materializeRawRaster(
+                    document,
+                    request.pageNumber,
+                    signal,
+                    retention,
+                    dependencies,
+                    baseRaw.totalPages,
+                    analysis.baseRenderDpi,
+                    pageSizes?.find(page => page.pageNumber === request.pageNumber),
+                ));
+            }
             const detailRequest = request as IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>;};
-            const pageOverride = getScanCleanupPageOverride(
-                request.options.pageOverrides,
-                request.pageNumber,
-            );
             const hasManualZones = (pageOverride.manualZones?.picture.length ?? 0) > 0
                 || (pageOverride.manualZones?.fill.length ?? 0) > 0;
             if (request.detail.outputMode !== 'mixed' && !hasManualZones) {
@@ -2013,7 +2067,6 @@ async function runPreview(
         }));
         const manifestPath = join(scratch, 'manifest.json');
         const pageMetadataPath = join(scratch, 'page.json');
-        const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
         const reusablePagePlan = resolveReusablePagePlan(
             request.options,
             request.layoutByPage,
@@ -2497,6 +2550,7 @@ async function runPreview(
                 outputs: nativeOutputs,
                 ...artifacts,
                 canonicalRasterBytes,
+                baseRenderDpi: renderDpi,
             });
             await pruneBaseAnalysisCache(baseAnalysisCache);
         }

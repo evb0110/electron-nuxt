@@ -678,7 +678,7 @@ describe('scan cleanup preview navigation', () => {
         mounted.unmount();
     });
 
-    it('clears a mismatched preview when a final run cancels the pending refresh', async () => {
+    it('keeps a mismatched preview when cancellation retires its pending refresh', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;
         const previewPage = ref(100);
@@ -707,8 +707,8 @@ describe('scan cleanup preview navigation', () => {
         mounted.session.cancel(false);
 
         expect(mounted.session.loading.value).toBe(false);
-        expect(mounted.session.result.value).toBeNull();
-        expect(mounted.session.rawResult.value).toBeNull();
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+        expect(mounted.session.rawResult.value?.pageNumber).toBe(100);
         mounted.unmount();
     });
 
@@ -901,7 +901,7 @@ describe('scan cleanup preview navigation', () => {
         capability.value = null;
     });
 
-    it('does not retain a previous-settings raster when a final run cancels a debounced preview', async () => {
+    it('retains a previous-settings raster when a final run cancels a debounced preview', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;
         const previewPage = ref(100);
@@ -915,20 +915,19 @@ describe('scan cleanup preview navigation', () => {
         expect(mounted.session.resultCurrent.value).toBe(false);
         expect(mounted.session.loading.value).toBe(true);
 
-        // `beforeRun` deliberately preserves the main-process raw cache, but
-        // the renderer must not present the previous margin geometry as the
-        // final run's current preview.
+        // The final run freezes its own options. Its cancellation retires the
+        // pending refresh but keeps the last completed visual as stale content.
         mounted.session.cancel(false);
 
         expect(mounted.session.loading.value).toBe(false);
-        expect(mounted.session.result.value).toBeNull();
-        expect(mounted.session.rawResult.value).toBeNull();
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+        expect(mounted.session.rawResult.value?.pageNumber).toBe(100);
         expect(mounted.session.resultCurrent.value).toBe(false);
         mounted.unmount();
         capability.value = null;
     });
 
-    it('drops a raw event that was already queued when cancel cleared the session', async () => {
+    it('drops a queued raw event without clearing the retained frame on cancel', async () => {
         const backend = previewBackend();
         let rawListener: ((raw: IScanCleanupRawPreviewEvent) => void) | null = null;
         capability.value = {
@@ -945,8 +944,9 @@ describe('scan cleanup preview navigation', () => {
         expect(mounted.session.rawResult.value?.pageNumber).toBe(100);
         const [request] = backend.previewCalls.mock.calls.at(-1)!;
 
+        const retainedRaw = mounted.session.rawResult.value;
         mounted.session.cancel();
-        expect(mounted.session.rawResult.value).toBeNull();
+        expect(mounted.session.rawResult.value).toBe(retainedRaw);
 
         // The IPC queue can still hold a raw event for the request that was
         // just cancelled; owner and revision both match, so only the retired
@@ -962,7 +962,7 @@ describe('scan cleanup preview navigation', () => {
             rawHeightPx: 1335,
         });
 
-        expect(mounted.session.rawResult.value).toBeNull();
+        expect(mounted.session.rawResult.value).toBe(retainedRaw);
         mounted.unmount();
         capability.value = null;
     });

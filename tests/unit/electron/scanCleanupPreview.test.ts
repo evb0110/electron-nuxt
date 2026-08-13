@@ -1175,12 +1175,56 @@ describe('scan cleanup preview', () => {
                 heightPx: 1_664,
             },
             pages: [{options: {
-                dpi: 36,
+                dpi: 72,
                 sourceDpi: 72,
-                requestedRenderDpi: 36,
+                requestedRenderDpi: 72,
             }}],
         });
         expect(2_338 * 1_664).toBeLessThanOrEqual(4_000_000);
+    });
+
+    it('streams the display raster but cleans binary preview text on the source grid', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([1]),
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+        const renderDpis: number[] = [];
+        deps.renderPage = vi.fn(async (
+            _paths,
+            _log,
+            _page,
+            _source,
+            outputPath,
+            dpi,
+        ) => {
+            renderDpis.push(dpi);
+            await writeFile(`${outputPath.replace(/\.png$/u, '')}.png`, PNG);
+        });
+        let manifestDpi: number | undefined;
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{options: {dpi: number}}>;};
+            manifestDpi = manifest.pages[0]?.options.dpi;
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+
+        await previewOf(createScanCleanupPreviewService(deps), sender(), {
+            ...request,
+            layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+            layoutDetectionComplete: true,
+        });
+
+        expect(renderDpis).toEqual([
+            150,
+            300,
+        ]);
+        expect(manifestDpi).toBe(300);
     });
 
     it('renders only the requested zoom region at true output DPI within the tile budget', async () => {

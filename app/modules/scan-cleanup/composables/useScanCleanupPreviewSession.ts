@@ -426,24 +426,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         displayedDetailSourceKey = null;
     }
 
-    function cancel(invalidateRawCache = true, preserveDisplayedResult = false) {
+    function cancel(invalidateRawCache = true) {
         sequence += 1;
         prefetcher.supersede();
         clearTimer();
         invalidateDetailRequest();
-        // Normal cancellation cannot leave a previous settings generation
-        // looking authoritative after its replacement was retired. A final
-        // run is different: its click-time settings are frozen and the last
-        // completed frame is continuity, not mutable editing state. The run
-        // explicitly preserves it until its completed-page signal asks for an
-        // authoritative refresh under the final document plan.
-        if (!preserveDisplayedResult && !resultCurrent.value) {
-            result.value = null;
-            rawResult.value = null;
-            resultKey.value = null;
-            detailResult.value = null;
-            displayedDetailSourceKey = null;
-        }
+        // Cancellation retires work, not pixels. A completed frame remains the
+        // displayed stale value until its replacement lands; lifecycle changes
+        // clear it explicitly in their watcher below.
         // Every request a streamed raster could still belong to is superseded.
         streamedRawByRequest.clear();
         inFlightPreviewRequestIds.clear();
@@ -496,7 +486,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 });
             }
         }
-        cancel(false, true);
+        cancel(false);
     }
 
     function scheduleAdjacentPrefetch(

@@ -663,14 +663,9 @@ const isStalePage = computed(() => props.stalePage
 // exists, Cleaned mode owns a topology-aware loading shell; the raw sheet is
 // available only through Original mode. This prevents an unsplit landscape
 // raster from ever masquerading as the first portrait output.
-const resultMatchesRequestedTopology = computed(() => props.layoutClassification === undefined
-    || props.result?.pageMetadata.layoutClassification === props.layoutClassification);
 const requestedPageLoadingVisible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.error === ''
-    && (
-        props.result?.pageNumber !== props.pageNumber
-        || !resultMatchesRequestedTopology.value
-    ));
+    && props.result?.pageNumber !== props.pageNumber);
 const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pageNumber && (
     effectiveViewMode.value === 'original'
     || (

@@ -3,9 +3,35 @@ import {
     expect,
     it,
 } from 'vitest';
-import {resolvePreviewRasterPlan} from '@scan-cleanup-core/detection';
+import {
+    resolvePreviewProcessingDpi,
+    resolvePreviewRasterPlan,
+} from '@scan-cleanup-core/detection';
 
 describe('scan cleanup detection raster plan', () => {
+    it('keeps source stroke samples for binary preview cleanup', () => {
+        expect(resolvePreviewProcessingDpi({
+            displayDpi: 150,
+            outputMode: 'bw',
+            sourceDpi: 300,
+        })).toBe(300);
+        expect(resolvePreviewProcessingDpi({
+            displayDpi: 150,
+            outputMode: undefined,
+            sourceDpi: 240,
+        })).toBe(240);
+        expect(resolvePreviewProcessingDpi({
+            displayDpi: 150,
+            outputMode: 'grayscale',
+            sourceDpi: 300,
+        })).toBe(150);
+        expect(resolvePreviewProcessingDpi({
+            displayDpi: 150,
+            outputMode: 'mixed',
+            sourceDpi: 600,
+        })).toBe(300);
+    });
+
     it('uses structural raster DPI when page geometry has no dominant image metadata', () => {
         const plan = resolvePreviewRasterPlan([
             {

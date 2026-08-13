@@ -54,6 +54,32 @@ export const DETECTION_DPI = 150;
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
 const PREVIEW_MAX_IMAGE_PIXELS = 45_000_000;
 
+/**
+ * Binary cleanup needs the source's stroke samples even though the UI presents
+ * the result on the smaller preview canvas. Thresholding the already reduced
+ * 150-DPI raster loses subpixel stroke evidence and makes neighboring words
+ * alternate between heavy and light. Native therefore cleans binary-capable
+ * previews at up to 2x the display DPI; the renderer's ordinary placement
+ * downsample is the same final step used when a 300-DPI conversion is viewed.
+ * Tonal previews keep the inexpensive display grid because they do not
+ * threshold those samples.
+ */
+export function resolvePreviewProcessingDpi({
+    displayDpi,
+    outputMode,
+    sourceDpi,
+}: {
+    displayDpi: number;
+    outputMode: 'bw' | 'color' | 'grayscale' | 'mixed' | undefined;
+    sourceDpi: number;
+}) {
+    const binaryCapable = outputMode === undefined || outputMode === 'bw' || outputMode === 'mixed';
+    if (!binaryCapable) {
+        return displayDpi;
+    }
+    return Math.max(displayDpi, Math.floor(Math.min(sourceDpi, displayDpi * 2)));
+}
+
 function sumByteFootprint(values: Iterable<number>) {
     let total = 0;
     for (const value of values) {
