@@ -2064,6 +2064,7 @@ fn run_page(
                         .as_ref()
                         .map(|plan| plan.shared_fit),
                     fold_trim,
+                    outer_near_paper_edge_runs_for_output(output),
                 );
                 (placement, canvas)
             })
@@ -2707,6 +2708,18 @@ struct FoldSideTrim {
     right: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct NearPaperEdgeRuns {
+    left: usize,
+    right: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HorizontalEdge {
+    Left,
+    Right,
+}
+
 impl FoldSideTrim {
     fn total(self) -> usize {
         self.left.saturating_add(self.right)
@@ -2813,29 +2826,32 @@ fn canvas_fit_for(
     }
 }
 
-fn fold_side_column_order(
-    width: usize,
-    half: crate::pipeline::PageHalf,
-) -> Option<Box<dyn Iterator<Item = usize>>> {
-    match half {
-        crate::pipeline::PageHalf::Left => Some(Box::new((0..width).rev())),
-        crate::pipeline::PageHalf::Right => Some(Box::new(0..width)),
-        crate::pipeline::PageHalf::Full => None,
+fn edge_column_order(width: usize, edge: HorizontalEdge) -> Box<dyn Iterator<Item = usize>> {
+    match edge {
+        HorizontalEdge::Left => Box::new(0..width),
+        HorizontalEdge::Right => Box::new((0..width).rev()),
     }
 }
 
 #[cfg(test)]
-fn fold_side_near_paper_run_in_gray(image: &GrayImage, half: crate::pipeline::PageHalf) -> usize {
+fn edge_near_paper_run_in_gray(image: &GrayImage, edge: HorizontalEdge) -> usize {
     let near_paper_threshold = paper_reference(image).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
-    fold_side_column_order(image.width(), half)
-        .map(|columns| {
-            columns
-                .take_while(|&x| {
-                    (0..image.height()).all(|y| image.get(x, y) >= near_paper_threshold)
-                })
-                .count()
-        })
-        .unwrap_or(0)
+    edge_column_order(image.width(), edge)
+        .take_while(|&x| (0..image.height()).all(|y| image.get(x, y) >= near_paper_threshold))
+        .count()
+}
+
+#[cfg(test)]
+fn fold_side_near_paper_run_in_gray(image: &GrayImage, half: crate::pipeline::PageHalf) -> usize {
+    match half {
+        crate::pipeline::PageHalf::Left => {
+            edge_near_paper_run_in_gray(image, HorizontalEdge::Right)
+        }
+        crate::pipeline::PageHalf::Right => {
+            edge_near_paper_run_in_gray(image, HorizontalEdge::Left)
+        }
+        crate::pipeline::PageHalf::Full => 0,
+    }
 }
 
 fn mapped_column_range(x: usize, source_width: usize, plane_width: usize) -> (usize, usize) {
@@ -2848,17 +2864,20 @@ fn mapped_column_range(x: usize, source_width: usize, plane_width: usize) -> (us
     (start.min(plane_width), end)
 }
 
-fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
+fn edge_near_paper_run_for_output(output: &CleanupResult, edge: HorizontalEdge) -> usize {
     let gray = output.image.to_gray();
     let width = gray.width();
     let near_paper_threshold = paper_reference(&gray).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
-    let Some(columns) = fold_side_column_order(width, output.metadata.half) else {
-        return 0;
-    };
-    columns
+    edge_column_order(width, edge)
         .take_while(|&x| {
             if !(0..gray.height()).all(|y| gray.get(x, y) >= near_paper_threshold) {
                 return false;
+            }
+            // BW materializes only the primary stencil. Its analysis-only
+            // tone alpha must neither widen optical ownership nor veto a
+            // paper proof for columns that never enter the published page.
+            if output.metadata.output_mode == OutputMode::Bw {
+                return true;
             }
             if let Some(color) = output.color_image.as_ref() {
                 let (start, end) = mapped_column_range(x, width, color.width());
@@ -2926,6 +2945,35 @@ fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
             true
         })
         .count()
+}
+
+fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
+    match output.metadata.half {
+        crate::pipeline::PageHalf::Left => {
+            edge_near_paper_run_for_output(output, HorizontalEdge::Right)
+        }
+        crate::pipeline::PageHalf::Right => {
+            edge_near_paper_run_for_output(output, HorizontalEdge::Left)
+        }
+        crate::pipeline::PageHalf::Full => 0,
+    }
+}
+
+fn outer_near_paper_edge_runs_for_output(output: &CleanupResult) -> NearPaperEdgeRuns {
+    match output.metadata.half {
+        crate::pipeline::PageHalf::Left => NearPaperEdgeRuns {
+            left: edge_near_paper_run_for_output(output, HorizontalEdge::Left),
+            right: 0,
+        },
+        crate::pipeline::PageHalf::Right => NearPaperEdgeRuns {
+            left: 0,
+            right: edge_near_paper_run_for_output(output, HorizontalEdge::Right),
+        },
+        crate::pipeline::PageHalf::Full => NearPaperEdgeRuns {
+            left: edge_near_paper_run_for_output(output, HorizontalEdge::Left),
+            right: edge_near_paper_run_for_output(output, HorizontalEdge::Right),
+        },
+    }
 }
 
 fn fold_trim_for(
@@ -3157,6 +3205,7 @@ fn plan_canvas_placement_with_shared_fit(
         None,
         Some(shared_overflow_plan.shared_fit),
         fold_trim,
+        NearPaperEdgeRuns::default(),
     )
 }
 
@@ -3236,6 +3285,7 @@ fn plan_canvas_placement_for_with_optical_center_and_fit(
         optical_content_bounds_x,
         shared_overflow_fit,
         FoldSideTrim::default(),
+        NearPaperEdgeRuns::default(),
     )
 }
 
@@ -3252,6 +3302,7 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
     optical_content_bounds_x: Option<(f64, f64)>,
     shared_overflow_fit: Option<f64>,
     fold_trim: FoldSideTrim,
+    outer_near_paper_runs: NearPaperEdgeRuns,
 ) -> CanvasPlacement {
     let effective_width = fold_trim.effective_width(width);
     let CanvasFit {
@@ -3355,15 +3406,22 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
             optical_content_fit_failed = true;
         }
     }
-    // The canvas always outfits the scaled retained content, so a raster whose white
-    // tail would overhang is slid back inside instead of truncated: the ink
-    // drifts from ideal center by at most the tail width, and the published
-    // payload never exceeds the canvas.
+    // Preserve a signed optical origin only when every overhung column is
+    // proven paper across every materialized plane. Otherwise slide the
+    // retained interval back inside exactly as before: conservation outranks
+    // centering when even one sample could be writing.
+    let proven_left_overhang = scaled_boundary(outer_near_paper_runs.left);
+    let proven_right_overhang = content_width.saturating_sub(scaled_boundary(
+        width.saturating_sub(outer_near_paper_runs.right),
+    ));
     let retained_left_from_source = effective_left + fold_clip_left as isize;
     let retained_right_from_source = effective_left + retained_right as isize;
-    if retained_left_from_source < 0 {
+    if retained_left_from_source < 0 && (-retained_left_from_source) as usize > proven_left_overhang
+    {
         effective_left -= retained_left_from_source;
-    } else if retained_right_from_source > canvas.width_px as isize {
+    } else if retained_right_from_source > canvas.width_px as isize
+        && (retained_right_from_source - canvas.width_px as isize) as usize > proven_right_overhang
+    {
         effective_left -= retained_right_from_source - canvas.width_px as isize;
     }
     let top = margin_top + aligned_y;
@@ -4237,6 +4295,13 @@ fn optical_content_bounds_x(raster: &CleanupRaster) -> Option<(f64, f64)> {
 
 fn output_content_ownership(output: &CleanupResult) -> Option<BinaryImage> {
     let mut ownership = output.image.bilevel().cloned();
+    // BW publishes only the primary stencil. Analysis-only tone alpha can be
+    // much wider on sparse title leaves; treating it as visible ownership
+    // shifts the actual text away from center even though that alpha never
+    // reaches the PDF.
+    if output.metadata.output_mode == OutputMode::Bw {
+        return ownership;
+    }
     if let Some(picture_mask) = output.picture_mask.as_ref() {
         ownership = Some(match ownership {
             Some(existing) => existing.or(picture_mask),
@@ -4704,20 +4769,21 @@ mod tests {
     use super::{
         adaptive_thread_count, align_deferred_spread_vertical_placements,
         align_spread_vertical_placements, background_canvas_dimensions,
-        background_dimensions_to_publish, canvas_fit_for, estimate_peak_page_bytes,
-        fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache, manifest_worker_threads,
-        map_image_error, matched_output_paper_dimensions_for, materialize_gray_primary_on_canvas,
-        materialize_stream_page, normalize_trusted_foreground_selection, optical_binary_bounds_x,
-        optical_content_bounds_x, optical_content_center_x, page_worker_threads, parse_cli_args,
-        place_on_white_canvas, place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
+        background_dimensions_to_publish, canvas_fit_for, edge_near_paper_run_in_gray,
+        estimate_peak_page_bytes, fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache,
+        manifest_worker_threads, map_image_error, matched_output_paper_dimensions_for,
+        materialize_gray_primary_on_canvas, materialize_stream_page,
+        normalize_trusted_foreground_selection, optical_binary_bounds_x, optical_content_bounds_x,
+        optical_content_center_x, page_worker_threads, parse_cli_args, place_on_white_canvas,
+        place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
         plan_canvas_placement_for_with_optical_center,
         plan_canvas_placement_for_with_optical_center_and_fit,
         plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim,
         preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
         reconcile_classification_batch, robust_quantile_dimension, run_manifest_transaction,
         run_stream_page_jobs, CanvasPlacement, CleanupRaster, DeferredSpreadVerticalPlacement,
-        PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, Tier1Provenance,
-        FALLBACK_SYSTEM_MEMORY_BYTES,
+        FoldSideTrim, HorizontalEdge, NearPaperEdgeRuns, PageResultMetadata, PageRunResult,
+        ScanCleanupCliInvocation, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -5217,6 +5283,7 @@ mod tests {
             None,
             Some(shared_fit),
             left_trim,
+            Default::default(),
         );
         let right = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
             599,
@@ -5229,6 +5296,7 @@ mod tests {
             &canvas,
             None,
             Some(shared_fit),
+            Default::default(),
             Default::default(),
         );
 
@@ -5654,6 +5722,110 @@ mod tests {
             drift <= 30.0,
             "center drift {drift} exceeds the displaced tail"
         );
+    }
+
+    #[test]
+    fn sparse_left_title_leaf_centers_visible_stencil_with_proven_outer_overhang() {
+        let options = CleanupOptions {
+            dpi: 299.0,
+            margins_mm: None,
+            margins_pixels: Some([59.0; 4]),
+            page_alignment: crate::PageAlignment::TopCenter,
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 2_196.0 / 299.0 * 72.0,
+            height_points: 3_241.0 / 299.0 * 72.0,
+            width_px: 2_196,
+            height_px: 3_241,
+        };
+        let left = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
+            2_298,
+            2_810,
+            2_196.0,
+            3_136.0,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Left,
+            &canvas,
+            Some((336.0, 2_002.0)),
+            Some(1.0),
+            FoldSideTrim {
+                left: 0,
+                right: 219,
+            },
+            NearPaperEdgeRuns {
+                left: 300,
+                right: 0,
+            },
+        );
+        let right = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
+            1_605,
+            3_098,
+            2_196.0,
+            3_136.0,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Right,
+            &canvas,
+            Some((175.0, 1_301.0)),
+            Some(1.0),
+            FoldSideTrim::default(),
+            NearPaperEdgeRuns::default(),
+        );
+
+        assert_eq!(left.intrinsic_overflow_left, 71);
+        assert_eq!(left.intrinsic_overflow_right, 31);
+        assert_eq!(left.materialization_source_offset_left, 71);
+        assert_eq!(left.materialization_source_offset_right, 219);
+        let left_optical_center = -71.0 + (336.0 + 2_002.0) * 0.5;
+        assert_eq!(left_optical_center, canvas.width_px as f64 * 0.5);
+        // The balanced facing leaf is pinned to its pre-fix placement.
+        assert_eq!(right.left, 360);
+        assert_eq!(right.intrinsic_overflow_left, 0);
+        assert_eq!(right.intrinsic_overflow_right, 0);
+    }
+
+    #[test]
+    fn outer_edge_glyph_blocks_optical_overhang() {
+        let options = CleanupOptions {
+            dpi: 100.0,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            page_alignment: crate::PageAlignment::Center,
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 720.0,
+            height_points: 360.0,
+            width_px: 1_000,
+            height_px: 500,
+        };
+        let mut leaf = GrayImage::new(1_000, 500, 255);
+        leaf.set(0, 250, 0);
+        let outer_run = edge_near_paper_run_in_gray(&leaf, HorizontalEdge::Left);
+        let placement = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
+            1_000,
+            500,
+            1_000.0,
+            500.0,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+            Some((300.0, 950.0)),
+            None,
+            FoldSideTrim::default(),
+            NearPaperEdgeRuns {
+                left: outer_run,
+                right: 0,
+            },
+        );
+
+        assert_eq!(outer_run, 0);
+        assert_eq!(placement.left, 0);
+        assert_eq!(placement.intrinsic_overflow_left, 0);
+        assert_eq!(placement.intrinsic_overflow_right, 0);
     }
 
     #[test]

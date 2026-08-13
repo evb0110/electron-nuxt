@@ -1626,13 +1626,17 @@ fn matched_canvas_repads_the_published_pbm_without_a_composite() {
     let offset_y = metadata["placementOffsetYPx"].as_u64().unwrap() as usize;
     let intrinsic_width = metadata["matchedCanvasContentWidthPx"].as_u64().unwrap() as usize;
     let intrinsic_height = metadata["matchedCanvasContentHeightPx"].as_u64().unwrap() as usize;
-    assert!(offset_x + intrinsic_width <= small_padded.width());
+    let overflow_left = metadata["matchedCanvasIntrinsicOverflowLeftPx"]
+        .as_u64()
+        .unwrap_or(0) as usize;
+    let effective_offset_x = offset_x as isize - overflow_left as isize;
+    assert_native_canvas_owns_image(&metadata);
     assert!(offset_y + intrinsic_height <= small_padded.height());
     let mut ink_inside_payload = 0usize;
     for y in 0..small_padded.height() {
         for x in 0..small_padded.width() {
-            let inside = x >= offset_x
-                && x < offset_x + intrinsic_width
+            let inside = (x as isize) >= effective_offset_x
+                && (x as isize) < effective_offset_x + intrinsic_width as isize
                 && y >= offset_y
                 && y < offset_y + intrinsic_height;
             if small_padded.get(x, y) == 0 {

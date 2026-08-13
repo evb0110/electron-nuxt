@@ -138,6 +138,9 @@ const COMPONENT_SURVIVAL_BAND_ALIGNMENT_SAMPLES = 500;
 const COMPONENT_SURVIVAL_SUPPORT_FRACTION = 0.1;
 const COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS = 16;
 const COMPONENT_SURVIVAL_WINDOW_PADDING_FRACTION = 0.25;
+const FACING_MARGIN_MAX_IMBALANCE_FRACTION = 0.15;
+const FACING_MARGIN_MIN_COLUMN_INK_PIXELS = 2;
+const FACING_MARGIN_MIN_TOTAL_INK_PIXELS = 20;
 // A class whose measurement collapses for more than 30% of its applicable
 // page pairs fails distinctly (exit 2), even if no ordinary violation fires.
 const UNMEASURED_PAIR_MAX_FRACTION = 0.3;
@@ -204,8 +207,9 @@ function printHelp() {
 
 Checks that inferred source-to-output regions survived the scan-cleanup
 pipeline: page count conserved, no ink invented on blank versos, no content
-erased, no local component collapse, no page squeezed instead of split, and
-no relative or gross absolute leaf displacement.
+erased, no local component collapse, no page squeezed instead of split, no
+relative or gross absolute leaf displacement, and no asymmetric facing text
+blocks under centered placement.
 
 Options:
   --source <pdf>          Source (pre-pipeline) PDF, e.g. the representative fixture
@@ -343,6 +347,132 @@ function splitHalves(bitmap) {
         left: cropColumns(bitmap, 0, leftWidth),
         right: cropColumns(bitmap, leftWidth, bitmap.width),
     };
+}
+
+function measureTextBlockHorizontalMargins(bitmap) {
+    if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) {
+        return {
+            reason: 'missing-cleaned-page',
+            status: 'unmeasured',
+        };
+    }
+    const columnInk = new Uint32Array(bitmap.width);
+    let totalInkPixels = 0;
+    for (let y = 0; y < bitmap.height; y += 1) {
+        const rowOffset = y * bitmap.width;
+        for (let x = 0; x < bitmap.width; x += 1) {
+            if (bitmap.data[rowOffset + x] < INK_THRESHOLD) {
+                columnInk[x] += 1;
+                totalInkPixels += 1;
+            }
+        }
+    }
+    if (totalInkPixels < FACING_MARGIN_MIN_TOTAL_INK_PIXELS) {
+        return {
+            reason: 'insufficient-dark-ink',
+            status: 'unmeasured',
+            totalInkPixels,
+        };
+    }
+    const left = columnInk.findIndex(count => count >= FACING_MARGIN_MIN_COLUMN_INK_PIXELS);
+    let right = -1;
+    for (let x = columnInk.length - 1; x >= 0; x -= 1) {
+        if (columnInk[x] >= FACING_MARGIN_MIN_COLUMN_INK_PIXELS) {
+            right = x + 1;
+            break;
+        }
+    }
+    if (left < 0 || right <= left) {
+        return {
+            reason: 'dark-ink-columns-not-measurable',
+            status: 'unmeasured',
+            totalInkPixels,
+        };
+    }
+    const leftMarginPx = left;
+    const rightMarginPx = bitmap.width - right;
+    const signedImbalancePx = leftMarginPx - rightMarginPx;
+    const imbalanceFraction = Math.abs(signedImbalancePx) / bitmap.width;
+    return {
+        balanced: imbalanceFraction <= FACING_MARGIN_MAX_IMBALANCE_FRACTION,
+        bounds: {
+            left,
+            right,
+        },
+        direction: Math.sign(signedImbalancePx),
+        imbalanceFraction: round(imbalanceFraction),
+        leftMarginPx,
+        rightMarginPx,
+        signedImbalancePx,
+        status: 'measured',
+        totalInkPixels,
+        widthPx: bitmap.width,
+    };
+}
+
+export function measureFacingMarginAsymmetry({
+    leftBitmap,
+    rightBitmap,
+}) {
+    const left = measureTextBlockHorizontalMargins(leftBitmap);
+    const right = measureTextBlockHorizontalMargins(rightBitmap);
+    const result = {
+        left,
+        right,
+        status: 'unmeasured',
+        violations: [],
+    };
+    if (left.status !== 'measured' || right.status !== 'measured') {
+        result.reason = 'facing-text-block-not-measurable';
+        return result;
+    }
+    const oneImbalancedOneBalanced = left.balanced !== right.balanced;
+    const mirrorConflict = !left.balanced
+        && !right.balanced
+        && left.direction !== 0
+        && left.direction === -right.direction;
+    result.mirrorConflict = mirrorConflict;
+    if (oneImbalancedOneBalanced || mirrorConflict) {
+        result.status = 'violation';
+        result.violations.push('facing-margin-asymmetry');
+    } else {
+        result.status = 'pass';
+    }
+    return result;
+}
+
+function buildFacingMarginAsymmetry({
+    cleanedPages,
+    entries,
+}) {
+    const entriesBySource = new Map();
+    for (const entry of entries) {
+        if (entry.side !== 'left' && entry.side !== 'right') {
+            continue;
+        }
+        const pair = entriesBySource.get(entry.sourcePage) ?? {};
+        pair[entry.side] = entry;
+        entriesBySource.set(entry.sourcePage, pair);
+    }
+    return [...entriesBySource.entries()].flatMap(([
+        sourcePage,
+        pair,
+    ]) => {
+        if (!pair.left || !pair.right) {
+            return [];
+        }
+        return [{
+            cleanedPages: {
+                left: pair.left.cleanedPage,
+                right: pair.right.cleanedPage,
+            },
+            sourcePage,
+            ...measureFacingMarginAsymmetry({
+                leftBitmap: cleanedPages.get(pair.left.cleanedPage) ?? null,
+                rightBitmap: cleanedPages.get(pair.right.cleanedPage) ?? null,
+            }),
+        }];
+    });
 }
 
 // Min-pool a bitmap into a cols x rows grid of booleans: a cell is "dark" if
@@ -1649,6 +1779,10 @@ async function main() {
             sourcePages: scaleSourcePages,
             splitHalves,
         });
+        const facingMarginAsymmetry = buildFacingMarginAsymmetry({
+            cleanedPages: scaleCleanedPages,
+            entries,
+        });
 
         const infos = buildExpectationInfosImpl({
             expectSingles: options.expectSingles,
@@ -1658,6 +1792,7 @@ async function main() {
             'artifact-retention': 0,
             'component-survival': 0,
             'content-loss': 0,
+            'facing-margin-asymmetry': 0,
             geometry: 0,
             'leaf-misalignment': 0,
             'leaf-scale-mismatch': 0,
@@ -1678,8 +1813,14 @@ async function main() {
                 violationCounts[violation] += 1;
             }
         }
+        for (const pair of facingMarginAsymmetry) {
+            for (const violation of pair.violations) {
+                violationCounts[violation] += 1;
+            }
+        }
         const measurementCoverage = summarizeMeasurementCoverage({
             'component-survival': pages.map(page => page.componentSurvival),
+            'facing-margin-asymmetry': facingMarginAsymmetry,
             'leaf-misalignment': leafPairAlignment,
             'leaf-scale-mismatch': leafPairScale,
         });
@@ -1711,6 +1852,7 @@ async function main() {
                 visualLayouts: mapping.visualLayouts,
                 visualExpectedCount: mapping.visualExpectedCount,
             },
+            facingMarginAsymmetry,
             leafPairAlignment,
             leafPairScale,
             pages,
@@ -1719,6 +1861,9 @@ async function main() {
                 actualCleanedCount,
                 expectedCleanedCount,
                 infoCount: infos.length,
+                facingMarginAsymmetryPairs: facingMarginAsymmetry.filter(
+                    pair => pair.status === 'violation',
+                ).length,
                 leafPairCount: leafPairAlignment.length,
                 leafScaleDpi: SCALE_DPI,
                 leafMisalignmentPairs: leafPairAlignment.filter(pair => pair.status === 'violation').length,
@@ -1731,6 +1876,12 @@ async function main() {
                 violationCounts,
             },
             thresholds: {
+                facingMarginAsymmetry: {
+                    inkThreshold: INK_THRESHOLD,
+                    maxImbalanceFraction: FACING_MARGIN_MAX_IMBALANCE_FRACTION,
+                    minColumnInkPixels: FACING_MARGIN_MIN_COLUMN_INK_PIXELS,
+                    minTotalInkPixels: FACING_MARGIN_MIN_TOTAL_INK_PIXELS,
+                },
                 componentSurvival: {
                     bandCount: COMPONENT_SURVIVAL_BAND_COUNT,
                     inkThreshold: COMPONENT_SURVIVAL_INK_THRESHOLD,

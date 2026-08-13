@@ -4,6 +4,7 @@ import {
     buildExpectationInfos,
     buildExpectedMapping,
     measureComponentSurvival,
+    measureFacingMarginAsymmetry,
     measureSpreadLeafScale,
     measureSpreadLeafVerticalAlignment,
     summarizeMeasurementCoverage,
@@ -72,6 +73,22 @@ function makeContentTopBitmap(top: number, contentValue = 0, span = 80) {
     for (let y = top; y < top + span; y += 1) {
         for (let x = 20; x < 140; x += 1) {
             data[y * width + x] = contentValue;
+        }
+    }
+    return {
+        data,
+        height,
+        width,
+    };
+}
+
+function makeHorizontalMarginBitmap(leftMargin: number, rightMargin: number) {
+    const width = 160;
+    const height = 224;
+    const data = new Uint8Array(width * height).fill(255);
+    for (let y = 48; y < 176; y += 1) {
+        for (let x = leftMargin; x < width - rightMargin; x += 1) {
+            data[y * width + x] = 0;
         }
     }
     return {
@@ -291,6 +308,32 @@ describe('scan cleanup representative audit mapping inference', () => {
         expect(incomparableSourceSpans.status).toBe('unmeasured');
         expect(incomparableSourceSpans.reason).toBe('source-content-spans-not-comparable');
         expect(incomparableSourceSpans.violations).toEqual([]);
+    });
+
+    it('flags synthetic facing-margin asymmetry and never passes an unmeasurable leaf', () => {
+        const violation = measureFacingMarginAsymmetry({
+            leftBitmap: makeHorizontalMarginBitmap(50, 5),
+            rightBitmap: makeHorizontalMarginBitmap(20, 20),
+        });
+        expect(violation.status).toBe('violation');
+        expect(violation.violations).toContain('facing-margin-asymmetry');
+        expect(violation.left).toMatchObject({
+            balanced: false,
+            leftMarginPx: 50,
+            rightMarginPx: 5,
+        });
+        expect(violation.right).toMatchObject({
+            balanced: true,
+            leftMarginPx: 20,
+            rightMarginPx: 20,
+        });
+
+        const unmeasured = measureFacingMarginAsymmetry({
+            leftBitmap: makeHorizontalMarginBitmap(20, 20),
+            rightBitmap: makeSyntheticBitmap(0, false),
+        });
+        expect(unmeasured.status).toBe('unmeasured');
+        expect(unmeasured.violations).toEqual([]);
     });
 
     it('flags local component loss and leaves sparse PNG bands unmeasured', async () => {
