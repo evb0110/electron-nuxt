@@ -178,7 +178,7 @@ onMounted(() => {
     setViewerContainer(chassisAuthority.viewportElement.value);
     releaseViewportFeature = chassisAuthority.bindViewportFeature({
         getClass: () => [
-            'document-viewer-viewport pdfViewer app-scrollbar app-scroll-region--balanced',
+            'document-viewer-viewport pdfViewer app-scrollbar',
             viewerClass,
         ],
         // The chassis owns scrolling only. Page spacing and viewer-specific

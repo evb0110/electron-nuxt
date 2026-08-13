@@ -1655,12 +1655,12 @@ describe('document open surface session', () => {
         expect(session.snapshot.value.phase).toBe('pending');
     });
 
-    it('reserves a stable gutter and enables legitimate overflow only after an exact commit', () => {
+    it('keeps scrollbar gutters out of geometry and enables legitimate overflow only after an exact commit', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'a.pdf', 'rev-a');
         expect(resolveDocumentOpenSurfaceViewportPolicy(session.snapshot.value)).toEqual({
             overflow: 'hidden',
-            scrollbarGutter: 'stable both-edges',
+            scrollbarGutter: 'auto',
             committedMargin: null,
         });
         session.commitGeometry(generation, {
@@ -1677,7 +1677,7 @@ describe('document open surface session', () => {
 
         expect(resolveDocumentOpenSurfaceViewportPolicy(session.snapshot.value)).toEqual({
             overflow: 'auto',
-            scrollbarGutter: 'stable both-edges',
+            scrollbarGutter: 'auto',
             committedMargin: 20,
         });
     });

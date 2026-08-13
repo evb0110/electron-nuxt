@@ -80,6 +80,8 @@ describe('PDF physical page-track contract', () => {
         expect(chassis).toMatch(/\[data-document-viewer-chassis-viewport\]\s*\{[^}]*gap:\s*0;/su);
         expect(viewport).toContain('setViewerContainer(chassisAuthority?.viewportElement.value');
         expect(viewport).toContain('\'pdfViewer app-scrollbar app-scroll-region--balanced\'');
+        expect(viewport).toContain('\'document-viewer-viewport pdfViewer app-scrollbar\'');
+        expect(viewport).not.toContain('document-viewer-viewport pdfViewer app-scrollbar app-scroll-region--balanced');
         expect(viewport).toContain('getStyle: () => ({})');
     });
 

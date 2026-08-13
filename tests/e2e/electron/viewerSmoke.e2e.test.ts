@@ -148,6 +148,15 @@ function expectBalancedScrollRegion(
     expect(Math.abs(geometry.leftBand - geometry.rightBand), detail).toBeLessThanOrEqual(1.5);
 }
 
+function expectDocumentScrollRegion(
+    geometry: IBalancedScrollRegionGeometry,
+    detail: string,
+) {
+    expect(geometry.gutter, detail).toBe('auto');
+    expect(geometry.clientWidth, detail).toBeGreaterThan(0);
+    expect(geometry.horizontalOverflow, detail).toBeLessThanOrEqual(2);
+}
+
 type TSplitResizeDocumentKind = 'pdf' | 'djvu';
 
 interface ISplitResizeViewportAnchor {
@@ -3862,7 +3871,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
             `.editor-pane.is-active [data-testid="document-page-source-page"][data-page-number="${String(currentPage)}"]`,
         );
-        expectBalancedScrollRegion(djvuPageGeometry, JSON.stringify({djvuPageGeometry}));
+        expectDocumentScrollRegion(djvuPageGeometry, JSON.stringify({djvuPageGeometry}));
         const djvuThumbnailGeometry = await readBalancedScrollRegionGeometry(
             session,
             '.editor-pane.is-active [data-testid="document-thumbnail-list"]',

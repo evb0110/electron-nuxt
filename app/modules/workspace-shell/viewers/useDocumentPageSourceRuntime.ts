@@ -695,7 +695,7 @@ export const useDocumentPageSourceRuntime = (options: {
         viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
         measureViewport();
         releaseViewportFeature = chassisAuthority?.bindViewportFeature({
-            getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar app-scroll-region--balanced',
+            getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar',
             getStyle: () => ({}),
             events: {scroll: event => handleScroll(event)},
             wheel: handleWheel,

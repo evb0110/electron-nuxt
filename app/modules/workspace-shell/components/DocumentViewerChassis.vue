@@ -630,10 +630,11 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     overflow-y: scroll;
     background: var(--app-document-viewer-bg);
 
-    /* Reserve matching inline gutters before the live page track mounts.
-       Classic scrollbar width then extends the background padding on both
-       sides instead of shifting centered pages toward inline-start. */
-    scrollbar-gutter: stable both-edges;
+    /* A document viewport can overflow on both axes. Do not mirror the native
+       vertical scrollbar into the inline-start edge: on overlay-scrollbar
+       platforms that gutter can change when pointer proximity changes, which
+       changes clientWidth and clamps a rightmost horizontal scroll position. */
+    scrollbar-gutter: auto;
 
     /* The viewport authority is the only owner of document position. Chromium's
        scroll anchoring must not move the track while an async feature pack

@@ -60,7 +60,6 @@ describe('balanced scrollbar-gutter architecture', () => {
             'app/modules/pdf-viewer/components/PdfEmptyState.vue',
             'app/modules/pdf-viewer/components/PdfOutline.vue',
             'app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue',
-            'app/modules/workspace-shell/components/DocumentViewerChassis.vue',
         ];
         const balancedByOwningComponent = [
             'app/assets/css/pdf-viewer.scss',
@@ -72,6 +71,7 @@ describe('balanced scrollbar-gutter architecture', () => {
             'app/modules/pdf-viewer/components/PdfToolbar.vue',
             'app/modules/workspace-shell/components/layout/TabBar.vue',
         ];
+        const documentScrollRoots = ['app/modules/workspace-shell/components/DocumentViewerChassis.vue'];
         const dormantVendorScrollers = ['app/assets/css/vendor/pdfjs-viewer-sanitized.css'];
         const actual = collectStyleSources(join(root, 'app'))
             .filter(path => scrollDeclaration.test(readFileSync(path, 'utf8')))
@@ -82,12 +82,19 @@ describe('balanced scrollbar-gutter architecture', () => {
             ...locallyBalanced,
             ...balancedByOwningComponent,
             ...horizontalOrHidden,
+            ...documentScrollRoots,
             ...dormantVendorScrollers,
         ].sort());
         for (const path of locallyBalanced) {
             expect(read(path), path).toMatch(
                 /app-scroll-region--balanced|app-panel-scroll|scrollbar-gutter:\s*stable both-edges/u,
             );
+        }
+
+        for (const path of documentScrollRoots) {
+            expect(read(path), path).toMatch(/overflow-y:\s*scroll/u);
+            expect(read(path), path).toMatch(/scrollbar-gutter:\s*auto/u);
+            expect(read(path), path).not.toContain('app-scroll-region--balanced');
         }
 
         // The companion templates own the shared class for split Vue/CSS files.
@@ -147,14 +154,14 @@ describe('balanced scrollbar-gutter architecture', () => {
             .not.toContain('app-floating-scroll-region');
     });
 
-    it('keeps renderer open policy balanced and sidebars on one vertical scroll owner', () => {
+    it('keeps document scroll roots dynamic and sidebars on one vertical scroll owner', () => {
         const openSurface = read(
             'app/utils/document-viewer/chassis/documentOpenSurfaceSession.ts',
         );
         const sidebarShell = read('app/components/sidebar/AppSidebarShell.vue');
         const pdfSidebar = read('app/modules/pdf-viewer/components/PdfSidebar.vue');
 
-        expect(openSurface).toContain('scrollbarGutter: \'stable both-edges\'');
+        expect(openSurface).toContain('scrollbarGutter: \'auto\'');
         expect(sidebarShell).toContain('outerScroll = false');
         expect(pdfSidebar).toContain(':outer-scroll="false"');
         expect(pdfSidebar).not.toMatch(/:outer-scroll="[^"]*activeTab/u);
