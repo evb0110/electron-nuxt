@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an improvement to EVB Viewer.
+description: Suggest an improvement for the maintainer to consider.
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
@@ -14,7 +14,7 @@ body:
     id: proposal
     attributes:
       label: Proposal
-      description: What would make the workflow better?
+      description: What outcome would make the workflow better? Please focus on the need rather than submitting an implementation or pull request.
     validations:
       required: true
   - type: dropdown

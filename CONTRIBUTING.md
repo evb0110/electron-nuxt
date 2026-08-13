@@ -1,6 +1,15 @@
 # Contributing
 
-Thanks for helping improve EVB Viewer. This project is a shared Nuxt/Electron document viewer, so changes can affect both the browser workspace and the packaged desktop app.
+Thanks for helping improve EVB Viewer. This project is currently maintained by its owner, with code contributions limited to approved contributors. Ideas, bug reports, and feature requests are welcome as GitHub issues.
+
+## Contribution Policy
+
+- If you are not already an approved contributor, please open an issue instead of a pull request.
+- Unsolicited pull requests from unapproved contributors will be closed without review. This avoids asking contributors to spend time on code that the maintainer may need to redesign or reimplement.
+- Approval is by prior invitation from the maintainer. Opening an issue or pull request does not itself grant contributor status.
+- A detailed issue is the best way to contribute: explain the problem, the desired outcome, relevant use cases, and any examples or screenshots that may help.
+
+This policy may change as the project and its maintenance capacity evolve.
 
 ## Development
 
@@ -10,7 +19,7 @@ Thanks for helping improve EVB Viewer. This project is a shared Nuxt/Electron do
 
 ## Checks
 
-Run the smallest useful check while iterating, then run the broader gates before opening a pull request:
+Approved contributors should run the smallest useful check while iterating, then run the broader gates before opening a pull request:
 
 ```bash
 pnpm lint
@@ -38,6 +47,8 @@ architectural criteria that reviews apply and that these checks only partly
 mechanize.
 
 ## Pull Requests
+
+Pull requests are accepted only from approved contributors who have been invited by the maintainer. If you have not been invited, open a bug report or feature request instead; unsolicited pull requests will be closed without review.
 
 - Keep pull requests focused and explain the user-visible behavior change.
 - Include screenshots or recordings for UI changes.
