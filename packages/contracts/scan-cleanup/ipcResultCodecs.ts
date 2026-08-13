@@ -355,6 +355,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || (value.matchedCanvasOpticalContentRightPx !== undefined && value.matchedCanvasOpticalContentRightPx !== null && (!Number.isFinite(Number(value.matchedCanvasOpticalContentRightPx)) || Number(value.matchedCanvasOpticalContentRightPx) < 0))
         || (value.matchedCanvasIntrinsicOverflowLeftPx !== undefined && (!Number.isSafeInteger(value.matchedCanvasIntrinsicOverflowLeftPx) || Number(value.matchedCanvasIntrinsicOverflowLeftPx) < 0))
         || (value.matchedCanvasIntrinsicOverflowRightPx !== undefined && (!Number.isSafeInteger(value.matchedCanvasIntrinsicOverflowRightPx) || Number(value.matchedCanvasIntrinsicOverflowRightPx) < 0))
+        || (value.matchedCanvasIntrinsicOverflowTopPx !== undefined && (!Number.isSafeInteger(value.matchedCanvasIntrinsicOverflowTopPx) || Number(value.matchedCanvasIntrinsicOverflowTopPx) < 0))
         || (value.illuminationNormalized !== undefined && typeof value.illuminationNormalized !== 'boolean')
         || (value.outputMode !== undefined && !isScanCleanupOutputMode(value.outputMode))
         || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
@@ -463,6 +464,9 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         ...(value.matchedCanvasIntrinsicOverflowRightPx === undefined
             ? {}
             : {matchedCanvasIntrinsicOverflowRightPx: decodeNonNegativeInteger(value.matchedCanvasIntrinsicOverflowRightPx, 'intrinsic overflow right')}),
+        ...(value.matchedCanvasIntrinsicOverflowTopPx === undefined
+            ? {}
+            : {matchedCanvasIntrinsicOverflowTopPx: decodeNonNegativeInteger(value.matchedCanvasIntrinsicOverflowTopPx, 'intrinsic overflow top')}),
         placementOffsetXPx: decodeNonNegativeInteger(value.placementOffsetXPx, 'placement offset x'),
         placementOffsetYPx: decodeNonNegativeInteger(value.placementOffsetYPx, 'placement offset y'),
         forwardTransform: decodePreviewAffine(value.forwardTransform),
@@ -530,15 +534,26 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     const opticalRight = metadata.matchedCanvasOpticalContentRightPx;
     const recordedIntrinsicOverflowLeft = metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0;
     const recordedIntrinsicOverflowRight = metadata.matchedCanvasIntrinsicOverflowRightPx ?? 0;
+    const recordedIntrinsicOverflowTop = metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0;
     const effectivePlacementOffsetX = metadata.placementOffsetXPx - recordedIntrinsicOverflowLeft;
+    const effectivePlacementOffsetY = metadata.placementOffsetYPx - recordedIntrinsicOverflowTop;
+    const actualIntrinsicOverflowLeft = Math.max(0, -effectivePlacementOffsetX);
     const actualIntrinsicOverflowRight = Math.max(
         0,
         effectivePlacementOffsetX + contentWidthPx - metadata.canvasWidthPx,
     );
+    const actualIntrinsicOverflowTop = Math.max(0, -effectivePlacementOffsetY);
     if (
         metadata.canvasHeightPx < contentHeightPx
         || recordedIntrinsicOverflowLeft > contentWidthPx
+        || recordedIntrinsicOverflowTop > contentHeightPx
+        || actualIntrinsicOverflowLeft !== recordedIntrinsicOverflowLeft
         || actualIntrinsicOverflowRight !== recordedIntrinsicOverflowRight
+        || actualIntrinsicOverflowTop !== recordedIntrinsicOverflowTop
+        || effectivePlacementOffsetX >= metadata.canvasWidthPx
+        || effectivePlacementOffsetX + contentWidthPx <= 0
+        || effectivePlacementOffsetY >= metadata.canvasHeightPx
+        || effectivePlacementOffsetY + contentHeightPx <= 0
         || (metadata.matchedCanvasOpticalPlacement === true && (
             opticalLeft === null
             || opticalLeft === undefined
@@ -548,7 +563,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             || effectivePlacementOffsetX + opticalLeft * opticalScaleX < metadata.appliedMargins.leftPx
             || effectivePlacementOffsetX + opticalRight * opticalScaleX > metadata.canvasWidthPx - metadata.appliedMargins.rightPx
         ))
-        || metadata.placementOffsetYPx + contentHeightPx > metadata.canvasHeightPx
+        || effectivePlacementOffsetY + contentHeightPx > metadata.canvasHeightPx
     ) {
         throw new Error('invalid scan-cleanup preview intrinsic/canvas placement');
     }

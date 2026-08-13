@@ -6,6 +6,7 @@ use crate::engine::render::{
 };
 use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
 use crate::{
+    bw::paper_reference,
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
     ink_consistency::{
         minority_selection_mask, stroke_mass_metrics, DocumentInkPrior, DocumentInkSample,
@@ -56,10 +57,10 @@ use std::{
 const LAYERED_BACKGROUND_MAX_DPI: f64 = 200.0;
 const PHOTO_BACKGROUND_MAX_DPI: f64 = 300.0;
 const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
-/// A fold-tail column is disposable only when every sample is this close to
-/// white paper. Conservation is deliberately stricter than the cleanup
-/// binarizer: one darker sample stops the run at that column.
-const FOLD_TAIL_NEAR_PAPER_THRESHOLD: u8 = 245;
+/// Display-white floor used as the upper bound for fold-tail paper evidence.
+/// A darker leaf lowers the bound to its measured 75th-percentile paper level;
+/// one sample below that leaf-specific bound stops the disposable run.
+const FOLD_TAIL_NEAR_PAPER_FLOOR: u8 = 250;
 const MAX_MANIFEST_BYTES: usize = 256 * 1024 * 1024;
 const MAX_DETAIL_METADATA_BYTES: usize = 16 * 1024 * 1024;
 
@@ -2334,6 +2335,31 @@ fn run_page(
             }
             write_json_atomic(&destination.metadata_path, &output.metadata)?;
             let (paper_width, paper_height) = matched_output_paper_dimensions(&output.metadata);
+            let fold_side_near_paper_run =
+                if matched_placement.is_some() || !options.match_page_size || options.ocr_mode {
+                    0
+                } else if let Some(canvas) = document_canvas {
+                    let fit = canvas_fit_for(
+                        output.image.width(),
+                        output.image.height(),
+                        paper_width,
+                        paper_height,
+                        output.metadata.content_box.is_some(),
+                        &options,
+                        &canvas,
+                    );
+                    if horizontal_overflow_requires_fold_scan(
+                        output.image.width(),
+                        output.metadata.half,
+                        fit,
+                    ) {
+                        fold_side_near_paper_run_for_output(output)
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
             written.push(WrittenOutput {
                 output_path: destination.output_path.clone(),
                 metadata_path: destination.metadata_path.clone(),
@@ -2353,7 +2379,7 @@ fn run_page(
                 paper_height,
                 content_detected: output.metadata.content_box.is_some(),
                 spread_content_top: spread_content_top_for_output(output),
-                fold_side_near_paper_run: fold_side_near_paper_run_for_output(output),
+                fold_side_near_paper_run,
                 matched_in_memory: matched_placement.is_some(),
             });
         }
@@ -2800,11 +2826,12 @@ fn fold_side_column_order(
 
 #[cfg(test)]
 fn fold_side_near_paper_run_in_gray(image: &GrayImage, half: crate::pipeline::PageHalf) -> usize {
+    let near_paper_threshold = paper_reference(image).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
     fold_side_column_order(image.width(), half)
         .map(|columns| {
             columns
                 .take_while(|&x| {
-                    (0..image.height()).all(|y| image.get(x, y) >= FOLD_TAIL_NEAR_PAPER_THRESHOLD)
+                    (0..image.height()).all(|y| image.get(x, y) >= near_paper_threshold)
                 })
                 .count()
         })
@@ -2824,12 +2851,13 @@ fn mapped_column_range(x: usize, source_width: usize, plane_width: usize) -> (us
 fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
     let gray = output.image.to_gray();
     let width = gray.width();
+    let near_paper_threshold = paper_reference(&gray).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
     let Some(columns) = fold_side_column_order(width, output.metadata.half) else {
         return 0;
     };
     columns
         .take_while(|&x| {
-            if !(0..gray.height()).all(|y| gray.get(x, y) >= FOLD_TAIL_NEAR_PAPER_THRESHOLD) {
+            if !(0..gray.height()).all(|y| gray.get(x, y) >= near_paper_threshold) {
                 return false;
             }
             if let Some(color) = output.color_image.as_ref() {
@@ -2839,7 +2867,7 @@ fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
                         color
                             .get(plane_x, y)
                             .iter()
-                            .any(|&sample| sample < FOLD_TAIL_NEAR_PAPER_THRESHOLD)
+                            .any(|&sample| sample < near_paper_threshold)
                     })
                 }) {
                     return false;
@@ -2862,9 +2890,8 @@ fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
                 }
                 let (start, end) = mapped_column_range(x, width, layers.background.width());
                 if (0..layers.background.height()).any(|y| {
-                    (start..end).any(|plane_x| {
-                        layers.background.get(plane_x, y) < FOLD_TAIL_NEAR_PAPER_THRESHOLD
-                    })
+                    (start..end)
+                        .any(|plane_x| layers.background.get(plane_x, y) < near_paper_threshold)
                 }) {
                     return false;
                 }
@@ -2875,7 +2902,7 @@ fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
                             color
                                 .get(plane_x, y)
                                 .iter()
-                                .any(|&sample| sample < FOLD_TAIL_NEAR_PAPER_THRESHOLD)
+                                .any(|&sample| sample < near_paper_threshold)
                         })
                     }) {
                         return false;
@@ -2907,12 +2934,7 @@ fn fold_trim_for(
     near_paper_run: usize,
     fit: CanvasFit,
 ) -> FoldSideTrim {
-    if !matches!(
-        half,
-        crate::pipeline::PageHalf::Left | crate::pipeline::PageHalf::Right
-    ) || width <= 1
-        || width as f64 * fit.pixel_scale <= fit.inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
-    {
+    if width <= 1 || !horizontal_overflow_requires_fold_scan(width, half, fit) {
         return FoldSideTrim::default();
     }
     let maximum_fitting_width = ((fit.inner_width as f64 + CANVAS_GRID_TOLERANCE_PX)
@@ -2932,6 +2954,17 @@ fn fold_trim_for(
         },
         crate::pipeline::PageHalf::Full => FoldSideTrim::default(),
     }
+}
+
+fn horizontal_overflow_requires_fold_scan(
+    width: usize,
+    half: crate::pipeline::PageHalf,
+    fit: CanvasFit,
+) -> bool {
+    matches!(
+        half,
+        crate::pipeline::PageHalf::Left | crate::pipeline::PageHalf::Right
+    ) && width as f64 * fit.pixel_scale > fit.inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
 }
 
 fn shared_spread_overflow_fit_for_outputs(
@@ -2962,10 +2995,19 @@ fn shared_spread_overflow_fit_for_outputs(
                 options,
                 canvas,
             );
+            let near_paper_run = if horizontal_overflow_requires_fold_scan(
+                output.image.width(),
+                output.metadata.half,
+                fit,
+            ) {
+                fold_side_near_paper_run_for_output(output)
+            } else {
+                0
+            };
             fold_trim_for(
                 output.image.width(),
                 output.metadata.half,
-                fold_side_near_paper_run_for_output(output),
+                near_paper_run,
                 fit,
             )
         })
@@ -3380,13 +3422,13 @@ fn apply_canvas_metadata(
     } = placement;
     let effective_left = left as isize - intrinsic_overflow_left as isize;
     let effective_right = effective_left + content_width as isize;
+    let effective_top = top as isize - intrinsic_overflow_top as isize;
+    let effective_bottom = effective_top + content_height as isize;
     metadata.soft_margins_pixels = [
         effective_left.max(0) as usize,
-        top,
+        effective_top.max(0) as usize,
         (canvas.width_px as isize - effective_right).max(0) as usize,
-        canvas
-            .height_px
-            .saturating_sub(content_height.saturating_add(top)),
+        (canvas.height_px as isize - effective_bottom).max(0) as usize,
     ];
     metadata.applied_margins = requested_margins.map(|margin| margin as f64).into();
     metadata.uniform_canvas = true;
@@ -3407,6 +3449,7 @@ fn apply_canvas_metadata(
         optical_content_bounds_x.map(|(_, right)| right);
     metadata.matched_canvas_intrinsic_overflow_left = intrinsic_overflow_left;
     metadata.matched_canvas_intrinsic_overflow_right = intrinsic_overflow_right;
+    metadata.matched_canvas_intrinsic_overflow_top = intrinsic_overflow_top;
     metadata.canvas_width = canvas.width_px;
     metadata.canvas_height = canvas.height_px;
     metadata.placement_offset_x = left;
@@ -3443,7 +3486,7 @@ fn apply_canvas_metadata(
     }
     if placement.fold_trim_left > 0 || placement.fold_trim_right > 0 {
         metadata.warnings.push(format!(
-            "Matched spread discarded {} provably-paper fold-side columns on the left and {} on the right (all samples >= {FOLD_TAIL_NEAR_PAPER_THRESHOLD}) before overflow fitting",
+            "Matched spread discarded {} provably-paper fold-side columns on the left and {} on the right (all samples met the leaf-specific paper bound) before overflow fitting",
             placement.fold_trim_left, placement.fold_trim_right,
         ));
     }
@@ -3810,10 +3853,9 @@ fn align_deferred_spread_vertical_placements<T>(
             canvas,
         );
         for ((index, _), aligned) in pair.into_iter().zip(pair_placements) {
-            let Some((mut placement, _)) = aligned else {
+            let Some((placement, _)) = aligned else {
                 continue;
             };
-            placement.intrinsic_overflow_top = 0;
             placements[index] = placement;
         }
     }
@@ -5069,7 +5111,7 @@ mod tests {
     }
 
     #[test]
-    fn fold_tail_with_edge_glyph_is_never_trimmed() {
+    fn fold_tail_with_pale_edge_glyph_is_never_trimmed() {
         let options = CleanupOptions {
             dpi: 150.0,
             margins_pixels: Some([0.0; 4]),
@@ -5088,10 +5130,11 @@ mod tests {
             crate::pipeline::PageHalf::Left,
         );
         let mut leaf = GrayImage::new(1_198, 64, 255);
-        // A glyph reaching the fold-side edge makes the very first candidate
-        // column non-paper. No later white column may be skipped over.
+        // Reviewer regression: a pale gray-246 glyph reaching the fold-side
+        // edge is still writing, not disposable paper. No later white column
+        // may be skipped over even though fitting requires horizontal trim.
         for y in 20..44 {
-            leaf.set(1_197, y, 0);
+            leaf.set(1_197, y, 246);
         }
         let run = fold_side_near_paper_run_in_gray(&leaf, crate::pipeline::PageHalf::Left);
         let fit = canvas_fit_for(

@@ -275,6 +275,7 @@ export interface IScanCleanupPreviewMetadata {
     matchedCanvasOpticalContentRightPx?: number | null;
     matchedCanvasIntrinsicOverflowLeftPx?: number;
     matchedCanvasIntrinsicOverflowRightPx?: number;
+    matchedCanvasIntrinsicOverflowTopPx?: number;
     /** Intrinsic raster origin within the logical canvas. */
     placementOffsetXPx: number;
     placementOffsetYPx: number;

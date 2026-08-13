@@ -72,7 +72,8 @@ function resolvePreviewMetadataOffset(
         return {
             x: metadata.placementOffsetXPx
                 - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0),
-            y: metadata.placementOffsetYPx,
+            y: metadata.placementOffsetYPx
+                - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0),
         };
     }
     const aligned = resolveAlignedPreviewPlacement(
@@ -89,14 +90,16 @@ function resolvePreviewMetadataOffset(
         )
         ? metadata.placementOffsetXPx
             - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0)
-        : aligned.x - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0);
+        : aligned.x;
     // Native Y carries the spread pair anchor, but only describes the
     // alignment the result was rendered under. A result that predates the
     // currently requested alignment must reposition optimistically until the
     // fresh native render replaces it.
     return {
         x,
-        y: nativeVerticalCurrent ? metadata.placementOffsetYPx ?? aligned.y : aligned.y,
+        y: nativeVerticalCurrent
+            ? metadata.placementOffsetYPx - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0)
+            : aligned.y,
     };
 }
 

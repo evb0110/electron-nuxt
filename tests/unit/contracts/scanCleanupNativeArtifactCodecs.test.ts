@@ -236,6 +236,36 @@ describe('scan-cleanup native artifact codecs', () => {
         })).toThrow('intrinsic content placement exceeds its canvas');
     });
 
+    it('rejects inconsistent or fully off-canvas intrinsic overflow intervals', () => {
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...outputMetadata(),
+            matchedCanvasContentWidthPx: 200,
+            canvasWidthPx: 100,
+            matchedCanvasIntrinsicOverflowLeftPx: 200,
+            placementOffsetXPx: 0,
+        })).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...outputMetadata(),
+            matchedCanvasIntrinsicOverflowLeftPx: 10,
+            placementOffsetXPx: 5,
+        })).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...outputMetadata(),
+            matchedCanvasIntrinsicOverflowTopPx: 201,
+            placementOffsetYPx: 0,
+        })).toThrow('intrinsic content placement exceeds its canvas');
+    });
+
+    it('accepts a bounded top headroom trim that still intersects the canvas', () => {
+        const output = {
+            ...outputMetadata(),
+            matchedCanvasIntrinsicOverflowTopPx: 80,
+            placementOffsetYPx: 0,
+        };
+
+        expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
+    });
+
     it('enforces preview-only required metadata at the native preview boundary', () => {
         const page = pageMetadata();
         delete (page.outputs[0] as Partial<typeof page.outputs[number]>).appliedMargins;

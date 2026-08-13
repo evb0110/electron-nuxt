@@ -78,6 +78,9 @@ fn assert_native_canvas_owns_image(metadata: &Value) {
     let recorded_overflow_right = metadata["matchedCanvasIntrinsicOverflowRightPx"]
         .as_u64()
         .unwrap_or(0);
+    let recorded_overflow_top = metadata["matchedCanvasIntrinsicOverflowTopPx"]
+        .as_u64()
+        .unwrap_or(0);
     assert!(
         recorded_overflow_left <= content_width,
         "native canvas source overhang exceeds its content width: {metadata}"
@@ -89,9 +92,17 @@ fn assert_native_canvas_owns_image(metadata: &Value) {
         actual_overflow_right, recorded_overflow_right,
         "native canvas must record the complete raster overhang: {metadata}"
     );
+    let effective_offset_y = offset_y as i64 - recorded_overflow_top as i64;
+    assert_eq!(
+        (-effective_offset_y).max(0) as u64,
+        recorded_overflow_top,
+        "native canvas must record the complete top overhang: {metadata}"
+    );
     assert!(
-        offset_y + content_height <= canvas_height,
-        "native canvas vertical geometry exceeds its canvas: {metadata}"
+        effective_offset_y < canvas_height as i64
+            && effective_offset_y + content_height as i64 > 0
+            && effective_offset_y + content_height as i64 <= canvas_height as i64,
+        "native canvas vertical geometry must intersect and stay bounded by its canvas: {metadata}"
     );
     if metadata["matchedCanvasOpticalPlacement"] == Value::Bool(true) {
         let intrinsic_width = metadata["intrinsicRasterWidthPx"]
@@ -3430,15 +3441,15 @@ fn matched_canvas_preview_places_a_spread_at_the_final_shared_vertical_anchor() 
     let output_right = scratch.path("matched-spread-preview-right.png");
     let metadata_left = scratch.path("matched-spread-preview-left.json");
     let metadata_right = scratch.path("matched-spread-preview-right.json");
-    let mut image = GrayImage::new(160, 80, 255);
-    for y in 8..48 {
+    let mut image = GrayImage::new(160, 1_000, 255);
+    for y in 300..700 {
         for x in 10..70 {
             if y % 6 < 2 {
                 image.set(x, y, 15);
             }
         }
     }
-    for y in 20..60 {
+    for y in 0..400 {
         for x in 90..150 {
             if y % 6 < 2 {
                 image.set(x, y, 20);
@@ -3453,9 +3464,9 @@ fn matched_canvas_preview_places_a_spread_at_the_final_shared_vertical_anchor() 
         "canvasScope": "document",
         "documentCanvas": {
             "widthPoints": 57.6,
-            "heightPoints": 67.2,
+            "heightPoints": 480.0,
             "widthPx": 120,
-            "heightPx": 140
+            "heightPx": 1000
         },
         "pages": [{
             "inputPath": input,
@@ -3488,12 +3499,18 @@ fn matched_canvas_preview_places_a_spread_at_the_final_shared_vertical_anchor() 
             "stderr={}",
             String::from_utf8_lossy(&result.stderr)
         );
-        [
-            serde_json::from_slice::<Value>(&fs::read(&metadata_left).unwrap()).unwrap(),
-            serde_json::from_slice::<Value>(&fs::read(&metadata_right).unwrap()).unwrap(),
-        ]
+        (
+            [
+                serde_json::from_slice::<Value>(&fs::read(&metadata_left).unwrap()).unwrap(),
+                serde_json::from_slice::<Value>(&fs::read(&metadata_right).unwrap()).unwrap(),
+            ],
+            [
+                decode_gray(&fs::read(&output_left).unwrap(), 2_000_000, 2_000).unwrap(),
+                decode_gray(&fs::read(&output_right).unwrap(), 2_000_000, 2_000).unwrap(),
+            ],
+        )
     };
-    let final_metadata = run();
+    let (final_metadata, final_images) = run();
 
     let mut preview_payload = payload;
     preview_payload["renderMode"] = Value::String("preview".into());
@@ -3503,22 +3520,43 @@ fn matched_canvas_preview_places_a_spread_at_the_final_shared_vertical_anchor() 
         serde_json::to_vec_pretty(&preview_payload).unwrap(),
     )
     .unwrap();
-    let preview_metadata = run();
+    let (preview_metadata, preview_images) = run();
+
+    let first_content_row = |image: &GrayImage| {
+        (0..image.height()).find(|&y| (0..image.width()).any(|x| image.get(x, y) < 245))
+    };
 
     for index in 0..2 {
-        assert_eq!(
-            preview_metadata[index]["placementOffsetYPx"],
-            final_metadata[index]["placementOffsetYPx"],
-            "preview and final disagree about the {} leaf's shared vertical anchor",
-            final_metadata[index]["half"],
-        );
+        for field in ["placementOffsetYPx", "matchedCanvasIntrinsicOverflowTopPx"] {
+            assert_eq!(
+                preview_metadata[index][field], final_metadata[index][field],
+                "preview and final disagree about {field} for the {} leaf",
+                final_metadata[index]["half"],
+            );
+        }
         assert!(preview_metadata[index]["placementOffsetYPx"]
             .as_u64()
             .is_some());
+        let preview_source_row = first_content_row(&preview_images[index]).unwrap() as i64;
+        let overflow_top = preview_metadata[index]["matchedCanvasIntrinsicOverflowTopPx"]
+            .as_i64()
+            .unwrap_or(0);
+        let effective_preview_row = preview_source_row - overflow_top;
+        assert_eq!(
+            first_content_row(&final_images[index]).unwrap() as i64,
+            effective_preview_row.max(0),
+            "preview and final disagree about visible content rows for the {} leaf",
+            final_metadata[index]["half"],
+        );
     }
-    assert_ne!(
-        final_metadata[0]["placementOffsetYPx"], final_metadata[1]["placementOffsetYPx"],
-        "fixture did not exercise asymmetric spread anchoring",
+    assert!(
+        final_metadata
+            .iter()
+            .any(|metadata| metadata["matchedCanvasIntrinsicOverflowTopPx"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0),
+        "fixture did not exercise a negative spread anchor",
     );
 }
 

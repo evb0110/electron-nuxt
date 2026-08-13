@@ -116,6 +116,8 @@ export function resolveScanCleanupTextLayerInstruction(
     const intrinsicRasterHeightPx = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
     const effectivePlacementOffsetXPx = metadata.placementOffsetXPx
         - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0);
+    const effectivePlacementOffsetYPx = metadata.placementOffsetYPx
+        - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0);
     if (
         !finitePositive(pageWidthPoints)
         || !finitePositive(pageHeightPoints)
@@ -189,7 +191,7 @@ export function resolveScanCleanupTextLayerInstruction(
     );
     const yOffset = pageHeightPoints + pdfYFromCanvas * (
         matchY * (f10 * sourceOrigin.x + f11 * sourceOrigin.y + f12)
-        + metadata.placementOffsetYPx
+        + effectivePlacementOffsetYPx
     );
     const matrix = [
         canonicalNumber(xFromPdfX),

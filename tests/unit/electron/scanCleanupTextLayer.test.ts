@@ -160,6 +160,32 @@ describe('scan-cleanup source text layer', () => {
         ]);
     });
 
+    it('keeps source text vertically registered with glyphs after top headroom is trimmed', () => {
+        const instruction = resolveScanCleanupTextLayerInstruction(output({
+            outputWidthPx: 1_000,
+            outputHeightPx: 600,
+            intrinsicRasterWidthPx: 1_000,
+            intrinsicRasterHeightPx: 600,
+            canvasWidthPx: 1_000,
+            canvasHeightPx: 600,
+            matchedCanvasContentWidthPx: 1_000,
+            matchedCanvasContentHeightPx: 600,
+            matchedCanvasIntrinsicOverflowTopPx: 80,
+            placementOffsetYPx: 0,
+        }), 0, pageSize);
+
+        // The raster materializer discards 80 source rows. The same 16-point
+        // translation moves selectable text onto the glyphs in the output PDF.
+        expect(instruction!.matrix).toEqual([
+            1,
+            0,
+            0,
+            1,
+            0,
+            16,
+        ]);
+    });
+
     it('keeps cropped source text registered when content alignment moves the raster', () => {
         const instruction = resolveScanCleanupTextLayerInstruction(output({
             outputWidthPx: 800,

@@ -3103,6 +3103,36 @@ describe('scan cleanup preview', () => {
         }))).toThrow('invalid scan-cleanup preview applied left margin');
     });
 
+    it('rejects fully off-canvas and inconsistent intrinsic overflow intervals at the IPC boundary', async () => {
+        const dir = await setup();
+        const result = await previewOf(createScanCleanupPreviewService(dependencies(dir)), sender(), request);
+        const withGeometry = (geometry: Record<string, number>) => ({
+            ...result,
+            outputs: result.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    ...geometry,
+                },
+            })),
+        });
+
+        expect(() => decodeScanCleanupPreviewResult(withGeometry({
+            canvasWidthPx: 100,
+            matchedCanvasContentWidthPx: 200,
+            matchedCanvasIntrinsicOverflowLeftPx: 200,
+            placementOffsetXPx: 0,
+        }))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
+        expect(() => decodeScanCleanupPreviewResult(withGeometry({
+            matchedCanvasIntrinsicOverflowLeftPx: 10,
+            placementOffsetXPx: 5,
+        }))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
+        expect(() => decodeScanCleanupPreviewResult(withGeometry({
+            matchedCanvasIntrinsicOverflowTopPx: 2,
+            placementOffsetYPx: 1,
+        }))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
+    });
+
     it('accepts optional detection text-axis and recommendation reasons and rejects malformed values', () => {
         const state = {
             jobId: 'detect-axis',

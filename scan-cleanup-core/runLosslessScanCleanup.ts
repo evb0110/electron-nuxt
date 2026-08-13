@@ -288,14 +288,66 @@ export async function runLosslessScanCleanup(
                 page.pageSize,
                 page.pageOverride.rotationDegrees,
             );
+            const fitMarginAxis = (leading: number, trailing: number, total: number) => {
+                const sum = leading + trailing;
+                if (sum < total || sum === 0) {
+                    return [
+                        leading,
+                        trailing,
+                    ] as const;
+                }
+                const available = Math.max(0, total - 0.01);
+                const fittedLeading = available * leading / sum;
+                return [
+                    fittedLeading,
+                    available - fittedLeading,
+                ] as const;
+            };
+            const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, page.pageOverride);
+            const requestedVisualMargins = {
+                left: marginsMm.leftMm / 25.4 * 72,
+                top: marginsMm.topMm / 25.4 * 72,
+                right: marginsMm.rightMm / 25.4 * 72,
+                bottom: marginsMm.bottomMm / 25.4 * 72,
+            };
+            const resolveOutputScale = (output: (typeof page.outputs)[number]) => {
+                const requestedMargins = orientScanCleanupInsetsToPageSpace(
+                    request.options.crop && output.contentDetected ? requestedVisualMargins : {
+                        left: 0,
+                        top: 0,
+                        right: 0,
+                        bottom: 0,
+                    },
+                    page.pageSize.rotation + page.pageOverride.rotationDegrees,
+                );
+                const [
+                    marginLeft,
+                    marginRight,
+                ] = fitMarginAxis(requestedMargins.left, requestedMargins.right, box.widthPoints);
+                const [
+                    marginBottom,
+                    marginTop,
+                ] = fitMarginAxis(requestedMargins.bottom, requestedMargins.top, box.heightPoints);
+                const innerWidth = Math.max(0.01, box.widthPoints - marginLeft - marginRight);
+                const innerHeight = Math.max(0.01, box.heightPoints - marginTop - marginBottom);
+                const paperScale = resolveScanCleanupCanvasFitScale(box, {
+                    widthPoints: output.paperRect.width,
+                    heightPoints: output.paperRect.height,
+                });
+                return paperScale * Math.min(1, resolveScanCleanupCanvasFitScale({
+                    widthPoints: innerWidth,
+                    heightPoints: innerHeight,
+                }, {
+                    widthPoints: output.cropRect.width * paperScale,
+                    heightPoints: output.cropRect.height * paperScale,
+                }));
+            };
+            const sharedSpreadScale = page.outputs.length === 2
+                && page.outputs.some(output => output.half === 'left')
+                && page.outputs.some(output => output.half === 'right')
+                ? Math.min(...page.outputs.map(resolveOutputScale))
+                : null;
             for (const output of page.outputs) {
-                const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, page.pageOverride);
-                const requestedVisualMargins = {
-                    left: marginsMm.leftMm / 25.4 * 72,
-                    top: marginsMm.topMm / 25.4 * 72,
-                    right: marginsMm.rightMm / 25.4 * 72,
-                    bottom: marginsMm.bottomMm / 25.4 * 72,
-                };
                 const marginsRequested = Object.values(requestedVisualMargins).some(margin => margin > 0);
                 const marginsAvailable = request.options.crop && output.contentDetected;
                 if (marginsRequested && !marginsAvailable) {
@@ -313,21 +365,6 @@ export async function runLosslessScanCleanup(
                     },
                     page.pageSize.rotation + page.pageOverride.rotationDegrees,
                 );
-                const fitMarginAxis = (leading: number, trailing: number, total: number) => {
-                    const sum = leading + trailing;
-                    if (sum < total || sum === 0) {
-                        return [
-                            leading,
-                            trailing,
-                        ] as const;
-                    }
-                    const available = Math.max(0, total - 0.01);
-                    const fittedLeading = available * leading / sum;
-                    return [
-                        fittedLeading,
-                        available - fittedLeading,
-                    ] as const;
-                };
                 const [
                     marginLeft,
                     marginRight,
@@ -353,14 +390,15 @@ export async function runLosslessScanCleanup(
                     widthPoints: output.paperRect.width,
                     heightPoints: output.paperRect.height,
                 });
-                const fit = Math.min(1, resolveScanCleanupCanvasFitScale({
+                const leafFit = Math.min(1, resolveScanCleanupCanvasFitScale({
                     widthPoints: innerWidth,
                     heightPoints: innerHeight,
                 }, {
                     widthPoints: output.cropRect.width * paperScale,
                     heightPoints: output.cropRect.height * paperScale,
                 }));
-                const scale = paperScale * fit;
+                const scale = sharedSpreadScale ?? paperScale * leafFit;
+                const fit = scale / paperScale;
                 if (paperScale < 1 - CANVAS_CONTENT_SCALE_EPSILON) {
                     fittedPageWarnings.push(
                         `Page ${String(page.sourcePageIndex + 1)}: Matched page size placed this page at `

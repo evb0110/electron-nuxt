@@ -491,6 +491,46 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it('keeps trimmed top headroom outside the preview in native placement branches', () => {
+        const trimmedMetadata = metadata({
+            outputWidthPx: 1_000,
+            outputHeightPx: 600,
+            canvasWidthPx: 1_000,
+            canvasHeightPx: 600,
+            matchedCanvasContentWidthPx: 1_000,
+            matchedCanvasContentHeightPx: 600,
+            matchedCanvasIntrinsicOverflowTopPx: 80,
+            placementOffsetYPx: 0,
+        });
+
+        expect(resolvePreviewMetadataPlacement(trimmedMetadata)).toMatchObject({top: -80});
+        expect(resolvePreviewMetadataPlacement(trimmedMetadata, 'top-left', true))
+            .toMatchObject({top: -80});
+    });
+
+    it('does not subtract native left overflow from renderer-aligned margin placement', () => {
+        const trimmedMetadata = metadata({
+            appliedMargins: {
+                leftPx: 12,
+                topPx: 12,
+                rightPx: 0,
+                bottomPx: 0,
+            },
+            outputWidthPx: 200,
+            outputHeightPx: 200,
+            canvasWidthPx: 300,
+            canvasHeightPx: 300,
+            matchedCanvasContentWidthPx: 200,
+            matchedCanvasContentHeightPx: 200,
+            matchedCanvasOpticalPlacement: false,
+            matchedCanvasIntrinsicOverflowLeftPx: 40,
+            placementOffsetXPx: 0,
+        });
+
+        expect(resolvePreviewMetadataPlacement(trimmedMetadata, 'top-left', true))
+            .toMatchObject({left: 12});
+    });
+
     it('presents a page the document scaled up at the size the final run will write', () => {
         // The page is half the document's paper, so the sidecar reports the box
         // it belongs in and the renderer scales the raster it rendered into it,

@@ -4732,7 +4732,7 @@ describe('scan cleanup pipeline', () => {
         });
     });
 
-    it('does not turn an off-center lossless spread cutter into two paper scales', async () => {
+    it('uses one pair-wide fit when either lossless spread leaf reaches the margin box', async () => {
         const fixture = await setup();
         const harness = losslessMatchedHarness([{
             widthPoints: 400,
@@ -4761,13 +4761,13 @@ describe('scan cleanup pipeline', () => {
                         cropRect: {
                             xPx: 10,
                             yPx: 10,
-                            widthPx: 150,
+                            widthPx: 220,
                             heightPx: 180,
                         },
                         contentBox: {
                             xPx: 10,
                             yPx: 10,
-                            widthPx: 150,
+                            widthPx: 220,
                             heightPx: 180,
                         },
                         inputWidthPx: 400,
@@ -4824,11 +4824,12 @@ describe('scan cleanup pipeline', () => {
 
         const outputs = harness.readSplitInstructions()!.pages[0]!.outputs;
         expect(outputs).toHaveLength(2);
-        expect(outputs.map(output => output.contentTransform)).toEqual([
-            undefined,
-            undefined,
-        ]);
-        expect(summary.warnings).toEqual([]);
+        const scales = outputs.map(output => output.contentTransform?.scale);
+        expect(scales[0]).toBeCloseTo(200 / 220, 6);
+        expect(scales[1]).toBeCloseTo(scales[0]!, 12);
+        expect(summary.warnings.filter(warning => warning.startsWith(
+            'Page 1: Matched page size fitted this page',
+        ))).toHaveLength(2);
     });
 
     it('names the raster pages a layout it was told before analysis left it scaling', async () => {

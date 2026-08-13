@@ -618,8 +618,14 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'matchedCanvasContentHeightPx',
         'matchedCanvasIntrinsicOverflowLeftPx',
         'matchedCanvasIntrinsicOverflowRightPx',
+        'matchedCanvasIntrinsicOverflowTopPx',
         'resamplePasses',
-    ] as const) if (source[key] !== undefined && source[key] !== null) integer(source[key], artifact, key, key === 'resamplePasses' ? 0 : 1);
+    ] as const) if (source[key] !== undefined && source[key] !== null) integer(
+        source[key],
+        artifact,
+        key,
+        key === 'resamplePasses' || key.startsWith('matchedCanvasIntrinsicOverflow') ? 0 : 1,
+    );
     for (const key of [
         'detectedSkewDegrees',
         'skewConfidence',
@@ -778,10 +784,16 @@ export function decodeNativeScanCleanupOutputMetadata(
     const recordedIntrinsicOverflowRight = typeof source.matchedCanvasIntrinsicOverflowRightPx === 'number'
         ? source.matchedCanvasIntrinsicOverflowRightPx
         : 0;
+    const recordedIntrinsicOverflowTop = typeof source.matchedCanvasIntrinsicOverflowTopPx === 'number'
+        ? source.matchedCanvasIntrinsicOverflowTopPx
+        : 0;
     const effectivePlacementOffsetX = placementOffsetXPx - recordedIntrinsicOverflowLeft;
+    const effectivePlacementOffsetY = placementOffsetYPx - recordedIntrinsicOverflowTop;
+    const actualIntrinsicOverflowLeft = Math.max(0, -effectivePlacementOffsetX);
     const actualIntrinsicOverflowRight = Number.isFinite(contentWidthNumber)
         ? Math.max(0, effectivePlacementOffsetX + contentWidthNumber - canvasWidthPx)
         : Number.NaN;
+    const actualIntrinsicOverflowTop = Math.max(0, -effectivePlacementOffsetY);
     const softMargins: unknown[] = Array.isArray(source.softMarginsPx) ? source.softMarginsPx : [];
     const marginLeft = typeof softMargins[0] === 'number' ? softMargins[0] : 0;
     const marginRight = typeof softMargins[2] === 'number' ? softMargins[2] : 0;
@@ -791,7 +803,14 @@ export function decodeNativeScanCleanupOutputMetadata(
         || typeof intrinsicWidth !== 'number'
         || typeof intrinsicHeight !== 'number'
         || recordedIntrinsicOverflowLeft > contentWidthNumber
+        || recordedIntrinsicOverflowTop > contentHeight
+        || actualIntrinsicOverflowLeft !== recordedIntrinsicOverflowLeft
         || actualIntrinsicOverflowRight !== recordedIntrinsicOverflowRight
+        || actualIntrinsicOverflowTop !== recordedIntrinsicOverflowTop
+        || effectivePlacementOffsetX >= canvasWidthPx
+        || effectivePlacementOffsetX + contentWidthNumber <= 0
+        || effectivePlacementOffsetY >= canvasHeightPx
+        || effectivePlacementOffsetY + contentHeight <= 0
         || (opticalPlacement && (
             typeof opticalLeft !== 'number'
             || typeof opticalRight !== 'number'
@@ -799,7 +818,7 @@ export function decodeNativeScanCleanupOutputMetadata(
             || effectivePlacementOffsetX + opticalLeft * opticalScaleX < marginLeft
             || effectivePlacementOffsetX + opticalRight * opticalScaleX > canvasWidthPx - marginRight
         ))
-        || placementOffsetYPx + contentHeight > canvasHeightPx
+        || effectivePlacementOffsetY + contentHeight > canvasHeightPx
     ) fail(artifact, 'intrinsic content placement exceeds its canvas');
     return decoded<INativeScanCleanupOutputMetadataV3>(source);
 }
