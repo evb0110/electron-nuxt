@@ -62,6 +62,14 @@ const RESCUE_ROW_SIGNAL_CRISPNESS: u16 = 18;
 const RESCUE_SOLID_DEPTH: u8 = 128;
 // Must recognize captured healthy ink while leaving pale captured skeletons rescue-eligible.
 const RESCUE_SOLID_CAPTURED_MEDIAN: u8 = 96;
+// Wolf may admit a gray antialias halo around a fully captured dark core. The
+// cap is applied only to components that satisfy the same two-sided solid-core
+// evidence used to deny unnecessary faint-stroke rescue.
+const WOLF_SOLID_STROKE_CEILING: u8 = 128;
+// A deep-missing body must remain a substantial part of the nearby raw
+// candidate field. This protects captured faint skeletons while allowing a
+// few detached dark samples around an otherwise complete solid glyph.
+const WOLF_SOLID_MAXIMUM_DEEP_MISSING_DENOMINATOR: usize = 4;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1282,9 +1290,8 @@ pub(crate) fn paper_reference(image: &GrayImage) -> u8 {
 
 /// Recover faint print that a selected local threshold dropped, but only as
 /// compact raw-plane components aligned with an independent text-row signal.
-/// This deliberately does not run for Auto: the guarded Auto route is a
-/// byte-sensitive regression path, while explicit Wolf/Sauvola need the
-/// engine-level text-preservation invariant.
+/// Faint rescue deliberately does not run for Auto, but an Auto-selected Wolf
+/// route may still shed a gray halo after proving that its solid core is intact.
 pub(crate) fn rescue_component_scoped_faint_strokes(
     damaged: &BinaryImage,
     raw: &GrayImage,
@@ -1296,14 +1303,15 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
     dpi: f64,
     spread_fallback: bool,
 ) -> BinaryImage {
-    if (!spread_fallback
-        && (!matches!(
+    let faint_rescue_enabled = spread_fallback
+        || (matches!(
             requested_mode,
             BinarizationMode::Sauvola | BinarizationMode::Wolf
-        ) || !matches!(
+        ) && matches!(
             selected_mode,
             BinarizationMode::Sauvola | BinarizationMode::Wolf
-        )))
+        ));
+    if (!faint_rescue_enabled && selected_mode != BinarizationMode::Wolf)
         || damaged.width() == 0
         || damaged.height() == 0
     {
@@ -1355,19 +1363,101 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
         let horizontal = (dpi * 3.0 / 25.4).round().max(2.0) as usize;
         dilate(mask, horizontal, row_tolerance)
     });
-    let raw_row_profile = row_signal.is_none().then(|| {
-        raw_text_row_profile(
-            raw,
-            picture_owner.as_ref(),
-            row_evidence_exclusion,
-            &raw_max,
-            &raw_min,
-            paper,
-            dpi,
-        )
-    });
+    let independent_row_profile = (row_signal.is_none() || selected_mode == BinarizationMode::Wolf)
+        .then(|| {
+            raw_text_row_profile(
+                raw,
+                picture_owner.as_ref(),
+                row_evidence_exclusion,
+                &raw_max,
+                &raw_min,
+                paper,
+                dpi,
+            )
+        });
     let minimum_independent_row_support = (dpi * 0.30 / 25.4).round().max(4.0) as usize;
     let mut rescued = BinaryImage::new(damaged.width(), damaged.height());
+    let mut retained = damaged.clone();
+
+    if selected_mode == BinarizationMode::Wolf {
+        let damaged_components = ComponentMap::from_binary(damaged);
+        for component in damaged_components.components() {
+            if !is_text_like_rescue_component(component, dpi) {
+                continue;
+            }
+            let mut captured_raw = Vec::with_capacity(component.area);
+            let mut component_rows = vec![0usize; component.bottom - component.top + 1];
+            let mut row_aligned = false;
+            let mut touches_picture_owner = false;
+            for y in component.top..=component.bottom {
+                for x in component.left..=component.right {
+                    if damaged_components.label_at(x, y) != component.label {
+                        continue;
+                    }
+                    captured_raw.push(raw.get(x, y));
+                    component_rows[y - component.top] += 1;
+                    touches_picture_owner |=
+                        picture_owner.as_ref().is_some_and(|owner| owner.get(x, y));
+                    row_aligned |= row_signal.as_ref().is_some_and(|signal| signal.get(x, y));
+                }
+            }
+            captured_raw.sort_unstable();
+            let captured_median_raw = median_u8(&captured_raw);
+            if let Some(profile) = independent_row_profile.as_ref() {
+                row_aligned |= (component.top..=component.bottom).any(|y| {
+                    profile[y]
+                        >= minimum_independent_row_support + component_rows[y - component.top]
+                });
+            }
+            let left = component.left.saturating_sub(gradient_radius);
+            let right = component
+                .right
+                .saturating_add(gradient_radius)
+                .min(raw.width() - 1);
+            let top = component.top.saturating_sub(gradient_radius);
+            let bottom = component
+                .bottom
+                .saturating_add(gradient_radius)
+                .min(raw.height() - 1);
+            let mut missing = 0usize;
+            let mut deep_missing = 0usize;
+            for y in top..=bottom {
+                for x in left..=right {
+                    if damaged.get(x, y)
+                        || raw.get(x, y) > paper.saturating_sub(RESCUE_CANDIDATE_DEPTH)
+                        || picture_owner.as_ref().is_some_and(|owner| owner.get(x, y))
+                    {
+                        continue;
+                    }
+                    missing += 1;
+                    if raw.get(x, y) <= local_paper.get(x, y).saturating_sub(RESCUE_SOLID_DEPTH) {
+                        deep_missing += 1;
+                    }
+                }
+            }
+            let solid_core_already_captured = captured_median_raw
+                .is_some_and(|median| median <= RESCUE_SOLID_CAPTURED_MEDIAN)
+                && (missing == 0
+                    || deep_missing.saturating_mul(WOLF_SOLID_MAXIMUM_DEEP_MISSING_DENOMINATOR)
+                        < missing);
+            if touches_picture_owner || !row_aligned || !solid_core_already_captured {
+                continue;
+            }
+            for y in component.top..=component.bottom {
+                for x in component.left..=component.right {
+                    if damaged_components.label_at(x, y) == component.label
+                        && raw.get(x, y) >= WOLF_SOLID_STROKE_CEILING
+                    {
+                        retained.set(x, y, false);
+                    }
+                }
+            }
+        }
+    }
+
+    if !faint_rescue_enabled {
+        return retained;
+    }
 
     for component in components.components() {
         if !is_text_like_rescue_component(component, dpi) {
@@ -1407,25 +1497,22 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
             }
         }
         captured_raw.sort_unstable();
-        let captured_median_raw = (!captured_raw.is_empty()).then(|| {
-            let middle = captured_raw.len() / 2;
-            if captured_raw.len() % 2 == 0 {
-                ((u16::from(captured_raw[middle - 1]) + u16::from(captured_raw[middle])) / 2) as u8
-            } else {
-                captured_raw[middle]
+        let captured_median_raw = median_u8(&captured_raw);
+        if row_signal.is_none() {
+            if let Some(profile) = independent_row_profile.as_ref() {
+                row_aligned = (component.top..=component.bottom).any(|y| {
+                    profile[y]
+                        >= minimum_independent_row_support + component_rows[y - component.top]
+                });
             }
-        });
-        if let Some(profile) = raw_row_profile.as_ref() {
-            row_aligned = (component.top..=component.bottom).any(|y| {
-                profile[y] >= minimum_independent_row_support + component_rows[y - component.top]
-            });
         }
+        let solid_core_already_captured = captured_median_raw
+            .is_some_and(|median| median <= RESCUE_SOLID_CAPTURED_MEDIAN)
+            && deep_missing.saturating_mul(16) < missing;
         if touches_picture_owner
             || !row_aligned
             || missing == 0
-            || captured_median_raw.is_some_and(|median| {
-                median <= RESCUE_SOLID_CAPTURED_MEDIAN && deep_missing.saturating_mul(16) < missing
-            })
+            || solid_core_already_captured
             || qualifying_missing < 2
             || qualifying_missing.saturating_mul(4) < missing
         {
@@ -1446,7 +1533,19 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
             }
         }
     }
-    damaged.or(&rescued)
+    retained.or(&rescued)
+}
+
+fn median_u8(values: &[u8]) -> Option<u8> {
+    if values.is_empty() {
+        return None;
+    }
+    let middle = values.len() / 2;
+    Some(if values.len() % 2 == 0 {
+        ((u16::from(values[middle - 1]) + u16::from(values[middle])) / 2) as u8
+    } else {
+        values[middle]
+    })
 }
 
 fn raw_text_row_profile(
@@ -2725,6 +2824,43 @@ mod tests {
     }
 
     #[test]
+    fn wolf_rescue_removes_a_gray_halo_only_after_capturing_the_solid_core() {
+        let mut raw = GrayImage::new(120, 80, 232);
+        let mut damaged = BinaryImage::new(raw.width(), raw.height());
+        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
+        for y in 23..57 {
+            for x in 49..57 {
+                raw.set(x, y, 170);
+                damaged.set(x, y, true);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 24..56 {
+            for x in 50..55 {
+                raw.set(x, y, 40);
+            }
+        }
+
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            None,
+            BinarizationMode::Wolf,
+            BinarizationMode::Wolf,
+            300.0,
+            false,
+        );
+
+        assert!(rescued.get(52, 40), "the captured dark core must remain");
+        assert!(
+            !rescued.get(49, 40) && !rescued.get(56, 40),
+            "Wolf's gray halo must not remain ink around a captured solid core"
+        );
+    }
+
+    #[test]
     fn faint_rescue_keeps_a_pale_captured_skeleton_with_a_deep_missing_body() {
         let mut raw = GrayImage::new(120, 80, 232);
         let mut damaged = BinaryImage::new(raw.width(), raw.height());
@@ -2738,21 +2874,23 @@ mod tests {
             damaged.set(52, y, true);
         }
 
-        let rescued = rescue_component_scoped_faint_strokes(
-            &damaged,
-            &raw,
-            None,
-            Some(&text_vicinity),
-            None,
-            BinarizationMode::Otsu,
-            BinarizationMode::Otsu,
-            300.0,
-            true,
-        );
+        for mode in [BinarizationMode::Otsu, BinarizationMode::Wolf] {
+            let rescued = rescue_component_scoped_faint_strokes(
+                &damaged,
+                &raw,
+                None,
+                Some(&text_vicinity),
+                None,
+                mode,
+                mode,
+                300.0,
+                true,
+            );
 
-        assert!(rescued.get(50, 40));
-        assert!(rescued.get(55, 40));
-        assert!(rescued.count_black() > damaged.count_black());
+            assert!(rescued.get(50, 40), "{mode:?} lost the deep body");
+            assert!(rescued.get(55, 40), "{mode:?} lost the deep body");
+            assert!(rescued.count_black() > damaged.count_black());
+        }
     }
 
     #[test]
