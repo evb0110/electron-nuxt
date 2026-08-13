@@ -274,11 +274,49 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         );
     });
 
+    it('reapplies the preserved anchor for later geometry changes in the same resize burst', async () => {
+        vi.useFakeTimers();
+        const viewerContainer = ref({
+            clientWidth: 1_200,
+            clientHeight: 800,
+        } as HTMLElement);
+        const semanticAnchor = {
+            affinity: 'center' as const,
+            page: 4,
+            pageXFraction: 0.5,
+            pageYFraction: 0.25,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        };
+        const {
+            applyResizeAnchorPreview,
+            submitResizeIntent,
+        } = createResizeLifecycle(ref(true), {
+            captureViewportAnchor: () => semanticAnchor,
+            viewerContainer,
+        });
+
+        resizeObserverMock.callback?.();
+        await nextTick();
+
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(2);
+        expect(submitResizeIntent).toHaveBeenCalledOnce();
+
+        (viewerContainer.value as {clientHeight: number}).clientHeight = 815;
+        resizeObserverMock.callback?.();
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(3);
+        await nextTick();
+
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(4);
+        expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(semanticAnchor);
+        expect(submitResizeIntent).toHaveBeenCalledOnce();
+    });
+
     it('retains the prior page snapshot when a rapid zoom rerender has no source bitmap', () => {
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);
         const viewer = document.createElement('div');
         const page = document.createElement('div');
-        page.className = 'page_container';
+        page.className = 'page_container page_container--rendered';
         page.dataset.page = '4';
         const pageCanvas = document.createElement('div');
         pageCanvas.className = 'page_canvas';

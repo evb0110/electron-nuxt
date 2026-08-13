@@ -33,6 +33,7 @@ export function preservePdfResizeCanvasVisualSnapshot(
         || !pageCanvas
         || !canvasHost
         || !sourceCanvas
+        || !pageContainer.classList.contains('page_container--rendered')
         || sourceCanvas.width <= 0
         || sourceCanvas.height <= 0
     ) {

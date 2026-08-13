@@ -353,13 +353,17 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         );
     }
 
-    function restoreResizeAnchorAfterLayout(anchor: IResizeAnchorContext, source: string) {
+    function reapplyResizeAnchorPreviewAfterLayout(anchor: IResizeAnchorContext) {
         options.applyResizeAnchorPreview?.(anchor.semanticAnchor);
         // Fit-preview scale is reactive: the ResizeObserver updates it before
         // Vue has patched the page geometry. Reapply once that patch lands so
         // the semantic page never leaves the painted viewport while the
         // asynchronous authority hydrates/refines the canonical intent.
         void nextTick(() => options.applyResizeAnchorPreview?.(anchor.semanticAnchor));
+    }
+
+    function restoreResizeAnchorAfterLayout(anchor: IResizeAnchorContext, source: string) {
+        reapplyResizeAnchorPreviewAfterLayout(anchor);
         options.submitResizeIntent(anchor.semanticAnchor);
         BrowserLogger.diagnosticThrottled(
             'pdf-zoom-debug',
@@ -518,6 +522,17 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         }
         if (pdfDocument.value) {
             if (pendingResizeAnchor) {
+                if (updated || viewportGeometryChanged) {
+                    // Scrollbar admission/removal can deliver a second resize
+                    // packet after the first packet has already changed the fit
+                    // scale. Keep projecting the burst's original semantic
+                    // anchor through each geometry epoch; otherwise the old
+                    // scrollTop is reinterpreted against the later page sizes
+                    // and the viewport visibly jumps to a different row.
+                    // The first packet already submitted the authoritative
+                    // resize intent, so this is a preview-only correction.
+                    reapplyResizeAnchorPreviewAfterLayout(pendingResizeAnchor);
+                }
                 BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'resize-anchor-preserved', ZOOM_QUEUE_LOG_THROTTLE_MS, '[resize-anchor] preserved first anchor in resize burst', {
                     updated,
                     preservedAnchorPage: pendingResizeAnchor.page,
