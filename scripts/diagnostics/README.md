@@ -123,6 +123,37 @@ without a baseline continue to run the audit with `--fail-on any`.
 Evidence and the compact stdout table are written below the selected work
 directory.
 
+### Representative rendered oracle
+
+The representative audit renders a source PDF and cleaned PDF at low DPI,
+infers the source-to-output page mapping, and checks page count, retained ink,
+geometry, paired-leaf alignment and scale, plus local component survival:
+
+```bash
+TSX_TSCONFIG_PATH=tsconfig.scripts.json node \
+  scripts/diagnostics/scan-cleanup-representative-audit.mjs \
+  --source /absolute/source.pdf \
+  --cleaned /absolute/cleaned.pdf \
+  --out .devkit/analysis/representative-audit.json
+```
+
+`component-survival` counts connected source and cleaned components in 24
+placement-aligned horizontal bands at the existing 100-DPI scale render, on a
+grid capped at 1,200,000 cells. A band with fewer than five source components
+is recorded as unmeasured, never as a pass; a page with fewer than 20 total
+measured source components is likewise unmeasured. A measured band violates
+when cleaned output loses more than 20% of its source components. Paired-leaf
+alignment compares signed top deltas, so a
+direction reversal cannot pass, and also rejects a uniform vertical shift over
+15% of page height. The latter check is intentionally coarse because source
+and cleaned canvas margins may legitimately differ.
+
+The report prominently records unmeasured pair counts and fractions for
+`component-survival`, `leaf-misalignment`, and `leaf-scale-mismatch`. More than
+30% unmeasured pairs in any applicable class produces `measurement-collapse`
+and exit code 2. Ordinary oracle violations use exit code 1; a fully covered,
+violation-free audit uses exit code 0.
+
 ### Retired ad-hoc checks
 
 The unreferenced `scan-cleanup-forced-mode-audit.py` replay was deleted. Its

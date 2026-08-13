@@ -5,8 +5,8 @@
 // output mapping from the rendered output count and page evidence. It checks
 // that mapped content survived: no page dropped, no ink invented on a blank
 // verso, no content erased, no page squeezed instead of split. This is a
-// coarse pixel-grid oracle (~50 DPI), not a replacement for the finer
-// word-loss audit.
+// coarse pixel-grid oracle (~50 DPI), augmented with bounded local component
+// sampling, not a replacement for the finer word-loss audit.
 
 import {execFile} from 'node:child_process';
 import {
@@ -116,6 +116,31 @@ const CONTENT_MIN_SIMILARITY = 0.2;
 const ALIGNMENT_MAX_TRANSLATION_FRACTION = 0.15;
 const ALIGNMENT_MIN_OVERLAP = CONTENT_MIN_SIMILARITY;
 const ALIGNMENT_MIN_SIMILARITY = CONTENT_MIN_SIMILARITY;
+// Component survival is intentionally local: whole-page ink ratios can hide
+// the deletion of a glyph. At most 1.2m sampled cells are split into 24
+// horizontal text bands. A source band needs five components and its page
+// needs 20 total measured components; losing more than 20% is a violation.
+const COMPONENT_SURVIVAL_BAND_COUNT = 24;
+const COMPONENT_SURVIVAL_INK_THRESHOLD = 64;
+const COMPONENT_SURVIVAL_MAX_GRID_CELLS = 1_200_000;
+const COMPONENT_SURVIVAL_MAX_CLEANED_COMPONENT_AREA_FRACTION = 0.02;
+const COMPONENT_SURVIVAL_MAX_COMPONENT_AREA_FRACTION = 0.0025;
+const COMPONENT_SURVIVAL_MAX_LOSS_FRACTION = 0.2;
+const COMPONENT_SURVIVAL_MARGIN_BANDS = 2;
+const COMPONENT_SURVIVAL_MAX_CENTER_SPREAD_FRACTION = 0.65;
+const COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION = 0.6;
+const COMPONENT_SURVIVAL_MIN_COMPONENT_CELLS = 8;
+const COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS = 5;
+const COMPONENT_SURVIVAL_MIN_TOTAL_COMPONENTS = 20;
+const COMPONENT_SURVIVAL_PAPER_THRESHOLD = 245;
+const COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS = 10;
+const COMPONENT_SURVIVAL_BAND_ALIGNMENT_SAMPLES = 500;
+const COMPONENT_SURVIVAL_SUPPORT_FRACTION = 0.1;
+const COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS = 16;
+const COMPONENT_SURVIVAL_WINDOW_PADDING_FRACTION = 0.25;
+// A class whose measurement collapses for more than 30% of its applicable
+// page pairs fails distinctly (exit 2), even if no ordinary violation fires.
+const UNMEASURED_PAIR_MAX_FRACTION = 0.3;
 // The cleaned page's content bounding-box height (as a fraction of page
 // height) must be at least this fraction of the source half's, or the page
 // was squeezed into part of the canvas instead of filling it.
@@ -179,7 +204,8 @@ function printHelp() {
 
 Checks that inferred source-to-output regions survived the scan-cleanup
 pipeline: page count conserved, no ink invented on blank versos, no content
-erased, no page squeezed instead of split.
+erased, no local component collapse, no page squeezed instead of split, and
+no relative or gross absolute leaf displacement.
 
 Options:
   --source <pdf>          Source (pre-pipeline) PDF, e.g. the representative fixture
@@ -191,7 +217,8 @@ Options:
   --dpi <n>                Render resolution for the audit (default: ${DEFAULT_DPI})
   --help                   Show this message
 
-Exit code: 0 when no violations were found, 1 otherwise.`);
+Exit codes: 0 for pass, 1 for ordinary violations, 2 when measurement
+coverage collapses above ${String(UNMEASURED_PAIR_MAX_FRACTION * 100)}% for any class.`);
 }
 
 function parsePositiveInteger(value, argument) {
@@ -770,6 +797,456 @@ export function measureSpreadLeafScale(args) {
     return measureSpreadLeafScaleImpl(args);
 }
 
+function componentSamplingDimensions(bitmap) {
+    const scale = Math.min(
+        1,
+        Math.sqrt(COMPONENT_SURVIVAL_MAX_GRID_CELLS / (bitmap.width * bitmap.height)),
+    );
+    return {
+        cols: Math.max(1, Math.floor(bitmap.width * scale)),
+        rows: Math.max(1, Math.floor(bitmap.height * scale)),
+    };
+}
+
+function survivalComponents(
+    grid,
+    maximumAreaFraction = COMPONENT_SURVIVAL_MAX_COMPONENT_AREA_FRACTION,
+) {
+    const maximumArea = grid.dark.length * maximumAreaFraction;
+    return findGridComponents(grid).filter(component => (
+        component.area >= COMPONENT_SURVIVAL_MIN_COMPONENT_CELLS
+        && component.area <= maximumArea
+    ));
+}
+
+function componentVerticalBounds(components, rows) {
+    if (components.length === 0) {
+        return {
+            bottom: rows,
+            span: rows,
+            top: 0,
+        };
+    }
+    const top = Math.min(...components.map(component => component.minY));
+    const bottom = Math.max(...components.map(component => component.maxY)) + 1;
+    return {
+        bottom,
+        span: bottom - top,
+        top,
+    };
+}
+
+function groupComponentsByBand(components, bounds) {
+    const bands = Array.from({length: COMPONENT_SURVIVAL_BAND_COUNT}, () => []);
+    for (const component of components) {
+        const centerY = (component.minY + component.maxY) / 2;
+        const band = Math.min(
+            COMPONENT_SURVIVAL_BAND_COUNT - 1,
+            Math.max(0, Math.floor(
+                (centerY - bounds.top) * COMPONENT_SURVIVAL_BAND_COUNT / bounds.span,
+            )),
+        );
+        bands[band].push(component);
+    }
+    return bands;
+}
+
+function componentsInPaddedBand(components, bounds, bandIndex) {
+    const bandHeight = bounds.span / COMPONENT_SURVIVAL_BAND_COUNT;
+    const padding = bandHeight * COMPONENT_SURVIVAL_WINDOW_PADDING_FRACTION;
+    const top = bounds.top + bandIndex * bandHeight - padding;
+    const bottom = bounds.top + (bandIndex + 1) * bandHeight + padding;
+    return components.filter(component => {
+        const centerY = (component.minY + component.maxY) / 2;
+        return centerY >= top && centerY < bottom;
+    });
+}
+
+function bandMidtoneFraction(bitmap, gridRows, bounds, bandIndex) {
+    const bandHeight = bounds.span / COMPONENT_SURVIVAL_BAND_COUNT;
+    const gridTop = bounds.top + bandIndex * bandHeight;
+    const gridBottom = bounds.top + (bandIndex + 1) * bandHeight;
+    const top = Math.max(0, Math.floor(gridTop * bitmap.height / gridRows));
+    const bottom = Math.min(
+        bitmap.height,
+        Math.ceil(gridBottom * bitmap.height / gridRows),
+    );
+    let midtonePixels = 0;
+    const totalPixels = Math.max(1, (bottom - top) * bitmap.width);
+    for (let y = top; y < bottom; y += 1) {
+        for (let x = 0; x < bitmap.width; x += 1) {
+            const value = bitmap.data[y * bitmap.width + x];
+            if (
+                value >= COMPONENT_SURVIVAL_INK_THRESHOLD
+                && value < COMPONENT_SURVIVAL_PAPER_THRESHOLD
+            ) {
+                midtonePixels += 1;
+            }
+        }
+    }
+    return midtonePixels / totalPixels;
+}
+
+function componentHasMappedCleanedSupport(
+    bandOffset,
+    component,
+    cleanedGrid,
+    sourceBounds,
+    cleanedBounds,
+) {
+    const mappedCells = component.cells.map(cellIndex => {
+        const sourceY = Math.floor(cellIndex / cleanedGrid.cols);
+        return {
+            x: cellIndex % cleanedGrid.cols,
+            y: Math.round(
+                cleanedBounds.top
+                + (sourceY - sourceBounds.top) * cleanedBounds.span / sourceBounds.span,
+            ),
+        };
+    });
+    const minimumSupportedCells = Math.ceil(
+        component.area * COMPONENT_SURVIVAL_SUPPORT_FRACTION,
+    );
+    for (
+        let deltaY = -COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS;
+        deltaY <= COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS;
+        deltaY += 1
+    ) {
+        for (
+            let deltaX = -COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS;
+            deltaX <= COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS;
+            deltaX += 1
+        ) {
+            let supportedCells = 0;
+            for (const cell of mappedCells) {
+                const x = cell.x + bandOffset.x + deltaX;
+                const y = cell.y + bandOffset.y + deltaY;
+                if (
+                    x >= 0
+                    && y >= 0
+                    && x < cleanedGrid.cols
+                    && y < cleanedGrid.rows
+                    && cleanedGrid.dark[y * cleanedGrid.cols + x]
+                ) {
+                    supportedCells += 1;
+                }
+            }
+            if (supportedCells >= minimumSupportedCells) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function findMappedBandOffset(sourceComponents, cleanedGrid, sourceBounds, cleanedBounds) {
+    const allCells = sourceComponents.flatMap(component => component.cells);
+    const sampleStep = Math.max(
+        1,
+        Math.ceil(allCells.length / COMPONENT_SURVIVAL_BAND_ALIGNMENT_SAMPLES),
+    );
+    const samples = [];
+    for (let index = 0; index < allCells.length; index += sampleStep) {
+        const cellIndex = allCells[index];
+        const sourceY = Math.floor(cellIndex / cleanedGrid.cols);
+        samples.push({
+            x: cellIndex % cleanedGrid.cols,
+            y: Math.round(
+                cleanedBounds.top
+                + (sourceY - sourceBounds.top) * cleanedBounds.span / sourceBounds.span,
+            ),
+        });
+    }
+    let best = {
+        score: -1,
+        x: 0,
+        y: 0,
+    };
+    for (
+        let y = -COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS;
+        y <= COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS;
+        y += 1
+    ) {
+        for (
+            let x = -COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS;
+            x <= COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS;
+            x += 1
+        ) {
+            let score = 0;
+            for (const sample of samples) {
+                const targetX = sample.x + x;
+                const targetY = sample.y + y;
+                if (
+                    targetX >= 0
+                    && targetY >= 0
+                    && targetX < cleanedGrid.cols
+                    && targetY < cleanedGrid.rows
+                    && cleanedGrid.dark[targetY * cleanedGrid.cols + targetX]
+                ) {
+                    score += 1;
+                }
+            }
+            const distance = Math.abs(x) + Math.abs(y);
+            const bestDistance = Math.abs(best.x) + Math.abs(best.y);
+            if (score > best.score || (score === best.score && distance < bestDistance)) {
+                best = {
+                    score,
+                    x,
+                    y,
+                };
+            }
+        }
+    }
+    return best;
+}
+
+export function measureComponentSurvival({
+    alignment = null,
+    cleanedBitmap,
+    sourceBitmap,
+}) {
+    const result = {
+        bands: [],
+        measuredBands: 0,
+        reason: null,
+        status: 'unmeasured',
+        thresholds: {
+            bandCount: COMPONENT_SURVIVAL_BAND_COUNT,
+            inkThreshold: COMPONENT_SURVIVAL_INK_THRESHOLD,
+            maxCleanedComponentAreaFraction: COMPONENT_SURVIVAL_MAX_CLEANED_COMPONENT_AREA_FRACTION,
+            maxGridCells: COMPONENT_SURVIVAL_MAX_GRID_CELLS,
+            maxLossFraction: COMPONENT_SURVIVAL_MAX_LOSS_FRACTION,
+            marginBands: COMPONENT_SURVIVAL_MARGIN_BANDS,
+            maxCenterSpreadFraction: COMPONENT_SURVIVAL_MAX_CENTER_SPREAD_FRACTION,
+            maxMidtoneFraction: COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION,
+            minComponentCells: COMPONENT_SURVIVAL_MIN_COMPONENT_CELLS,
+            minSourceComponents: COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS,
+            minTotalComponents: COMPONENT_SURVIVAL_MIN_TOTAL_COMPONENTS,
+            bandAlignmentRadiusCells: COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS,
+            bandAlignmentSamples: COMPONENT_SURVIVAL_BAND_ALIGNMENT_SAMPLES,
+            supportFraction: COMPONENT_SURVIVAL_SUPPORT_FRACTION,
+            supportRadiusCells: COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS,
+            windowPaddingFraction: COMPONENT_SURVIVAL_WINDOW_PADDING_FRACTION,
+        },
+        unmeasuredBands: 0,
+        violations: [],
+    };
+    if (!cleanedBitmap) {
+        result.reason = 'cleaned-page-missing';
+        return result;
+    }
+    const resolvedAlignment = alignment
+        ?? alignBitmapForComparison(sourceBitmap, cleanedBitmap);
+    result.alignment = resolvedAlignment.metrics;
+    if (resolvedAlignment.metrics.rejected) {
+        result.reason = 'placement-alignment-not-reliable';
+        return result;
+    }
+
+    const {
+        cols,
+        rows,
+    } = componentSamplingDimensions(sourceBitmap);
+    const sourceGrid = minPoolGrid(
+        sourceBitmap,
+        cols,
+        rows,
+        COMPONENT_SURVIVAL_INK_THRESHOLD,
+    );
+    const cleanedGrid = minPoolGrid(
+        cleanedBitmap,
+        cols,
+        rows,
+        COMPONENT_SURVIVAL_INK_THRESHOLD,
+        resolvedAlignment.metrics.appliedOffsetPixels.x,
+        resolvedAlignment.metrics.appliedOffsetPixels.y,
+    );
+    const sourceComponentList = survivalComponents(sourceGrid);
+    const cleanedComponentList = survivalComponents(
+        cleanedGrid,
+        COMPONENT_SURVIVAL_MAX_CLEANED_COMPONENT_AREA_FRACTION,
+    );
+    const sourceBounds = componentVerticalBounds(sourceComponentList, rows);
+    const cleanedBounds = componentVerticalBounds(cleanedComponentList, rows);
+    const sourceBands = groupComponentsByBand(sourceComponentList, sourceBounds);
+    result.localWindowBounds = {
+        cleaned: cleanedBounds,
+        source: sourceBounds,
+    };
+    for (
+        let index = COMPONENT_SURVIVAL_MARGIN_BANDS;
+        index < COMPONENT_SURVIVAL_BAND_COUNT - COMPONENT_SURVIVAL_MARGIN_BANDS;
+        index += 1
+    ) {
+        const sourceComponents = sourceBands[index].length;
+        if (sourceComponents === 0) {
+            continue;
+        }
+        const sourceMidtoneFraction = bandMidtoneFraction(
+            sourceBitmap,
+            rows,
+            sourceBounds,
+            index,
+        );
+        const sourceCenters = sourceBands[index].map(
+            component => (component.minY + component.maxY) / 2,
+        );
+        const sourceCenterSpreadFraction = sourceCenters.length < 2
+            ? 0
+            : (Math.max(...sourceCenters) - Math.min(...sourceCenters))
+                / (sourceBounds.span / COMPONENT_SURVIVAL_BAND_COUNT);
+        const cleanedBandComponents = componentsInPaddedBand(
+            cleanedComponentList,
+            cleanedBounds,
+            index,
+        );
+        const cleanedComponents = cleanedBandComponents.length;
+        if (
+            sourceComponents < COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS
+            || sourceMidtoneFraction > COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION
+            || sourceCenterSpreadFraction > COMPONENT_SURVIVAL_MAX_CENTER_SPREAD_FRACTION
+        ) {
+            result.bands.push({
+                cleanedComponents,
+                index,
+                reason: sourceComponents < COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS
+                    ? 'sparse-source-band'
+                    : sourceMidtoneFraction > COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION
+                        ? 'source-band-too-tonal'
+                        : 'source-band-components-not-line-like',
+                sourceCenterSpreadFraction: round(sourceCenterSpreadFraction),
+                sourceComponents,
+                sourceMidtoneFraction: round(sourceMidtoneFraction),
+                status: 'unmeasured',
+            });
+            result.unmeasuredBands += 1;
+            continue;
+        }
+        const sourceComponentCells = sourceBands[index].reduce(
+            (sum, component) => sum + component.area,
+            0,
+        );
+        const cleanedComponentCells = cleanedBandComponents.reduce(
+            (sum, component) => sum + component.area,
+            0,
+        );
+        // Connected glyphs may bridge in a healthy bilevel output. Express
+        // their retained area in units of the source band's mean component
+        // instead of treating every bridge as a deletion.
+        const sourceMeanComponentCells = sourceComponentCells / sourceComponents;
+        const cleanedComponentEquivalents = Math.min(
+            sourceComponents,
+            Math.max(
+                cleanedComponents,
+                cleanedComponentCells / sourceMeanComponentCells,
+            ),
+        );
+        const bandOffset = findMappedBandOffset(
+            sourceBands[index],
+            cleanedGrid,
+            sourceBounds,
+            cleanedBounds,
+        );
+        const survivingSourceComponents = sourceBands[index].filter(component => (
+            componentHasMappedCleanedSupport(
+                bandOffset,
+                component,
+                cleanedGrid,
+                sourceBounds,
+                cleanedBounds,
+            )
+        )).length;
+        const lossFraction = (sourceComponents - survivingSourceComponents) / sourceComponents;
+        const status = lossFraction > COMPONENT_SURVIVAL_MAX_LOSS_FRACTION
+            ? 'violation'
+            : 'pass';
+        result.bands.push({
+            bandOffset,
+            cleanedComponents,
+            cleanedComponentCells,
+            cleanedComponentEquivalents: round(cleanedComponentEquivalents),
+            index,
+            lossFraction: round(lossFraction),
+            sourceComponents,
+            sourceComponentCells,
+            sourceCenterSpreadFraction: round(sourceCenterSpreadFraction),
+            status,
+            sourceMidtoneFraction: round(sourceMidtoneFraction),
+            survivingSourceComponents,
+        });
+        result.measuredBands += 1;
+        if (status === 'violation' && result.violations.length === 0) {
+            result.violations.push('component-survival');
+        }
+    }
+    const measuredBands = result.bands.filter(band => band.status !== 'unmeasured');
+    const aggregateSourceComponents = measuredBands.reduce(
+        (sum, band) => sum + band.sourceComponents,
+        0,
+    );
+    if (aggregateSourceComponents < COMPONENT_SURVIVAL_MIN_TOTAL_COMPONENTS) {
+        result.reason = 'insufficient-total-source-components';
+        result.measuredBands = 0;
+        return result;
+    }
+    const aggregateSurvivingComponents = measuredBands.reduce(
+        (sum, band) => sum + band.survivingSourceComponents,
+        0,
+    );
+    const aggregateLossFraction = aggregateSourceComponents === 0
+        ? 0
+        : (aggregateSourceComponents - aggregateSurvivingComponents)
+            / aggregateSourceComponents;
+    result.aggregate = {
+        lossFraction: round(aggregateLossFraction),
+        sourceComponents: aggregateSourceComponents,
+        survivingSourceComponents: aggregateSurvivingComponents,
+    };
+    result.status = result.violations.length > 0 ? 'violation' : 'pass';
+    return result;
+}
+
+export function summarizeMeasurementCoverage(measurementsByClass) {
+    /** @type {Record<string, any>} */
+    const classes = {};
+    let measurementCollapsed = false;
+    for (const [
+        className,
+        measurements,
+    ] of Object.entries(measurementsByClass)) {
+        const totalPairs = measurements.length;
+        const unmeasuredPairs = measurements.filter(
+            measurement => measurement.status === 'unmeasured',
+        ).length;
+        const unmeasuredFraction = totalPairs === 0 ? 0 : unmeasuredPairs / totalPairs;
+        const collapsed = totalPairs > 0
+            && unmeasuredFraction > UNMEASURED_PAIR_MAX_FRACTION;
+        measurementCollapsed ||= collapsed;
+        classes[className] = {
+            collapsed,
+            measuredPairs: totalPairs - unmeasuredPairs,
+            status: totalPairs === 0
+                ? 'not-applicable'
+                : collapsed ? 'measurement-collapse' : 'sufficient',
+            totalPairs,
+            unmeasuredFraction: round(unmeasuredFraction),
+            unmeasuredPairs,
+        };
+    }
+    return {
+        classes,
+        maxUnmeasuredFraction: UNMEASURED_PAIR_MAX_FRACTION,
+        measurementCollapsed,
+    };
+}
+
+export function auditExitCode(totalViolations, measurementCollapsed) {
+    if (measurementCollapsed) {
+        return 2;
+    }
+    return totalViolations > 0 ? 1 : 0;
+}
+
 function round(value) {
     return Math.round(value * 10_000) / 10_000;
 }
@@ -777,6 +1254,8 @@ function round(value) {
 function auditHalf({
     cleanedBitmap,
     cleanedPage,
+    componentCleanedBitmap,
+    componentSourceBitmap,
     side,
     sourceBitmap,
     sourcePage,
@@ -793,12 +1272,24 @@ function auditHalf({
     };
     if (!cleanedBitmap) {
         record.cleanInk = null;
+        record.componentSurvival = measureComponentSurvival({
+            cleanedBitmap: componentCleanedBitmap,
+            sourceBitmap: componentSourceBitmap,
+        });
         record.mappingStatus = 'missing-cleaned-page';
         record.note = 'no cleaned page at the inferred mapped index (page-count mismatch is reported once at fixture level)';
         return record;
     }
     const cleanedAnalysis = analyzeBitmap(cleanedBitmap);
     const alignment = alignBitmapForComparison(sourceBitmap, cleanedBitmap);
+    const componentAlignment = componentCleanedBitmap
+        ? alignBitmapForComparison(componentSourceBitmap, componentCleanedBitmap)
+        : null;
+    const componentSurvival = measureComponentSurvival({
+        alignment: componentAlignment,
+        cleanedBitmap: componentCleanedBitmap,
+        sourceBitmap: componentSourceBitmap,
+    });
     // Structured ink decides meaning; retention and shape stay on the coarse grid after bounded placement
     // normalization so optical centering does not change the verdict merely
     // by moving the same raster across min-pool cell boundaries.
@@ -822,6 +1313,7 @@ function auditHalf({
     record.cleanInk = round(cleanedAnalysis.coarse.inkFraction);
     record.alignedCleanInk = round(alignment.grid.inkFraction);
     record.alignment = alignment.metrics;
+    record.componentSurvival = componentSurvival;
     record.structuredCleanInk = round(cleanedAnalysis.structured.inkFraction);
     record.structuredEdgeCleanInk = round(cleanedAnalysis.structuredEdge.inkFraction);
     record.similarity = round(similarity);
@@ -835,6 +1327,9 @@ function auditHalf({
             source: round(sourceCoarseBboxHeight),
         },
     };
+    for (const violation of componentSurvival.violations) {
+        record.violations.push(violation);
+    }
 
     // A raster that collapsed to a tiny placeholder is not evidence that the
     // source page was blank. Do not call every cleaned pixel an invented
@@ -1120,13 +1615,22 @@ async function main() {
         const pageCountMismatch = actualCleanedCount !== expectedCleanedCount;
         pages = entries.map(entry => {
             const sourceBitmap = sourcePages.get(entry.sourcePage);
+            const scaleSourceBitmap = scaleSourcePages.get(entry.sourcePage);
             if (!sourceBitmap) {
                 throw new Error(`Missing rendered source page ${String(entry.sourcePage)}`);
             }
+            if (!scaleSourceBitmap) {
+                throw new Error(`Missing scale-rendered source page ${String(entry.sourcePage)}`);
+            }
             const sourceHalfBitmap = entry.side === 'whole' ? sourceBitmap : splitHalves(sourceBitmap)[entry.side];
+            const componentSourceBitmap = entry.side === 'whole'
+                ? scaleSourceBitmap
+                : splitHalves(scaleSourceBitmap)[entry.side];
             return auditHalf({
                 cleanedBitmap: cleanedPages.get(entry.cleanedPage) ?? null,
                 cleanedPage: entry.cleanedPage,
+                componentCleanedBitmap: scaleCleanedPages.get(entry.cleanedPage) ?? null,
+                componentSourceBitmap,
                 side: entry.side,
                 sourceBitmap: sourceHalfBitmap,
                 sourcePage: entry.sourcePage,
@@ -1152,6 +1656,7 @@ async function main() {
         });
         const violationCounts = {
             'artifact-retention': 0,
+            'component-survival': 0,
             'content-loss': 0,
             geometry: 0,
             'leaf-misalignment': 0,
@@ -1173,12 +1678,31 @@ async function main() {
                 violationCounts[violation] += 1;
             }
         }
-        const leafScaleUnmeasuredPairs = leafPairScale.filter(
-            pair => pair.status === 'unmeasured',
-        ).length;
+        const measurementCoverage = summarizeMeasurementCoverage({
+            'component-survival': pages.map(page => page.componentSurvival),
+            'leaf-misalignment': leafPairAlignment,
+            'leaf-scale-mismatch': leafPairScale,
+        });
+        const unmeasuredCounts = Object.fromEntries(Object.entries(
+            measurementCoverage.classes,
+        ).map(([
+            className,
+            coverage,
+        ]) => [
+            className,
+            coverage.unmeasuredPairs,
+        ]));
         const totalViolations = Object.values(violationCounts).reduce((sum, count) => sum + count, 0);
+        const exitCode = auditExitCode(
+            totalViolations,
+            measurementCoverage.measurementCollapsed,
+        );
+        const auditStatus = exitCode === 2
+            ? 'measurement-collapse'
+            : exitCode === 1 ? 'violations' : 'pass';
 
         const report = {
+            auditStatus,
             cleaned: options.cleaned,
             infos,
             mapping: {
@@ -1199,22 +1723,46 @@ async function main() {
                 leafScaleDpi: SCALE_DPI,
                 leafMisalignmentPairs: leafPairAlignment.filter(pair => pair.status === 'violation').length,
                 leafScaleMismatchPairs: leafPairScale.filter(pair => pair.status === 'violation').length,
-                leafScaleUnmeasuredPairs,
+                measurementCoverage,
                 pageCountMismatch,
                 sourcePageCount,
                 totalViolations,
+                unmeasuredCounts,
                 violationCounts,
+            },
+            thresholds: {
+                componentSurvival: {
+                    bandCount: COMPONENT_SURVIVAL_BAND_COUNT,
+                    inkThreshold: COMPONENT_SURVIVAL_INK_THRESHOLD,
+                    maxCleanedComponentAreaFraction: COMPONENT_SURVIVAL_MAX_CLEANED_COMPONENT_AREA_FRACTION,
+                    maxGridCells: COMPONENT_SURVIVAL_MAX_GRID_CELLS,
+                    maxLossFraction: COMPONENT_SURVIVAL_MAX_LOSS_FRACTION,
+                    marginBands: COMPONENT_SURVIVAL_MARGIN_BANDS,
+                    maxCenterSpreadFraction: COMPONENT_SURVIVAL_MAX_CENTER_SPREAD_FRACTION,
+                    maxMidtoneFraction: COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION,
+                    minComponentCells: COMPONENT_SURVIVAL_MIN_COMPONENT_CELLS,
+                    minSourceComponents: COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS,
+                    minTotalComponents: COMPONENT_SURVIVAL_MIN_TOTAL_COMPONENTS,
+                    bandAlignmentRadiusCells: COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS,
+                    bandAlignmentSamples: COMPONENT_SURVIVAL_BAND_ALIGNMENT_SAMPLES,
+                    supportFraction: COMPONENT_SURVIVAL_SUPPORT_FRACTION,
+                    supportRadiusCells: COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS,
+                    windowPaddingFraction: COMPONENT_SURVIVAL_WINDOW_PADDING_FRACTION,
+                },
+                leafAbsolutePositionToleranceFraction: 0.15,
+                unmeasuredPairMaxFraction: UNMEASURED_PAIR_MAX_FRACTION,
             },
         };
         await writeFile(options.out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
         console.log(`Wrote ${options.out}`);
         console.log(`Source pages: ${String(sourcePageCount)}, inferred cleaned pages: ${String(expectedCleanedCount)}, actual cleaned pages: ${String(actualCleanedCount)}`);
         console.log(`Violations: ${JSON.stringify(violationCounts)}`);
-        console.log(`Leaf scale pairs unmeasured: ${String(leafScaleUnmeasuredPairs)}`);
+        console.log(`Unmeasured pairs by class: ${JSON.stringify(unmeasuredCounts)}`);
+        console.log(`Audit status: ${auditStatus}`);
         if (infos.length > 0) {
             console.log(`Infos: ${JSON.stringify(infos.map(info => info.code))}`);
         }
-        return totalViolations > 0 ? 1 : 0;
+        return exitCode;
     } finally {
         await rm(workDirectory, {
             force: true,

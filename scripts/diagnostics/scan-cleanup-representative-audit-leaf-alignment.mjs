@@ -1,5 +1,6 @@
 const DEFAULT_TOLERANCE_MM = 3;
 const DEFAULT_SCALE_TOLERANCE = 0.02;
+const DEFAULT_ABSOLUTE_POSITION_TOLERANCE_FRACTION = 0.15;
 const CONTENT_BELOW_PAPER = 245;
 const SCALE_CONTENT_BELOW_PAPER = 64;
 const MINIMUM_ROW_PIXELS = 3;
@@ -88,6 +89,7 @@ function contentTopPixels(bitmap) {
 }
 
 export function measureSpreadLeafVerticalAlignment({
+    absolutePositionToleranceFraction = DEFAULT_ABSOLUTE_POSITION_TOLERANCE_FRACTION,
     cleanedLeft,
     cleanedRight,
     dpi,
@@ -99,17 +101,24 @@ export function measureSpreadLeafVerticalAlignment({
     const sourceRightTop = contentTopPixels(sourceRight);
     const cleanedLeftTop = cleanedLeft ? contentTopPixels(cleanedLeft) : null;
     const cleanedRightTop = cleanedRight ? contentTopPixels(cleanedRight) : null;
+    /** @type {any} */
     const result = {
         cleaned: {
             leftTopPx: cleanedLeftTop === null ? null : round(cleanedLeftTop),
             rightTopPx: cleanedRightTop === null ? null : round(cleanedRightTop),
         },
         dpi,
+        absolutePosition: {
+            shiftFraction: null,
+            shiftPx: null,
+            toleranceFraction: absolutePositionToleranceFraction,
+            tolerancePx: null,
+        },
         source: {
             leftTopPx: sourceLeftTop === null ? null : round(sourceLeftTop),
             rightTopPx: sourceRightTop === null ? null : round(sourceRightTop),
         },
-        status: 'not-measurable',
+        status: 'unmeasured',
         toleranceMm,
         violations: [],
     };
@@ -125,9 +134,29 @@ export function measureSpreadLeafVerticalAlignment({
 
     const sourceDeltaPx = sourceRightTop - sourceLeftTop;
     const outputDeltaPx = cleanedRightTop - cleanedLeftTop;
-    const deltaDifferencePx = outputDeltaPx - sourceDeltaPx;
-    const deltaExcessPx = Math.max(0, Math.abs(outputDeltaPx) - Math.abs(sourceDeltaPx));
     const tolerancePx = dpi * toleranceMm / 25.4;
+    const deltaDifferencePx = outputDeltaPx - sourceDeltaPx;
+    // Retain the existing allowance for cleanup to reduce a source skew, but
+    // compare signed deltas whenever both directions are material. Without
+    // this branch a complete reversal (+100 px to -100 px) looks unchanged.
+    const directionReversed = sourceDeltaPx * outputDeltaPx < 0
+        && Math.abs(sourceDeltaPx) > tolerancePx
+        && Math.abs(outputDeltaPx) > tolerancePx;
+    const deltaExcessPx = directionReversed
+        ? Math.abs(deltaDifferencePx)
+        : Math.max(0, Math.abs(outputDeltaPx) - Math.abs(sourceDeltaPx));
+    const sourcePairTopFraction = (
+        sourceLeftTop / sourceLeft.height
+        + sourceRightTop / sourceRight.height
+    ) / 2;
+    const cleanedPairTopFraction = (
+        cleanedLeftTop / cleanedLeft.height
+        + cleanedRightTop / cleanedRight.height
+    ) / 2;
+    const cleanedPairHeight = (cleanedLeft.height + cleanedRight.height) / 2;
+    const absoluteShiftFraction = cleanedPairTopFraction - sourcePairTopFraction;
+    const absoluteShiftPx = absoluteShiftFraction * cleanedPairHeight;
+    const absolutePositionTolerancePx = absolutePositionToleranceFraction * cleanedPairHeight;
     result.source.deltaPx = round(sourceDeltaPx);
     result.source.deltaMm = round(sourceDeltaPx * 25.4 / dpi);
     result.cleaned.deltaPx = round(outputDeltaPx);
@@ -136,8 +165,20 @@ export function measureSpreadLeafVerticalAlignment({
     result.deltaDifferenceMm = round(deltaDifferencePx * 25.4 / dpi);
     result.deltaExcessPx = round(deltaExcessPx);
     result.deltaExcessMm = round(deltaExcessPx * 25.4 / dpi);
+    result.directionReversed = directionReversed;
     result.tolerancePx = round(tolerancePx);
-    result.status = deltaExcessPx > tolerancePx ? 'violation' : 'pass';
+    result.absolutePosition = {
+        cleanedPairTopFraction: round(cleanedPairTopFraction),
+        expectedPairTopFraction: round(sourcePairTopFraction),
+        shiftFraction: round(absoluteShiftFraction),
+        shiftPx: round(absoluteShiftPx),
+        toleranceFraction: absolutePositionToleranceFraction,
+        tolerancePx: round(absolutePositionTolerancePx),
+    };
+    const relativeMisalignment = deltaExcessPx > tolerancePx;
+    const grossAbsoluteTranslation = Math.abs(absoluteShiftFraction)
+        > absolutePositionToleranceFraction;
+    result.status = relativeMisalignment || grossAbsoluteTranslation ? 'violation' : 'pass';
     if (result.status === 'violation') {
         result.violations.push('leaf-misalignment');
     }

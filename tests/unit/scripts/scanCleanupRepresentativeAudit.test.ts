@@ -1,10 +1,17 @@
 import {
     alignBitmapForComparison,
+    auditExitCode,
     buildExpectationInfos,
     buildExpectedMapping,
+    measureComponentSurvival,
     measureSpreadLeafScale,
     measureSpreadLeafVerticalAlignment,
+    summarizeMeasurementCoverage,
 } from '@scripts/diagnostics/scan-cleanup-representative-audit.mjs';
+import {
+    createCanvas,
+    loadImage,
+} from '@napi-rs/canvas';
 import {
     describe,
     expect,
@@ -66,6 +73,45 @@ function makeContentTopBitmap(top: number, contentValue = 0, span = 80) {
         for (let x = 20; x < 140; x += 1) {
             data[y * width + x] = contentValue;
         }
+    }
+    return {
+        data,
+        height,
+        width,
+    };
+}
+
+async function makePngBitmap({
+    height = 240,
+    rectangles,
+    width = 120,
+}: {
+    height?: number;
+    rectangles: Array<{
+        height: number;
+        width: number;
+        x: number;
+        y: number;
+    }>;
+    width?: number;
+}) {
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = '#000';
+    for (const rectangle of rectangles) {
+        context.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+    }
+    const png = canvas.toBuffer('image/png');
+    const decoded = await loadImage(png);
+    const decodedCanvas = createCanvas(width, height);
+    const decodedContext = decodedCanvas.getContext('2d');
+    decodedContext.drawImage(decoded, 0, 0);
+    const rgba = decodedContext.getImageData(0, 0, width, height).data;
+    const data = new Uint8Array(width * height);
+    for (let index = 0; index < data.length; index += 1) {
+        data[index] = rgba[index * 4] ?? 255;
     }
     return {
         data,
@@ -167,6 +213,36 @@ describe('scan cleanup representative audit mapping inference', () => {
         expect(aligned.violations).toEqual([]);
     });
 
+    it('flags a signed leaf-delta reversal with equal absolute magnitudes', () => {
+        const reversed = measureSpreadLeafVerticalAlignment({
+            cleanedLeft: makeContentTopBitmap(100),
+            cleanedRight: makeContentTopBitmap(0),
+            dpi: 50,
+            sourceLeft: makeContentTopBitmap(0),
+            sourceRight: makeContentTopBitmap(100),
+        });
+
+        expect(reversed.status).toBe('violation');
+        expect(reversed.deltaDifferencePx).toBe(-200);
+        expect(reversed.deltaExcessPx).toBe(200);
+        expect(reversed.violations).toContain('leaf-misalignment');
+    });
+
+    it('flags a gross uniform vertical translation of both leaves', () => {
+        const translated = measureSpreadLeafVerticalAlignment({
+            cleanedLeft: makeContentTopBitmap(72),
+            cleanedRight: makeContentTopBitmap(74),
+            dpi: 50,
+            sourceLeft: makeContentTopBitmap(24),
+            sourceRight: makeContentTopBitmap(26),
+        });
+
+        expect(translated.deltaDifferencePx).toBe(0);
+        expect(translated.absolutePosition.shiftFraction).toBeGreaterThan(0.15);
+        expect(translated.status).toBe('violation');
+        expect(translated.violations).toContain('leaf-misalignment');
+    });
+
     it('anchors pale content before the dark-ink grid begins', () => {
         const sourceLeft = makeContentTopBitmap(32, 240);
         const sourceRight = makeContentTopBitmap(34, 240);
@@ -215,5 +291,67 @@ describe('scan cleanup representative audit mapping inference', () => {
         expect(incomparableSourceSpans.status).toBe('unmeasured');
         expect(incomparableSourceSpans.reason).toBe('source-content-spans-not-comparable');
         expect(incomparableSourceSpans.violations).toEqual([]);
+    });
+
+    it('flags local component loss and leaves sparse PNG bands unmeasured', async () => {
+        const glyphs = Array.from({length: 24}, (_, index) => ({
+            height: 6,
+            width: 4,
+            x: 4 + index * 5,
+            y: 22,
+        }));
+        const source = await makePngBitmap({rectangles: glyphs});
+        const cleaned = await makePngBitmap({rectangles: glyphs.slice(0, 12)});
+        const loss = measureComponentSurvival({
+            cleanedBitmap: cleaned,
+            sourceBitmap: source,
+        });
+
+        expect(loss.status).toBe('violation');
+        expect(loss.violations).toContain('component-survival');
+        expect(loss.bands).toContainEqual(expect.objectContaining({
+            cleanedComponents: 12,
+            lossFraction: 0.3478,
+            sourceComponents: 23,
+            status: 'violation',
+            survivingSourceComponents: 15,
+        }));
+
+        const sparseSource = await makePngBitmap({rectangles: glyphs.slice(0, 4)});
+        const sparse = measureComponentSurvival({
+            cleanedBitmap: sparseSource,
+            sourceBitmap: sparseSource,
+        });
+        expect(sparse.status).toBe('unmeasured');
+        expect(sparse.reason).toBe('insufficient-total-source-components');
+        expect(sparse.unmeasuredBands).toBe(1);
+        expect(sparse.violations).toEqual([]);
+    });
+
+    it('fails distinctly when any class exceeds the unmeasured-pair bound', () => {
+        const measurements = Array.from({length: 10}, (_, index) => ({status: index < 4
+            ? 'unmeasured'
+            : 'pass'}));
+        const coverage = summarizeMeasurementCoverage({
+            'component-survival': measurements,
+            'leaf-misalignment': [],
+            'leaf-scale-mismatch': [
+                {status: 'unmeasured'},
+                {status: 'pass'},
+            ],
+        });
+
+        expect(coverage.maxUnmeasuredFraction).toBe(0.3);
+        expect(coverage.measurementCollapsed).toBe(true);
+        expect(coverage.classes['component-survival']).toMatchObject({
+            collapsed: true,
+            status: 'measurement-collapse',
+            totalPairs: 10,
+            unmeasuredFraction: 0.4,
+            unmeasuredPairs: 4,
+        });
+        expect(coverage.classes['leaf-misalignment'].status).toBe('not-applicable');
+        expect(auditExitCode(0, coverage.measurementCollapsed)).toBe(2);
+        expect(auditExitCode(1, false)).toBe(1);
     });
 });
