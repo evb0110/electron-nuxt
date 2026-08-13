@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  review_details: true
+  in_progress_fortune: false
+  enable_prompt_for_ai_agents: true
+
+  path_filters:
+    - "!.devkit/**"
+    - "!.output/**"
+    - "!**/.output/**"
+    - "!.nuxt/**"
+    - "!**/.nuxt/**"
+    - "!dist/**"
+    - "!dist-electron/**"
+    - "!release/**"
+    - "!coverage/**"
+    - "!test-results/**"
+    - "!playwright-report/**"
+
+  path_instructions:
+    - path: "app/**"
+      instructions: >-
+        Prioritize runtime correctness, Vue reactivity and lifecycle cleanup,
+        concurrency and stale-state hazards, document identity and revision
+        safety, and observable user regressions. Avoid purely stylistic comments
+        already covered by linting.
+    - path: "electron/**"
+      instructions: >-
+        Prioritize IPC trust boundaries, sender and payload validation, process
+        lifecycle cleanup, path and shell safety, least privilege, and behavior
+        across macOS, Windows, and Linux.
+    - path: "native/**"
+      instructions: >-
+        Prioritize memory and integer safety, ownership and cleanup, malformed
+        input handling, deterministic output, and portable behavior across the
+        supported build targets.
+    - path: "tests/**"
+      instructions: >-
+        Check that tests assert externally meaningful behavior, cover the
+        regression and its failure modes, avoid timing-dependent flakiness, and
+        clean up global state, processes, files, mocks, and timers.
+    - path: "scripts/**"
+      instructions: >-
+        Prioritize fail-closed behavior, safe path handling, reproducibility,
+        cleanup, cross-platform shell behavior, and preservation of release and
+        verification invariants.
+    - path: ".github/workflows/**"
+      instructions: >-
+        Prioritize least-privilege permissions, untrusted pull-request input,
+        shell-injection resistance, artifact provenance, secret handling,
+        reproducibility, and fail-closed release gates.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 2
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "[skip review]"
+    labels:
+      - "!do-not-review"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+
+chat:
+  auto_reply: true
