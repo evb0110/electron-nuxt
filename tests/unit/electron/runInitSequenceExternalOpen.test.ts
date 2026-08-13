@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { runInitSequence } from '@electron/bootstrap/runInitSequence';
-import { canonicalBundledApplicationVersion } from '@electron/appVersion';
+import { developmentApplicationVersion } from '@electron/appVersion';
 import { config } from '@electron/config';
 import { DEFAULT_SETTINGS } from '@contracts/settings';
 
@@ -213,7 +213,7 @@ describe('runInitSequence external open IPC', () => {
         });
 
         expect(harness.app.setAboutPanelOptions).toHaveBeenCalledWith(expect.objectContaining({
-            applicationVersion: canonicalBundledApplicationVersion,
+            applicationVersion: developmentApplicationVersion,
             version: 'Beta',
         }));
     });

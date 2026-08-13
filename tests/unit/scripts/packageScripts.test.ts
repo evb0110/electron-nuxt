@@ -373,6 +373,7 @@ describe('package scripts', () => {
             expect(commands.at(-1)).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project');
         }
         expect(scriptCommands(scripts, 'test:e2e:electron:blocking-smoke')).toEqual([
+            'pnpm run build:scan-cleanup',
             'pnpm run build:electron',
             'vitest run --project e2e-blocking-smoke --reporter verbose',
         ]);

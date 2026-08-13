@@ -1,6 +1,7 @@
 import packageJson from '@root-package';
 
 const bundledApplicationVersion = packageJson.version.trim();
+const embeddedBuildGitSha = normalizeGitSha(process.env.EVB_BUILD_GIT_SHA);
 
 if (!bundledApplicationVersion) {
     throw new Error('The root package.json must define the canonical application version.');
@@ -14,8 +15,23 @@ if (!bundledApplicationVersion) {
 export function resolveApplicationVersion(app: {
     getVersion(): string;
     isPackaged: boolean;
-}) {
-    return app.isPackaged ? app.getVersion() : bundledApplicationVersion;
+}, buildGitSha = embeddedBuildGitSha) {
+    return app.isPackaged
+        ? app.getVersion()
+        : formatDevelopmentApplicationVersion(buildGitSha);
 }
 
 export const canonicalBundledApplicationVersion = bundledApplicationVersion;
+
+function normalizeGitSha(value: string | undefined) {
+    const sha = value?.trim().toLowerCase() ?? '';
+    return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(sha) ? sha : null;
+}
+
+export function formatDevelopmentApplicationVersion(commitSha: string | null) {
+    return commitSha === null
+        ? bundledApplicationVersion
+        : `${bundledApplicationVersion}+${commitSha}`;
+}
+
+export const developmentApplicationVersion = formatDevelopmentApplicationVersion(embeddedBuildGitSha);
