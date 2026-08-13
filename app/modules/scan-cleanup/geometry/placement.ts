@@ -70,7 +70,8 @@ function resolvePreviewMetadataOffset(
 ) {
     if (alignment === undefined) {
         return {
-            x: metadata.placementOffsetXPx,
+            x: metadata.placementOffsetXPx
+                - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0),
             y: metadata.placementOffsetYPx,
         };
     }
@@ -87,7 +88,8 @@ function resolvePreviewMetadataOffset(
             || alignment === 'bottom-center'
         )
         ? metadata.placementOffsetXPx
-        : aligned.x;
+            - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0)
+        : aligned.x - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0);
     // Native Y carries the spread pair anchor, but only describes the
     // alignment the result was rendered under. A result that predates the
     // currently requested alignment must reposition optimistically until the

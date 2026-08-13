@@ -536,8 +536,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         effectivePlacementOffsetX + contentWidthPx - metadata.canvasWidthPx,
     );
     if (
-        metadata.canvasWidthPx < contentWidthPx
-        || metadata.canvasHeightPx < contentHeightPx
+        metadata.canvasHeightPx < contentHeightPx
         || recordedIntrinsicOverflowLeft > contentWidthPx
         || actualIntrinsicOverflowRight !== recordedIntrinsicOverflowRight
         || (metadata.matchedCanvasOpticalPlacement === true && (

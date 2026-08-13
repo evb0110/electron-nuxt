@@ -471,6 +471,26 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it('keeps a clipped intrinsic fold tail outside the preview canvas', () => {
+        const intrinsicMetadata = metadata({
+            half: 'right',
+            outputWidthPx: 1_100,
+            outputHeightPx: 600,
+            canvasWidthPx: 1_000,
+            canvasHeightPx: 600,
+            matchedCanvasContentWidthPx: 1_100,
+            matchedCanvasContentHeightPx: 600,
+            matchedCanvasIntrinsicOverflowLeftPx: 80,
+            placementOffsetXPx: 0,
+        });
+
+        expect(resolvePreviewMetadataPlacement(intrinsicMetadata)).toMatchObject({
+            contentWidthPx: 1_100,
+            left: -80,
+            scaleX: 1,
+        });
+    });
+
     it('presents a page the document scaled up at the size the final run will write', () => {
         // The page is half the document's paper, so the sidecar reports the box
         // it belongs in and the renderer scales the raster it rendered into it,

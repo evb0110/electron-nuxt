@@ -136,6 +136,30 @@ describe('scan-cleanup source text layer', () => {
         expect(instruction!.matrix[3]).toBeCloseTo(0.845, 12);
     });
 
+    it('keeps source text registered when a white left fold tail is clipped', () => {
+        const instruction = resolveScanCleanupTextLayerInstruction(output({
+            outputWidthPx: 1_000,
+            outputHeightPx: 600,
+            intrinsicRasterWidthPx: 1_100,
+            intrinsicRasterHeightPx: 600,
+            canvasWidthPx: 1_000,
+            canvasHeightPx: 600,
+            matchedCanvasContentWidthPx: 1_100,
+            matchedCanvasContentHeightPx: 600,
+            matchedCanvasIntrinsicOverflowLeftPx: 80,
+            placementOffsetXPx: 0,
+        }), 0, pageSize);
+
+        expect(instruction!.matrix).toEqual([
+            1,
+            0,
+            0,
+            1,
+            -16,
+            0,
+        ]);
+    });
+
     it('keeps cropped source text registered when content alignment moves the raster', () => {
         const instruction = resolveScanCleanupTextLayerInstruction(output({
             outputWidthPx: 800,
