@@ -24,6 +24,13 @@ import {
 
 const temporaryDirectories: string[] = [];
 
+function detectorPaths(scanCleanupBinaryPath: string) {
+    return {
+        pdftoppmBinaryPath: process.execPath,
+        scanCleanupBinaryPath,
+    };
+}
+
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,
     layoutMode: 'auto',
@@ -71,30 +78,58 @@ describe('scan-cleanup detection cache', () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-detection-cache-key-'));
         temporaryDirectories.push(directory);
         const sourcePath = join(directory, 'source.pdf');
+        const scanCleanupBinaryPath = join(directory, 'evb-scan-cleanup');
         await writeFile(sourcePath, 'source-a', 'utf8');
+        await writeFile(scanCleanupBinaryPath, 'detector-a', 'utf8');
 
-        const initial = await createScanCleanupDetectionCacheKey(sourcePath, options);
+        const initial = await createScanCleanupDetectionCacheKey(
+            sourcePath,
+            options,
+            detectorPaths(scanCleanupBinaryPath),
+        );
         const reorderedOptions = {
             ...options,
             pageOverrides: {},
         };
-        expect(await createScanCleanupDetectionCacheKey(sourcePath, reorderedOptions)).toEqual(initial);
+        expect(await createScanCleanupDetectionCacheKey(
+            sourcePath,
+            reorderedOptions,
+            detectorPaths(scanCleanupBinaryPath),
+        )).toEqual(initial);
         expect(await createScanCleanupDetectionCacheKey(sourcePath, {
             ...options,
             matchPageSize: false,
-        })).not.toEqual(initial);
+        }, detectorPaths(scanCleanupBinaryPath))).not.toEqual(initial);
 
         await writeFile(sourcePath, 'source-b', 'utf8');
-        expect(await createScanCleanupDetectionCacheKey(sourcePath, options)).not.toEqual(initial);
+        expect(await createScanCleanupDetectionCacheKey(
+            sourcePath,
+            options,
+            detectorPaths(scanCleanupBinaryPath),
+        )).not.toEqual(initial);
+
+        await writeFile(sourcePath, 'source-a', 'utf8');
+        await writeFile(scanCleanupBinaryPath, 'detector-b-with-changed-bytes', 'utf8');
+        expect(await createScanCleanupDetectionCacheKey(
+            sourcePath,
+            options,
+            detectorPaths(scanCleanupBinaryPath),
+        )).not.toEqual(initial);
     });
 
     it('round-trips results and rejects a cache entry for another key', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-detection-cache-file-'));
         temporaryDirectories.push(directory);
         const sourcePath = join(directory, 'source.pdf');
+        const scanCleanupBinaryPath = join(directory, 'evb-scan-cleanup');
         const cachePath = join(directory, 'cache');
         await writeFile(sourcePath, 'source', 'utf8');
-        const key = await createScanCleanupDetectionCacheKey(sourcePath, options);
+        await writeFile(scanCleanupBinaryPath, 'detector', 'utf8');
+        const key = await createScanCleanupDetectionCacheKey(
+            sourcePath,
+            options,
+            detectorPaths(scanCleanupBinaryPath),
+        );
 
         await writeScanCleanupDetectionCache(cachePath, key, [result]);
         expect(await readScanCleanupDetectionCache(cachePath, key)).toEqual([result]);

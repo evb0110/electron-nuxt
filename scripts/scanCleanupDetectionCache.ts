@@ -2,18 +2,22 @@ import {
     createHash,
     randomUUID,
 } from 'node:crypto';
+import {execFile} from 'node:child_process';
 import {createReadStream} from 'node:fs';
 import {
     mkdir,
     readFile,
+    realpath,
     rename,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {
     dirname,
     extname,
     join,
+    resolve,
 } from 'node:path';
 import type {
     IScanCleanupDetectionResult,
@@ -25,7 +29,7 @@ import {
     PREVIEW_DPI,
 } from '@scan-cleanup-core/detection';
 
-export const SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION = 1 as const;
+export const SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION = 2 as const;
 export const DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH = '.devkit/tmp/detection-cache';
 
 const DETECTION_ALGORITHM_VERSION = 1 as const;
@@ -36,6 +40,11 @@ const DETECTION_SCOPE = 'all-source-pages' as const;
 export interface IScanCleanupDetectionCacheKey {
     key: string;
     sourceSha256: string;
+}
+
+export interface IScanCleanupDetectionCacheDetectorPaths {
+    pdftoppmBinaryPath: string;
+    scanCleanupBinaryPath: string;
 }
 
 export interface IScanCleanupDetectionRunResult {results: IScanCleanupDetectionResult[];}
@@ -55,6 +64,14 @@ interface IScanCleanupDetectionCacheFile {
     results: IScanCleanupDetectionResult[];
     sourceSha256: string;
 }
+
+interface IScanCleanupDetectionCacheNativeBinaryHash {
+    fingerprint: string;
+    sha256: Promise<string>;
+}
+
+const nativeBinaryHashes = new Map<string, IScanCleanupDetectionCacheNativeBinaryHash>();
+const pdftoppmVersions = new Map<string, Promise<string>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -144,9 +161,79 @@ async function hashFile(path: string) {
             hash.update(chunk);
             continue;
         }
-        throw new Error('Source PDF stream produced an unsupported chunk');
+        throw new Error(`File stream produced an unsupported chunk: ${path}`);
     }
     return hash.digest('hex');
+}
+
+async function resolveAbsoluteToolPath(path: string) {
+    return realpath(resolve(path));
+}
+
+async function hashNativeBinary(path: string) {
+    const binaryStats = await stat(path, {bigint: true});
+    if (!binaryStats.isFile()) {
+        throw new Error(`Scan-cleanup detector is not a file: ${path}`);
+    }
+    const fingerprint = [
+        binaryStats.dev,
+        binaryStats.ino,
+        binaryStats.size,
+        binaryStats.mtimeNs,
+        binaryStats.ctimeNs,
+    ].join(':');
+    const cached = nativeBinaryHashes.get(path);
+    if (cached?.fingerprint === fingerprint) {
+        return cached.sha256;
+    }
+    const sha256 = hashFile(path);
+    nativeBinaryHashes.set(path, {
+        fingerprint,
+        sha256,
+    });
+    try {
+        return await sha256;
+    } catch (error: unknown) {
+        if (nativeBinaryHashes.get(path)?.sha256 === sha256) {
+            nativeBinaryHashes.delete(path);
+        }
+        throw error;
+    }
+}
+
+function readPdftoppmVersion(path: string) {
+    return new Promise<string>((resolvePromise, reject) => {
+        execFile(path, ['-v'], {encoding: 'utf8'}, (error, stdout, stderr) => {
+            if (error !== null) {
+                reject(new Error(
+                    `Could not read pdftoppm identity from ${path}: ${error.message}`,
+                    {cause: error},
+                ));
+                return;
+            }
+            const version = `${stdout}${stderr}`.trim();
+            if (version === '') {
+                reject(new Error(`pdftoppm returned an empty version string: ${path}`));
+                return;
+            }
+            resolvePromise(version);
+        });
+    });
+}
+
+function getPdftoppmVersion(path: string) {
+    const cached = pdftoppmVersions.get(path);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const version = readPdftoppmVersion(path);
+    pdftoppmVersions.set(path, version);
+    void version.catch(() => {
+        if (pdftoppmVersions.get(path) === version) {
+            pdftoppmVersions.delete(path);
+        }
+    });
+    return version;
 }
 
 function resolveCacheEntryPath(cachePath: string, key: IScanCleanupDetectionCacheKey) {
@@ -158,11 +245,34 @@ function resolveCacheEntryPath(cachePath: string, key: IScanCleanupDetectionCach
 export async function createScanCleanupDetectionCacheKey(
     sourcePdfPath: string,
     options: IScanCleanupOptions,
+    detectorPaths: IScanCleanupDetectionCacheDetectorPaths,
 ): Promise<IScanCleanupDetectionCacheKey> {
-    const sourceSha256 = await hashFile(sourcePdfPath);
+    const [
+        sourceSha256,
+        pdftoppmBinaryPath,
+        scanCleanupBinaryPath,
+    ] = await Promise.all([
+        hashFile(sourcePdfPath),
+        resolveAbsoluteToolPath(detectorPaths.pdftoppmBinaryPath),
+        resolveAbsoluteToolPath(detectorPaths.scanCleanupBinaryPath),
+    ]);
+    const [
+        pdftoppmVersion,
+        scanCleanupBinarySha256,
+    ] = await Promise.all([
+        getPdftoppmVersion(pdftoppmBinaryPath),
+        hashNativeBinary(scanCleanupBinaryPath),
+    ]);
     const keyMaterial = canonicalize({
         architecture: process.arch,
         cacheFormatVersion: SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION,
+        detectorIdentity: {
+            pdftoppm: {
+                absolutePath: pdftoppmBinaryPath,
+                version: pdftoppmVersion,
+            },
+            scanCleanup: {sha256: scanCleanupBinarySha256},
+        },
         detectionAlgorithmVersion: DETECTION_ALGORITHM_VERSION,
         detectionScope: DETECTION_SCOPE,
         analysisDpi: DETECTION_DPI,

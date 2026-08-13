@@ -945,6 +945,10 @@ async function main() {
             : await createScanCleanupDetectionCacheKey(
                 argumentsValue.sourcePdfPath,
                 argumentsValue.options,
+                {
+                    pdftoppmBinaryPath: pdftoppmBinary,
+                    scanCleanupBinaryPath: scanCleanupBinary,
+                },
             );
         const documentPageCount = await getPageCount(argumentsValue.sourcePdfPath);
         const sourcePageNumbers = resolveScanCleanupPageScope(argumentsValue.pages, documentPageCount);
