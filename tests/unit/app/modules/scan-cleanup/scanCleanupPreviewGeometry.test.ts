@@ -214,6 +214,46 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it('keeps a negative half-local content origin when the crop begins outside the half', () => {
+        expect(transformPreviewContentBox(metadata({
+            half: 'right',
+            sourceRegion: {
+                xPx: 500,
+                yPx: 0,
+                widthPx: 400,
+                heightPx: 600,
+            },
+            contentBox: {
+                xPx: -20,
+                yPx: 30,
+                widthPx: 200,
+                heightPx: 300,
+            },
+            forwardTransform: {matrix: [
+                [
+                    1,
+                    0,
+                    -470,
+                ],
+                [
+                    0,
+                    1,
+                    -20,
+                ],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ]},
+        }))).toEqual({
+            xPx: 10,
+            yPx: 10,
+            widthPx: 200,
+            heightPx: 300,
+        });
+    });
+
     it('round-trips asymmetric native margins through the lossless overlay geometry', () => {
         const content = {
             xPx: 40,

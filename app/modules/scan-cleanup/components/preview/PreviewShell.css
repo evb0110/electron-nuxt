@@ -13,6 +13,14 @@
     outline-offset: var(--app-space-xs);
 }
 
+.preview-cleaned-pixel-preload {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
 .preview-header,
 .page-navigation,
 .preview-controls,

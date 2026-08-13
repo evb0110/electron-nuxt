@@ -13,10 +13,11 @@
  * with native `renderMode: preview` / `canvasScope: page` outputs. Pass
  * --final-pdf and --detection-cache to reuse a previously generated reference.
  * --check exits nonzero when either preview weight-uniformity proxy differs by
- * more than 15% from the downsampled final or any normalized ink margin differs
- * by more than 3 percentage points. --preview-render-dpi is a diagnostic-only
- * override for isolating resolution-sensitive native stages; omit it for the
- * app-exact preview path.
+ * more than 15% from the downsampled final, any normalized ink margin differs
+ * by more than 3 percentage points, or either provisional/settled content-box
+ * overlay excludes more than 1% of ink (with no robust ink edge overrun above
+ * 3%). --preview-render-dpi is a diagnostic-only override for isolating
+ * resolution-sensitive native stages; omit it for the app-exact preview path.
  */
 
 import {spawn} from 'node:child_process';
@@ -68,6 +69,7 @@ const [
         resolvePreviewMetadataPlacement,
         toPreviewStyleRect,
     },
+    {transformPreviewContentBox},
 ] = await Promise.all([
     importTs('../../scan-cleanup-core/detection.ts'),
     importTs('../../scan-cleanup-core/policy/documentCanvas.ts'),
@@ -78,12 +80,15 @@ const [
     importTs('../../scan-cleanup-core/sourceDpiDetection.ts'),
     importTs('../scanCleanupDetectionCache.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/placement.ts'),
+    importTs('../../app/modules/scan-cleanup/geometry/coordinates.ts'),
 ]);
 
 const WEIGHT_DEVIATION_LIMIT = 0.15;
 const INK_MARGIN_LIMIT = 0.03;
 const METRIC_INK_THRESHOLD = 160;
 const MARGIN_INK_THRESHOLD = 220;
+const OVERLAY_EDGE_LIMIT = 0.03;
+const OVERLAY_INK_TOLERANCE = 0.01;
 
 function printUsage() {
     process.stderr.write([
@@ -94,6 +99,8 @@ function printUsage() {
         '  --final-pdf <pdf>             Reuse this final conversion reference',
         '  --detection-cache <path>      Cache directory used by conversion/detection',
         '  --preview-render-dpi <number> Diagnostic native render-DPI override',
+        '  --overlay-edge-tolerance <n>  Maximum normalized box/ink edge delta (default: 0.03)',
+        '  --overlay-ink-tolerance <n>   Allowed ink fraction outside the box (default: 0.01)',
         '  --help',
     ].join('\n') + '\n');
 }
@@ -121,6 +128,8 @@ function parseArgs(argv) {
         detectionCache: null,
         finalPdf: null,
         out: null,
+        overlayEdgeTolerance: OVERLAY_EDGE_LIMIT,
+        overlayInkTolerance: OVERLAY_INK_TOLERANCE,
         pages: null,
         previewRenderDpi: null,
         source: null,
@@ -141,6 +150,8 @@ function parseArgs(argv) {
             '--detection-cache',
             '--final-pdf',
             '--out',
+            '--overlay-edge-tolerance',
+            '--overlay-ink-tolerance',
             '--pages',
             '--preview-render-dpi',
             '--source',
@@ -151,6 +162,15 @@ function parseArgs(argv) {
         if (!value || value.startsWith('--')) throw new Error(`${argument} requires a value`);
         index += 1;
         if (argument === '--pages') parsed.pages = parsePageList(value);
+        else if (argument === '--overlay-edge-tolerance' || argument === '--overlay-ink-tolerance') {
+            const tolerance = Number(value);
+            if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance >= 0.5) {
+                throw new Error(`${argument} must be a number from 0 (inclusive) to 0.5 (exclusive)`);
+            }
+            parsed[argument === '--overlay-edge-tolerance'
+                ? 'overlayEdgeTolerance'
+                : 'overlayInkTolerance'] = tolerance;
+        }
         else if (argument === '--preview-render-dpi') {
             parsed.previewRenderDpi = Number(value);
             if (!Number.isSafeInteger(parsed.previewRenderDpi) || parsed.previewRenderDpi < 1) {
@@ -448,6 +468,13 @@ function relativeDifference(left, right) {
     return Math.abs(left - right) / Math.max(Math.abs(right), 1e-6);
 }
 
+function boundedVarianceDifference(left, right) {
+    // A near-zero variance proxy is already visually uniform. Comparing two
+    // tiny residuals only relative to one another turns harmless antialiasing
+    // noise into a large percentage, so retain 0.1 as the perceptual floor.
+    return Math.abs(left - right) / Math.max(Math.abs(right), 0.1);
+}
+
 function compareMetrics(preview, final) {
     if (!preview || !final) {
         return {
@@ -458,13 +485,13 @@ function compareMetrics(preview, final) {
     return {
         measurable: true,
         lineRatioDeviation: round(relativeDifference(preview.lineMaxMinRatio, final.lineMaxMinRatio)),
-        wordVarianceDeviation: round(relativeDifference(
+        wordVarianceDeviation: round(boundedVarianceDifference(
             preview.wordVarianceProxy,
             final.wordVarianceProxy,
         )),
         weightDeviation: round(Math.max(
             relativeDifference(preview.lineMaxMinRatio, final.lineMaxMinRatio),
-            relativeDifference(preview.wordVarianceProxy, final.wordVarianceProxy),
+            boundedVarianceDifference(preview.wordVarianceProxy, final.wordVarianceProxy),
         )),
     };
 }
@@ -488,35 +515,174 @@ function compareMargins(preview, final) {
     };
 }
 
-async function composeLeaf(rasterPath, metadata, outputPath) {
+function pixelRectFromStyle(style, width, height) {
+    const percent = value => Number.parseFloat(value) / 100;
+    const left = percent(style.left) * width;
+    const top = percent(style.top) * height;
+    return {
+        left,
+        top,
+        right: left + percent(style.width) * width,
+        bottom: top + percent(style.height) * height,
+    };
+}
+
+function grayBitmapFromContext(context, width, height) {
+    const rgba = context.getImageData(0, 0, width, height).data;
+    const data = new Uint8Array(width * height);
+    for (let index = 0, pixel = 0; index < rgba.length; index += 4, pixel += 1) {
+        data[pixel] = Math.round(
+            rgba[index] * 0.2126
+            + rgba[index + 1] * 0.7152
+            + rgba[index + 2] * 0.0722,
+        );
+    }
+    return {
+        data,
+        height,
+        width,
+    };
+}
+
+function histogramQuantile(histogram, target) {
+    let cumulative = 0;
+    for (let index = 0; index < histogram.length; index += 1) {
+        cumulative += histogram[index];
+        if (cumulative > target) {
+            return index;
+        }
+    }
+    return histogram.length - 1;
+}
+
+function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolerance) {
+    const columns = new Uint32Array(bitmap.width);
+    const rows = new Uint32Array(bitmap.height);
+    let inkInside = 0;
+    let inkTotal = 0;
+    for (let y = 0; y < bitmap.height; y += 1) {
+        const rowOffset = y * bitmap.width;
+        for (let x = 0; x < bitmap.width; x += 1) {
+            if (bitmap.data[rowOffset + x] >= MARGIN_INK_THRESHOLD) continue;
+            inkTotal += 1;
+            columns[x] += 1;
+            rows[y] += 1;
+            const centerX = x + 0.5;
+            const centerY = y + 0.5;
+            if (
+                centerX >= rect.left
+                && centerX <= rect.right
+                && centerY >= rect.top
+                && centerY <= rect.bottom
+            ) {
+                inkInside += 1;
+            }
+        }
+    }
+    if (inkTotal === 0) {
+        return {
+            measurable: false,
+            containment: null,
+            edgeDeltas: null,
+            maximumEdgeDelta: null,
+            pass: false,
+        };
+    }
+    // Split the allowed dust/descender population across the four tails. The
+    // resulting bounds stay stable in the presence of isolated marks while
+    // the independent containment ratio still accounts for every ink pixel.
+    const tailInk = inkTotal * inkTolerance / 4;
+    const bounds = {
+        left: histogramQuantile(columns, tailInk),
+        top: histogramQuantile(rows, tailInk),
+        right: histogramQuantile(columns, inkTotal - tailInk - 1) + 1,
+        bottom: histogramQuantile(rows, inkTotal - tailInk - 1) + 1,
+    };
+    const edgeDeltas = {
+        left: round(Math.max(0, rect.left - bounds.left) / bitmap.width),
+        top: round(Math.max(0, rect.top - bounds.top) / bitmap.height),
+        right: round(Math.max(0, bounds.right - rect.right) / bitmap.width),
+        bottom: round(Math.max(0, bounds.bottom - rect.bottom) / bitmap.height),
+    };
+    const containment = round(inkInside / inkTotal);
+    const maximumEdgeDelta = Math.max(...Object.values(edgeDeltas));
+    return {
+        measurable: true,
+        containment,
+        edgeDeltas,
+        maximumEdgeDelta,
+        pass: containment >= 1 - inkTolerance && maximumEdgeDelta <= edgeTolerance,
+    };
+}
+
+async function composeLeaf(rasterPath, metadata, outputPath, overlayOptions) {
     const raster = await loadImage(rasterPath);
     const placement = resolvePreviewMetadataPlacement(metadata, defaultOptions.pageAlignment, true);
-    const style = toPreviewStyleRect({
+    const imageStyle = toPreviewStyleRect({
         xPx: 0,
         yPx: 0,
         widthPx: metadata.outputWidthPx,
         heightPx: metadata.outputHeightPx,
     }, placement);
-    const percent = value => Number.parseFloat(value) / 100;
     const canvas = createCanvas(placement.canvasWidthPx, placement.canvasHeightPx);
     const context = canvas.getContext('2d');
     context.fillStyle = '#fff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
+    const imageRect = pixelRectFromStyle(imageStyle, canvas.width, canvas.height);
     context.drawImage(
         raster,
-        percent(style.left) * canvas.width,
-        percent(style.top) * canvas.height,
-        percent(style.width) * canvas.width,
-        percent(style.height) * canvas.height,
+        imageRect.left,
+        imageRect.top,
+        imageRect.right - imageRect.left,
+        imageRect.bottom - imageRect.top,
     );
+    const transformedContent = transformPreviewContentBox(metadata);
+    const overlayStyle = transformedContent
+        ? toPreviewStyleRect(transformedContent, placement)
+        : null;
+    const overlayRect = overlayStyle
+        ? pixelRectFromStyle(overlayStyle, canvas.width, canvas.height)
+        : null;
+    const overlayContainment = overlayRect
+        ? measureOverlayContainment(
+            grayBitmapFromContext(context, canvas.width, canvas.height),
+            overlayRect,
+            overlayOptions.inkTolerance,
+            overlayOptions.edgeTolerance,
+        )
+        : {
+            measurable: false,
+            containment: null,
+            edgeDeltas: null,
+            maximumEdgeDelta: null,
+            pass: false,
+        };
+    const metricsPath = outputPath.replace(/\.png$/u, '-raster.png');
+    await writeFile(metricsPath, canvas.toBuffer('image/png'));
+    if (overlayRect) {
+        context.save();
+        context.strokeStyle = '#0078ff';
+        context.lineWidth = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) * 0.002));
+        context.strokeRect(
+            overlayRect.left,
+            overlayRect.top,
+            overlayRect.right - overlayRect.left,
+            overlayRect.bottom - overlayRect.top,
+        );
+        context.restore();
+    }
     await writeFile(outputPath, canvas.toBuffer('image/png'));
     return {
         height: canvas.height,
+        imageStyle,
+        overlayContainment,
+        overlayRect,
+        overlayStyle,
         path: outputPath,
+        metricsPath,
         placement,
-        style,
         width: canvas.width,
     };
 }
@@ -653,6 +819,8 @@ async function main() {
         detectionCacheKey: detection.cacheKey,
         limits: {
             inkMargin: INK_MARGIN_LIMIT,
+            overlayEdge: args.overlayEdgeTolerance,
+            overlayInkOutside: args.overlayInkTolerance,
             weightDeviation: WEIGHT_DEVIATION_LIMIT,
         },
         results: [],
@@ -769,7 +937,10 @@ async function main() {
             const path = join(pageDirectory, `preview-${half}.png`);
             previewLeaves.push({
                 half,
-                ...await composeLeaf(output.outputPath, output.metadata, path),
+                ...await composeLeaf(output.outputPath, output.metadata, path, {
+                    edgeTolerance: args.overlayEdgeTolerance,
+                    inkTolerance: args.overlayInkTolerance,
+                }),
             });
         }
         // Replay the same page once with only its own detection verdict, then
@@ -807,7 +978,10 @@ async function main() {
                 const path = join(pageDirectory, `provisional-${half}.png`);
                 provisionalLeaves.push({
                     half,
-                    ...await composeLeaf(output.outputPath, metadata, path),
+                    ...await composeLeaf(output.outputPath, metadata, path, {
+                        edgeTolerance: args.overlayEdgeTolerance,
+                        inkTolerance: args.overlayInkTolerance,
+                    }),
                 });
             } catch (error) {
                 if (error?.code !== 'ENOENT') throw error;
@@ -819,15 +993,17 @@ async function main() {
         for (const settledLeaf of previewLeaves) {
             const provisionalLeaf = provisionalLeaves.find(leaf => leaf.half === settledLeaf.half);
             if (!provisionalLeaf) continue;
-            const settledBytes = await readFile(settledLeaf.path);
-            const provisionalBytes = await readFile(provisionalLeaf.path);
+            const settledBytes = await readFile(settledLeaf.metricsPath);
+            const provisionalBytes = await readFile(provisionalLeaf.metricsPath);
             contextLeafComparisons.push({
                 half: settledLeaf.half,
                 rasterIdentical: sha256(settledBytes) === sha256(provisionalBytes),
                 inkMarginShift: compareMargins(
-                    normalizedMargins(await readGray(settledLeaf.path)),
-                    normalizedMargins(await readGray(provisionalLeaf.path)),
+                    normalizedMargins(await readGray(settledLeaf.metricsPath)),
+                    normalizedMargins(await readGray(provisionalLeaf.metricsPath)),
                 ),
+                overlayContainment: provisionalLeaf.overlayContainment,
+                violations: provisionalLeaf.overlayContainment.pass ? [] : ['overlay-containment'],
             });
         }
         const finalOutputPages = finalMappings.get(pageNumber) ?? [];
@@ -863,7 +1039,7 @@ async function main() {
         await composeSpread(finalLeaves, finalComposite);
         const leafResults = [];
         for (let index = 0; index < previewLeaves.length; index += 1) {
-            const previewBitmap = await readGray(previewLeaves[index].path);
+            const previewBitmap = await readGray(previewLeaves[index].metricsPath);
             const finalBitmap = await readGray(finalLeaves[index].path);
             const previewWeight = weightUniformity(previewBitmap);
             const finalWeight = weightUniformity(finalBitmap);
@@ -878,6 +1054,9 @@ async function main() {
             }
             if (marginComparison === null) violations.push('ink-margin-unmeasurable');
             else if (marginComparison.maximum > INK_MARGIN_LIMIT) violations.push('ink-margin');
+            if (!previewLeaves[index].overlayContainment.pass) {
+                violations.push('overlay-containment');
+            }
             leafResults.push({
                 half: previewLeaves[index].half,
                 previewRaster: previewLeaves[index].path,
@@ -888,6 +1067,7 @@ async function main() {
                 previewMargins,
                 finalMargins,
                 marginComparison,
+                overlayContainment: previewLeaves[index].overlayContainment,
                 violations,
             });
         }
@@ -913,18 +1093,26 @@ async function main() {
             placementSignatures: previewLeaves.map(leaf => ({
                 half: leaf.half,
                 placement: leaf.placement,
-                style: leaf.style,
+                imageStyle: leaf.imageStyle,
+                overlayStyle: leaf.overlayStyle,
             })),
             leaves: leafResults,
         });
     }
-    const violations = report.results.flatMap(page => page.leaves.flatMap(leaf => (
-        leaf.violations.map(code => ({
+    const violations = report.results.flatMap(page => [
+        ...page.leaves.flatMap(leaf => leaf.violations.map(code => ({
             code,
             half: leaf.half,
+            mode: 'settled',
             pageNumber: page.pageNumber,
-        }))
-    )));
+        }))),
+        ...page.contextStability.leaves.flatMap(leaf => leaf.violations.map(code => ({
+            code,
+            half: leaf.half,
+            mode: 'provisional',
+            pageNumber: page.pageNumber,
+        }))),
+    ]);
     report.violations = violations;
     report.status = violations.length === 0 ? 'pass' : 'fail';
     const reportPath = join(args.out, 'report.json');

@@ -388,6 +388,16 @@
             </aside>
         </div>
 
+        <img
+            v-for="pending in pendingCleanedPixels"
+            :key="pending.url"
+            class="preview-cleaned-pixel-preload"
+            :src="pending.url"
+            alt=""
+            aria-hidden="true"
+            @load="loadCleanedPixelSwap(pending.half, pending.url)"
+        >
+
     </section>
 </template>
 
@@ -1325,8 +1335,10 @@ const {
     completeCleanedPixelSwap,
     completeRawPixelSwap,
     detailPixelUrls,
+    displayedCleanedResult,
     loadCleanedPixelSwap,
     loadRawPixelSwap,
+    pendingCleanedPixelUrls,
     rawPixelSwap,
 } = useScanCleanupPreviewImages(() => props.result, (hadPreviousResult) => {
     void nextTick(() => {
@@ -1337,6 +1349,15 @@ const {
         }
     });
 }, () => props.rawResult ?? null, () => props.detailResult ?? null);
+const pendingCleanedPixels = computed(() => (
+    Object.entries(pendingCleanedPixelUrls) as Array<[TScanCleanupOutputHalf, string]>
+).map(([
+    half,
+    url,
+]) => ({
+    half,
+    url,
+})));
 
 let detailTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1457,10 +1478,10 @@ const renderedOutputs = computed(() => {
     if (dragTransaction.active.value && dragOutputSnapshot.value) {
         return dragOutputSnapshot.value;
     }
-    if (!props.result) {
+    if (!displayedCleanedResult.value) {
         return [];
     }
-    const outputs = props.result.outputs.map((output): IRenderedScanCleanupOutput => {
+    const outputs = displayedCleanedResult.value.outputs.map((output): IRenderedScanCleanupOutput => {
         const metadata = output.metadata;
         const placement = resolvePreviewMetadataPlacement(
             metadata,

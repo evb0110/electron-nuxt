@@ -746,6 +746,13 @@ function domRect(left: number, top: number, width: number, height: number): DOMR
     };
 }
 
+async function loadPendingCleanedFrame(host: HTMLElement) {
+    for (const image of host.querySelectorAll('.preview-cleaned-pixel-preload')) {
+        image.dispatchEvent(new Event('load'));
+    }
+    await nextTick();
+}
+
 function previewZoomWheel(init: WheelEventInit) {
     const event = new WheelEvent('wheel', init);
     Object.defineProperty(event, 'metaKey', {value: true});
@@ -2431,6 +2438,79 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.refresh-indicator')).not.toBeNull();
     });
 
+    it('publishes cleaned pixels, canvas geometry, and content overlays as one loaded frame', async () => {
+        const initial = spreadPreviewResult(1);
+        for (const output of initial.outputs) {
+            output.metadata.contentBox = {
+                xPx: 10,
+                yPx: 20,
+                widthPx: 400,
+                heightPx: 700,
+            };
+        }
+        const fresh = structuredClone(initial);
+        for (const output of fresh.outputs) {
+            output.imageData = new Uint8Array([2]);
+            output.metadata.canvasWidthPx = 640;
+            output.metadata.canvasHeightPx = 900;
+            output.metadata.contentBox = {
+                xPx: 80,
+                yPx: 100,
+                widthPx: 300,
+                heightPx: 500,
+            };
+        }
+        const result = ref(initial);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            loading: true,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        const frameWidths = () => [...harness.host.querySelectorAll('.uniform-canvas')]
+            .map(element => element.getAttribute('data-frame-width'));
+        const contentStyle = () => harness.host.querySelector<HTMLElement>('.content-overlay')
+            ?.getAttribute('style');
+        const initialContentStyle = contentStyle();
+
+        expect(frameWidths()).toEqual([
+            '500',
+            '500',
+        ]);
+        result.value = fresh;
+        await nextTick();
+
+        const pending = [...harness.host.querySelectorAll<HTMLImageElement>('.preview-cleaned-pixel-preload')];
+        expect(pending).toHaveLength(2);
+        expect(frameWidths()).toEqual([
+            '500',
+            '500',
+        ]);
+        expect(contentStyle()).toBe(initialContentStyle);
+
+        pending[0]?.dispatchEvent(new Event('load'));
+        await nextTick();
+        expect(frameWidths()).toEqual([
+            '500',
+            '500',
+        ]);
+
+        pending[1]?.dispatchEvent(new Event('load'));
+        await nextTick();
+        expect(frameWidths()).toEqual([
+            '640',
+            '640',
+        ]);
+        expect(contentStyle()).not.toBe(initialContentStyle);
+        expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
+    });
+
     it('never presents the requested raw sheet as a cleaned output while its result is pending', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(1),
@@ -3885,6 +3965,7 @@ describe('Scan cleanup components', () => {
         expanded.outputs[0]!.imageData = new Uint8Array([2]);
         result.value = expanded;
         await nextTick();
+        await loadPendingCleanedFrame(harness.host);
         resize.trigger();
         await nextTick();
 
@@ -4215,6 +4296,7 @@ describe('Scan cleanup components', () => {
             single.outputs[0]!.metadata.inputHeightPx = 800;
             result.value = single;
             await nextTick();
+            await loadPendingCleanedFrame(harness.host);
             const singleArea = harness.host.querySelector<HTMLElement>('.output-fit-area')!;
             vi.spyOn(singleArea, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 1000, 800));
             resize.trigger();

@@ -92,7 +92,11 @@ export const useScanCleanupPreviewImages = (
 ) => {
     const rawPixelSwap = ref(createPreviewImageSwap());
     const cleanedPixelSwaps = reactive<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewImageSwap>>>({});
+    const displayedCleanedResult = shallowRef<IScanCleanupPreviewResult | null>(null);
+    const pendingCleanedPixelUrls = reactive<Partial<Record<TScanCleanupOutputHalf, string>>>({});
     const detailPixelUrls = reactive<Partial<Record<TScanCleanupOutputHalf, string>>>({});
+    let pendingCleanedResult: IScanCleanupPreviewResult | null = null;
+    const loadedPendingCleanedUrls = new Set<string>();
 
     function revokeBlobUrl(url: string) {
         URL.revokeObjectURL(url);
@@ -106,6 +110,7 @@ export const useScanCleanupPreviewImages = (
             if (state) disposePreviewImageSwap(state, revokeBlobUrl);
             Reflect.deleteProperty(cleanedPixelSwaps, half);
         }
+        clearPendingCleanedFrame();
         for (const half of Object.keys(detailPixelUrls) as TScanCleanupOutputHalf[]) {
             const url = detailPixelUrls[half];
             if (url) revokeBlobUrl(url);
@@ -122,13 +127,57 @@ export const useScanCleanupPreviewImages = (
     }
 
     function loadCleanedPixelSwap(half: TScanCleanupOutputHalf, url: string) {
-        const state = cleanedPixelSwaps[half];
-        if (state) cleanedPixelSwaps[half] = loadPreviewImageSwap(state, url);
+        if (pendingCleanedPixelUrls[half] !== url || pendingCleanedResult === null) {
+            return;
+        }
+        loadedPendingCleanedUrls.add(url);
+        if (pendingCleanedResult.outputs.every(output => {
+            const pendingUrl = pendingCleanedPixelUrls[output.metadata.half];
+            return pendingUrl !== undefined && loadedPendingCleanedUrls.has(pendingUrl);
+        })) {
+            commitPendingCleanedFrame();
+        }
     }
 
     function completeCleanedPixelSwap(half: TScanCleanupOutputHalf, url: string) {
         const state = cleanedPixelSwaps[half];
         if (state) cleanedPixelSwaps[half] = completePreviewImageSwap(state, url, revokeBlobUrl);
+    }
+
+    function clearPendingCleanedFrame() {
+        for (const half of Object.keys(pendingCleanedPixelUrls) as TScanCleanupOutputHalf[]) {
+            const url = pendingCleanedPixelUrls[half];
+            if (url) revokeBlobUrl(url);
+            Reflect.deleteProperty(pendingCleanedPixelUrls, half);
+        }
+        loadedPendingCleanedUrls.clear();
+        pendingCleanedResult = null;
+    }
+
+    function publishCleanedFrame(nextResult: IScanCleanupPreviewResult) {
+        const hadPreviousResult = displayedCleanedResult.value !== null;
+        for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
+            const state = cleanedPixelSwaps[half];
+            if (state) disposePreviewImageSwap(state, revokeBlobUrl);
+            Reflect.deleteProperty(cleanedPixelSwaps, half);
+        }
+        for (const output of nextResult.outputs) {
+            const half = output.metadata.half;
+            const pendingUrl = pendingCleanedPixelUrls[half];
+            cleanedPixelSwaps[half] = createPreviewImageSwap(
+                pendingUrl ?? pngUrl(output.imageData),
+            );
+            Reflect.deleteProperty(pendingCleanedPixelUrls, half);
+        }
+        displayedCleanedResult.value = nextResult;
+        loadedPendingCleanedUrls.clear();
+        pendingCleanedResult = null;
+        onImagesChanged?.(hadPreviousResult);
+    }
+
+    function commitPendingCleanedFrame() {
+        const nextResult = pendingCleanedResult;
+        if (nextResult) publishCleanedFrame(nextResult);
     }
 
     watch(() => toValue(rawResult), (nextResult) => {
@@ -140,33 +189,30 @@ export const useScanCleanupPreviewImages = (
         rawPixelSwap.value = queuePreviewImageSwap(rawPixelSwap.value, pngUrl(nextResult.rawImageData), revokeBlobUrl);
     }, {immediate: true});
 
-    watch(() => toValue(result), (nextResult, previousResult) => {
+    watch(() => toValue(result), (nextResult) => {
         if (!nextResult) {
+            clearPendingCleanedFrame();
             for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
                 const state = cleanedPixelSwaps[half];
                 if (state) disposePreviewImageSwap(state, revokeBlobUrl);
                 Reflect.deleteProperty(cleanedPixelSwaps, half);
             }
+            displayedCleanedResult.value = null;
             return;
         }
-        const activeHalves = new Set<TScanCleanupOutputHalf>();
+        clearPendingCleanedFrame();
+        if (!displayedCleanedResult.value) {
+            publishCleanedFrame(nextResult);
+            return;
+        }
+        pendingCleanedResult = nextResult;
         for (const output of nextResult.outputs) {
             const half = output.metadata.half;
-            activeHalves.add(half);
-            cleanedPixelSwaps[half] = queuePreviewImageSwap(
-                cleanedPixelSwaps[half] ?? createPreviewImageSwap(),
-                pngUrl(output.imageData),
-                revokeBlobUrl,
-            );
+            pendingCleanedPixelUrls[half] = pngUrl(output.imageData);
         }
-        for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
-            if (!activeHalves.has(half)) {
-                const state = cleanedPixelSwaps[half];
-                if (state) disposePreviewImageSwap(state, revokeBlobUrl);
-                Reflect.deleteProperty(cleanedPixelSwaps, half);
-            }
+        if (nextResult.outputs.length === 0) {
+            commitPendingCleanedFrame();
         }
-        onImagesChanged?.(Boolean(previousResult));
     }, {immediate: true});
 
     watch(() => toValue(detailResult), (nextResult) => {
@@ -194,8 +240,10 @@ export const useScanCleanupPreviewImages = (
         completeCleanedPixelSwap,
         completeRawPixelSwap,
         detailPixelUrls,
+        displayedCleanedResult,
         loadCleanedPixelSwap,
         loadRawPixelSwap,
+        pendingCleanedPixelUrls,
         rawPixelSwap,
     };
 };
