@@ -19,7 +19,7 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
         const drawImage = vi.fn();
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage} as never);
         const pageContainer = document.createElement('div');
-        pageContainer.className = 'page_container';
+        pageContainer.className = 'page_container page_container--rendered';
         const pageCanvas = document.createElement('div');
         pageCanvas.className = 'page_canvas';
         const canvasHost = document.createElement('div');
@@ -41,6 +41,7 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
         expect(snapshot?.hasReplacementCanvas()).toBe(false);
         expect(snapshot?.isValid()).toBe(true);
 
+        pageContainer.classList.remove('page_container--rendered');
         const replacementCanvas = document.createElement('canvas');
         canvasHost.replaceChildren(replacementCanvas);
         expect(snapshot?.hasReplacementCanvas()).toBe(false);
@@ -82,10 +83,32 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
         expect(drawImage).not.toHaveBeenCalled();
     });
 
+    it('does not expose a canvas before the page is canonically rendered', () => {
+        const drawImage = vi.fn();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage} as never);
+        const pageContainer = document.createElement('div');
+        pageContainer.className = 'page_container';
+        const pageCanvas = document.createElement('div');
+        pageCanvas.className = 'page_canvas';
+        const canvasHost = document.createElement('div');
+        canvasHost.className = 'page_canvas__render-layer';
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = 640;
+        sourceCanvas.height = 960;
+        canvasHost.append(sourceCanvas);
+        pageCanvas.append(canvasHost);
+        pageContainer.append(pageCanvas);
+        document.body.append(pageContainer);
+
+        expect(preservePdfResizeCanvasVisualSnapshot(pageContainer)).toBeNull();
+        expect(drawImage).not.toHaveBeenCalled();
+        expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).toBeNull();
+    });
+
     it('refuses to duplicate a live snapshot', () => {
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);
         const pageContainer = document.createElement('div');
-        pageContainer.className = 'page_container';
+        pageContainer.className = 'page_container page_container--rendered';
         const pageCanvas = document.createElement('div');
         pageCanvas.className = 'page_canvas';
         const canvasHost = document.createElement('div');
@@ -112,6 +135,7 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
         const drawImage = vi.fn();
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage} as never);
         const pageContainer = document.createElement('div');
+        pageContainer.className = 'page_container page_container--rendered';
         const pageCanvas = document.createElement('div');
         pageCanvas.className = 'page_canvas';
         const canvasHost = document.createElement('div');
