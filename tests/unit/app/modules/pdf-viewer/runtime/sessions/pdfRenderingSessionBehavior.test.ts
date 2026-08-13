@@ -180,6 +180,7 @@ function createRenderingFixture(fixtureOptions: {
         ? createDocumentOpenSurfaceSession()
         : null;
     const settleMandatoryRaster = vi.fn();
+    const effectiveScale = ref(1);
     const viewport = {
         currentPage,
         visibleRange: ref<IPageRange>({
@@ -196,7 +197,7 @@ function createRenderingFixture(fixtureOptions: {
         settleMandatoryRaster,
         notifyRenderStateChanged: vi.fn(),
         scale: {
-            effectiveScale: ref(1),
+            effectiveScale,
             computeFitWidthScale: vi.fn(),
             scaledMargin: ref(20),
         },
@@ -489,6 +490,7 @@ function createRenderingFixture(fixtureOptions: {
         demand,
         disposables,
         emitInitialVisualReady,
+        effectiveScale,
         navigationCommittedSignal,
         openSurface,
         rendering,
@@ -744,6 +746,90 @@ describe('PdfRenderingSession behavior', () => {
             expect(resident?.isConnected).toBe(false);
             expect(fixture.rendering.isPageRenderedForClass(3)).toBe(true);
             expect(fixture.rendering.isPageVisualReady(3)).toBe(true);
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('coalesces rapid visible-page scale demand to the latest effective scale', async () => {
+        const fixture = createRenderingFixture({autoResolve: false});
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            fixture.renderTasks[0]!.resolve();
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            const resident = fixture.canvasHost.querySelector('canvas');
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                mandatoryRaster: null,
+            };
+
+            fixture.effectiveScale.value = 3.02;
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 3,
+            };
+            expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
+            fixture.effectiveScale.value = 5.27;
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 4,
+            };
+
+            expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
+            expect(fixture.canvasHost.querySelector('canvas')).toBe(resident);
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
+            expect(canvasFixture.prepare).toHaveBeenLastCalledWith(
+                expect.anything(),
+                5.27,
+                expect.anything(),
+            );
+
+            fixture.renderTasks[1]!.resolve();
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            expect(fixture.canvasHost.querySelector('canvas')).not.toBe(resident);
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('supersedes an in-flight obsolete-scale raster with the latest visible demand', async () => {
+        const fixture = createRenderingFixture({autoResolve: false});
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            fixture.renderTasks[0]!.resolve();
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                mandatoryRaster: null,
+            };
+
+            fixture.effectiveScale.value = 3.02;
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 3,
+            };
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
+
+            fixture.effectiveScale.value = 5.27;
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 4,
+            };
+
+            await vi.waitFor(() => expect(fixture.renderTasks[1]!.cancel).toHaveBeenCalledOnce());
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(3));
+            expect(canvasFixture.prepare).toHaveBeenLastCalledWith(
+                expect.anything(),
+                5.27,
+                expect.anything(),
+            );
+            expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
+
+            fixture.renderTasks[2]!.resolve();
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            expect(fixture.pdfPage.render).toHaveBeenCalledTimes(3);
         } finally {
             await fixture.dispose();
         }

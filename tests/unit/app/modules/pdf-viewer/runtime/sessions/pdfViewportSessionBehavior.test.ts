@@ -126,6 +126,7 @@ function createViewportFixture(input: {
     const viewerContainer = ref<HTMLElement | null>(container);
     const documentSession = createDocumentFixture(input.pageCount);
     const zoom = input.zoom ?? ref(1);
+    const outputScale = ref(1);
     const zoomMode = ref(input.zoomMode ?? 'fit-width');
     const viewMode = ref(input.viewMode ?? 'single');
     const emittedPages: number[] = [];
@@ -152,7 +153,7 @@ function createViewportFixture(input: {
                 isActive: computed(() => true),
                 isResizing: computed(() => false),
                 requestedCurrentPage: ref(undefined),
-                outputScale: ref(1),
+                outputScale,
                 selectionMarkupStyle: computed(() => null),
                 classState: {
                     isAnySaving: computed(() => false),
@@ -189,6 +190,7 @@ function createViewportFixture(input: {
         container,
         documentSession,
         emittedPages,
+        outputScale,
         viewport,
         viewMode,
         zoom,
@@ -229,6 +231,34 @@ function transition(
 }
 
 describe('PdfViewportSession behavior', () => {
+    it('publishes visible raster demand synchronously for effective zoom and DPR changes', () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 10,
+            zoomMode: 'custom',
+        });
+        try {
+            appendPageBox(fixture.container, 1, {
+                height: 900,
+                top: 0,
+            });
+            fixture.viewport.markPageMounted(1);
+            const initialRevision = fixture.viewport.demand.value.revision;
+
+            fixture.zoom.value = 3.02;
+            const zoomRevision = fixture.viewport.demand.value.revision;
+            expect(zoomRevision).toBeGreaterThan(initialRevision);
+            expect(fixture.viewport.demand.value.requiredPages).toEqual([1]);
+
+            fixture.outputScale.value = 2;
+            expect(fixture.viewport.demand.value.revision).toBeGreaterThan(zoomRevision);
+            expect(fixture.viewport.demand.value.requiredPages).toEqual([1]);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('remeasures continuous facing visibility as newly mounted rows settle without user scroll', async () => {
         const fixture = createViewportFixture({
             bufferPages: 0,

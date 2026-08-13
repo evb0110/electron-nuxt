@@ -1094,6 +1094,47 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
     });
 
+    it.each([
+        PDF_RERENDER_SOURCE.ZoomGestureChange,
+        PDF_RERENDER_SOURCE.ZoomModeChange,
+    ])('preserves the wheel cursor content point through %s raster settlement', async (source) => {
+        const resizeAnchor = createResizeAnchor(8);
+        const rasterCommit = createDeferred();
+        const viewerPosition = {scrollTop: 640};
+        const reRenderAllVisiblePages = vi.fn(() => rasterCommit.promise);
+        const applyResizeAnchorPreview = vi.fn(() => {
+            viewerPosition.scrollTop = 880;
+            return true;
+        });
+        const scrollToPage = vi.fn(() => {
+            viewerPosition.scrollTop = 0;
+            return true;
+        });
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
+            reRenderAllVisiblePages,
+            applyResizeAnchorPreview,
+            scrollToPage,
+        }));
+
+        const settlement = reRenderVisiblePagesAndSyncCurrentPage({
+            source,
+            stabilize: true,
+            resizeAnchor,
+            zoomGestureSessionId: 17,
+        });
+        await Promise.resolve();
+
+        expect(viewerPosition.scrollTop).toBe(640);
+        expect(applyResizeAnchorPreview).not.toHaveBeenCalled();
+
+        rasterCommit.resolve();
+        await settlement;
+
+        expect(viewerPosition.scrollTop).toBe(640);
+        expect(applyResizeAnchorPreview).not.toHaveBeenCalled();
+        expect(scrollToPage).not.toHaveBeenCalled();
+    });
+
     it('retires the resize transition when its transaction goes stale after viewport sync', async () => {
         const resizeAnchor = createResizeAnchor(8);
         let transactionCurrent = true;

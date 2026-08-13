@@ -58,6 +58,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/utils/document-viewer/input/documentWheelInteraction';
 const QUALITY_REFINE_INPUT_IDLE_MS = 160;
+const PDF_RASTER_SCALE_RELATIVE_TOLERANCE = 0.000_1;
 export interface ICreatePdfRenderingSessionOptions {
     document: TPdfDocumentSession;
     viewport: TPdfViewportSession;
@@ -125,6 +126,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         demand: IPdfRasterDemand;
         rasterState: TPdfPageRasterState;
         renderOptions: IRenderVisiblePagesOptions;
+        targetOutputScale: number;
+        targetScale: number;
     }
     interface IPreparedViewportRaster {
         job: IViewportRasterJob;
@@ -145,6 +148,14 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             canvasHost,
         } : null;
     }
+    function isRasterScaleCurrent(targetScale: number, currentScale: number) {
+        return Math.abs(targetScale - currentScale)
+            <= Math.max(1, Math.abs(currentScale)) * PDF_RASTER_SCALE_RELATIVE_TOLERANCE;
+    }
+    function isViewportRasterJobScaleCurrent(job: IViewportRasterJob) {
+        return isRasterScaleCurrent(job.targetScale, viewport.scale.effectiveScale.value)
+            && isRasterScaleCurrent(job.targetOutputScale, options.outputScale.value);
+    }
     function isCommittedVisual(pageNumber: number, requireCurrent = true) {
         const target = getMountedRasterTarget(pageNumber);
         const canvas = pageCanvases.get(pageNumber);
@@ -162,23 +173,27 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const scale = viewport.scale.effectiveScale.value;
         const outputScale = options.outputScale.value;
-        const tolerance = (value: number) => Math.max(1, Math.abs(value)) * Number.EPSILON * 8;
         return slot.contentVersion === renderVersion
             && slot.targetScale !== null
-            && Math.abs(slot.targetScale - scale) <= tolerance(scale)
+            && isRasterScaleCurrent(slot.targetScale, scale)
             && slot.targetOutputScale !== null
-            && Math.abs(slot.targetOutputScale - outputScale) <= tolerance(outputScale);
+            && isRasterScaleCurrent(slot.targetOutputScale, outputScale);
     }
     function getPageRasterState(pageNumber: number): TPdfPageRasterState {
         const slot = pageRenderState.getSlot(pageNumber);
-        if (viewportRasterWaiters.has(pageNumber)) {
-            return 'in-flight';
+        const pendingJob = [...viewportRasterJobs.values()].find(job => (
+            job.demand.pageNumber === pageNumber
+        ));
+        if (
+            viewportRasterWaiters.has(pageNumber)
+            || slot.job === 'rendering' && slot.version === renderVersion
+        ) {
+            return pendingJob && !isViewportRasterJobScaleCurrent(pendingJob)
+                ? 'stale-scale'
+                : 'in-flight';
         }
         if (isCommittedVisual(pageNumber)) {
             return 'current';
-        }
-        if (slot.job === 'rendering' && slot.version === renderVersion) {
-            return 'in-flight';
         }
         if (slot.job === 'failed' && slot.version === renderVersion) {
             return 'failed';
@@ -221,6 +236,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     function isPreparedRasterCurrent(prepared: IPreparedViewportRaster) {
         return viewportRasterJobs.get(prepared.job.demand.renderKey) === prepared.job
+            && isViewportRasterJobScaleCurrent(prepared.job)
             && prepared.job.demand.consumerGeneration === renderVersion
             && documentSession.pdfDocument.value !== null
             && activeRasterScheduler === documentSession.rasterScheduler
@@ -240,14 +256,14 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 !job
                 || !target
                 || job.demand.consumerGeneration !== renderVersion
-                || !shouldRasterizeViewportJob(job)
+                || !isViewportRasterJobScaleCurrent(job)
                 || documentSession.pdfDocument.value === null
             ) {
                 return null;
             }
             const pageNumber = demand.pageNumber;
             const version = demand.consumerGeneration;
-            const scale = viewport.scale.effectiveScale.value;
+            const scale = job.targetScale;
             const requestId = ++visibleRenderRequestId;
             pageRenderState.beginRender(
                 pageNumber,
@@ -255,13 +271,14 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 requestId,
                 getRenderDocumentToken(),
                 scale,
-                options.outputScale.value,
+                job.targetOutputScale,
                 target.container,
                 {preserveCommittedVisual: pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready'},
             );
             const shouldContinue = () => (
                 version === renderVersion
                 && viewportRasterJobs.get(demand.renderKey) === job
+                && isViewportRasterJobScaleCurrent(job)
                 && isViewportRasterDemanded(pageNumber, job.demand.lane)
             );
             const intent = job.renderOptions.contentIntent;
@@ -338,7 +355,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 pageNumber,
                 version: prepared.job.demand.consumerGeneration,
                 requestId: prepared.requestId,
-                scale: viewport.scale.effectiveScale.value,
+                scale: prepared.job.targetScale,
                 container: prepared.container,
                 renderResult: prepared.render,
                 renderOptions: prepared.job.renderOptions,
@@ -443,9 +460,13 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 demand,
                 rasterState: rasterState === 'in-flight' ? 'absent' : rasterState,
                 renderOptions: pageRenderOptions,
+                targetOutputScale: outputScale,
+                targetScale: scale,
             };
             Object.assign(job.demand, demand);
             job.renderOptions = pageRenderOptions;
+            job.targetOutputScale = outputScale;
+            job.targetScale = scale;
             if (rasterState !== 'in-flight') {
                 job.rasterState = rasterState;
             }
@@ -475,7 +496,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const generation = ++viewportDemandGeneration;
         const didHydrateMetrics = await documentSession.ensurePageMetricsInRange(range.start, range.end);
         if (
-            generation !== viewportDemandGeneration && renderOptions.forceRerender !== true
+            generation !== viewportDemandGeneration
             || document !== documentSession.pdfDocument.value
             || !rasterOperational.value
         ) {
@@ -526,6 +547,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             .filter(job => job.rasterState !== 'failed' || job.renderOptions.forceRerender === true);
         const rasterJobs = schedulableJobs.filter(shouldRasterizeViewportJob);
         const waits = rasterJobs.map(job => waitForViewportRaster(job.demand.pageNumber));
+        rasterJobs.forEach((job) => {
+            job.rasterState = 'in-flight';
+        });
         const navigationJobs = rasterJobs.filter(job => job.demand.lane === 'navigation-target');
         if (navigationJobs.length > 0) {
             await Promise.all(navigationJobs.map(job => scheduler.request({

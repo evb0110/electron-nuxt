@@ -624,6 +624,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             visibleRange.value.end,
             viewModel.pagesToRender.value.join(','),
             options.bufferPages.value,
+            scale.effectiveScale.value,
+            options.outputScale.value,
             options.isActive.value,
             isLoading.value,
             Boolean(pdfDocument.value),

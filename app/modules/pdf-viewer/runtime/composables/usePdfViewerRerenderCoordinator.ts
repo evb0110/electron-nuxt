@@ -270,6 +270,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         );
         const runId = ++reRenderSyncRunId;
         const resizeAnchor = syncOptions.resizeAnchor ?? null;
+        const wheelGestureOwnsViewportAnchor = syncOptions.zoomGestureSessionId !== undefined
+            || source === PDF_RERENDER_SOURCE.ZoomGestureChange;
         let transitionOutcome = 'resize-rerender-complete';
         warnZoomRerenderSync(source, `[rerender-sync] begin zoom run=${runId}`, () => ({
             runId,
@@ -323,12 +325,14 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 return;
             }
 
-            if (resizeAnchor) {
-                // Vue can mount the destination row only after the replacement
-                // canvas settles. Reapply the semantic anchor against that final
-                // DOM before sampling the viewport; otherwise a pane relocation
-                // can leave page 1 physically visible while page N remains the
-                // committed owner offscreen.
+            if (resizeAnchor && !wheelGestureOwnsViewportAnchor) {
+                // A modifier-wheel gesture already submitted one cursor-point
+                // viewport intent against its pre-zoom geometry. Replaying the
+                // separately captured resize/visual anchor here would issue a
+                // second scroll write when the sharp raster commits, usually
+                // moving the cursor's content point to the viewport center.
+                // Non-wheel resize and toolbar transitions still need this final
+                // projection because they do not own that atomic cursor intent.
                 await nextTick();
                 const restored = applyResizeAnchorPreview?.(resizeAnchor.semanticAnchor) ?? false;
                 if (!restored) {
