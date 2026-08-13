@@ -63,6 +63,9 @@ const RESCUE_ROW_SIGNAL_CRISPNESS: u16 = 18;
 const RESCUE_SOLID_DEPTH: u8 = 128;
 // Must recognize captured healthy ink while leaving pale captured skeletons rescue-eligible.
 const RESCUE_SOLID_CAPTURED_MEDIAN: u8 = 96;
+// A missing structural stroke may defeat the solid-core skip only when it is
+// materially below paper and lies beyond the captured ink's immediate halo.
+const RESCUE_STRUCTURAL_DEPTH: u8 = 64;
 // Wolf may admit a gray antialias halo around a fully captured dark core. The
 // cap is applied only to components that satisfy the same two-sided solid-core
 // evidence used to deny unnecessary faint-stroke rescue.
@@ -1291,8 +1294,8 @@ pub(crate) fn paper_reference(image: &GrayImage) -> u8 {
 
 /// Recover faint print that a selected local threshold dropped, but only as
 /// compact raw-plane components aligned with an independent text-row signal.
-/// Faint rescue deliberately does not run for Auto, but an Auto-selected Wolf
-/// route may still shed a gray halo after proving that its solid core is intact.
+/// Faint rescue runs for a selected local route or a selected Otsu route, but
+/// only after the component-, row-, picture-, and raw-plane gates below pass.
 pub(crate) fn rescue_component_scoped_faint_strokes(
     damaged: &BinaryImage,
     raw: &GrayImage,
@@ -1305,6 +1308,7 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
     spread_fallback: bool,
 ) -> BinaryImage {
     let faint_rescue_enabled = spread_fallback
+        || selected_mode == BinarizationMode::Otsu
         || (matches!(
             requested_mode,
             BinarizationMode::Sauvola | BinarizationMode::Wolf
@@ -1502,7 +1506,7 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
                     continue;
                 }
                 missing += 1;
-                missing_samples.push((raw.get(x, y), local_paper.get(x, y)));
+                missing_samples.push((x, y, raw.get(x, y), local_paper.get(x, y)));
                 let gradient = raw_max.get(x, y).saturating_sub(raw_min.get(x, y));
                 if is_crisp_or_deep_sample(raw.get(x, y), local_paper.get(x, y), gradient) {
                     qualifying_missing += 1;
@@ -1524,15 +1528,24 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
                 && if selected_mode == BinarizationMode::Wolf {
                     missing_samples
                         .iter()
-                        .filter(|&&(sample, sample_paper)| {
+                        .filter(|&&(_, _, sample, sample_paper)| {
                             sample <= sample_paper.saturating_sub(RESCUE_SOLID_DEPTH)
                         })
                         .count()
                         .saturating_mul(WOLF_SOLID_MAXIMUM_DEEP_MISSING_DENOMINATOR)
                         < missing
                 } else {
-                    !missing_samples.iter().any(|&(sample, sample_paper)| {
+                    !missing_samples.iter().any(|&(x, y, sample, sample_paper)| {
                         is_component_relative_deep_missing(sample, sample_paper, median)
+                            || is_structural_deep_missing(
+                                &components,
+                                component.label,
+                                damaged,
+                                x,
+                                y,
+                                sample,
+                                sample_paper,
+                            )
                     })
                 }
         });
@@ -1630,6 +1643,31 @@ fn is_component_relative_deep_missing(raw: u8, local_paper: u8, captured_median:
     let faded_relative_depth = u16::from(local_paper.saturating_sub(captured_median)) * 2 / 5;
     absolute_deep
         || (local_paper <= 240 && u16::from(raw) + faded_relative_depth <= u16::from(local_paper))
+}
+
+fn is_structural_deep_missing(
+    components: &ComponentMap,
+    label: u32,
+    damaged: &BinaryImage,
+    x: usize,
+    y: usize,
+    raw: u8,
+    local_paper: u8,
+) -> bool {
+    if raw > local_paper.saturating_sub(RESCUE_STRUCTURAL_DEPTH) {
+        return false;
+    }
+    let left = x.saturating_sub(1);
+    let right = x.saturating_add(1).min(damaged.width() - 1);
+    let top = y.saturating_sub(1);
+    let bottom = y.saturating_add(1).min(damaged.height() - 1);
+    !(top..=bottom).any(|sample_y| {
+        (left..=right).any(|sample_x| {
+            (sample_x != x || sample_y != y)
+                && components.label_at(sample_x, sample_y) == label
+                && damaged.get(sample_x, sample_y)
+        })
+    })
 }
 
 fn median_u8(values: &[u8]) -> Option<u8> {
@@ -3109,6 +3147,138 @@ mod tests {
         assert!(rescued.get(50, 45), "the raw-150 missing body was skipped");
         assert!(rescued.get(55, 45), "the raw-150 missing body was skipped");
         assert!(rescued.count_black() > damaged.count_black());
+    }
+
+    #[test]
+    fn dense_auto_otsu_rescues_a_bright_paper_arc_via_structural_depth() {
+        let mut raw = GrayImage::new(140, 90, 246);
+        let mut damaged = BinaryImage::new(raw.width(), raw.height());
+        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
+
+        for y in 36..64 {
+            for x in 54..59 {
+                raw.set(x, y, 60);
+                damaged.set(x, y, true);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 33..38 {
+            for x in 58..60 {
+                raw.set(x, y, 166);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 31..35 {
+            for x in 59..61 {
+                raw.set(x, y, 166);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 29..31 {
+            for x in 60..71 {
+                raw.set(x, y, 166);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 30..42 {
+            for x in 69..71 {
+                raw.set(x, y, 166);
+                text_vicinity.set(x, y, true);
+            }
+        }
+
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            None,
+            BinarizationMode::Auto,
+            BinarizationMode::Otsu,
+            300.0,
+            false,
+        );
+
+        assert!(rescued.get(66, 29), "the raw-166 upper arc was skipped");
+        assert!(rescued.get(70, 38), "the raw-166 arc return was skipped");
+        assert!(rescued.count_black() > damaged.count_black());
+        assert_eq!(
+            ComponentMap::from_binary(&rescued).components().len(),
+            1,
+            "the rescued upper arc must connect to the captured dark body"
+        );
+    }
+
+    #[test]
+    fn dense_auto_otsu_solid_glyph_halo_has_zero_structural_depth_and_gains_no_ink() {
+        let mut raw = GrayImage::new(120, 80, 246);
+        let mut damaged = BinaryImage::new(raw.width(), raw.height());
+        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
+
+        for y in 23..57 {
+            for x in 49..57 {
+                raw.set(x, y, 130 + ((x + y) % 61) as u8);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        for y in 24..56 {
+            for x in 50..56 {
+                raw.set(x, y, 40);
+                damaged.set(x, y, true);
+                text_vicinity.set(x, y, true);
+            }
+        }
+
+        let candidates = BinaryImage::from_fn_parallel(raw.width(), raw.height(), |x, y| {
+            raw.get(x, y) <= 246 - RESCUE_CANDIDATE_DEPTH
+        });
+        let components = ComponentMap::from_binary(&candidates);
+        let label = components.label_at(50, 24);
+        let structural_deep = components
+            .components()
+            .iter()
+            .find(|component| component.label == label)
+            .into_iter()
+            .flat_map(|component| {
+                (component.top..=component.bottom).flat_map(move |y| {
+                    (component.left..=component.right).map(move |x| (component, x, y))
+                })
+            })
+            .filter(|&(component, x, y)| {
+                components.label_at(x, y) == component.label
+                    && !damaged.get(x, y)
+                    && is_structural_deep_missing(
+                        &components,
+                        component.label,
+                        &damaged,
+                        x,
+                        y,
+                        raw.get(x, y),
+                        246,
+                    )
+            })
+            .count();
+        assert_eq!(
+            structural_deep, 0,
+            "an immediate raw-130..190 halo ring must contain no structural-deep pixels"
+        );
+
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            None,
+            BinarizationMode::Auto,
+            BinarizationMode::Otsu,
+            300.0,
+            false,
+        );
+
+        assert_eq!(
+            rescued, damaged,
+            "the raw-130..190 halo around a healthy dense glyph gained ink"
+        );
     }
 
     #[test]
