@@ -6,7 +6,17 @@ import {
     vi,
 } from 'vitest';
 
-const mocks = vi.hoisted(() => ({startStreamingWorkerTask: vi.fn()}));
+const mocks = vi.hoisted(() => ({
+    logger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+    },
+    startStreamingWorkerTask: vi.fn(),
+}));
+
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 vi.mock('@electron/utils/workerTask', () => ({
     resolveUnpackedWorkerPath: (_baseDir: string, workerFileName: string) => workerFileName,
@@ -43,5 +53,51 @@ describe('runScanCleanupWorkerTask', () => {
             onProgressMessage: expect.any(Function),
         }));
         expect(options).not.toHaveProperty('timeoutMs');
+    });
+
+    it('does not report an expected caller cancellation as a worker failure', async () => {
+        const controller = new AbortController();
+        const cancellation = new Error('Scan cleanup canceled');
+        controller.abort(cancellation);
+        mocks.startStreamingWorkerTask.mockReturnValue({
+            worker: {},
+            promise: Promise.reject(cancellation),
+        });
+        const {runScanCleanupWorkerTask} = await import(
+            '@electron/features/scan-cleanup/runScanCleanupWorkerTask'
+        );
+
+        await expect(runScanCleanupWorkerTask(
+            {} as never,
+            {} as never,
+            {} as never,
+            controller.signal,
+            vi.fn(),
+        )).rejects.toBe(cancellation);
+
+        expect(mocks.logger.info).toHaveBeenCalledWith('Scan cleanup worker task canceled');
+        expect(mocks.logger.error).not.toHaveBeenCalled();
+    });
+
+    it('still reports a genuine worker rejection as an error', async () => {
+        const failure = new Error('native pipeline failed');
+        mocks.startStreamingWorkerTask.mockReturnValue({
+            worker: {},
+            promise: Promise.reject(failure),
+        });
+        const {runScanCleanupWorkerTask} = await import(
+            '@electron/features/scan-cleanup/runScanCleanupWorkerTask'
+        );
+
+        await expect(runScanCleanupWorkerTask(
+            {} as never,
+            {} as never,
+            {} as never,
+            new AbortController().signal,
+            vi.fn(),
+        )).rejects.toBe(failure);
+
+        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('native pipeline failed'));
+        expect(mocks.logger.info).not.toHaveBeenCalled();
     });
 });

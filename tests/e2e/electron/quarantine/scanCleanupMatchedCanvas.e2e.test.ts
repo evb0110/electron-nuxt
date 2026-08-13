@@ -136,6 +136,7 @@ function sessionOutput(sessionName: string) {
 function scanCleanupLogFailures(sessionName: string) {
     return sessionOutput(sessionName).split(/\r?\n/u).filter(line => line.includes('NativeScanCleanupError')
         || line.includes('os error 2')
+        || line.includes('Scan cleanup worker task rejected')
         || /Error occurred in handler for 'scan-cleanup/u.test(line));
 }
 

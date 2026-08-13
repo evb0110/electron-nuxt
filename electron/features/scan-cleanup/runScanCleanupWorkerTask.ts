@@ -16,6 +16,7 @@ import {
     resolveUnpackedWorkerPath,
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
+import {isAbortError} from '@electron/utils/abort';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import {createLogger} from '@electron/utils/createLogger';
 
@@ -92,10 +93,14 @@ export async function runScanCleanupWorkerTask(
     try {
         return await task.promise;
     } catch (error) {
-        logger.error(
-            'Scan cleanup worker task rejected: '
-            + `${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
-        );
+        if (signal.aborted || isAbortError(error)) {
+            logger.info('Scan cleanup worker task canceled');
+        } else {
+            logger.error(
+                'Scan cleanup worker task rejected: '
+                + `${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+            );
+        }
         throw error;
     }
 }
