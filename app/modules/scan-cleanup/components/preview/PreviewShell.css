@@ -15,8 +15,9 @@
 
 .preview-cleaned-pixel-preload {
     position: absolute;
-    width: 1px;
-    height: 1px;
+    width: 0;
+    height: 0;
+    overflow: hidden;
     opacity: 0;
     pointer-events: none;
 }
