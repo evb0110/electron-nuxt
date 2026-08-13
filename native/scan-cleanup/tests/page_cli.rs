@@ -3437,6 +3437,142 @@ fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
 }
 
 #[test]
+fn matched_canvas_preview_matches_final_optical_placement_for_a_sparse_wide_spread_leaf() {
+    let scratch = Scratch::new("matched-sparse-spread-preview");
+    let manifest = scratch.path("matched-sparse-spread-preview-manifest.json");
+    let input = scratch.path("matched-sparse-spread-preview-input.png");
+    let output_left = scratch.path("matched-sparse-spread-preview-left.png");
+    let output_right = scratch.path("matched-sparse-spread-preview-right.png");
+    let metadata_left = scratch.path("matched-sparse-spread-preview-left.json");
+    let metadata_right = scratch.path("matched-sparse-spread-preview-right.json");
+    let mut image = GrayImage::new(240, 200, 255);
+    // The off-centre split makes the left intrinsic raster wider than its
+    // 120 px paper frame. Its sparse title is biased toward the fold, while
+    // the white outer and fold tails prove that optical overhang is lossless.
+    for y in (55..145).step_by(15) {
+        for x in 30..110 {
+            if (x / 8 + y / 5) % 3 != 0 {
+                image.set(x, y, 20);
+            }
+        }
+    }
+    for y in (45..155).step_by(14) {
+        for x in 155..225 {
+            if (x / 7 + y / 4) % 3 != 0 {
+                image.set(x, y, 25);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 86.4,
+            "heightPoints": 144.0,
+            "widthPx": 120,
+            "heightPx": 200
+        },
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": scratch.path("matched-sparse-spread-preview-page.json"),
+            "options": {
+                "dpi": 100,
+                "layout": "force-two-page",
+                "manualSplit": {
+                    "xNormalized": 0.55,
+                    "rotationDegrees": 0
+                },
+                "normalizeIllumination": false,
+                "cropContent": true,
+                "outputMode": "bw",
+                "matchPageSize": true,
+                "pageAlignment": "top-center",
+                "margins": {
+                    "leftMm": 1.27,
+                    "topMm": 0,
+                    "rightMm": 1.27,
+                    "bottomMm": 0
+                },
+                "manualContentBoxes": {
+                    "left": {
+                        "xNormalized": 0,
+                        "yNormalized": 0,
+                        "widthNormalized": 0.55,
+                        "heightNormalized": 1,
+                        "rotationDegrees": 0
+                    },
+                    "right": {
+                        "xNormalized": 0.55,
+                        "yNormalized": 0,
+                        "widthNormalized": 0.45,
+                        "heightNormalized": 1,
+                        "rotationDegrees": 0
+                    }
+                }
+            },
+            "outputs": [
+                {"outputPath": output_left, "metadataPath": metadata_left},
+                {"outputPath": output_right, "metadataPath": metadata_right}
+            ]
+        }]
+    });
+    let run = |payload: &Value| {
+        fs::write(&manifest, serde_json::to_vec_pretty(payload).unwrap()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "stderr={}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        [
+            serde_json::from_slice::<Value>(&fs::read(&metadata_left).unwrap()).unwrap(),
+            serde_json::from_slice::<Value>(&fs::read(&metadata_right).unwrap()).unwrap(),
+        ]
+    };
+    let final_metadata = run(&payload);
+    let mut preview_payload = payload;
+    preview_payload["renderMode"] = Value::String("preview".into());
+    preview_payload["canvasScope"] = Value::String("page".into());
+    let preview_metadata = run(&preview_payload);
+
+    for index in 0..2 {
+        for field in [
+            "matchedCanvasContentWidthPx",
+            "placementOffsetXPx",
+            "matchedCanvasIntrinsicOverflowLeftPx",
+            "matchedCanvasIntrinsicOverflowRightPx",
+            "matchedCanvasOpticalPlacement",
+            "matchedCanvasOpticalContentLeftPx",
+            "matchedCanvasOpticalContentRightPx",
+        ] {
+            assert_eq!(
+                preview_metadata[index][field], final_metadata[index][field],
+                "preview and final disagree about {field} for the {} leaf",
+                final_metadata[index]["half"],
+            );
+        }
+    }
+    let left = &preview_metadata[0];
+    assert_eq!(left["half"], "left");
+    assert_eq!(left["matchedCanvasOpticalPlacement"], true);
+    assert!(
+        left["matchedCanvasIntrinsicOverflowLeftPx"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
+        "fixture did not exercise the proof-gated optical overhang: {left}",
+    );
+    assert_native_canvas_owns_image(&final_metadata[0]);
+}
+
+#[test]
 fn matched_canvas_preview_places_a_spread_at_the_final_shared_vertical_anchor() {
     let scratch = Scratch::new("matched-spread-preview");
     let manifest = scratch.path("matched-spread-preview-manifest.json");

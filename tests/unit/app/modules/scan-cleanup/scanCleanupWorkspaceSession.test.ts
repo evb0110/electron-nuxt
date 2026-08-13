@@ -1461,6 +1461,96 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('clears detection pending at terminal completion while the cleanup attempt remains active', async () => {
+        const harness = capabilityHarness();
+        const detectionSubscription = Promise.withResolvers<TScanCleanupDetectionJobState | null>();
+        const cleanupStart = Promise.withResolvers<{
+            started: false;
+            jobId: string;
+            error: string;
+            errorCode: TScanCleanupErrorCode;
+        }>();
+        vi.mocked(harness.value.subscribeDetectionJob).mockImplementation(
+            () => detectionSubscription.promise,
+        );
+        vi.mocked(harness.value.start).mockImplementation(() => cleanupStart.promise);
+        capability.value = harness.value;
+        const mounted = mountSession(`terminal-caption-during-run-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await nextTick();
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        expect(mounted.session.run.isRunning.value).toBe(true);
+        expect(mounted.session.detection.pending.value).toBe(false);
+
+        detectionSubscription.resolve(detectionState('detect-1', 'completed'));
+        cleanupStart.resolve({
+            started: false,
+            jobId: 'stopped-test-cleanup',
+            error: 'test cleanup start stopped',
+            errorCode: 'internal',
+        });
+        await run;
+        mounted.unmount();
+    });
+
+    it('refreshes stale provisional geometry before cleanup pauses the preview', async () => {
+        const harness = capabilityHarness();
+        const finalPreview = Promise.withResolvers<IScanCleanupPreviewResult>();
+        vi.mocked(harness.value.preview).mockImplementation(async request => {
+            if (request.visible === true && request.layoutDetectionComplete) {
+                return finalPreview.promise;
+            }
+            return previewResult(request.pageNumber, 'single-uncut-page');
+        });
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: 'cleanup-after-final-preview',
+            outputPdfPath: '/managed/cleanup-after-final-preview.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: 'cleanup-after-final-preview',
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: Date.now() + 1,
+        });
+        capability.value = harness.value;
+        const mounted = mountSession(`final-preview-before-run-${Date.now()}`);
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+        expect(vi.mocked(harness.value.preview).mock.calls.some(
+            ([request]) => request?.visible === true && request?.layoutDetectionComplete,
+        )).toBe(false);
+
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        expect(mounted.session.preview.resultCurrent.value).toBe(false);
+        const run = mounted.session.run.run();
+
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(
+            ([request]) => request?.visible === true && request?.layoutDetectionComplete,
+        )).toBe(true));
+        expect(harness.value.start).not.toHaveBeenCalled();
+        finalPreview.resolve(previewResult(1, 'single-uncut-page'));
+        await run;
+
+        expect(mounted.session.run.error.value).toBe('');
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        expect(mounted.session.preview.resultCurrent.value).toBe(true);
+        mounted.unmount();
+    });
+
     it('keeps run-owned detection alive when its cleanup tab becomes inactive', async () => {
         const harness = capabilityHarness();
         const active = ref(true);

@@ -43,7 +43,7 @@ interface IUseScanCleanupRunSessionOptions {
      * user has been looking at was measured against.
      */
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
-    beforeRun: () => void;
+    beforeRun: () => Promise<void> | void;
     detectionError: Readonly<Ref<string>>;
     detectionErrorCode: Readonly<Ref<TScanCleanupErrorCode | null>>;
     detectionPending: ComputedRef<boolean>;
@@ -316,7 +316,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             }
             transition.value = 'starting-cleanup';
             await nextTick();
-            options.beforeRun();
+            await options.beforeRun();
             setScanCleanupRunError(options.ownerId, '');
             if (stopRequested.value) {
                 return;

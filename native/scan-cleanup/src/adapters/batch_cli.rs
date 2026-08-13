@@ -178,9 +178,16 @@ struct WrittenOutput {
     /// spread anchor as the in-memory final path without adding protocol
     /// metadata.
     spread_content_top: Option<f64>,
+    /// The transformed horizontal ownership box in the intrinsic raster.
+    /// Deferred preview placement needs the same optical input as the
+    /// in-memory final path without extending protocol metadata.
+    optical_content_bounds_x: Option<(f64, f64)>,
     /// Consecutive provably-paper columns at this leaf's fold edge, measured
     /// before deferred matched-canvas placement.
     fold_side_near_paper_run: usize,
+    /// Consecutive provably-paper columns at the outer edges. These prove that
+    /// optical placement may preserve a signed raster origin without ink loss.
+    outer_near_paper_edge_runs: NearPaperEdgeRuns,
     matched_in_memory: bool,
 }
 
@@ -2336,6 +2343,12 @@ fn run_page(
             }
             write_json_atomic(&destination.metadata_path, &output.metadata)?;
             let (paper_width, paper_height) = matched_output_paper_dimensions(&output.metadata);
+            let optical_content_bounds_x = output
+                .metadata
+                .content_box
+                .is_some()
+                .then(|| optical_content_bounds_x_for_output(output))
+                .flatten();
             let fold_side_near_paper_run =
                 if matched_placement.is_some() || !options.match_page_size || options.ocr_mode {
                     0
@@ -2361,6 +2374,15 @@ fn run_page(
                 } else {
                     0
                 };
+            let outer_near_paper_edge_runs = if matched_placement.is_none()
+                && options.match_page_size
+                && !options.ocr_mode
+                && optical_content_bounds_x.is_some()
+            {
+                outer_near_paper_edge_runs_for_output(output)
+            } else {
+                NearPaperEdgeRuns::default()
+            };
             written.push(WrittenOutput {
                 output_path: destination.output_path.clone(),
                 metadata_path: destination.metadata_path.clone(),
@@ -2380,7 +2402,9 @@ fn run_page(
                 paper_height,
                 content_detected: output.metadata.content_box.is_some(),
                 spread_content_top: spread_content_top_for_output(output),
+                optical_content_bounds_x,
                 fold_side_near_paper_run,
+                outer_near_paper_edge_runs,
                 matched_in_memory: matched_placement.is_some(),
             });
         }
@@ -3157,42 +3181,42 @@ fn shared_spread_overflow_fits_for_written_outputs(
 /// paper is half the size of the canvas — a lower-resolution scan of the same
 /// original, a genuinely smaller sheet, or one half of a spread — is resampled
 /// up until its ink matches everything around it.
-fn plan_canvas_placement(output: &WrittenOutput, canvas: &DocumentCanvas) -> CanvasPlacement {
-    plan_canvas_placement_for(
-        output.width,
-        output.height,
-        output.paper_width,
-        output.paper_height,
-        output.content_detected,
-        &output.options,
-        output.half,
-        canvas,
-    )
-}
-
 fn plan_canvas_placement_with_shared_fit(
     output: &WrittenOutput,
     canvas: &DocumentCanvas,
     shared_overflow_plan: Option<&SharedSpreadOverflowPlan>,
 ) -> CanvasPlacement {
-    let Some(shared_overflow_plan) = shared_overflow_plan else {
-        return plan_canvas_placement(output, canvas);
-    };
-    let own_fit = canvas_fit_for(
-        output.width,
-        output.height,
-        output.paper_width,
-        output.paper_height,
-        output.content_detected,
-        &output.options,
-        canvas,
-    );
-    let fold_trim = fold_trim_for(
-        output.width,
-        output.half,
-        output.fold_side_near_paper_run,
-        own_fit,
-    );
+    if shared_overflow_plan.is_none() && output.optical_content_bounds_x.is_none() {
+        return plan_canvas_placement_for(
+            output.width,
+            output.height,
+            output.paper_width,
+            output.paper_height,
+            output.content_detected,
+            &output.options,
+            output.half,
+            canvas,
+        );
+    }
+    let fold_trim = shared_overflow_plan
+        .map(|_| {
+            let own_fit = canvas_fit_for(
+                output.width,
+                output.height,
+                output.paper_width,
+                output.paper_height,
+                output.content_detected,
+                &output.options,
+                canvas,
+            );
+            fold_trim_for(
+                output.width,
+                output.half,
+                output.fold_side_near_paper_run,
+                own_fit,
+            )
+        })
+        .unwrap_or_default();
     plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
         output.width,
         output.height,
@@ -3202,10 +3226,10 @@ fn plan_canvas_placement_with_shared_fit(
         &output.options,
         output.half,
         canvas,
-        None,
-        Some(shared_overflow_plan.shared_fit),
+        output.optical_content_bounds_x,
+        shared_overflow_plan.map(|plan| plan.shared_fit),
         fold_trim,
-        NearPaperEdgeRuns::default(),
+        output.outer_near_paper_edge_runs,
     )
 }
 
@@ -4779,11 +4803,12 @@ mod tests {
         plan_canvas_placement_for_with_optical_center,
         plan_canvas_placement_for_with_optical_center_and_fit,
         plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim,
-        preflight_manifest_paths, preserve_tier1_provenance_after_rerun,
-        reconcile_classification_batch, robust_quantile_dimension, run_manifest_transaction,
-        run_stream_page_jobs, CanvasPlacement, CleanupRaster, DeferredSpreadVerticalPlacement,
-        FoldSideTrim, HorizontalEdge, NearPaperEdgeRuns, PageResultMetadata, PageRunResult,
-        ScanCleanupCliInvocation, Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
+        plan_canvas_placement_with_shared_fit, preflight_manifest_paths,
+        preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
+        robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs, CanvasPlacement,
+        CleanupRaster, DeferredSpreadVerticalPlacement, FoldSideTrim, HorizontalEdge,
+        NearPaperEdgeRuns, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
+        SharedSpreadOverflowPlan, Tier1Provenance, WrittenOutput, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
         protocol::manifest_v3::{
@@ -5784,6 +5809,78 @@ mod tests {
         assert_eq!(right.left, 360);
         assert_eq!(right.intrinsic_overflow_left, 0);
         assert_eq!(right.intrinsic_overflow_right, 0);
+    }
+
+    #[test]
+    fn deferred_sparse_leaf_uses_carried_optical_bounds_and_outer_edge_proof() {
+        let options = CleanupOptions {
+            dpi: 299.0,
+            margins_mm: None,
+            margins_pixels: Some([59.0; 4]),
+            page_alignment: crate::PageAlignment::TopCenter,
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 2_196.0 / 299.0 * 72.0,
+            height_points: 3_241.0 / 299.0 * 72.0,
+            width_px: 2_196,
+            height_px: 3_241,
+        };
+        let output = WrittenOutput {
+            output_path: PathBuf::new(),
+            metadata_path: PathBuf::new(),
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+            options: options.clone(),
+            source_page_index: 0,
+            is_color: false,
+            half: crate::pipeline::PageHalf::Left,
+            width: 2_298,
+            height: 2_810,
+            paper_width: 2_196.0,
+            paper_height: 3_136.0,
+            content_detected: true,
+            spread_content_top: None,
+            optical_content_bounds_x: Some((336.0, 2_002.0)),
+            fold_side_near_paper_run: 219,
+            outer_near_paper_edge_runs: NearPaperEdgeRuns {
+                left: 300,
+                right: 0,
+            },
+            matched_in_memory: false,
+        };
+        let shared_plan = SharedSpreadOverflowPlan {
+            shared_fit: 1.0,
+            trims: vec![FoldSideTrim {
+                left: 0,
+                right: 219,
+            }],
+        };
+
+        let deferred = plan_canvas_placement_with_shared_fit(&output, &canvas, Some(&shared_plan));
+        let in_memory = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
+            output.width,
+            output.height,
+            output.paper_width,
+            output.paper_height,
+            output.content_detected,
+            &options,
+            output.half,
+            &canvas,
+            output.optical_content_bounds_x,
+            Some(shared_plan.shared_fit),
+            shared_plan.trims[0],
+            output.outer_near_paper_edge_runs,
+        );
+
+        assert_eq!(deferred, in_memory);
+        assert!(deferred.optical_content_centered);
+        assert_eq!(deferred.intrinsic_overflow_left, 71);
+        assert_eq!(deferred.intrinsic_overflow_right, 31);
     }
 
     #[test]

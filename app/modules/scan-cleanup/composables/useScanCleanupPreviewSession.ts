@@ -464,7 +464,38 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         }).catch(() => undefined);
     }
 
-    function pauseForRun() {
+    async function pauseForRun() {
+        // Detection changes the cache identity from provisional to final. If
+        // that change landed immediately before Clean Up, let its visible
+        // generation finish once before canceling preview work; otherwise the
+        // preserve-displayed-result path would freeze the stale frame for the
+        // whole run.
+        if (
+            options.layoutDetectionComplete.value
+            && !resultCurrent.value
+            && options.active()
+            && options.sourcePath.value
+            && getScanCleanupCapability()
+        ) {
+            schedule(true);
+            if (!resultCurrent.value && loading.value) {
+                await new Promise<void>(resolve => {
+                    const stop = watch([
+                        resultCurrent,
+                        loading,
+                    ], ([
+                        current,
+                        previewLoading,
+                    ]) => {
+                        if (!current && previewLoading) {
+                            return;
+                        }
+                        stop();
+                        resolve();
+                    }, {flush: 'sync'});
+                });
+            }
+        }
         cancel(false, true);
     }
 
@@ -509,7 +540,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         }));
     }
 
-    function schedule() {
+    function schedule(immediate = false) {
         // Base-preview identity owns detail identity. Invalidate detail work
         // before the availability guard so source removal/deactivation cannot
         // leave a retry or an older viewport render alive.
@@ -686,11 +717,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // flick issues one request for the page it stops on instead of one per
         // page it passes. Everything else is an options change and keeps the
         // settled debounce it has always had.
-        const requestDelayMs = initialRequest
+        const requestDelayMs = immediate
             ? 0
-            : navigated
-                ? (inFlightPreviewPages.length === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS)
-                : 250;
+            : initialRequest
+                ? 0
+                : navigated
+                    ? (inFlightPreviewPages.length === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS)
+                    : 250;
         timer = setTimeout(() => {
             inFlightPreviewPages.push(requestPage);
             inFlightPreviewRequestIds.add(requestId);
@@ -890,7 +923,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailResult.value = null;
         displayedDetailSourceKey = null;
     });
-    watch(cacheKey, schedule);
+    watch(cacheKey, () => schedule());
     onBeforeUnmount(() => {
         stopRawStream?.();
         cancel();

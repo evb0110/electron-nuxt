@@ -238,7 +238,14 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     });
     const layoutDetectionComplete = computed(() => terminalStatus.value === 'completed');
     const cancelRequested = computed(() => jobState.value?.status === 'canceling');
-    const pending = computed(() => autoPending.value || starting.value || isDetecting.value);
+    // `autoPending` owns the outer async startup/subscription call and can
+    // remain true for a turn after a terminal event has already supplied the
+    // final document plan. Terminal detection is authoritative for the UI:
+    // cleanup starting in that turn must not keep the provisional caption or
+    // page frames alive.
+    const pending = computed(() => starting.value
+        || isDetecting.value
+        || (autoPending.value && terminalStatus.value === null));
     const canStart = computed(() => Boolean(options.sourcePath.value)
         && !options.isRunning.value
         && !isDetecting.value
