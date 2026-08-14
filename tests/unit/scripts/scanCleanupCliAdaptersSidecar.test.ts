@@ -163,6 +163,7 @@ describe('CLI scan cleanup acceptance evidence', () => {
             independentSpreadCues: 3,
             offcutBoundaryScore: 0,
             offcutEmptyScore: 0,
+            offcutPopulatedScore: 0,
             offcutWidthScore: 0,
             offcutNoTextRowsScore: 0,
             alternativeProduct: 0,

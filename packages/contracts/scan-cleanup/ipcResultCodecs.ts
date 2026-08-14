@@ -970,6 +970,7 @@ function decodeSplitDiagnostics(
         'aspectSingleScore',
         'offcutBoundaryScore',
         'offcutEmptyScore',
+        'offcutPopulatedScore',
         'offcutWidthScore',
         'offcutNoTextRowsScore',
         'alternativeProduct',

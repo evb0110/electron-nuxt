@@ -313,6 +313,7 @@ export interface INativeScanCleanupSplitDiagnosticsV3 {
     independentSpreadCues: number;
     offcutBoundaryScore: number;
     offcutEmptyScore: number;
+    offcutPopulatedScore: number;
     offcutWidthScore: number;
     offcutNoTextRowsScore: number;
     alternativeProduct: number;
