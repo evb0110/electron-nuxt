@@ -1944,6 +1944,84 @@ mod tests {
     }
 
     #[test]
+    fn reduced_analysis_bounds_retain_the_source_sample_footprint() {
+        let mut source = GrayImage::new(720, 960, 246);
+        source.set(115, 200, 80);
+        source.set(200, 185, 80);
+        let mapped = map_analysis_rect_to_source_support(
+            Rect::new(58.0, 93.0, 229.0, 238.0),
+            0.5,
+            0.5,
+            720.0,
+            960.0,
+            SourceContentSupport::Rectilinear {
+                image: &source,
+                to_source: Affine::IDENTITY,
+            },
+        );
+        assert_eq!(mapped, Rect::new(115.0, 185.0, 459.0, 477.0));
+
+        let identity = map_analysis_rect_to_source_support(
+            Rect::new(58.0, 93.0, 229.0, 238.0),
+            1.0,
+            1.0,
+            720.0,
+            960.0,
+            SourceContentSupport::Rectilinear {
+                image: &source,
+                to_source: Affine::IDENTITY,
+            },
+        );
+        assert_eq!(identity, Rect::new(58.0, 93.0, 229.0, 238.0));
+    }
+
+    #[test]
+    fn analysis_rect_mapping_expands_each_edge_by_at_most_half_a_sample() {
+        let source = GrayImage::new(800, 1_000, 0);
+        let rect = Rect::new(31.25, 47.75, 113.5, 207.25);
+        let scale_x = 0.4;
+        let scale_y = 0.625;
+        let source_width = 800.0;
+        let source_height = 1_000.0;
+        let naive = Rect::new(
+            rect.x / scale_x,
+            rect.y / scale_y,
+            rect.width / scale_x,
+            rect.height / scale_y,
+        );
+
+        for support in [
+            SourceContentSupport::Rectilinear {
+                image: &source,
+                to_source: Affine::IDENTITY,
+            },
+            SourceContentSupport::DewarpWithoutRectilinearPlane,
+        ] {
+            let mapped = map_analysis_rect_to_source_support(
+                rect,
+                scale_x,
+                scale_y,
+                source_width,
+                source_height,
+                support,
+            );
+            let expansions_in_analysis_samples = [
+                (naive.x - mapped.x) * scale_x,
+                (mapped.right() - naive.right()) * scale_x,
+                (naive.y - mapped.y) * scale_y,
+                (mapped.bottom() - naive.bottom()) * scale_y,
+            ];
+            for expansion in expansions_in_analysis_samples {
+                assert!(expansion >= -1e-9, "mapping contracted an edge: {mapped:?}");
+                assert!(
+                    expansion <= 0.5 + 1e-9,
+                    "mapping expanded an edge by {expansion} analysis samples: {mapped:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn document_prior_is_gated_at_full_resolution_before_analysis_downscaling() {
         let mut source = GrayImage::new(3_000, 2_100, 245);
         let gutter_x = 1_410;
@@ -2341,15 +2419,18 @@ mod tests {
         );
         let automatic_content = automatic.metadata.content_box.unwrap();
         let replayed_content = replayed.metadata.content_box.unwrap();
-        for delta in [
-            automatic_content.x - replayed_content.x,
-            automatic_content.y - replayed_content.y,
-            automatic_content.width - replayed_content.width,
-            automatic_content.height - replayed_content.height,
+        for (axis, delta) in [
+            ("x", automatic_content.x - replayed_content.x),
+            ("y", automatic_content.y - replayed_content.y),
+            ("width", automatic_content.width - replayed_content.width),
+            (
+                "height",
+                automatic_content.height - replayed_content.height,
+            ),
         ] {
             assert!(
                 delta.abs() <= 1.0,
-                "replayed cross-DPI content geometry drifted by {delta}px"
+                "replayed cross-DPI content {axis} drifted by {delta}px: automatic={automatic_content:?}, replayed={replayed_content:?}"
             );
         }
         assert_eq!(
@@ -2580,6 +2661,42 @@ mod tests {
         let blank_image = blank.image.to_gray();
         assert!(blank_image.data().iter().all(|&value| value == 255));
         assert!(!blank_image.data().iter().all(|&value| value == 0));
+    }
+
+    #[test]
+    fn near_blank_leaf_with_dust_keeps_its_full_pipeline_geometry() {
+        let mut source = GrayImage::new(360, 480, 246);
+        for &(left, top) in &[(8, 8), (170, 230), (338, 120), (338, 440)] {
+            for y in top..top + 6 {
+                for x in left..(left + 5).min(source.width()) {
+                    source.set(x, y, 70);
+                }
+            }
+        }
+        let result = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                normalize_illumination: false,
+                despeckle: false,
+                crop_content: true,
+                match_page_size: false,
+                layout: crate::LayoutMode::Single,
+                output_mode: OutputMode::Grayscale,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(result.outputs.len(), 1);
+        let output = &result.outputs[0];
+        assert_eq!(output.metadata.content_box, None);
+        assert_eq!(
+            (output.image.width(), output.image.height()),
+            (source.width(), source.height()),
+            "dust cropped a near-blank pipeline leaf"
+        );
     }
 
     fn pale_photo_plate_fixture() -> GrayImage {

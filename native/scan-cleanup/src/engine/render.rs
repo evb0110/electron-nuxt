@@ -2219,6 +2219,10 @@ fn analyze_page_with_color_and_document_prior_impl(
             output_mode_recommendation: prepared.output_mode_recommendation,
         });
     }
+    let support_source = match options.rotation {
+        OrthogonalRotation::None => Cow::Borrowed(source),
+        rotation => Cow::Owned(rotate_orthogonal(source, rotation)),
+    };
     let content_started = Instant::now();
     let manual_picture_crop_authority = manual_picture_crop_authority(
         options,
@@ -2287,11 +2291,16 @@ fn analyze_page_with_color_and_document_prior_impl(
                 prepared.calibration,
             );
             let content = detected.content.map(|content| {
-                Rect::new(
-                    content.x / prepared.scale_x,
-                    content.y / prepared.scale_y,
-                    content.width / prepared.scale_x,
-                    content.height / prepared.scale_y,
+                map_analysis_rect_to_source_support(
+                    content,
+                    prepared.scale_x,
+                    prepared.scale_y,
+                    region.width,
+                    region.height,
+                    SourceContentSupport::Rectilinear {
+                        image: &support_source,
+                        to_source: Affine::translation(region.x, region.y),
+                    },
                 )
             });
             (content, detected.diagnostics)
@@ -3732,6 +3741,7 @@ fn prepare_analysis_page(
     let analysis_threshold = analysis.analysis_threshold;
     let text_axis = analysis.text_axis;
     let split = cached_split.as_deref().cloned().unwrap_or_else(|| {
+        let mut split_is_full_resolution = false;
         let mut split = match analysis_threshold {
             None => crate::split::single_page(
                 analysis.layout_normalized.width(),
@@ -3777,15 +3787,48 @@ fn prepare_analysis_page(
             && matches!(options.layout, crate::LayoutMode::Auto)
             && !options.has_split_evidence()
         {
+            let resolution_limited_populated_offcut = split.classification
+                == LayoutClassification::PageWithOffcut
+                && split.diagnostics.offcut_empty_score < 0.95
+                && split.diagnostics.offcut_populated_score >= 0.80;
             split.abstain_from_resolution_limited_offcut();
+            // A populated strip cannot use the empty-strip bypass above. If
+            // the bounded raster found one, confirm it independently on the
+            // full source rather than either trusting or discarding a
+            // resolution-limited decision. This path is intentionally cold:
+            // ordinary single pages and strongly empty offcuts never allocate
+            // or analyze the full-resolution layout plane here.
+            if resolution_limited_populated_offcut
+                && split.classification == LayoutClassification::SingleUncutPage
+            {
+                let full_layout = match options.rotation {
+                    OrthogonalRotation::None => Cow::Borrowed(source),
+                    rotation => Cow::Owned(rotate_orthogonal(source, rotation)),
+                };
+                let full_threshold = otsu_threshold(&full_layout);
+                let confirmed = detect_split_at_analysis_level_with_threshold(
+                    &full_layout,
+                    options.dpi,
+                    options.layout,
+                    None,
+                    full_threshold,
+                    applicable_prior,
+                );
+                if confirmed.classification == LayoutClassification::PageWithOffcut {
+                    split = confirmed;
+                    split_is_full_resolution = true;
+                }
+            }
         }
-        scale_split_result(
-            &mut split,
-            analysis.scale_x,
-            analysis.scale_y,
-            analysis.full_width,
-            analysis.full_height,
-        );
+        if !split_is_full_resolution {
+            scale_split_result(
+                &mut split,
+                analysis.scale_x,
+                analysis.scale_y,
+                analysis.full_width,
+                analysis.full_height,
+            );
+        }
         if let (Some(cache), Some(key)) = (cache, split_key.clone()) {
             let value = Arc::new(split.clone());
             let bytes = split_result_bytes(&value);
@@ -5214,11 +5257,21 @@ fn clean_region(
                 );
             }
             let detected_content = detected_result.content.map(|rect| {
-                Rect::new(
-                    rect.x / local_scale_x,
-                    rect.y / local_scale_y,
-                    rect.width / local_scale_x,
-                    rect.height / local_scale_y,
+                map_analysis_rect_to_source_support(
+                    rect,
+                    local_scale_x,
+                    local_scale_y,
+                    working_width as f64,
+                    working_height as f64,
+                    if dewarp_model.is_some() {
+                        SourceContentSupport::DewarpWithoutRectilinearPlane
+                    } else {
+                        SourceContentSupport::Rectilinear {
+                            image: routing_source,
+                            to_source: local_deskew_inverse
+                                .then(Affine::translation(region.x, region.y)),
+                        }
+                    },
                 )
             });
             let source_content_box = detected_content.and_then(|rect| {
@@ -7477,6 +7530,117 @@ fn crop_gray_to_fit(
     // consequently reported a one-pixel stroke). The primitive's area
     // downscaler integrates every source pixel in the crop.
     crop_gray(source, rect).downscale_to_fit(max_width, max_height)
+}
+
+/// Map detector bounds back through the analysis raster without treating its
+/// pixel centers as exact source geometry. A detected sample owns a half-sample
+/// footprint beyond its center; retaining that footprint prevents an
+/// odd-coordinate source stroke from being clipped when 300-DPI input is
+/// measured on the 150-DPI analysis level. Rectilinear paths gate each
+/// expanded edge on source ink. Dewarp has no rectilinear pre-dewarp support
+/// plane, so only that explicitly tagged reduced-analysis path expands without
+/// a support probe. Either path expands by at most half an analysis sample per
+/// edge.
+#[derive(Clone, Copy)]
+enum SourceContentSupport<'a> {
+    Rectilinear {
+        image: &'a GrayImage,
+        to_source: Affine,
+    },
+    DewarpWithoutRectilinearPlane,
+}
+
+fn map_analysis_rect_to_source_support(
+    rect: Rect,
+    scale_x: f64,
+    scale_y: f64,
+    source_width: f64,
+    source_height: f64,
+    source_support: SourceContentSupport<'_>,
+) -> Rect {
+    let naive_left = (rect.x / scale_x).max(0.0);
+    let naive_top = (rect.y / scale_y).max(0.0);
+    let naive_right = (rect.right() / scale_x).min(source_width);
+    let naive_bottom = (rect.bottom() / scale_y).min(source_height);
+    let candidate_left = ((rect.x - 0.5) / scale_x).max(0.0);
+    let candidate_top = ((rect.y - 0.5) / scale_y).max(0.0);
+    let candidate_right = ((rect.right() + 0.5) / scale_x).min(source_width);
+    let candidate_bottom = ((rect.bottom() + 0.5) / scale_y).min(source_height);
+    let has_support = |bounds: Rect| {
+        let SourceContentSupport::Rectilinear { image, to_source } = source_support else {
+            return true;
+        };
+        source_rect_has_ink_support(
+            image,
+            transform_rect_bounds(bounds, to_source),
+            paper_reference(image).saturating_sub(16),
+        )
+    };
+    let unconditional_dewarp_x = matches!(
+        source_support,
+        SourceContentSupport::DewarpWithoutRectilinearPlane
+    ) && scale_x < 1.0;
+    let unconditional_dewarp_y = matches!(
+        source_support,
+        SourceContentSupport::DewarpWithoutRectilinearPlane
+    ) && scale_y < 1.0;
+    let rectilinear = matches!(source_support, SourceContentSupport::Rectilinear { .. });
+    let left = if (rectilinear || unconditional_dewarp_x)
+        && has_support(Rect::new(
+            candidate_left,
+            candidate_top,
+            naive_left - candidate_left,
+            candidate_bottom - candidate_top,
+        )) {
+        candidate_left
+    } else {
+        naive_left
+    };
+    let right = if (rectilinear || unconditional_dewarp_x)
+        && has_support(Rect::new(
+            naive_right,
+            candidate_top,
+            candidate_right - naive_right,
+            candidate_bottom - candidate_top,
+        )) {
+        candidate_right
+    } else {
+        naive_right
+    };
+    let top = if (rectilinear || unconditional_dewarp_y)
+        && has_support(Rect::new(
+            candidate_left,
+            candidate_top,
+            candidate_right - candidate_left,
+            naive_top - candidate_top,
+        )) {
+        candidate_top
+    } else {
+        naive_top
+    };
+    let bottom = if (rectilinear || unconditional_dewarp_y)
+        && has_support(Rect::new(
+            candidate_left,
+            naive_bottom,
+            candidate_right - candidate_left,
+            candidate_bottom - naive_bottom,
+        )) {
+        candidate_bottom
+    } else {
+        naive_bottom
+    };
+    Rect::new(left, top, right - left, bottom - top)
+}
+
+fn source_rect_has_ink_support(source: &GrayImage, bounds: Rect, threshold: u8) -> bool {
+    if bounds.width <= 0.0 || bounds.height <= 0.0 {
+        return false;
+    }
+    let left = bounds.x.floor().max(0.0) as usize;
+    let top = bounds.y.floor().max(0.0) as usize;
+    let right = bounds.right().ceil().min(source.width() as f64) as usize;
+    let bottom = bounds.bottom().ceil().min(source.height() as f64) as usize;
+    (top..bottom).any(|y| (left..right).any(|x| source.get(x, y) <= threshold))
 }
 
 fn transform_rect_bounds(rect: Rect, transform: Affine) -> Rect {

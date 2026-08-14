@@ -15,7 +15,8 @@ use std::sync::OnceLock;
 
 pub(crate) const SPLIT_ANALYSIS_DPI: f64 = 150.0;
 const MAX_EVIDENCE_DISAGREEMENT: f64 = 0.04;
-const MAX_OFFCUT_WIDTH_FRACTION: f64 = 0.18;
+const MAX_OFFCUT_WIDTH_FRACTION: f64 = 0.30;
+const MAX_UNANCHORED_OFFCUT_WIDTH_FRACTION: f64 = 0.18;
 const MIN_CUTTER_ANGLE_DEGREES: f64 = -7.0;
 const MAX_CUTTER_ANGLE_DEGREES: f64 = 7.0;
 const CUTTER_ANGLE_STEP_DEGREES: f64 = 0.5;
@@ -177,6 +178,7 @@ pub struct SplitDiagnostics {
     pub independent_spread_cues: usize,
     pub offcut_boundary_score: f64,
     pub offcut_empty_score: f64,
+    pub offcut_populated_score: f64,
     pub offcut_width_score: f64,
     pub offcut_no_text_rows_score: f64,
     pub alternative_product: f64,
@@ -304,6 +306,18 @@ impl SplitResult {
     /// classifier's normal fail-closed single-page result.
     pub(crate) fn abstain_from_resolution_limited_offcut(&mut self) {
         if self.classification != LayoutClassification::PageWithOffcut {
+            return;
+        }
+        // A reduced raster is still authoritative when it resolved a strong
+        // vertical boundary and independently proved that the narrow side is
+        // not a peer page. This is the stable case the 150-DPI analysis level
+        // was built to preserve; abstention remains mandatory for incomplete
+        // or contradictory offcut evidence.
+        if self.diagnostics.offcut_boundary_score >= 0.80
+            && self.diagnostics.offcut_empty_score >= 0.95
+            && self.diagnostics.offcut_width_score > 0.0
+            && self.diagnostics.offcut_no_text_rows_score >= 0.90
+        {
             return;
         }
         self.diagnostics.abstained = true;
@@ -843,14 +857,22 @@ fn offcut_decision(
         let position = candidate.x / analysis.gray.width().max(1) as f64;
         !(0.28..=0.72).contains(&position)
     });
-    let fold = edge_whitespace.and_then(|candidate| {
+    let whitespace_fold = edge_whitespace.and_then(|candidate| {
         fold_candidate_near_whitespace(
             &analysis.gray,
             analysis.fold_votes(),
             &analysis.cleaned,
             candidate,
         )
-    })?;
+    });
+    let direct_fold =
+        offcut_boundary_candidate(&analysis.gray, analysis.fold_votes(), &analysis.cleaned);
+    let fold = match (whitespace_fold, direct_fold) {
+        (Some(whitespace), Some(direct)) if whitespace.score >= direct.score => whitespace,
+        (_, Some(direct)) => direct,
+        (Some(whitespace), None) => whitespace,
+        (None, None) => return None,
+    };
     let position = fold.x / analysis.gray.width().max(1) as f64;
     let discarded_fraction = position.min(1.0 - position);
     if discarded_fraction >= MAX_OFFCUT_WIDTH_FRACTION || fold.vertical_coverage < 0.52 {
@@ -862,36 +884,46 @@ fn offcut_decision(
             (candidate.x - fold.x).abs() <= analysis.gray.width() as f64 * MAX_EVIDENCE_DISAGREEMENT
         })
         .map_or(0.0, |candidate| candidate.score);
+    let whitespace_anchored_fold = whitespace_fold.is_some_and(|candidate| {
+        (candidate.x - fold.x).abs() <= analysis.gray.width() as f64 * MAX_EVIDENCE_DISAGREEMENT
+    }) || fold_has_adjacent_whitespace(&analysis.cleaned, fold.x);
     let boundary_score = fold.score * (0.7 + 0.3 * whitespace_score);
     let empty_score = smaller_side_empty_score(&analysis.cleaned, fold.x, analysis.dpi);
+    let populated_score = smaller_side_sparse_score(&analysis.cleaned, fold.x);
+    let discardable_score = empty_score.max(populated_score);
     let width_score = ramp(
         MAX_OFFCUT_WIDTH_FRACTION - discarded_fraction,
         0.0,
         MAX_OFFCUT_WIDTH_FRACTION - 0.10,
     );
     let no_text_rows_score = 1.0 - aligned_text_rows_score(&analysis.binary, fold.x);
-    let evidence_product = boundary_score * empty_score * width_score * no_text_rows_score;
+    let evidence_product = boundary_score * discardable_score * width_score * no_text_rows_score;
+
+    let decision_x = gutter_shadow_band(&analysis.gray, fold.x)
+        .map_or(fold.x, |(left, right)| (left + right) * 0.5);
 
     diagnostics.whitespace_score = diagnostics.whitespace_score.max(whitespace_score);
     diagnostics.whitespace_x = edge_whitespace.map_or(0.0, |candidate| candidate.x);
     diagnostics.fold_x = fold.x;
-    diagnostics.decision_x = fold.x;
+    diagnostics.decision_x = decision_x;
     diagnostics.offcut_boundary_score = boundary_score;
     diagnostics.offcut_empty_score = empty_score;
+    diagnostics.offcut_populated_score = populated_score;
     diagnostics.offcut_width_score = width_score;
     diagnostics.offcut_no_text_rows_score = no_text_rows_score;
     diagnostics.evidence_product = diagnostics.evidence_product.max(evidence_product);
 
     if boundary_score < 0.45
-        || empty_score < 0.95
+        || (empty_score < 0.95 && populated_score < 0.80)
         || width_score <= 0.0
         || no_text_rows_score < 0.90
+        || (discarded_fraction > MAX_UNANCHORED_OFFCUT_WIDTH_FRACTION && !whitespace_anchored_fold)
     {
         diagnostics.abstained = true;
         return None;
     }
 
-    let cutter = scale_x(fold.x, analysis.gray.width(), original.width());
+    let cutter = scale_x(decision_x, analysis.gray.width(), original.width());
     Some(split_at(
         original.width(),
         original.height(),
@@ -902,6 +934,59 @@ fn offcut_decision(
         evidence_product,
         *diagnostics,
     ))
+}
+
+/// Find a physical boundary in either outer strip without requiring a white
+/// gutter beside it. Populated offcuts commonly meet the retained page at a
+/// dark cut or scanner seam, so a whitespace-anchored search cannot see them.
+fn offcut_boundary_candidate(
+    gray: &GrayImage,
+    votes: &FoldVotes,
+    cleaned: &BinaryImage,
+) -> Option<FoldCandidate> {
+    let inner = (gray.width() as f64 * MAX_OFFCUT_WIDTH_FRACTION).round() as usize;
+    let outer = gray.width() / 20;
+    let mut candidates = fold_line_candidates_in_range(gray, votes, outer, inner);
+    candidates.extend(fold_line_candidates_in_range(
+        gray,
+        votes,
+        gray.width().saturating_sub(inner),
+        gray.width().saturating_sub(outer),
+    ));
+    select_fold_candidate(cleaned, candidates)
+}
+
+fn fold_has_adjacent_whitespace(cleaned: &BinaryImage, fold_x: f64) -> bool {
+    let columns = column_counts(cleaned);
+    let quiet_limit = (cleaned.height() as f64 * 0.012).ceil() as usize;
+    let search_radius = (cleaned.width() as f64 * 0.03).ceil() as usize;
+    let anchor_distance = (cleaned.width() as f64 * 0.02).ceil() as usize;
+    let minimum_run = (cleaned.width() as f64 * 0.005).ceil().max(2.0) as usize;
+    let fold = fold_x.round().clamp(0.0, cleaned.width() as f64) as usize;
+    let left = fold.saturating_sub(search_radius);
+    let right = (fold + search_radius).min(cleaned.width());
+    let mut start = None;
+    let anchored = |run_start: usize, run_end: usize| {
+        let distance = run_start
+            .saturating_sub(fold)
+            .max(fold.saturating_sub(run_end));
+        run_end - run_start >= minimum_run && distance <= anchor_distance
+    };
+    for (offset, &count) in columns[left..right].iter().enumerate() {
+        let x = left + offset;
+        let quiet = count <= quiet_limit;
+        if quiet && start.is_none() {
+            start = Some(x);
+        }
+        if !quiet {
+            if let Some(run_start) = start.take() {
+                if anchored(run_start, x) {
+                    return true;
+                }
+            }
+        }
+    }
+    start.is_some_and(|run_start| anchored(run_start, right))
 }
 
 fn rotate_gray(source: &GrayImage, correction_degrees: f64) -> GrayImage {
@@ -2004,6 +2089,53 @@ fn smaller_side_empty_score(cleaned: &BinaryImage, cutter_x: f64, dpi: f64) -> f
     }
 }
 
+/// Score a populated narrow side as an offcut only when it contains several
+/// real components but substantially less ink than the retained side. This is
+/// deliberately complementary to [`smaller_side_empty_score`]: a second page
+/// with peer ink mass remains ineligible, while a clipped fragment carrying a
+/// short column or marginal text can still be discarded at a strong boundary.
+fn smaller_side_sparse_score(cleaned: &BinaryImage, cutter_x: f64) -> f64 {
+    let cutter = clamp_cutter(cleaned.width(), cutter_x);
+    let boundary_band = (cleaned.width() as f64 * 0.008).round().max(2.0) as usize;
+    let discarded_is_left = cutter <= cleaned.width() - cutter;
+    let discarded_range = if discarded_is_left {
+        0..cutter.saturating_sub(boundary_band)
+    } else {
+        (cutter + boundary_band).min(cleaned.width())..cleaned.width()
+    };
+    let retained_range = if discarded_is_left {
+        (cutter + boundary_band).min(cleaned.width())..cleaned.width()
+    } else {
+        0..cutter.saturating_sub(boundary_band)
+    };
+    let discarded_ink = (0..cleaned.height())
+        .flat_map(|y| discarded_range.clone().map(move |x| (x, y)))
+        .filter(|&(x, y)| cleaned.get(x, y))
+        .count();
+    let retained_ink = (0..cleaned.height())
+        .flat_map(|y| retained_range.clone().map(move |x| (x, y)))
+        .filter(|&(x, y)| cleaned.get(x, y))
+        .count();
+    if discarded_ink == 0 || retained_ink == 0 {
+        return 0.0;
+    }
+
+    let components = ComponentMap::from_binary(cleaned)
+        .components()
+        .iter()
+        .filter(|component| {
+            let center = (component.left + component.right) / 2;
+            discarded_range.contains(&center)
+        })
+        .count();
+    if !(2..=64).contains(&components) {
+        return 0.0;
+    }
+
+    let ink_ratio = discarded_ink as f64 / retained_ink as f64;
+    ramp(components as f64, 2.0, 8.0) * ramp(0.50 - ink_ratio, 0.0, 0.35)
+}
+
 fn aligned_text_rows_score(binary: &BinaryImage, cutter_x: f64) -> f64 {
     let cutter = clamp_cutter(binary.width(), cutter_x);
     let discarded_is_left = cutter <= binary.width() - cutter;
@@ -2018,22 +2150,43 @@ fn aligned_text_rows_score(binary: &BinaryImage, cutter_x: f64) -> f64 {
     } else {
         0..cutter.saturating_sub(boundary_band)
     };
-    let mut ink_rows = 0usize;
-    let mut aligned_rows = 0usize;
-    for y in 0..binary.height() {
-        let discarded_has_ink = discarded_range.clone().any(|x| binary.get(x, y));
-        if discarded_has_ink {
-            ink_rows += 1;
-            if retained_range.clone().any(|x| binary.get(x, y)) {
-                aligned_rows += 1;
-            }
-        }
-    }
-    if ink_rows == 0 {
+    let discarded_bands = ink_row_bands(binary, discarded_range);
+    if discarded_bands.is_empty() {
         0.0
     } else {
-        aligned_rows as f64 / ink_rows as f64
+        let retained_bands = ink_row_bands(binary, retained_range);
+        let aligned = discarded_bands
+            .iter()
+            .filter(|&&(start, end)| {
+                let center_twice = start + end.saturating_sub(1);
+                retained_bands.iter().any(|&(other_start, other_end)| {
+                    let other_center_twice = other_start + other_end.saturating_sub(1);
+                    center_twice.abs_diff(other_center_twice) <= 2
+                })
+            })
+            .count();
+        aligned as f64 / discarded_bands.len() as f64
     }
+}
+
+fn ink_row_bands(binary: &BinaryImage, range: std::ops::Range<usize>) -> Vec<(usize, usize)> {
+    let mut bands = Vec::new();
+    let mut start = None;
+    for y in 0..binary.height() {
+        let has_ink = range.clone().any(|x| binary.get(x, y));
+        match (start, has_ink) {
+            (None, true) => start = Some(y),
+            (Some(band_start), false) => {
+                bands.push((band_start, y));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(band_start) = start {
+        bands.push((band_start, binary.height()));
+    }
+    bands
 }
 
 fn column_counts(binary: &BinaryImage) -> Vec<usize> {
@@ -2516,6 +2669,29 @@ mod tests {
         }
     }
 
+    fn ruled_index_fixture(rule_x: usize) -> GrayImage {
+        let mut gray = GrayImage::new(900, 760, 245);
+        add_text_lines(&mut gray, 80, 145);
+        add_text_lines(&mut gray, 215, 850);
+        for y in 4..gray.height().saturating_sub(4) {
+            gray.set(rule_x, y, 72);
+            gray.set(rule_x + 1, y, 165);
+        }
+        gray
+    }
+
+    fn scanner_shadow_fixture(shadow_x: usize) -> GrayImage {
+        let mut gray = GrayImage::new(900, 760, 245);
+        add_text_lines(&mut gray, 42, 858);
+        for y in 4..gray.height().saturating_sub(4) {
+            for x in shadow_x.saturating_sub(5)..=(shadow_x + 5).min(gray.width() - 1) {
+                let distance = x.abs_diff(shadow_x) as u8;
+                gray.set(x, y, 112 + distance * 15);
+            }
+        }
+        gray
+    }
+
     fn add_sparse_title(gray: &mut GrayImage, left: usize, right: usize) {
         let center = (left + right) / 2;
         let half_width = (right - left) / 9;
@@ -2935,6 +3111,102 @@ mod tests {
     }
 
     #[test]
+    fn populated_offcut_uses_its_dark_boundary_and_sparse_secondary_strip() {
+        fn add_glyph(
+            image: &mut GrayImage,
+            left: usize,
+            top: usize,
+            width: usize,
+            height: usize,
+            value: u8,
+        ) {
+            for y in top..top + height {
+                for x in left..left + 3.min(width) {
+                    image.set(x, y, value);
+                }
+            }
+            for y in top..top + 3.min(height) {
+                for x in left..left + width {
+                    image.set(x, y, value);
+                }
+            }
+            for y in top + height / 2..top + height / 2 + 2 {
+                for x in left..left + width.saturating_sub(2) {
+                    image.set(x, y, value);
+                }
+            }
+        }
+
+        let mut image = GrayImage::new(900, 760, 245);
+        for line in 0..7 {
+            for column in 0..20 {
+                if (line * 17 + column * 11) % 13 != 0 {
+                    add_glyph(
+                        &mut image,
+                        90 + column * 28,
+                        125 + line * (510 / 7),
+                        10,
+                        15,
+                        65,
+                    );
+                }
+            }
+        }
+        for y in 0..image.height() {
+            for x in 678..693 {
+                image.set(x, y, 96);
+            }
+        }
+        for line in 0..5 {
+            for column in 0..4 {
+                add_glyph(&mut image, 735 + column * 25, 220 + line * 55, 9, 14, 90);
+            }
+        }
+
+        let result = detect_split(&image, 300.0, LayoutMode::Auto, None);
+        assert_eq!(
+            result.classification,
+            LayoutClassification::PageWithOffcut,
+            "{result:#?}"
+        );
+        assert!(
+            (result.cutter_x.unwrap() - 686.0).abs() <= 3.0,
+            "{result:#?}"
+        );
+        assert!(
+            result.diagnostics.offcut_boundary_score >= 0.55,
+            "{result:#?}"
+        );
+        assert!(result.diagnostics.offcut_empty_score < 0.95, "{result:#?}");
+        assert!(
+            result.diagnostics.offcut_populated_score >= 0.80,
+            "{result:#?}"
+        );
+        assert!(
+            result.diagnostics.offcut_no_text_rows_score >= 0.90,
+            "{result:#?}"
+        );
+    }
+
+    #[test]
+    fn ruled_index_and_scanner_shadow_strips_stay_single_pages() {
+        let fixtures = [
+            ("ruled-index-20.8pct", ruled_index_fixture(187)),
+            ("scanner-shadow-17.8pct", scanner_shadow_fixture(160)),
+            ("scanner-shadow-26.7pct", scanner_shadow_fixture(240)),
+        ];
+
+        for (name, image) in fixtures {
+            let result = detect_split(&image, 300.0, LayoutMode::Auto, None);
+            assert_eq!(
+                result.classification,
+                LayoutClassification::SingleUncutPage,
+                "{name}: {result:#?}"
+            );
+        }
+    }
+
+    #[test]
     fn resolution_limited_offcut_abstains_without_changing_spread_results() {
         let diagnostics = SplitDiagnostics {
             evidence_product: 0.7,
@@ -2975,6 +3247,63 @@ mod tests {
         assert_eq!(spread.classification, expected.classification);
         assert_eq!(spread.cutter_x, expected.cutter_x);
         assert_eq!(spread.pages, expected.pages);
+    }
+
+    #[test]
+    fn resolution_limited_offcut_keeps_complete_independent_evidence() {
+        let diagnostics = SplitDiagnostics {
+            evidence_product: 0.7,
+            offcut_boundary_score: 0.80,
+            offcut_empty_score: 0.95,
+            offcut_width_score: 0.40,
+            offcut_no_text_rows_score: 0.90,
+            ..SplitDiagnostics::default()
+        };
+        let mut offcut = split_at(
+            900,
+            760,
+            686.0,
+            None,
+            None,
+            LayoutClassification::PageWithOffcut,
+            0.7,
+            diagnostics,
+        );
+        offcut.abstain_from_resolution_limited_offcut();
+        assert_eq!(offcut.classification, LayoutClassification::PageWithOffcut);
+        assert_eq!(offcut.cutter_x, Some(686.0));
+        assert!(!offcut.diagnostics.abstained);
+    }
+
+    #[test]
+    fn resolution_limited_offcut_abstains_at_the_ordinary_acceptance_gate() {
+        for (boundary_score, empty_score) in [(0.79, 1.0), (1.0, 0.94)] {
+            let diagnostics = SplitDiagnostics {
+                evidence_product: 0.7,
+                offcut_boundary_score: boundary_score,
+                offcut_empty_score: empty_score,
+                offcut_width_score: 0.40,
+                offcut_no_text_rows_score: 0.90,
+                ..SplitDiagnostics::default()
+            };
+            let mut offcut = split_at(
+                900,
+                760,
+                686.0,
+                None,
+                None,
+                LayoutClassification::PageWithOffcut,
+                0.7,
+                diagnostics,
+            );
+            offcut.abstain_from_resolution_limited_offcut();
+            assert_eq!(
+                offcut.classification,
+                LayoutClassification::SingleUncutPage,
+                "boundary={boundary_score}, empty={empty_score}"
+            );
+            assert!(offcut.diagnostics.abstained);
+        }
     }
 
     #[test]

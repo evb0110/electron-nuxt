@@ -37,6 +37,7 @@ const STROKE_EDGE_THRESHOLD: u16 = 24;
 const TILE_PAPER_DELTA: u8 = 48;
 const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
 const MIN_QUALIFYING_PAPER_TILES: usize = 4;
+const UNIFORM_PAPER_MAXIMUM_RANGE: u8 = 8;
 
 // A rule is preserved only when the source itself contains a long, thin run
 // of dark pixels. The geometry is intentionally shared with the render-side
@@ -457,10 +458,13 @@ fn threshold_with_mode(
     match mode {
         BinarizationMode::Otsu => {
             let source = global_threshold_source.unwrap_or(normalized);
-            let threshold = spread_plan.map_or_else(
-                || paper_ink_midpoint_threshold(source, None),
-                |plan| plan.threshold_anchor,
-            );
+            let decision = paper_ink_midpoint_threshold(source, None);
+            let threshold = if decision.uniform_empty {
+                decision.threshold
+            } else {
+                spread_plan.map_or(decision.threshold, |plan| plan.threshold_anchor)
+            };
+            let bias = if decision.uniform_empty { 0 } else { bias };
             threshold_global_biased(source, threshold, bias)
         }
         BinarizationMode::Sauvola => threshold_local_for_route(
@@ -512,10 +516,13 @@ fn threshold_with_mode_excluding(
     match mode {
         BinarizationMode::Otsu => {
             let source = global_threshold_source.unwrap_or(normalized);
-            let threshold = spread_plan.map_or_else(
-                || paper_ink_midpoint_threshold(source, Some(picture_mask)),
-                |plan| plan.threshold_anchor,
-            );
+            let decision = paper_ink_midpoint_threshold(source, Some(picture_mask));
+            let threshold = if decision.uniform_empty {
+                decision.threshold
+            } else {
+                spread_plan.map_or(decision.threshold, |plan| plan.threshold_anchor)
+            };
+            let bias = if decision.uniform_empty { 0 } else { bias };
             threshold_global_biased(source, threshold, bias).subtract(picture_mask)
         }
         BinarizationMode::Sauvola => threshold_local_for_route_excluding(
@@ -551,7 +558,16 @@ fn threshold_with_mode_excluding(
     }
 }
 
-fn paper_ink_midpoint_threshold(image: &GrayImage, exclusion: Option<&BinaryImage>) -> u8 {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct GlobalThresholdDecision {
+    threshold: u8,
+    uniform_empty: bool,
+}
+
+fn paper_ink_midpoint_threshold(
+    image: &GrayImage,
+    exclusion: Option<&BinaryImage>,
+) -> GlobalThresholdDecision {
     let mut histogram = [0usize; 256];
     for y in 0..image.height() {
         for x in 0..image.width() {
@@ -563,7 +579,32 @@ fn paper_ink_midpoint_threshold(image: &GrayImage, exclusion: Option<&BinaryImag
     }
     let total = histogram.iter().sum::<usize>();
     if total == 0 {
-        return 127;
+        return GlobalThresholdDecision {
+            threshold: 127,
+            uniform_empty: true,
+        };
+    }
+    let darkest = histogram.iter().position(|&count| count > 0).unwrap_or(0) as u8;
+    let lightest = histogram
+        .iter()
+        .rposition(|&count| count > 0)
+        .unwrap_or(255) as u8;
+    let darkest_end = usize::from(darkest).saturating_add(2).min(255);
+    let darkest_three = histogram[usize::from(darkest)..=darkest_end]
+        .iter()
+        .sum::<usize>();
+    // Otsu has no foreground class to separate on a normalized blank leaf.
+    // A narrow range is not enough to prove that case: faint uniform print
+    // can sit only a few levels below paper. The shortcut is valid only when
+    // the dark end is itself the dominant paper class. Its exclusive
+    // threshold must also bypass thickness bias or the paper class floods.
+    if lightest.saturating_sub(darkest) <= UNIFORM_PAPER_MAXIMUM_RANGE
+        && darkest_three.saturating_mul(5) >= total
+    {
+        return GlobalThresholdDecision {
+            threshold: darkest,
+            uniform_empty: true,
+        };
     }
     let otsu = exclusion.map_or_else(
         || otsu_threshold(image),
@@ -571,7 +612,10 @@ fn paper_ink_midpoint_threshold(image: &GrayImage, exclusion: Option<&BinaryImag
     );
     let dark_count = histogram[..=otsu as usize].iter().sum::<usize>();
     if dark_count < 16 {
-        return otsu;
+        return GlobalThresholdDecision {
+            threshold: otsu,
+            uniform_empty: false,
+        };
     }
     let percentile = |rank: usize| {
         let mut cumulative = 0usize;
@@ -591,10 +635,14 @@ fn paper_ink_midpoint_threshold(image: &GrayImage, exclusion: Option<&BinaryImag
     // 50% glyph boundary across paper shades and tints.
     let ink_core = percentile(dark_count.saturating_sub(1) / 10);
     let paper = percentile(total.saturating_sub(1) * 7 / 10);
-    if paper <= ink_core.saturating_add(8) {
+    let threshold = if paper <= ink_core.saturating_add(8) {
         otsu
     } else {
         ((u16::from(ink_core) + u16::from(paper)) / 2) as u8
+    };
+    GlobalThresholdDecision {
+        threshold,
+        uniform_empty: false,
     }
 }
 
@@ -893,8 +941,10 @@ pub(crate) fn resolve_spread_binarization_plans(
         left_picture_mask.map(|mask| protected_picture_mask(mask, options));
     let right_protected_picture_mask =
         right_picture_mask.map(|mask| protected_picture_mask(mask, options));
-    let left_anchor = paper_ink_midpoint_threshold(left, left_protected_picture_mask.as_ref());
-    let right_anchor = paper_ink_midpoint_threshold(right, right_protected_picture_mask.as_ref());
+    let left_anchor =
+        paper_ink_midpoint_threshold(left, left_protected_picture_mask.as_ref()).threshold;
+    let right_anchor =
+        paper_ink_midpoint_threshold(right, right_protected_picture_mask.as_ref()).threshold;
     // `left` and `right` are the full working-resolution leaves, while the
     // calibration carried into this function was measured on the bounded
     // analysis raster (normally 150 DPI).  Measuring a full leaf with the
@@ -2616,6 +2666,135 @@ mod tests {
     }
 
     #[test]
+    fn shallow_paper_gradient_remains_blank() {
+        let mut source = GrayImage::new(720, 960, 250);
+        let mut state = 0x5eed_2f01_u64 ^ 17;
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                let horizontal = x as f64 / source.width() as f64;
+                let vertical = y as f64 / source.height() as f64;
+                let blend = horizontal * 0.65 + vertical * 0.35;
+                let base = 242.0 + 8.0 * blend;
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let noise = -2 + ((state >> 16) as u32 % 5) as i16;
+                source.set(x, y, (base.round() as i16 + noise) as u8);
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 300.0,
+            binarization: BinarizationMode::Auto,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+
+        let result = clean_black_and_white(&source, &options);
+        let threshold = paper_ink_midpoint_threshold(&result.normalized, None);
+        let minimum = result.normalized.data().iter().copied().min().unwrap();
+        let maximum = result.normalized.data().iter().copied().max().unwrap();
+        let diagnostics = resolve_binarization_diagnostics(
+            &smooth_for_binarization(&result.normalized, options.dpi),
+            &options,
+        );
+        assert_eq!(
+            result.binary.count_black(),
+            0,
+            "shallow paper texture became ink: mode={:?}, threshold={threshold:?}, range={minimum}..={maximum}, diagnostics={diagnostics:?}, components={}",
+            result.mode,
+            ComponentMap::from_binary(&result.binary).components().len(),
+        );
+    }
+
+    #[test]
+    fn uniform_empty_otsu_verdict_survives_the_full_thickness_range() {
+        let mut source = GrayImage::new(720, 960, 248);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source.set(x, y, 248 + ((x * 7 + y * 11) % 3) as u8);
+            }
+        }
+        let calibration = PageCalibration::estimate(&source, 300.0, CalibrationConfig::default());
+
+        for thickness in 0..=2 {
+            let options = CleanupOptions {
+                dpi: 300.0,
+                binarization: BinarizationMode::Otsu,
+                thickness,
+                despeckle: false,
+                normalize_illumination: false,
+                ..CleanupOptions::default()
+            };
+            let decision = paper_ink_midpoint_threshold(&source, None);
+            assert!(
+                decision.uniform_empty,
+                "thickness={thickness}: {decision:?}"
+            );
+            let binary = threshold_with_mode(
+                &source,
+                &source,
+                None,
+                &options,
+                BinarizationMode::Otsu,
+                calibration,
+                None,
+            );
+            assert_eq!(
+                binary.count_black(),
+                0,
+                "thickness={thickness} flooded a uniform blank leaf"
+            );
+        }
+    }
+
+    #[test]
+    fn faint_uniform_ink_uses_otsu_even_with_one_dust_mote() {
+        const FAINT_INK_PIXELS: usize = 17_632;
+        for ink in [246, 245, 242] {
+            for dust_mote in [false, true] {
+                let mut source = GrayImage::new(720, 960, 250);
+                for index in 0..FAINT_INK_PIXELS {
+                    let x = 120 + index % 128;
+                    let y = 180 + index / 128;
+                    source.set(x, y, ink);
+                }
+                if dust_mote {
+                    source.set(30, 30, 32);
+                }
+                let decision = paper_ink_midpoint_threshold(&source, None);
+                assert!(
+                    !decision.uniform_empty,
+                    "ink={ink}, dust={dust_mote}: faint print was declared blank"
+                );
+                let options = CleanupOptions {
+                    dpi: 300.0,
+                    binarization: BinarizationMode::Otsu,
+                    despeckle: false,
+                    normalize_illumination: false,
+                    ..CleanupOptions::default()
+                };
+                let calibration =
+                    PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default());
+                let binary = threshold_with_mode(
+                    &source,
+                    &source,
+                    None,
+                    &options,
+                    BinarizationMode::Otsu,
+                    calibration,
+                    None,
+                );
+                let expected = FAINT_INK_PIXELS + usize::from(dust_mote);
+                assert_eq!(
+                    binary.count_black(),
+                    expected,
+                    "ink={ink}, dust={dust_mote}, decision={decision:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn spread_plan_is_symmetric_and_overrides_leaf_route_selection() {
         let options = CleanupOptions {
             dpi: 300.0,
@@ -3553,7 +3732,7 @@ mod tests {
                     image.set(x + 1, y, ((u16::from(ink) + u16::from(paper)) / 2) as u8);
                 }
             }
-            let threshold = paper_ink_midpoint_threshold(&image, None);
+            let threshold = paper_ink_midpoint_threshold(&image, None).threshold;
             let expected = ((u16::from(ink) + u16::from(paper)) / 2) as i16;
             assert!(
                 (i16::from(threshold) - expected).abs() <= 2,

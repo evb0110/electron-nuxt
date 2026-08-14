@@ -6829,12 +6829,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn streamed_reconciliation_uses_existing_evidence_without_reopening_inputs() {
-        // Unix-domain socket paths are limited to roughly one hundred bytes
-        // on macOS, while the per-user temporary directory is much longer.
         let dir = PathBuf::from(format!("/tmp/evb-scan-reconcile-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        let input = dir.join("one-shot-input.socket");
-        let listener = std::os::unix::net::UnixListener::bind(&input).unwrap();
+        // Reconciliation must use the page evidence already in memory. An
+        // existing directory passes the cache's path metadata check but
+        // cannot be decoded as a raster, proving the invariant without a Unix
+        // socket (creation of which restricted macOS runners may deny).
+        let input = dir.join("already-consumed-input");
+        fs::create_dir(&input).unwrap();
         let manifest = ManifestV3 {
             version: VERSION,
             operation: Operation::Analyze,
@@ -6910,7 +6912,6 @@ mod tests {
         );
         assert!(results[3].metadata.reconciled);
         assert!(results[3].metadata.document_prior.is_some());
-        drop(listener);
         let _ = fs::remove_dir_all(dir);
     }
 
