@@ -2584,7 +2584,7 @@ describe('Scan cleanup components', () => {
         expect(Number.parseFloat(initialTop)).toBeCloseTo(2);
     });
 
-    it('applies live placement, content, order, and canvas props to the displayed raster', async () => {
+    it('keeps native placement while live changes label the displayed raster stale', async () => {
         const result = shallowRef(spreadPreviewResult(1));
         for (const output of result.value.outputs) {
             Object.assign(output.metadata, {
@@ -2596,6 +2596,7 @@ describe('Scan cleanup components', () => {
         }
         const alignment = ref<TScanCleanupPageAlignment>('top-left');
         const matchPageSize = ref(true);
+        const resultCurrent = ref(true);
         const readingOrder = ref<'ltr' | 'rtl'>('ltr');
         const manualContentBoxes = ref<Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>>({left: {
             xNormalized: 0.1,
@@ -2606,8 +2607,9 @@ describe('Scan cleanup components', () => {
         }});
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: result.value,
-            resultCurrent: true,
+            resultCurrent: resultCurrent.value,
             resultPresentationKey: 'session-1:page-1:user-0',
+            layoutDetectionComplete: true,
             loading: false,
             error: '',
             viewMode: 'cleaned',
@@ -2623,8 +2625,12 @@ describe('Scan cleanup components', () => {
             .map(element => element.getAttribute('data-output-half'));
         const initialImageStyle = harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style');
         const initialContentStyle = harness.host.querySelector<HTMLElement>('.content-overlay')!.getAttribute('style');
+        const canvasNotice = () => harness.host.querySelector<HTMLElement>('.preview-viewport-caption')
+            ?.dataset.canvasNotice;
+        expect(canvasNotice()).toBe('');
 
         alignment.value = 'bottom-right';
+        resultCurrent.value = false;
         readingOrder.value = 'rtl';
         manualContentBoxes.value = {left: {
             xNormalized: 0.2,
@@ -2641,13 +2647,17 @@ describe('Scan cleanup components', () => {
         ]);
         expect(harness.host.querySelector('.uniform-canvas')?.classList).toContain('has-uniform-canvas');
         expect(harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style'))
-            .not.toBe(initialImageStyle);
+            .toBe(initialImageStyle);
         expect(harness.host.querySelector<HTMLElement>('.content-overlay')!.getAttribute('style'))
             .not.toBe(initialContentStyle);
+        expect(canvasNotice()).toBe('updating');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
+            .toContain('scanCleanup.preview.updatingPreviousPlacement');
 
         matchPageSize.value = false;
         await nextTick();
         expect(harness.host.querySelector('.uniform-canvas')?.classList).not.toContain('has-uniform-canvas');
+        expect(canvasNotice()).toBe('updating');
     });
 
     it('coalesces provisional churn, commits the first settled frame, and pins later replans', async () => {
@@ -3463,6 +3473,8 @@ describe('Scan cleanup components', () => {
 
     it('positions a cropped high-detail tile over its intrinsic output region', async () => {
         const base = rotatedSinglePreviewResult();
+        base.outputs[0]!.metadata.foldClipLeftPx = 40;
+        base.outputs[0]!.metadata.foldClipRightPx = 20;
         const detail = structuredClone(base);
         detail.outputs[0]!.metadata.renderRegion = {
             xPx: 100,
@@ -3491,6 +3503,9 @@ describe('Scan cleanup components', () => {
         expect(tile?.style.top).toBe('25%');
         expect(tile?.style.width).toBe('50%');
         expect(tile?.style.height).toBe('50%');
+        const clippedPixels = tile?.closest<HTMLElement>('.fold-clipped-pixels');
+        expect(clippedPixels?.style.clipPath).toBe('inset(0 5% 0 10%)');
+        expect(clippedPixels?.querySelector('.preview-pixel')).not.toBeNull();
     });
 
     it('requests distinct output-local crops for both visible spread halves', async () => {
@@ -4260,10 +4275,18 @@ describe('Scan cleanup components', () => {
     });
 
     it.each(placementAlignments)(
-        'round-trips inset %s placement and skips a no-op pointer commit',
+        'round-trips native %s placement against the retained fold window',
         async alignment => {
             const result = spreadPreviewResult();
             const first = result.outputs[0]!;
+            const [
+                vertical,
+                horizontal = vertical,
+            ] = alignment.split('-');
+            const horizontalOffset = horizontal === 'left' ? 0 : horizontal === 'right' ? 60 : 30;
+            const verticalOffset = vertical === 'top' ? 0 : vertical === 'bottom' ? 40 : 20;
+            const retainedLeftPx = 10 + horizontalOffset;
+            const intrinsicLeftPx = retainedLeftPx - 12;
             Object.assign(first.metadata, {
                 appliedMargins: {
                     leftPx: 10,
@@ -4277,8 +4300,11 @@ describe('Scan cleanup components', () => {
                 canvasHeightPx: 300,
                 matchedCanvasContentWidthPx: 120,
                 matchedCanvasContentHeightPx: 200,
-                placementOffsetXPx: 10,
-                placementOffsetYPx: 20,
+                matchedCanvasIntrinsicOverflowLeftPx: Math.max(0, -intrinsicLeftPx),
+                foldClipLeftPx: 12,
+                foldClipRightPx: 8,
+                placementOffsetXPx: Math.max(0, intrinsicLeftPx),
+                placementOffsetYPx: 20 + verticalOffset,
             });
             const commitCurrentPlacement = vi.fn();
             const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
@@ -4313,10 +4339,6 @@ describe('Scan cleanup components', () => {
             const anchors = Array.from(harness.host.querySelectorAll<HTMLElement>('.placement-snap-anchor'));
             const nearestIndex = anchors.findIndex(anchor => anchor.classList.contains('is-nearest'));
             const nearest = anchors[nearestIndex]!;
-            const [
-                vertical,
-                horizontal = vertical,
-            ] = alignment.split('-');
             const expectedLeft = horizontal === 'left' ? 5 : horizontal === 'right' ? 85 : 45;
             const expectedTop = vertical === 'top'
                 ? 20 / 300 * 100
@@ -4326,6 +4348,7 @@ describe('Scan cleanup components', () => {
             expect(nearestIndex).toBe(placementAlignments.indexOf(alignment));
             expect(Number.parseFloat(nearest.style.left)).toBeCloseTo(expectedLeft);
             expect(Number.parseFloat(nearest.style.top)).toBeCloseTo(expectedTop);
+            expect(Number.parseFloat(placement.style.left)).toBeCloseTo(intrinsicLeftPx / 200 * 100);
 
             placement.dispatchEvent(new PointerEvent('pointerup', {
                 bubbles: true,
@@ -4404,8 +4427,8 @@ describe('Scan cleanup components', () => {
         expect(Number.parseFloat(paper.style.height)).toBeCloseTo(920 / 620 * 500);
         expect(paper.dataset.frameWidth).toBe('620');
         expect(paper.dataset.frameHeight).toBe('920');
-        expect(Number.parseFloat(raster.style.left)).toBeCloseTo(26 / 620 * 100);
-        expect(Number.parseFloat(raster.style.top)).toBeCloseTo(26 / 920 * 100);
+        expect(Number.parseFloat(raster.style.left)).toBeCloseTo(13 / 620 * 100);
+        expect(Number.parseFloat(raster.style.top)).toBeCloseTo(13 / 920 * 100);
 
         const paperWidth = Number.parseFloat(paper.style.width);
         const paperHeight = Number.parseFloat(paper.style.height);
@@ -4415,8 +4438,8 @@ describe('Scan cleanup components', () => {
             width: Number.parseFloat(raster.style.width) / 100 * paperWidth,
             height: Number.parseFloat(raster.style.height) / 100 * paperHeight,
         };
-        expect(rasterRect.left).toBeCloseTo(26 / 620 * paperWidth);
-        expect(rasterRect.top).toBeCloseTo(26 / 920 * paperHeight);
+        expect(rasterRect.left).toBeCloseTo(13 / 620 * paperWidth);
+        expect(rasterRect.top).toBeCloseTo(13 / 920 * paperHeight);
         expect(rasterRect.left + rasterRect.width).toBeLessThanOrEqual(paperWidth);
         expect(rasterRect.top + rasterRect.height).toBeLessThanOrEqual(paperHeight);
         expect(paper.contains(harness.host.querySelector('.placement-overlay-canvas'))).toBe(true);
@@ -4973,18 +4996,25 @@ describe('Scan cleanup components', () => {
         expect(placed?.style.height).toBe(`${700 / 800 * 100}%`);
     });
 
-    it('repositions a cached preview when its placement override changes', async () => {
+    it('keeps cached native placement and labels a changed placement override stale', async () => {
         const result = spreadPreviewResult();
         const first = result.outputs[0]!;
         first.metadata.outputWidthPx = 300;
         first.metadata.outputHeightPx = 600;
         first.metadata.canvasWidthPx = 500;
         first.metadata.canvasHeightPx = 800;
+        first.metadata.matchedCanvasContentWidthPx = 300;
+        first.metadata.foldClipLeftPx = 30;
+        first.metadata.foldClipRightPx = 15;
         first.metadata.placementOffsetXPx = 0;
         first.metadata.placementOffsetYPx = 0;
         const placementOverrides = ref<Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>>({left: 'top-left'});
+        const resultCurrent = ref(true);
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result,
+            resultCurrent: resultCurrent.value,
+            resultPresentationKey: 'session-1:page-1:user-0',
+            layoutDetectionComplete: true,
             loading: false,
             error: '',
             viewMode: 'cleaned',
@@ -5001,11 +5031,16 @@ describe('Scan cleanup components', () => {
         const placed = harness.host.querySelector<HTMLElement>('.placed-image');
         expect(placed?.style.left).toBe('0%');
         expect(placed?.style.top).toBe('0%');
+        expect(placed?.querySelector<HTMLElement>('.fold-clipped-pixels')?.style.clipPath)
+            .toBe('inset(0 5% 0 10%)');
 
         placementOverrides.value = {left: 'bottom-right'};
+        resultCurrent.value = false;
         await nextTick();
-        expect(placed?.style.left).toBe('40%');
-        expect(placed?.style.top).toBe('25%');
+        expect(placed?.style.left).toBe('0%');
+        expect(placed?.style.top).toBe('0%');
+        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
+            .toBe('updating');
     });
 
     it('names the preview fit control after fitting the whole page and marks it pressed', async () => {

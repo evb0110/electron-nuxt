@@ -166,6 +166,9 @@ export interface INativeScanCleanupOutputMetadataV3 {
     matchedCanvasIntrinsicOverflowLeftPx?: number;
     matchedCanvasIntrinsicOverflowRightPx?: number;
     matchedCanvasIntrinsicOverflowTopPx?: number;
+    /** Canvas-grid columns excluded from the preview/final source window at the fold edge. */
+    foldClipLeftPx?: number;
+    foldClipRightPx?: number;
     /** Optional source-grid continuous-tone rectangle in PDF user-space points. */
     pdfImagePlacement?: INativeScanCleanupPdfImagePlacementV3;
     placementOffsetXPx: number;

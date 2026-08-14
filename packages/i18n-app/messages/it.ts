@@ -370,6 +370,7 @@ export default {
             'blankSkipped': 'Questa pagina è vuota e verrà saltata.',
             'matchedCanvasUnavailable': 'La dimensione pagina uniforme è disattivata per questo documento: non è stato possibile misurarne le dimensioni. Ogni pagina mantiene la propria.',
             'matchedCanvasProvisional': 'La dimensione della pagina è provvisoria mentre è in corso il rilevamento del layout; una doppia pagina rilevata cambia la pagina condivisa.',
+            'updatingPreviousPlacement': 'L’anteprima è in aggiornamento; il posizionamento usa le impostazioni precedenti.',
             'cutter': 'Posizione della linea divisoria',
             'cutterHint': 'Trascina per spostarla; fai doppio clic per ripristinarla. Usa i tasti freccia per regolarla.',
             'contentBoxFor': 'Casella del contenuto modificabile per {half}',

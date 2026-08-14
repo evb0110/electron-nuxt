@@ -726,6 +726,7 @@ export default {
             'blankSkipped': 'This page is blank and will be skipped.',
             'matchedCanvasUnavailable': 'Matched page size is off for this document: its page sizes couldn\'t be measured. Pages keep their own size.',
             'matchedCanvasProvisional': 'Page size is provisional while layout detection runs; finding a spread changes the shared page.',
+            'updatingPreviousPlacement': 'Preview updating; placement uses previous settings.',
             'cutter': 'Spread cutter position',
             'cutterHint': 'Drag to move; double-click to reset. Use arrow keys to nudge.',
             'contentBoxFor': 'Editable content box for {half}',

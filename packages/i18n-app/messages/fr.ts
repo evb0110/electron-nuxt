@@ -370,6 +370,7 @@ export default {
             'blankSkipped': 'Cette page est vierge et sera ignorée.',
             'matchedCanvasUnavailable': 'La taille de page unifiée est désactivée pour ce document : ses tailles de page n\'ont pas pu être mesurées. Chaque page conserve la sienne.',
             'matchedCanvasProvisional': 'La taille de page est provisoire pendant la détection de mise en page ; une double page détectée modifie la page commune.',
+            'updatingPreviousPlacement': 'La prévisualisation est en cours de mise à jour ; le placement utilise les paramètres précédents.',
             'cutter': 'Position de la ligne de séparation',
             'cutterHint': 'Faites glisser pour la déplacer ; double-cliquez pour la réinitialiser. Utilisez les touches fléchées pour l’ajuster.',
             'contentBoxFor': 'Zone de contenu modifiable pour {half}',

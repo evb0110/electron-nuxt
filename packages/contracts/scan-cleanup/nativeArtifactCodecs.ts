@@ -620,12 +620,16 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'matchedCanvasIntrinsicOverflowLeftPx',
         'matchedCanvasIntrinsicOverflowRightPx',
         'matchedCanvasIntrinsicOverflowTopPx',
+        'foldClipLeftPx',
+        'foldClipRightPx',
         'resamplePasses',
     ] as const) if (source[key] !== undefined && source[key] !== null) integer(
         source[key],
         artifact,
         key,
-        key === 'resamplePasses' || key.startsWith('matchedCanvasIntrinsicOverflow') ? 0 : 1,
+        key === 'resamplePasses'
+            || key.startsWith('matchedCanvasIntrinsicOverflow')
+            || key.startsWith('foldClip') ? 0 : 1,
     );
     for (const key of [
         'detectedSkewDegrees',
@@ -779,6 +783,8 @@ export function decodeNativeScanCleanupOutputMetadata(
         ? contentWidth / intrinsicWidth
         : Number.NaN;
     const contentWidthNumber = typeof contentWidth === 'number' ? contentWidth : Number.NaN;
+    const foldClipLeft = typeof source.foldClipLeftPx === 'number' ? source.foldClipLeftPx : 0;
+    const foldClipRight = typeof source.foldClipRightPx === 'number' ? source.foldClipRightPx : 0;
     const recordedIntrinsicOverflowLeft = typeof source.matchedCanvasIntrinsicOverflowLeftPx === 'number'
         ? source.matchedCanvasIntrinsicOverflowLeftPx
         : 0;
@@ -804,6 +810,7 @@ export function decodeNativeScanCleanupOutputMetadata(
         || typeof intrinsicWidth !== 'number'
         || typeof intrinsicHeight !== 'number'
         || recordedIntrinsicOverflowLeft > contentWidthNumber
+        || foldClipLeft + foldClipRight >= contentWidthNumber
         || recordedIntrinsicOverflowTop > contentHeight
         || actualIntrinsicOverflowLeft !== recordedIntrinsicOverflowLeft
         || actualIntrinsicOverflowRight !== recordedIntrinsicOverflowRight

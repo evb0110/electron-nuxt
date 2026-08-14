@@ -370,6 +370,7 @@ export default {
             'blankSkipped': 'Diese Seite ist leer und wird übersprungen.',
             'matchedCanvasUnavailable': 'Einheitliche Seitengröße ist für dieses Dokument aus: Seine Seitengrößen konnten nicht gemessen werden. Seiten behalten ihre eigene Größe.',
             'matchedCanvasProvisional': 'Die Seitengröße ist vorläufig, solange die Layouterkennung läuft; ein gefundener Doppelseiten-Scan ändert die gemeinsame Seite.',
+            'updatingPreviousPlacement': 'Die Vorschau wird aktualisiert; die Platzierung verwendet die vorherigen Einstellungen.',
             'cutter': 'Position der Trennlinie',
             'cutterHint': 'Zum Verschieben ziehen; zum Zurücksetzen doppelklicken. Mit den Pfeiltasten schrittweise verschieben.',
             'contentBoxFor': 'Bearbeitbares Inhaltsfeld für {half}',

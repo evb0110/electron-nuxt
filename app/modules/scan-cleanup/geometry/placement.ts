@@ -1,9 +1,7 @@
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
-    TScanCleanupPageAlignment,
 } from '@contracts/electronApiScanCleanup';
-import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import type {CSSProperties} from 'vue';
 
 export interface IScanCleanupPreviewPlacement {
@@ -35,18 +33,9 @@ export interface IScanCleanupPreviewPlacement {
  */
 export function resolvePreviewMetadataPlacement(
     metadata: IScanCleanupPreviewMetadata,
-    alignment?: TScanCleanupPageAlignment,
-    nativeVerticalCurrent = false,
 ): IScanCleanupPreviewPlacement {
     const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const offset = resolvePreviewMetadataOffset(
-        metadata,
-        contentWidthPx,
-        contentHeightPx,
-        alignment,
-        nativeVerticalCurrent,
-    );
     const intrinsicRasterWidthPx = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
     const intrinsicRasterHeightPx = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
     return {
@@ -54,98 +43,25 @@ export function resolvePreviewMetadataPlacement(
         canvasHeightPx: metadata.canvasHeightPx,
         contentWidthPx,
         contentHeightPx,
-        left: offset.x,
-        top: offset.y,
+        left: metadata.placementOffsetXPx
+            - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0),
+        top: metadata.placementOffsetYPx
+            - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0),
         scaleX: contentWidthPx / Math.max(1, intrinsicRasterWidthPx),
         scaleY: contentHeightPx / Math.max(1, intrinsicRasterHeightPx),
     };
 }
 
-function resolvePreviewMetadataOffset(
+export function toPreviewSourceCropStyle(
     metadata: IScanCleanupPreviewMetadata,
-    contentWidthPx: number,
-    contentHeightPx: number,
-    alignment: TScanCleanupPageAlignment | undefined,
-    nativeVerticalCurrent: boolean,
-) {
-    if (alignment === undefined) {
-        return {
-            x: metadata.placementOffsetXPx
-                - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0),
-            y: metadata.placementOffsetYPx
-                - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0),
-        };
+): CSSProperties {
+    const leftPx = metadata.foldClipLeftPx ?? 0;
+    const rightPx = metadata.foldClipRightPx ?? 0;
+    if (leftPx === 0 && rightPx === 0) {
+        return {};
     }
-    const aligned = resolveAlignedPreviewPlacement(
-        metadata,
-        contentWidthPx,
-        contentHeightPx,
-        alignment,
-    );
-    const x = metadata.matchedCanvasOpticalPlacement === true
-        && (
-            alignment === 'top-center'
-            || alignment === 'center'
-            || alignment === 'bottom-center'
-        )
-        ? metadata.placementOffsetXPx
-            - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0)
-        : aligned.x;
-    // Native Y carries the spread pair anchor, but only describes the
-    // alignment the result was rendered under. A result that predates the
-    // currently requested alignment must reposition optimistically until the
-    // fresh native render replaces it.
-    return {
-        x,
-        y: nativeVerticalCurrent
-            ? metadata.placementOffsetYPx - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0)
-            : aligned.y,
-    };
-}
-
-function resolveAlignedPreviewPlacement(
-    metadata: IScanCleanupPreviewMetadata,
-    contentWidthPx: number,
-    contentHeightPx: number,
-    alignment: TScanCleanupPageAlignment,
-) {
-    const reference = resolvePreviewAlignmentReferenceRect(
-        metadata,
-        contentWidthPx,
-        contentHeightPx,
-    );
-    const offset = resolveScanCleanupPlacementOffset(
-        reference.spanX,
-        reference.spanY,
-        alignment,
-    );
-    return {
-        x: reference.originX + offset.x,
-        y: reference.originY + offset.y,
-    };
-}
-
-export function resolvePreviewAlignmentReferenceRect(
-    metadata: IScanCleanupPreviewMetadata,
-    contentWidthPx: number,
-    contentHeightPx: number,
-) {
-    const matchedCanvas = metadata.matchedCanvasContentWidthPx != null
-        || metadata.matchedCanvasContentHeightPx != null;
-    const originX = matchedCanvas ? metadata.appliedMargins.leftPx : 0;
-    const originY = matchedCanvas ? metadata.appliedMargins.topPx : 0;
-    const horizontalInsets = matchedCanvas
-        ? metadata.appliedMargins.leftPx + metadata.appliedMargins.rightPx
-        : 0;
-    const verticalInsets = matchedCanvas
-        ? metadata.appliedMargins.topPx + metadata.appliedMargins.bottomPx
-        : 0;
-    return {
-        originX,
-        originY,
-        spanX: Math.max(0, metadata.canvasWidthPx - horizontalInsets - contentWidthPx),
-        spanY: Math.max(0, metadata.canvasHeightPx - verticalInsets - contentHeightPx),
-    };
+    const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    return {clipPath: `inset(0 ${rightPx / contentWidthPx * 100}% 0 ${leftPx / contentWidthPx * 100}%)`};
 }
 
 export function toPreviewStyleRect(

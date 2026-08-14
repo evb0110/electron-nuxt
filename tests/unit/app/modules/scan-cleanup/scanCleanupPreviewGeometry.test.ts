@@ -13,7 +13,6 @@ import {
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewResult,
-    TScanCleanupPageAlignment,
 } from '@contracts/electronApiScanCleanup';
 import {
     completePreviewImageSwap,
@@ -39,8 +38,8 @@ import {
     resolvePreviewViewportFrame,
 } from '@app/modules/scan-cleanup/geometry/viewport';
 import {
-    resolvePreviewAlignmentReferenceRect,
     resolvePreviewMetadataPlacement,
+    toPreviewSourceCropStyle,
     toPreviewStyleRect,
 } from '@app/modules/scan-cleanup/geometry/placement';
 import {useScanCleanupViewportFrame} from '@app/modules/scan-cleanup/composables/useScanCleanupViewportFrame';
@@ -421,187 +420,6 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
-    it('keeps live matched-canvas alignment inside every applied margin', () => {
-        const matchedMetadata = metadata({
-            appliedMargins: {
-                leftPx: 10,
-                topPx: 20,
-                rightPx: 30,
-                bottomPx: 40,
-            },
-            outputWidthPx: 60,
-            outputHeightPx: 100,
-            canvasWidthPx: 200,
-            canvasHeightPx: 300,
-            matchedCanvasContentWidthPx: 120,
-            matchedCanvasContentHeightPx: 200,
-            placementOffsetXPx: 10,
-            placementOffsetYPx: 20,
-        });
-
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'top-center', true)).toMatchObject({
-            left: 30,
-            top: 20,
-        });
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center', true)).toMatchObject({
-            left: 30,
-            top: 20,
-        });
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right', true)).toMatchObject({
-            left: 50,
-            top: 20,
-        });
-    });
-
-    it('prefers the native vertical anchor when renderer alignment is supplied', () => {
-        const matchedMetadata = metadata({
-            appliedMargins: {
-                leftPx: 10,
-                topPx: 20,
-                rightPx: 30,
-                bottomPx: 40,
-            },
-            canvasWidthPx: 200,
-            canvasHeightPx: 300,
-            matchedCanvasContentWidthPx: 120,
-            matchedCanvasContentHeightPx: 200,
-            placementOffsetXPx: 10,
-            placementOffsetYPx: 37,
-        });
-
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right', true)).toMatchObject({
-            left: 50,
-            top: 37,
-        });
-        // A result rendered under an older alignment repositions optimistically
-        // until the fresh native render replaces it.
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-right')).toMatchObject({
-            left: 50,
-            top: 60,
-        });
-    });
-
-    it('keeps native optical placement for centered horizontal preview alignment', () => {
-        const matchedMetadata = metadata({
-            appliedMargins: {
-                leftPx: 10,
-                topPx: 20,
-                rightPx: 30,
-                bottomPx: 40,
-            },
-            outputWidthPx: 60,
-            outputHeightPx: 100,
-            canvasWidthPx: 200,
-            canvasHeightPx: 300,
-            matchedCanvasContentWidthPx: 180,
-            matchedCanvasContentHeightPx: 200,
-            matchedCanvasOpticalPlacement: true,
-            placementOffsetXPx: 72,
-            placementOffsetYPx: 20,
-        });
-
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center', true)).toMatchObject({
-            left: 72,
-            top: 20,
-        });
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'center-left', true)).toMatchObject({
-            left: 10,
-            top: 20,
-        });
-        expect(resolvePreviewMetadataPlacement(matchedMetadata, 'bottom-center', true)).toMatchObject({
-            left: 72,
-            top: 20,
-        });
-    });
-
-    it.each([
-        {
-            half: 'left' as const,
-            contentWidth: 876,
-            contentHeight: 1_408,
-            nativeLeft: 113,
-        },
-        {
-            half: 'right' as const,
-            contentWidth: 607,
-            contentHeight: 1_406,
-            nativeLeft: 247,
-        },
-    ])('recomputes the Luther $half leaf at the native top-center offset', ({
-        half,
-        contentWidth,
-        contentHeight,
-        nativeLeft,
-    }) => {
-        const nativeMetadata = metadata({
-            half,
-            appliedMargins: {
-                leftPx: 30,
-                topPx: 30,
-                rightPx: 30,
-                bottomPx: 30,
-            },
-            outputWidthPx: contentWidth,
-            outputHeightPx: contentHeight,
-            canvasWidthPx: 1_102,
-            canvasHeightPx: 1_626,
-            matchedCanvasContentWidthPx: contentWidth,
-            matchedCanvasContentHeightPx: contentHeight,
-            placementOffsetXPx: nativeLeft,
-            placementOffsetYPx: 30,
-        });
-
-        expect(resolvePreviewMetadataPlacement(nativeMetadata, 'top-center'))
-            .toEqual(resolvePreviewMetadataPlacement(nativeMetadata));
-    });
-
-    it.each([
-        'top-left',
-        'top-center',
-        'top-right',
-        'center-left',
-        'center',
-        'center-right',
-        'bottom-left',
-        'bottom-center',
-        'bottom-right',
-    ] satisfies TScanCleanupPageAlignment[])('round-trips horizontal inset placement for %s while preserving native Y', alignment => {
-        const matchedMetadata = metadata({
-            appliedMargins: {
-                leftPx: 10,
-                topPx: 20,
-                rightPx: 30,
-                bottomPx: 40,
-            },
-            outputWidthPx: 60,
-            outputHeightPx: 100,
-            canvasWidthPx: 200,
-            canvasHeightPx: 300,
-            matchedCanvasContentWidthPx: 120,
-            matchedCanvasContentHeightPx: 200,
-            placementOffsetXPx: 10,
-            placementOffsetYPx: 20,
-        });
-        const reference = resolvePreviewAlignmentReferenceRect(matchedMetadata, 120, 200);
-        const placement = resolvePreviewMetadataPlacement(matchedMetadata, alignment, true);
-        const horizontalRatio = (placement.left - reference.originX) / reference.spanX;
-        const horizontal = horizontalRatio < 0.25
-            ? 'left'
-            : horizontalRatio > 0.75 ? 'right' : 'center';
-        const expectedHorizontal = alignment.endsWith('left')
-            ? 'left'
-            : alignment.endsWith('right') ? 'right' : 'center';
-
-        expect(reference).toEqual({
-            originX: 10,
-            originY: 20,
-            spanX: 40,
-            spanY: 40,
-        });
-        expect(horizontal).toBe(expectedHorizontal);
-        expect(placement.top).toBe(matchedMetadata.placementOffsetYPx);
-    });
-
     it('does not apply canvas insets to intrinsic rasters that already contain their margins', () => {
         const intrinsicMetadata = metadata({
             outputWidthPx: 230,
@@ -610,7 +428,7 @@ describe('scan cleanup preview geometry', () => {
             canvasHeightPx: 330,
         });
 
-        expect(resolvePreviewMetadataPlacement(intrinsicMetadata, 'bottom-right')).toMatchObject({
+        expect(resolvePreviewMetadataPlacement(intrinsicMetadata)).toMatchObject({
             left: 0,
             top: 0,
         });
@@ -636,6 +454,17 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it('clips the same fold-edge columns that native final materialization excludes', () => {
+        const clippedMetadata = metadata({
+            outputWidthPx: 500,
+            matchedCanvasContentWidthPx: 1_000,
+            foldClipLeftPx: 120,
+            foldClipRightPx: 80,
+        });
+
+        expect(toPreviewSourceCropStyle(clippedMetadata)).toEqual({clipPath: 'inset(0 8% 0 12%)'});
+    });
+
     it('keeps trimmed top headroom outside the preview in native placement branches', () => {
         const trimmedMetadata = metadata({
             outputWidthPx: 1_000,
@@ -649,31 +478,6 @@ describe('scan cleanup preview geometry', () => {
         });
 
         expect(resolvePreviewMetadataPlacement(trimmedMetadata)).toMatchObject({top: -80});
-        expect(resolvePreviewMetadataPlacement(trimmedMetadata, 'top-left', true))
-            .toMatchObject({top: -80});
-    });
-
-    it('does not subtract native left overflow from renderer-aligned margin placement', () => {
-        const trimmedMetadata = metadata({
-            appliedMargins: {
-                leftPx: 12,
-                topPx: 12,
-                rightPx: 0,
-                bottomPx: 0,
-            },
-            outputWidthPx: 200,
-            outputHeightPx: 200,
-            canvasWidthPx: 300,
-            canvasHeightPx: 300,
-            matchedCanvasContentWidthPx: 200,
-            matchedCanvasContentHeightPx: 200,
-            matchedCanvasOpticalPlacement: false,
-            matchedCanvasIntrinsicOverflowLeftPx: 40,
-            placementOffsetXPx: 0,
-        });
-
-        expect(resolvePreviewMetadataPlacement(trimmedMetadata, 'top-left', true))
-            .toMatchObject({left: 12});
     });
 
     it('presents a page the document scaled up at the size the final run will write', () => {

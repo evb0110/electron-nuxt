@@ -426,7 +426,12 @@
     pointer-events: none;
 }
 
-.placed-image > .preview-pixel {
+.fold-clipped-pixels {
+    position: absolute;
+    inset: 0;
+}
+
+.fold-clipped-pixels > .preview-pixel {
     position: absolute;
     inset: 0;
 }

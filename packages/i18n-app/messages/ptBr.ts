@@ -370,6 +370,7 @@ export default {
             'blankSkipped': 'Esta página está em branco e será ignorada.',
             'matchedCanvasUnavailable': 'O tamanho de página uniforme está desativado neste documento: não foi possível medir os tamanhos das páginas. Cada página mantém o seu.',
             'matchedCanvasProvisional': 'O tamanho da página é provisório enquanto a detecção de layout ocorre; encontrar uma página dupla altera a página compartilhada.',
+            'updatingPreviousPlacement': 'A visualização está sendo atualizada; o posicionamento usa as configurações anteriores.',
             'cutter': 'Posição da linha divisória',
             'cutterHint': 'Arraste para movê-la; clique duas vezes para redefinir. Use as teclas de seta para pequenos ajustes.',
             'contentBoxFor': 'Caixa de conteúdo editável para {half}',
