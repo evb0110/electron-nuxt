@@ -285,6 +285,32 @@ jobs:
       - name: Strict build
         run: pnpm run build:strict
 
+  pr_rust_tests_arm64:
+    name: Rust Tests (Linux arm64)
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
+    needs: pr_changed_areas
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Rust tests
+        run: pnpm run test:rust
+
   pr_scan_cleanup_oracles:
     name: Scan Cleanup Export Oracles
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
@@ -414,6 +440,7 @@ jobs:
       - pr_electron_blocking_smoke
       - pr_browser_integration
       - pr_native_build_safety
+      - pr_rust_tests_arm64
       - pr_scan_cleanup_oracles
       - pr_landing_quality
     runs-on: ubuntu-latest
@@ -434,6 +461,7 @@ jobs:
             ['pr_electron_blocking_smoke', process.env.ELECTRON_SMOKE_CHANGED],
             ['pr_browser_integration', process.env.BROWSER_INTEGRATION_CHANGED],
             ['pr_native_build_safety', process.env.NATIVE_OR_BUILD_CHANGED],
+            ['pr_rust_tests_arm64', process.env.NATIVE_OR_BUILD_CHANGED],
             ['pr_landing_quality', process.env.LANDING_CHANGED],
           ]);
           const rejected = [];
