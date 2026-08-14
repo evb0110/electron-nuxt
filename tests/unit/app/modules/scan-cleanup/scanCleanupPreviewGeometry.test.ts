@@ -23,10 +23,12 @@ import {
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import {
     expandPreviewRectByMargins,
+    measurePreviewContentBoxContainment,
     scanCleanupAnalysisWidth,
     scanCleanupCutterRatio,
     scanCleanupCutterXFromRatio,
     transformPreviewContentBox,
+    transformPreviewSourceHalfRectUnclamped,
 } from '@app/modules/scan-cleanup/geometry/coordinates';
 import {
     resolvePreviewFitPlacement,
@@ -252,6 +254,109 @@ describe('scan cleanup preview geometry', () => {
             widthPx: 200,
             heightPx: 300,
         });
+    });
+
+    it('measures fractional source-box overrun before the overlay clamp', () => {
+        const fractional = metadata({
+            sourceRegion: {
+                xPx: 0,
+                yPx: 0,
+                widthPx: 200,
+                heightPx: 300,
+            },
+            contentBox: {
+                xPx: -0.25,
+                yPx: 0.25,
+                widthPx: 200.5,
+                heightPx: 299.5,
+            },
+            outputWidthPx: 200,
+            outputHeightPx: 300,
+            forwardTransform: {matrix: [
+                [
+                    1,
+                    0,
+                    0,
+                ],
+                [
+                    0,
+                    1,
+                    0,
+                ],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ]},
+        });
+
+        expect(transformPreviewSourceHalfRectUnclamped(fractional, fractional.contentBox)).toEqual({
+            xPx: -0.25,
+            yPx: 0.25,
+            widthPx: 200.5,
+            heightPx: 299.5,
+        });
+        expect(measurePreviewContentBoxContainment(fractional)).toMatchObject({
+            contained: false,
+            edgeOverrunPx: {
+                left: 0.25,
+                top: 0,
+                right: 0.25,
+                bottom: 0,
+            },
+        });
+    });
+
+    it('measures containment through a rotation matrix', () => {
+        const rotated = metadata({
+            sourceRegion: {
+                xPx: 0,
+                yPx: 0,
+                widthPx: 100,
+                heightPx: 100,
+            },
+            contentBox: {
+                xPx: 10,
+                yPx: 20,
+                widthPx: 30,
+                heightPx: 40,
+            },
+            outputWidthPx: 100,
+            outputHeightPx: 100,
+            forwardTransform: {matrix: [
+                [
+                    0,
+                    -1,
+                    100,
+                ],
+                [
+                    1,
+                    0,
+                    0,
+                ],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ]},
+        });
+
+        expect(measurePreviewContentBoxContainment(rotated)).toEqual({
+            contained: true,
+            containment: 1,
+            edgeOverrunPx: {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+        });
+    });
+
+    it('returns null containment when native affine metadata is unavailable', () => {
+        expect(measurePreviewContentBoxContainment(metadata({forwardTransform: null}))).toBeNull();
     });
 
     it('round-trips asymmetric native margins through the lossless overlay geometry', () => {

@@ -5275,7 +5275,7 @@ fn clean_region(
                 )
             });
             let source_content_box = detected_content.and_then(|rect| {
-                if let Some(model) = &dewarp_model {
+                let source = if let Some(model) = &dewarp_model {
                     map_rect_bounds(rect, |point| {
                         model
                             .map_unit_to_source(
@@ -5286,8 +5286,17 @@ fn clean_region(
                     })
                 } else {
                     Some(transform_rect_bounds(rect, local_deskew_inverse))
-                }
+                }?;
+                let left = source.x.clamp(0.0, working_width.saturating_sub(1) as f64);
+                let top = source.y.clamp(0.0, working_height.saturating_sub(1) as f64);
+                let right = source.right().clamp(left + 1.0, working_width as f64);
+                let bottom = source.bottom().clamp(top + 1.0, working_height as f64);
+                Some(Rect::new(left, top, right - left, bottom - top))
             });
+            let detected_content = match (dewarp_model.as_ref(), source_content_box) {
+                (None, Some(source)) => Some(transform_rect_bounds(source, local_deskew_forward)),
+                _ => detected_content,
+            };
             CachedContentDetection {
                 detected_content,
                 source_content_box,

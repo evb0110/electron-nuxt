@@ -21,7 +21,13 @@ const stableComparison = {
     },
 };
 
-function report(postWindowComparisons: object[]) {
+function report(
+    postWindowComparisons: object[],
+    leafSets: {
+        previewHalves?: string[],
+        provisionalHalves?: string[],
+    } = {},
+) {
     return createPreviewPresentationStabilityReport({
         earlyCommit: {action: 'coalesce'},
         earlySettleComparisons: [stableComparison],
@@ -29,6 +35,7 @@ function report(postWindowComparisons: object[]) {
         settleCommitComparisons: [stableComparison],
         postWindowCommit: {action: 'reject'},
         postWindowComparisons,
+        ...leafSets,
         secondAutomaticCommit: {action: 'coalesce'},
         secondAutomaticComparisons: [stableComparison],
     });
@@ -79,5 +86,22 @@ describe('scan cleanup preview presentation evidence', () => {
         ]));
         expect(measureMargins).not.toHaveBeenCalled();
         expect(compareMargins).not.toHaveBeenCalled();
+    });
+
+    it('checks both provisional and post-window candidate leaf sets for a dropped half', () => {
+        expect(report([stableComparison], {
+            provisionalHalves: [
+                'left',
+                'right',
+            ],
+            previewHalves: ['left'],
+        }).violations).toContain('presentation-missing-half');
+        expect(report([stableComparison], {
+            provisionalHalves: ['left'],
+            previewHalves: [
+                'left',
+                'right',
+            ],
+        }).violations).toContain('presentation-missing-half');
     });
 });

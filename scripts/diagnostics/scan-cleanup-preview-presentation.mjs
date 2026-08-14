@@ -109,8 +109,8 @@ export async function measurePreviewPresentationStability({
     ] = await Promise.all([
         compareDisplayedPreviewLeaves(provisionalLeaves, provisionalLeaves, measureMargins, compareMargins),
         compareDisplayedPreviewLeaves(provisionalLeaves, provisionalLeaves, measureMargins, compareMargins),
+        compareDisplayedPreviewLeaves(provisionalLeaves, provisionalLeaves, measureMargins, compareMargins),
         compareDisplayedPreviewLeaves(provisionalLeaves, previewLeaves, measureMargins, compareMargins),
-        compareDisplayedPreviewLeaves(previewLeaves, previewLeaves, measureMargins, compareMargins),
     ]);
     return createPreviewPresentationStabilityReport({
         earlyCommit,
@@ -119,6 +119,8 @@ export async function measurePreviewPresentationStability({
         settleCommitComparisons,
         postWindowCommit,
         postWindowComparisons,
+        previewHalves: previewLeaves.map(leaf => leaf.half),
+        provisionalHalves: provisionalLeaves.map(leaf => leaf.half),
         secondAutomaticCommit,
         secondAutomaticComparisons,
     });
@@ -131,6 +133,8 @@ export function createPreviewPresentationStabilityReport({
     settleCommitComparisons,
     postWindowCommit,
     postWindowComparisons,
+    previewHalves = /** @type {string[]} */ ([]),
+    provisionalHalves = /** @type {string[]} */ ([]),
     secondAutomaticCommit,
     secondAutomaticComparisons,
 }) {
@@ -144,7 +148,15 @@ export function createPreviewPresentationStabilityReport({
     if (postWindowComparisons.some(comparisonMoved)) {
         violations.push('presentation-post-window-movement');
     }
-    if ([
+    const expectedHalves = new Set([
+        ...provisionalHalves,
+        ...previewHalves,
+    ]);
+    const leafSetMissingHalf = expectedHalves.size > 0 && [
+        provisionalHalves,
+        previewHalves,
+    ].some(halves => expectedHalves.size !== new Set(halves).size);
+    if (leafSetMissingHalf || [
         ...earlySettleComparisons,
         ...secondAutomaticComparisons,
         ...settleCommitComparisons,

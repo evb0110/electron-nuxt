@@ -73,7 +73,10 @@ const [
         resolvePreviewMetadataPlacement,
         toPreviewStyleRect,
     },
-    {transformPreviewContentBox},
+    {
+        measurePreviewContentBoxContainment,
+        transformPreviewContentBox,
+    },
     {
         consumeScanCleanupPreviewPresentationSettle,
         resolveScanCleanupPreviewPresentationCommit,
@@ -653,6 +656,7 @@ async function composeLeaf(rasterPath, metadata, outputPath, overlayOptions) {
         imageRect.bottom - imageRect.top,
     );
     const transformedContent = transformPreviewContentBox(metadata);
+    const sourceContentContainment = measurePreviewContentBoxContainment(metadata);
     const overlayStyle = transformedContent
         ? toPreviewStyleRect(transformedContent, placement)
         : null;
@@ -692,6 +696,7 @@ async function composeLeaf(rasterPath, metadata, outputPath, overlayOptions) {
         height: canvas.height,
         imageStyle,
         overlayContainment,
+        sourceContentContainment,
         overlayRect,
         overlayStyle,
         path: outputPath,
@@ -979,6 +984,13 @@ async function main() {
         else provisionalManifest.documentCanvas = provisionalDocumentCanvas;
         provisionalManifest.pages[0].outputs = provisionalOutputs;
         provisionalManifest.pages[0].pageMetadataPath = provisionalPageMetadataPath;
+        // During progressive detection the app knows this page's observed
+        // layout but has not yet published pagePlanEvidence. Replaying the
+        // settled automatic split/content/skew here made the two states
+        // identical and hid provisional-only crop failures.
+        for (const key of Object.keys(reusablePagePlan)) {
+            delete provisionalManifest.pages[0].options[key];
+        }
         await writeFile(provisionalManifestPath, JSON.stringify(provisionalManifest, null, 2) + '\n');
         await runCommand(tools.scanCleanup, [
             '--manifest',
@@ -1017,7 +1029,13 @@ async function main() {
                     normalizedMargins(await readGray(provisionalLeaf.metricsPath)),
                 ),
                 overlayContainment: provisionalLeaf.overlayContainment,
-                violations: provisionalLeaf.overlayContainment.pass ? [] : ['overlay-containment'],
+                sourceContentContainment: provisionalLeaf.sourceContentContainment,
+                violations: [
+                    ...(provisionalLeaf.overlayContainment.pass ? [] : ['overlay-containment']),
+                    ...(provisionalLeaf.sourceContentContainment?.contained === false
+                        ? ['source-content-containment']
+                        : []),
+                ],
             });
         }
         const finalOutputPages = finalMappings.get(pageNumber) ?? [];
@@ -1083,6 +1101,9 @@ async function main() {
             if (!previewLeaves[index].overlayContainment.pass) {
                 violations.push('overlay-containment');
             }
+            if (previewLeaves[index].sourceContentContainment?.contained === false) {
+                violations.push('source-content-containment');
+            }
             leafResults.push({
                 half: previewLeaves[index].half,
                 previewRaster: previewLeaves[index].path,
@@ -1094,6 +1115,7 @@ async function main() {
                 finalMargins,
                 marginComparison,
                 overlayContainment: previewLeaves[index].overlayContainment,
+                sourceContentContainment: previewLeaves[index].sourceContentContainment,
                 violations,
             });
         }
