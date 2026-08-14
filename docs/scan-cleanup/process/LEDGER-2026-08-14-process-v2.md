@@ -57,6 +57,16 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
   PR with nothing else in flight is a process defect. User-visible
   feature work (S2) outranks governance work; S3-S6 investment is
   re-checked against the user's app-level verdict after S2 lands.
+- BATCH CLOSURE (user instruction, R15): when the user reports a list
+  of problems, the WHOLE list is fixed and verified (measurements +
+  re-rendered evidence of the user's exact reported cases) before
+  reporting anything as fixed or asking the user to check the live
+  app. Evidence packs still deliver non-blocking as work completes,
+  but no per-item "please verify" requests; one consolidated
+  ready-for-your-eyes report per batch. Current open batch: stuck
+  conversion IPC drop (hotfix in hand), pinned-provisional display
+  (phase-edge), fold-side box overhang + gutter residue, sub-word
+  weight artifacts, run-meter ETA.
 - Scope guard: build the scan-cleanup feature, not a civilization.
   Appendix items (hash chains, digest archives, classifiers, full
   oracle formalism, VPS residency tiers, E1b, cadence caps) need a
