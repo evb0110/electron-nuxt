@@ -240,6 +240,14 @@ G3 Closure soak (status: manual): no closure declaration within 1h of
    high red rate is recorded as context, not a mechanism.)
 
 EVIDENCE
+Closure evidence classes (amended by ledger R19): the universal
+"RED pre-fix / GREEN post-fix ON THE EXPORT" rule applies only to
+OUTPUT DEFECTS. Use export RED -> GREEN for output defects; a negative
+probe in which a deliberate regression goes red for oracles/gates;
+preservation proof for refactors; consistency-of-record for governance;
+exact postconditions for hygiene; and an explicit scope statement for
+policy.
+
 B1 Report capture (T2; status: absent -> blocking-local). v1 is
    MANUAL: every user message carrying a report is entered as a ledger
    row at receipt, with disposition defect | instruction | question |

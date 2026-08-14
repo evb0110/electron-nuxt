@@ -520,6 +520,14 @@ R16 2026-08-14 (cross-session 14-agent audit received; 61 verified
    harness); closure vocabulary tightened — closed requires pre-fix
    specimen RED -> GREEN at defect granularity on the EXPORT.
 
+   R19 CLOSURE-EVIDENCE AMENDMENT: that universal export rule applies
+   only to OUTPUT DEFECTS. Closure evidence is typed: output defects
+   require export RED -> GREEN; oracles/gates require a negative probe
+   in which a deliberate regression goes red; refactors require a
+   preservation proof; governance requires consistency-of-record;
+   hygiene requires exact postconditions; policy requires an explicit
+   scope statement.
+
 R17 2026-08-15 (Reconciliation): the governing record is reconciled to
    the landed history and the corrective audit.
    - Merge ledger: PR #13 merged 2026-08-14T15:34:41Z at
@@ -624,3 +632,87 @@ R18 2026-08-15 (corrective audit adopted): the corrective audit's
    R16 step 1 did not ship lossless placement unification or its
    placement-identity case, and it did not supply the required eyeball
    pack; those remain audit 1.12/2.8 work in S7(f).
+
+R19 2026-08-15 (Verification of the corrective audit adopted): the
+   adversarial verification AMENDS the corrective audit adopted in R18.
+   The evidence comprises a 12-agent local verification plus a
+   14-reviewer VPS verification, with the VPS pass recording 240 atomic
+   verdicts: 91 verified, 83 partial, 26 false, 12 stale, and 28
+   unverifiable. `CORRECTIONS.md` is the adopted reconciliation; where
+   its section 5 and `REPORT.txt` disagree, `CORRECTIONS.md` governs.
+   Do not execute the corrective audit's S0-S8 verbatim.
+
+   - S5(d) BASELINE / ORACLE VERDICT — FAIL for rescue candidate
+     70f0c70ae. Tracked Luther p6-9 offenders are 277 on main versus
+     281 on the candidate. Vorwort calibration moves from main 23/21
+     to candidate 24/34. Clean control 126R moves from 0 offenders
+     (green) on main to 2 (red) on the candidate. The fold half WORKS:
+     raw RESIDUE leaves fall 3 -> 1; fold exemplars improve
+     7.79 -> 0.17 mm and 24.38 -> 2.54 mm. The remaining 118R result
+     is the known picture-region false positive. The tracked oracle
+     port must commit these calibration constants: 32 mm horizontal
+     radius, >1.6x local median, minimum 7 local components,
+     8 components per line, 8-connectivity, and eligible height
+     12-70 px at 300 DPI. Consequence: the bw.rs half of
+     fix/rescue-caps-fold-mask MUST NOT land as-is; the fold half
+     remains viable pending the S4 side-authority shape. Local verdict:
+     `.devkit/analysis/weight-oracle/last.md`; tracked copy incoming via
+     the governance-evidence PR.
+
+   - 1.4 CLOSED — PR #18 merged as cc3748af7; CI run 31845042260
+     completed SUCCESS as the exact-SHA attestation. The defect was a
+     retry/duplicate-idempotency gap, not a permanent per-reconnect
+     leak: normal navigation clears subscribers before reconnect.
+
+   - CLOSURE EVIDENCE — the typed-evidence amendment beside the prior
+     closure vocabulary governs: export RED -> GREEN for output
+     defects; a deliberate-regression negative probe for oracles/gates;
+     preservation proof for refactors; consistency-of-record for
+     governance; exact postconditions for hygiene; explicit scope for
+     policy. The universal "ON THE EXPORT" rule is not applicable to
+     every closure class.
+
+   - S2 AUTHORIZATION — R5's user-granted no-GitHub-settings decision
+     stands. Reversing R5 is an OPEN, NON-BLOCKING OFFER to the user and
+     requires explicit user authorization. Until then D4 governs:
+     visible-red gates plus procedural merge discipline. If settings
+     enforcement is ever enabled, the required-check context string
+     must be the exact check-run name `gates_ok` (G4).
+
+   - S6 CONSTRAINT (amends D3) — the manual native job uniquely runs
+     clippy and cargo-deny; relocate both into a PR-triggered job BEFORE
+     any deletion touches that job. Quarantine pins are deliberate
+     policy pins and may be retired only through a coordinated
+     policy/schema change. Deletions are limited to proven-unreachable
+     final-render branches. D3's O6 tripwire deletion proceeds only
+     under these constraints.
+
+   - TRACK STATE — Track D was stopped and re-dispatched 2026-08-15
+     under amended S4: pin side-authority semantics FIRST, including the
+     structured-edge write at `content.rs:357-365`; then address false
+     protection/classification; typed FoldBand must model both safety
+     axes. Track C's pending fix round must include the S3(d) rewrite:
+     widening `coverage.include` plus tripwire roots alone is INERT;
+     `isZeroExecutionTripwireTarget` / `LOAD_BEARING_COVERAGE_FILES`
+     (`scripts/checkZeroExecutionCoverage.ts:64-81`) must widen in the
+     same commit, and the DONE denominator is executable lines, not
+     10,384 physical lines. A fresh full harness at 6ce2f0b61 passed
+     51/51 with every catastrophe counter zero (report JSON SHA-256
+     prefix 3c836394). The zero-catastrophe behavior is real and
+     corroborates Track C's regeneration.
+
+   - G1 / S4(d) REBASE MOTIVATION — because the rescue base predates
+     PR #17 and PR #18, rescue currently reintroduces the
+     double-subscription and lacks the idempotency fix. It is 8 behind
+     and 2 ahead of cc3748af7. No merge conflict is pending:
+     merge-tree auto-merges. The rebase requirement is governance-based,
+     not conflict-based.
+
+   - S5 SEQUENCING — the behavior-changing Sauvola unit fix MUST NOT
+     land before the tracked oracle; oracle first. The routing-
+     distribution re-derivation must include the degenerate 0.0-stroke
+     route: blank/large-dark pages pass the <=8 gate at any size.
+     Python is acceptable for the tracked oracle because CI already
+     installs Pillow at `ci.yml:80/:423/:480/:588`; the "no Python
+     lane" constraint is withdrawn. Tracking and parameterizing the
+     script is the remaining gap.
