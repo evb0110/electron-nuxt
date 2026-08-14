@@ -307,3 +307,18 @@ R10 2026-08-14 (defect report, user, post-restart): page 1 left leaf's
    on page 1) may contain exactly this defect and were repeatedly
    waved off as unrelated. Investigation: measure the screenshot,
    then the harness margins/overlay metrics for page 1 left.
+R11 2026-08-14 (defect report, user, screenshots): visible word/letter
+   boldness unevenness on the cleaned Vorwort page ("Historischen"
+   crop markedly bold; scattered heavy words across the page).
+   Disposition: defect — REOPENS word-weight (task #27). Orchestrator
+   error logged with it: the closure bar I chose (no word >20%
+   source-adjusted stroke amplification) measured conversion-specific
+   amplification, not what the user sees. Two gaps: (a) 1-bit
+   binarization EXAGGERATES sub-threshold source inking variance into
+   stark bold/normal contrast (a 1.1-1.2x grayscale difference reads
+   as full boldness after saturation), so "source was already heavy"
+   does not close the report; (b) the acceptance criterion must be
+   perceptual evenness of the OUTPUT page, not a source-relative
+   ratio. Investigation: quantify output stroke-width spread vs
+   source on the Vorwort page and design a weight-normalization
+   direction.
