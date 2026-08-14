@@ -303,6 +303,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
+      - name: Install PDF text test tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+
       - name: Rust tests
         run: pnpm run test:rust
 

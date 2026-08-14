@@ -355,6 +355,7 @@ describe('CI topology policy', () => {
         expect(exportOracles).toContain('scan-cleanup-word-loss-audit.mjs');
         expect(exportOracles).toContain('--fail-on text-loss');
         expect(arm64Job).toContain('runs-on: ubuntu-24.04-arm');
+        expect(arm64Job).toContain('sudo apt-get install -y --no-install-recommends poppler-utils');
         expect(prePush).toContain('scripts/ci/scan-cleanup-oracles.sh');
         expect(prePush).toContain('pre-push .devkit/scratch/pre-push-scan-cleanup-oracles');
         expect(oracleScript).toContain('major === 22 && minor >= 18');
