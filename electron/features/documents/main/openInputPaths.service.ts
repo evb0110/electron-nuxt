@@ -36,7 +36,10 @@ import { registerMainOperation } from '@electron/operation-lifecycle/mainOperati
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
-import {isScanCleanupGeneratedOutputPath} from '@electron/features/scan-cleanup/public/generatedOutputs';
+import {
+    isScanCleanupGeneratedOutputPath,
+    touchScanCleanupGeneratedOutput,
+} from '@electron/features/scan-cleanup/public/generatedOutputs';
 
 const PDF_OPEN_ADMISSION_TIMEOUT_MS = 15_000;
 
@@ -232,7 +235,12 @@ export async function openInputPaths(
         } finally {
             openLease.release();
         }
-        if (!isGenerated) {
+        if (isGenerated) {
+            // Generated outputs stay out of Recent Files, so opening one is the
+            // only signal that the user still wants it: it has to restart the
+            // retention window the cleanup sweep measures.
+            await touchScanCleanupGeneratedOutput(originalPath);
+        } else {
             persistRecentInputsAfterOpen([originalPath], owner);
         }
         logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({

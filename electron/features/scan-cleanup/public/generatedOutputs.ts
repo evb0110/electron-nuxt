@@ -1,4 +1,6 @@
 // Public because document opening must distinguish managed cleanup outputs from user files.
+import type { App } from 'electron';
+import * as electron from 'electron';
 import {
     createHash,
     randomUUID,
@@ -9,9 +11,11 @@ import {
     readdir,
     rm,
     stat,
+    utimes,
 } from 'fs/promises';
 import {
     basename,
+    dirname,
     extname,
     isAbsolute,
     join,
@@ -19,27 +23,47 @@ import {
     resolve,
     sep,
 } from 'path';
-import {
-    getAppTempDir,
-    getAppTempDirPath,
-} from '@electron/utils/appTempDir';
+import { getAppTempDirPath } from '@electron/utils/appTempDir';
 
 export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES = 255;
 const OUTPUT_NAME_HASH_HEX_LENGTH = 12;
 
-export function getScanCleanupOutputRoot(appTempDir = getAppTempDir()) {
-    return join(appTempDir, 'scan-cleanup', 'output');
+/**
+ * Cleanup outputs are the feature's only deliverable, so they live under app
+ * data: the OS may purge its temp directory on its own schedule, which would
+ * destroy a document the user is still coming back to. Outputs written by
+ * earlier versions stay under the app temp directory; that root remains
+ * readable and keeps being swept by the same retention policy.
+ */
+export function getScanCleanupOutputBaseDirs() {
+    // The Electron app is reachable from the main process only, which is the
+    // only place outputs are created, classified or swept; elsewhere the legacy
+    // root is all there is to report.
+    const appDataDir = (electron as {app?: Pick<App, 'getPath'>}).app?.getPath('userData');
+    const legacyTempDir = getAppTempDirPath();
+    return appDataDir ? [
+        appDataDir,
+        legacyTempDir,
+    ] : [legacyTempDir];
+}
+
+export function getScanCleanupOutputRoot(baseDir = getScanCleanupOutputBaseDirs()[0]!) {
+    return join(baseDir, 'scan-cleanup', 'output');
 }
 
 export function isScanCleanupGeneratedOutputPath(
     outputPath: string,
-    appTempDir = getAppTempDirPath(),
+    baseDirs: readonly string[] = getScanCleanupOutputBaseDirs(),
 ) {
+    return baseDirs.some(baseDir => isPathInsideOutputRoot(outputPath, baseDir));
+}
+
+function isPathInsideOutputRoot(outputPath: string, baseDir: string) {
     let relativePath: string;
     try {
         relativePath = relative(
-            realpathSync(getScanCleanupOutputRoot(appTempDir)),
+            realpathSync(getScanCleanupOutputRoot(baseDir)),
             realpathSync(outputPath),
         );
     } catch {
@@ -90,9 +114,9 @@ function humanOutputName(sourcePdfPath: string, partial: boolean) {
 export async function createScanCleanupGeneratedOutputPath(
     sourcePdfPath: string,
     partial = false,
-    appTempDir = getAppTempDir(),
+    baseDir = getScanCleanupOutputBaseDirs()[0]!,
 ) {
-    const outputDirectory = join(getScanCleanupOutputRoot(appTempDir), randomUUID());
+    const outputDirectory = join(getScanCleanupOutputRoot(baseDir), randomUUID());
     await mkdir(outputDirectory, {
         recursive: true,
         mode: 0o700,
@@ -100,14 +124,51 @@ export async function createScanCleanupGeneratedOutputPath(
     return join(outputDirectory, humanOutputName(sourcePdfPath, partial));
 }
 
+/**
+ * Retention is measured from last access, not from creation: a document the
+ * user keeps opening must never expire underneath them. Opening an output
+ * stamps its run directory, which is the same timestamp the sweep reads.
+ */
+export async function touchScanCleanupGeneratedOutput(
+    outputPath: string,
+    options: {
+        baseDirs?: readonly string[];
+        nowMs?: number;
+    } = {},
+) {
+    if (!isScanCleanupGeneratedOutputPath(outputPath, options.baseDirs ?? getScanCleanupOutputBaseDirs())) {
+        return false;
+    }
+    const accessedAtSeconds = (options.nowMs ?? Date.now()) / 1_000;
+    try {
+        await utimes(dirname(outputPath), accessedAtSeconds, accessedAtSeconds);
+        return true;
+    } catch {
+        // Losing the stamp only shortens retention; it must never fail an open.
+        return false;
+    }
+}
+
 export async function pruneScanCleanupGeneratedOutputs(options: {
-    appTempDir?: string;
+    baseDirs?: readonly string[];
     isOutputLive: (outputPath: string) => boolean;
     nowMs?: number;
 }) {
-    const outputRoot = getScanCleanupOutputRoot(options.appTempDir);
-    const resolvedRoot = resolve(outputRoot);
+    const baseDirs = options.baseDirs ?? getScanCleanupOutputBaseDirs();
     const nowMs = options.nowMs ?? Date.now();
+    let removed = 0;
+    for (const baseDir of baseDirs) {
+        removed += await pruneOutputRoot(getScanCleanupOutputRoot(baseDir), options.isOutputLive, nowMs);
+    }
+    return removed;
+}
+
+async function pruneOutputRoot(
+    outputRoot: string,
+    isOutputLive: (outputPath: string) => boolean,
+    nowMs: number,
+) {
+    const resolvedRoot = resolve(outputRoot);
     let entries;
     try {
         entries = await readdir(outputRoot, {withFileTypes: true});
@@ -128,13 +189,13 @@ export async function pruneScanCleanupGeneratedOutputs(options: {
         const outputPdfPaths = files
             .filter(file => file.isFile() && extname(file.name).toLowerCase() === '.pdf')
             .map(file => join(directoryPath, file.name));
-        if (containsLiveOutput(outputPdfPaths, options.isOutputLive)) continue;
+        if (containsLiveOutput(outputPdfPaths, isOutputLive)) continue;
         const metadata = await stat(directoryPath).catch(() => null);
         if (!metadata || nowMs - metadata.mtimeMs < SCAN_CLEANUP_OUTPUT_MAX_AGE_MS) continue;
         // Liveness can change while directory metadata is being read. Check
         // the main-owned registry again at the last synchronous decision point
         // before rm is submitted, so an output opened during a prune survives.
-        if (containsLiveOutput(outputPdfPaths, options.isOutputLive)) continue;
+        if (containsLiveOutput(outputPdfPaths, isOutputLive)) continue;
         await rm(directoryPath, {
             recursive: true,
             force: true,

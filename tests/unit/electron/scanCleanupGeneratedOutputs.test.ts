@@ -10,6 +10,7 @@ import {
 import {tmpdir} from 'os';
 import {
     basename,
+    dirname,
     join,
 } from 'path';
 import {
@@ -18,14 +19,17 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     createScanCleanupGeneratedOutputPath,
+    getScanCleanupOutputBaseDirs,
     getScanCleanupOutputRoot,
     isScanCleanupGeneratedOutputPath,
     pruneScanCleanupGeneratedOutputs,
     SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES,
     SCAN_CLEANUP_OUTPUT_MAX_AGE_MS,
+    touchScanCleanupGeneratedOutput,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
 import {
     clearWorkingCopyOriginalPaths,
@@ -33,10 +37,47 @@ import {
     setWorkingCopyOriginalPath,
 } from '@electron/file-access/workingCopyStore';
 
-const tempDirs: string[] = [];
+const electronPaths = vi.hoisted(() => ({
+    temp: '',
+    userData: '',
+}));
 
-beforeEach(() => {
+vi.mock('electron', async importOriginal => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    return {
+        ...actual,
+        app: {
+            ...(actual.app as Record<string, unknown>),
+            getPath: (name: string) => (name === 'userData' ? electronPaths.userData : electronPaths.temp),
+        },
+    };
+});
+
+const tempDirs: string[] = [];
+const RUN_ID = '01234567-89ab-cdef-0123-456789abcdef';
+const OTHER_RUN_ID = 'fedcba98-7654-3210-fedc-ba9876543210';
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
+async function createManagedTempDir(prefix: string) {
+    const path = await mkdtemp(join(tmpdir(), prefix));
+    tempDirs.push(path);
+    return path;
+}
+
+async function writeGeneratedOutput(baseDir: string, runId: string, createdAtMs: number) {
+    const outputDirectory = join(getScanCleanupOutputRoot(baseDir), runId);
+    await mkdir(outputDirectory, {recursive: true});
+    const outputPath = join(outputDirectory, 'scan — cleaned.pdf');
+    await writeFile(outputPath, 'generated');
+    const createdAtSeconds = createdAtMs / 1_000;
+    await utimes(outputDirectory, createdAtSeconds, createdAtSeconds);
+    return outputPath;
+}
+
+beforeEach(async () => {
     clearWorkingCopyOriginalPaths();
+    electronPaths.userData = await createManagedTempDir('scan-cleanup-app-data-');
+    electronPaths.temp = await createManagedTempDir('scan-cleanup-os-temp-');
 });
 
 afterEach(async () => {
@@ -50,21 +91,21 @@ afterEach(async () => {
 
 describe('scan cleanup generated output pruning', () => {
     it('creates a managed, human-readable output path without a save dialog', async () => {
-        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-path-test-'));
-        tempDirs.push(appTempDir);
-        const path = await createScanCleanupGeneratedOutputPath('/books/My scan.pdf', false, appTempDir);
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-path-test-'));
+        tempDirs.push(outputBaseDir);
+        const path = await createScanCleanupGeneratedOutputPath('/books/My scan.pdf', false, outputBaseDir);
         expect(path).toMatch(/scan-cleanup[/\\]output[/\\][^/\\]+[/\\]My scan — cleaned\.pdf$/u);
         await expect(stat(join(path, '..'))).resolves.toBeDefined();
         await writeFile(path, 'generated');
-        expect(isScanCleanupGeneratedOutputPath(path, appTempDir)).toBe(true);
+        expect(isScanCleanupGeneratedOutputPath(path, [outputBaseDir])).toBe(true);
 
-        const partialPath = await createScanCleanupGeneratedOutputPath('/books/My scan.pdf', true, appTempDir);
+        const partialPath = await createScanCleanupGeneratedOutputPath('/books/My scan.pdf', true, outputBaseDir);
         expect(partialPath).toMatch(/My scan — cleaned selection\.pdf$/u);
     });
 
     it('byte-caps long Unicode names with a deterministic collision hash and writable suffix', async () => {
-        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-long-name-test-'));
-        tempDirs.push(appTempDir);
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-long-name-test-'));
+        tempDirs.push(outputBaseDir);
         const commonPrefix = '漢'.repeat(200);
         const sourceA = `/books/${commonPrefix}甲.pdf`;
         const sourceB = `/books/${commonPrefix}乙.pdf`;
@@ -73,9 +114,9 @@ describe('scan cleanup generated output pruning', () => {
             pathB,
             repeatedPathA,
         ] = await Promise.all([
-            createScanCleanupGeneratedOutputPath(sourceA, false, appTempDir),
-            createScanCleanupGeneratedOutputPath(sourceB, false, appTempDir),
-            createScanCleanupGeneratedOutputPath(sourceA, false, appTempDir),
+            createScanCleanupGeneratedOutputPath(sourceA, false, outputBaseDir),
+            createScanCleanupGeneratedOutputPath(sourceB, false, outputBaseDir),
+            createScanCleanupGeneratedOutputPath(sourceA, false, outputBaseDir),
         ]);
         const leafA = basename(pathA);
         const leafB = basename(pathB);
@@ -100,12 +141,12 @@ describe('scan cleanup generated output pruning', () => {
     });
 
     it('classifies only descendants of the managed output root', async () => {
-        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-classifier-test-'));
-        tempDirs.push(appTempDir);
-        const root = getScanCleanupOutputRoot(appTempDir);
-        const outsidePath = join(appTempDir, 'outside.pdf');
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-classifier-test-'));
+        tempDirs.push(outputBaseDir);
+        const root = getScanCleanupOutputRoot(outputBaseDir);
+        const outsidePath = join(outputBaseDir, 'outside.pdf');
         await writeFile(outsidePath, 'outside');
-        expect(isScanCleanupGeneratedOutputPath(outsidePath, appTempDir)).toBe(false);
+        expect(isScanCleanupGeneratedOutputPath(outsidePath, [outputBaseDir])).toBe(false);
         const managedPath = join(
             root,
             '01234567-89ab-cdef-0123-456789abcdef',
@@ -116,20 +157,20 @@ describe('scan cleanup generated output pruning', () => {
 
         expect(isScanCleanupGeneratedOutputPath(
             managedPath,
-            appTempDir,
+            [outputBaseDir],
         )).toBe(true);
         expect(isScanCleanupGeneratedOutputPath(
             await realpath(managedPath),
-            appTempDir,
+            [outputBaseDir],
         )).toBe(true);
-        expect(isScanCleanupGeneratedOutputPath(root, appTempDir)).toBe(false);
+        expect(isScanCleanupGeneratedOutputPath(root, [outputBaseDir])).toBe(false);
         expect(isScanCleanupGeneratedOutputPath(
-            join(appTempDir, 'scan-cleanup', 'output-sibling', 'scan.pdf'),
-            appTempDir,
+            join(outputBaseDir, 'scan-cleanup', 'output-sibling', 'scan.pdf'),
+            [outputBaseDir],
         )).toBe(false);
         expect(isScanCleanupGeneratedOutputPath(
             outsidePath,
-            appTempDir,
+            [outputBaseDir],
         )).toBe(false);
         const nonUuidPath = join(root, 'not-a-run-id', 'scan.pdf');
         const nestedPath = join(
@@ -150,30 +191,30 @@ describe('scan cleanup generated output pruning', () => {
             writeFile(nestedPath, 'generated'),
             writeFile(nonPdfPath, 'generated'),
         ]);
-        expect(isScanCleanupGeneratedOutputPath(nonUuidPath, appTempDir)).toBe(false);
-        expect(isScanCleanupGeneratedOutputPath(nestedPath, appTempDir)).toBe(false);
-        expect(isScanCleanupGeneratedOutputPath(nonPdfPath, appTempDir)).toBe(false);
-        expect(isScanCleanupGeneratedOutputPath(join(root, 'missing.pdf'), appTempDir)).toBe(false);
+        expect(isScanCleanupGeneratedOutputPath(nonUuidPath, [outputBaseDir])).toBe(false);
+        expect(isScanCleanupGeneratedOutputPath(nestedPath, [outputBaseDir])).toBe(false);
+        expect(isScanCleanupGeneratedOutputPath(nonPdfPath, [outputBaseDir])).toBe(false);
+        expect(isScanCleanupGeneratedOutputPath(join(root, 'missing.pdf'), [outputBaseDir])).toBe(false);
     });
 
     it.skipIf(process.platform === 'win32')('rejects symlink escapes from the managed root', async () => {
-        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-symlink-test-'));
-        tempDirs.push(appTempDir);
-        const root = getScanCleanupOutputRoot(appTempDir);
-        const outsidePath = join(appTempDir, 'outside.pdf');
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-symlink-test-'));
+        tempDirs.push(outputBaseDir);
+        const root = getScanCleanupOutputRoot(outputBaseDir);
+        const outsidePath = join(outputBaseDir, 'outside.pdf');
         const runDirectory = join(root, '01234567-89ab-cdef-0123-456789abcdef');
         await mkdir(runDirectory, {recursive: true});
         await writeFile(outsidePath, 'outside');
         const linkedPdf = join(runDirectory, 'scan.pdf');
         await symlink(outsidePath, linkedPdf);
 
-        expect(isScanCleanupGeneratedOutputPath(linkedPdf, appTempDir)).toBe(false);
+        expect(isScanCleanupGeneratedOutputPath(linkedPdf, [outputBaseDir])).toBe(false);
     });
 
     it('removes only stale output entries that are not open', async () => {
-        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-test-'));
-        tempDirs.push(appTempDir);
-        const root = getScanCleanupOutputRoot(appTempDir);
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-test-'));
+        tempDirs.push(outputBaseDir);
+        const root = getScanCleanupOutputRoot(outputBaseDir);
         const stale = join(root, 'stale');
         const open = join(root, 'open');
         const fresh = join(root, 'fresh');
@@ -198,7 +239,7 @@ describe('scan cleanup generated output pruning', () => {
         ]);
 
         await expect(pruneScanCleanupGeneratedOutputs({
-            appTempDir,
+            baseDirs: [outputBaseDir],
             isOutputLive: path => path === openPdf,
             nowMs,
         })).resolves.toBe(1);
@@ -208,9 +249,9 @@ describe('scan cleanup generated output pruning', () => {
     });
 
     it('aggregates main-owned output liveness across two WebContents', async () => {
-        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-owners-test-'));
-        tempDirs.push(appTempDir);
-        const root = getScanCleanupOutputRoot(appTempDir);
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-owners-test-'));
+        tempDirs.push(outputBaseDir);
+        const root = getScanCleanupOutputRoot(outputBaseDir);
         const first = join(root, 'first');
         const second = join(root, 'second');
         const orphan = join(root, 'orphan');
@@ -239,7 +280,7 @@ describe('scan cleanup generated output pruning', () => {
         ]);
 
         await expect(pruneScanCleanupGeneratedOutputs({
-            appTempDir,
+            baseDirs: [outputBaseDir],
             isOutputLive: isWorkingCopyOriginalPathRegistered,
             nowMs,
         })).resolves.toBe(1);
@@ -249,9 +290,9 @@ describe('scan cleanup generated output pruning', () => {
     });
 
     it('rechecks main liveness before deleting when an output opens during pruning', async () => {
-        const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-open-race-test-'));
-        tempDirs.push(appTempDir);
-        const root = getScanCleanupOutputRoot(appTempDir);
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-open-race-test-'));
+        tempDirs.push(outputBaseDir);
+        const root = getScanCleanupOutputRoot(outputBaseDir);
         const candidate = join(root, 'candidate');
         await mkdir(candidate, {recursive: true});
         const candidatePdf = join(candidate, 'candidate — cleaned.pdf');
@@ -263,7 +304,7 @@ describe('scan cleanup generated output pruning', () => {
         let registration: Promise<void> | null = null;
 
         await expect(pruneScanCleanupGeneratedOutputs({
-            appTempDir,
+            baseDirs: [outputBaseDir],
             isOutputLive: outputPath => {
                 const liveAtCheckStart = isWorkingCopyOriginalPathRegistered(outputPath);
                 if (initialCheck) {
@@ -281,5 +322,65 @@ describe('scan cleanup generated output pruning', () => {
         })).resolves.toBe(0);
         await registration;
         await expect(stat(candidate)).resolves.toBeDefined();
+    });
+
+    it('keeps an output reopened inside the retention window and still removes its untouched sibling', async () => {
+        const outputBaseDir = await createManagedTempDir('scan-cleanup-output-access-test-');
+        const baseDirs = [outputBaseDir];
+        const createdAtMs = Date.now() - 9 * DAY_MS;
+        const reopenedPath = await writeGeneratedOutput(outputBaseDir, RUN_ID, createdAtMs);
+        const abandonedPath = await writeGeneratedOutput(outputBaseDir, OTHER_RUN_ID, createdAtMs);
+
+        await expect(touchScanCleanupGeneratedOutput(reopenedPath, {
+            baseDirs,
+            nowMs: createdAtMs + 6 * DAY_MS,
+        })).resolves.toBe(true);
+
+        await expect(pruneScanCleanupGeneratedOutputs({
+            baseDirs,
+            isOutputLive: () => false,
+            nowMs: createdAtMs + 9 * DAY_MS,
+        })).resolves.toBe(1);
+        await expect(stat(reopenedPath)).resolves.toBeDefined();
+        await expect(stat(abandonedPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('writes new outputs under app data and keeps sweeping the legacy temp root', async () => {
+        const [
+            appDataBaseDir,
+            legacyTempBaseDir,
+        ] = getScanCleanupOutputBaseDirs();
+        expect(appDataBaseDir).toBe(electronPaths.userData);
+        expect(legacyTempBaseDir).toBe(join(electronPaths.temp, 'evb-viewer'));
+
+        const createdPath = await createScanCleanupGeneratedOutputPath('/books/My scan.pdf');
+        await writeFile(createdPath, 'generated');
+        expect(dirname(dirname(createdPath))).toBe(getScanCleanupOutputRoot(appDataBaseDir!));
+        expect(createdPath.startsWith(electronPaths.temp)).toBe(false);
+        expect(isScanCleanupGeneratedOutputPath(createdPath)).toBe(true);
+
+        const staleLegacyPath = await writeGeneratedOutput(
+            legacyTempBaseDir!,
+            RUN_ID,
+            Date.now() - 9 * DAY_MS,
+        );
+        expect(isScanCleanupGeneratedOutputPath(staleLegacyPath)).toBe(true);
+
+        await expect(pruneScanCleanupGeneratedOutputs({isOutputLive: () => false})).resolves.toBe(1);
+        await expect(stat(staleLegacyPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(stat(createdPath)).resolves.toBeDefined();
+    });
+
+    it('ignores retention refreshes for paths outside the managed output roots', async () => {
+        const outputBaseDir = await createManagedTempDir('scan-cleanup-output-touch-guard-test-');
+        const outsidePath = join(outputBaseDir, 'outside.pdf');
+        await writeFile(outsidePath, 'outside');
+        const metadataBefore = await stat(outputBaseDir);
+
+        await expect(touchScanCleanupGeneratedOutput(outsidePath, {
+            baseDirs: [outputBaseDir],
+            nowMs: Date.now() + DAY_MS,
+        })).resolves.toBe(false);
+        await expect(stat(outputBaseDir)).resolves.toMatchObject({mtimeMs: metadataBefore.mtimeMs});
     });
 });
