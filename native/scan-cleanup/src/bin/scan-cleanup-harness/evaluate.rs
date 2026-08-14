@@ -54,6 +54,7 @@ pub struct CorpusInventory {
     pub total: usize,
     pub real: usize,
     pub synthetic: usize,
+    pub fixture_identities: Vec<String>,
     pub real_categories: BTreeMap<String, usize>,
     pub synthetic_categories: BTreeMap<String, usize>,
 }
@@ -356,11 +357,12 @@ pub fn evaluate_corpus(
 
     Ok(HarnessReport {
         comparable: ComparableReport {
-            schema_version: 2,
+            schema_version: 3,
             corpus: CorpusInventory {
                 total: entries.len(),
                 real,
                 synthetic: entries.len() - real,
+                fixture_identities: entries.iter().map(|entry| entry.identity.clone()).collect(),
                 real_categories,
                 synthetic_categories,
             },
@@ -1053,11 +1055,6 @@ mod tests {
     fn catastrophe_budget_rejects_regressions_and_corpus_drift() {
         let baseline_json = include_str!("../../../harness-baseline.json");
         let baseline: ComparableReport = serde_json::from_str(baseline_json).unwrap();
-        let corpus = crate::corpus::build_corpus().unwrap();
-        let current = evaluate_corpus(&corpus, 1, CalibrationConfig::default()).unwrap();
-        assert!(compare_catastrophes(&current.comparable, &baseline)
-            .unwrap()
-            .is_empty());
 
         let mut regressed: ComparableReport = serde_json::from_str(baseline_json).unwrap();
         *regressed
@@ -1076,6 +1073,27 @@ mod tests {
         assert!(compare_catastrophes(&shrunk, &baseline)
             .unwrap_err()
             .starts_with("corpus inventory differs from baseline:"));
+
+        let mut swapped: ComparableReport = serde_json::from_str(baseline_json).unwrap();
+        swapped.corpus.fixture_identities[0] = "split/replacement-fixture.png".into();
+        assert!(compare_catastrophes(&swapped, &baseline)
+            .unwrap_err()
+            .starts_with("corpus inventory differs from baseline:"));
+    }
+
+    #[test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "the complete 51-page corpus is release-only; debug keeps comparator coverage"
+    )]
+    fn current_corpus_matches_the_catastrophe_baseline() {
+        let baseline_json = include_str!("../../../harness-baseline.json");
+        let baseline: ComparableReport = serde_json::from_str(baseline_json).unwrap();
+        let corpus = crate::corpus::build_corpus().unwrap();
+        let current = evaluate_corpus(&corpus, 1, CalibrationConfig::default()).unwrap();
+        assert!(compare_catastrophes(&current.comparable, &baseline)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

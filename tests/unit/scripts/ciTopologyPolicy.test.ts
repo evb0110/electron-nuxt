@@ -69,6 +69,17 @@ function workflowJob(workflow: string, jobName: string) {
         : workflow.slice(start, start + 1 + nextJob);
 }
 
+function shellFunction(source: string, functionName: string) {
+    const start = source.indexOf(`${functionName}() {\n`);
+    if (start === -1) {
+        throw new Error(`Missing shell function: ${functionName}`);
+    }
+    const nextFunction = source.slice(start + 1).search(/\n[a-z][a-z0-9_]*\(\) \{\n/u);
+    return nextFunction === -1
+        ? source.slice(start)
+        : source.slice(start, start + 1 + nextFunction);
+}
+
 function parseWorkflowJobs(workflow: string) {
     const parsed = getStaticYAMLValue(parseYAML(workflow)) as unknown;
     if (!isRecord(parsed) || !isRecord(parsed.jobs)) {
@@ -324,6 +335,32 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'manual_landing')).not.toContain('continue-on-error: true');
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
         expect(testsTsconfig.exclude).toContain('./unit/landing/**/*.ts');
+    });
+
+    it('pins scan-cleanup oracle enforcement and Linux arm64 execution', async () => {
+        const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const oracleScript = await readProjectFile('scripts/ci/scan-cleanup-oracles.sh');
+        const prePush = await readProjectFile('.husky/pre-push');
+        const catastropheOracle = shellFunction(oracleScript, 'run_catastrophe_oracle');
+        const exportOracles = shellFunction(oracleScript, 'run_export_oracles');
+        const nativeJob = workflowJob(workflow, 'pr_native_build_safety');
+        const arm64Job = workflowJob(workflow, 'pr_rust_tests_arm64');
+        const exportJob = workflowJob(workflow, 'pr_scan_cleanup_oracles');
+
+        expect(nativeJob).toContain('run: scripts/ci/scan-cleanup-oracles.sh native');
+        expect(catastropheOracle).toContain('--baseline native/scan-cleanup/harness-baseline.json');
+        expect(exportJob).toContain('run: scripts/ci/scan-cleanup-oracles.sh export');
+        expect(exportOracles).toContain('scan-cleanup-preview-harness.mjs');
+        expect(exportOracles).toContain('--check');
+        expect(exportOracles).toContain('scan-cleanup-word-loss-audit.mjs');
+        expect(exportOracles).toContain('--fail-on text-loss');
+        expect(arm64Job).toContain('runs-on: ubuntu-24.04-arm');
+        expect(prePush).toContain('scripts/ci/scan-cleanup-oracles.sh');
+        expect(prePush).toContain('pre-push .devkit/scratch/pre-push-scan-cleanup-oracles');
+        expect(oracleScript).toContain('major === 22 && minor >= 18');
+        expect(oracleScript).toContain('warning: skipping scan-cleanup preview and word-loss pre-push oracles');
+        expect(workflow).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
+        expect(prePush).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
     });
 
     it('runs regular packaged-content verification against extracted Store AppX contents', async () => {

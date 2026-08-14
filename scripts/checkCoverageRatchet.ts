@@ -1,6 +1,7 @@
 import {isRecord} from '@contracts/runtimeGuards';
 import {
     readFile,
+    readdir,
     writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
@@ -57,6 +58,8 @@ export const DEFAULT_COVERAGE_AREAS = {
     'electron-ocr': {include: ['electron/ocr/']},
     'pdf-viewer': {include: ['app/modules/pdf-viewer/']},
     'release-scripts': {include: ['scripts/release/']},
+    'scan-cleanup-adapters': {include: ['scan-cleanup-adapters/']},
+    'scan-cleanup-core': {include: ['scan-cleanup-core/']},
     'scripts-core': {include: ['scripts/']},
     'workspace-shell': {include: ['app/modules/workspace-shell/']},
 } satisfies Record<string, {include: string[]}>;
@@ -104,6 +107,36 @@ function normalizePath(filePath: string, projectRoot: string) {
     return path.isAbsolute(filePath) && normalized.startsWith(`${root}/`)
         ? normalized.slice(root.length + 1)
         : normalized.replace(/^\.\//u, '');
+}
+
+async function collectCoverageSourceFiles(projectRoot: string) {
+    const roots = [...new Set(Object.values(DEFAULT_COVERAGE_AREAS)
+        .flatMap(area => area.include)
+        .flatMap((prefix) => {
+            const [root] = prefix.split('/');
+            return root ? [root] : [];
+        }))];
+
+    async function collect(directory: string): Promise<string[]> {
+        const entries = await readdir(path.join(projectRoot, directory), {withFileTypes: true});
+        const files = await Promise.all(entries.map(async (entry) => {
+            const relativePath = path.posix.join(directory, entry.name);
+            if (entry.isDirectory()) {
+                return entry.name === '.nuxt' ? [] : collect(relativePath);
+            }
+            const isCoverageSource = relativePath.startsWith('scripts/')
+                ? /\.(?:cjs|mjs|ts)$/u.test(entry.name)
+                : entry.name.endsWith('.ts');
+            return entry.isFile()
+                && isCoverageSource
+                && !entry.name.endsWith('.d.ts')
+                ? [relativePath]
+                : [];
+        }));
+        return files.flat();
+    }
+
+    return (await Promise.all(roots.map(root => collect(root)))).flat();
 }
 
 export function parseCoverageSummary(source: string, projectRoot = process.cwd()): ICoverageSnapshot {
@@ -188,7 +221,11 @@ export function createCoverageBaseline(snapshot: ICoverageSnapshot, tolerance = 
     };
 }
 
-export function compareCoverageToBaseline(snapshot: ICoverageSnapshot, baseline: ICoverageBaseline) {
+export function compareCoverageToBaseline(
+    snapshot: ICoverageSnapshot,
+    baseline: ICoverageBaseline,
+    onDiskSourceFiles?: readonly string[],
+) {
     const failures: string[] = [];
     const comparisons: string[] = [];
     const compare = (
@@ -215,6 +252,21 @@ export function compareCoverageToBaseline(snapshot: ICoverageSnapshot, baseline:
             failures.push(`${name} is missing from the coverage report`);
         } else {
             compare(name, aggregate.metrics, area.metrics);
+        }
+        if (aggregate.fileCount < area.fileCount) {
+            const onDiskFileCount = onDiskSourceFiles?.filter(filePath => (
+                area.include.some(prefix => filePath.startsWith(prefix))
+            )).length;
+            if (onDiskFileCount === undefined || aggregate.fileCount !== onDiskFileCount) {
+                failures.push(
+                    `${name} coverage file count shrank from ${area.fileCount} to ${aggregate.fileCount}`
+                    + (onDiskFileCount === undefined ? '' : ` while ${onDiskFileCount} source files remain on disk`),
+                );
+            } else {
+                comparisons.push(
+                    `${name} file count: ${aggregate.fileCount} (${area.fileCount - aggregate.fileCount} source files removed on disk)`,
+                );
+            }
         }
     }
     const filesByPath = new Map(snapshot.files.map(file => [
@@ -273,7 +325,11 @@ export async function runCoverageRatchet(args = process.argv.slice(2), projectRo
         };
     }
 
-    const result = compareCoverageToBaseline(snapshot, parseBaseline(await readFile(baselinePath, 'utf8')));
+    const result = compareCoverageToBaseline(
+        snapshot,
+        parseBaseline(await readFile(baselinePath, 'utf8')),
+        await collectCoverageSourceFiles(projectRoot),
+    );
     return {
         message: [
             result.passed ? 'Coverage ratchet passed.' : 'Coverage ratchet failed.',

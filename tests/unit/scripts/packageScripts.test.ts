@@ -171,9 +171,8 @@ describe('package scripts', () => {
 
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
         // S4 adds exactly three public scan-cleanup entry points: the two
-        // named diagnostics (CI wiring lands with S4's post-S3 step) and the
-        // machine-written O6 baseline generator. Operators and architecture
-        // tests must share these names.
+        // named diagnostics now enforced by S3 CI wiring and the machine-written
+        // O6 baseline generator. Operators and architecture tests share these names.
         expect(Object.keys(scripts).length).toBeLessThanOrEqual(103);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
