@@ -133,7 +133,8 @@ pnpm run diag:scan-cleanup-preview-harness -- \
   --source /absolute/source.pdf --pages 1,2,99 --out .devkit/analysis/preview-oracle --check
 ```
 
-or, equivalently, without the package script:
+or, equivalently, without the package script (POSIX shells only — the
+pnpm form above is the cross-platform invocation):
 
 ```bash
 node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
@@ -153,7 +154,8 @@ pnpm run diag:scan-cleanup-representative-audit -- \
   --out .devkit/analysis/representative-audit.json
 ```
 
-or, equivalently, without the package script:
+or, equivalently, without the package script (POSIX shells only — the
+pnpm form above is the cross-platform invocation):
 
 ```bash
 TSX_TSCONFIG_PATH=tsconfig.scripts.json node \

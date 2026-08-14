@@ -30,7 +30,7 @@ export const thresholdBaselinePath = join(
 );
 export const thresholdBaselineGenerator = 'pnpm run generate:scan-cleanup-threshold-baseline';
 
-const namedFloatConstPattern = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const|static(?:\s+mut)?)\s+[A-Za-z_]\w*\s*:\s*[^=;]*\bf(?:32|64)\b/gmu;
+const namedFloatConstPattern = /(?:^|;)\s*(?:pub(?:\([^)]*\))?\s+)?(?:const|static(?:\s+mut)?)\s+[A-Za-z_]\w*\s*:\s*[^=;]*\bf(?:32|64)\b/gmu;
 
 function blankCharacter(character) {
     return character === '\n' || character === '\r' ? character : ' ';
