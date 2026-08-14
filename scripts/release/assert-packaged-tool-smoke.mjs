@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { assertMacPackagedToolSmoke } from './native-tool-smoke-policy.mjs';
+import { assertPackagedToolSmoke } from './native-tool-smoke-policy.mjs';
 import { getCliErrorMessage } from './cli-error.mjs';
 
 function main() {
@@ -21,7 +21,7 @@ function main() {
     }
 
     const output = readFileSync(outputFile, 'utf8');
-    assertMacPackagedToolSmoke(toolName, exitCode, output);
+    assertPackagedToolSmoke(toolName, exitCode, output);
 }
 
 try {

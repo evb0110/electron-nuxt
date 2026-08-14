@@ -429,10 +429,11 @@ windows_pe_allowed_machines_for_release_arch() {
   esac
 }
 
+# Shares the one exit-code and output-signature policy with the macOS helper
+# (scripts/release/native-tool-smoke-policy.mjs) instead of carrying a second,
+# looser expectation per call site.
 run_host_packaged_tool_smoke() {
   local tool_name="$1"
-  shift
-  local expected_pattern="$1"
   shift
   local tool_path="$1"
   shift
@@ -447,21 +448,35 @@ run_host_packaged_tool_smoke() {
   echo "Smoke testing packaged tool: $tool_path $*"
   local exit_code=0
   "$tool_path" "$@" >"$output_file" 2>&1 || exit_code=$?
-  if [ "$exit_code" -ne 0 ]; then
+
+  if ! node scripts/release/assert-packaged-tool-smoke.mjs "$tool_name" "$exit_code" "$output_file"; then
     cat "$output_file"
     rm -f "$output_file"
-    echo "Error: Packaged tool smoke test failed ($tool_name) with exit code $exit_code"
+    if [ "$exit_code" -eq 0 ]; then
+      exit 1
+    fi
     exit "$exit_code"
   fi
 
-  if ! grep -Eiq "$expected_pattern" "$output_file"; then
-    cat "$output_file"
-    rm -f "$output_file"
-    echo "Error: Packaged tool smoke test output for $tool_name did not match /$expected_pattern/"
+  rm -f "$output_file"
+}
+
+# Version and protocol numbers are schema-additive-stable, so they cannot tell a
+# current sidecar from one built before the fields its consumers now read. This
+# runs the packaged binary over a synthesized spread and asserts the fold-clip
+# terms come back in the metadata it writes.
+run_packaged_scan_cleanup_fold_clip_smoke() {
+  local tool_path="$1"
+
+  if [ ! -f "$tool_path" ]; then
+    echo "Error: Missing packaged tool for fold-clip smoke test ($tool_path)"
     exit 1
   fi
 
-  rm -f "$output_file"
+  echo "Functionally smoke testing packaged sidecar metadata: $tool_path"
+  if ! node scripts/release/assert-packaged-scan-cleanup-fold-clip.mjs "$tool_path"; then
+    exit 1
+  fi
 }
 
 if [ "$platform" = "mac" ]; then
@@ -524,6 +539,11 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "evb-pdf-search" "$(packaged_entry_path evb-pdf-search)" --version
   run_macos_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
   run_macos_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
+  if is_macos_app_adhoc_signed "$mac_app_path"; then
+    echo "Named gap: skipping the packaged sidecar fold-clip smoke for $platform_arch; an ad-hoc signed app is killed by provenance policy when run in place, and this smoke needs the packaged binary to write its own outputs."
+  else
+    run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"
+  fi
   run_macos_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
   run_macos_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help
 fi
@@ -556,10 +576,13 @@ if [ "$platform" = "linux" ]; then
   fi
 
   if host_can_execute_target "$platform" "$arch"; then
-    run_host_packaged_tool_smoke "tesseract" "tesseract" "$(packaged_entry_path tesseract)" --version
-    run_host_packaged_tool_smoke "unpaper" "unpaper|usage" "$(packaged_entry_path unpaper)" --help
+    run_host_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
+    run_host_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help
+    run_host_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
+    run_host_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
+    run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"
   else
-    echo "Skipping Linux OCR native tool smoke: host cannot execute $platform_arch"
+    echo "Named gap: no packaged-binary execution evidence for $platform_arch; host $(uname -s)/$(uname -m) cannot execute the target. Evidence for this leg is limited to the static ELF dependency checks above."
   fi
 fi
 
@@ -583,9 +606,12 @@ if [ "$platform" = "win" ]; then
   trap - EXIT
 
   if host_can_execute_target "$platform" "$arch"; then
-    run_host_packaged_tool_smoke "tesseract" "tesseract" "$(packaged_entry_path tesseract)" --version
+    run_host_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
+    run_host_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
+    run_host_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
+    run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"
   else
-    echo "Skipping Windows OCR native tool smoke: host cannot execute $platform_arch"
+    echo "Named gap: no packaged-binary execution evidence for $platform_arch; the win-arm64 bundle is cross-built on an x64 Windows runner, so no CI host executes it. Evidence for this leg is limited to the static PE machine, dependency, and tesseract payload checks above."
   fi
 fi
 

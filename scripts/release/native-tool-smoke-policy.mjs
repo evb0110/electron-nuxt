@@ -19,7 +19,16 @@ function getGeneratedProtocolVersion(binaryName) {
     return protocolVersion;
 }
 
-const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
+// One exit-code and output-signature policy for every host that can execute the
+// packaged tools it verifies: macOS arm64, linux-x64, linux-arm64, and win-x64.
+//
+// Named gap — win-arm64. Its bundle is cross-built on an x64 Windows runner, so
+// no CI host can execute the arm64 binaries at all and this policy is never
+// applied to them. That leg's evidence is limited to the static PE machine,
+// dependency, and tesseract payload checks in verify-packaged-native-tools.sh,
+// which prints the gap by name. Closing it needs an arm64 Windows runner or a
+// post-release execution check on arm64 hardware.
+const PACKAGED_TOOL_SMOKE_POLICY = {
     'evb-pdf-image-combine': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-pdf-image-combine'],
@@ -115,8 +124,8 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
     },
 };
 
-export function getMacPackagedToolSmokePolicy(toolName) {
-    const policy = MAC_PACKAGED_TOOL_SMOKE_POLICY[toolName];
+export function getPackagedToolSmokePolicy(toolName) {
+    const policy = PACKAGED_TOOL_SMOKE_POLICY[toolName];
     if (!policy) {
         throw new Error(`Unsupported packaged tool smoke policy "${toolName}"`);
     }
@@ -124,8 +133,8 @@ export function getMacPackagedToolSmokePolicy(toolName) {
     return policy;
 }
 
-export function assertMacPackagedToolSmoke(toolName, exitCode, output) {
-    const policy = getMacPackagedToolSmokePolicy(toolName);
+export function assertPackagedToolSmoke(toolName, exitCode, output) {
+    const policy = getPackagedToolSmokePolicy(toolName);
     if (!policy.allowedExitCodes.has(exitCode)) {
         throw new Error(
             `Packaged tool smoke test failed (${toolName}) with exit code ${exitCode}`,
