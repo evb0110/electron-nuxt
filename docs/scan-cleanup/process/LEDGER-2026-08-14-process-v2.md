@@ -356,3 +356,9 @@ R13 2026-08-14 (defect report, user, 3 crops): pervasive sub-word
    (rescue on/off) on the user's exact crops decides it. Acceptance
    for the fix: letter-granularity weight spread gated green AND the
    user's crops re-rendered visibly even.
+R14 2026-08-14 (defect report, user, page feedback): "Estimating time
+   left…" still displayed in the scan-cleanup RUN meter
+   (.scan-cleanup-run-meter-head) — the ETA class recurs in the
+   conversion meter despite the analysis-ETA fix (task #23,
+   b65905f54). Disposition: defect. Check whether the run meter has
+   its own estimator instance that never seeds/resolves.
