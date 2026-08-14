@@ -372,3 +372,18 @@ R14 2026-08-14 (defect report, user, page feedback): "Estimating time
    conversion meter despite the analysis-ETA fix (task #23,
    b65905f54). Disposition: defect. Check whether the run meter has
    its own estimator instance that never seeds/resolves.
+R15 2026-08-14 (user-provided audit, ETA architecture): two independent
+   ETA estimators exist; the worker-side one
+   (createScanCleanupProgressReporter etaSeconds: EMA ms/unit,
+   stage-weight bands, monotonic, contract-transported, unit-tested)
+   is DEAD — no UI consumer; the renderer-side duplicate
+   (useScanCleanupPageEta via useScanCleanupRunSession) is what
+   displays, admits only classifying+rendering of 11 stages, and
+   resets accumulated samples on every other stage — on raster runs
+   (normalizing->probing->extracting->rasterizing->rendering->
+   collecting->assembling->handoff) it gets one window and is wiped
+   again. F16 exemplar: superior mechanism built and never wired.
+   DECISION: batch item 5 reworked — the run meter consumes
+   progress.etaSeconds (single owner); the renderer-side run-path
+   estimator is retired; terminal-stage labels from the current fix
+   are kept; analysis phase unchanged.
