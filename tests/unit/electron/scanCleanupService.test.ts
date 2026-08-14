@@ -531,19 +531,53 @@ describe('scan cleanup service', () => {
             });
         });
         const service = createScanCleanupService();
-        const webContents: WebContents = new LifecycleWebContents(42) as never;
+        const lifecycleSender = new LifecycleWebContents(42);
+        const webContents: WebContents = lifecycleSender as never;
         const started = await service.start(webContents, startRequest);
         if (!started.started) throw new Error('Expected scan cleanup to start');
         const signal = await entered.promise;
+        const publishProgress = mocks.runWorker.mock.calls[0]![4] as (progress: {
+            stage: 'rendering';
+            completedUnits: number;
+            totalUnits: number;
+            percent: number;
+        }) => void;
         expect(webContents.listenerCount('did-start-navigation')).toBe(1);
+
+        expect(service.subscribe(webContents, started.jobId, owner))
+            .toMatchObject({status: expect.stringMatching(/queued|running/u)});
+        lifecycleSender.send.mockClear();
+        publishProgress({
+            stage: 'rendering',
+            completedUnits: 1,
+            totalUnits: 2,
+            percent: 50,
+        });
+        expect(lifecycleSender.send).toHaveBeenCalledOnce();
 
         webContents.emit('did-start-navigation', {}, 'app://reload', false, true);
 
         expect(signal.aborted).toBe(false);
         expect(webContents.listenerCount('did-start-navigation')).toBe(0);
+        lifecycleSender.send.mockClear();
+        publishProgress({
+            stage: 'rendering',
+            completedUnits: 2,
+            totalUnits: 3,
+            percent: 2 / 3 * 100,
+        });
+        expect(lifecycleSender.send).not.toHaveBeenCalled();
         expect(service.subscribe(webContents, started.jobId, owner))
             .toMatchObject({status: expect.stringMatching(/queued|running/u)});
         expect(webContents.listenerCount('did-start-navigation')).toBe(1);
+        lifecycleSender.send.mockClear();
+        publishProgress({
+            stage: 'rendering',
+            completedUnits: 3,
+            totalUnits: 4,
+            percent: 75,
+        });
+        expect(lifecycleSender.send).toHaveBeenCalledOnce();
         expect(service.cancel(webContents, started.jobId, owner)).toBe(true);
         await vi.waitFor(() => expect(signal.aborted).toBe(true));
     });

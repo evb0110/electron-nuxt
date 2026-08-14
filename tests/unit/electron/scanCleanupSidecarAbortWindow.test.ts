@@ -75,7 +75,7 @@ describe('scan cleanup sidecar abort window', () => {
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
 
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
-        child.emit('exit', null, 'SIGKILL');
+        child.emit('close', null, 'SIGKILL');
         await expect(run).rejects.toMatchObject({name: 'AbortError'});
     });
 });

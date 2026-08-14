@@ -83,6 +83,8 @@ describe('scan cleanup sidecar stage timings', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.terminateDetachedChildProcess.mockResolvedValue(undefined);
+        vi.useRealTimers();
     });
 
     it('terminates a malformed NDJSON sidecar once and surfaces the protocol error after exit', async () => {
@@ -102,7 +104,7 @@ describe('scan cleanup sidecar stage timings', () => {
         child.stdout.write('{still-not-json}\n');
         await vi.waitFor(() => expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce());
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
-        child.emit('exit', 1, null);
+        child.emit('close', 1, null);
         await expect(run).rejects.toThrow();
     });
 
@@ -118,7 +120,7 @@ describe('scan cleanup sidecar stage timings', () => {
         // process-tree kill after the fatal protocol frame.
         controller.abort(new DOMException('Canceled later', 'AbortError'));
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce();
-        child.emit('exit', null, 'SIGTERM');
+        child.emit('close', null, 'SIGTERM');
         await expect(run).rejects.toBeInstanceOf(SyntaxError);
     });
 
@@ -150,7 +152,7 @@ describe('scan cleanup sidecar stage timings', () => {
         }));
         child.stdout.write(resultLine('success'));
         await flushLines(() => progressEvents, 2);
-        child.emit('exit', 0, null);
+        child.emit('close', 0, null);
         await run;
 
         const message = readTimingLog(log);
@@ -161,6 +163,94 @@ describe('scan cleanup sidecar stage timings', () => {
         expect(message).toContain('render=0.100s');
         expect(message).toContain('write=0.010s');
         expect(message).not.toContain('deskew');
+    });
+
+    it('waits for close so terminal stdout delivered after exit remains authoritative', async () => {
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/late-terminal-manifest.json',
+            new AbortController().signal,
+            vi.fn<TWorkerLog>(),
+            () => {},
+        );
+
+        child.emit('exit', 0, null);
+        child.stdout.end(resultLine('success'));
+        await new Promise(resolve => {
+            setImmediate(resolve);
+        });
+        child.emit('close', 0, null);
+
+        await expect(run).resolves.toBeUndefined();
+    });
+
+    it('awaits process-tree cleanup before a wall-clock timeout rejects', async () => {
+        vi.useFakeTimers();
+        try {
+            const child = new MockSidecarProcess();
+            let finishTermination = () => {};
+            mocks.spawn.mockReturnValue(child);
+            mocks.terminateDetachedChildProcess.mockImplementationOnce(() => new Promise<void>(resolve => {
+                finishTermination = resolve;
+            }));
+            const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+            let failureReturned = false;
+            const failure = runScanCleanupSidecar(
+                '/native/evb-scan-cleanup',
+                '/scratch/timed-out-manifest.json',
+                new AbortController().signal,
+                vi.fn<TWorkerLog>(),
+                () => {},
+                {timeoutMs: 10},
+            ).catch(error => {
+                failureReturned = true;
+                return error as Error;
+            });
+
+            await vi.advanceTimersByTimeAsync(10);
+            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
+            expect(failureReturned).toBe(false);
+
+            finishTermination();
+            await expect(failure).resolves.toMatchObject({message: 'evb-scan-cleanup timed out after 10ms'});
+            expect(failureReturned).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('uses a bounded fallback when process-tree cleanup does not settle', async () => {
+        vi.useFakeTimers();
+        try {
+            const child = new MockSidecarProcess();
+            mocks.spawn.mockReturnValue(child);
+            mocks.terminateDetachedChildProcess.mockImplementationOnce(() => new Promise<void>(() => {}));
+            const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+            let failureReturned = false;
+            const failure = runScanCleanupSidecar(
+                '/native/evb-scan-cleanup',
+                '/scratch/stuck-termination-manifest.json',
+                new AbortController().signal,
+                vi.fn<TWorkerLog>(),
+                () => {},
+                {timeoutMs: 10},
+            ).catch(error => {
+                failureReturned = true;
+                return error as Error;
+            });
+
+            await vi.advanceTimersByTimeAsync(10 + 3_499);
+            expect(failureReturned).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+
+            await expect(failure).resolves.toMatchObject({message: 'evb-scan-cleanup timed out after 10ms'});
+            expect(failureReturned).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('still reports what the failed run spent before the sidecar gave up', async () => {
@@ -182,7 +272,7 @@ describe('scan cleanup sidecar stage timings', () => {
         child.stdout.write(progressLine(1, {decodeMs: 300}));
         child.stdout.write(resultLine('failure'));
         await flushLines(() => progressEvents, 1);
-        child.emit('exit', 1, null);
+        child.emit('close', 1, null);
 
         await expect(run).rejects.toThrow('sidecar refused the manifest');
         const message = readTimingLog(log);
@@ -218,7 +308,7 @@ describe('scan cleanup sidecar stage timings', () => {
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
         child.stdout.write(resultLine('success'));
         await vi.waitFor(() => expect(child.stdout.readableLength).toBe(0));
-        child.emit('exit', 0, null);
+        child.emit('close', 0, null);
         await run;
 
         // The slot the sidecar held is handed back, so the next native command
