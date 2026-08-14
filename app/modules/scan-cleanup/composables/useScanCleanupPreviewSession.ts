@@ -176,6 +176,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
     const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
     const resultKey = shallowRef<string | null>(null);
+    const resultPresentationKey = shallowRef('');
     const detailResult = shallowRef<IScanCleanupPreviewResult | null>(null);
     const detailLoading = ref(false);
     const loading = ref(false);
@@ -202,6 +203,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     // retired (for example after its SHA becomes available). Keep that event in
     // the scheduling/cache identity so clearing state always causes fresh work.
     const lifecycleGeneration = ref(0);
+    let userPresentationGeneration = 0;
     let activeVisibleRequestId: string | null = null;
     const inFlightPreviewPages: number[] = [];
     const inFlightPreviewRequestIds = new Set<string>();
@@ -348,6 +350,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             options.pagePlanEvidenceByPage.get(pageNumber) ?? null,
             options.layoutDetectionComplete.value,
         ) + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}lifecycle:${String(lifecycleGeneration.value)}`;
+    }
+
+    function presentationKey(key: string) {
+        const separator = key.indexOf(SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR);
+        const identity = separator < 0 ? key : key.slice(0, separator);
+        return `${identity}${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}`
+            + `lifecycle:${String(lifecycleGeneration.value)}`
+            + `${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}user:${String(userPresentationGeneration)}`;
     }
 
     // The layouts the main process measures the matched canvas from. They are
@@ -609,9 +619,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 : {}),
         }).catch(() => undefined);
         if (cached) {
+            resultKey.value = key;
+            resultPresentationKey.value = presentationKey(key);
             result.value = cached;
             rawResult.value = cached;
-            resultKey.value = key;
             loading.value = false;
             error.value = '';
             errorCode.value = null;
@@ -684,8 +695,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     return;
                 }
                 metadataByPage.set(previewResult.pageNumber, previewResult.pageMetadata);
-                result.value = previewResult;
                 resultKey.value = key;
+                resultPresentationKey.value = presentationKey(key);
+                result.value = previewResult;
                 scheduleAdjacentPrefetch(previewResult, requestOptions, requestSourcePath);
             } catch (caught) {
                 if (requestSequence !== sequence || (caught instanceof Error && caught.name === 'AbortError')) {
@@ -873,6 +885,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // theirs to spend again.
         cancellationRetryKey = null;
         cancellationRetries = 0;
+        userPresentationGeneration += 1;
         cache.delete(cacheKey(options.previewPage.value));
         schedule();
     }
@@ -910,6 +923,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         result.value = null;
         rawResult.value = null;
         resultKey.value = null;
+        resultPresentationKey.value = '';
         detailResult.value = null;
         displayedDetailSourceKey = null;
     });
@@ -932,6 +946,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         navigate,
         pauseForRun,
         result,
+        resultPresentationKey,
         rawResult,
         resultCurrent,
         retry,
