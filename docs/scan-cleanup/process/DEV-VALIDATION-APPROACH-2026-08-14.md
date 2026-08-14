@@ -9,9 +9,11 @@ reordering (feature fixes forward; re-adjudication before baseline
 regeneration; e2e triage before graduation; ruleset activation split
 from workflow landing), emergency-lane simplification, B1 reduced to
 blocking-local candidate nomination. Round-4 delta log at end of file.
-HOME: this file is canonical at docs/scan-cleanup/process/ (tracked,
-CodeRabbit-visible) as of S1's PR; any .devkit copy is a non-canonical
-pointer. Review reports for rounds 1-4 live in ./reviews/.
+HOME: this file is canonical at docs/scan-cleanup/process/ (tracked and
+reviewable); any .devkit copy is a non-canonical pointer. Governance-doc
+edits are the single-author orchestration record and commit directly to
+main; CodeRabbit PR review applies to code rather than process prose.
+Review reports for rounds 1-4 live in ./reviews/.
 NUMBERS POLICY (round-4 lesson, both reviewers): the two reviewers'
 independent counts of the same quantity differed (166 vs 167 threshold
 consts); every version of this document carried transcription errors.
@@ -326,11 +328,12 @@ Q1 Graduate the unblocked specs to the DESTINATION lane directly:
    journey, layoutStability, and matchedCanvas's 7 ungated tests need
    no fixtures/env but DO need native build prerequisites the blocking
    smoke command lacks (compare package.json commands) and a
-   matchedCanvas split (1 gated test stays). The 30-green bar is
-   retired as unreachable (max streak 5; architecture test currently
-   PINS counters <30 and blocking:false — policy + test change
-   together); counters become machine-derived from run history in the
-   destination lane; a skip is never a green. Nightly Maintenance
+   matchedCanvas split (1 gated test stays). The intended retirement
+   has NOT landed: the 30-green bar remains pinned at
+   tests/unit/architecture/quarantineGraduationPolicy.test.ts:115 and
+   the counters remain hand-maintained. Retirement and machine-derived
+   destination-lane history are still open; a skip is never a green.
+   Nightly Maintenance
    Gates' 14/14 failure streak is triaged as its own item (it reddens
    every nightly).
 
@@ -367,9 +370,9 @@ X1 Orchestrator decides (diagnosis, design, dispatch, adjudication);
    sol low-high; no stale remote processes left behind.
 X2 Step flow: substantial step -> ONE adversarial review (opus-medium
    + sol-high) -> ONE fix round -> PR -> sol-high babysits CodeRabbit
-   (fail-open; note .coderabbit.yaml pauses incremental review after
-   2 reviewed commits and excludes .devkit/** from its view — raise
-   the pause threshold and keep operative artifacts in tracked paths)
+   (fail-open; note .coderabbit.yaml sets
+   `auto_pause_after_reviewed_commits: 10` and excludes .devkit/** from
+   its view; keep operative artifacts in tracked paths)
    -> joint adjudication of claims, reply/resolve threads -> merge ->
    next. Steps sized substantially.
 
@@ -451,6 +454,8 @@ them. Dispositions of their headline items:
 - Z5 (forced prioritization) split: opus named O7, sol named O1; both
   are scheduled (S1 and S4) — recorded, no further action.
 - Tracked home: this document, the new execution ledger, and the
-  round 1-4 reviewer reports migrate to docs/scan-cleanup/ in S1's
-  PR (sol #4: .devkit is gitignored and CodeRabbit-excluded, so a
-  ledger there cannot serve as reviewable process evidence).
+  round 1-4 reviewer reports migrated to docs/scan-cleanup/ in S1
+  because .devkit is gitignored and unavailable to a fresh clone.
+  Tracking preserves review visibility; under ledger R18 D1, later
+  governance-prose edits commit directly to main rather than requiring
+  CodeRabbit PR flow.
