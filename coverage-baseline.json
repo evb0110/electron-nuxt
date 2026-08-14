@@ -72,6 +72,30 @@
         "lines": 47.36
       }
     },
+    "scan-cleanup-adapters": {
+      "fileCount": 2,
+      "include": [
+        "scan-cleanup-adapters/"
+      ],
+      "metrics": {
+        "statements": 69.35,
+        "branches": 66.52,
+        "functions": 80,
+        "lines": 70.47
+      }
+    },
+    "scan-cleanup-core": {
+      "fileCount": 28,
+      "include": [
+        "scan-cleanup-core/"
+      ],
+      "metrics": {
+        "statements": 90.14,
+        "branches": 84.07,
+        "functions": 94.22,
+        "lines": 91.74
+      }
+    },
     "scripts-core": {
       "fileCount": 159,
       "include": [

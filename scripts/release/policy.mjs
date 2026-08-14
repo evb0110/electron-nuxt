@@ -86,6 +86,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/checkSearchNativeParity.ts',
                 'scripts/check-wasm-freshness.mjs',
                 'scripts/ci/classify-changed-areas.mjs',
+                'scripts/ci/scan-cleanup-oracles.sh',
                 'scripts/generateBuildArtifacts.ts',
                 'scripts/generateElectronBuilderResources.ts',
                 'scripts/generateNativeToolProtocols.ts',

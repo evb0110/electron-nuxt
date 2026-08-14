@@ -267,11 +267,7 @@ jobs:
         run: pnpm run test:rust
 
       - name: Scan-cleanup catastrophe baseline
-        run: |
-          cargo run --manifest-path native/Cargo.toml --locked --release \
-            --package evb-scan-cleanup --bin scan-cleanup-harness -- \
-            --baseline native/scan-cleanup/harness-baseline.json \
-            --out "$RUNNER_TEMP/scan-cleanup-harness"
+        run: scripts/ci/scan-cleanup-oracles.sh native "$RUNNER_TEMP/scan-cleanup-oracles"
 
       - name: Rust formatting and clippy
         run: pnpm run lint:rust
@@ -335,27 +331,8 @@ jobs:
       - name: Install PDF audit tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils qpdf
 
-      - name: Build scan-cleanup native tool
-        run: pnpm run build:scan-cleanup
-
-      - name: Preview and export parity gate
-        run: |
-          node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
-            --source tests/fixtures/electron/test-scanned.pdf \
-            --pages 1 \
-            --out "$RUNNER_TEMP/scan-cleanup-preview-harness" \
-            --check
-
-      - name: Export word-loss gate
-        run: |
-          node scripts/diagnostics/scan-cleanup-word-loss-audit.mjs \
-            --source tests/fixtures/electron/test-scanned.pdf \
-            --cleaned "$RUNNER_TEMP/scan-cleanup-preview-harness/final-reference.pdf" \
-            --mapping "$RUNNER_TEMP/scan-cleanup-preview-harness/final-reference.pdf.summary.json" \
-            --from 1 \
-            --to 1 \
-            --out "$RUNNER_TEMP/scan-cleanup-word-loss-audit.json" \
-            --fail-on text-loss
+      - name: Preview, export, and word-loss gates
+        run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
 
   pr_landing_quality:
     name: Landing Quality Gates For Changed Sources

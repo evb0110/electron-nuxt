@@ -41,6 +41,8 @@ function summary(totalPct: number, filePct = totalPct) {
         '/repo/electron/ocr/recognize.ts': metricSummary(filePct),
         '/repo/app/modules/pdf-viewer/viewer.ts': metricSummary(filePct),
         '/repo/app/modules/workspace-shell/workspace.ts': metricSummary(filePct),
+        '/repo/scan-cleanup-adapters/renderers.ts': metricSummary(filePct),
+        '/repo/scan-cleanup-core/detection.ts': metricSummary(filePct),
         '/repo/scripts/release/build.ts': metricSummary(filePct),
     });
 }
@@ -72,6 +74,8 @@ describe('coverage ratchet', () => {
             'electron-core': {include: ['electron/']},
             'pdf-viewer': {include: ['app/modules/pdf-viewer/']},
             'release-scripts': {include: ['scripts/release/']},
+            'scan-cleanup-adapters': {include: ['scan-cleanup-adapters/']},
+            'scan-cleanup-core': {include: ['scan-cleanup-core/']},
             'scripts-core': {include: ['scripts/']},
             'workspace-shell': {include: ['app/modules/workspace-shell/']},
         });
@@ -109,5 +113,40 @@ describe('coverage ratchet', () => {
 
         expect(result.passed).toBe(false);
         expect(result.failures).toContain(`${targetPath} lines regressed by 0.51 percentage points`);
+    });
+
+    it('rejects a coverage denominator shrink while source files remain on disk', () => {
+        const baselineSnapshot = parseCoverageSummary(summary(70, 80), '/repo');
+        const baseline = createCoverageBaseline(baselineSnapshot);
+        const snapshot = parseCoverageSummary(summary(70, 80), '/repo');
+        snapshot.files = snapshot.files.filter(file => file.filePath !== 'app/runtime.ts');
+
+        const result = compareCoverageToBaseline(
+            snapshot,
+            baseline,
+            baselineSnapshot.files.map(file => file.filePath),
+        );
+
+        expect(result.passed).toBe(false);
+        expect(result.failures).toContain(
+            'app-core coverage file count shrank from 6 to 5 while 6 source files remain on disk',
+        );
+    });
+
+    it('allows a stored denominator to shrink only with the on-disk source set', () => {
+        const baselineSnapshot = parseCoverageSummary(summary(70, 80), '/repo');
+        const baseline = createCoverageBaseline(baselineSnapshot);
+        const snapshot = parseCoverageSummary(summary(70, 80), '/repo');
+        snapshot.files = snapshot.files.filter(file => file.filePath !== 'app/runtime.ts');
+
+        const result = compareCoverageToBaseline(
+            snapshot,
+            baseline,
+            snapshot.files.map(file => file.filePath),
+        );
+
+        expect(result.failures).not.toContain(
+            'app-core coverage file count shrank from 6 to 5',
+        );
     });
 });

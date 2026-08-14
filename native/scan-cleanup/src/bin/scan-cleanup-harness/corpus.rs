@@ -11,6 +11,7 @@ const SYNTHETIC_HEIGHT: usize = 960;
 
 pub struct CorpusEntry {
     pub id: String,
+    pub identity: String,
     pub origin: Origin,
     pub categories: Vec<String>,
     pub image: GrayImage,
@@ -132,6 +133,7 @@ fn load_split_fixtures() -> Result<Vec<CorpusEntry>, String> {
             options.layout = LayoutMode::Auto;
             Ok(CorpusEntry {
                 id: fixture.id,
+                identity: format!("split/{}", fixture.file),
                 origin: Origin::Real,
                 categories: vec!["split".into(), format!("split/{}", fixture.family)],
                 image,
@@ -197,6 +199,7 @@ fn load_glyph_fixtures() -> Result<Vec<CorpusEntry>, String> {
             let expected_components = ComponentMap::from_binary(&mask).components().len();
             Ok(CorpusEntry {
                 id: id.into(),
+                identity: format!("glyphs/{file}"),
                 origin: Origin::Real,
                 categories,
                 dpi,
@@ -491,6 +494,7 @@ fn finish_synthetic(
     truth.expected_components = truth.expected_components.or(Some(expected_components));
     CorpusEntry {
         id: id.into(),
+        identity: format!("synthetic/{id}"),
         origin: Origin::Synthetic,
         categories,
         dpi: 300.0,
