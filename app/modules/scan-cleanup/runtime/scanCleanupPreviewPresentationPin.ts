@@ -1,8 +1,5 @@
-export const SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS = 2_000;
-
 export interface IScanCleanupPreviewPresentationPin {
-    firstFrameArrivalAtMs: number;
-    settleConsumed: boolean;
+    settledResultState: 'open' | 'loading' | 'committed';
     transitionKey: string;
 }
 
@@ -15,47 +12,59 @@ export interface IScanCleanupPreviewPresentationDecision {
 
 /**
  * A transition key changes only for a user/lifecycle/page transition. Detection
- * validity generations deliberately share it, so their presentation can settle
- * once near first paint and is then retained until the user moves on.
+ * validity generations deliberately share it: provisional generations
+ * coalesce behind the displayed frame, the first settled generation crosses
+ * the pin once, and every later automatic generation is rejected.
  */
 export function resolveScanCleanupPreviewPresentationCommit(
     current: IScanCleanupPreviewPresentationPin | null,
     transitionKey: string,
-    arrivedAtMs: number,
+    settled: boolean,
 ): IScanCleanupPreviewPresentationDecision {
     if (current === null || current.transitionKey !== transitionKey) {
         return {
             action: 'commit',
             pin: {
-                firstFrameArrivalAtMs: arrivedAtMs,
-                settleConsumed: false,
+                settledResultState: settled ? 'loading' : 'open',
                 transitionKey,
             },
         };
     }
-    if (
-        !current.settleConsumed
-        && arrivedAtMs - current.firstFrameArrivalAtMs < SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS
-    ) {
+    if (current.settledResultState !== 'open') {
+        return {
+            action: 'reject',
+            pin: current,
+        };
+    }
+    if (!settled) {
         return {
             action: 'coalesce',
             pin: current,
         };
     }
     return {
-        action: 'reject',
-        pin: current.settleConsumed ? current : {
+        action: 'commit',
+        pin: {
             ...current,
-            settleConsumed: true,
+            settledResultState: 'loading',
         },
     };
 }
 
-export function consumeScanCleanupPreviewPresentationSettle(
+export function commitScanCleanupPreviewPresentationSettle(
     current: IScanCleanupPreviewPresentationPin,
 ): IScanCleanupPreviewPresentationPin {
-    return current.settleConsumed ? current : {
+    return current.settledResultState === 'loading' ? {
         ...current,
-        settleConsumed: true,
-    };
+        settledResultState: 'committed',
+    } : current;
+}
+
+export function resetScanCleanupPreviewPresentationSettle(
+    current: IScanCleanupPreviewPresentationPin,
+): IScanCleanupPreviewPresentationPin {
+    return current.settledResultState === 'loading' ? {
+        ...current,
+        settledResultState: 'open',
+    } : current;
 }

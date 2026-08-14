@@ -2183,29 +2183,19 @@ describe('Scan cleanup components', () => {
             .some(button => button.textContent?.trim() === 'Reset this page…')).toBe(false);
     });
 
-    it('says why a matched page is not on the document size, on the line already reserved', async () => {
-        const canvasPolicy = ref<'intrinsic' | 'strict-maximum'>('strict-maximum');
-        const detecting = ref(true);
+    it('keeps a canceled detection provisional until a later re-detection completes', async () => {
+        const terminalStatus = ref<'running' | 'cancelled' | 'completed'>('running');
         const transitionKey = ref('session-1:page-1:user-0');
         const result = shallowRef(spreadPreviewResult());
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: {
-                ...result.value,
-                outputs: result.value.outputs.map(output => ({
-                    ...output,
-                    metadata: {
-                        ...output.metadata,
-                        canvasPolicy: canvasPolicy.value,
-                    },
-                })),
-            },
+            result: result.value,
             resultCurrent: true,
             resultPresentationKey: transitionKey.value,
             loading: false,
             error: '',
             viewMode: 'cleaned',
             matchPageSize: true,
-            layoutDetectionPending: detecting.value,
+            layoutDetectionComplete: terminalStatus.value === 'completed',
             alignment: 'top-center',
             pageNumber: 1,
             totalPages: 3,
@@ -2220,24 +2210,56 @@ describe('Scan cleanup components', () => {
         expect(caption()?.dataset.canvasNotice).toBe('provisional');
         expect(caption()?.textContent).toContain('scanCleanup.preview.matchedCanvasProvisional');
 
-        // Live detection settling cannot falsify the still-displayed
-        // provisional frame.
-        detecting.value = false;
+        // Cancellation is terminal for the worker but is not completion of the
+        // document plan, so it cannot cross the presentation phase edge.
+        terminalStatus.value = 'cancelled';
         await nextTick();
         expect(caption()?.dataset.canvasNotice).toBe('provisional');
 
-        // A semantic replacement snapshots the final plan and can then report
-        // that matching was unavailable.
-        canvasPolicy.value = 'intrinsic';
+        // A settings change and its current preview still remain provisional
+        // after cancellation.
         transitionKey.value = 'session-1:page-1:user-1';
+        const cancelledReplan = structuredClone(result.value);
+        cancelledReplan.outputs = cancelledReplan.outputs.map(output => ({
+            ...output,
+            metadata: {
+                ...output.metadata,
+                canvasPolicy: 'intrinsic',
+            },
+        }));
+        result.value = cancelledReplan;
         await nextTick();
+        await loadPendingCleanedFrame(harness.host);
+        expect(caption()?.dataset.canvasNotice).toBe('provisional');
+
+        // A later genuine re-detection completion can still commit the first
+        // settled candidate on that same user transition.
+        terminalStatus.value = 'running';
+        await nextTick();
+        const settledResult = structuredClone(cancelledReplan);
+        settledResult.outputs = settledResult.outputs.map(output => ({
+            ...output,
+            imageData: new Uint8Array([9]),
+        }));
+        terminalStatus.value = 'completed';
+        result.value = settledResult;
+        await nextTick();
+        expect(caption()?.dataset.canvasNotice).toBe('provisional');
         await loadPendingCleanedFrame(harness.host);
         expect(caption()?.dataset.canvasNotice).toBe('unavailable');
         expect(caption()?.textContent).toContain('scanCleanup.preview.matchedCanvasUnavailable');
 
         // Detection settled and the canvas held: nothing to explain, and the
         // caption line stays where it was.
-        canvasPolicy.value = 'strict-maximum';
+        const userResult = structuredClone(result.value);
+        userResult.outputs = userResult.outputs.map(output => ({
+            ...output,
+            metadata: {
+                ...output.metadata,
+                canvasPolicy: 'strict-maximum',
+            },
+        }));
+        result.value = userResult;
         transitionKey.value = 'session-1:page-1:user-2';
         await nextTick();
         await loadPendingCleanedFrame(harness.host);
@@ -2628,17 +2650,17 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.uniform-canvas')?.classList).not.toContain('has-uniform-canvas');
     });
 
-    it('coalesces the latest settle candidate at expiry and ignores presentation-only interactions', async () => {
+    it('coalesces provisional churn, commits the first settled frame, and pins later replans', async () => {
         vi.useFakeTimers();
-        let now = 0;
-        const performanceNow = vi.spyOn(performance, 'now').mockImplementation(() => now);
         try {
             const result = shallowRef(spreadPreviewResult(1));
+            const detectionComplete = ref(false);
             const transitionKey = ref('session-1:page-1:user-0');
             const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
                 result: result.value,
                 resultCurrent: true,
                 resultPresentationKey: transitionKey.value,
+                layoutDetectionComplete: detectionComplete.value,
                 loading: false,
                 error: '',
                 viewMode: 'cleaned',
@@ -2651,54 +2673,66 @@ describe('Scan cleanup components', () => {
             })}));
             const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
             const displayedUrl = () => harness.host.querySelector<HTMLImageElement>('.cleaned-image')!.src;
+            const canvasNotice = () => harness.host.querySelector<HTMLElement>(
+                '.preview-viewport-caption',
+            )?.dataset.canvasNotice;
             const initialUrl = displayedUrl();
+            expect(canvasNotice()).toBe('provisional');
 
-            const earlySettle = structuredClone(result.value);
-            for (const output of earlySettle.outputs) {
+            const firstProvisionalReplan = structuredClone(result.value);
+            for (const output of firstProvisionalReplan.outputs) {
                 output.imageData = new Uint8Array([2]);
                 output.metadata.canvasWidthPx = 600;
             }
-            now = 1_000;
-            await vi.advanceTimersByTimeAsync(1_000);
-            result.value = earlySettle;
+            result.value = firstProvisionalReplan;
             await nextTick();
             await loadPendingCleanedFrame(harness.host);
             expect(frameWidth()).toBe('500');
             expect(displayedUrl()).toBe(initialUrl);
 
-            const secondAutomatic = structuredClone(earlySettle);
-            for (const output of secondAutomatic.outputs) {
+            const latestProvisionalReplan = structuredClone(firstProvisionalReplan);
+            for (const output of latestProvisionalReplan.outputs) {
                 output.imageData = new Uint8Array([3]);
                 output.metadata.canvasWidthPx = 700;
             }
-            now = 1_500;
-            await vi.advanceTimersByTimeAsync(500);
-            result.value = secondAutomatic;
+            result.value = latestProvisionalReplan;
             await nextTick();
             await loadPendingCleanedFrame(harness.host);
             expect(frameWidth()).toBe('500');
             expect(displayedUrl()).toBe(initialUrl);
 
-            now = 2_000;
-            await vi.advanceTimersByTimeAsync(500);
+            // Elapsed wall time cannot consume the settle allowance.
+            await vi.advanceTimersByTimeAsync(10_000);
             await nextTick();
-            expect(frameWidth()).toBe('700');
-            const settledUrl = displayedUrl();
-            expect(settledUrl).not.toBe(initialUrl);
+            expect(frameWidth()).toBe('500');
 
-            const postWindowAutomatic = structuredClone(secondAutomatic);
-            for (const output of postWindowAutomatic.outputs) {
+            const firstSettledResult = structuredClone(latestProvisionalReplan);
+            for (const output of firstSettledResult.outputs) {
                 output.imageData = new Uint8Array([4]);
                 output.metadata.canvasWidthPx = 800;
             }
-            now = 2_500;
-            await vi.advanceTimersByTimeAsync(500);
-            result.value = postWindowAutomatic;
+            detectionComplete.value = true;
+            result.value = firstSettledResult;
+            await nextTick();
+            expect(frameWidth()).toBe('500');
+            await loadPendingCleanedFrame(harness.host);
+            expect(frameWidth()).toBe('800');
+            expect(canvasNotice()).toBe('');
+            const settledUrl = displayedUrl();
+            expect(settledUrl).not.toBe(initialUrl);
+
+            const secondSettledReplan = structuredClone(firstSettledResult);
+            for (const output of secondSettledReplan.outputs) {
+                output.imageData = new Uint8Array([5]);
+                output.metadata.canvasWidthPx = 900;
+            }
+            result.value = secondSettledReplan;
             await nextTick();
             await loadPendingCleanedFrame(harness.host);
             expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
-            expect(frameWidth()).toBe('700');
+            expect(frameWidth()).toBe('800');
             expect(displayedUrl()).toBe(settledUrl);
+            expect(canvasNotice()).toBe('');
 
             const surface = harness.host.querySelector<HTMLElement>('.preview-surface')!;
             surface.click();
@@ -2716,88 +2750,192 @@ describe('Scan cleanup components', () => {
             }));
             await nextTick();
             await loadPendingCleanedFrame(harness.host);
-            expect(frameWidth()).toBe('700');
+            expect(frameWidth()).toBe('800');
             expect(displayedUrl()).toBe(settledUrl);
 
-            const laterAutomatic = structuredClone(postWindowAutomatic);
+            const laterAutomatic = structuredClone(secondSettledReplan);
             for (const output of laterAutomatic.outputs) {
-                output.imageData = new Uint8Array([5]);
-                output.metadata.canvasWidthPx = 900;
+                output.imageData = new Uint8Array([6]);
+                output.metadata.canvasWidthPx = 1_000;
             }
-            now = 5_000;
             result.value = laterAutomatic;
             await nextTick();
             await loadPendingCleanedFrame(harness.host);
-            expect(frameWidth()).toBe('700');
+            expect(frameWidth()).toBe('800');
             expect(displayedUrl()).toBe(settledUrl);
 
             transitionKey.value = 'session-1:page-1:user-1';
             await nextTick();
             await loadPendingCleanedFrame(harness.host);
-            expect(frameWidth()).toBe('900');
+            expect(frameWidth()).toBe('1000');
             expect(displayedUrl()).not.toBe(settledUrl);
         } finally {
-            performanceNow.mockRestore();
             vi.useRealTimers();
         }
     });
 
-    it('reveals the latest pinned frame atomically through the run gate', async () => {
-        vi.useFakeTimers();
-        let now = 0;
-        const performanceNow = vi.spyOn(performance, 'now').mockImplementation(() => now);
-        try {
-            const result = shallowRef(spreadPreviewResult(1));
-            const previewPane = ref<{revealLatestFrame: () => Promise<void>} | null>(null);
-            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-                ref: previewPane,
-                result: result.value,
-                resultCurrent: true,
-                resultPresentationKey: 'session-1:page-1:user-0',
-                loading: false,
-                error: '',
-                viewMode: 'cleaned',
-                matchPageSize: true,
-                alignment: 'top-center',
-                pageNumber: 1,
-                totalPages: 3,
-                manualSplit: null,
-                readingOrder: 'ltr',
-            })}));
-            const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
-            const displayedUrl = () => harness.host.querySelector<HTMLImageElement>('.cleaned-image')!.src;
-            const initialUrl = displayedUrl();
+    it('derives displayed-frame currentness from publication identity after rejecting a replan', async () => {
+        const result = shallowRef(spreadPreviewResult(1));
+        const detailResult = shallowRef(structuredClone(result.value));
+        const detectionComplete = ref(false);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            detailResult: detailResult.value,
+            resultCurrent: true,
+            resultPresentationKey: 'session-1:page-1:user-0',
+            layoutDetectionComplete: detectionComplete.value,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        const surface = harness.host.querySelector<HTMLElement>('.preview-surface')!;
+        surface.dispatchEvent(previewZoomWheel({
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+            deltaY: -1_200,
+            metaKey: true,
+        }));
+        await nextTick();
+        expect(harness.host.querySelectorAll('.preview-detail-pixel')).toHaveLength(2);
 
-            now = 2_000;
-            await vi.advanceTimersByTimeAsync(2_000);
-            const latest = structuredClone(result.value);
-            for (const output of latest.outputs) {
-                output.imageData = new Uint8Array([8]);
-                output.metadata.canvasWidthPx = 800;
-            }
-            result.value = latest;
-            await nextTick();
-
-            expect(frameWidth()).toBe('500');
-            expect(displayedUrl()).toBe(initialUrl);
-            expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
-            expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
-                .toBe('provisional');
-
-            const revealed = previewPane.value!.revealLatestFrame();
-            await nextTick();
-            expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).not.toBeNull();
-            await loadPendingCleanedFrame(harness.host);
-            await revealed;
-
-            expect(frameWidth()).toBe('800');
-            expect(displayedUrl()).not.toBe(initialUrl);
-            expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
-                .toBe('');
-        } finally {
-            performanceNow.mockRestore();
-            vi.useRealTimers();
+        const settledLoading = structuredClone(result.value);
+        for (const output of settledLoading.outputs) {
+            output.imageData = new Uint8Array([2]);
+            output.metadata.canvasWidthPx = 800;
         }
+        detectionComplete.value = true;
+        result.value = settledLoading;
+        detailResult.value = structuredClone(settledLoading);
+        await nextTick();
+
+        const rejectedReplan = structuredClone(settledLoading);
+        for (const output of rejectedReplan.outputs) {
+            output.imageData = new Uint8Array([3]);
+            output.metadata.canvasWidthPx = 900;
+        }
+        result.value = rejectedReplan;
+        detailResult.value = structuredClone(rejectedReplan);
+        await nextTick();
+        await loadPendingCleanedFrame(harness.host);
+
+        expect(harness.host.querySelector<HTMLElement>('.uniform-canvas')?.dataset.frameWidth).toBe('800');
+        expect(harness.host.querySelectorAll('.preview-detail-pixel')).toHaveLength(0);
+    });
+
+    it('reopens the settled phase after preload decode failure and accepts the next result', async () => {
+        const result = shallowRef(spreadPreviewResult(1));
+        const detectionComplete = ref(false);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            resultCurrent: true,
+            resultPresentationKey: 'session-1:page-1:user-0',
+            layoutDetectionComplete: detectionComplete.value,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')?.dataset.frameWidth;
+
+        const failingSettled = structuredClone(result.value);
+        for (const output of failingSettled.outputs) {
+            output.imageData = new Uint8Array([2]);
+            output.metadata.canvasWidthPx = 800;
+        }
+        detectionComplete.value = true;
+        result.value = failingSettled;
+        await nextTick();
+        const failingPreload = harness.host.querySelector<HTMLImageElement>('.preview-cleaned-pixel-preload')!;
+
+        const competingSettled = structuredClone(failingSettled);
+        for (const output of competingSettled.outputs) {
+            output.imageData = new Uint8Array([3]);
+            output.metadata.canvasWidthPx = 900;
+        }
+        result.value = competingSettled;
+        await nextTick();
+        expect(harness.host.querySelector<HTMLImageElement>('.preview-cleaned-pixel-preload')?.src)
+            .toBe(failingPreload.src);
+
+        failingPreload.dispatchEvent(new Event('error'));
+        await nextTick();
+        expect(frameWidth()).toBe('500');
+        expect(harness.host.querySelector('.preview-refresh-error')?.textContent)
+            .toContain('Failed to decode the cleaned preview image.');
+        expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
+
+        const recoveredSettled = structuredClone(competingSettled);
+        for (const output of recoveredSettled.outputs) {
+            output.imageData = new Uint8Array([4]);
+            output.metadata.canvasWidthPx = 1_000;
+        }
+        result.value = recoveredSettled;
+        await nextTick();
+        expect(harness.host.querySelector('.preview-refresh-error')).toBeNull();
+        await loadPendingCleanedFrame(harness.host);
+        expect(frameWidth()).toBe('1000');
+    });
+
+    it('reveals the latest pinned frame atomically through the run gate', async () => {
+        const result = shallowRef(spreadPreviewResult(1));
+        const previewPane = ref<{revealLatestFrame: () => Promise<void>} | null>(null);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            ref: previewPane,
+            result: result.value,
+            resultCurrent: true,
+            resultPresentationKey: 'session-1:page-1:user-0',
+            layoutDetectionComplete: true,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
+        const displayedUrl = () => harness.host.querySelector<HTMLImageElement>('.cleaned-image')!.src;
+        const initialUrl = displayedUrl();
+
+        const latest = structuredClone(result.value);
+        for (const output of latest.outputs) {
+            output.imageData = new Uint8Array([8]);
+            output.metadata.canvasWidthPx = 800;
+        }
+        result.value = latest;
+        await nextTick();
+
+        expect(frameWidth()).toBe('500');
+        expect(displayedUrl()).toBe(initialUrl);
+        expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
+        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
+            .toBe('');
+
+        const revealed = previewPane.value!.revealLatestFrame();
+        await nextTick();
+        expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).not.toBeNull();
+        await loadPendingCleanedFrame(harness.host);
+        await revealed;
+
+        expect(frameWidth()).toBe('800');
+        expect(displayedUrl()).not.toBe(initialUrl);
+        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
+            .toBe('');
     });
 
     it('never presents the requested raw sheet as a cleaned output while its result is pending', () => {

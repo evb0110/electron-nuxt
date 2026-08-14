@@ -138,7 +138,7 @@
                     :error="previewError"
                     :source="pageSource"
                     :layout-classification="authoritativeLayoutByPage.get(previewPage)"
-                    :layout-detection-pending="detectionPending"
+                    :layout-detection-complete="layoutDetectionComplete"
                     :rotation-degrees="currentPageOverride.rotationDegrees"
                     :view-mode="previewViewMode"
                     :match-page-size="settings.matchPageSize"
@@ -323,6 +323,7 @@ const {
     confidenceByPage: detectedLayoutConfidenceByPage,
     detectAllPages,
     error: detectionError,
+    layoutDetectionComplete,
     outputEstimate,
     pending: detectionPending,
     progressCountText: detectionProgressCountText,

@@ -5,19 +5,20 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {MaybeRefOrGetter} from 'vue';
 import {
-    consumeScanCleanupPreviewPresentationSettle,
+    commitScanCleanupPreviewPresentationSettle,
+    resetScanCleanupPreviewPresentationSettle,
     resolveScanCleanupPreviewPresentationCommit,
-    SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS,
     type IScanCleanupPreviewPresentationPin,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentationPin';
 
 export interface IScanCleanupDisplayedCleanedFrame<TPresentation> {
     presentation: TPresentation;
     result: IScanCleanupPreviewResult;
+    transitionKey: string;
 }
 
 interface IScanCleanupPendingCleanedFrame<TPresentation> {
-    kind: 'forced' | 'initial' | 'settle';
+    kind: 'forced' | 'initial' | 'provisional' | 'settled';
     presentation: TPresentation;
     result: IScanCleanupPreviewResult;
     transitionKey: string;
@@ -109,16 +110,20 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     detailResult: MaybeRefOrGetter<IScanCleanupPreviewResult | null> = () => null,
     captureFramePresentation: () => TPresentation = () => undefined as TPresentation,
     presentationTransitionKey?: MaybeRefOrGetter<string>,
+    frameIsSettled: (presentation: TPresentation) => boolean = () => true,
 ) => {
     const rawPixelSwap = ref(createPreviewImageSwap());
     const cleanedPixelSwaps = reactive<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewImageSwap>>>({});
     const displayedCleanedFrame = shallowRef<IScanCleanupDisplayedCleanedFrame<TPresentation> | null>(null);
-    const displayedCleanedFrameCurrent = ref(false);
+    const displayedCleanedFrameCurrent = computed(() => {
+        const liveResult = toRaw(toValue(result));
+        return liveResult !== null && displayedCleanedFrame.value?.result === liveResult;
+    });
+    const cleanedFrameError = ref('');
     const pendingCleanedPixelUrls = reactive<Partial<Record<TScanCleanupOutputHalf, string>>>({});
     const detailPixelUrls = reactive<Partial<Record<TScanCleanupOutputHalf, string>>>({});
     let pendingCleanedFrame: IScanCleanupPendingCleanedFrame<TPresentation> | null = null;
     let presentationPin: IScanCleanupPreviewPresentationPin | null = null;
-    let settleTimer: ReturnType<typeof setTimeout> | null = null;
     let unscopedFrameGeneration = 0;
     const loadedPendingCleanedUrls = new Set<string>();
     const displayedFrameWaiters: Array<{
@@ -131,7 +136,6 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     }
 
     function revokeUrls() {
-        clearSettleTimer();
         disposePreviewImageSwap(rawPixelSwap.value, revokeBlobUrl);
         rawPixelSwap.value = createPreviewImageSwap();
         for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
@@ -174,6 +178,21 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         if (state) cleanedPixelSwaps[half] = completePreviewImageSwap(state, url, revokeBlobUrl);
     }
 
+    function failCleanedPixelSwap(half: TScanCleanupOutputHalf, url: string) {
+        if (pendingCleanedPixelUrls[half] !== url || pendingCleanedFrame === null) {
+            return;
+        }
+        const failedFrame = pendingCleanedFrame;
+        clearPendingCleanedFrame();
+        if (
+            failedFrame.kind === 'settled'
+            && presentationPin?.transitionKey === failedFrame.transitionKey
+        ) {
+            presentationPin = resetScanCleanupPreviewPresentationSettle(presentationPin);
+        }
+        cleanedFrameError.value = 'Failed to decode the cleaned preview image.';
+    }
+
     function clearPendingCleanedFrame() {
         for (const half of Object.keys(pendingCleanedPixelUrls) as TScanCleanupOutputHalf[]) {
             const url = pendingCleanedPixelUrls[half];
@@ -184,11 +203,6 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         pendingCleanedFrame = null;
     }
 
-    function clearSettleTimer() {
-        if (settleTimer !== null) clearTimeout(settleTimer);
-        settleTimer = null;
-    }
-
     function pendingFrameLoaded() {
         return pendingCleanedFrame?.result.outputs.every(output => {
             const pendingUrl = pendingCleanedPixelUrls[output.metadata.half];
@@ -197,7 +211,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     }
 
     function pendingFrameCanCommit() {
-        return pendingCleanedFrame?.kind !== 'settle' || presentationPin?.settleConsumed === true;
+        return pendingCleanedFrame?.kind !== 'provisional';
     }
 
     function resolveDisplayedFrameWaiters(result: IScanCleanupPreviewResult) {
@@ -233,8 +247,14 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         displayedCleanedFrame.value = {
             presentation: nextFrame.presentation,
             result: nextResult,
+            transitionKey: nextFrame.transitionKey,
         };
-        displayedCleanedFrameCurrent.value = true;
+        if (
+            nextFrame.kind === 'settled'
+            && presentationPin?.transitionKey === nextFrame.transitionKey
+        ) {
+            presentationPin = commitScanCleanupPreviewPresentationSettle(presentationPin);
+        }
         loadedPendingCleanedUrls.clear();
         pendingCleanedFrame = null;
         resolveDisplayedFrameWaiters(nextResult);
@@ -248,57 +268,37 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         }
     }
 
-    function expireSettleWindow() {
-        settleTimer = null;
-        if (!presentationPin || presentationPin.settleConsumed) {
-            return;
-        }
-        presentationPin = consumeScanCleanupPreviewPresentationSettle(presentationPin);
-        commitPendingCleanedFrame();
-    }
-
-    function scheduleSettleWindow(pin: IScanCleanupPreviewPresentationPin, arrivedAtMs: number) {
-        clearSettleTimer();
-        const elapsedMs = Math.max(0, arrivedAtMs - pin.firstFrameArrivalAtMs);
-        settleTimer = setTimeout(
-            expireSettleWindow,
-            Math.max(0, SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS - elapsedMs),
-        );
-    }
-
     function queueCleanedFrame(nextResult: IScanCleanupPreviewResult, transitionKey: string) {
-        const arrivedAtMs = performance.now();
-        if (
-            presentationPin?.transitionKey === transitionKey
-            && !presentationPin.settleConsumed
-            && arrivedAtMs - presentationPin.firstFrameArrivalAtMs >= SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS
-        ) {
-            expireSettleWindow();
-        }
+        const presentation = captureFramePresentation();
+        const settled = frameIsSettled(presentation);
         // Decide before allocating any blob URLs. Once a key is pinned, later
         // generations are terminally rejected and never enter image preload.
         const decision = resolveScanCleanupPreviewPresentationCommit(
             presentationPin,
             transitionKey,
-            arrivedAtMs,
+            settled,
         );
         presentationPin = decision.pin;
         if (decision.action === 'reject') {
             return;
         }
+        cleanedFrameError.value = '';
         const supersedesUncommittedInitial = decision.action === 'coalesce'
             && pendingCleanedFrame?.kind === 'initial'
             && pendingCleanedFrame.transitionKey === transitionKey;
         clearPendingCleanedFrame();
         const nextFrame = {
-            kind: decision.action === 'commit' || supersedesUncommittedInitial ? 'initial' : 'settle',
-            presentation: captureFramePresentation(),
+            kind: supersedesUncommittedInitial
+                ? 'initial'
+                : decision.action === 'coalesce'
+                    ? 'provisional'
+                    : settled
+                        ? 'settled'
+                        : 'initial',
+            presentation,
             result: nextResult,
             transitionKey,
         } satisfies IScanCleanupPendingCleanedFrame<TPresentation>;
-        if (decision.action === 'commit') {
-            scheduleSettleWindow(presentationPin, arrivedAtMs);
-        }
         if (!displayedCleanedFrame.value) {
             publishCleanedFrame(nextFrame);
             return;
@@ -324,13 +324,12 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         const transitionKey = presentationTransitionKey === undefined
             ? `run-reveal:${String(++unscopedFrameGeneration)}`
             : toValue(presentationTransitionKey);
-        clearSettleTimer();
         clearPendingCleanedFrame();
         presentationPin = {
-            firstFrameArrivalAtMs: performance.now(),
-            settleConsumed: true,
+            settledResultState: 'committed',
             transitionKey,
         };
+        cleanedFrameError.value = '';
         const nextFrame = {
             kind: 'forced',
             presentation: captureFramePresentation(),
@@ -365,8 +364,6 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         nextResult,
         scopedTransitionKey,
     ]) => {
-        displayedCleanedFrameCurrent.value = nextResult !== null
-            && displayedCleanedFrame.value?.result === nextResult;
         if (!nextResult) {
             clearPendingCleanedFrame();
             for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
@@ -375,9 +372,8 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
                 Reflect.deleteProperty(cleanedPixelSwaps, half);
             }
             displayedCleanedFrame.value = null;
-            displayedCleanedFrameCurrent.value = false;
             presentationPin = null;
-            clearSettleTimer();
+            cleanedFrameError.value = '';
             return;
         }
         queueCleanedFrame(
@@ -408,11 +404,13 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
 
     return {
         cleanedPixelSwaps,
+        cleanedFrameError,
         completeCleanedPixelSwap,
         completeRawPixelSwap,
         detailPixelUrls,
         displayedCleanedFrame,
         displayedCleanedFrameCurrent,
+        failCleanedPixelSwap,
         loadCleanedPixelSwap,
         loadRawPixelSwap,
         pendingCleanedPixelUrls,

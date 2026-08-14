@@ -19,7 +19,6 @@
  * 3%). --preview-render-dpi is a diagnostic-only override for isolating
  * resolution-sensitive native stages; omit it for the app-exact preview path.
  */
-
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
@@ -40,6 +39,7 @@ import {
 import {tsImport} from 'tsx/esm/api';
 import {
     composePreviewTransition,
+    createForcedPostSettleMovementProbeLeaves,
     measurePreviewPresentationStability,
 } from './scan-cleanup-preview-presentation.mjs';
 
@@ -78,9 +78,8 @@ const [
         transformPreviewContentBox,
     },
     {
-        consumeScanCleanupPreviewPresentationSettle,
+        commitScanCleanupPreviewPresentationSettle,
         resolveScanCleanupPreviewPresentationCommit,
-        SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS,
     },
 ] = await Promise.all([
     importTs('../../scan-cleanup-core/detection.ts'),
@@ -1071,10 +1070,12 @@ async function main() {
         await composeSpread(finalLeaves, finalComposite);
         const eyeballComposite = join(pageDirectory, 'provisional-vs-settled-composite.png');
         await composePreviewTransition(provisionalComposite, previewComposite, eyeballComposite);
+        const forcedProbeDirectory = join(pageDirectory, 'forced-post-settle-movement-probe');
+        const forcedProbeLeaves = await createForcedPostSettleMovementProbeLeaves(previewLeaves, forcedProbeDirectory);
         const presentationStability = await measurePreviewPresentationStability({
+            commitSettle: commitScanCleanupPreviewPresentationSettle,
             compareMargins,
-            consumeSettle: consumeScanCleanupPreviewPresentationSettle,
-            graceWindowMs: SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS,
+            forcedProbeLeaves,
             measureMargins,
             previewLeaves,
             provisionalLeaves,
