@@ -196,6 +196,8 @@ export interface IScanCleanupContentAcceptedTrim {
 export interface IScanCleanupContentDiagnostics {
     sideConfidence: IScanCleanupContentSideConfidence;
     textMask: IScanCleanupContentTextMaskSummary;
+    /** Exact analysis-scale content box after all native side writers. */
+    shippedBounds?: IScanCleanupPixelRect;
     acceptedTrims?: IScanCleanupContentAcceptedTrim[];
     protectedBlocks?: IScanCleanupContentBlockEvidence[];
 }
