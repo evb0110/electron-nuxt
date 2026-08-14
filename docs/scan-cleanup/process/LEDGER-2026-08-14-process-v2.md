@@ -57,6 +57,17 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
   Appendix items (hash chains, digest archives, classifiers, full
   oracle formalism, VPS residency tiers, E1b, cadence caps) need a
   new demonstrated failure to enter scope.
+- NO BLOCKING QUESTIONS (user instruction, R7): never wait on a user
+  answer. When a decision point arises (even config/product trade-offs
+  like the S1 ruleset), decide with best judgment, record decision +
+  cheap reversal path in the ledger, deliver evidence, keep moving; a
+  later user reply overrides retroactively. The S1 op-2 question cost
+  hours of idle waiting — that failure mode is banned.
+- VPS OFFLOAD (user instruction, R7): use the vps-agent skill (sol
+  low-high) whenever a parallelizable, repo-clean, non-macOS-bound
+  workload (corpus sweeps, S3 re-adjudication measurements on tracked
+  fixtures, benchmarks) can run remotely faster than locally; no stale
+  remote processes left behind.
 
 ## Backlog (from approach Part 4 FINAL; each step = one X2 cycle)
 
