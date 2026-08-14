@@ -276,6 +276,9 @@ export interface IScanCleanupPreviewMetadata {
     matchedCanvasIntrinsicOverflowLeftPx?: number;
     matchedCanvasIntrinsicOverflowRightPx?: number;
     matchedCanvasIntrinsicOverflowTopPx?: number;
+    /** Canvas-grid columns excluded from the source image at the fold edge. */
+    foldClipLeftPx?: number;
+    foldClipRightPx?: number;
     /** Intrinsic raster origin within the logical canvas. */
     placementOffsetXPx: number;
     placementOffsetYPx: number;

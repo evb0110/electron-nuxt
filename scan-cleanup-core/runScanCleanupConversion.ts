@@ -1729,6 +1729,12 @@ export async function runScanCleanupConversion(
                         ...(output.metadata.cropRect === undefined
                             ? {}
                             : {cropRect: output.metadata.cropRect}),
+                        ...(output.metadata.foldClipLeftPx === undefined
+                            ? {}
+                            : {foldClipLeftPx: output.metadata.foldClipLeftPx}),
+                        ...(output.metadata.foldClipRightPx === undefined
+                            ? {}
+                            : {foldClipRightPx: output.metadata.foldClipRightPx}),
                         dewarped: output.metadata.dewarpMapping != null,
                         forwardTransform: output.metadata.forwardTransform,
                         ...(output.metadata.inputHeightPx === undefined
@@ -1749,6 +1755,15 @@ export async function runScanCleanupConversion(
                         ...(output.metadata.matchedCanvasContentWidthPx === undefined
                             ? {}
                             : {matchedCanvasContentWidthPx: output.metadata.matchedCanvasContentWidthPx}),
+                        ...(output.metadata.matchedCanvasIntrinsicOverflowLeftPx === undefined
+                            ? {}
+                            : {matchedCanvasIntrinsicOverflowLeftPx: output.metadata.matchedCanvasIntrinsicOverflowLeftPx}),
+                        ...(output.metadata.matchedCanvasIntrinsicOverflowRightPx === undefined
+                            ? {}
+                            : {matchedCanvasIntrinsicOverflowRightPx: output.metadata.matchedCanvasIntrinsicOverflowRightPx}),
+                        ...(output.metadata.matchedCanvasIntrinsicOverflowTopPx === undefined
+                            ? {}
+                            : {matchedCanvasIntrinsicOverflowTopPx: output.metadata.matchedCanvasIntrinsicOverflowTopPx}),
                         outputHeightPx: output.metadata.outputHeightPx,
                         outputWidthPx: output.metadata.outputWidthPx,
                         placementOffsetXPx: output.metadata.placementOffsetXPx,

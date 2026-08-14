@@ -27,38 +27,40 @@
                         :data-source-region-width="output.metadata.sourceRegion.widthPx"
                         :data-input-width="output.metadata.inputWidthPx"
                     >
-                        <img
-                            v-if="output.pixelSwap.outgoingUrl"
-                            :key="output.pixelSwap.outgoingUrl"
-                            class="cleaned-image preview-pixel is-outgoing"
-                            :src="output.pixelSwap.outgoingUrl"
-                            alt=""
-                        >
-                        <img
-                            v-if="output.pixelSwap.currentUrl"
-                            :key="output.pixelSwap.currentUrl"
-                            class="cleaned-image preview-pixel"
-                            :class="{'is-entering': output.pixelSwap.entering}"
-                            :src="output.pixelSwap.currentUrl"
-                            :alt="altByHalf[output.metadata.half] ?? ''"
-                            @transitionend="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
-                        >
-                        <img
-                            v-if="output.pixelSwap.incomingUrl"
-                            :key="output.pixelSwap.incomingUrl"
-                            class="cleaned-image preview-pixel is-incoming"
-                            :src="output.pixelSwap.incomingUrl"
-                            alt=""
-                            @load="$emit('load', output.metadata.half, output.pixelSwap.incomingUrl)"
-                        >
-                        <img
-                            v-if="detailUrls[output.metadata.half]"
-                            class="cleaned-image preview-detail-pixel"
-                            :src="detailUrls[output.metadata.half]"
-                            :style="detailStyles?.[output.metadata.half] ?? {inset: '0'}"
-                            alt=""
-                            aria-hidden="true"
-                        >
+                        <div class="fold-clipped-pixels" :style="output.sourceCropStyle">
+                            <img
+                                v-if="output.pixelSwap.outgoingUrl"
+                                :key="output.pixelSwap.outgoingUrl"
+                                class="cleaned-image preview-pixel is-outgoing"
+                                :src="output.pixelSwap.outgoingUrl"
+                                alt=""
+                            >
+                            <img
+                                v-if="output.pixelSwap.currentUrl"
+                                :key="output.pixelSwap.currentUrl"
+                                class="cleaned-image preview-pixel"
+                                :class="{'is-entering': output.pixelSwap.entering}"
+                                :src="output.pixelSwap.currentUrl"
+                                :alt="altByHalf[output.metadata.half] ?? ''"
+                                @transitionend="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
+                            >
+                            <img
+                                v-if="output.pixelSwap.incomingUrl"
+                                :key="output.pixelSwap.incomingUrl"
+                                class="cleaned-image preview-pixel is-incoming"
+                                :src="output.pixelSwap.incomingUrl"
+                                alt=""
+                                @load="$emit('load', output.metadata.half, output.pixelSwap.incomingUrl)"
+                            >
+                            <img
+                                v-if="detailUrls[output.metadata.half]"
+                                class="cleaned-image preview-detail-pixel"
+                                :src="detailUrls[output.metadata.half]"
+                                :style="detailStyles?.[output.metadata.half] ?? {inset: '0'}"
+                                alt=""
+                                aria-hidden="true"
+                            >
+                        </div>
                     </div>
                     <span
                         v-if="showMarginBoundary && hasAppliedMargins(output)"

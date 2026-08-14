@@ -68,6 +68,8 @@ function outputMetadata() {
         outputHeightPx: 200,
         canvasWidthPx: 100,
         canvasHeightPx: 200,
+        foldClipLeftPx: 2,
+        foldClipRightPx: 3,
         inputWidthPx: 100,
         inputHeightPx: 200,
         skewApplied: false,
@@ -345,6 +347,14 @@ describe('scan-cleanup native artifact codecs', () => {
         };
 
         expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
+    });
+
+    it('rejects fold clipping that removes the complete placed source interval', () => {
+        expect(() => decodeNativeScanCleanupOutputMetadata({
+            ...outputMetadata(),
+            foldClipLeftPx: 40,
+            foldClipRightPx: 60,
+        })).toThrow('intrinsic content placement exceeds its canvas');
     });
 
     it('enforces preview-only required metadata at the native preview boundary', () => {

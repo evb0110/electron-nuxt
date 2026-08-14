@@ -370,6 +370,7 @@ export default {
             'blankSkipped': 'Deze pagina is leeg en wordt overgeslagen.',
             'matchedCanvasUnavailable': 'Gelijke paginagrootte staat uit voor dit document: de paginagroottes konden niet worden gemeten. Pagina\'s houden hun eigen grootte.',
             'matchedCanvasProvisional': 'De paginagrootte is voorlopig zolang de lay-outdetectie loopt; een gevonden spread verandert de gedeelde pagina.',
+            'updatingPreviousPlacement': 'De preview wordt bijgewerkt; de plaatsing gebruikt de vorige instellingen.',
             'cutter': 'Positie van de scheidingslijn',
             'cutterHint': 'Sleep om de lijn te verplaatsen; dubbelklik om deze te herstellen. Gebruik de pijltoetsen voor kleine aanpassingen.',
             'contentBoxFor': 'Bewerkbare inhoudsbox voor {half}',

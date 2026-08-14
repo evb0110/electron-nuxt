@@ -19,6 +19,7 @@ export interface IRenderedScanCleanupOutput {
     metadata: IScanCleanupPreviewMetadata;
     pixelSwap: IScanCleanupPreviewImageSwap;
     placement: IScanCleanupPreviewPlacement;
+    sourceCropStyle: CSSProperties;
 }
 
 export interface IScanCleanupContentOverlayOutput extends IRenderedScanCleanupOutput {

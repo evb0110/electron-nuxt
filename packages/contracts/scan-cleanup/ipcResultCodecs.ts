@@ -356,6 +356,8 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || (value.matchedCanvasIntrinsicOverflowLeftPx !== undefined && (!Number.isSafeInteger(value.matchedCanvasIntrinsicOverflowLeftPx) || Number(value.matchedCanvasIntrinsicOverflowLeftPx) < 0))
         || (value.matchedCanvasIntrinsicOverflowRightPx !== undefined && (!Number.isSafeInteger(value.matchedCanvasIntrinsicOverflowRightPx) || Number(value.matchedCanvasIntrinsicOverflowRightPx) < 0))
         || (value.matchedCanvasIntrinsicOverflowTopPx !== undefined && (!Number.isSafeInteger(value.matchedCanvasIntrinsicOverflowTopPx) || Number(value.matchedCanvasIntrinsicOverflowTopPx) < 0))
+        || (value.foldClipLeftPx !== undefined && (!Number.isSafeInteger(value.foldClipLeftPx) || Number(value.foldClipLeftPx) < 0))
+        || (value.foldClipRightPx !== undefined && (!Number.isSafeInteger(value.foldClipRightPx) || Number(value.foldClipRightPx) < 0))
         || (value.illuminationNormalized !== undefined && typeof value.illuminationNormalized !== 'boolean')
         || (value.outputMode !== undefined && !isScanCleanupOutputMode(value.outputMode))
         || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
@@ -467,6 +469,12 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         ...(value.matchedCanvasIntrinsicOverflowTopPx === undefined
             ? {}
             : {matchedCanvasIntrinsicOverflowTopPx: decodeNonNegativeInteger(value.matchedCanvasIntrinsicOverflowTopPx, 'intrinsic overflow top')}),
+        ...(value.foldClipLeftPx === undefined
+            ? {}
+            : {foldClipLeftPx: decodeNonNegativeInteger(value.foldClipLeftPx, 'fold clip left')}),
+        ...(value.foldClipRightPx === undefined
+            ? {}
+            : {foldClipRightPx: decodeNonNegativeInteger(value.foldClipRightPx, 'fold clip right')}),
         placementOffsetXPx: decodeNonNegativeInteger(value.placementOffsetXPx, 'placement offset x'),
         placementOffsetYPx: decodeNonNegativeInteger(value.placementOffsetYPx, 'placement offset y'),
         forwardTransform: decodePreviewAffine(value.forwardTransform),
@@ -535,6 +543,8 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     const recordedIntrinsicOverflowLeft = metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0;
     const recordedIntrinsicOverflowRight = metadata.matchedCanvasIntrinsicOverflowRightPx ?? 0;
     const recordedIntrinsicOverflowTop = metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0;
+    const foldClipLeft = metadata.foldClipLeftPx ?? 0;
+    const foldClipRight = metadata.foldClipRightPx ?? 0;
     const effectivePlacementOffsetX = metadata.placementOffsetXPx - recordedIntrinsicOverflowLeft;
     const effectivePlacementOffsetY = metadata.placementOffsetYPx - recordedIntrinsicOverflowTop;
     const actualIntrinsicOverflowLeft = Math.max(0, -effectivePlacementOffsetX);
@@ -546,6 +556,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     if (
         metadata.canvasHeightPx < contentHeightPx
         || recordedIntrinsicOverflowLeft > contentWidthPx
+        || foldClipLeft + foldClipRight >= contentWidthPx
         || recordedIntrinsicOverflowTop > contentHeightPx
         || actualIntrinsicOverflowLeft !== recordedIntrinsicOverflowLeft
         || actualIntrinsicOverflowRight !== recordedIntrinsicOverflowRight

@@ -180,6 +180,20 @@ pub struct CleanupMetadata {
         skip_serializing_if = "is_zero_usize"
     )]
     pub matched_canvas_intrinsic_overflow_top: usize,
+    /// Canvas-grid columns excluded from the materialized source window at
+    /// the fold edge. Preview consumers apply the same source clip.
+    #[serde(
+        default,
+        rename = "foldClipLeftPx",
+        skip_serializing_if = "is_zero_usize"
+    )]
+    pub fold_clip_left: usize,
+    #[serde(
+        default,
+        rename = "foldClipRightPx",
+        skip_serializing_if = "is_zero_usize"
+    )]
+    pub fold_clip_right: usize,
     /// Physical PDF rectangle for a source-grid continuous-tone raster. When
     /// absent, assemblers retain the legacy behavior of covering the MediaBox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -977,6 +991,8 @@ fn scale_detail_metadata(base: &CleanupMetadata, scale: f64) -> CleanupMetadata 
     metadata.matched_canvas_intrinsic_overflow_left = 0;
     metadata.matched_canvas_intrinsic_overflow_right = 0;
     metadata.matched_canvas_intrinsic_overflow_top = 0;
+    metadata.fold_clip_left = 0;
+    metadata.fold_clip_right = 0;
     metadata.canvas_policy = MatchedCanvasPolicy::Intrinsic;
     metadata.canvas_overflow = false;
     metadata
@@ -6405,6 +6421,8 @@ fn clean_region(
             matched_canvas_intrinsic_overflow_left: 0,
             matched_canvas_intrinsic_overflow_right: 0,
             matched_canvas_intrinsic_overflow_top: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
             pdf_image_placement: None,
             output_mode: emitted_output_mode,
             bilevel_written: false,

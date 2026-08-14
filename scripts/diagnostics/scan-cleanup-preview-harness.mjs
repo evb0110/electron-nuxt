@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable max-lines -- The oracle keeps its end-to-end render, measurement, and report transaction inspectable. */
 /*
  * Scan-cleanup preview raster oracle.
  *
@@ -16,7 +17,8 @@
  * more than 15% from the downsampled final, any normalized ink margin differs
  * by more than 3 percentage points, or either provisional/settled content-box
  * overlay excludes more than 1% of ink (with no robust ink edge overrun above
- * 3%). --preview-render-dpi is a diagnostic-only override for isolating
+ * 3%), or preview/final materialized placement differs. --preview-render-dpi
+ * is a diagnostic-only override for isolating
  * resolution-sensitive native stages; omit it for the app-exact preview path.
  */
 import {spawn} from 'node:child_process';
@@ -101,6 +103,8 @@ const METRIC_INK_THRESHOLD = 160;
 const MARGIN_INK_THRESHOLD = 220;
 const OVERLAY_EDGE_LIMIT = 0.03;
 const OVERLAY_INK_TOLERANCE = 0.01;
+const PLACEMENT_PIXEL_TOLERANCE = 1.5;
+const FORCED_PLACEMENT_DIVERGENCE_PX = 8;
 
 function printUsage() {
     process.stderr.write([
@@ -110,6 +114,7 @@ function printUsage() {
         '  --check                       Enforce the 15% weight / 3% ink-margin guard',
         '  --final-pdf <pdf>             Reuse this final conversion reference',
         '  --detection-cache <path>      Cache directory used by conversion/detection',
+        '  --force-placement-offset-divergence  Diagnostic negative probe for placement identity',
         '  --preview-render-dpi <number> Diagnostic native render-DPI override',
         '  --overlay-edge-tolerance <n>  Maximum normalized box/ink edge delta (default: 0.03)',
         '  --overlay-ink-tolerance <n>   Allowed ink fraction outside the box (default: 0.01)',
@@ -139,6 +144,7 @@ function parseArgs(argv) {
         check: false,
         detectionCache: null,
         finalPdf: null,
+        forcePlacementOffsetDivergence: false,
         out: null,
         overlayEdgeTolerance: OVERLAY_EDGE_LIMIT,
         overlayInkTolerance: OVERLAY_INK_TOLERANCE,
@@ -156,6 +162,10 @@ function parseArgs(argv) {
         }
         if (argument === '--check') {
             parsed.check = true;
+            continue;
+        }
+        if (argument === '--force-placement-offset-divergence') {
+            parsed.forcePlacementOffsetDivergence = true;
             continue;
         }
         if (![
@@ -543,6 +553,119 @@ function pixelRectFromStyle(style, width, height) {
     };
 }
 
+function previewPlacementSignature(metadata, imageRect, canvasWidthPx, canvasHeightPx) {
+    const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    const scaleX = (imageRect.right - imageRect.left) / contentWidthPx;
+    const foldClipLeftPx = metadata.foldClipLeftPx ?? 0;
+    const foldClipRightPx = metadata.foldClipRightPx ?? 0;
+    const sourceLeftPx = Math.max(foldClipLeftPx, -imageRect.left / scaleX);
+    const sourceRightPx = Math.min(
+        contentWidthPx - foldClipRightPx,
+        (canvasWidthPx - imageRect.left) / scaleX,
+    );
+    const destinationX = imageRect.left + sourceLeftPx * scaleX;
+    const destinationY = Math.max(0, imageRect.top);
+    return {
+        canvas: {
+            heightPx: canvasHeightPx,
+            widthPx: canvasWidthPx,
+        },
+        contentWidthPx,
+        destinationOrigin: {
+            xPx: round(destinationX),
+            yPx: round(destinationY),
+            xNormalized: round(destinationX / canvasWidthPx, 8),
+            yNormalized: round(destinationY / canvasHeightPx, 8),
+        },
+        retainedSourceInterval: {
+            leftPx: round(sourceLeftPx),
+            rightPx: round(sourceRightPx),
+            leftNormalized: round(sourceLeftPx / contentWidthPx, 8),
+            rightNormalized: round(sourceRightPx / contentWidthPx, 8),
+        },
+    };
+}
+
+function finalPlacementSignature(metadata, materializedWidthPx, materializedHeightPx, forcedOffsetXPx = 0) {
+    const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
+    const effectiveLeftPx = metadata.placementOffsetXPx
+        - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0);
+    const effectiveTopPx = metadata.placementOffsetYPx
+        - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0);
+    const foldClipLeftPx = metadata.foldClipLeftPx ?? 0;
+    const foldClipRightPx = metadata.foldClipRightPx ?? 0;
+    const sourceLeftPx = Math.max(foldClipLeftPx, -effectiveLeftPx);
+    const sourceRightPx = Math.min(
+        contentWidthPx - foldClipRightPx,
+        metadata.canvasWidthPx - effectiveLeftPx,
+    );
+    const scaleX = materializedWidthPx / metadata.canvasWidthPx;
+    const scaleY = materializedHeightPx / metadata.canvasHeightPx;
+    const destinationX = (effectiveLeftPx + sourceLeftPx) * scaleX + forcedOffsetXPx;
+    const destinationY = Math.max(0, effectiveTopPx) * scaleY;
+    return {
+        canvas: {
+            heightPx: materializedHeightPx,
+            widthPx: materializedWidthPx,
+        },
+        contentWidthPx,
+        nativeCanvasWidthPx: metadata.canvasWidthPx,
+        destinationOrigin: {
+            xPx: round(destinationX),
+            yPx: round(destinationY),
+            xNormalized: round(destinationX / materializedWidthPx, 8),
+            yNormalized: round(destinationY / materializedHeightPx, 8),
+        },
+        retainedSourceInterval: {
+            leftPx: round(sourceLeftPx),
+            rightPx: round(sourceRightPx),
+            leftNormalized: round(sourceLeftPx / contentWidthPx, 8),
+            rightNormalized: round(sourceRightPx / contentWidthPx, 8),
+        },
+    };
+}
+
+function comparePlacementSignatures(preview, final) {
+    const presentedFinalContentWidthPx = final.contentWidthPx
+        * final.canvas.widthPx / Math.max(1, final.nativeCanvasWidthPx);
+    const tolerances = {
+        destinationX: PLACEMENT_PIXEL_TOLERANCE / Math.min(preview.canvas.widthPx, final.canvas.widthPx),
+        destinationY: PLACEMENT_PIXEL_TOLERANCE / Math.min(preview.canvas.heightPx, final.canvas.heightPx),
+        retainedSource: PLACEMENT_PIXEL_TOLERANCE / Math.min(
+            preview.contentWidthPx,
+            presentedFinalContentWidthPx,
+        ),
+    };
+    const deltas = {
+        destinationX: round(Math.abs(
+            preview.destinationOrigin.xNormalized - final.destinationOrigin.xNormalized,
+        ), 8),
+        destinationY: round(Math.abs(
+            preview.destinationOrigin.yNormalized - final.destinationOrigin.yNormalized,
+        ), 8),
+        retainedSourceLeft: round(Math.abs(
+            preview.retainedSourceInterval.leftNormalized - final.retainedSourceInterval.leftNormalized,
+        ), 8),
+        retainedSourceRight: round(Math.abs(
+            preview.retainedSourceInterval.rightNormalized - final.retainedSourceInterval.rightNormalized,
+        ), 8),
+    };
+    return {
+        deltas,
+        tolerances: Object.fromEntries(Object.entries(tolerances).map(([
+            key,
+            value,
+        ]) => [
+            key,
+            round(value, 8),
+        ])),
+        identical: deltas.destinationX <= tolerances.destinationX
+            && deltas.destinationY <= tolerances.destinationY
+            && deltas.retainedSourceLeft <= tolerances.retainedSource
+            && deltas.retainedSourceRight <= tolerances.retainedSource,
+    };
+}
+
 function grayBitmapFromContext(context, width, height) {
     const rgba = context.getImageData(0, 0, width, height).data;
     const data = new Uint8Array(width * height);
@@ -633,13 +756,15 @@ function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolerance) {
 
 async function composeLeaf(rasterPath, metadata, outputPath, overlayOptions) {
     const raster = await loadImage(rasterPath);
-    const placement = resolvePreviewMetadataPlacement(metadata, defaultOptions.pageAlignment, true);
-    const imageStyle = toPreviewStyleRect({
-        xPx: 0,
-        yPx: 0,
-        widthPx: metadata.outputWidthPx,
-        heightPx: metadata.outputHeightPx,
-    }, placement);
+    const placement = resolvePreviewMetadataPlacement(metadata);
+    const imageStyle = toPreviewStyleRect(
+        {
+            xPx: 0,
+            yPx: 0,
+            widthPx: metadata.outputWidthPx,
+            heightPx: metadata.outputHeightPx,
+        }, placement,
+    );
     const canvas = createCanvas(placement.canvasWidthPx, placement.canvasHeightPx);
     const context = canvas.getContext('2d');
     context.fillStyle = '#fff';
@@ -647,18 +772,21 @@ async function composeLeaf(rasterPath, metadata, outputPath, overlayOptions) {
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
     const imageRect = pixelRectFromStyle(imageStyle, canvas.width, canvas.height);
-    context.drawImage(
-        raster,
-        imageRect.left,
-        imageRect.top,
-        imageRect.right - imageRect.left,
-        imageRect.bottom - imageRect.top,
-    );
+    const foldClipLeft = metadata.foldClipLeftPx ?? 0;
+    const foldClipRight = metadata.foldClipRightPx ?? 0;
+    const imageWidth = imageRect.right - imageRect.left;
+    const cropLeft = imageRect.left + foldClipLeft / placement.contentWidthPx * imageWidth;
+    const cropWidth = imageWidth * (placement.contentWidthPx - foldClipLeft - foldClipRight)
+        / placement.contentWidthPx;
+    context.save();
+    context.beginPath();
+    context.rect(cropLeft, imageRect.top, cropWidth, imageRect.bottom - imageRect.top);
+    context.clip();
+    context.drawImage(raster, imageRect.left, imageRect.top, imageWidth, imageRect.bottom - imageRect.top);
+    context.restore();
     const transformedContent = transformPreviewContentBox(metadata);
     const sourceContentContainment = measurePreviewContentBoxContainment(metadata);
-    const overlayStyle = transformedContent
-        ? toPreviewStyleRect(transformedContent, placement)
-        : null;
+    const overlayStyle = transformedContent ? toPreviewStyleRect(transformedContent, placement) : null;
     const overlayRect = overlayStyle
         ? pixelRectFromStyle(overlayStyle, canvas.width, canvas.height)
         : null;
@@ -699,6 +827,12 @@ async function composeLeaf(rasterPath, metadata, outputPath, overlayOptions) {
         overlayRect,
         overlayStyle,
         path: outputPath,
+        placementSignature: previewPlacementSignature(
+            metadata,
+            imageRect,
+            canvas.width,
+            canvas.height,
+        ),
         metricsPath,
         placement,
         width: canvas.width,
@@ -823,6 +957,10 @@ async function main() {
     const finalMappings = new Map(finalSummary.sourcePageToOutputPages.map(mapping => [
         mapping.sourcePage,
         mapping.outputPages,
+    ]));
+    const finalSummaryPages = new Map(finalSummary.perPageStreamSizes.map(page => [
+        page.outputPageNumber,
+        page,
     ]));
     const report = {
         schemaVersion: 1,
@@ -961,10 +1099,7 @@ async function main() {
                 }),
             });
         }
-        // Replay the same page once with only its own detection verdict, then
-        // compare it with the settled-document render above. This models two
-        // successive analysis frames while the document context grows and
-        // makes provisional-canvas jumps inspectable without Electron.
+        // Replay only this page's verdict to expose provisional-canvas jumps without Electron.
         const provisionalDocumentCanvas = resolveScanCleanupProvisionalDocumentCanvas(
             pageSizes,
             matchedPreviewDpi,
@@ -983,10 +1118,8 @@ async function main() {
         else provisionalManifest.documentCanvas = provisionalDocumentCanvas;
         provisionalManifest.pages[0].outputs = provisionalOutputs;
         provisionalManifest.pages[0].pageMetadataPath = provisionalPageMetadataPath;
-        // During progressive detection the app knows this page's observed
-        // layout but has not yet published pagePlanEvidence. Replaying the
-        // settled automatic split/content/skew here made the two states
-        // identical and hid provisional-only crop failures.
+        // Progressive detection has observed layout but no pagePlanEvidence yet; do not hide
+        // provisional-only crop failures by replaying the settled split/content/skew plan.
         for (const key of Object.keys(reusablePagePlan)) {
             delete provisionalManifest.pages[0].options[key];
         }
@@ -1047,11 +1180,18 @@ async function main() {
         const finalLeaves = [];
         for (let index = 0; index < finalOutputPages.length; index += 1) {
             const half = previewLeaves[index].half;
+            const outputPageNumber = finalOutputPages[index];
+            const finalSummaryPage = finalSummaryPages.get(outputPageNumber);
+            if (!finalSummaryPage || finalSummaryPage.half !== half) {
+                throw new Error(
+                    `Page ${String(pageNumber)} ${half} has no matching final materialization summary`,
+                );
+            }
             const path = join(pageDirectory, `final-${half}.png`);
             await renderers.renderPage(
                 {pdftoppmBinary: tools.pdftoppm},
                 () => undefined,
-                finalOutputPages[index],
+                outputPageNumber,
                 args.finalPdf,
                 path,
                 PREVIEW_DPI,
@@ -1061,6 +1201,7 @@ async function main() {
                 half,
                 height: image.height,
                 path,
+                renderGeometry: finalSummaryPage.renderGeometry,
                 width: image.width,
             });
         }
@@ -1081,6 +1222,26 @@ async function main() {
             provisionalLeaves,
             resolveCommit: resolveScanCleanupPreviewPresentationCommit,
             transitionKey: `preview-session:page-${String(pageNumber)}:user-0`,
+        });
+        const placementSignatures = previewLeaves.map((leaf, index) => {
+            const finalLeaf = finalLeaves[index];
+            const forcedOffsetXPx = args.forcePlacementOffsetDivergence
+                && pageNumber === args.pages[0]
+                && index === 0
+                ? FORCED_PLACEMENT_DIVERGENCE_PX
+                : 0;
+            const final = finalPlacementSignature(
+                finalLeaf.renderGeometry,
+                finalLeaf.width,
+                finalLeaf.height,
+                forcedOffsetXPx,
+            );
+            return {
+                half: leaf.half,
+                preview: leaf.placementSignature,
+                final,
+                ...comparePlacementSignatures(leaf.placementSignature, final),
+            };
         });
         const leafResults = [];
         for (let index = 0; index < previewLeaves.length; index += 1) {
@@ -1141,12 +1302,7 @@ async function main() {
             eyeballComposite,
             manifest: manifestPath,
             previewPageMetadata: pageMetadataPath,
-            placementSignatures: previewLeaves.map(leaf => ({
-                half: leaf.half,
-                placement: leaf.placement,
-                imageStyle: leaf.imageStyle,
-                overlayStyle: leaf.overlayStyle,
-            })),
+            placementSignatures,
             leaves: leafResults,
         });
     }
@@ -1168,6 +1324,12 @@ async function main() {
             mode: 'presentation-stability',
             pageNumber: page.pageNumber,
         })),
+        ...page.placementSignatures.filter(signature => !signature.identical).map(signature => ({
+            code: 'placement-identity',
+            half: signature.half,
+            mode: 'settled',
+            pageNumber: page.pageNumber,
+        })),
     ]);
     report.violations = violations;
     report.status = violations.length === 0 ? 'pass' : 'fail';
@@ -1180,6 +1342,12 @@ async function main() {
             pageNumber: page.pageNumber,
             previewComposite: page.previewComposite,
             finalComposite: page.finalComposite,
+            placementIdentity: page.placementSignatures.map(signature => ({
+                half: signature.half,
+                identical: signature.identical,
+                deltas: signature.deltas,
+                tolerances: signature.tolerances,
+            })),
             leaves: page.leaves.map(leaf => ({
                 half: leaf.half,
                 preview: leaf.previewWeight,

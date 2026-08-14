@@ -463,8 +463,8 @@ import {
     resolvePreviewSpreadCutterCenter,
 } from '@app/modules/scan-cleanup/geometry/viewport';
 import {
-    resolvePreviewAlignmentReferenceRect,
     resolvePreviewMetadataPlacement,
+    toPreviewSourceCropStyle,
     toPreviewStyleRect,
 } from '@app/modules/scan-cleanup/geometry/placement';
 import {
@@ -746,22 +746,31 @@ const cleanedLayerVisible = computed(() => Boolean(props.result) && !originalLay
  * costs no shift.
  */
 const canvasNoticeKind = computed(() => {
-    if (!props.matchPageSize || !presentationResult.value) {
+    if (!presentationResult.value) {
         return '';
     }
     // This describes the displayed frame, not whichever detection generation
     // is live now. A frame rendered from an open plan stays provisional while
-    // pinned; once its settled replacement displays, later same-transition
-    // replans cannot relabel that displayed frame as provisional.
+    // pinned. Once layout has settled, an older frame instead says that the
+    // preview is updating and its placement still reflects previous settings.
+    if (props.resultPresentationKey !== undefined && !displayedPresentation.value.settled) {
+        return 'provisional';
+    }
     if (
-        props.resultPresentationKey !== undefined
-        && (
-            displayedCleanedFrame.value?.transitionKey !== props.resultPresentationKey
-            || !displayedPresentation.value.resultCurrent
-            || !displayedPresentation.value.settled
+        dragTransaction.active.value
+        || (
+            props.resultPresentationKey !== undefined
+            && (
+                displayedCleanedFrame.value?.transitionKey !== props.resultPresentationKey
+                || props.resultCurrent !== true
+                || !displayedPresentation.value.resultCurrent
+            )
         )
     ) {
-        return 'provisional';
+        return 'updating';
+    }
+    if (!props.matchPageSize) {
+        return '';
     }
     // The main process could not measure this document, so it dropped matching
     // for the request and drew the page at its own size.
@@ -773,6 +782,9 @@ const canvasNoticeKind = computed(() => {
 const canvasNotice = computed(() => {
     if (canvasNoticeKind.value === 'unavailable') {
         return t('scanCleanup.preview.matchedCanvasUnavailable');
+    }
+    if (canvasNoticeKind.value === 'updating') {
+        return t('scanCleanup.preview.updatingPreviousPlacement');
     }
     return canvasNoticeKind.value === 'provisional'
         ? t('scanCleanup.preview.matchedCanvasProvisional')
@@ -1266,7 +1278,7 @@ function nudgeContentBox(
 function alignmentFromOffset(
     left: number,
     top: number,
-    reference: ReturnType<typeof resolvePreviewAlignmentReferenceRect>,
+    reference: ReturnType<typeof resolvePlacementDragReferenceRect>,
 ) {
     const relativeLeft = left - reference.originX;
     const relativeTop = top - reference.originY;
@@ -1281,6 +1293,47 @@ function alignmentFromOffset(
         : `${vertical}-${horizontal}` as TScanCleanupPageAlignment;
 }
 
+function resolvePlacementDragReferenceRect(
+    metadata: IScanCleanupPreviewMetadata,
+    retainedWidthPx: number,
+    contentHeightPx: number,
+) {
+    const matchedCanvas = metadata.matchedCanvasContentWidthPx != null
+        || metadata.matchedCanvasContentHeightPx != null;
+    const originX = matchedCanvas ? metadata.appliedMargins.leftPx : 0;
+    const originY = matchedCanvas ? metadata.appliedMargins.topPx : 0;
+    const horizontalInsets = matchedCanvas
+        ? metadata.appliedMargins.leftPx + metadata.appliedMargins.rightPx
+        : 0;
+    const verticalInsets = matchedCanvas
+        ? metadata.appliedMargins.topPx + metadata.appliedMargins.bottomPx
+        : 0;
+    return {
+        originX,
+        originY,
+        spanX: Math.max(0, metadata.canvasWidthPx - horizontalInsets - retainedWidthPx),
+        spanY: Math.max(0, metadata.canvasHeightPx - verticalInsets - contentHeightPx),
+    };
+}
+
+function resolveRetainedPlacementGeometry(output: IRenderedScanCleanupOutput) {
+    const foldClipLeftPx = output.metadata.foldClipLeftPx ?? 0;
+    const foldClipRightPx = output.metadata.foldClipRightPx ?? 0;
+    const retainedWidthPx = Math.max(
+        1,
+        output.placement.contentWidthPx - foldClipLeftPx - foldClipRightPx,
+    );
+    return {
+        foldClipLeftPx,
+        retainedWidthPx,
+        reference: resolvePlacementDragReferenceRect(
+            output.metadata,
+            retainedWidthPx,
+            output.placement.contentHeightPx,
+        ),
+    };
+}
+
 function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOverlayOutput) {
     // At navigation zoom dragging the cleaned page pans the viewport; placement
     // still moves via keyboard nudge or by dragging at fit zoom.
@@ -1292,11 +1345,11 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
     if (!props.matchPageSize || canvasClientRect.width <= 0 || canvasClientRect.height <= 0) {
         return;
     }
-    const alignmentReference = resolvePreviewAlignmentReferenceRect(
-        output.metadata,
-        output.placement.contentWidthPx,
-        output.placement.contentHeightPx,
-    );
+    const {
+        foldClipLeftPx,
+        reference: alignmentReference,
+    } = resolveRetainedPlacementGeometry(output);
+    const initialRetainedLeft = output.placement.left + foldClipLeftPx;
     const canonicalGeometry: IPlacementDragGeometry = {
         kind: 'placement',
         half: output.metadata.half,
@@ -1314,13 +1367,15 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
         stageRect,
         fitScale,
         update: (pointerEvent, snapshot) => {
-            const left = Math.min(
+            const retainedLeft = Math.min(
                 alignmentReference.originX + alignmentReference.spanX,
                 Math.max(
                     alignmentReference.originX,
-                    output.placement.left + (pointerEvent.clientX - snapshot.pointerStart.x) / snapshot.fitScale,
+                    initialRetainedLeft
+                    + (pointerEvent.clientX - snapshot.pointerStart.x) / snapshot.fitScale,
                 ),
             );
+            const left = retainedLeft - foldClipLeftPx;
             const top = Math.min(
                 alignmentReference.originY + alignmentReference.spanY,
                 Math.max(
@@ -1331,7 +1386,7 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
             return {
                 kind: 'placement',
                 half: output.metadata.half,
-                alignment: alignmentFromOffset(left, top, alignmentReference),
+                alignment: alignmentFromOffset(retainedLeft, top, alignmentReference),
                 left,
                 top,
             };
@@ -1532,11 +1587,7 @@ const renderedOutputs = computed(() => {
     }
     const outputs = presentationResult.value.outputs.map((output): IRenderedScanCleanupOutput => {
         const metadata = output.metadata;
-        const placement = resolvePreviewMetadataPlacement(
-            metadata,
-            props.placementOverrides?.[metadata.half] ?? props.alignment,
-            displayedPresentation.value.resultCurrent,
-        );
+        const placement = resolvePreviewMetadataPlacement(metadata);
         const imageStyle = toPreviewStyleRect({
             xPx: 0,
             yPx: 0,
@@ -1561,6 +1612,7 @@ const renderedOutputs = computed(() => {
             metadata,
             pixelSwap: cleanedPixelSwaps[metadata.half] ?? createPreviewImageSwap(),
             placement,
+            sourceCropStyle: toPreviewSourceCropStyle(metadata),
             imageStyle,
             marginBoundaryStyle,
             contentRect,
@@ -1687,11 +1739,10 @@ const placementAnchors = computed(() => {
     if (!output) {
         return outerPlacementAnchors;
     }
-    const reference = resolvePreviewAlignmentReferenceRect(
-        output.metadata,
-        output.placement.contentWidthPx,
-        output.placement.contentHeightPx,
-    );
+    const {
+        reference,
+        retainedWidthPx,
+    } = resolveRetainedPlacementGeometry(output);
     return outerPlacementAnchors.map(anchor => {
         const axes = anchor.alignment.split('-');
         const vertical = axes[0]!;
@@ -1703,7 +1754,7 @@ const placementAnchors = computed(() => {
                     horizontal,
                     reference.originX,
                     reference.spanX,
-                    output.placement.contentWidthPx,
+                    retainedWidthPx,
                 ) / Math.max(1, output.placement.canvasWidthPx) * 100}%`,
                 top: `${placementAnchorPosition(
                     vertical,

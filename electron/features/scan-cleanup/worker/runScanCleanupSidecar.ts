@@ -36,6 +36,15 @@ export class NativeScanCleanupError extends Error {
     }
 }
 
+interface IRunScanCleanupSidecarOptions {
+    priority?: 'background';
+    timeoutMs?: number;
+}
+
+const DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
+const SCAN_CLEANUP_TERMINATION_GRACE_MS = 1_500;
+const SCAN_CLEANUP_TERMINATION_FALLBACK_MS = SCAN_CLEANUP_TERMINATION_GRACE_MS + 2_000;
+
 function throwIfError(error: Error | null) {
     if (error !== null) {
         throw error;
@@ -80,7 +89,7 @@ export async function runScanCleanupSidecar(
     signal: AbortSignal,
     log: TWorkerLog,
     onProgress: (progress: TScanCleanupProgress, nativeProgress: TNativeScanCleanupProgressV3) => void,
-    options: {priority?: 'background'} = {},
+    options: IRunScanCleanupSidecarOptions = {},
 ) {
     if (signal.aborted) throw abortErrorFromSignal(signal);
     await verifyNativeToolProtocol(binaryPath, {
@@ -110,7 +119,7 @@ async function streamScanCleanupSidecar(
     signal: AbortSignal,
     log: TWorkerLog,
     onProgress: (progress: TScanCleanupProgress, nativeProgress: TNativeScanCleanupProgressV3) => void,
-    options: {priority?: 'background'},
+    options: IRunScanCleanupSidecarOptions,
 ) {
     const child = spawn(binaryPath, [
         '--manifest',
@@ -135,7 +144,7 @@ async function streamScanCleanupSidecar(
     let terminalResult: 'success' | 'failure' | null = null;
     let protocolError: Error | null = null;
     let nativeFailure: NativeScanCleanupError | null = null;
-    let terminationStarted = false;
+    let terminationPromise: Promise<void> | null = null;
     let timedPages = 0;
     const stageTotalsMs: TScanCleanupStageTotalsMs = {
         decode: 0,
@@ -149,11 +158,28 @@ async function streamScanCleanupSidecar(
     };
     const completedPageNumbers = new Set<number>();
     const terminateForFatalError = () => {
-        if (terminationStarted) {
-            return;
+        if (terminationPromise !== null) {
+            return terminationPromise;
         }
-        terminationStarted = true;
-        void terminateDetachedChildProcess(child, 1_500);
+        const treeTermination = terminateDetachedChildProcess(
+            child,
+            SCAN_CLEANUP_TERMINATION_GRACE_MS,
+        ).catch(() => undefined);
+        terminationPromise = new Promise<void>(resolve => {
+            let settled = false;
+            const settle = () => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(fallbackHandle);
+                resolve();
+            };
+            const fallbackHandle = setTimeout(settle, SCAN_CLEANUP_TERMINATION_FALLBACK_MS);
+            fallbackHandle.unref?.();
+            void treeTermination.then(settle);
+        });
+        return terminationPromise;
     };
     child.stderr?.setEncoding('utf8');
     child.stderr?.on('data', (chunk: string) => {
@@ -173,7 +199,7 @@ async function streamScanCleanupSidecar(
         // A fatal decoder/schema/progress-consumer failure means stdout can no
         // longer be consumed safely. Stop the whole detached tree immediately;
         // the recorded protocol error remains the terminal authority.
-        terminateForFatalError();
+        void terminateForFatalError();
         log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
     };
     lines.on('line', line => {
@@ -218,28 +244,56 @@ async function streamScanCleanupSidecar(
         aborting = true;
         // AbortSignal is the transport boundary. This native adapter first asks
         // the detached process tree to exit, then force-kills after its grace period.
-        terminateForFatalError();
+        void terminateForFatalError();
     };
     signal.addEventListener('abort', handleAbort, {once: true});
     if (signal.aborted) handleAbort();
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let timeoutError: NativeScanCleanupError | null = null;
     try {
         let result: {
             code: number | null;
             signal: NodeJS.Signals | null
         };
         try {
-            result = await new Promise((resolve, reject) => {
-                child.once('error', reject);
-                child.once('exit', (code, exitSignal) => resolve({
-                    code,
-                    signal: exitSignal,
-                }));
-            });
+            result = await Promise.race([
+                new Promise<{
+                    code: number | null;
+                    signal: NodeJS.Signals | null;
+                }>((resolve, reject) => {
+                    child.once('error', reject);
+                    // `exit` can precede the final stdout read. `close` is the
+                    // observation boundary because it follows stdio shutdown.
+                    child.once('close', (code, exitSignal) => resolve({
+                        code,
+                        signal: exitSignal,
+                    }));
+                }),
+                new Promise<never>((_resolve, reject) => {
+                    const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS);
+                    timeoutHandle = setTimeout(() => {
+                        timeoutError = new NativeScanCleanupError(
+                            'native-failure',
+                            `evb-scan-cleanup timed out after ${timeoutMs}ms`,
+                        );
+                        void terminateForFatalError().then(() => reject(timeoutError));
+                    }, timeoutMs);
+                    timeoutHandle.unref?.();
+                }),
+            ]);
         } catch (error) {
             throwIfError(protocolError);
+            if (timeoutError !== null) {
+                await terminateForFatalError();
+                throwIfError(timeoutError);
+            }
             throw error;
         }
         throwIfError(protocolError);
+        if (timeoutError !== null) {
+            await terminateForFatalError();
+            throwIfError(timeoutError);
+        }
         if (aborting || signal.aborted) throw abortErrorFromSignal(signal);
         throwIfError(nativeFailure);
         if (result.code !== 0) {
@@ -254,6 +308,7 @@ async function streamScanCleanupSidecar(
             throw new NativeScanCleanupError('native-failure', 'evb-scan-cleanup returned no terminal result envelope');
         }
     } finally {
+        if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
         signal.removeEventListener('abort', handleAbort);
         lines.close();
         log('debug', [

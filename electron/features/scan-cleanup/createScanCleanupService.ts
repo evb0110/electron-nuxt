@@ -419,9 +419,6 @@ export function createScanCleanupService(): IScanCleanupService {
                         'canceled',
                     ].includes(previousState.status)) {
                         if (previous.signature === signature) {
-                            jobs.subscribe(previous.jobId, ownerActor(sender, request), state => {
-                                sendScanCleanupState(sender, state.progress);
-                            });
                             return {
                                 started: true,
                                 jobId: previous.jobId,
@@ -582,9 +579,6 @@ export function createScanCleanupService(): IScanCleanupService {
                             lease?.release();
                         }
                     },
-                });
-                jobs.subscribe(jobId, ownerActor(sender, request), state => {
-                    sendScanCleanupState(sender, state.progress);
                 });
                 const activeEntry = {
                     jobId,

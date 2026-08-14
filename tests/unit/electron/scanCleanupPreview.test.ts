@@ -542,6 +542,40 @@ afterEach(async () => {
 });
 
 describe('scan cleanup preview', () => {
+    it('preserves fold clipping through native artifact and IPC codec boundaries', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{outputs: Array<{
+                metadataPath: string;
+                outputPath: string;
+            }>;}>};
+            const output = manifest.pages[0]!.outputs[0]!;
+            const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
+            await writeFile(output.outputPath, pngWithDimensions(4, 1));
+            await writeFile(output.metadataPath, JSON.stringify({
+                ...metadata,
+                outputWidthPx: 4,
+                canvasWidthPx: 4,
+                matchedCanvasContentWidthPx: 4,
+                foldClipLeftPx: 1,
+                foldClipRightPx: 1,
+            }));
+        });
+
+        const result = await previewOf(createScanCleanupPreviewService(deps), sender(), request);
+        expect(result.outputs[0]?.metadata).toMatchObject({
+            foldClipLeftPx: 1,
+            foldClipRightPx: 1,
+        });
+        expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [{metadata: {
+            foldClipLeftPx: 1,
+            foldClipRightPx: 1,
+        }}]});
+    });
+
     it('accepts four in-range margins and rejects invalid or incomplete margin shapes', () => {
         const validRequest = {
             ...request,
@@ -3175,6 +3209,7 @@ describe('scan cleanup preview', () => {
             matchedCanvasIntrinsicOverflowTopPx: 2,
             placementOffsetYPx: 1,
         }))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
+        expect(() => decodeScanCleanupPreviewResult(withGeometry({foldClipLeftPx: 1}))).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
     });
 
     it('accepts optional detection text-axis and recommendation reasons and rejects malformed values', () => {

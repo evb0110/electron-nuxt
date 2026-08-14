@@ -31,7 +31,12 @@
             @keydown="$emit('nudge', $event, output)"
         >
             <template v-if="output.active">
-                <img class="cleaned-image" :src="output.pixelSwap.currentUrl" alt="">
+                <img
+                    class="cleaned-image"
+                    :src="output.pixelSwap.currentUrl"
+                    :style="output.sourceCropStyle"
+                    alt=""
+                >
                 <span class="margin-overlay" aria-hidden="true" />
             </template>
         </div>

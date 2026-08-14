@@ -2645,6 +2645,9 @@ struct CanvasPlacement {
     /// intrinsic coordinates; the materializer maps them onto its target grid.
     fold_trim_left: usize,
     fold_trim_right: usize,
+    /// Fold-edge crop already scaled onto the canvas/materialization grid.
+    fold_clip_left: usize,
+    fold_clip_right: usize,
     /// Horizontal source window and destination after scaling. The public
     /// placement continues to describe the complete intrinsic raster so OCR
     /// and preview geometry retain the document's paper scale.
@@ -3472,6 +3475,8 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
         intrinsic_overflow_top: 0,
         fold_trim_left: fold_trim.left,
         fold_trim_right: fold_trim.right,
+        fold_clip_left,
+        fold_clip_right,
         materialization_left: (effective_left + fold_clip_left as isize).max(0) as usize,
         materialization_source_offset_left: fold_clip_left.max(intrinsic_overflow_left),
         materialization_source_offset_right: fold_clip_right.max(intrinsic_overflow_right),
@@ -3500,6 +3505,8 @@ fn apply_canvas_metadata(
         intrinsic_overflow_left,
         intrinsic_overflow_right,
         intrinsic_overflow_top,
+        fold_clip_left,
+        fold_clip_right,
         ..
     } = placement;
     let effective_left = left as isize - intrinsic_overflow_left as isize;
@@ -3532,6 +3539,8 @@ fn apply_canvas_metadata(
     metadata.matched_canvas_intrinsic_overflow_left = intrinsic_overflow_left;
     metadata.matched_canvas_intrinsic_overflow_right = intrinsic_overflow_right;
     metadata.matched_canvas_intrinsic_overflow_top = intrinsic_overflow_top;
+    metadata.fold_clip_left = fold_clip_left;
+    metadata.fold_clip_right = fold_clip_right;
     metadata.canvas_width = canvas.width_px;
     metadata.canvas_height = canvas.height_px;
     metadata.placement_offset_x = left;
@@ -5333,6 +5342,8 @@ mod tests {
         let right_scale = right.content_width as f64 / 599.0;
         assert!((left_scale - right_scale).abs() < 0.001);
         assert_eq!(left.fold_trim_right, left_trim.right);
+        assert!(left.fold_clip_right > 0);
+        assert_eq!(left.fold_clip_left, 0);
         assert!(left.materialization_source_offset_right > 0);
     }
 
@@ -5398,6 +5409,8 @@ mod tests {
             intrinsic_overflow_top: 0,
             fold_trim_left: 0,
             fold_trim_right: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
             materialization_left: 0,
             materialization_source_offset_left: 0,
             materialization_source_offset_right: 0,
@@ -5450,6 +5463,8 @@ mod tests {
             intrinsic_overflow_top: 0,
             fold_trim_left: 0,
             fold_trim_right: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
             materialization_left: 0,
             materialization_source_offset_left: 0,
             materialization_source_offset_right: 0,
@@ -5510,6 +5525,8 @@ mod tests {
             intrinsic_overflow_top: 0,
             fold_trim_left: 0,
             fold_trim_right: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
             materialization_left: 150,
             materialization_source_offset_left: 0,
             materialization_source_offset_right: 0,
@@ -5993,6 +6010,8 @@ mod tests {
             intrinsic_overflow_top: 0,
             fold_trim_left: 0,
             fold_trim_right: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
             materialization_left: 3,
             materialization_source_offset_left: 0,
             materialization_source_offset_right: 0,
