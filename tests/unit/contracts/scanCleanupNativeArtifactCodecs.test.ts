@@ -83,7 +83,85 @@ function outputMetadata() {
     };
 }
 
+function fullSplitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
+    return {
+        analysisDpi: 150,
+        deskewAngleDegrees: 0,
+        deskewConfidence: 1,
+        cutterSlope: 0,
+        leftDeskewAngleDegrees: 0,
+        rightDeskewAngleDegrees: 0,
+        leftDeskewConfidence: 1,
+        rightDeskewConfidence: 1,
+        whitespaceX: 1075,
+        foldX: 1142,
+        decisionX: 1198,
+        whitespaceScore: 0.98,
+        bilateralScore: 1,
+        leftPageScore: 1,
+        rightPageScore: 1,
+        leftContentScore: 1,
+        rightContentScore: 1,
+        leftSurfaceScore: 1,
+        rightSurfaceScore: 1,
+        leftInkPixels: 31_717,
+        rightInkPixels: 20_784,
+        outerMarginScore: 1,
+        gutterScore: 1,
+        agreementScore: 1,
+        foldScore: 0.086,
+        gutterDarknessScore: 0,
+        softGutterScore: 0,
+        softGutterCoverage: 0,
+        softGutterContinuity: 0,
+        softGutterMeanDepression: 0,
+        sparseGutterScore: 1,
+        sparseGutterCoverage: 1,
+        sparseGutterContinuity: 1,
+        sparseGutterMeanDepression: 24.64,
+        aspectRatio: 1.4,
+        aspectSpreadScore: 1,
+        aspectSingleScore: 0,
+        independentSpreadCues: 3,
+        offcutBoundaryScore: 0,
+        offcutEmptyScore: 0,
+        offcutPopulatedScore: 0,
+        offcutWidthScore: 0,
+        offcutNoTextRowsScore: 0,
+        alternativeProduct: 0,
+        evidenceProduct: 0.699,
+        whitespaceGatePassed: true,
+        centralPositionGatePassed: true,
+        bilateralGatePassed: true,
+        outerMarginGatePassed: true,
+        gutterGatePassed: true,
+        independentGutterGatePassed: true,
+        aspectSupportGatePassed: true,
+        evidenceAgreementGatePassed: true,
+        sparseSpreadRecovered: true,
+        abstained: false,
+    };
+}
+
 describe('scan-cleanup native artifact codecs', () => {
+    it('decodes split diagnostics carrying every field the native binary emits, and rejects a payload missing one', () => {
+        const diagnostics = fullSplitDiagnostics();
+        const page = {
+            ...pageMetadata(),
+            splitDiagnostics: diagnostics,
+        };
+        expect(decodeNativeScanCleanupPageMetadata(page)).toBe(page);
+
+        const {
+            offcutPopulatedScore: _omitted,
+            ...missingField
+        } = diagnostics;
+        expect(() => decodeNativeScanCleanupPageMetadata({
+            ...pageMetadata(),
+            splitDiagnostics: missingField,
+        })).toThrow();
+    });
+
     it('decodes page and output artifacts while preserving additive fields', () => {
         const page = {
             ...pageMetadata(),
