@@ -331,3 +331,11 @@ R12 2026-08-14 (defect report, user, video): page 2 still shows the
    (gutter not yet excised) while later-analyzed pages display settled
    ones; the phase-edge settle fix in flight should converge both.
    Verify from video frames before concluding.
+R12a 2026-08-14 (same family, user screenshot): TOC/Einführung spread —
+   right leaf's content box has a blank band on its FOLD side (left
+   edge extended past text) while fitting tightly elsewhere; left leaf
+   box tight. Confirms the fold-side-overhang pattern of R10/R12:
+   pale gutter residue admitted as content drags the fold-side edge
+   outward; visible as asymmetric boxes, blank fold-side bands, and
+   retained gutter smudges, inconsistent across pages. Also visible:
+   bold "den" mid-paragraph (R11 weight class).
