@@ -269,3 +269,16 @@ R7 2026-08-14 (parallel execution arc): six concurrent tracks + VPS
    measurement-negative. User reports this arc: contact-sheet side
    confusion (caption error, mine — in-image labels mandated),
    Electron orphan crash (bounded-kill tree-termination noted).
+R8 2026-08-14 (defect report, user, video): page 1 left leaf's content
+   box clips authored ink on three edges in the Cleaned preview during
+   pre-analysis (title ascenders above top edge, final glyph cut at
+   right, "1997" below bottom); right leaf correct. App runs
+   post-merge main (dev restart rebuilt native). Disposition: defect,
+   S1 (content-loss class). Prime suspect: PR #11 made content boxes
+   fractional (outward floor/ceil enclosure contract); an inward
+   rounding in the preview overlay/crop mapping would clip <=1
+   analysis sample per edge. Second suspect: provisional box pinned
+   past the settle window while settled detection corrects it
+   (one-settle residual now user-hostile when provisional data is
+   wrong — policy refinement candidate: allow the settle when it
+   fixes a containment violation). Investigation dispatched.
