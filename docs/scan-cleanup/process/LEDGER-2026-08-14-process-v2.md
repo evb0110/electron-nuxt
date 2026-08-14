@@ -48,11 +48,15 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
   instruction, R7): delivery of the pack is required, the user's
   review of it is not — work proceeds immediately after delivery;
   a later user objection reopens the step as a defect row.
-- PARALLEL TRACKS (R7): steps with disjoint file surfaces may run
-  concurrently (separate worktrees/dispatches); MERGES stay
-  serialized in ledger order. User-visible feature work (S2) always
-  outranks governance work; S3-S6 investment is re-checked against
-  the user's app-level confirmation after S2 lands.
+- PARALLEL TRACKS + PIPELINING (R7, sharpened by user): steps with
+  disjoint file surfaces run concurrently (separate worktrees/
+  dispatches); MERGES stay serialized in ledger order, but a PR
+  waiting on CI or CodeRabbit NEVER idles the orchestrator — during
+  every wait, adjudicate/design/dispatch the next track. CI-tail
+  waits are filled with work by construction; sleep-polling a single
+  PR with nothing else in flight is a process defect. User-visible
+  feature work (S2) outranks governance work; S3-S6 investment is
+  re-checked against the user's app-level verdict after S2 lands.
 - Scope guard: build the scan-cleanup feature, not a civilization.
   Appendix items (hash chains, digest archives, classifiers, full
   oracle formalism, VPS residency tiers, E1b, cadence caps) need a
