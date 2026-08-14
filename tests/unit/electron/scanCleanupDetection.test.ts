@@ -267,7 +267,9 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                         for (;;) {
                             try {
                                 await stat(stagedPath);
-                                await new Promise<void>(resolve => setImmediate(resolve));
+                                await new Promise<void>(resolve => {
+                                    setTimeout(resolve, 1);
+                                });
                             } catch (error) {
                                 expect(error).toMatchObject({code: 'ENOENT'});
                                 break;
@@ -299,7 +301,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             () => undefined,
         );
 
-        await vi.waitFor(() => expect(stagedPaths.size).toBe(rasterConcurrency));
+        await vi.waitFor(() => expect(stagedPaths.size).toBe(rasterConcurrency), {timeout: 10_000});
         await new Promise<void>(resolve => setImmediate(resolve));
         expect(stagedPaths.size).toBe(rasterConcurrency);
         expect(peakLiveStagedBytes).toBeLessThanOrEqual(ppm.byteLength * rasterConcurrency);
@@ -313,7 +315,11 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             await expect(stat(path)).rejects.toMatchObject({code: 'ENOENT'});
         }));
         expect(retention.release).toHaveBeenCalledOnce();
-    }, 15_000);
+        // 101 sequential FIFO-write -> worker-read -> unlink rendezvous cost
+        // ~700ms idle but scale linearly with scheduler latency; under full-
+        // suite CPU contention they measured ~15s, so the budget carries
+        // ~4x headroom over the worst observed run rather than idle timing.
+    }, 60_000);
 
     it('classifies malformed native page metadata as a native protocol failure', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-test-'));
