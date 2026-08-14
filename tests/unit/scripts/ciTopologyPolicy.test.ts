@@ -88,6 +88,43 @@ function parseWorkflowJobs(workflow: string) {
     return jobs;
 }
 
+const requiredPrPushConditions = new Set([
+    '${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}',
+    '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.electron_smoke == \'true\' }}',
+    '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.browser_integration == \'true\' }}',
+    '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.native_or_build == \'true\' }}',
+    '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.landing == \'true\' }}',
+    '${{ always() && (github.event_name == \'pull_request\' || github.event_name == \'push\') }}',
+]);
+
+const supportedNonPrPushConditions = new Set([
+    '${{ github.event_name == \'workflow_dispatch\' }}',
+    '${{ github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\' }}',
+    '${{ (github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\') && vars.EVB_SCAN_CLEANUP_REGRESS_MANIFEST != \'\' }}',
+]);
+
+function requiredPrPushJobs(jobs: Record<string, IWorkflowJob>) {
+    const requiredJobs = new Set<string>();
+    for (const [
+        jobName,
+        job,
+    ] of Object.entries(jobs)) {
+        if (job['continue-on-error'] === true) {
+            continue;
+        }
+        if (job.if === undefined || (
+            !requiredPrPushConditions.has(job.if)
+            && !supportedNonPrPushConditions.has(job.if)
+        )) {
+            throw new Error(`Unsupported event condition for non-advisory job ${jobName}: ${job.if ?? '<missing>'}`);
+        }
+        if (jobName !== 'gates_ok' && requiredPrPushConditions.has(job.if)) {
+            requiredJobs.add(jobName);
+        }
+    }
+    return requiredJobs;
+}
+
 const splitQualityCommands = [
     'pnpm run lint',
     'pnpm run check:static:reports',
@@ -148,20 +185,14 @@ describe('CI topology policy', () => {
         ) {
             throw new Error('gates_ok must declare its required jobs as a needs array.');
         }
-        const requiredJobs = new Set(Object.entries(jobs)
-            .filter(([
-                jobName,
-                job,
-            ]) => (
-                jobName !== 'gates_ok'
-                && job['continue-on-error'] !== true
-                && (job.if === undefined
-                    || job.if.includes('github.event_name == \'pull_request\'')
-                    || job.if?.includes('github.event_name == \'push\'') === true)
-            ))
-            .map(([jobName]) => jobName));
+        const requiredJobs = requiredPrPushJobs(jobs);
 
         expect(new Set(gatesOk.needs)).toEqual(requiredJobs);
+    });
+
+    it('rejects an unrecognized non-advisory event condition', () => {
+        expect(() => requiredPrPushJobs({future_required_job: {if: '${{ github.event_name == \'merge_group\' }}'}}))
+            .toThrow('Unsupported event condition for non-advisory job future_required_job');
     });
 
     it('keeps PR feedback bounded and release workflow checks delegated', async () => {

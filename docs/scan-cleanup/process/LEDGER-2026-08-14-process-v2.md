@@ -37,13 +37,23 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
 
 ## Backlog (from approach Part 4 FINAL; each step = one X2 cycle)
 
-- [ ] S1 CI truth + hygiene — two ordered ops: (1) workflow PR
+- [ ] S1 CI truth + hygiene — ordered ops: (1) workflow PR
       (concurrency PR-only cancel, gates_ok aggregator, unit tests on
-      PR path, O7 changed-area repair + top-level-dir census, native
+      PR path, O7 changed-area repair + tracked-dir census, native
       build prereq in blocking smoke, B3 build identity) + docs/
       scan-cleanup/ migration of approach/ledger/reviewer reports;
       (2) ruleset (require PR + gates_ok, enforce_admins, block
-      force-push; merge queue if the ruleset accepts it).
+      force-push; merge queue if the ruleset accepts it), shipped only
+      after failure-injecting the dispatch bypass (red PR +
+      workflow_dispatch on the same SHA must stay blocked);
+      (3) completion criteria: verify the push run on the landed SHA
+      (exact-SHA attestation), freeze merges while main is red, and
+      route recovery through a normal gates_ok-gated revert PR.
+      Deferred out of S1 (own gated change, recorded from CodeRabbit
+      review of PR #6): align the required native lane with the local
+      gate contract — release-mode workspace tests incl. integration
+      targets, and moving build:strict off the required PR path per
+      G1(e) — folded into S4's wiring step.
 - [ ] S2 Feature fixes forward: settle-jump / session-pinned canvas
       (transition semantics first); word-weight amplification
       measurement redo (task #27).

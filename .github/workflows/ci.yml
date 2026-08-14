@@ -141,7 +141,7 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Restore staged scan-cleanup native binary
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .tmp/scan-cleanup
           key: electron-scan-cleanup-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/generateNativeToolProtocols.ts', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}

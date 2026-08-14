@@ -62,6 +62,14 @@ describe('updateHealthMarker', () => {
         await expect(marker.getSuppressedUpdateVersion('1.0.0')).resolves.toBe('2.0.0');
     });
 
+    it('recognizes development build metadata as the pending installation', async () => {
+        const marker = await import('@electron/updateHealthMarker');
+
+        await marker.markUpdateInstallPending('2.0.0');
+        await expect(marker.recordPendingUpdateStartup(`2.0.0+${'a'.repeat(40)}`)).resolves
+            .toMatchObject({installationApplied: true});
+    });
+
     it('expires suppression so a transient installer failure can be retried', async () => {
         const marker = await import('@electron/updateHealthMarker');
         const installedAt = Date.now();

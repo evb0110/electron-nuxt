@@ -59,4 +59,37 @@ describe('application version truth', () => {
             getVersion: () => '42.3.3',
         })).toBe(expectedVersion);
     });
+
+    it('accepts a full 64-character build commit', async () => {
+        const gitSha = 'b'.repeat(64);
+        const {
+            canonicalBundledApplicationVersion,
+            developmentApplicationVersion,
+        } = await importAppVersion(gitSha);
+
+        expect(developmentApplicationVersion).toBe(`${canonicalBundledApplicationVersion}+${gitSha}`);
+    });
+
+    it.each([
+        'a'.repeat(39),
+        'g'.repeat(40),
+    ])('falls back to the bare version for malformed build commit %s', async (gitSha) => {
+        const {
+            canonicalBundledApplicationVersion,
+            developmentApplicationVersion,
+        } = await importAppVersion(gitSha);
+
+        expect(developmentApplicationVersion).toBe(canonicalBundledApplicationVersion);
+    });
+
+    it('trims and lowercases the build commit suffix', async () => {
+        const gitSha = 'AB'.repeat(20);
+        const {
+            canonicalBundledApplicationVersion,
+            developmentApplicationVersion,
+        } = await importAppVersion(`  ${gitSha}\n`);
+
+        expect(developmentApplicationVersion)
+            .toBe(`${canonicalBundledApplicationVersion}+${gitSha.toLowerCase()}`);
+    });
 });
