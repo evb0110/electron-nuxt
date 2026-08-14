@@ -13,6 +13,7 @@ interface IThresholdBaseline {
 }
 
 interface IThresholdBaselineModule {
+    countNamedFloatConstsInSource: (source: string) => number;
     canonicalThresholdBaselineJson: () => Promise<string>;
     countNamedFloatConsts: () => Promise<number>;
     thresholdBaselineGenerator: string;
@@ -36,5 +37,19 @@ describe('scan-cleanup threshold count policy', () => {
         expect(committed, regenerationMessage).toBe(
             await thresholdModule.canonicalThresholdBaselineJson(),
         );
+    });
+
+    it('counts every documented declaration form and nothing else', () => {
+        const count = thresholdModule.countNamedFloatConstsInSource;
+        expect(count('const GAIN: f64 = 1.0;')).toBe(1);
+        expect(count('pub const GAIN: f32 = 1.0;')).toBe(1);
+        expect(count('pub(crate) static FLOOR: f64 = 0.5;')).toBe(1);
+        expect(count('static mut LEVEL: f64 = 0.5;')).toBe(1);
+        expect(count('const DEPTHS: [f64; 5] = [0.0; 5];')).toBe(1);
+        expect(count('const PAIRS: &[(f64, f64)] = &[];')).toBe(1);
+        expect(count('// const HIDDEN: f64 = 1.0;')).toBe(0);
+        expect(count('/* const HIDDEN: f64 = 1.0; */')).toBe(0);
+        expect(count('let x = y as f64;')).toBe(0);
+        expect(count('const LABEL: &str = "f64";')).toBe(0);
     });
 });

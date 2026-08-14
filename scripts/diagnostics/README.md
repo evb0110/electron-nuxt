@@ -131,6 +131,11 @@ equivalent direct Node invocation:
 ```bash
 pnpm run diag:scan-cleanup-preview-harness -- \
   --source /absolute/source.pdf --pages 1,2,99 --out .devkit/analysis/preview-oracle --check
+```
+
+or, equivalently, without the package script:
+
+```bash
 node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
   --source /absolute/source.pdf --pages 1,2,99 --out .devkit/analysis/preview-oracle --check
 ```
@@ -146,6 +151,11 @@ pnpm run diag:scan-cleanup-representative-audit -- \
   --source /absolute/source.pdf \
   --cleaned /absolute/cleaned.pdf \
   --out .devkit/analysis/representative-audit.json
+```
+
+or, equivalently, without the package script:
+
+```bash
 TSX_TSCONFIG_PATH=tsconfig.scripts.json node \
   scripts/diagnostics/scan-cleanup-representative-audit.mjs \
   --source /absolute/source.pdf \
