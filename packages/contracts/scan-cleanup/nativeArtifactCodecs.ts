@@ -435,6 +435,7 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
         'aspectSingleScore',
         'offcutBoundaryScore',
         'offcutEmptyScore',
+        'offcutPopulatedScore',
         'offcutWidthScore',
         'offcutNoTextRowsScore',
         'alternativeProduct',
