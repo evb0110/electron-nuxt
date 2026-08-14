@@ -339,3 +339,20 @@ R12a 2026-08-14 (same family, user screenshot): TOC/Einführung spread —
    outward; visible as asymmetric boxes, blank fold-side bands, and
    retained gutter smudges, inconsistent across pages. Also visible:
    bold "den" mid-paragraph (R11 weight class).
+R13 2026-08-14 (defect report, user, 3 crops): pervasive sub-word
+   font-weight artifacts (bold fragments inside words: "Diyarbakır in",
+   "wahrscheinlich", "Handschrift", "Ihm werden weder"...). User
+   challenges verification methodology. VERIFICATION POST-MORTEM
+   (mine): (a) the word-weight closure measured per-WORD mean stroke
+   ratios vs source — averaging that granularity smooths over exactly
+   these letter/fragment-level artifacts; (b) the criterion was
+   source-relative amplification, not absolute output evenness;
+   (c) the harness weight-uniformity gate WAS red on the specimen and
+   I repeatedly bucketed it "pre-existing, unrelated" — the gate
+   worked, the adjudication (me) failed. NEW HYPOTHESIS to test
+   first: the dense-Otsu faint-stroke rescue (task #22) thickens
+   RESCUED components to full weight while neighbors stay thin —
+   selectively creating bold fragments; differential binarization
+   (rescue on/off) on the user's exact crops decides it. Acceptance
+   for the fix: letter-granularity weight spread gated green AND the
+   user's crops re-rendered visibly even.
