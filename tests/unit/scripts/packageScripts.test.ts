@@ -164,13 +164,17 @@ describe('package scripts', () => {
             'test:e2e:electron:headless',
             'test:e2e:electron:blocking-smoke:headless',
             'test:e2e:electron:quarantine:headless',
+            'generate:scan-cleanup-threshold-baseline',
+            'diag:scan-cleanup-preview-harness',
+            'diag:scan-cleanup-representative-audit',
         ];
 
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
-        // The standing scan-cleanup regression net and rendered acceptance
-        // metrics are intentionally public so CI and operators share them, as
-        // is the facing-PDF continuous-regression diagnostic.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(100);
+        // S4 adds exactly three public scan-cleanup entry points: the two
+        // named diagnostics (CI wiring lands with S4's post-S3 step) and the
+        // machine-written O6 baseline generator. Operators and architecture
+        // tests must share these names.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(103);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);
@@ -257,6 +261,11 @@ describe('package scripts', () => {
         );
         expect(scripts['build:strict']).toContain('validation-gates.mjs heavy');
         expect(scripts['build:strict']).toContain('run-build-strict.mjs');
+        expect(scriptCommands(scripts, 'test:rust')).toEqual([
+            'cargo test --manifest-path native/Cargo.toml --workspace --locked',
+            'pnpm exec tsx scripts/checkSearchNativeParity.ts',
+            'node scripts/architecture/generate-scan-cleanup-threshold-baseline.mjs --check',
+        ]);
         for (const tool of [
             'pdf-image-combine',
             'pdf-page-ops',
