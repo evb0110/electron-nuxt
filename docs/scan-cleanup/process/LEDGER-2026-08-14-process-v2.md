@@ -30,9 +30,10 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
   carrying a report becomes a row here at receipt, with disposition
   (defect | instruction | question | duplicate | out-of-scope),
   BEFORE any dispatch responding to it.
-- B2 ratification: reproduce-and-confirm with the user before fix
-  rounds for S1-severity items; default severity S1; only a user
-  reply downgrades.
+- B2 ratification (amended R7): reproduce and DELIVER the artifact
+  before fix rounds; do not wait for user confirmation — proceed, and
+  treat a later user reply as binding adjudication after the fact.
+  Default severity S1; only a user reply downgrades.
 - G3 closure soak: no step closure within 1h of its last landing.
 - Numbers policy: no transcribed measurement is authoritative; gates
   compute and diff against committed machine-written baselines.
@@ -43,7 +44,10 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
   2-minute user-reviewable artifact set — before/after images or a
   short recording of the exact user-visible behavior the step claims
   to change — delivered in chat and referenced in the PR. Closure
-  claims without an eyeball pack are invalid.
+  claims without an eyeball pack are invalid. NON-BLOCKING (user
+  instruction, R7): delivery of the pack is required, the user's
+  review of it is not — work proceeds immediately after delivery;
+  a later user objection reopens the step as a defect row.
 - PARALLEL TRACKS (R7): steps with disjoint file surfaces may run
   concurrently (separate worktrees/dispatches); MERGES stay
   serialized in ledger order. User-visible feature work (S2) always
