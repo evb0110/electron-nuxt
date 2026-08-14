@@ -2703,7 +2703,9 @@ describe('Scan cleanup components', () => {
             const surface = harness.host.querySelector<HTMLElement>('.preview-surface')!;
             surface.click();
             surface.dispatchEvent(new Event('scroll'));
-            harness.host.querySelectorAll<HTMLButtonElement>('.preview-zoom-button')[1]?.click();
+            const zoomButtons = harness.host.querySelectorAll<HTMLButtonElement>('.preview-zoom-button');
+            expect(zoomButtons.length).toBeGreaterThan(1);
+            zoomButtons[1]!.click();
             const cutter = harness.host.querySelector<HTMLElement>('.cutter-control')!;
             mockPointerCapture(cutter);
             cutter.dispatchEvent(new PointerEvent('pointerdown', {

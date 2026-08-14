@@ -36,9 +36,12 @@ function report(postWindowComparisons: object[]) {
 
 describe('scan cleanup preview presentation evidence', () => {
     it('gates any post-window movement', () => {
-        const moved = {
+        const rasterOnly = {
             ...stableComparison,
             rasterIdentical: false,
+        };
+        const marginOnly = {
+            ...stableComparison,
             inkMarginShift: {
                 ...stableComparison.inkMarginShift,
                 maximum: 0.001,
@@ -46,7 +49,8 @@ describe('scan cleanup preview presentation evidence', () => {
         };
 
         expect(report([stableComparison]).violations).toEqual([]);
-        expect(report([moved]).violations).toContain('presentation-post-window-movement');
+        expect(report([rasterOnly]).violations).toContain('presentation-post-window-movement');
+        expect(report([marginOnly]).violations).toContain('presentation-post-window-movement');
     });
 
     it('reports either missing comparison half instead of silently skipping it', async () => {
