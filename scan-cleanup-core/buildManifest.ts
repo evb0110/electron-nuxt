@@ -9,9 +9,12 @@ import type {
 } from '@scan-cleanup-core/types';
 import {
     SCAN_CLEANUP_CORE_BUILD_ID,
+    SCAN_CLEANUP_GIT_SHA_HEX_PATTERN,
     SCAN_CLEANUP_STAMP_SCHEMA_ID,
+    SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
 } from '@scan-cleanup-core/provenanceStamp';
-import type {IScanCleanupStampBuildIds} from '@scan-cleanup-core/provenanceStamp';
+import type {TScanCleanupStampBuildIds} from '@scan-cleanup-core/provenanceStamp';
+import {embeddedScanCleanupBuildGitSha} from '@scan-cleanup-core/buildGitSha';
 
 export async function buildScanCleanupStampBuildIds({
     paths,
@@ -23,7 +26,8 @@ export async function buildScanCleanupStampBuildIds({
     assemblerBackend: TScanCleanupAssemblerBackend;
     transportMode: TScanCleanupTransportMode;
     hashNativeBinary?: (path: string) => Promise<string>;
-}): Promise<IScanCleanupStampBuildIds> {
+}): Promise<TScanCleanupStampBuildIds> {
+    const gitSha = normalizeGitSha(embeddedScanCleanupBuildGitSha);
     const nativeBinarySha256s: Record<string, string> = {};
     const binaries: Array<[string, string | undefined]> = [
         [
@@ -51,11 +55,19 @@ export async function buildScanCleanupStampBuildIds({
     }
     return {
         coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-        coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+        coreSchemaId: gitSha === null
+            ? SCAN_CLEANUP_STAMP_SCHEMA_ID_V1
+            : SCAN_CLEANUP_STAMP_SCHEMA_ID,
         nativeBinarySha256s,
         assemblerBackend,
         transportMode,
+        ...(gitSha === null ? {} : {gitSha}),
     };
+}
+
+function normalizeGitSha(value: string | null | undefined) {
+    const sha = value?.trim().toLowerCase() ?? '';
+    return SCAN_CLEANUP_GIT_SHA_HEX_PATTERN.test(sha) ? sha : null;
 }
 
 async function hashBinaryOrBackendMarker(
