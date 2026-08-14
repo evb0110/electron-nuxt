@@ -102,7 +102,7 @@ describe('scan cleanup sidecar protocol failures', () => {
             expect(lines.close).toHaveBeenCalledOnce();
             expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
         });
-        child.emit('exit', null, 'SIGTERM');
+        child.emit('close', null, 'SIGTERM');
 
         if (progressError === undefined) {
             await expect(run).rejects.toBeInstanceOf(Error);
