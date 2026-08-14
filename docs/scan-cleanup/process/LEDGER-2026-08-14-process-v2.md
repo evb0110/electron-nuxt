@@ -282,3 +282,16 @@ R8 2026-08-14 (defect report, user, video): page 1 left leaf's content
    (one-settle residual now user-hostile when provisional data is
    wrong — policy refinement candidate: allow the settle when it
    fixes a containment violation). Investigation dispatched.
+R9 2026-08-14 (R8 closure): PR #12 merged (48600c0f4), push
+   attestation green. Root cause was corpus-wide: provisional crops
+   taken in the detector plane while publishing source-space boxes —
+   EVERY measurable provisional leaf under-contained (0.94-0.99);
+   masked because the harness's provisional replay inherited settled
+   evidence. Fix: canvas-clamped single-owner box drives the crop
+   (structural; 6.5-deg cross-cutter integration test). Review
+   deleted the first draft's containment-gated pin exception (sub-
+   micron trigger + topology-only guard = post-window jump vector)
+   and restored the presentation checker from self-comparison to a
+   gate with proven red probes. Optional follow-up recorded:
+   layout-derived expected-half set for the missing-half check.
+   Containment now exactly 1.0 on all measurable leaves, both states.
