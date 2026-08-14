@@ -155,11 +155,11 @@
                 }"
             >
                 <div
-                    v-if="result && result.outputs.length === 0 && effectiveViewMode === 'cleaned'"
+                    v-if="presentationResult && presentationResult.outputs.length === 0 && effectiveViewMode === 'cleaned'"
                     class="preview-message"
                     :class="{'is-stale-content': staleContentVisible}"
                 >
-                    <span>{{ result.pageMetadata.excluded
+                    <span>{{ presentationResult.pageMetadata.excluded
                         ? t('scanCleanup.preview.excluded')
                         : t('scanCleanup.preview.blankSkipped') }}</span>
                 </div>
@@ -183,7 +183,7 @@
                             @load="loadRawPixelSwap"
                         />
                         <CleanedCanvas
-                            v-if="result && !lossless"
+                            v-if="presentationResult && !lossless"
                             class="preview-comparison-layer"
                             :class="{'is-visible': cleanedLayerVisible}"
                             :aria-hidden="!cleanedLayerVisible"
@@ -493,6 +493,7 @@ type TScanCleanupDragGeometry = ICutterDragGeometry | IContentDragGeometry | IPl
 const props = defineProps<{
     result: IScanCleanupPreviewResult | null;
     resultCurrent?: boolean;
+    resultPresentationKey?: string;
     detailResult?: IScanCleanupPreviewResult | null;
     rawResult?: IScanCleanupRawPreviewResult | null;
     loading: boolean;
@@ -557,6 +558,42 @@ const dragOverlayBounds = reactive<IScanCleanupDragRect>({
     width: 0,
     height: 0,
 });
+
+interface IScanCleanupDisplayedFramePresentation {resultCurrent: boolean;}
+
+function captureFramePresentation(): IScanCleanupDisplayedFramePresentation {
+    // A frame built while the document plan is still open remains provisional
+    // even if live detection settles while it is pinned.
+    return {resultCurrent: props.resultCurrent === true && props.layoutDetectionPending !== true};
+}
+
+const {
+    cleanedPixelSwaps,
+    completeCleanedPixelSwap,
+    completeRawPixelSwap,
+    detailPixelUrls,
+    displayedCleanedFrame,
+    displayedCleanedFrameCurrent,
+    loadCleanedPixelSwap,
+    loadRawPixelSwap,
+    pendingCleanedPixelUrls,
+    rawPixelSwap,
+    revealLatestFrame,
+} = useScanCleanupPreviewImages(() => props.result, (hadPreviousResult) => {
+    void nextTick(() => {
+        pruneOutputElementRefs();
+        refreshFrozenViewportFrame();
+        if (!hadPreviousResult) {
+            observeCutterStage();
+        }
+    });
+}, () => props.rawResult ?? null, () => props.detailResult ?? null,
+() => captureFramePresentation(),
+props.resultPresentationKey === undefined ? undefined : () => props.resultPresentationKey ?? '');
+const presentationResult = computed(() => displayedCleanedFrame.value?.result ?? null);
+const displayedPresentation = computed(
+    () => displayedCleanedFrame.value?.presentation ?? captureFramePresentation(),
+);
 const {
     canPanPreview,
     canZoomIn,
@@ -582,7 +619,7 @@ const {
     formatFitLabel: () => t('scanCleanup.preview.zoomFit'),
     formatZoomLabel: zoom => t('scanCleanup.preview.zoomValue', {zoom}),
     overlayBounds: dragOverlayBounds,
-    result: () => props.result ?? props.rawResult ?? null,
+    result: () => presentationResult.value ?? props.rawResult ?? null,
     stageSize: cutterStageSize,
     surface: previewSurface,
     updateGeometry: () => updateOverlayGeometry(),
@@ -605,7 +642,7 @@ const {
     dragOverlayBounds,
     previewPan,
     previewSurface,
-    result: () => props.result,
+    result: () => presentationResult.value,
     stageSize: cutterStageSize,
     transformScale: previewTransformScale,
 });
@@ -613,7 +650,7 @@ const effectiveViewMode = computed(() => props.lossless
     ? 'original'
     : props.viewMode ?? 'cleaned');
 const zoomControlsDisabled = computed(() => props.disabled === true
-    || (props.result ?? props.rawResult ?? null) === null);
+    || (presentationResult.value ?? props.rawResult ?? null) === null);
 const devicePixelScale = ref(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
 let devicePixelMediaQuery: MediaQueryList | null = null;
 
@@ -643,10 +680,13 @@ const detailDensityExceeded = computed(
 );
 const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.lossless !== true
-    && Boolean(props.result?.outputs.length)
+    // Deliberate degradation while pinned: detail tiles describe the live
+    // generation and must not be composited onto a different displayed base.
+    && displayedCleanedFrameCurrent.value
+    && Boolean(presentationResult.value?.outputs.length)
     && detailDensityExceeded.value);
 const detailResultMatchesPage = computed(() => detailLayerEligible.value
-    && props.detailResult?.pageNumber === props.result?.pageNumber);
+    && props.detailResult?.pageNumber === presentationResult.value?.pageNumber);
 const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSProperties>>>(() => {
     if (!detailResultMatchesPage.value) {
         return {};
@@ -695,18 +735,21 @@ const cleanedLayerVisible = computed(() => Boolean(props.result) && !originalLay
  * costs no shift.
  */
 const canvasNoticeKind = computed(() => {
-    if (!props.matchPageSize || !props.result) {
+    if (!props.matchPageSize || !presentationResult.value) {
         return '';
     }
-    // While layout is open, known pages determine an evidence-backed canvas
-    // and no-evidence pages remain intrinsic. Calling either state unavailable
-    // would misdescribe a provisional rectangle that may still grow.
-    if (props.layoutDetectionPending === true) {
+    // This describes the displayed frame, not whichever detection generation
+    // is live now. A frame rendered from an open plan stays provisional while
+    // pinned, and any pinned/live divergence is provisional by definition.
+    if (
+        !displayedCleanedFrameCurrent.value
+        || (props.resultPresentationKey !== undefined && !displayedPresentation.value.resultCurrent)
+    ) {
         return 'provisional';
     }
     // The main process could not measure this document, so it dropped matching
     // for the request and drew the page at its own size.
-    if (props.result.outputs.some(output => output.metadata.canvasPolicy === 'intrinsic')) {
+    if (presentationResult.value.outputs.some(output => output.metadata.canvasPolicy === 'intrinsic')) {
         return 'unavailable';
     }
     return '';
@@ -734,6 +777,7 @@ const viewModes = computed(() => props.lossless ? [{
     },
 ]);
 const dragOutputSnapshot = ref<IRenderedScanCleanupOutput[] | null>(null);
+
 const {
     selectedPictureLayer,
     selectedZone,
@@ -757,7 +801,7 @@ const {
     layoutClassification: () => props.layoutClassification,
     matchPageSize: () => props.matchPageSize,
     requestedPage: () => props.pageNumber,
-    result: () => props.result,
+    result: () => presentationResult.value,
     rotationDegrees: () => props.rotationDegrees ?? 0,
     source: () => props.source ?? null,
 });
@@ -809,17 +853,21 @@ const loadingFrames = computed(() => {
 });
 
 const analysisWidth = computed(() => {
-    const metadata = props.result?.pageMetadata;
-    if (!metadata || !props.result) {
+    const metadata = presentationResult.value?.pageMetadata;
+    if (!metadata || !presentationResult.value) {
         return 1;
     }
-    return scanCleanupAnalysisWidth(metadata, props.result.rawWidthPx, props.result.rawHeightPx);
+    return scanCleanupAnalysisWidth(
+        metadata,
+        presentationResult.value.rawWidthPx,
+        presentationResult.value.rawHeightPx,
+    );
 });
 const analysisHeight = computed(() => {
-    const rotation = props.result?.pageMetadata.rotationDegrees ?? 0;
+    const rotation = presentationResult.value?.pageMetadata.rotationDegrees ?? 0;
     return rotation === 90 || rotation === 270
-        ? props.result?.rawWidthPx ?? 1
-        : props.result?.rawHeightPx ?? 1;
+        ? presentationResult.value?.rawWidthPx ?? 1
+        : presentationResult.value?.rawHeightPx ?? 1;
 });
 const draftGeometry = computed(() => dragTransaction.draftGeometry.value);
 const activeCutterDraft = computed(() => draftGeometry.value?.kind === 'cutter'
@@ -829,7 +877,7 @@ const activePlacementHalf = computed(() => draftGeometry.value?.kind === 'placem
     ? draftGeometry.value.half
     : null);
 const cutterXPx = computed(() => resolveNormalizedManualSplitX(props.manualSplit, analysisWidth.value)
-    ?? props.result?.pageMetadata.cutterXPx
+    ?? presentationResult.value?.pageMetadata.cutterXPx
     ?? analysisWidth.value / 2);
 const displayedCutterX = computed(() => activeCutterDraft.value
     ? resolveNormalizedManualSplitX(activeCutterDraft.value.value, analysisWidth.value) ?? cutterXPx.value
@@ -837,16 +885,16 @@ const displayedCutterX = computed(() => activeCutterDraft.value
 const showCutter = computed(() => props.zoneEditing !== true
     && (
         activeCutterDraft.value !== null
-        || Boolean(props.result) && (
-            props.result?.pageMetadata.layoutClassification === 'two-page-spread'
+        || Boolean(presentationResult.value) && (
+            presentationResult.value?.pageMetadata.layoutClassification === 'two-page-spread'
             || props.manualSplit !== null
         )
     ));
 const originalFitPlacement = computed(() => resolvePreviewFitPlacement(
     cutterStageSize.width,
     cutterStageSize.height,
-    props.result?.rawWidthPx ?? 1,
-    props.result?.rawHeightPx ?? 1,
+    presentationResult.value?.rawWidthPx ?? 1,
+    presentationResult.value?.rawHeightPx ?? 1,
 ));
 const cutterSourceFitPlacement = computed(() => resolvePreviewFitPlacement(
     cutterStageSize.width,
@@ -870,7 +918,7 @@ const cutterSourceFrameStyle = computed<CSSProperties>(() => ({
     height: `${cutterSourceFitPlacement.value.height}px`,
 }));
 const cutterSourceImageStyle = computed<CSSProperties>(() => {
-    const rotation = props.result?.pageMetadata.rotationDegrees ?? 0;
+    const rotation = presentationResult.value?.pageMetadata.rotationDegrees ?? 0;
     const swapsAxes = rotation === 90 || rotation === 270;
     return {
         width: `${swapsAxes ? cutterSourceFitPlacement.value.height : cutterSourceFitPlacement.value.width}px`,
@@ -879,10 +927,11 @@ const cutterSourceImageStyle = computed<CSSProperties>(() => {
     };
 });
 const losslessCropOverlayStyles = computed(() => {
-    if (!props.lossless || !props.result || originalFitPlacement.value.width <= 0) {
+    const result = presentationResult.value;
+    if (!props.lossless || !result || originalFitPlacement.value.width <= 0) {
         return [];
     }
-    return props.result.outputs.map(output => {
+    return result.outputs.map(output => {
         const metadata = output.metadata;
         const content = resolveNormalizedContentBox(metadata, props.manualContentBoxes?.[metadata.half])
             ?? metadata.contentBox;
@@ -899,10 +948,10 @@ const losslessCropOverlayStyles = computed(() => {
             heightPx: local.heightPx,
         }, metadata);
         return {
-            insetInlineStart: `${originalFitPlacement.value.left + rawRect.xPx / props.result!.rawWidthPx * originalFitPlacement.value.width}px`,
-            insetBlockStart: `${originalFitPlacement.value.top + rawRect.yPx / props.result!.rawHeightPx * originalFitPlacement.value.height}px`,
-            width: `${rawRect.widthPx / props.result!.rawWidthPx * originalFitPlacement.value.width}px`,
-            height: `${rawRect.heightPx / props.result!.rawHeightPx * originalFitPlacement.value.height}px`,
+            insetInlineStart: `${originalFitPlacement.value.left + rawRect.xPx / result.rawWidthPx * originalFitPlacement.value.width}px`,
+            insetBlockStart: `${originalFitPlacement.value.top + rawRect.yPx / result.rawHeightPx * originalFitPlacement.value.height}px`,
+            width: `${rawRect.widthPx / result.rawWidthPx * originalFitPlacement.value.width}px`,
+            height: `${rawRect.heightPx / result.rawHeightPx * originalFitPlacement.value.height}px`,
         };
     });
 });
@@ -924,7 +973,7 @@ const cutterStyle = computed(() => {
             height: `${originalFitPlacement.value.height}px`,
         };
     }
-    const outputs = props.result?.outputs ?? [];
+    const outputs = presentationResult.value?.outputs ?? [];
     const canvases = outputs.map(output => frozenViewportFrame.value.outputs[output.metadata.half] ?? {
         width: analysisWidth.value / Math.max(1, outputs.length),
         height: analysisHeight.value,
@@ -988,11 +1037,13 @@ function contentHandleLabel(handle: TScanCleanupContentHandle, half: TScanCleanu
     });
 }
 
-const outputHalves = computed(() => props.result?.outputs.map(output => output.metadata.half) ?? []);
+const outputHalves = computed(
+    () => presentationResult.value?.outputs.map(output => output.metadata.half) ?? [],
+);
 const cleanedAltByHalf = computed(() => Object.fromEntries(outputHalves.value.map(half => [
     half,
     t('scanCleanup.preview.cleanedAlt', {
-        page: props.result?.pageNumber ?? props.pageNumber,
+        page: presentationResult.value?.pageNumber ?? props.pageNumber,
         half: outputHalfLabel(half),
     }),
 ])));
@@ -1021,7 +1072,7 @@ function startCutterDrag(event: PointerEvent) {
     if (!stageRect || sourceFrame.width <= 0) {
         return;
     }
-    const rotation = props.result?.pageMetadata.rotationDegrees ?? 0;
+    const rotation = presentationResult.value?.pageMetadata.rotationDegrees ?? 0;
     const transformScale = Math.max(0.001, previewTransformScale.value);
     const canonicalGeometry: ICutterDragGeometry = {
         kind: 'cutter',
@@ -1064,7 +1115,7 @@ function nudgeCutter(direction: -1 | 1, coarse: boolean) {
     emit('update:manualSplit', normalizeManualSplitX(Math.min(
         analysisWidth.value * 0.98,
         Math.max(analysisWidth.value * 0.02, cutterXPx.value + direction * step),
-    ), analysisWidth.value, props.result?.pageMetadata.rotationDegrees ?? 0));
+    ), analysisWidth.value, presentationResult.value?.pageMetadata.rotationDegrees ?? 0));
 }
 
 function sourcePointFromClient(
@@ -1330,25 +1381,7 @@ function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput
     emit('update:placement', output.metadata.half, next as TScanCleanupPageAlignment);
 }
 
-const {
-    cleanedPixelSwaps,
-    completeCleanedPixelSwap,
-    completeRawPixelSwap,
-    detailPixelUrls,
-    displayedCleanedResult,
-    loadCleanedPixelSwap,
-    loadRawPixelSwap,
-    pendingCleanedPixelUrls,
-    rawPixelSwap,
-} = useScanCleanupPreviewImages(() => props.result, (hadPreviousResult) => {
-    void nextTick(() => {
-        pruneOutputElementRefs();
-        refreshFrozenViewportFrame();
-        if (!hadPreviousResult) {
-            observeCutterStage();
-        }
-    });
-}, () => props.rawResult ?? null, () => props.detailResult ?? null);
+defineExpose({revealLatestFrame});
 const pendingCleanedPixels = computed(() => (
     Object.entries(pendingCleanedPixelUrls) as Array<[TScanCleanupOutputHalf, string]>
 ).map(([
@@ -1370,8 +1403,8 @@ function scheduleDetailRequest() {
     if (
         effectiveViewMode.value !== 'cleaned'
         || props.lossless === true
-        || !props.result
-        || props.result.outputs.length === 0
+        || !presentationResult.value
+        || presentationResult.value.outputs.length === 0
         || props.loading
         || isStalePage.value
         || !detailDensityExceeded.value
@@ -1423,7 +1456,7 @@ function scheduleDetailRequest() {
                 yNormalized,
                 widthNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(right)) - xNormalized),
                 heightNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(bottom)) - yNormalized),
-                rotationDegrees: props.result?.pageMetadata.rotationDegrees ?? 0,
+                rotationDegrees: presentationResult.value?.pageMetadata.rotationDegrees ?? 0,
             };
         }
         if (Object.keys(viewports).length > 0) emit('requestDetail', viewports);
@@ -1440,7 +1473,7 @@ watch([
     panGesture,
     () => dragTransaction.active.value,
     () => props.loading,
-    () => props.result?.pageNumber,
+    () => presentationResult.value?.pageNumber,
 ], scheduleDetailRequest);
 onMounted(() => {
     window.addEventListener('resize', handleDevicePixelScaleChange);
@@ -1468,7 +1501,7 @@ watch(previewTransformScale, () => {
         updateOutputFitAreaSizes();
     });
 });
-watch(() => props.result?.pageNumber, () => {
+watch(() => presentationResult.value?.pageNumber, () => {
     void nextTick(() => {
         updateOverlayGeometry();
         clampPreviewPan();
@@ -1478,15 +1511,15 @@ const renderedOutputs = computed(() => {
     if (dragTransaction.active.value && dragOutputSnapshot.value) {
         return dragOutputSnapshot.value;
     }
-    if (!displayedCleanedResult.value) {
+    if (!presentationResult.value) {
         return [];
     }
-    const outputs = displayedCleanedResult.value.outputs.map((output): IRenderedScanCleanupOutput => {
+    const outputs = presentationResult.value.outputs.map((output): IRenderedScanCleanupOutput => {
         const metadata = output.metadata;
         const placement = resolvePreviewMetadataPlacement(
             metadata,
             props.placementOverrides?.[metadata.half] ?? props.alignment,
-            props.resultCurrent === true,
+            displayedPresentation.value.resultCurrent,
         );
         const imageStyle = toPreviewStyleRect({
             xPx: 0,
@@ -1500,7 +1533,10 @@ const renderedOutputs = computed(() => {
             right: `${metadata.appliedMargins.rightPx / Math.max(1, metadata.canvasWidthPx) * 100}%`,
             bottom: `${metadata.appliedMargins.bottomPx / Math.max(1, metadata.canvasHeightPx) * 100}%`,
         };
-        const manualContentRect = resolveNormalizedContentBox(metadata, props.manualContentBoxes?.[metadata.half]);
+        const manualContentRect = resolveNormalizedContentBox(
+            metadata,
+            props.manualContentBoxes?.[metadata.half],
+        );
         const contentRect = manualContentRect ?? metadata.contentBox;
         const content = manualContentRect
             ? transformPreviewSourceHalfRect(metadata, contentRect)
@@ -1516,7 +1552,9 @@ const renderedOutputs = computed(() => {
             canvasStyle: {},
         };
     });
-    const ordered = props.readingOrder === 'rtl' && outputs.length > 1 ? outputs.reverse() : outputs;
+    const ordered = props.readingOrder === 'rtl' && outputs.length > 1
+        ? outputs.reverse()
+        : outputs;
     const sizes = resolvePreviewOutputFitSizes(
         ordered.map(output => outputFitAreaSizes[output.metadata.half] ?? {
             width: 0,

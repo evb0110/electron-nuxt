@@ -128,8 +128,10 @@
 
             <div class="scan-cleanup-preview-hero">
                 <ScanCleanupPreviewPane
+                    ref="previewPane"
                     :result="previewResult"
                     :result-current="previewResultCurrent"
+                    :result-presentation-key="previewResultPresentationKey"
                     :detail-result="previewDetailResult"
                     :raw-result="previewRawResult"
                     :loading="previewLoading"
@@ -248,11 +250,13 @@ onMounted(() => emit('ready'));
 // not: toolbar ownership is the shell's existing signal that this workspace is
 // the visible tab.
 const workspaceActive = computed(() => sourcePath !== null && toolbarActive);
+const previewPane = ref<{revealLatestFrame: () => Promise<void>} | null>(null);
 const workspaceSession = useScanCleanupWorkspaceSession({
     // Losing the source ends the session: detection and preview cancel instead
     // of queueing IPC against a working copy the main process has already
     // retired. Switching tabs pauses that work without changing identity.
     active: () => workspaceActive.value,
+    beforeRun: () => previewPane.value?.revealLatestFrame(),
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
     documentRevision: () => documentRevision,
@@ -345,6 +349,7 @@ const {
     result: previewResult,
     rawResult: previewRawResult,
     resultCurrent: previewResultCurrent = computed(() => true),
+    resultPresentationKey: previewResultPresentationKey = computed(() => ''),
     retry: retryPreview,
     requestDetail: requestPreviewDetail,
     totalPages: previewTotalPages,

@@ -175,6 +175,8 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             navigate: session.navigatePreview,
             rawResult: session.previewRawResult ?? ref(null),
             result: session.previewResult,
+            resultCurrent: session.previewResultCurrent ?? computed(() => true),
+            resultPresentationKey: session.previewResultPresentationKey ?? computed(() => ''),
             retry: session.retryPreview,
             totalPages: session.previewTotalPages,
             viewMode: session.previewViewMode,
@@ -2184,10 +2186,12 @@ describe('Scan cleanup components', () => {
     it('says why a matched page is not on the document size, on the line already reserved', async () => {
         const canvasPolicy = ref<'intrinsic' | 'strict-maximum'>('strict-maximum');
         const detecting = ref(true);
+        const transitionKey = ref('session-1:page-1:user-0');
+        const result = shallowRef(spreadPreviewResult());
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: {
-                ...spreadPreviewResult(),
-                outputs: spreadPreviewResult().outputs.map(output => ({
+                ...result.value,
+                outputs: result.value.outputs.map(output => ({
                     ...output,
                     metadata: {
                         ...output.metadata,
@@ -2195,6 +2199,8 @@ describe('Scan cleanup components', () => {
                     },
                 })),
             },
+            resultCurrent: true,
+            resultPresentationKey: transitionKey.value,
             loading: false,
             error: '',
             viewMode: 'cleaned',
@@ -2214,18 +2220,27 @@ describe('Scan cleanup components', () => {
         expect(caption()?.dataset.canvasNotice).toBe('provisional');
         expect(caption()?.textContent).toContain('scanCleanup.preview.matchedCanvasProvisional');
 
-        // The document could not be measured at all: matching is off and the
-        // page carries its own size.
-        canvasPolicy.value = 'intrinsic';
+        // Live detection settling cannot falsify the still-displayed
+        // provisional frame.
         detecting.value = false;
         await nextTick();
+        expect(caption()?.dataset.canvasNotice).toBe('provisional');
+
+        // A semantic replacement snapshots the final plan and can then report
+        // that matching was unavailable.
+        canvasPolicy.value = 'intrinsic';
+        transitionKey.value = 'session-1:page-1:user-1';
+        await nextTick();
+        await loadPendingCleanedFrame(harness.host);
         expect(caption()?.dataset.canvasNotice).toBe('unavailable');
         expect(caption()?.textContent).toContain('scanCleanup.preview.matchedCanvasUnavailable');
 
         // Detection settled and the canvas held: nothing to explain, and the
         // caption line stays where it was.
         canvasPolicy.value = 'strict-maximum';
+        transitionKey.value = 'session-1:page-1:user-2';
         await nextTick();
+        await loadPendingCleanedFrame(harness.host);
         expect(caption()?.dataset.canvasNotice).toBe('');
         expect(caption()?.textContent?.trim()).toBe('');
         expect(caption()).not.toBeNull();
@@ -2511,6 +2526,278 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
     });
 
+    it('keeps native placement pinned to the displayed generation while its blob URL is unchanged', async () => {
+        const result = spreadPreviewResult(1);
+        for (const output of result.outputs) {
+            Object.assign(output.metadata, {
+                canvasHeightPx: 1_000,
+                outputHeightPx: 500,
+                placementOffsetYPx: 20,
+            });
+        }
+        const resultCurrent = ref(true);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result,
+            resultCurrent: resultCurrent.value,
+            resultPresentationKey: 'session-1:page-1:user-0',
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'bottom-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        const image = () => harness.host.querySelector<HTMLElement>('.placed-image')!;
+        const initialUrl = image().querySelector<HTMLImageElement>('.cleaned-image')!.src;
+        const initialTop = image().style.top;
+
+        resultCurrent.value = false;
+        await nextTick();
+
+        expect(image().querySelector<HTMLImageElement>('.cleaned-image')!.src).toBe(initialUrl);
+        expect(image().style.top).toBe(initialTop);
+        expect(Number.parseFloat(initialTop)).toBeCloseTo(2);
+    });
+
+    it('applies live placement, content, order, and canvas props to the displayed raster', async () => {
+        const result = shallowRef(spreadPreviewResult(1));
+        for (const output of result.value.outputs) {
+            Object.assign(output.metadata, {
+                canvasHeightPx: 1_000,
+                canvasWidthPx: 1_000,
+                outputHeightPx: 500,
+                outputWidthPx: 500,
+            });
+        }
+        const alignment = ref<TScanCleanupPageAlignment>('top-left');
+        const matchPageSize = ref(true);
+        const readingOrder = ref<'ltr' | 'rtl'>('ltr');
+        const manualContentBoxes = ref<Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>>({left: {
+            xNormalized: 0.1,
+            yNormalized: 0.1,
+            widthNormalized: 0.7,
+            heightNormalized: 0.7,
+            rotationDegrees: 0,
+        }});
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            resultCurrent: true,
+            resultPresentationKey: 'session-1:page-1:user-0',
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: matchPageSize.value,
+            alignment: alignment.value,
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            manualContentBoxes: manualContentBoxes.value,
+            readingOrder: readingOrder.value,
+        })}));
+        const outputOrder = () => [...harness.host.querySelectorAll('.output-fit-area')]
+            .map(element => element.getAttribute('data-output-half'));
+        const initialImageStyle = harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style');
+        const initialContentStyle = harness.host.querySelector<HTMLElement>('.content-overlay')!.getAttribute('style');
+
+        alignment.value = 'bottom-right';
+        readingOrder.value = 'rtl';
+        manualContentBoxes.value = {left: {
+            xNormalized: 0.2,
+            yNormalized: 0.2,
+            widthNormalized: 0.5,
+            heightNormalized: 0.5,
+            rotationDegrees: 0,
+        }};
+        await nextTick();
+
+        expect(outputOrder()).toEqual([
+            'right',
+            'left',
+        ]);
+        expect(harness.host.querySelector('.uniform-canvas')?.classList).toContain('has-uniform-canvas');
+        expect(harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style'))
+            .not.toBe(initialImageStyle);
+        expect(harness.host.querySelector<HTMLElement>('.content-overlay')!.getAttribute('style'))
+            .not.toBe(initialContentStyle);
+
+        matchPageSize.value = false;
+        await nextTick();
+        expect(harness.host.querySelector('.uniform-canvas')?.classList).not.toContain('has-uniform-canvas');
+    });
+
+    it('coalesces the latest settle candidate at expiry and ignores presentation-only interactions', async () => {
+        vi.useFakeTimers();
+        let now = 0;
+        const performanceNow = vi.spyOn(performance, 'now').mockImplementation(() => now);
+        try {
+            const result = shallowRef(spreadPreviewResult(1));
+            const transitionKey = ref('session-1:page-1:user-0');
+            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+                result: result.value,
+                resultCurrent: true,
+                resultPresentationKey: transitionKey.value,
+                loading: false,
+                error: '',
+                viewMode: 'cleaned',
+                matchPageSize: true,
+                alignment: 'top-center',
+                pageNumber: 1,
+                totalPages: 3,
+                manualSplit: null,
+                readingOrder: 'ltr',
+            })}));
+            const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
+            const displayedUrl = () => harness.host.querySelector<HTMLImageElement>('.cleaned-image')!.src;
+            const initialUrl = displayedUrl();
+
+            const earlySettle = structuredClone(result.value);
+            for (const output of earlySettle.outputs) {
+                output.imageData = new Uint8Array([2]);
+                output.metadata.canvasWidthPx = 600;
+            }
+            now = 1_000;
+            await vi.advanceTimersByTimeAsync(1_000);
+            result.value = earlySettle;
+            await nextTick();
+            await loadPendingCleanedFrame(harness.host);
+            expect(frameWidth()).toBe('500');
+            expect(displayedUrl()).toBe(initialUrl);
+
+            const secondAutomatic = structuredClone(earlySettle);
+            for (const output of secondAutomatic.outputs) {
+                output.imageData = new Uint8Array([3]);
+                output.metadata.canvasWidthPx = 700;
+            }
+            now = 1_500;
+            await vi.advanceTimersByTimeAsync(500);
+            result.value = secondAutomatic;
+            await nextTick();
+            await loadPendingCleanedFrame(harness.host);
+            expect(frameWidth()).toBe('500');
+            expect(displayedUrl()).toBe(initialUrl);
+
+            now = 2_000;
+            await vi.advanceTimersByTimeAsync(500);
+            await nextTick();
+            expect(frameWidth()).toBe('700');
+            const settledUrl = displayedUrl();
+            expect(settledUrl).not.toBe(initialUrl);
+
+            const postWindowAutomatic = structuredClone(secondAutomatic);
+            for (const output of postWindowAutomatic.outputs) {
+                output.imageData = new Uint8Array([4]);
+                output.metadata.canvasWidthPx = 800;
+            }
+            now = 2_500;
+            await vi.advanceTimersByTimeAsync(500);
+            result.value = postWindowAutomatic;
+            await nextTick();
+            await loadPendingCleanedFrame(harness.host);
+            expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
+            expect(frameWidth()).toBe('700');
+            expect(displayedUrl()).toBe(settledUrl);
+
+            const surface = harness.host.querySelector<HTMLElement>('.preview-surface')!;
+            surface.click();
+            surface.dispatchEvent(new Event('scroll'));
+            harness.host.querySelectorAll<HTMLButtonElement>('.preview-zoom-button')[1]?.click();
+            const cutter = harness.host.querySelector<HTMLElement>('.cutter-control')!;
+            mockPointerCapture(cutter);
+            cutter.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 0,
+                clientY: 0,
+                pointerId: 17,
+            }));
+            await nextTick();
+            await loadPendingCleanedFrame(harness.host);
+            expect(frameWidth()).toBe('700');
+            expect(displayedUrl()).toBe(settledUrl);
+
+            const laterAutomatic = structuredClone(postWindowAutomatic);
+            for (const output of laterAutomatic.outputs) {
+                output.imageData = new Uint8Array([5]);
+                output.metadata.canvasWidthPx = 900;
+            }
+            now = 5_000;
+            result.value = laterAutomatic;
+            await nextTick();
+            await loadPendingCleanedFrame(harness.host);
+            expect(frameWidth()).toBe('700');
+            expect(displayedUrl()).toBe(settledUrl);
+
+            transitionKey.value = 'session-1:page-1:user-1';
+            await nextTick();
+            await loadPendingCleanedFrame(harness.host);
+            expect(frameWidth()).toBe('900');
+            expect(displayedUrl()).not.toBe(settledUrl);
+        } finally {
+            performanceNow.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('reveals the latest pinned frame atomically through the run gate', async () => {
+        vi.useFakeTimers();
+        let now = 0;
+        const performanceNow = vi.spyOn(performance, 'now').mockImplementation(() => now);
+        try {
+            const result = shallowRef(spreadPreviewResult(1));
+            const previewPane = ref<{revealLatestFrame: () => Promise<void>} | null>(null);
+            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+                ref: previewPane,
+                result: result.value,
+                resultCurrent: true,
+                resultPresentationKey: 'session-1:page-1:user-0',
+                loading: false,
+                error: '',
+                viewMode: 'cleaned',
+                matchPageSize: true,
+                alignment: 'top-center',
+                pageNumber: 1,
+                totalPages: 3,
+                manualSplit: null,
+                readingOrder: 'ltr',
+            })}));
+            const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
+            const displayedUrl = () => harness.host.querySelector<HTMLImageElement>('.cleaned-image')!.src;
+            const initialUrl = displayedUrl();
+
+            now = 2_000;
+            await vi.advanceTimersByTimeAsync(2_000);
+            const latest = structuredClone(result.value);
+            for (const output of latest.outputs) {
+                output.imageData = new Uint8Array([8]);
+                output.metadata.canvasWidthPx = 800;
+            }
+            result.value = latest;
+            await nextTick();
+
+            expect(frameWidth()).toBe('500');
+            expect(displayedUrl()).toBe(initialUrl);
+            expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
+            expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
+                .toBe('provisional');
+
+            const revealed = previewPane.value!.revealLatestFrame();
+            await nextTick();
+            expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).not.toBeNull();
+            await loadPendingCleanedFrame(harness.host);
+            await revealed;
+
+            expect(frameWidth()).toBe('800');
+            expect(displayedUrl()).not.toBe(initialUrl);
+            expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
+                .toBe('');
+        } finally {
+            performanceNow.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
     it('never presents the requested raw sheet as a cleaned output while its result is pending', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: spreadPreviewResult(1),
@@ -2609,6 +2896,7 @@ describe('Scan cleanup components', () => {
         result.value = spreadPreviewResult(2);
         loading.value = false;
         await nextTick();
+        await loadPendingCleanedFrame(harness.host);
 
         expect(harness.host.querySelector('.cutter-stage')).not.toBe(loadingStage);
         const previousRaw = harness.host.querySelector('.raw-preview');
@@ -2621,8 +2909,9 @@ describe('Scan cleanup components', () => {
     it('leaves Original mode and cleaned-preview failures untouched while a page loads', async () => {
         const viewMode = ref<'original' | 'cleaned'>('original');
         const error = ref('');
+        const result = spreadPreviewResult(1);
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(1),
+            result,
             rawResult: rawPreviewResult(2),
             loading: true,
             error: error.value,

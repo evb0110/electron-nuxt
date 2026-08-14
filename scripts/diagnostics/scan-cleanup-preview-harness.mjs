@@ -38,6 +38,10 @@ import {
     loadImage,
 } from '@napi-rs/canvas';
 import {tsImport} from 'tsx/esm/api';
+import {
+    composePreviewTransition,
+    measurePreviewPresentationStability,
+} from './scan-cleanup-preview-presentation.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const tsconfig = join(projectRoot, 'tsconfig.scripts.json');
@@ -70,6 +74,11 @@ const [
         toPreviewStyleRect,
     },
     {transformPreviewContentBox},
+    {
+        consumeScanCleanupPreviewPresentationSettle,
+        resolveScanCleanupPreviewPresentationCommit,
+        SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS,
+    },
 ] = await Promise.all([
     importTs('../../scan-cleanup-core/detection.ts'),
     importTs('../../scan-cleanup-core/policy/documentCanvas.ts'),
@@ -81,6 +90,7 @@ const [
     importTs('../scanCleanupDetectionCache.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/placement.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/coordinates.ts'),
+    importTs('../../app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentationPin.ts'),
 ]);
 
 const WEIGHT_DEVIATION_LIMIT = 0.15;
@@ -328,6 +338,10 @@ function normalizedMargins(bitmap) {
         right: (bitmap.width - bounds.right) / bitmap.width,
         bottom: (bitmap.height - bounds.bottom) / bitmap.height,
     };
+}
+
+async function measureMargins(path) {
+    return normalizedMargins(await readGray(path));
 }
 
 function lineBands(bitmap, bounds) {
@@ -1037,6 +1051,18 @@ async function main() {
         const finalComposite = join(pageDirectory, 'final-composite.png');
         await composeSpread(previewLeaves, previewComposite);
         await composeSpread(finalLeaves, finalComposite);
+        const eyeballComposite = join(pageDirectory, 'provisional-vs-settled-composite.png');
+        await composePreviewTransition(provisionalComposite, previewComposite, eyeballComposite);
+        const presentationStability = await measurePreviewPresentationStability({
+            compareMargins,
+            consumeSettle: consumeScanCleanupPreviewPresentationSettle,
+            graceWindowMs: SCAN_CLEANUP_PREVIEW_SETTLE_GRACE_MS,
+            measureMargins,
+            previewLeaves,
+            provisionalLeaves,
+            resolveCommit: resolveScanCleanupPreviewPresentationCommit,
+            transitionKey: `preview-session:page-${String(pageNumber)}:user-0`,
+        });
         const leafResults = [];
         for (let index = 0; index < previewLeaves.length; index += 1) {
             const previewBitmap = await readGray(previewLeaves[index].metricsPath);
@@ -1088,6 +1114,8 @@ async function main() {
                     ...contextLeafComparisons.map(comparison => comparison.inkMarginShift?.maximum ?? 1),
                 ),
             },
+            presentationStability,
+            eyeballComposite,
             manifest: manifestPath,
             previewPageMetadata: pageMetadataPath,
             placementSignatures: previewLeaves.map(leaf => ({
@@ -1112,6 +1140,11 @@ async function main() {
             mode: 'provisional',
             pageNumber: page.pageNumber,
         }))),
+        ...page.presentationStability.violations.map(code => ({
+            code,
+            mode: 'presentation-stability',
+            pageNumber: page.pageNumber,
+        })),
     ]);
     report.violations = violations;
     report.status = violations.length === 0 ? 'pass' : 'fail';

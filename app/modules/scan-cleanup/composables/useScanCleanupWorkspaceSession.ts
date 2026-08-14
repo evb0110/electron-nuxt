@@ -11,6 +11,7 @@ import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/p
 
 interface IUseScanCleanupWorkspaceSessionOptions {
     active: () => boolean;
+    beforeRun?: () => Promise<void> | void;
     sourcePath: () => TDocumentRef | null;
     documentKey: () => string | null;
     sourceSha256?: () => string | null;
@@ -129,7 +130,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     const run = useScanCleanupRunSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
-        beforeRun: () => previewResult?.pauseForRun(),
+        beforeRun: async () => {
+            await previewResult?.pauseForRun();
+            await options.beforeRun?.();
+        },
         detectionError: detection.error,
         detectionErrorCode: detection.errorCode,
         detectionPending: detection.pending,
