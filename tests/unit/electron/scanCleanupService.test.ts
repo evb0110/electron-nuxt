@@ -582,6 +582,61 @@ describe('scan cleanup service', () => {
         await vi.waitFor(() => expect(signal.aborted).toBe(true));
     });
 
+    it('keeps one progress listener per sender and job across repeated reconnects', async () => {
+        const entered = Promise.withResolvers<AbortSignal>();
+        mocks.runWorker.mockImplementationOnce(async (_request, _paths, _policy, signal) => {
+            entered.resolve(signal as AbortSignal);
+            return new Promise((_, reject) => {
+                (signal as AbortSignal).addEventListener(
+                    'abort',
+                    () => reject((signal as AbortSignal).reason),
+                    {once: true},
+                );
+            });
+        });
+        const service = createScanCleanupService();
+        const lifecycleSender = new LifecycleWebContents(42);
+        const webContents: WebContents = lifecycleSender as never;
+        const started = await service.start(webContents, startRequest);
+        if (!started.started) throw new Error('Expected scan cleanup to start');
+        await entered.promise;
+        const publishProgress = mocks.runWorker.mock.calls[0]![4] as (progress: {
+            stage: 'rendering';
+            completedUnits: number;
+            totalUnits: number;
+            percent: number;
+        }) => void;
+
+        for (let reconnect = 0; reconnect < 4; reconnect += 1) {
+            expect(service.subscribe(webContents, started.jobId, owner)).not.toBeNull();
+        }
+        lifecycleSender.send.mockClear();
+        publishProgress({
+            stage: 'rendering',
+            completedUnits: 1,
+            totalUnits: 2,
+            percent: 50,
+        });
+
+        expect(lifecycleSender.send).toHaveBeenCalledOnce();
+        expect(service.cancel(webContents, started.jobId, owner)).toBe(true);
+    });
+
+    it('removes the just-registered listener when its state is unavailable', () => {
+        const listeners = new Set<() => void>();
+        const jobs = {
+            subscribe: (_jobId: string, _actor: unknown, listener: () => void) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+            get: () => null,
+        };
+        const service = createScanCleanupService(jobs as never);
+
+        expect(service.subscribe(sender(), 'missing-job', owner)).toBeNull();
+        expect(listeners).toHaveLength(0);
+    });
+
     it('deletes a published output when cancellation wins before worker completion is handled', async () => {
         const outputDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-cancel-race-'));
         outputDirs.push(outputDir);

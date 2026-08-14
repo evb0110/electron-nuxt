@@ -101,6 +101,8 @@ interface IScanCleanupOutputAccessRegistration {
     sender: WebContents;
 }
 
+interface IScanCleanupProgressSubscription {unsubscribe: (() => void) | null;}
+
 const outputAccessRegistrations = new Map<number, IScanCleanupOutputAccessRegistration>();
 
 function normalizedOutputAccessPath(outputPath: string) {
@@ -364,8 +366,9 @@ function resolveScanCleanupRuntimePolicy(
     };
 }
 
-export function createScanCleanupService(): IScanCleanupService {
-    const jobs = createScanCleanupJobRegistry();
+export function createScanCleanupService(
+    jobs: TScanCleanupJobRegistry = createScanCleanupJobRegistry(),
+): IScanCleanupService {
     const activeJobsByBrokerOwner = new Map<string, {
         jobId: string;
         outputPdfPath: string;
@@ -373,6 +376,29 @@ export function createScanCleanupService(): IScanCleanupService {
         signature: string;
     }>();
     const startReservationsByBrokerOwner = new Map<string, Promise<void>>();
+    const progressSubscriptions = new Map<number, Map<string, IScanCleanupProgressSubscription>>();
+    function forgetProgressSubscription(
+        senderId: number,
+        jobId: string,
+        expected: IScanCleanupProgressSubscription,
+    ) {
+        const subscriptions = progressSubscriptions.get(senderId);
+        if (subscriptions?.get(jobId) !== expected) {
+            return;
+        }
+        subscriptions.delete(jobId);
+        if (subscriptions.size === 0) {
+            progressSubscriptions.delete(senderId);
+        }
+    }
+    function releaseProgressSubscription(
+        senderId: number,
+        jobId: string,
+        subscription: IScanCleanupProgressSubscription,
+    ) {
+        forgetProgressSubscription(senderId, jobId, subscription);
+        subscription.unsubscribe?.();
+    }
     return {
         async start(sender, request) {
             const jobId = `scan-cleanup-${randomUUID()}`;
@@ -621,11 +647,24 @@ export function createScanCleanupService(): IScanCleanupService {
         },
         subscribe(sender, jobId, owner) {
             const actor = ownerActor(sender, owner);
+            const subscriptions = progressSubscriptions.get(sender.id)
+                ?? new Map<string, IScanCleanupProgressSubscription>();
+            const previous = subscriptions.get(jobId);
+            if (previous) {
+                releaseProgressSubscription(sender.id, jobId, previous);
+            }
+            progressSubscriptions.set(sender.id, subscriptions);
+            const subscription: IScanCleanupProgressSubscription = {unsubscribe: null};
+            subscriptions.set(jobId, subscription);
             const unsubscribe = jobs.subscribe(jobId, actor, state => {
                 sendScanCleanupState(sender, state.progress);
+            }, () => {
+                forgetProgressSubscription(sender.id, jobId, subscription);
             });
+            subscription.unsubscribe = unsubscribe;
             const state = publicState(jobs.get(jobId, actor));
             if (!unsubscribe || !state) {
+                releaseProgressSubscription(sender.id, jobId, subscription);
                 return null;
             }
             return state;
