@@ -32,6 +32,8 @@ describe('zero-execution coverage tripwire', () => {
         expect(isZeroExecutionTripwireTarget(
             'app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts',
         )).toBe(true);
+        expect(isZeroExecutionTripwireTarget('scan-cleanup-core/runScanCleanupConversion.ts')).toBe(true);
+        expect(isZeroExecutionTripwireTarget('scan-cleanup-adapters/createScanCleanupRenderers.ts')).toBe(true);
         expect(isZeroExecutionTripwireTarget('electron/search/nativeSearch.ts')).toBe(false);
         expect(isZeroExecutionTripwireTarget('packages/contracts/types.d.ts')).toBe(false);
     });

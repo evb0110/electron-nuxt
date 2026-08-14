@@ -1,27 +1,27 @@
 {
   "areas": {
     "app-core": {
-      "fileCount": 1160,
+      "fileCount": 1156,
       "include": [
         "app/"
       ],
       "metrics": {
-        "statements": 69.95,
-        "branches": 62.17,
-        "functions": 70.43,
-        "lines": 70.25
+        "statements": 70.58,
+        "branches": 62.86,
+        "functions": 71.12,
+        "lines": 70.89
       }
     },
     "electron-core": {
-      "fileCount": 403,
+      "fileCount": 387,
       "include": [
         "electron/"
       ],
       "metrics": {
-        "statements": 74.26,
-        "branches": 64.88,
-        "functions": 75.83,
-        "lines": 74.68
+        "statements": 75.04,
+        "branches": 66.11,
+        "functions": 76.7,
+        "lines": 75.5
       }
     },
     "electron-djvu-feature": {
@@ -30,34 +30,34 @@
         "electron/features/djvu/"
       ],
       "metrics": {
-        "statements": 74.31,
+        "statements": 74.39,
         "branches": 60.7,
-        "functions": 75.95,
-        "lines": 74.95
+        "functions": 76.4,
+        "lines": 75.04
       }
     },
     "electron-ocr": {
-      "fileCount": 48,
+      "fileCount": 46,
       "include": [
         "electron/ocr/"
       ],
       "metrics": {
-        "statements": 70.67,
-        "branches": 63.16,
-        "functions": 77.82,
-        "lines": 70.78
+        "statements": 72.59,
+        "branches": 65.54,
+        "functions": 80.19,
+        "lines": 72.67
       }
     },
     "pdf-viewer": {
-      "fileCount": 538,
+      "fileCount": 540,
       "include": [
         "app/modules/pdf-viewer/"
       ],
       "metrics": {
-        "statements": 70.02,
-        "branches": 62.3,
-        "functions": 71.99,
-        "lines": 70.18
+        "statements": 70.34,
+        "branches": 62.78,
+        "functions": 72.15,
+        "lines": 70.51
       }
     },
     "release-scripts": {
@@ -73,39 +73,39 @@
       }
     },
     "scripts-core": {
-      "fileCount": 150,
+      "fileCount": 159,
       "include": [
         "scripts/"
       ],
       "metrics": {
-        "statements": 31.59,
-        "branches": 32.53,
-        "functions": 38.6,
-        "lines": 31.85
+        "statements": 33.61,
+        "branches": 33.78,
+        "functions": 39.45,
+        "lines": 33.89
       }
     },
     "workspace-shell": {
-      "fileCount": 212,
+      "fileCount": 211,
       "include": [
         "app/modules/workspace-shell/"
       ],
       "metrics": {
-        "statements": 67.11,
-        "branches": 58.9,
-        "functions": 65.48,
-        "lines": 67.39
+        "statements": 67.46,
+        "branches": 58.93,
+        "functions": 66.1,
+        "lines": 67.73
       }
     }
   },
   "files": {
     "app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts": {
-      "lines": 66.35
+      "lines": 88.78
     },
     "app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts": {
-      "lines": 36.49
+      "lines": 74.88
     },
     "app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts": {
-      "lines": 22.13
+      "lines": 76.33
     },
     "electron/features/agent/workspaceBridge.ts": {
       "lines": 85.25
@@ -117,14 +117,14 @@
       "lines": 89.43
     },
     "electron/features/scan-cleanup/createScanCleanupPreviewService.ts": {
-      "lines": 86.72
+      "lines": 86.79
     }
   },
   "metrics": {
-    "statements": 66.02,
-    "branches": 59.38,
-    "functions": 68.48,
-    "lines": 66.41
+    "statements": 66.83,
+    "branches": 60.67,
+    "functions": 69.28,
+    "lines": 67.28
   },
   "tolerancePercentagePoints": 0.5,
   "version": 2

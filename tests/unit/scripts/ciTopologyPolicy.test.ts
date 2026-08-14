@@ -258,7 +258,7 @@ describe('CI topology policy', () => {
         expect(prQuality).not.toContain('run: pnpm run build:strict');
         expect(prQuality).not.toContain('run: pnpm run build:strict:no-wasm-check');
         expect(prQuality).toContain('run: pnpm run test:coverage');
-        expect(prQuality).toContain('if: ${{ github.event_name == \'push\' }}');
+        expect(prQuality).not.toContain('if: ${{ github.event_name == \'push\' }}');
         expect(prQuality).not.toContain('run: pnpm run test:rust');
         expect(prQuality).not.toContain('run: pnpm run test:e2e');
         expect(prQuality).not.toContain('run: pnpm run test:e2e:electron:large');
