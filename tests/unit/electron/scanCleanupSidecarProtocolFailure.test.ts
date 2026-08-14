@@ -1,6 +1,7 @@
 import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -52,6 +53,39 @@ describe('scan cleanup sidecar protocol failures', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.terminateDetachedChildProcess.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('settles malformed NDJSON after bounded termination without close and prefers the protocol error', async () => {
+        vi.useFakeTimers();
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise(() => {}));
+        const child = new MockSidecarProcess();
+        const lines = new MockLineReader();
+        mocks.spawn.mockReturnValue(child);
+        mocks.createInterface.mockReturnValue(lines);
+        const {runScanCleanupSidecar} = await import(
+            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
+        );
+        const controller = new AbortController();
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/manifest.json',
+            controller.signal,
+            vi.fn(),
+            () => {},
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        lines.emit('line', '{');
+        controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
+        const rejected = expect(run).rejects.toMatchObject({name: 'SyntaxError'});
+
+        await vi.advanceTimersByTimeAsync(3_500);
+        await rejected;
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledTimes(1);
     });
 
     it.each([

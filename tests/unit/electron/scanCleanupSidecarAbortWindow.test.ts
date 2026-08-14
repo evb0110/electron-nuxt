@@ -35,10 +35,37 @@ describe('scan cleanup sidecar abort window', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.terminateDetachedChildProcess.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllEnvs();
+    });
+
+    it('settles an aborted run after bounded termination when the child never closes', async () => {
+        vi.useFakeTimers();
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise(() => {}));
+        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const controller = new AbortController();
+        const abortError = new DOMException('Canceled scan cleanup detection', 'AbortError');
+
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/canceled-manifest.json',
+            controller.signal,
+            vi.fn<TWorkerLog>(),
+            () => {},
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        controller.abort(abortError);
+        const rejected = expect(run).rejects.toBe(abortError);
+
+        await vi.advanceTimersByTimeAsync(3_500);
+        await rejected;
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
     });
 
     // Native command admission resolves its waiters synchronously, so a run
@@ -63,6 +90,7 @@ describe('scan cleanup sidecar abort window', () => {
             vi.fn<TWorkerLog>(),
             () => {},
         );
+        const rejected = expect(run).rejects.toMatchObject({name: 'AbortError'});
         for (let attempt = 0; attempt < 10; attempt += 1) {
             await new Promise(resolve => {
                 setImmediate(resolve);
@@ -76,6 +104,6 @@ describe('scan cleanup sidecar abort window', () => {
 
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
         child.emit('close', null, 'SIGKILL');
-        await expect(run).rejects.toMatchObject({name: 'AbortError'});
+        await rejected;
     });
 });
