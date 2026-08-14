@@ -7,6 +7,7 @@ import {
     decodeNativeScanCleanupPreviewPageMetadataJson,
     InvalidScanCleanupNativeArtifactError,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import type {INativeScanCleanupSplitDiagnosticsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     describe,
     expect,
