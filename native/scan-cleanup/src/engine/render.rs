@@ -1664,12 +1664,9 @@ fn filter_fold_edge_fragments_with_removed(
         height: usize,
         fill: f64,
     }
-    let measured_gutter_band = split.cutter_x.is_some_and(|cutter| {
-        split.gutter_left_x.is_some_and(|left| left < cutter - 0.5)
-            || split
-                .gutter_right_x
-                .is_some_and(|right| right > cutter + 0.5)
-    });
+    let measured_gutter_band = split
+        .cutter_x
+        .is_some_and(|cutter| split.diagnostics.fold_band.has_suppression(cutter));
     let rail_max_width = (dpi_scale * FOLD_EDGE_RAIL_MAX_WIDTH_MM).round().max(2.0) as usize;
     let rail_alignment = (dpi_scale * FOLD_EDGE_RAIL_ALIGNMENT_MM).round().max(1.0);
     let rail_min_single_height = (dpi_scale * FOLD_EDGE_RAIL_MIN_SINGLE_HEIGHT_MM)
@@ -3971,12 +3968,9 @@ fn split_result_bytes(split: &SplitResult) -> usize {
 
 fn gutter_band_needs_raw_remeasurement(split: &SplitResult) -> bool {
     split.classification == LayoutClassification::TwoPageSpread
-        && split.cutter_x.is_some_and(|cutter| {
-            split.gutter_left_x.is_none_or(|left| left >= cutter - 0.5)
-                || split
-                    .gutter_right_x
-                    .is_none_or(|right| right <= cutter + 0.5)
-        })
+        && split
+            .cutter_x
+            .is_some_and(|cutter| split.diagnostics.fold_band.needs_raw_remeasurement(cutter))
 }
 
 fn scale_split_result(
@@ -3987,12 +3981,7 @@ fn scale_split_result(
     full_height: usize,
 ) {
     split.cutter_x = split.cutter_x.map(|x| x / scale_x);
-    split.gutter_left_x = split
-        .gutter_left_x
-        .map(|x| (x / scale_x).clamp(0.0, full_width as f64));
-    split.gutter_right_x = split
-        .gutter_right_x
-        .map(|x| (x / scale_x).clamp(0.0, full_width as f64));
+    split.diagnostics.fold_band.scale_x(scale_x, full_width);
     if let Some(seam) = &mut split.split_seam {
         for point in &mut seam.points {
             point.x = (point.x / scale_x).clamp(0.0, full_width as f64);

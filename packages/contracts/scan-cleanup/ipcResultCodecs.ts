@@ -1007,10 +1007,34 @@ function decodeSplitDiagnostics(
         ...integerKeys,
         ...numberKeys,
         ...booleanKeys,
+        'foldBand',
     ]);
     type TSplitDiagnostics = NonNullable<
         TScanCleanupDetectionJobState['results'][number]['splitDiagnostics']
     >;
+    const foldBand = value.foldBand;
+    const validFoldBand = isRecord(foldBand) && (
+        (foldBand.status === 'measured'
+            && Object.keys(foldBand).every(key => ['status', 'leftXPx', 'rightXPx'].includes(key))
+            && typeof foldBand.leftXPx === 'number'
+            && Number.isFinite(foldBand.leftXPx)
+            && foldBand.leftXPx >= 0
+            && typeof foldBand.rightXPx === 'number'
+            && Number.isFinite(foldBand.rightXPx)
+            && foldBand.rightXPx >= foldBand.leftXPx)
+        || (foldBand.status === 'unmeasured'
+            && Object.keys(foldBand).every(key => ['status', 'reason', 'nominalHalfWidthPx'].includes(key))
+            && [
+                'not-applicable',
+                'no-fold-evidence',
+                'fold-evidence-unquantified',
+                'cutter-invalidated',
+                'measurement-unavailable',
+            ].includes(foldBand.reason as string)
+            && typeof foldBand.nominalHalfWidthPx === 'number'
+            && Number.isFinite(foldBand.nominalHalfWidthPx)
+            && foldBand.nominalHalfWidthPx >= 0)
+    );
     const isValid = (
         candidate: Record<string, unknown>,
     ): candidate is Record<string, unknown> & TSplitDiagnostics =>
@@ -1024,7 +1048,8 @@ function decodeSplitDiagnostics(
             typeof candidate[key] === 'number'
             && Number.isFinite(candidate[key])
         ))
-        && booleanKeys.every(key => typeof candidate[key] === 'boolean');
+        && booleanKeys.every(key => typeof candidate[key] === 'boolean')
+        && validFoldBand;
     if (!isValid(value)) {
         throw new Error('invalid scan-cleanup split diagnostics');
     }

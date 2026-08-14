@@ -154,12 +154,11 @@ pub(crate) fn output_regions(
     // The fold the cutter runs through is not page, so both leaves stop at
     // their near edge. The cutter stays put: moving it would hand one leaf
     // material the other leaf had already been assigned.
-    let left_edge = split
-        .gutter_left_x
-        .map_or(cutter, |x| x.round().clamp(1.0, cutter));
-    let right_edge = split.gutter_right_x.map_or(cutter, |x| {
-        x.round().clamp(cutter, width.saturating_sub(1) as f64)
-    });
+    let (fold_left, fold_right) = split.diagnostics.fold_band.edges(cutter, width);
+    let left_edge = fold_left.round().clamp(1.0, cutter);
+    let right_edge = fold_right
+        .round()
+        .clamp(cutter, width.saturating_sub(1) as f64);
     let left = Rect::new(0.0, 0.0, left_edge, height as f64);
     let right = Rect::new(right_edge, 0.0, width as f64 - right_edge, height as f64);
     match split.classification {

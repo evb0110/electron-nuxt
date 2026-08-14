@@ -1,6 +1,7 @@
 mod tests {
     use super::*;
     use crate::bw::{binarize_normalized, rescue_component_scoped_faint_strokes};
+    use crate::split::{FoldBand, FoldBandUnmeasuredReason};
     use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
     use std::io::Cursor;
     use zune_jpeg::{
@@ -7041,8 +7042,7 @@ mod tests {
         let height = 180;
         let mut split = fold_test_split(800, height);
         split.cutter_x = Some(400.0);
-        split.gutter_left_x = Some(390.0);
-        split.gutter_right_x = Some(410.0);
+        split.diagnostics.fold_band = FoldBand::measured(390.0, 410.0);
         let region = Rect::new(400.0, 0.0, 400.0, height as f64);
         let plan = fold_test_plan(region);
 
@@ -7098,8 +7098,7 @@ mod tests {
         let height = 360;
         let mut split = fold_test_split(800, height);
         split.cutter_x = Some(400.0);
-        split.gutter_left_x = Some(390.0);
-        split.gutter_right_x = Some(410.0);
+        split.diagnostics.fold_band = FoldBand::measured(390.0, 410.0);
         let region = Rect::new(400.0, 0.0, 400.0, height as f64);
         let plan = fold_test_plan(region);
         let mut binary = BinaryImage::new(400, height);
@@ -7270,18 +7269,17 @@ mod tests {
     fn either_collapsed_gutter_side_requests_raw_remeasurement() {
         let mut split = fold_test_split(800, 120);
         split.cutter_x = Some(400.0);
-        split.gutter_left_x = Some(390.0);
-        split.gutter_right_x = Some(410.0);
+        split.diagnostics.fold_band = FoldBand::measured(390.0, 410.0);
         assert!(!gutter_band_needs_raw_remeasurement(&split));
 
-        split.gutter_left_x = Some(400.0);
+        split.diagnostics.fold_band = FoldBand::measured(400.0, 410.0);
         assert!(gutter_band_needs_raw_remeasurement(&split));
 
-        split.gutter_left_x = Some(390.0);
-        split.gutter_right_x = Some(400.0);
+        split.diagnostics.fold_band = FoldBand::measured(390.0, 400.0);
         assert!(gutter_band_needs_raw_remeasurement(&split));
 
-        split.gutter_right_x = None;
+        split.diagnostics.fold_band =
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::MeasurementUnavailable);
         assert!(gutter_band_needs_raw_remeasurement(&split));
     }
 }
