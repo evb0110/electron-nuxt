@@ -249,7 +249,7 @@
                     <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
                     <span class="sr-only">{{ t('scanCleanup.preview.refreshing') }}</span>
                 </div>
-                <div v-if="error && effectiveViewMode === 'cleaned'" class="preview-refresh-error" role="alert">
+                <div v-if="effectiveError && effectiveViewMode === 'cleaned'" class="preview-refresh-error" role="alert">
                     <span>{{ t('scanCleanup.preview.unavailable') }}</span>
                     <UButton
                         type="button"
@@ -261,7 +261,7 @@
                     />
                     <details class="preview-error-disclosure">
                         <summary>{{ t('scanCleanup.preview.technicalDetails') }}</summary>
-                        <span class="preview-error-detail">{{ error }}</span>
+                        <span class="preview-error-detail">{{ effectiveError }}</span>
                     </details>
                 </div>
             </div>
@@ -269,7 +269,7 @@
                 v-if="requestedPageLoadingVisible || (!result && !rawLayerVisible)"
                 class="preview-empty-layer"
             >
-                <div v-if="!error" class="preview-viewport-layout preview-loading" role="status">
+                <div v-if="!effectiveError" class="preview-viewport-layout preview-loading" role="status">
                     <div ref="cutterStage" class="cutter-stage">
                         <div
                             class="cleaned-outputs preview-skeleton-outputs"
@@ -312,7 +312,7 @@
                     />
                     <details class="preview-error-disclosure">
                         <summary>{{ t('scanCleanup.preview.technicalDetails') }}</summary>
-                        <span class="preview-error-detail">{{ error }}</span>
+                        <span class="preview-error-detail">{{ effectiveError }}</span>
                     </details>
                 </div>
             </div>
@@ -395,6 +395,7 @@
             :src="pending.url"
             alt=""
             aria-hidden="true"
+            @error="failCleanedPixelSwap(pending.half, pending.url)"
             @load="loadCleanedPixelSwap(pending.half, pending.url)"
         >
 
@@ -517,7 +518,7 @@ const props = defineProps<{
     lossless?: boolean;
     source?: IDocumentPageSource | null;
     layoutClassification?: IScanCleanupPreviewMetadata['layoutClassification'] | undefined;
-    layoutDetectionPending?: boolean;
+    layoutDetectionComplete?: boolean;
     rotationDegrees?: TScanCleanupPageRotation;
 }>();
 const emit = defineEmits<{
@@ -559,21 +560,29 @@ const dragOverlayBounds = reactive<IScanCleanupDragRect>({
     height: 0,
 });
 
-interface IScanCleanupDisplayedFramePresentation {resultCurrent: boolean;}
+interface IScanCleanupDisplayedFramePresentation {
+    resultCurrent: boolean;
+    settled: boolean;
+}
 
 function captureFramePresentation(): IScanCleanupDisplayedFramePresentation {
     // A frame built while the document plan is still open remains provisional
     // even if live detection settles while it is pinned.
-    return {resultCurrent: props.resultCurrent === true && props.layoutDetectionPending !== true};
+    return {
+        resultCurrent: props.resultCurrent === true,
+        settled: props.layoutDetectionComplete === true,
+    };
 }
 
 const {
     cleanedPixelSwaps,
+    cleanedFrameError,
     completeCleanedPixelSwap,
     completeRawPixelSwap,
     detailPixelUrls,
     displayedCleanedFrame,
     displayedCleanedFrameCurrent,
+    failCleanedPixelSwap,
     loadCleanedPixelSwap,
     loadRawPixelSwap,
     pendingCleanedPixelUrls,
@@ -589,8 +598,10 @@ const {
     });
 }, () => props.rawResult ?? null, () => props.detailResult ?? null,
 () => captureFramePresentation(),
-props.resultPresentationKey === undefined ? undefined : () => props.resultPresentationKey ?? '');
+props.resultPresentationKey === undefined ? undefined : () => props.resultPresentationKey ?? '',
+presentation => presentation.resultCurrent && presentation.settled);
 const presentationResult = computed(() => displayedCleanedFrame.value?.result ?? null);
+const effectiveError = computed(() => cleanedFrameError.value || props.error);
 const displayedPresentation = computed(
     () => displayedCleanedFrame.value?.presentation ?? captureFramePresentation(),
 );
@@ -714,7 +725,7 @@ const isStalePage = computed(() => props.stalePage
 // available only through Original mode. This prevents an unsplit landscape
 // raster from ever masquerading as the first portrait output.
 const requestedPageLoadingVisible = computed(() => effectiveViewMode.value === 'cleaned'
-    && props.error === ''
+    && effectiveError.value === ''
     && props.result?.pageNumber !== props.pageNumber);
 const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pageNumber && (
     effectiveViewMode.value === 'original'
@@ -740,10 +751,15 @@ const canvasNoticeKind = computed(() => {
     }
     // This describes the displayed frame, not whichever detection generation
     // is live now. A frame rendered from an open plan stays provisional while
-    // pinned, and any pinned/live divergence is provisional by definition.
+    // pinned; once its settled replacement displays, later same-transition
+    // replans cannot relabel that displayed frame as provisional.
     if (
-        !displayedCleanedFrameCurrent.value
-        || (props.resultPresentationKey !== undefined && !displayedPresentation.value.resultCurrent)
+        props.resultPresentationKey !== undefined
+        && (
+            displayedCleanedFrame.value?.transitionKey !== props.resultPresentationKey
+            || !displayedPresentation.value.resultCurrent
+            || !displayedPresentation.value.settled
+        )
     ) {
         return 'provisional';
     }

@@ -1,8 +1,10 @@
 import {createHash} from 'node:crypto';
 import {
+    mkdir,
     readFile,
     writeFile,
 } from 'node:fs/promises';
+import {join} from 'node:path';
 import {
     createCanvas,
     loadImage,
@@ -86,67 +88,121 @@ function comparisonMoved(comparison) {
         || (comparison.inkMarginShift?.maximum ?? Number.POSITIVE_INFINITY) !== 0;
 }
 
+function comparisonHasMovement(comparison) {
+    return comparison.missingBefore !== true
+        && comparison.missingAfter !== true
+        && (
+            comparison.rasterIdentical !== true
+            || (comparison.inkMarginShift?.maximum ?? 0) !== 0
+        );
+}
+
+export async function createForcedPostSettleMovementProbeLeaves(leaves, outputDirectory) {
+    await mkdir(outputDirectory, {recursive: true});
+    return Promise.all(leaves.map(async leaf => {
+        const image = await loadImage(leaf.metricsPath);
+        const marginDeltaPx = 3;
+        const canvas = createCanvas(image.width + marginDeltaPx, image.height);
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        // Mirror every source pixel and add a fixed left margin. Neither part
+        // depends on the provisional render, so a green probe is meaningful.
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
+        context.drawImage(image, 0, 0);
+        const metricsPath = join(outputDirectory, `${leaf.half}-raster-flip-margin-delta.png`);
+        await writeFile(metricsPath, canvas.toBuffer('image/png'));
+        return {
+            ...leaf,
+            metricsPath,
+        };
+    }));
+}
+
 export async function measurePreviewPresentationStability({
+    commitSettle,
     compareMargins,
-    consumeSettle,
-    graceWindowMs,
+    forcedProbeLeaves,
     measureMargins,
     previewLeaves,
     provisionalLeaves,
     resolveCommit,
     transitionKey,
 }) {
-    const firstCommit = resolveCommit(null, transitionKey, 0);
-    const earlyCommit = resolveCommit(firstCommit.pin, transitionKey, 1_000);
-    const secondAutomaticCommit = resolveCommit(earlyCommit.pin, transitionKey, 1_500);
-    const settledPin = consumeSettle(secondAutomaticCommit.pin);
-    const postWindowCommit = resolveCommit(settledPin, transitionKey, graceWindowMs + 1);
+    const firstCommit = resolveCommit(null, transitionKey, false);
+    const firstProvisionalCommit = resolveCommit(firstCommit.pin, transitionKey, false);
+    const secondProvisionalCommit = resolveCommit(firstProvisionalCommit.pin, transitionKey, false);
+    const settleCommit = resolveCommit(secondProvisionalCommit.pin, transitionKey, true);
+    const settledLoadingCommit = resolveCommit(settleCommit.pin, transitionKey, true);
+    const postSettleCommit = resolveCommit(commitSettle(settleCommit.pin), transitionKey, true);
     const [
-        earlySettleComparisons,
-        secondAutomaticComparisons,
+        firstProvisionalComparisons,
+        secondProvisionalComparisons,
         settleCommitComparisons,
-        postWindowComparisons,
+        postSettleComparisons,
+        forcedPostSettleMovementComparisons,
     ] = await Promise.all([
         compareDisplayedPreviewLeaves(provisionalLeaves, provisionalLeaves, measureMargins, compareMargins),
         compareDisplayedPreviewLeaves(provisionalLeaves, provisionalLeaves, measureMargins, compareMargins),
-        compareDisplayedPreviewLeaves(provisionalLeaves, provisionalLeaves, measureMargins, compareMargins),
         compareDisplayedPreviewLeaves(provisionalLeaves, previewLeaves, measureMargins, compareMargins),
+        compareDisplayedPreviewLeaves(previewLeaves, previewLeaves, measureMargins, compareMargins),
+        compareDisplayedPreviewLeaves(previewLeaves, forcedProbeLeaves, measureMargins, compareMargins),
     ]);
     return createPreviewPresentationStabilityReport({
-        earlyCommit,
-        earlySettleComparisons,
-        graceWindowMs,
+        firstProvisionalCommit,
+        firstProvisionalComparisons,
+        forcedPostSettleMovementComparisons,
+        postSettleCommit,
+        postSettleComparisons,
         settleCommitComparisons,
-        postWindowCommit,
-        postWindowComparisons,
+        settleCommit,
+        settledLoadingCommit,
         previewHalves: previewLeaves.map(leaf => leaf.half),
         provisionalHalves: provisionalLeaves.map(leaf => leaf.half),
-        secondAutomaticCommit,
-        secondAutomaticComparisons,
+        secondProvisionalCommit,
+        secondProvisionalComparisons,
     });
 }
 
 export function createPreviewPresentationStabilityReport({
-    earlyCommit,
-    earlySettleComparisons,
-    graceWindowMs,
+    firstProvisionalCommit,
+    firstProvisionalComparisons,
+    forcedPostSettleMovementComparisons,
+    postSettleCommit,
+    postSettleComparisons,
     settleCommitComparisons,
-    postWindowCommit,
-    postWindowComparisons,
+    settleCommit,
+    settledLoadingCommit,
     previewHalves = /** @type {string[]} */ ([]),
     provisionalHalves = /** @type {string[]} */ ([]),
-    secondAutomaticCommit,
-    secondAutomaticComparisons,
+    secondProvisionalCommit,
+    secondProvisionalComparisons,
 }) {
     const violations = [];
-    if (earlyCommit.action !== 'coalesce' || secondAutomaticCommit.action !== 'coalesce') {
-        violations.push('presentation-pre-window-commit');
+    if (
+        firstProvisionalCommit.action !== 'coalesce'
+        || secondProvisionalCommit.action !== 'coalesce'
+    ) {
+        violations.push('presentation-provisional-commit');
     }
-    if (postWindowCommit.action !== 'reject') {
-        violations.push('presentation-post-window-commit');
+    if (settleCommit.action !== 'commit') {
+        violations.push('presentation-settle-rejected');
     }
-    if (postWindowComparisons.some(comparisonMoved)) {
-        violations.push('presentation-post-window-movement');
+    if (settledLoadingCommit.action !== 'reject') {
+        violations.push('presentation-settle-loading-commit');
+    }
+    if (postSettleCommit.action !== 'reject') {
+        violations.push('presentation-post-settle-commit');
+    }
+    if ([
+        ...firstProvisionalComparisons,
+        ...secondProvisionalComparisons,
+    ].some(comparisonMoved)) {
+        violations.push('presentation-provisional-movement');
+    }
+    if (postSettleComparisons.some(comparisonMoved)) {
+        violations.push('presentation-post-settle-movement');
     }
     const expectedHalves = new Set([
         ...provisionalHalves,
@@ -157,34 +213,48 @@ export function createPreviewPresentationStabilityReport({
         previewHalves,
     ].some(halves => expectedHalves.size !== new Set(halves).size);
     if (leafSetMissingHalf || [
-        ...earlySettleComparisons,
-        ...secondAutomaticComparisons,
+        ...firstProvisionalComparisons,
+        ...secondProvisionalComparisons,
         ...settleCommitComparisons,
-        ...postWindowComparisons,
+        ...postSettleComparisons,
+        ...forcedPostSettleMovementComparisons,
     ].some(comparison => comparison.missingBefore === true || comparison.missingAfter === true)) {
         violations.push('presentation-missing-half');
     }
+    const forcedProbeRed = forcedPostSettleMovementComparisons.some(comparisonHasMovement);
+    if (!forcedProbeRed) {
+        violations.push('presentation-forced-probe-not-red');
+    }
     return {
-        graceWindowMs,
-        earlyCandidate: {
-            atMs: 1_000,
-            action: earlyCommit.action,
-            leaves: earlySettleComparisons,
-        },
-        latestCandidate: {
-            atMs: 1_500,
-            action: secondAutomaticCommit.action,
-            leaves: secondAutomaticComparisons,
-        },
-        settleAtExpiry: {
-            atMs: graceWindowMs,
-            committed: true,
+        provisionalCandidates: [
+            {
+                atMs: 1_000,
+                action: firstProvisionalCommit.action,
+                leaves: firstProvisionalComparisons,
+            },
+            {
+                atMs: 1_500,
+                action: secondProvisionalCommit.action,
+                leaves: secondProvisionalComparisons,
+            },
+        ],
+        phaseEdgeSettle: {
+            atMs: 10_000,
+            action: settleCommit.action,
             leaves: settleCommitComparisons,
         },
-        postWindow: {
-            atMs: graceWindowMs + 1,
-            action: postWindowCommit.action,
-            leaves: postWindowComparisons,
+        settledLoadingCandidate: {action: settledLoadingCommit.action},
+        postSettle: {
+            atMs: 10_500,
+            action: postSettleCommit.action,
+            leaves: postSettleComparisons,
+        },
+        forcedPostSettleMovementProbe: {
+            leaves: forcedPostSettleMovementComparisons,
+            status: forcedProbeRed ? 'red' : 'green',
+            violations: forcedProbeRed
+                ? ['presentation-post-settle-movement']
+                : ['presentation-forced-probe-not-red'],
         },
         violations,
     };

@@ -1,4 +1,15 @@
 import {
+    mkdtemp,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {
+    createCanvas,
+    loadImage,
+} from '@napi-rs/canvas';
+import {
     describe,
     expect,
     it,
@@ -6,8 +17,14 @@ import {
 } from 'vitest';
 import {
     compareDisplayedPreviewLeaves,
+    createForcedPostSettleMovementProbeLeaves,
     createPreviewPresentationStabilityReport,
+    measurePreviewPresentationStability,
 } from '@scripts/diagnostics/scan-cleanup-preview-presentation.mjs';
+import {
+    commitScanCleanupPreviewPresentationSettle,
+    resolveScanCleanupPreviewPresentationCommit,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentationPin';
 
 const stableComparison = {
     half: 'left',
@@ -20,29 +37,36 @@ const stableComparison = {
         maximum: 0,
     },
 };
+const forcedMovementComparison = {
+    ...stableComparison,
+    rasterIdentical: false,
+};
 
 function report(
-    postWindowComparisons: object[],
+    postSettleComparisons: object[],
     leafSets: {
         previewHalves?: string[],
         provisionalHalves?: string[],
     } = {},
+    forcedPostSettleMovementComparisons: object[] = [forcedMovementComparison],
 ) {
     return createPreviewPresentationStabilityReport({
-        earlyCommit: {action: 'coalesce'},
-        earlySettleComparisons: [stableComparison],
-        graceWindowMs: 2_000,
+        firstProvisionalCommit: {action: 'coalesce'},
+        firstProvisionalComparisons: [stableComparison],
+        forcedPostSettleMovementComparisons,
+        postSettleCommit: {action: 'reject'},
+        postSettleComparisons,
+        settleCommit: {action: 'commit'},
         settleCommitComparisons: [stableComparison],
-        postWindowCommit: {action: 'reject'},
-        postWindowComparisons,
+        settledLoadingCommit: {action: 'reject'},
         ...leafSets,
-        secondAutomaticCommit: {action: 'coalesce'},
-        secondAutomaticComparisons: [stableComparison],
+        secondProvisionalCommit: {action: 'coalesce'},
+        secondProvisionalComparisons: [stableComparison],
     });
 }
 
 describe('scan cleanup preview presentation evidence', () => {
-    it('gates any post-window movement', () => {
+    it('gates any post-settle movement', () => {
         const rasterOnly = {
             ...stableComparison,
             rasterIdentical: false,
@@ -56,8 +80,110 @@ describe('scan cleanup preview presentation evidence', () => {
         };
 
         expect(report([stableComparison]).violations).toEqual([]);
-        expect(report([rasterOnly]).violations).toContain('presentation-post-window-movement');
-        expect(report([marginOnly]).violations).toContain('presentation-post-window-movement');
+        expect(report([rasterOnly]).violations).toContain('presentation-post-settle-movement');
+        expect(report([marginOnly]).violations).toContain('presentation-post-settle-movement');
+    });
+
+    it('drives the harness probe mutation red for movement and fails a green probe', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'scan-cleanup-presentation-probe-'));
+        try {
+            const metricsPath = join(directory, 'settled-left.png');
+            const canvas = createCanvas(24, 16);
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = '#000000';
+            context.fillRect(3, 2, 9, 8);
+            await writeFile(metricsPath, canvas.toBuffer('image/png'));
+            const leaves = [{
+                half: 'left',
+                metricsPath,
+            }];
+            const measureMargins = async (path: string) => {
+                const image = await loadImage(path);
+                const measured = createCanvas(image.width, image.height);
+                const measuredContext = measured.getContext('2d');
+                measuredContext.drawImage(image, 0, 0);
+                const pixels = measuredContext.getImageData(0, 0, image.width, image.height).data;
+                let left = image.width;
+                let top = image.height;
+                let right = -1;
+                let bottom = -1;
+                for (let y = 0; y < image.height; y += 1) {
+                    for (let x = 0; x < image.width; x += 1) {
+                        if ((pixels[(y * image.width + x) * 4] ?? 255) > 220) continue;
+                        left = Math.min(left, x);
+                        top = Math.min(top, y);
+                        right = Math.max(right, x);
+                        bottom = Math.max(bottom, y);
+                    }
+                }
+                return {
+                    left: left / image.width,
+                    top: top / image.height,
+                    right: (image.width - 1 - right) / image.width,
+                    bottom: (image.height - 1 - bottom) / image.height,
+                };
+            };
+            const compareMargins = (before: Awaited<ReturnType<typeof measureMargins>>, after: Awaited<ReturnType<typeof measureMargins>>) => {
+                const shifts = {
+                    left: Math.abs(before.left - after.left),
+                    top: Math.abs(before.top - after.top),
+                    right: Math.abs(before.right - after.right),
+                    bottom: Math.abs(before.bottom - after.bottom),
+                };
+                return {
+                    ...shifts,
+                    maximum: Math.max(...Object.values(shifts)),
+                };
+            };
+            const forcedProbeLeaves = await createForcedPostSettleMovementProbeLeaves(
+                leaves,
+                join(directory, 'forced-probe'),
+            );
+            const red = await measurePreviewPresentationStability({
+                commitSettle: commitScanCleanupPreviewPresentationSettle,
+                compareMargins,
+                forcedProbeLeaves,
+                measureMargins,
+                previewLeaves: leaves,
+                provisionalLeaves: leaves,
+                resolveCommit: resolveScanCleanupPreviewPresentationCommit,
+                transitionKey: 'session:page-1:user-0',
+            });
+            expect(red.violations).toEqual([]);
+            expect(red.forcedPostSettleMovementProbe).toMatchObject({
+                status: 'red',
+                violations: ['presentation-post-settle-movement'],
+                leaves: [expect.objectContaining({
+                    half: 'left',
+                    rasterIdentical: false,
+                    inkMarginShift: expect.objectContaining({maximum: expect.any(Number)}),
+                })],
+            });
+            expect(red.forcedPostSettleMovementProbe.leaves[0].inkMarginShift.maximum).toBeGreaterThan(0);
+
+            const green = await measurePreviewPresentationStability({
+                commitSettle: commitScanCleanupPreviewPresentationSettle,
+                compareMargins,
+                forcedProbeLeaves: leaves,
+                measureMargins,
+                previewLeaves: leaves,
+                provisionalLeaves: leaves,
+                resolveCommit: resolveScanCleanupPreviewPresentationCommit,
+                transitionKey: 'session:page-1:user-0',
+            });
+            expect(green.violations).toContain('presentation-forced-probe-not-red');
+            expect(green.forcedPostSettleMovementProbe).toMatchObject({
+                status: 'green',
+                violations: ['presentation-forced-probe-not-red'],
+            });
+        } finally {
+            await rm(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('reports either missing comparison half instead of silently skipping it', async () => {
@@ -82,13 +208,13 @@ describe('scan cleanup preview presentation evidence', () => {
         })]);
         expect(report(beforeMissing).violations).toEqual(expect.arrayContaining([
             'presentation-missing-half',
-            'presentation-post-window-movement',
+            'presentation-post-settle-movement',
         ]));
         expect(measureMargins).not.toHaveBeenCalled();
         expect(compareMargins).not.toHaveBeenCalled();
     });
 
-    it('checks both provisional and post-window candidate leaf sets for a dropped half', () => {
+    it('checks both provisional and settled leaf sets for a dropped half', () => {
         expect(report([stableComparison], {
             provisionalHalves: [
                 'left',
