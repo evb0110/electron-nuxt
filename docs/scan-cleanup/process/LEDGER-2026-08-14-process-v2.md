@@ -143,18 +143,37 @@ remainder off the orchestrator's critical path.
       gate contract — release-mode workspace tests incl. integration
       targets, and moving build:strict off the required PR path per
       G1(e) — folded into S4's wiring step.
-- [ ] S2 Feature fixes forward: settle-jump / session-pinned canvas
-      (transition semantics first); word-weight amplification
-      measurement redo (task #27).
-- [ ] S3 Ground-truth re-adjudication (measurement-based labels for
-      nonzero catastrophe entries + the minimumIou 0.0 fixture) —
-      strictly before any baseline regeneration.
-- [ ] S4 Wire what exists: regenerated ratchet baseline (post-S3) into
-      test:rust; audit + preview-harness scripts wired; regress-net
-      job deleted; O6 computed tripwire; timing block.
-- [ ] S5 e2e: triage the 14/14 nightly red streak first, then graduate
-      specs measured green in destination config; retire 30-green bar
-      for machine-derived counters.
+- [x] S2 Feature fixes — DONE 2026-08-14. Settle-jump landed as PR #10
+      (edef1b3e9): explicit transition semantics, one coalesced settle
+      in a 2s arrival-anchored window, presentation pinned afterward
+      (zoom/pan/clicks never move ink), run-gate reveal prevents
+      confirming a stale preview; acceptance 3.16%->0.00% ink shift,
+      20/20 leaves raster-identical post-window, harness now GATES
+      presentation stability. Word-weight amplification: resolved by
+      measurement (R7 area) — not reproduced post G3/Wolf/dense fixes;
+      1,691 matched words, zero >20% source-adjusted; contact sheet
+      delivered; reopens as a defect row on any new user report.
+- [x] S3 Ground-truth re-adjudication + defect fixes — verdicts DONE
+      (VPS measurement: ALL five tolerated entries invalid + new
+      blank-flood regression; .devkit/analysis/s3-readjudication/);
+      native fixes in PR #11 (in merge tail): real zeros on all six,
+      hardened after a NOT-SOUND first review round whose executed
+      probes (faint-print erasure, false-offcut amputation, dust-box
+      cropping, thickness-bias flood return) are now permanent
+      fixtures.
+- [~] S4 partially landed: regress-net deletion + O6 computed tripwire
+      (tamper-proof, count 168) + diag scripts as PR #7; stamp schema
+      v2 with build identity as PR #8. REMAINING: ratchet baseline
+      regeneration from PR #11's corrected ground truth + test:rust
+      hook (mechanical once #11 merges); native-lane alignment
+      (deferred item).
+- [~] S5 triage DONE (.devkit/analysis/s5-triage-20260814: 187
+      failures classified; 4 causes) + #1 deterministic blocker fixed
+      as PR #9 (assertion/profile drift; render-layer >=1x floor
+      restores raster-commit proof; tonight's scheduled run is the
+      live verdict). REMAINING: matchedCanvas rotation, Fallow
+      duplicates, nativePdfSplitPaneLifecycle 4-night regression,
+      then graduation on measured green.
 - [ ] S6 E1a invariant assertions I1-I3 (post-S3).
 
 ## Rows
@@ -234,3 +253,19 @@ R6 2026-08-14 (defect report, user): CodeRabbit thread r3780029144 on
 - Settle-jump / session-pinned canvas -> S2.
 - Ledger class-count error (nine vs eight audit classes) — corrected
   record: code defines EIGHT violation classes.
+
+R7 2026-08-14 (parallel execution arc): six concurrent tracks + VPS
+   under the R8 mechanisms. Landed today in merge order: PR #7 (CI
+   truth wiring + tamper-proof O6 tripwire), PR #8 (stamp schema v2),
+   PR #9 (nightly deterministic blocker), PR #10 (settle-jump feature)
+   — each with X2 review, CodeRabbit handling (fail-open where
+   rate-limited), pre-merge thread sweep, rebase-train, and exact-SHA
+   push attestation, all green. PR #11 (S3 catastrophe fixes) in merge
+   tail. Review value this arc: two NOT-SOUND verdicts caught real
+   ship-blockers pre-merge (S3 natives: measured faint-text erasure /
+   offcut amputation / dust-box cropping; S2 first draft: unpin
+   over-reach re-creating jumps, falsified provisional notice,
+   first-wins settle). Word-weight (task #27) closed as
+   measurement-negative. User reports this arc: contact-sheet side
+   confusion (caption error, mine — in-image labels mandated),
+   Electron orphan crash (bounded-kill tree-termination noted).
