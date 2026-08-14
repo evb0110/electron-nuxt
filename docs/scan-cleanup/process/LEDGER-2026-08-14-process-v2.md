@@ -322,3 +322,12 @@ R11 2026-08-14 (defect report, user, screenshots): visible word/letter
    ratio. Investigation: quantify output stroke-width spread vs
    source on the Vorwort page and design a weight-normalization
    direction.
+R12 2026-08-14 (defect report, user, video): page 2 still shows the
+   gutter/fold band in Cleaned preview while page 4 shows it cleaned
+   away — inconsistent cleanup across pages; user notes overall
+   frustration that visible problems persist after the day's landings.
+   Disposition: defect. Hypothesis: same root as R10 — pages viewed
+   during/after pre-analysis display PINNED PROVISIONAL compositions
+   (gutter not yet excised) while later-analyzed pages display settled
+   ones; the phase-edge settle fix in flight should converge both.
+   Verify from video frames before concluding.
