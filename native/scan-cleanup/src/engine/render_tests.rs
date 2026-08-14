@@ -2022,6 +2022,78 @@ mod tests {
     }
 
     #[test]
+    fn clean_region_publishes_the_rectilinear_crop_authority_without_crossing_the_cutter() {
+        let angle_degrees = 6.5;
+        let leaf = rotated_text_page(angle_degrees);
+        let mut source = GrayImage::new(leaf.width() * 2, leaf.height(), 255);
+        for y in 0..leaf.height() {
+            for x in 0..leaf.width() {
+                let value = leaf.get(x, y);
+                source.set(x, y, value);
+                source.set(x + leaf.width(), y, value);
+            }
+        }
+        let result = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                normalize_illumination: false,
+                output_mode: OutputMode::Grayscale,
+                crop_content: true,
+                match_page_size: false,
+                margins_mm: None,
+                margins_pixels: Some([0.0; 4]),
+                layout: crate::LayoutMode::TwoPage,
+                manual_split_x: Some(crate::NormalizedSplit {
+                    x: 0.5,
+                    rotation: OrthogonalRotation::None,
+                }),
+                manual_skew_degrees: Some(angle_degrees),
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(result.outputs.len(), 2);
+        for output in result.outputs {
+            let region = output.metadata.source_region;
+            let source = output
+                .metadata
+                .content_box
+                .expect("each leaf fixture has detected content");
+            let crop = output.metadata.crop_rect;
+            let forward = deskew_transform(
+                region.width.round() as usize,
+                region.height.round() as usize,
+                DeskewResult {
+                    angle_degrees,
+                    confidence: 1.0,
+                    accepted: true,
+                },
+            );
+            let projected = transform_rect_bounds(source, forward);
+
+            assert!(crop.x <= projected.x + 1e-9, "crop={crop:?} projected={projected:?}");
+            assert!(crop.y <= projected.y + 1e-9, "crop={crop:?} projected={projected:?}");
+            assert!(
+                crop.right() + 1e-9 >= projected.right(),
+                "crop={crop:?} projected={projected:?}"
+            );
+            assert!(
+                crop.bottom() + 1e-9 >= projected.bottom(),
+                "crop={crop:?} projected={projected:?}"
+            );
+            assert!(source.x >= 0.0 && source.y >= 0.0, "source={source:?}");
+            assert!(source.right() <= region.width, "source={source:?} region={region:?}");
+            assert!(source.bottom() <= region.height, "source={source:?} region={region:?}");
+            assert!(crop.x >= 0.0 && crop.y >= 0.0, "crop={crop:?}");
+            assert!(crop.right() <= region.width, "crop={crop:?} region={region:?}");
+            assert!(crop.bottom() <= region.height, "crop={crop:?} region={region:?}");
+        }
+    }
+
+    #[test]
     fn document_prior_is_gated_at_full_resolution_before_analysis_downscaling() {
         let mut source = GrayImage::new(3_000, 2_100, 245);
         let gutter_x = 1_410;

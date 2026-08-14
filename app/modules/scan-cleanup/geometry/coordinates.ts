@@ -148,7 +148,7 @@ export function transformPreviewContentBox(metadata: IScanCleanupPreviewMetadata
     return transformPreviewSourceHalfRect(metadata, metadata.contentBox);
 }
 
-export function transformPreviewSourceHalfRect(
+export function transformPreviewSourceHalfRectUnclamped(
     metadata: IScanCleanupPreviewMetadata,
     rect: IScanCleanupPixelRect | null | undefined,
 ) {
@@ -166,12 +166,59 @@ export function transformPreviewSourceHalfRect(
     ];
     const xs = corners.map(point => point.x);
     const ys = corners.map(point => point.y);
-    return clampPreviewRect({
+    return {
         xPx: Math.min(...xs),
         yPx: Math.min(...ys),
         widthPx: Math.max(...xs) - Math.min(...xs),
         heightPx: Math.max(...ys) - Math.min(...ys),
-    }, metadata.outputWidthPx, metadata.outputHeightPx);
+    };
+}
+
+export function transformPreviewSourceHalfRect(
+    metadata: IScanCleanupPreviewMetadata,
+    rect: IScanCleanupPixelRect | null | undefined,
+) {
+    const transformed = transformPreviewSourceHalfRectUnclamped(metadata, rect);
+    return transformed
+        ? clampPreviewRect(transformed, metadata.outputWidthPx, metadata.outputHeightPx)
+        : null;
+}
+
+export interface IScanCleanupPreviewContentBoxContainment {
+    contained: boolean;
+    containment: number;
+    edgeOverrunPx: {
+        bottom: number;
+        left: number;
+        right: number;
+        top: number;
+    };
+}
+
+export function measurePreviewContentBoxContainment(
+    metadata: IScanCleanupPreviewMetadata,
+): IScanCleanupPreviewContentBoxContainment | null {
+    const rect = transformPreviewSourceHalfRectUnclamped(metadata, metadata.contentBox);
+    if (!rect || rect.widthPx <= 0 || rect.heightPx <= 0) {
+        return null;
+    }
+    const left = Math.max(0, rect.xPx);
+    const top = Math.max(0, rect.yPx);
+    const right = Math.min(metadata.outputWidthPx, rect.xPx + rect.widthPx);
+    const bottom = Math.min(metadata.outputHeightPx, rect.yPx + rect.heightPx);
+    const intersectionArea = Math.max(0, right - left) * Math.max(0, bottom - top);
+    const edgeOverrunPx = {
+        left: Math.max(0, -rect.xPx),
+        top: Math.max(0, -rect.yPx),
+        right: Math.max(0, rect.xPx + rect.widthPx - metadata.outputWidthPx),
+        bottom: Math.max(0, rect.yPx + rect.heightPx - metadata.outputHeightPx),
+    };
+    const epsilon = 1e-6;
+    return {
+        contained: Object.values(edgeOverrunPx).every(overrun => overrun <= epsilon),
+        containment: Math.min(1, intersectionArea / (rect.widthPx * rect.heightPx)),
+        edgeOverrunPx,
+    };
 }
 
 export function previewPointToSourceHalf(
