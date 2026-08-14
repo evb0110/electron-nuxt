@@ -37,18 +37,20 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
 
 ## Backlog (from approach Part 4 FINAL; each step = one X2 cycle)
 
-- [ ] S1 CI truth + hygiene — ordered ops: (1) workflow PR
-      (concurrency PR-only cancel, gates_ok aggregator, unit tests on
-      PR path, O7 changed-area repair + tracked-dir census, native
-      build prereq in blocking smoke, B3 build identity) + docs/
-      scan-cleanup/ migration of approach/ledger/reviewer reports;
-      (2) ruleset (require PR + gates_ok, enforce_admins, block
-      force-push; merge queue if the ruleset accepts it), shipped only
-      after failure-injecting the dispatch bypass (red PR +
-      workflow_dispatch on the same SHA must stay blocked);
-      (3) completion criteria: verify the push run on the landed SHA
-      (exact-SHA attestation), freeze merges while main is red, and
-      route recovery through a normal gates_ok-gated revert PR.
+- [x] S1 CI truth + hygiene — DONE 2026-08-14 (see R3-R5). Op 1
+      landed as PR #6 (rebase-merged 066f24206 + 47f4dcb77): workflow
+      truth fixes, O7 repair + tracked-dir census, native prereq in
+      blocking smoke, B3 build identity, docs/ migration. Op 2
+      (ruleset) CANCELLED BY USER DECISION (R5): no GitHub settings
+      changes; direct pushes to main remain possible; PRs are the
+      working convention (CodeRabbit review), enforced by this
+      ledger's X2 policy, not mechanically. The dispatch-bypass
+      failure injection is moot without a ruleset; the gates_ok
+      event guard stays as defense in depth. Completion criteria met:
+      push run 31758031743 on landed SHA 47f4dcb77 concluded success
+      (gates_ok + native lane + first-ever push-path unit tests).
+      Red-main freeze + gates_ok-gated revert PR remain standing
+      policy for every future landing.
       Deferred out of S1 (own gated change, recorded from CodeRabbit
       review of PR #6): align the required native lane with the local
       gate contract — release-mode workspace tests incl. integration
@@ -83,12 +85,6 @@ R2 2026-08-14: approach doc finalized (round-4 combined minimal delta
    at ./reviews/round4-sol-xhigh.md; opus round-4 findings are disposed
    in the approach document's Part 5.
 
-## Open items carried from prior ledger
-
-- Task #27 word-weight amplification (Fadinger/Stylites) -> S2.
-- Settle-jump / session-pinned canvas -> S2.
-- Ledger class-count error (nine vs eight audit classes) — corrected
-  record: code defines EIGHT violation classes.
 R3 2026-08-14 (S1 X2 review, one round): opus-medium + sol-high on the
    S1 diff. Verified blockers fixed in the single fix round:
    (a) concurrency pending-slot replacement still cancelled push runs
@@ -115,3 +111,26 @@ R3 2026-08-14 (S1 X2 review, one round): opus-medium + sol-high on the
    OP-2 GATE: before the ruleset ships, failure-inject the dispatch
    bypass (red PR + workflow_dispatch on the same SHA must stay
    blocked).
+R4 2026-08-14 (S1 landing): PR #6 merged (066f24206 + 47f4dcb77);
+   CodeRabbit review: 10 inline findings — 8 accepted and fixed in
+   80d17a6bf->47f4dcb77 (cache-step SHA pin, update-health
+   normalization + regression, SHA boundary tests, fail-closed
+   topology recognizer, B3/O5/O7/B1 doc corrections, S1 completion
+   criteria), 1 declined with evidence (appendix items are recorded,
+   not scheduled), 1 deferred as its own gated change (required
+   native lane alignment -> S4). All threads replied before
+   resolution. Post-landing attestation: push run 31758031743 fully
+   green on the landed SHA.
+R5 2026-08-14 (instruction, user): "you shouldn't change anything on
+   github. we can push to main, but for now we want to use prs to
+   take advantage of coderabbit." Disposition: instruction — S1 op 2
+   (ruleset/enforce_admins/merge queue) cancelled; PR flow stays a
+   ledger-enforced convention; no repository settings will be
+   modified. G1(c)/(d) in the approach are superseded by this row.
+
+## Open items carried from prior ledger
+
+- Task #27 word-weight amplification (Fadinger/Stylites) -> S2.
+- Settle-jump / session-pinned canvas -> S2.
+- Ledger class-count error (nine vs eight audit classes) — corrected
+  record: code defines EIGHT violation classes.
