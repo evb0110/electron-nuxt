@@ -5,6 +5,57 @@ import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import type { IOcrDiagnostic } from '@contracts/electronApiOcr';
+import type { INativeScanCleanupOptionsV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
+
+/**
+ * OCR reads the pixels the cleanup engine produces, so anything left unset here
+ * would be answered by the engine's own defaults — the same defaults viewer
+ * binarization and layout tuning keeps moving. Pinning every pixel-affecting
+ * option keeps recognition results reproducible: OCR input can then only change
+ * when this object changes, which is an OCR decision rather than a side effect
+ * of a viewer-facing one. The values reproduce the defaults the OCR path
+ * inherited implicitly, so pinning them changes no pixel today.
+ *
+ * `ocrMode` restates what the `--ocr-mode` flag already forces on, and
+ * `sourceDpi`/`requestedRenderDpi` are supplied per call because the engine
+ * otherwise derives both from `dpi`.
+ */
+const OCR_PREPROCESS_PINNED_OPTIONS: Omit<
+    INativeScanCleanupOptionsV3,
+    'dpi' | 'sourceDpi' | 'requestedRenderDpi'
+> = {
+    sourceHasBilevelLayer: false,
+    binarization: 'auto',
+    thickness: 0,
+    normalizeIllumination: true,
+    despeckle: true,
+    despeckleLevel: 'normal',
+    outputMode: 'bw',
+    ocrMode: true,
+    layout: 'auto',
+    manualSplit: null,
+    manualContentBoxes: {},
+    manualZones: {
+        picture: [],
+        fill: [],
+    },
+    cropContent: true,
+    matchPageSize: true,
+    pageAlignment: 'top-center',
+    placementOverrides: {},
+    margins: {
+        leftMm: 5,
+        topMm: 5,
+        rightMm: 5,
+        bottomMm: 5,
+    },
+    experimental: {autoDewarp: false},
+    rotationDegrees: 0,
+    excluded: false,
+    skipBlankPages: false,
+    maxPixels: 160_000_000,
+    maxDimensionPx: 40_000,
+};
 
 const OCR_PREPROCESS_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_PREPROCESS_TIMEOUT_MS', 30_000, 1_000);
 const OCR_UNPAPER_PROBE_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_UNPAPER_PROBE_TIMEOUT_MS', 10_000, 1_000);
@@ -93,7 +144,12 @@ export async function tryPreprocessOcrImage(
                 metadataPath,
                 '--ocr-mode',
                 '--options',
-                JSON.stringify({dpi}),
+                JSON.stringify({
+                    ...OCR_PREPROCESS_PINNED_OPTIONS,
+                    dpi,
+                    sourceDpi: dpi,
+                    requestedRenderDpi: dpi,
+                }),
             ], {
                 timeoutMs: OCR_PREPROCESS_TIMEOUT_MS,
                 commandLabel: 'evb-scan-cleanup(ocr-preprocess)',

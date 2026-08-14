@@ -50,17 +50,66 @@ describe('tryPreprocessOcrImage', () => {
 
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/bin/evb-scan-cleanup',
-            expect.arrayContaining([
-                '--ocr-mode',
+            [
+                '--input',
+                '/tmp/raw.png',
+                '--output',
+                '/tmp/clean.png',
                 '--metadata',
                 '/tmp/clean.json',
-            ]),
+                '--ocr-mode',
+                '--options',
+                expect.any(String),
+            ],
             expect.objectContaining({
                 commandLabel: 'evb-scan-cleanup(ocr-preprocess)',
                 signal: controller.signal,
             }),
         );
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
+
+        // OCR input must stay reproducible while viewer-facing cleanup defaults
+        // are tuned, so every pixel-affecting option is pinned at the call site
+        // rather than inherited from the engine defaults. Any drift in this
+        // object is an OCR behaviour change and has to be made deliberately.
+        const nativeArgs: string[] = mocks.runNativeToolCommand.mock.calls[0]?.[1] ?? [];
+        const pinnedOptions = nativeArgs[nativeArgs.indexOf('--options') + 1] ?? '{}';
+        expect(JSON.parse(pinnedOptions)).toEqual({
+            dpi: 288,
+            sourceDpi: 288,
+            requestedRenderDpi: 288,
+            sourceHasBilevelLayer: false,
+            binarization: 'auto',
+            thickness: 0,
+            normalizeIllumination: true,
+            despeckle: true,
+            despeckleLevel: 'normal',
+            outputMode: 'bw',
+            ocrMode: true,
+            layout: 'auto',
+            manualSplit: null,
+            manualContentBoxes: {},
+            manualZones: {
+                picture: [],
+                fill: [],
+            },
+            cropContent: true,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            placementOverrides: {},
+            margins: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            experimental: {autoDewarp: false},
+            rotationDegrees: 0,
+            excluded: false,
+            skipBlankPages: false,
+            maxPixels: 160_000_000,
+            maxDimensionPx: 40_000,
+        });
     });
 
     it('returns the cleaned image path when unpaper succeeds', async () => {
