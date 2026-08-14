@@ -1,0 +1,74 @@
+{
+  "version": 3,
+  "operation": "render",
+  "renderMode": "final",
+  "canvasScope": "document",
+  "pages": [
+    {
+      "inputPath": "native/scan-cleanup/tests/fixtures/rescue/luther-p5-diyarbakir-line.png",
+      "sourcePageIndex": 0,
+      "pageMetadataPath": ".devkit/tmp/stroke-weight-oracle/diyarbakir-page.json",
+      "options": {
+        "dpi": 300,
+        "sourceDpi": 300,
+        "requestedRenderDpi": 300,
+        "binarization": "auto",
+        "outputMode": "bw",
+        "layout": "single",
+        "normalizeIllumination": true,
+        "cropContent": false,
+        "matchPageSize": false
+      },
+      "outputs": [
+        {
+          "outputPath": ".devkit/tmp/stroke-weight-oracle/diyarbakir-clean.png",
+          "metadataPath": ".devkit/tmp/stroke-weight-oracle/diyarbakir-clean.json"
+        }
+      ]
+    },
+    {
+      "inputPath": "native/scan-cleanup/tests/fixtures/rescue/luther-p5-wahrscheinlich-line.png",
+      "sourcePageIndex": 1,
+      "pageMetadataPath": ".devkit/tmp/stroke-weight-oracle/wahrscheinlich-page.json",
+      "options": {
+        "dpi": 300,
+        "sourceDpi": 300,
+        "requestedRenderDpi": 300,
+        "binarization": "auto",
+        "outputMode": "bw",
+        "layout": "single",
+        "normalizeIllumination": true,
+        "cropContent": false,
+        "matchPageSize": false
+      },
+      "outputs": [
+        {
+          "outputPath": ".devkit/tmp/stroke-weight-oracle/wahrscheinlich-clean.png",
+          "metadataPath": ".devkit/tmp/stroke-weight-oracle/wahrscheinlich-clean.json"
+        }
+      ]
+    },
+    {
+      "inputPath": "native/scan-cleanup/tests/fixtures/rescue/luther-p5-handschrift-body-line.png",
+      "sourcePageIndex": 2,
+      "pageMetadataPath": ".devkit/tmp/stroke-weight-oracle/handschrift-page.json",
+      "options": {
+        "dpi": 300,
+        "sourceDpi": 300,
+        "requestedRenderDpi": 300,
+        "binarization": "auto",
+        "outputMode": "bw",
+        "layout": "single",
+        "normalizeIllumination": true,
+        "cropContent": false,
+        "matchPageSize": false
+      },
+      "outputs": [
+        {
+          "outputPath": ".devkit/tmp/stroke-weight-oracle/handschrift-clean.png",
+          "metadataPath": ".devkit/tmp/stroke-weight-oracle/handschrift-clean.json"
+        }
+      ]
+    }
+  ]
+}

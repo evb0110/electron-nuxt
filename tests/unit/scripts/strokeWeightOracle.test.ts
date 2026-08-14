@@ -1,0 +1,131 @@
+import {spawnSync} from 'node:child_process';
+import {
+    mkdtemp,
+    readFile,
+    rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {
+    join,
+    resolve,
+} from 'node:path';
+import {
+    afterEach,
+    describe,
+    expect,
+    it,
+} from 'vitest';
+
+const oraclePath = resolve('scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs');
+const specimenPath = resolve(
+    'native/scan-cleanup/tests/fixtures/rescue/luther-p5-diyarbakir-line.png',
+);
+const python = process.env.EVB_PYTHON ?? 'python3';
+const temporaryDirectories: string[] = [];
+
+const runOracle = (args: string[]) => spawnSync(process.execPath, [
+    oraclePath,
+    ...args,
+], {encoding: 'utf8'});
+
+/**
+ * The measurement helper needs OpenCV, NumPy and Pillow. Only the Pillow lane
+ * is installed in CI today; wiring the full dependency set into a gate is
+ * S5(d), so the measuring case declares itself skipped rather than failing a
+ * machine that cannot run it.
+ */
+const measurementDependenciesInstalled = spawnSync(python, [
+    '-c',
+    'import cv2, numpy, PIL',
+], {encoding: 'utf8'}).status === 0;
+
+afterEach(async () => {
+    await Promise.all(temporaryDirectories.splice(0).map(path => rm(path, {
+        force: true,
+        recursive: true,
+    })));
+});
+
+describe('stroke weight oracle CLI', () => {
+    it('documents its calibrated defaults', () => {
+        const result = runOracle(['--help']);
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain('--window-mm <number>  Local horizontal comparison radius (default: 32)');
+        expect(result.stdout).toContain('--ratio <number>      Offender/local-median threshold (default: 1.6)');
+        expect(result.stdout).toContain('--min-local <number>  Minimum components in local window (default: 7)');
+    });
+
+    it('rejects a run that names neither one input kind nor a report path', () => {
+        const missingOutput = runOracle([
+            '--image',
+            specimenPath,
+        ]);
+        expect(missingOutput.status).toBe(2);
+        expect(missingOutput.stderr).toContain('--out is required');
+        const bothInputs = runOracle([
+            '--out',
+            join(tmpdir(), 'unused-stroke-weight-report.json'),
+            '--image',
+            specimenPath,
+            '--pdf',
+            specimenPath,
+        ]);
+        expect(bothInputs.status).toBe(2);
+        expect(bothInputs.stderr).toContain('exactly one of --pdf or --image inputs is required');
+    });
+
+    it.skipIf(!measurementDependenciesInstalled)(
+        'measures the committed Vorwort specimen and emits the report schema',
+        async () => {
+            const directory = await mkdtemp(join(tmpdir(), 'evb-stroke-weight-oracle-'));
+            temporaryDirectories.push(directory);
+            const reportPath = join(directory, 'report.json');
+            const result = runOracle([
+                '--image',
+                specimenPath,
+                '--dpi',
+                '300',
+                '--label',
+                'specimen-invocation-test',
+                '--out',
+                reportPath,
+            ]);
+            expect(result.stderr).toBe('');
+            expect([
+                0,
+                1,
+            ]).toContain(result.status);
+            const report = JSON.parse(await readFile(reportPath, 'utf8'));
+            expect(report.schemaVersion).toBe(2);
+            expect(report.oracle).toBe('component-ridge-width-local-line-median');
+            expect(report.label).toBe('specimen-invocation-test');
+            expect(report.calibration).toMatchObject({
+                connectivity: 8,
+                localWindowMinComponents: 7,
+                localWindowMm: 32,
+                minimumLineComponents: 8,
+                offenderRatio: 1.6,
+            });
+            expect(report.summary).toMatchObject({
+                gatePass: expect.any(Boolean),
+                offenderCount: expect.any(Number),
+                pageCountMeasured: 1,
+                pageCountRequested: 1,
+                pageCountUnmeasured: 0,
+            });
+            const [page] = report.pages;
+            expect(page).toMatchObject({
+                source: 'image',
+                status: 'measured',
+            });
+            expect(page.measuredLineCount).toBeGreaterThan(0);
+            expect(page.lines[0]).toMatchObject({
+                componentCount: expect.any(Number),
+                offenderCount: expect.any(Number),
+                p50WidthMm: expect.any(Number),
+                p95P50Ratio: expect.any(Number),
+            });
+            expect(JSON.parse(result.stdout)).toEqual(report.summary);
+        },
+    );
+});
