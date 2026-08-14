@@ -15,6 +15,8 @@ export default defineConfig({ test: {
             'app/**/*.ts',
             'electron/**/*.ts',
             'packages/**/*.ts',
+            'scan-cleanup-adapters/**/*.ts',
+            'scan-cleanup-core/**/*.ts',
             'scripts/**/*.{ts,mjs,cjs}',
             'server/**/*.ts',
         ],

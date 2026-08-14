@@ -72,6 +72,9 @@ export function isZeroExecutionTripwireTarget(filePath: string) {
     if ((LOAD_BEARING_COVERAGE_FILES as readonly string[]).includes(normalized)) {
         return true;
     }
+    if (normalized.startsWith('scan-cleanup-core/') || normalized.startsWith('scan-cleanup-adapters/')) {
+        return true;
+    }
 
     const basename = path.posix.basename(normalized);
     return basename.endsWith('.worker.ts')
@@ -101,6 +104,8 @@ export async function collectZeroExecutionTripwireTargets(projectRoot = process.
         'app',
         'electron',
         'packages',
+        'scan-cleanup-adapters',
+        'scan-cleanup-core',
     ];
     const files = (await Promise.all(roots.map(root => collectProductionTypeScriptFiles(projectRoot, root)))).flat();
     return files.sort((left, right) => left.localeCompare(right));

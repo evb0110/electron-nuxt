@@ -114,7 +114,6 @@ jobs:
         run: pnpm run test:unit
 
       - name: Coverage zero-execution tripwire
-        if: ${{ github.event_name == 'push' }}
         run: pnpm run test:coverage
 
   pr_electron_blocking_smoke:
