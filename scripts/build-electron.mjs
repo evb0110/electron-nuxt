@@ -11,43 +11,52 @@ const { WORKER_BUNDLES } = await import(new URL('../packages/electron-worker-bun
 
 const emitSourceMaps = process.env.EVB_ELECTRON_SOURCEMAP === '1';
 const buildGitSha = resolveBuildGitSha();
+const buildGitShaDefine = {
+    '__EVB_BUILD_GIT_SHA__': JSON.stringify(buildGitSha),
+    'process.env.EVB_BUILD_GIT_SHA': JSON.stringify(buildGitSha ?? ''),
+};
 const initialBundleOptions = {
     sourcemap: emitSourceMaps ? 'external' : false,
     sourcesContent: false,
     legalComments: 'none',
     metafile: true,
-    define: {'process.env.EVB_BUILD_GIT_SHA': JSON.stringify(buildGitSha ?? '')},
+    define: buildGitShaDefine,
 };
 
 function resolveBuildGitSha() {
+    const gitOptions = {
+        encoding: 'utf8',
+        stdio: [
+            'ignore',
+            'pipe',
+            'ignore',
+        ],
+    };
+    let status;
     try {
-        const gitOptions = {
-            encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
-        };
-        const status = execFileSync('git', [
+        status = execFileSync('git', [
             'status',
             '--porcelain',
         ], gitOptions).trim();
-        if (status === '') {
-            const sha = execFileSync('git', [
-                'rev-parse',
-                '--verify',
-                'HEAD',
-            ], gitOptions).trim().toLowerCase();
-            if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(sha)) {
-                return sha;
-            }
-        }
     } catch {
-        // Source archives can build without Git metadata, but cannot claim a commit identity.
+        const ciSha = process.env.GITHUB_SHA?.trim().toLowerCase() ?? '';
+        // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in scan-cleanup-core/provenanceStamp.ts.
+        return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(ciSha) ? ciSha : null;
     }
-    const ciSha = process.env.GITHUB_SHA?.trim().toLowerCase() ?? '';
-    return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(ciSha) ? ciSha : null;
+    if (status !== '') {
+        return null;
+    }
+    try {
+        const sha = execFileSync('git', [
+            'rev-parse',
+            '--verify',
+            'HEAD',
+        ], gitOptions).trim().toLowerCase();
+        // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in scan-cleanup-core/provenanceStamp.ts.
+        return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(sha) ? sha : null;
+    } catch {
+        return null;
+    }
 }
 const builds = [
     {
@@ -79,6 +88,7 @@ const require = __evbCreateRequire(import.meta.url);`},
         format: bundle.format,
         outfile: `dist-electron/${bundle.fileName}`,
         external: ['electron'],
+        define: buildGitShaDefine,
     })),
 ];
 

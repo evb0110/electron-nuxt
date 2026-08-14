@@ -29,9 +29,12 @@ import type {
     TScanCleanupQualityPath,
 } from '@scan-cleanup-core/policy/effectiveOptions';
 
-const SCAN_CLEANUP_STAMP_SCHEMA_VERSION = 1 as const;
-export const SCAN_CLEANUP_STAMP_SCHEMA_ID = 'urn:evb:scan-cleanup:stamp:v1';
+export const SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1 = 1 as const;
+export const SCAN_CLEANUP_STAMP_SCHEMA_ID_V1 = 'urn:evb:scan-cleanup:stamp:v1';
+export const SCAN_CLEANUP_STAMP_SCHEMA_VERSION = 2 as const;
+export const SCAN_CLEANUP_STAMP_SCHEMA_ID = 'urn:evb:scan-cleanup:stamp:v2';
 export const SCAN_CLEANUP_CORE_BUILD_ID = 'evb-viewer-scan-cleanup-core-v1';
+export const SCAN_CLEANUP_GIT_SHA_HEX_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
 type TNormalizedRect = NonNullable<INativeScanCleanupOptionsV3['renderCrop']>;
 type TNormalizedSplit = NonNullable<INativeScanCleanupOptionsV3['manualSplit']>;
@@ -92,36 +95,55 @@ export interface IScanCleanupStampPagePlanDigest {
     evidenceSha256: string;
 }
 
-export interface IScanCleanupStampBuildIds {
-    coreSchemaId: string;
+interface IScanCleanupStampBuildIdsBase extends Record<string, unknown> {
     coreBuildId: string;
     nativeBinarySha256s: Record<string, string>;
     assemblerBackend: TScanCleanupAssemblerBackend;
     transportMode: TScanCleanupTransportMode;
 }
 
-export interface IScanCleanupProvenanceStamp {
-    schemaVersion: typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION;
+export interface IScanCleanupStampBuildIdsV1 extends IScanCleanupStampBuildIdsBase {coreSchemaId: typeof SCAN_CLEANUP_STAMP_SCHEMA_ID_V1;}
+
+export interface IScanCleanupStampBuildIds extends IScanCleanupStampBuildIdsBase {
+    coreSchemaId: typeof SCAN_CLEANUP_STAMP_SCHEMA_ID;
+    gitSha?: string;
+}
+
+export type TScanCleanupStampBuildIds = IScanCleanupStampBuildIdsV1 | IScanCleanupStampBuildIds;
+
+interface IScanCleanupProvenanceStampBase {
     sourceSha256: string;
     resolvedPlanSha256: string;
     effectiveOptions: {perSourcePage: IScanCleanupStampEffectiveOptionsRecord[];};
     outputMappings: IScanCleanupOutputMapping[];
     pagePlanDigests: IScanCleanupStampPagePlanDigest[];
+}
+
+export interface IScanCleanupProvenanceStampV1 extends IScanCleanupProvenanceStampBase {
+    schemaVersion: typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1;
+    buildIds: IScanCleanupStampBuildIdsV1;
+}
+
+export interface IScanCleanupProvenanceStampV2 extends IScanCleanupProvenanceStampBase {
+    schemaVersion: typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION;
     buildIds: IScanCleanupStampBuildIds;
 }
+
+export type TScanCleanupProvenanceStamp = IScanCleanupProvenanceStampV1 | IScanCleanupProvenanceStampV2;
+export type IScanCleanupProvenanceStamp = TScanCleanupProvenanceStamp;
 
 export interface IBuildScanCleanupProvenanceStampInput {
     sourceSha256: string;
     effectiveOptions: readonly IScanCleanupStampEffectiveOptionsRecord[];
     outputMappings: readonly IScanCleanupOutputMapping[];
     pagePlanDigests: readonly IScanCleanupStampPagePlanDigest[];
-    buildIds: IScanCleanupStampBuildIds;
+    buildIds: TScanCleanupStampBuildIds;
 }
 
 export interface IScanCleanupStampVerification {
     status: 'valid' | 'unstamped' | 'invalid';
     reason?: string;
-    payload?: IScanCleanupProvenanceStamp;
+    payload?: TScanCleanupProvenanceStamp;
 }
 
 export interface IVerifyScanCleanupProvenanceStampOptions {
@@ -218,46 +240,53 @@ export function buildScanCleanupProvenanceStamp({
     outputMappings,
     pagePlanDigests,
     buildIds,
-}: IBuildScanCleanupProvenanceStampInput): IScanCleanupProvenanceStamp {
+}: IBuildScanCleanupProvenanceStampInput): TScanCleanupProvenanceStamp {
     const normalizedEffectiveOptions = [...effectiveOptions].sort(compareSourcePage);
     const normalizedPagePlanDigests = [...pagePlanDigests].sort(compareSourcePage);
     const normalizedMappings = [...outputMappings]
         .map(mapping => ({...mapping}))
         .sort(compareOutputMapping);
+    const gitSha = readBuildIdsGitSha(buildIds);
     const resolvedPlanSha256 = sha256ScanCleanupJson({
         sourceSha256,
         effectiveOptions: {perSourcePage: normalizedEffectiveOptions},
         outputMappings: normalizedMappings,
         pagePlanDigests: normalizedPagePlanDigests,
-        buildIds: {
-            ...buildIds,
-            nativeBinarySha256s: {...buildIds.nativeBinarySha256s},
-        },
+        buildIds: buildResolvedPlanBuildIds(buildIds),
     });
-    const payload: IScanCleanupProvenanceStamp = {
-        schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
+    const commonPayload = {
         sourceSha256,
         resolvedPlanSha256,
         effectiveOptions: {perSourcePage: normalizedEffectiveOptions},
         outputMappings: normalizedMappings,
         pagePlanDigests: normalizedPagePlanDigests,
-        buildIds: {
-            ...buildIds,
-            nativeBinarySha256s: {...buildIds.nativeBinarySha256s},
-        },
     };
+    let payload: TScanCleanupProvenanceStamp;
+    if (gitSha === null) {
+        payload = {
+            schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1,
+            ...commonPayload,
+            buildIds: buildV1BuildIds(buildIds),
+        };
+    } else {
+        payload = {
+            schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
+            ...commonPayload,
+            buildIds: buildV2BuildIds(buildIds, gitSha),
+        };
+    }
     assertScanCleanupProvenanceStamp(payload);
     return payload;
 }
 
 export function encodeScanCleanupProvenanceStampHex(
-    payload: IScanCleanupProvenanceStamp,
+    payload: TScanCleanupProvenanceStamp,
 ): string {
     assertScanCleanupProvenanceStamp(payload);
     return Buffer.from(canonicalScanCleanupJson(payload), 'utf8').toString('hex');
 }
 
-export function decodeScanCleanupProvenanceStampHex(hex: string): IScanCleanupProvenanceStamp {
+export function decodeScanCleanupProvenanceStampHex(hex: string): TScanCleanupProvenanceStamp {
     if (!/^[0-9a-f]+$/u.test(hex) || hex.length % 2 !== 0) {
         throw new Error('provenance stamp must be lowercase hexadecimal');
     }
@@ -277,6 +306,13 @@ export function decodeScanCleanupProvenanceStampHex(hex: string): IScanCleanupPr
     }
     assertScanCleanupProvenanceStamp(parsed);
     return parsed;
+}
+
+export function readScanCleanupStampGitSha(stamp: TScanCleanupProvenanceStamp): string | null {
+    if (stamp.schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1) {
+        return null;
+    }
+    return stamp.buildIds.gitSha ?? null;
 }
 
 export function verifyScanCleanupProvenanceStampHex(
@@ -326,7 +362,7 @@ export function verifyScanCleanupProvenanceStampHex(
     }
 }
 
-export function assertScanCleanupProvenanceStamp(value: unknown): asserts value is IScanCleanupProvenanceStamp {
+export function assertScanCleanupProvenanceStamp(value: unknown): asserts value is TScanCleanupProvenanceStamp {
     if (!isRecord(value)) fail('stamp must be an object');
     assertExactKeys(value, [
         'schemaVersion',
@@ -337,7 +373,12 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
         'pagePlanDigests',
         'buildIds',
     ]);
-    if (value.schemaVersion !== SCAN_CLEANUP_STAMP_SCHEMA_VERSION) fail('unsupported stamp schema');
+    if (
+        value.schemaVersion !== SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1
+        && value.schemaVersion !== SCAN_CLEANUP_STAMP_SCHEMA_VERSION
+    ) {
+        fail(`stamp schema version mismatch: expected v1 or v2, received ${String(value.schemaVersion)}`);
+    }
     assertSha256(value.sourceSha256, 'sourceSha256');
     assertSha256(value.resolvedPlanSha256, 'resolvedPlanSha256');
     if (!isRecord(value.effectiveOptions)) fail('effectiveOptions must be an object');
@@ -394,7 +435,7 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
     });
     assertStrictlyIncreasing(digestPages, 'pagePlanDigests');
     if (!isRecord(value.buildIds)) fail('buildIds must be an object');
-    assertBuildIds(value.buildIds);
+    assertBuildIds(value.buildIds, value.schemaVersion);
     const mappingPages = [...new Set(outputMappings.map(mapping => mapping.sourcePage))].sort((a, b) => a - b);
     if (JSON.stringify(mappingPages) !== JSON.stringify(sourcePages)) {
         fail('outputMappings do not cover every effective source page exactly');
@@ -437,9 +478,46 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
         effectiveOptions: value.effectiveOptions,
         outputMappings,
         pagePlanDigests: value.pagePlanDigests,
-        buildIds: value.buildIds,
+        buildIds: buildResolvedPlanBuildIds(value.buildIds),
     });
     if (recomputedPlan !== value.resolvedPlanSha256) fail('resolved plan digest does not match the stamp payload');
+}
+
+function readBuildIdsGitSha(buildIds: TScanCleanupStampBuildIds): string | null {
+    if (!('gitSha' in buildIds) || typeof buildIds.gitSha !== 'string') {
+        return null;
+    }
+    return buildIds.gitSha;
+}
+
+function buildV1BuildIds(buildIds: TScanCleanupStampBuildIds): IScanCleanupStampBuildIdsV1 {
+    return {
+        coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
+        coreBuildId: buildIds.coreBuildId,
+        nativeBinarySha256s: {...buildIds.nativeBinarySha256s},
+        assemblerBackend: buildIds.assemblerBackend,
+        transportMode: buildIds.transportMode,
+    };
+}
+
+function buildV2BuildIds(
+    buildIds: TScanCleanupStampBuildIds,
+    gitSha: string,
+): IScanCleanupStampBuildIds {
+    return {
+        coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+        coreBuildId: buildIds.coreBuildId,
+        nativeBinarySha256s: {...buildIds.nativeBinarySha256s},
+        assemblerBackend: buildIds.assemblerBackend,
+        transportMode: buildIds.transportMode,
+        gitSha,
+    };
+}
+
+function buildResolvedPlanBuildIds(
+    buildIds: TScanCleanupStampBuildIds,
+): IScanCleanupStampBuildIdsV1 {
+    return buildV1BuildIds(buildIds);
 }
 
 export function buildScanCleanupPagePlanDigest(
@@ -507,11 +585,29 @@ function isUnknownArray(value: unknown): value is unknown[] {
 }
 
 function assertExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
-    const expected = new Set(keys);
-    const actual = Object.keys(value);
-    if (actual.length !== expected.size || actual.some(key => !expected.has(key))) {
+    if (!hasExactKeys(value, keys)) {
         fail('stamp contains an unsupported or missing field');
     }
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
+    const expected = new Set(keys);
+    const actual = Object.keys(value);
+    return actual.length === expected.size && actual.every(key => expected.has(key));
+}
+
+function hasRequiredAndOptionalKeys(
+    value: Record<string, unknown>,
+    requiredKeys: readonly string[],
+    optionalKeys: readonly string[],
+) {
+    const actual = new Set(Object.keys(value));
+    const allowed = new Set([
+        ...requiredKeys,
+        ...optionalKeys,
+    ]);
+    return requiredKeys.every(key => actual.has(key))
+        && [...actual].every(key => allowed.has(key));
 }
 
 function assertPositiveInteger(value: unknown, label: string) {
@@ -700,15 +796,32 @@ function assertStampEffectiveOptions(
     if (value.experimental.autoDewarpDepth !== null && !positiveNumber(value.experimental.autoDewarpDepth)) fail('experimental.autoDewarpDepth is invalid');
 }
 
-function assertBuildIds(value: Record<string, unknown>) {
-    assertExactKeys(value, [
+function assertBuildIds(
+    value: Record<string, unknown>,
+    schemaVersion:
+        | typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1
+        | typeof SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
+): asserts value is TScanCleanupStampBuildIds {
+    const legacyKeys = [
         'coreSchemaId',
         'coreBuildId',
         'nativeBinarySha256s',
         'assemblerBackend',
         'transportMode',
-    ]);
-    if (value.coreSchemaId !== SCAN_CLEANUP_STAMP_SCHEMA_ID) fail('coreSchemaId is invalid');
+    ];
+    if (schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1) {
+        if (!hasExactKeys(value, legacyKeys)) {
+            fail('stamp schema version mismatch: v1 buildIds must use the legacy exact key set');
+        }
+    } else if (!hasRequiredAndOptionalKeys(value, legacyKeys, ['gitSha'])) {
+        fail('stamp schema v2 buildIds contains an unsupported or missing field');
+    }
+    const expectedSchemaId = schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1
+        ? SCAN_CLEANUP_STAMP_SCHEMA_ID_V1
+        : SCAN_CLEANUP_STAMP_SCHEMA_ID;
+    if (value.coreSchemaId !== expectedSchemaId) {
+        fail(`stamp schema version mismatch: schemaVersion v${String(schemaVersion)} requires coreSchemaId ${expectedSchemaId}`);
+    }
     for (const key of [
         'coreSchemaId',
         'coreBuildId',
@@ -738,6 +851,13 @@ function assertBuildIds(value: Record<string, unknown>) {
         'file-png',
         'source-preserved',
     ].includes(value.transportMode as string)) fail('transportMode is invalid');
+    if (
+        schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION
+        && 'gitSha' in value
+        && (typeof value.gitSha !== 'string' || !SCAN_CLEANUP_GIT_SHA_HEX_PATTERN.test(value.gitSha))
+    ) {
+        fail('stamp schema v2 buildIds.gitSha must be lowercase 40- or 64-character hex');
+    }
 }
 
 function positiveNumber(value: unknown): value is number {
