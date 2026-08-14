@@ -30,9 +30,11 @@ treat overengineering as a defect equal to under-enforcement.
 
 Trimmed by scope guard (recorded, not scheduled):
 - Hash-chained transcript receipt system (B1-full): replaced by a
-  lightweight rule — every user report gets a ledger row with verbatim
-  quote at session time; session close includes a check of the
-  conversation for unfiled reports. Honest residue accepted.
+  lightweight rule — every user report gets a ledger row at receipt
+  with a private transcript reference plus an approved redacted
+  excerpt (raw message text stays out of the tracked repo, per T2);
+  session close includes a check of the conversation for unfiled
+  reports. Honest residue accepted.
 - Digest-archived review provenance (B5-full): replaced by copying
   reviewer reports into the tracked docs dir. Done, not chained.
 - Full oracle-assurance formalism (mutation-class taxonomy): kept only
@@ -249,12 +251,16 @@ B2 Ratification before dispatch (user-adjudicated): reproduced artifact
    exempt. Severity: S1 = irreversible/silent content or document
    harm, preview divergence capable of falsifying closure confirmation,
    invalid ground truth; DEFAULT S1; only a user reply downgrades.
-B3 Build identity (mechanical; cheap): appVersion.ts dev branch returns
-   constant — surface commit SHA + staged-binary hashes in UI and
-   preview metadata; provenance stamp already carries native binary
-   SHAs + plan digests (extend with git SHA, renderer bundle hash,
-   request generation/cache key). Scope honesty: kills only the
-   stale-executable ambiguity.
+B3 Build identity (mechanical; cheap; NARROWED in S1 review): dev
+   builds surface the BUILD-TIME embedded commit SHA (esbuild define;
+   dirty tree embeds nothing; shipped runtime code never invokes git)
+   alongside the staged-binary hashes the provenance stamp already
+   carries. Extending the document-embedded stamp itself (gitSha,
+   renderer bundle hash, request generation) is DEFERRED to S4 and
+   requires schema versioning (v2 with v1-on-read): an unversioned
+   field addition makes already-installed builds hard-reject stamps
+   from newer builds. Scope honesty: kills only the stale-executable
+   ambiguity.
 B5 Closure/review archive (mechanical): machine-emitted gate tables
    (harness/audit/gates JSON) + reviewer reports + dispositions stored
    under a SINGLE tracked home (docs/scan-cleanup/) that REPLACES
@@ -293,21 +299,27 @@ O4 Preview/lifecycle gating: inkMarginShift + rasterIdentical gated
    tracked; harness needs a caller (O1) and machine-resident sources
    (Tier B) — status honesty: blocking-local until residency.
 O5 Perf: harness already emits wall_time_ms / mean_wall_time_ms_per_
-   page; benchmarks + one committed baseline exist in-tree. Work =
-   add a timing block to harness-baseline.json and ratchet it (hours,
-   not days); Electron-side budgets exist in matchedCanvas (one spec).
+   page, but labels them NON-COMPARABLE (uncontrolled machine/load
+   conditions) — they must not be ratcheted as-is. O5 stays
+   invoked-nonblocking until workload, runner, warm/cold policy,
+   variance rule, and a comparable baseline representation are
+   defined; Electron-side budgets exist in matchedCanvas (one spec).
 O6 Threshold-count tripwire (T1 flagship; ~10 lines, blocking):
    COMPUTES the named-const count at gate time and diffs against a
    committed machine-written baseline file; no transcribed count
    anywhere is authoritative; count may not rise without a paired
    baseline update in the same diff.
-O7 Changed-area repair (R11): scan-cleanup-core/** and
-   scan-cleanup-adapters/** currently match NO area — the blocking
-   smoke lane silently skips the package owning the preview/final
-   seam; one-line policy fix + a census test enumerating TOP-LEVEL
-   SOURCE DIRECTORIES (not workspace packages — adapters has no
-   package.json and a package-based census would miss it) so unmapped
-   dirs fail loudly.
+O7 Changed-area repair (R11) — LANDED in S1: scan-cleanup-core/** and
+   scan-cleanup-adapters/** matched NO area (the blocking smoke lane
+   silently skipped the package owning the preview/final seam). The
+   executable contract is scripts/release/policy.mjs, pinned by
+   tests/unit/architecture/changedAreaPolicyCensus.test.ts, which
+   derives top-level directories from TRACKED content (git ls-files —
+   not workspace packages, since adapters has no package.json, and not
+   the filesystem, which false-positives on gitignored dirs) and fails
+   on any unmapped dir. Landing it surfaced and mapped drizzle/,
+   patches/, build/, .husky/, and .github/actions/ as well. Scope:
+   directories only; top-level files are not censused.
 
 E2E
 Q1 Graduate the unblocked specs to the DESTINATION lane directly:
@@ -400,7 +412,9 @@ S4 Wire what exists (O1 narrowed + O6 computed + O5-lite): ratchet
    never-executed regress-net job DELETED (its gating variable was
    never set and its manifest path is private) unless a hosted
    manifest exists by then; threshold tripwire in computed-diff form
-   (see O6); timing block in harness-baseline.
+   (see O6). No timing ratchet here: the harness's timings are
+   non-comparable (O5) and a ratchet waits on defined benchmark
+   conditions.
 S5 e2e: TRIAGE FIRST — root-cause the destination lane's measured
    red streak (14/14 recent nightlies, rotating flaky tests plus the
    Nightly Maintenance "Fallow duplicates" failure) — then graduate

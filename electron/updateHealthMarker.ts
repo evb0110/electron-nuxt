@@ -98,7 +98,7 @@ export async function recordPendingUpdateStartup(currentVersion: string) {
         await writeMarker(updated);
         return {
             ...updated,
-            installationApplied: marker.pendingVersion === currentVersion,
+            installationApplied: normalizeVersion(marker.pendingVersion) === normalizeVersion(currentVersion),
         };
     });
 }
