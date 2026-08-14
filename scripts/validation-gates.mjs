@@ -263,7 +263,7 @@ function selectedUnitProjects(files, classification) {
         projects.push(...unitProjects);
     }
     if (classification.impacts.scripts || classification.impacts.build || classification.impacts.native) {
-        projects.push('unit-scripts');
+        projects.push('unit-scripts', 'unit-static-architecture');
     }
     for (const file of files) {
         if (file.startsWith('tests/e2e/electron/quarantine/')) {

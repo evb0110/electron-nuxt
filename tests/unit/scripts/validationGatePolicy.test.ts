@@ -222,6 +222,8 @@ describe('validation gate policy', () => {
             'native.resource-matrix',
             'build.strict',
         ]));
+        expect(plan.find(stage => stage.id === 'test.unit.affected-projects')?.args)
+            .toContain('unit-static-architecture');
     });
 
     it('keys lint caches by configuration, toolchain, platform, and architecture content', async () => {

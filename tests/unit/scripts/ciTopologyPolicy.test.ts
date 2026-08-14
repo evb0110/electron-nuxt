@@ -100,7 +100,6 @@ const requiredPrPushConditions = new Set([
 const supportedNonPrPushConditions = new Set([
     '${{ github.event_name == \'workflow_dispatch\' }}',
     '${{ github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\' }}',
-    '${{ (github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\') && vars.EVB_SCAN_CLEANUP_REGRESS_MANIFEST != \'\' }}',
 ]);
 
 function requiredPrPushJobs(jobs: Record<string, IWorkflowJob>) {
@@ -466,6 +465,8 @@ describe('CI topology policy', () => {
         expect(rustFuzz).toContain('for target in decode roundtrip; do');
         expect(rustFuzz).toContain('cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15');
         expect(workflow).toContain('run: pnpm run test:coverage');
+        expect(workflow).not.toContain('nightly_scan_cleanup_regress');
+        expect(workflow).not.toContain('EVB_SCAN_CLEANUP_REGRESS_MANIFEST');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:static:assets');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:production-dependency-audit');
         expect(workflowJob(workflow, 'nightly_maintenance')).not.toContain('pnpm --dir landing install');

@@ -119,9 +119,21 @@ The wrapper rejects unknown fields, flags on any unlisted page, over-cap
 results, missing audit rows, and every text-loss or silhouette flag. Fixtures
 without a baseline continue to run the audit with `--fail-on any`.
 `pnpm scan-cleanup:regress -- --full` adds the release-only
-`corpora.fullbook` gate; fullbook is intentionally not a nightly fixture.
+`corpora.fullbook` gate; fullbook remains an explicit release-only fixture.
 Evidence and the compact stdout table are written below the selected work
 directory.
+
+### Preview raster oracle
+
+Run the preview/final parity diagnostic through its package entry point or the
+equivalent direct Node invocation:
+
+```bash
+pnpm run diag:scan-cleanup-preview-harness -- \
+  --source /absolute/source.pdf --pages 1,2,99 --out .devkit/analysis/preview-oracle --check
+node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
+  --source /absolute/source.pdf --pages 1,2,99 --out .devkit/analysis/preview-oracle --check
+```
 
 ### Representative rendered oracle
 
@@ -130,6 +142,10 @@ infers the source-to-output page mapping, and checks page count, retained ink,
 geometry, paired-leaf alignment and scale, plus local component survival:
 
 ```bash
+pnpm run diag:scan-cleanup-representative-audit -- \
+  --source /absolute/source.pdf \
+  --cleaned /absolute/cleaned.pdf \
+  --out .devkit/analysis/representative-audit.json
 TSX_TSCONFIG_PATH=tsconfig.scripts.json node \
   scripts/diagnostics/scan-cleanup-representative-audit.mjs \
   --source /absolute/source.pdf \
