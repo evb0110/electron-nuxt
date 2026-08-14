@@ -1,5 +1,5 @@
 <!-- Provenance: copied verbatim from .devkit/analysis/branch-audit-2026-08-15/VERIFICATION.md (untracked working artifact), produced 2026-08-15. -->
-<!-- Verification pass behind the 2026-08-15 corrective audit; tracked so its evidence is recomputable from a clone. Body unmodified. -->
+<!-- Verification pass behind the 2026-08-15 corrective audit. Its companions are tracked beside it: REPORT.txt as audit-2026-08-15-corrective.md, CORRECTIONS.md as audit-2026-08-15-corrections.md, vps-verification.md as audit-2026-08-15-vps-verdicts.md. Body unmodified. -->
 
 # Adversarial verification of `REPORT.txt`
 

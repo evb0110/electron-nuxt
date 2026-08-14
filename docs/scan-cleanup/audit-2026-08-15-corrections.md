@@ -1,5 +1,5 @@
 <!-- Provenance: copied verbatim from .devkit/analysis/branch-audit-2026-08-15/CORRECTIONS.md (untracked working artifact), produced 2026-08-15. -->
-<!-- Corrections to the 2026-08-15 corrective audit; tracked so its verdicts stay readable from a clone. Body unmodified. -->
+<!-- Corrections to the 2026-08-15 corrective audit. Its companions are tracked beside it: REPORT.txt as audit-2026-08-15-corrective.md, VERIFICATION.md as audit-2026-08-15-verification.md, vps-verification.md as audit-2026-08-15-vps-verdicts.md. Body unmodified. -->
 
 # Corrections and improvements to REPORT.txt (branch-audit-2026-08-15)
 

@@ -1,6 +1,13 @@
 <!-- Provenance: copied verbatim from .devkit/analysis/weight-oracle/last.md (untracked working artifact), produced 2026-08-15. -->
 <!-- Latest stroke-weight oracle adjudication summary (FAIL); the full REPORT.md remains untracked. Body unmodified. -->
 
+# Stroke-weight oracle verdict (2026-08-15)
+
+> The `Artifacts` links below are absolute paths on the VPS host that ran the oracle. They
+> are recorded so the run can be identified, not resolved: none of those files is in this
+> repository, and the oracle itself is not tracked yet (ledger R16 step 3). Everything
+> below this note is the adjudication summary as written.
+
 Verdict: **FAIL**. Candidate `70f0c70a` does not pass the red-calibrated stroke-weight gate.
 
 | Tracked Luther p6–9 | Main | Candidate |
