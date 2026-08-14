@@ -354,6 +354,10 @@ fn detect_content_at_analysis_scale(
         garbage,
         calibration,
     );
+    // A side accepted by the trim loop owns its outer bound. Later evidence
+    // may still expand untrimmed sides, but it cannot silently reverse an
+    // accepted decision on the same side.
+    let trim_authority = AcceptedTrimAuthority::new(bounds, &accepted_trims);
     if matches!(purpose, ContentAnalysisPurpose::Crop { .. }) {
         if let Some(qualification) = early_picture_qualification.as_ref() {
             expand_bounds_for_structured_edge_text(
@@ -361,6 +365,7 @@ fn detect_content_at_analysis_scale(
                 qualification.structured_text_edge_sides,
                 working.width(),
                 working.height(),
+                trim_authority,
             );
         }
     }
@@ -397,15 +402,7 @@ fn detect_content_at_analysis_scale(
             calibration,
         )
     }) {
-        bounds = Some(match bounds {
-            Some(content_bounds) => PixelBounds {
-                left: content_bounds.left.min(picture_bounds.left),
-                top: content_bounds.top.min(picture_bounds.top),
-                right: content_bounds.right.max(picture_bounds.right),
-                bottom: content_bounds.bottom.max(picture_bounds.bottom),
-            },
-            None => picture_bounds,
-        });
+        bounds = union_picture_bounds(bounds, picture_bounds, trim_authority);
     }
     if matches!(purpose, ContentAnalysisPurpose::Crop { .. })
         && bounds.is_some_and(|bounds| is_edge_sliver(bounds, working.width(), working.height()))
@@ -425,6 +422,7 @@ fn detect_content_at_analysis_scale(
             bottom: side_confidence[3],
         },
         text_mask: text.summary,
+        shipped_bounds: bounds.map(diagnostic_rect),
         accepted_trims,
         protected_blocks,
     };
@@ -1291,6 +1289,7 @@ fn expand_bounds_for_structured_edge_text(
     edge_sides: u8,
     width: usize,
     height: usize,
+    trim_authority: AcceptedTrimAuthority,
 ) {
     let Some(mut bounds_value) = *bounds else {
         return;
@@ -1307,7 +1306,7 @@ fn expand_bounds_for_structured_edge_text(
     if edge_sides & CROP_ARTIFACT_BOTTOM != 0 {
         bounds_value.bottom = height.saturating_sub(1);
     }
-    *bounds = Some(bounds_value);
+    *bounds = trim_authority.clamp(Some(bounds_value));
 }
 
 fn retained_content_blocks(
@@ -1533,12 +1532,12 @@ fn annotate_text_evidence(
 
 fn block_evidence(block: &BlockStats) -> ContentBlockEvidence {
     ContentBlockEvidence {
-        bounds: ContentDiagnosticRect {
-            x_px: block.left,
-            y_px: block.top,
-            width_px: block.width(),
-            height_px: block.height(),
-        },
+        bounds: diagnostic_rect(PixelBounds {
+            left: block.left,
+            top: block.top,
+            right: block.right,
+            bottom: block.bottom,
+        }),
         picture_mask_overlap_pixels: block.picture_mask_overlap_pixels,
         heading_evidence: block.heading_evidence,
         grayscale_evidence: block.grayscale_supported,
@@ -1770,6 +1769,79 @@ impl PixelBounds {
     fn height(self) -> usize {
         self.bottom - self.top + 1
     }
+}
+
+fn diagnostic_rect(bounds: PixelBounds) -> ContentDiagnosticRect {
+    ContentDiagnosticRect {
+        x_px: bounds.left,
+        y_px: bounds.top,
+        width_px: bounds.width(),
+        height_px: bounds.height(),
+    }
+}
+
+/// Final authority for the four content-box sides. Accepted trim sides are
+/// immutable outer limits; sides with no accepted trim remain available to
+/// qualified picture and structured-edge evidence.
+#[derive(Clone, Copy, Debug, Default)]
+struct AcceptedTrimAuthority {
+    trimmed_bounds: Option<PixelBounds>,
+    accepted_sides: [bool; 4],
+}
+
+impl AcceptedTrimAuthority {
+    fn new(trimmed_bounds: Option<PixelBounds>, accepted_trims: &[ContentAcceptedTrim]) -> Self {
+        let mut accepted_sides = [false; 4];
+        for trim in accepted_trims {
+            let index = match trim.side {
+                ContentTrimSide::Left => 0,
+                ContentTrimSide::Top => 1,
+                ContentTrimSide::Right => 2,
+                ContentTrimSide::Bottom => 3,
+            };
+            accepted_sides[index] = true;
+        }
+        Self {
+            trimmed_bounds,
+            accepted_sides,
+        }
+    }
+
+    fn clamp(self, bounds: Option<PixelBounds>) -> Option<PixelBounds> {
+        let mut bounds = bounds?;
+        let Some(trimmed) = self.trimmed_bounds else {
+            return Some(bounds);
+        };
+        if self.accepted_sides[0] {
+            bounds.left = bounds.left.max(trimmed.left);
+        }
+        if self.accepted_sides[1] {
+            bounds.top = bounds.top.max(trimmed.top);
+        }
+        if self.accepted_sides[2] {
+            bounds.right = bounds.right.min(trimmed.right);
+        }
+        if self.accepted_sides[3] {
+            bounds.bottom = bounds.bottom.min(trimmed.bottom);
+        }
+        (bounds.left <= bounds.right && bounds.top <= bounds.bottom).then_some(bounds)
+    }
+}
+
+fn union_picture_bounds(
+    bounds: Option<PixelBounds>,
+    picture_bounds: PixelBounds,
+    trim_authority: AcceptedTrimAuthority,
+) -> Option<PixelBounds> {
+    trim_authority.clamp(Some(match bounds {
+        Some(content_bounds) => PixelBounds {
+            left: content_bounds.left.min(picture_bounds.left),
+            top: content_bounds.top.min(picture_bounds.top),
+            right: content_bounds.right.max(picture_bounds.right),
+            bottom: content_bounds.bottom.max(picture_bounds.bottom),
+        },
+        None => picture_bounds,
+    }))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3940,5 +4012,77 @@ mod tests {
         assert!(bounds.y <= 48.0);
         assert!(bounds.right() >= 286.0);
         assert!(bounds.bottom() >= 382.0);
+        let shipped = result
+            .diagnostics
+            .expect("content diagnostics")
+            .shipped_bounds
+            .expect("the shipped crop has diagnostic geometry");
+        assert_eq!(shipped.x_px as f64, bounds.x);
+        assert_eq!(shipped.y_px as f64, bounds.y);
+        assert_eq!(shipped.width_px as f64, bounds.width);
+        assert_eq!(shipped.height_px as f64, bounds.height);
+    }
+
+    #[test]
+    fn accepted_top_trim_is_not_reexpanded_by_picture_geometry() {
+        let trimmed = PixelBounds {
+            left: 60,
+            top: 80,
+            right: 140,
+            bottom: 160,
+        };
+        let picture = PixelBounds {
+            left: 90,
+            top: 40,
+            right: 110,
+            bottom: 70,
+        };
+
+        let accepted = [ContentAcceptedTrim {
+            side: ContentTrimSide::Top,
+            iteration: 1,
+            score: 1.0,
+            threshold: 0.5,
+            content_distance_sum: 1.0,
+            garbage_distance_sum: 0.0,
+            removed_blocks: Vec::new(),
+        }];
+        let authority = AcceptedTrimAuthority::new(Some(trimmed), &accepted);
+
+        let shipped = union_picture_bounds(Some(trimmed), picture, authority).unwrap();
+
+        assert_eq!(shipped.top, trimmed.top);
+        assert_eq!(shipped.left, trimmed.left);
+    }
+
+    #[test]
+    fn structured_edge_write_does_not_cross_an_accepted_top_trim() {
+        let trimmed = PixelBounds {
+            left: 60,
+            top: 80,
+            right: 140,
+            bottom: 160,
+        };
+        let mut shipped = Some(trimmed);
+        let accepted = [ContentAcceptedTrim {
+            side: ContentTrimSide::Top,
+            iteration: 1,
+            score: 1.0,
+            threshold: 0.5,
+            content_distance_sum: 1.0,
+            garbage_distance_sum: 0.0,
+            removed_blocks: Vec::new(),
+        }];
+        let authority = AcceptedTrimAuthority::new(Some(trimmed), &accepted);
+
+        expand_bounds_for_structured_edge_text(
+            &mut shipped,
+            CROP_ARTIFACT_TOP,
+            200,
+            200,
+            authority,
+        );
+
+        assert_eq!(shipped.unwrap().top, trimmed.top);
     }
 }

@@ -159,6 +159,9 @@ function decodeContentDiagnostics(
                 decodeBlockEvidence(block, `protected block ${index}`)
             ));
         })();
+    const shippedBounds = value.shippedBounds === undefined
+        ? undefined
+        : decodePreviewRect(value.shippedBounds, 'shipped content bounds');
     return {
         sideConfidence: decodeContentSideConfidence(value.sideConfidence),
         textMask: {
@@ -170,6 +173,7 @@ function decodeContentDiagnostics(
                 ? {}
                 : {bounds: decodePreviewRect(textMask.bounds, 'text-mask bounds')}),
         },
+        ...(shippedBounds === undefined ? {} : {shippedBounds}),
         ...(acceptedTrims === undefined ? {} : {acceptedTrims}),
         ...(protectedBlocks === undefined ? {} : {protectedBlocks}),
     };

@@ -276,6 +276,7 @@ function contentDiagnostics(value: unknown, artifact: TArtifact, label: string) 
     integer(textMask.inkPixels, artifact, `${label}.textMask.inkPixels`);
     integer(textMask.lineCount, artifact, `${label}.textMask.lineCount`);
     if (textMask.bounds !== undefined) pixelRect(textMask.bounds, artifact, `${label}.textMask.bounds`);
+    if (source.shippedBounds !== undefined) pixelRect(source.shippedBounds, artifact, `${label}.shippedBounds`);
     const block = (item: unknown, itemLabel: string) => {
         const candidate = record(item, artifact, itemLabel);
         pixelRect(candidate.bounds, artifact, `${itemLabel}.bounds`);
