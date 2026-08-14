@@ -6,6 +6,7 @@ import {
     mkdir,
     readFile,
     readdir,
+    rm,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -603,8 +604,12 @@ for (let index = 0; index < top.length; index += 1) {
 // An offender with no source match has no pair crop; the sheet must not take the whole
 // run down with it, because the results file is still unwritten at this point.
 const pairedTop = top.filter(item => item.pairCrop);
+const pairSheetPath = join(root, 'top-10-pairs-contact-sheet.png');
+// Drop any sheet from an earlier run first, so a skipped render cannot leave a stale
+// image sitting next to fresh results as if it belonged to them.
+await rm(pairSheetPath, {force: true});
 if (pairedTop.length > 0) {
-    await saveContactSheet(pairedTop, join(root, 'top-10-pairs-contact-sheet.png'));
+    await saveContactSheet(pairedTop, pairSheetPath);
 }
 
 const matchedTop = top.filter(item => item.amplificationVsSource !== null);

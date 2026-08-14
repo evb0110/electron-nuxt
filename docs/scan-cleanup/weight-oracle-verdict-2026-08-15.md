@@ -5,8 +5,9 @@
 
 > The `Artifacts` links below are absolute paths on the VPS host that ran the oracle. They
 > are recorded so the run can be identified, not resolved: none of those files is in this
-> repository, and the oracle itself is not tracked yet (ledger R16 step 3). Everything
-> below this note is the adjudication summary as written.
+> repository, and the oracle itself is not tracked yet: the ledger's R18 S5 supersedes
+> R16 step 3 and retains this VPS job as S5(c) prototype evidence only. Everything below
+> this note is the adjudication summary as written.
 
 Verdict: **FAIL**. Candidate `70f0c70a` does not pass the red-calibrated stroke-weight gate.
 
