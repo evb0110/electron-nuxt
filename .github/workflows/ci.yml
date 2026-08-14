@@ -267,6 +267,13 @@ jobs:
       - name: Rust tests
         run: pnpm run test:rust
 
+      - name: Scan-cleanup catastrophe baseline
+        run: |
+          cargo run --manifest-path native/Cargo.toml --locked --release \
+            --package evb-scan-cleanup --bin scan-cleanup-harness -- \
+            --baseline native/scan-cleanup/harness-baseline.json \
+            --out "$RUNNER_TEMP/scan-cleanup-harness"
+
       - name: Rust formatting and clippy
         run: pnpm run lint:rust
 
@@ -277,6 +284,53 @@ jobs:
 
       - name: Strict build
         run: pnpm run build:strict
+
+  pr_scan_cleanup_oracles:
+    name: Scan Cleanup Export Oracles
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install PDF audit tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils qpdf
+
+      - name: Build scan-cleanup native tool
+        run: pnpm run build:scan-cleanup
+
+      - name: Preview and export parity gate
+        run: |
+          node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
+            --source tests/fixtures/electron/test-scanned.pdf \
+            --pages 1 \
+            --out "$RUNNER_TEMP/scan-cleanup-preview-harness" \
+            --check
+
+      - name: Export word-loss gate
+        run: |
+          node scripts/diagnostics/scan-cleanup-word-loss-audit.mjs \
+            --source tests/fixtures/electron/test-scanned.pdf \
+            --cleaned "$RUNNER_TEMP/scan-cleanup-preview-harness/final-reference.pdf" \
+            --mapping "$RUNNER_TEMP/scan-cleanup-preview-harness/final-reference.pdf.summary.json" \
+            --from 1 \
+            --to 1 \
+            --out "$RUNNER_TEMP/scan-cleanup-word-loss-audit.json" \
+            --fail-on text-loss
 
   pr_landing_quality:
     name: Landing Quality Gates For Changed Sources
@@ -360,6 +414,7 @@ jobs:
       - pr_electron_blocking_smoke
       - pr_browser_integration
       - pr_native_build_safety
+      - pr_scan_cleanup_oracles
       - pr_landing_quality
     runs-on: ubuntu-latest
     timeout-minutes: 5

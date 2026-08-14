@@ -1,1 +1,25 @@
 node scripts/check-commit-attribution.mjs --pre-push "$1" "$2"
+
+oracle_root=.devkit/scratch/pre-push-scan-cleanup-oracles
+
+cargo run --manifest-path native/Cargo.toml --locked --release \
+  --package evb-scan-cleanup --bin scan-cleanup-harness -- \
+  --baseline native/scan-cleanup/harness-baseline.json \
+  --out "$oracle_root/native"
+
+pnpm run build:scan-cleanup
+
+node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
+  --source tests/fixtures/electron/test-scanned.pdf \
+  --pages 1 \
+  --out "$oracle_root/preview" \
+  --check
+
+node scripts/diagnostics/scan-cleanup-word-loss-audit.mjs \
+  --source tests/fixtures/electron/test-scanned.pdf \
+  --cleaned "$oracle_root/preview/final-reference.pdf" \
+  --mapping "$oracle_root/preview/final-reference.pdf.summary.json" \
+  --from 1 \
+  --to 1 \
+  --out "$oracle_root/word-loss.json" \
+  --fail-on text-loss
