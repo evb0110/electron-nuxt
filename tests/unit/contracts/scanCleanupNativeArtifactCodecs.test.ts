@@ -151,7 +151,9 @@ describe('scan-cleanup native artifact codecs', () => {
             ...pageMetadata(),
             splitDiagnostics: diagnostics,
         };
-        expect(decodeNativeScanCleanupPageMetadata(page)).toBe(page);
+        const decoded = decodeNativeScanCleanupPageMetadata(page);
+        expect(decoded).toBe(page);
+        expect(decoded.splitDiagnostics).toEqual(diagnostics);
 
         const {
             offcutPopulatedScore: _omitted,
