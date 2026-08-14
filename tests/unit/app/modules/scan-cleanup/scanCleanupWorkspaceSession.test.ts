@@ -82,6 +82,15 @@ vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
     if (key === 'scanCleanup.etaSeconds') {
         return `About ${String(values?.seconds)} sec left`;
     }
+    if (key === 'emptyState.preparingBatchEta') {
+        return `Estimated time left: ${String(values?.eta)}`;
+    }
+    if (key === 'scanCleanup.runProgress.assembling') {
+        return 'Building PDF';
+    }
+    if (key === 'scanCleanup.runProgress.handoff') {
+        return 'Opening result';
+    }
     return values?.output === undefined ? key : `${key}:${String(values.output)}`;
 }})}));
 
@@ -1029,6 +1038,111 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
 
         expect(mounted.session.detection.progressEtaText.value).toBe('About 3 sec left');
+
+        mounted.unmount();
+    });
+
+    it('uses the worker ETA across the raster run and switches to terminal labels', async () => {
+        capability.value = capabilityHarness().value;
+        const documentKey = `run-eta-${Date.now()}`;
+        const mounted = mountSession(documentKey, {totalPages: () => 6});
+        scanCleanupRun.activeJobId = 'cleanup-eta';
+        scanCleanupRun.ownerDocumentRef = `/docs/${documentKey}.pdf`;
+        scanCleanupRun.ownerDocumentRevision = documentKey;
+        scanCleanupRun.ownerId = mounted.session.run.ownerId;
+
+        const progressEvents: Array<TScanCleanupJobState['progress']> = [
+            {
+                stage: 'normalizing',
+                completedUnits: 0,
+                totalUnits: 6,
+                percent: 0,
+            },
+            {
+                stage: 'probing',
+                completedUnits: 1,
+                totalUnits: 6,
+                percent: 2,
+                etaSeconds: 125,
+            },
+            {
+                stage: 'extracting',
+                completedUnits: 1,
+                totalUnits: 6,
+                percent: 6,
+                etaSeconds: 120,
+            },
+            {
+                stage: 'rasterizing',
+                completedUnits: 1,
+                totalUnits: 6,
+                percent: 12,
+                etaSeconds: 110,
+            },
+            {
+                stage: 'rendering',
+                completedUnits: 1,
+                totalUnits: 6,
+                percent: 30,
+                etaSeconds: 95,
+            },
+            {
+                stage: 'rendering',
+                completedUnits: 6,
+                totalUnits: 6,
+                percent: 84,
+                etaSeconds: 20,
+            },
+            {
+                stage: 'collecting',
+                completedUnits: 1,
+                totalUnits: 6,
+                percent: 86,
+                etaSeconds: 15,
+            },
+            {
+                stage: 'assembling',
+                completedUnits: 1,
+                totalUnits: 6,
+                percent: 92,
+                etaSeconds: 8,
+            },
+            {
+                stage: 'handoff',
+                completedUnits: 1,
+                totalUnits: 1,
+                percent: 100,
+                etaSeconds: 0,
+            },
+        ];
+        const expectedEtaTexts = [
+            'scanCleanup.etaPending',
+            'Estimated time left: 2:05',
+            'Estimated time left: 2:00',
+            'Estimated time left: 1:50',
+            'Estimated time left: 1:35',
+            'Building PDF',
+            'Building PDF',
+            'Building PDF',
+            'Opening result',
+        ];
+
+        for (const [
+            index,
+            event,
+        ] of progressEvents.entries()) {
+            scanCleanupRun.jobState = {
+                jobId: 'cleanup-eta',
+                status: 'running',
+                progress: event,
+                updatedAtMs: Date.now() + index,
+            };
+            await nextTick();
+            expect(mounted.session.run.progressEtaText.value).toBe(expectedEtaTexts[index]);
+            if (index >= 1) {
+                expect(mounted.session.run.progressEtaText.value).not.toBe('scanCleanup.etaPending');
+            }
+        }
 
         mounted.unmount();
     });
