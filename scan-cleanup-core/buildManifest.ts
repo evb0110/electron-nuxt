@@ -53,15 +53,22 @@ export async function buildScanCleanupStampBuildIds({
     if (Object.keys(nativeBinarySha256s).length === 0) {
         nativeBinarySha256s.assembler = hashText(`assembler:${assemblerBackend}`);
     }
-    return {
+    const legacyBuildIds = {
         coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-        coreSchemaId: gitSha === null
-            ? SCAN_CLEANUP_STAMP_SCHEMA_ID_V1
-            : SCAN_CLEANUP_STAMP_SCHEMA_ID,
         nativeBinarySha256s,
         assemblerBackend,
         transportMode,
-        ...(gitSha === null ? {} : {gitSha}),
+    };
+    if (gitSha === null) {
+        return {
+            ...legacyBuildIds,
+            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
+        };
+    }
+    return {
+        ...legacyBuildIds,
+        coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+        gitSha,
     };
 }
 

@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import type {TScanCleanupStampBuildIds} from '@scan-cleanup-core/index';
 import {
     SCAN_CLEANUP_CORE_BUILD_ID,
     SCAN_CLEANUP_STAMP_SCHEMA_ID,
@@ -70,6 +71,26 @@ function effectiveOptions(pageNumber: number) {
     };
 }
 
+function buildFixtureBuildIds(gitSha?: string): TScanCleanupStampBuildIds {
+    if (gitSha === undefined) {
+        return {
+            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
+            coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
+            nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
+            assemblerBackend: 'source-preserved',
+            transportMode: 'source-preserved',
+        };
+    }
+    return {
+        coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+        coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
+        nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
+        assemblerBackend: 'source-preserved',
+        transportMode: 'source-preserved',
+        gitSha,
+    };
+}
+
 function buildSinglePageStamp(gitSha?: string) {
     const record = effectiveOptions(1);
     return buildScanCleanupProvenanceStamp({
@@ -84,14 +105,7 @@ function buildSinglePageStamp(gitSha?: string) {
             blank: false,
         }],
         pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
-        buildIds: {
-            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-            coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-            nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
-            assemblerBackend: 'source-preserved',
-            transportMode: 'source-preserved',
-            ...(gitSha === undefined ? {} : {gitSha}),
-        },
+        buildIds: buildFixtureBuildIds(gitSha),
     });
 }
 
@@ -158,13 +172,7 @@ describe('scan-cleanup provenance stamp contract', () => {
                 record.options,
                 {sourcePage: record.sourcePage},
             )),
-            buildIds: {
-                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-                coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-                nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
-                assemblerBackend: 'source-preserved',
-                transportMode: 'source-preserved',
-            },
+            buildIds: buildFixtureBuildIds(),
         });
         const hex = encodeScanCleanupProvenanceStampHex(stamp);
         expect(stamp.schemaVersion).toBe(SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1);
@@ -276,17 +284,40 @@ describe('scan-cleanup provenance stamp contract', () => {
             .toThrow('stamp contains an unsupported or missing field');
     });
 
+    it('rejects a v2 stamp without gitSha (v2 exists only to carry it)', () => {
+        const v2Stamp = buildSinglePageStamp('c'.repeat(40));
+        const withoutGitSha: Record<string, unknown> = {
+            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+            coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
+            nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
+            assemblerBackend: 'source-preserved',
+            transportMode: 'source-preserved',
+        };
+        const invalidStamp: Record<string, unknown> = {
+            ...v2Stamp,
+            buildIds: withoutGitSha,
+        };
+
+        expect(() => assertScanCleanupProvenanceStamp(invalidStamp))
+            .toThrow('stamp schema v2 buildIds must carry gitSha alongside the legacy key set');
+    });
+
     it('rejects v2 buildIds missing any legacy key', () => {
         const v2Stamp = buildSinglePageStamp('c'.repeat(40));
-        const {
-            coreBuildId: _coreBuildId,
-            ...missingCoreBuildId
-        } = v2Stamp.buildIds;
-
-        expect(() => assertScanCleanupProvenanceStamp({
+        const missingCoreBuildId: Record<string, unknown> = {
+            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+            nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
+            assemblerBackend: 'source-preserved',
+            transportMode: 'source-preserved',
+            gitSha: 'c'.repeat(40),
+        };
+        const invalidStamp: Record<string, unknown> = {
             ...v2Stamp,
             buildIds: missingCoreBuildId,
-        })).toThrow('stamp schema v2 buildIds contains an unsupported or missing field');
+        };
+
+        expect(() => assertScanCleanupProvenanceStamp(invalidStamp))
+            .toThrow('stamp schema v2 buildIds must carry gitSha alongside the legacy key set');
     });
 
     it.each([
@@ -387,13 +418,7 @@ describe('scan-cleanup provenance stamp contract', () => {
                 blank: false,
             }],
             pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
-            buildIds: {
-                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-                coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-                nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
-                assemblerBackend: 'source-preserved',
-                transportMode: 'source-preserved',
-            },
+            buildIds: buildFixtureBuildIds(),
         });
         expect(() => assertScanCleanupProvenanceStamp({
             ...malformed,
@@ -441,13 +466,7 @@ describe('scan-cleanup provenance stamp contract', () => {
                 blank: false,
             }],
             pagePlanDigests: [buildScanCleanupPagePlanDigest(1, record.options, {})],
-            buildIds: {
-                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-                coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-                nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
-                assemblerBackend: 'source-preserved',
-                transportMode: 'source-preserved',
-            },
+            buildIds: buildFixtureBuildIds(),
         })).toThrow('intersecting');
     });
 
@@ -466,13 +485,7 @@ describe('scan-cleanup provenance stamp contract', () => {
                 blank: false,
             }],
             pagePlanDigests: [buildScanCleanupPagePlanDigest(1, nonFiniteRecord.options, {})],
-            buildIds: {
-                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-                coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-                nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
-                assemblerBackend: 'source-preserved',
-                transportMode: 'source-preserved',
-            },
+            buildIds: buildFixtureBuildIds(),
         })).toThrow('Cannot canonicalize non-finite number');
 
         const inconsistentRecord = effectiveOptions(1);
@@ -502,13 +515,7 @@ describe('scan-cleanup provenance stamp contract', () => {
                 blank: false,
             }],
             pagePlanDigests: [buildScanCleanupPagePlanDigest(1, inconsistentRecord.options, {})],
-            buildIds: {
-                coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-                coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-                nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
-                assemblerBackend: 'source-preserved',
-                transportMode: 'source-preserved',
-            },
+            buildIds: buildFixtureBuildIds(),
         })).toThrow('resolvedTextToneDiagnostics is invalid');
     });
 });

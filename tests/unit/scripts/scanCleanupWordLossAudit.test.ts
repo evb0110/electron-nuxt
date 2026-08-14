@@ -23,7 +23,7 @@ import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides
 import {resolveCliNativeToolPath} from '@scripts/scanCleanupCliAdapters';
 import {
     SCAN_CLEANUP_CORE_BUILD_ID,
-    SCAN_CLEANUP_STAMP_SCHEMA_ID,
+    SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
     buildScanCleanupPagePlanDigest,
     buildScanCleanupProvenanceStamp,
     encodeScanCleanupProvenanceStampHex,
@@ -448,7 +448,7 @@ describe('scan-cleanup word-loss audit stamp verification', () => {
                     {sourcePage: 1},
                 )],
                 buildIds: {
-                    coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+                    coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
                     coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
                     nativeBinarySha256s: {scanCleanup: 'b'.repeat(64)},
                     assemblerBackend: 'source-preserved',
