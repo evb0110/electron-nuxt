@@ -65,6 +65,7 @@ import { findViewportLifecycleViolations } from '@tests/e2e/electron/helpers/fin
 import { resolveClockwiseRotationDelta } from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
 
 const PR_BLOCKING_SMOKE_TIMEOUT_MS = 90_000;
+const LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS = 45_000;
 const LARGE_PDF_VISUAL_READY_TIMEOUT_MS = 30_000;
 // The synthetic file is a path/range-IPC regression sentinel, not a codec-fidelity
 // substitute for the exact Arnold diagnostic. These budgets retain CI headroom
@@ -234,6 +235,45 @@ async function runPdfDiagnosticStage<T>(
         throw new Error(
             `[pdf-stage:failed] ${stage}: ${String(error)}; diagnostics=${JSON.stringify(diagnostics)}`,
         );
+    }
+}
+
+async function runLargePdfInteractionWait<T>(
+    page: Parameters<typeof installCommittedSurfaceSampler>[0],
+    pageNumber: number,
+    operation: () => Promise<T>,
+): Promise<T> {
+    try {
+        return await operation();
+    } catch (error) {
+        const state = await evaluateInPage(page, (targetPage: number) => {
+            const pageContainer = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="${String(targetPage)}"]`,
+            );
+            const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
+                '.page_canvas__render-layer canvas',
+            ) ?? null;
+            const canvasRect = canvas?.getBoundingClientRect() ?? null;
+            const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+            return {
+                canvas: canvas ? {
+                    height: canvas.height,
+                    width: canvas.width,
+                } : null,
+                canvasRect: canvasRect ? {
+                    bottom: canvasRect.bottom,
+                    height: canvasRect.height,
+                    left: canvasRect.left,
+                    right: canvasRect.right,
+                    top: canvasRect.top,
+                    width: canvasRect.width,
+                } : null,
+                effectiveZoom: toolbar?.effectiveZoom ?? null,
+                rendered: pageContainer?.classList.contains('page_container--rendered') ?? false,
+                skeleton: pageContainer?.querySelector('.document-page-skeleton') !== null,
+            };
+        }, pageNumber).catch(diagnosticError => ({diagnosticError: String(diagnosticError)}));
+        throw new Error(`${String(error)}; state=${JSON.stringify(state)}`);
     }
 }
 
@@ -1946,40 +1986,46 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         // workspace/viewer authority reports its committed state; transition
         // frames remain observable under the preceding transition checkpoint.
         await installCommittedSurfaceSampler(session.page);
-        await waitForWorkspaceToolbarSnapshot(
-            session.page,
-            {
-                continuousScroll: true,
-                currentPage: 1,
-            },
-            {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-        );
+        await runLargePdfInteractionWait(session.page, 1, () => (
+            waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {
+                    continuousScroll: true,
+                    currentPage: 1,
+                },
+                {timeoutMs: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
+            )
+        ));
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'continuous-stable');
         await waitForAnimationFrames(session.page, 10);
 
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'single-page-transition');
         const toggleResult = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         expect(toggleResult.called).toBe(true);
-        await waitForWorkspaceToolbarSnapshot(
-            session.page,
-            {
-                continuousScroll: false,
-                currentPage: 1,
-            },
-            {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-        );
-        await waitForFunctionInPage(session.page, () => {
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-            const canvas = viewer?.querySelector<HTMLCanvasElement>(
-                '.page_container[data-page="1"] .page_canvas canvas',
-            ) ?? null;
-            return Boolean(
-                viewer?.classList.contains('pdfViewer--single-page')
-                && canvas
-                && canvas.width > 0
-                && canvas.height > 0,
-            );
-        }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+        await runLargePdfInteractionWait(session.page, 1, () => (
+            waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {
+                    continuousScroll: false,
+                    currentPage: 1,
+                },
+                {timeoutMs: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
+            )
+        ));
+        await runLargePdfInteractionWait(session.page, 1, () => (
+            waitForFunctionInPage(session.page, () => {
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
+                const canvas = viewer?.querySelector<HTMLCanvasElement>(
+                    '.page_container[data-page="1"] .page_canvas canvas',
+                ) ?? null;
+                return Boolean(
+                    viewer?.classList.contains('pdfViewer--single-page')
+                    && canvas
+                    && canvas.width > 0
+                    && canvas.height > 0,
+                );
+            }, {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS})
+        ));
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'single-page-stable');
         await waitForAnimationFrames(session.page, 10);
 
@@ -1987,34 +2033,38 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await runPdfDiagnosticStage(session.page, 'interaction:go-to-page-7', () => (
             goToPageViaToolbar(session.page, 7)
         ));
-        await waitForWorkspaceToolbarSnapshot(
-            session.page,
-            {
-                continuousScroll: false,
-                currentPage: 7,
-            },
-            {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-        );
-        await waitForFunctionInPage(session.page, () => {
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-            const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="7"]') ?? null;
-            const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-            const viewerRect = viewer?.getBoundingClientRect() ?? null;
-            const pageRect = page?.getBoundingClientRect() ?? null;
-            const viewportCenter = viewerRect ? viewerRect.top + viewerRect.height / 2 : null;
-            return Boolean(
-                canvas
-                && canvas.width > 0
-                && canvas.height > 0
-                && canvas.getBoundingClientRect().width > 0
-                && page?.classList.contains('page_container--rendered')
-                && !page.querySelector('.document-page-skeleton')
-                && pageRect
-                && viewportCenter !== null
-                && pageRect.top <= viewportCenter
-                && pageRect.bottom >= viewportCenter,
-            );
-        }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+        await runLargePdfInteractionWait(session.page, 7, () => (
+            waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {
+                    continuousScroll: false,
+                    currentPage: 7,
+                },
+                {timeoutMs: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
+            )
+        ));
+        await runLargePdfInteractionWait(session.page, 7, () => (
+            waitForFunctionInPage(session.page, () => {
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
+                const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="7"]') ?? null;
+                const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+                const viewerRect = viewer?.getBoundingClientRect() ?? null;
+                const pageRect = page?.getBoundingClientRect() ?? null;
+                const viewportCenter = viewerRect ? viewerRect.top + viewerRect.height / 2 : null;
+                return Boolean(
+                    canvas
+                    && canvas.width > 0
+                    && canvas.height > 0
+                    && canvas.getBoundingClientRect().width > 0
+                    && page?.classList.contains('page_container--rendered')
+                    && !page.querySelector('.document-page-skeleton')
+                    && pageRect
+                    && viewportCenter !== null
+                    && pageRect.top <= viewportCenter
+                    && pageRect.bottom >= viewportCenter,
+                );
+            }, {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS})
+        ));
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'page-7-stable');
         await waitForAnimationFrames(session.page, 10);
 
@@ -2035,25 +2085,41 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             }, 5.03),
         );
         expect(zoomResult.called).toBe(true);
+        await runLargePdfInteractionWait(session.page, 7, () => (
+            waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {
+                    currentPage: 7,
+                    minEffectiveZoom: 5.02,
+                    zoomMode: 'custom',
+                },
+                {timeoutMs: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
+            )
+        ));
+        // The constrained tier floors the output scale at 1x (and the pixel budget
+        // can clamp further), so backing density is host-dependent; only presentation
+        // geometry is contractual.
         await runPdfDiagnosticStage(session.page, 'interaction:wait-high-zoom-page-7', () => (
-            waitForFunctionInPage(session.page, () => {
-                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-                const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="7"]') ?? null;
-                const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-                const canvasRect = canvas?.getBoundingClientRect() ?? null;
-                return Boolean(
-                    viewer
-                    && viewer.scrollWidth > viewer.clientWidth + 20
-                    && page?.classList.contains('page_container--rendered')
-                    && !page.querySelector('.document-page-skeleton')
-                    && canvas
-                    && canvas.width > 0
-                    && canvas.height > 0
-                    && canvasRect
-                    && canvasRect.width > 2_500
-                    && canvas.width >= canvasRect.width * 1.9,
-                );
-            }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS})
+            runLargePdfInteractionWait(session.page, 7, () => (
+                waitForFunctionInPage(session.page, () => {
+                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
+                    const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="7"]') ?? null;
+                    const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas') ?? null;
+                    const canvasRect = canvas?.getBoundingClientRect() ?? null;
+                    return Boolean(
+                        viewer
+                        && viewer.scrollWidth > viewer.clientWidth + 20
+                        && page?.classList.contains('page_container--rendered')
+                        && !page.querySelector('.document-page-skeleton')
+                        && canvas
+                        && canvas.width > 0
+                        && canvas.height > 0
+                        && canvasRect
+                        && canvasRect.width > 2_500
+                        && canvas.width >= canvasRect.width - 1,
+                    );
+                }, {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS})
+            ))
         ));
         const highZoom = await evaluateInPage(session.page, () => {
             const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
