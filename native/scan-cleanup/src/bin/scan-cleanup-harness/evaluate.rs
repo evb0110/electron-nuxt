@@ -48,7 +48,7 @@ impl ComparableReport {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CorpusInventory {
     pub total: usize,
@@ -402,6 +402,12 @@ pub fn compare_catastrophes(
     current: &ComparableReport,
     baseline: &ComparableReport,
 ) -> Result<Vec<String>, String> {
+    if current.corpus != baseline.corpus {
+        return Err(format!(
+            "corpus inventory differs from baseline: current {:?}, baseline {:?}",
+            current.corpus, baseline.corpus
+        ));
+    }
     let categories = current
         .catastrophes
         .keys()
@@ -1044,11 +1050,14 @@ mod tests {
     use evb_scan_cleanup::{engine::render::clean_page, OutputMode};
 
     #[test]
-    fn catastrophe_budget_rejects_only_increases() {
+    fn catastrophe_budget_rejects_regressions_and_corpus_drift() {
         let baseline_json = include_str!("../../../harness-baseline.json");
         let baseline: ComparableReport = serde_json::from_str(baseline_json).unwrap();
-        let equal: ComparableReport = serde_json::from_str(baseline_json).unwrap();
-        assert!(compare_catastrophes(&equal, &baseline).unwrap().is_empty());
+        let corpus = crate::corpus::build_corpus().unwrap();
+        let current = evaluate_corpus(&corpus, 1, CalibrationConfig::default()).unwrap();
+        assert!(compare_catastrophes(&current.comparable, &baseline)
+            .unwrap()
+            .is_empty());
 
         let mut regressed: ComparableReport = serde_json::from_str(baseline_json).unwrap();
         *regressed
@@ -1061,6 +1070,12 @@ mod tests {
             compare_catastrophes(&regressed, &baseline).unwrap(),
             ["despeckle.erasedPages: 1 > baseline 0"]
         );
+
+        let mut shrunk: ComparableReport = serde_json::from_str(baseline_json).unwrap();
+        shrunk.corpus.total -= 1;
+        assert!(compare_catastrophes(&shrunk, &baseline)
+            .unwrap_err()
+            .starts_with("corpus inventory differs from baseline:"));
     }
 
     #[test]

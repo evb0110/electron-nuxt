@@ -1,42 +1,18 @@
 {
   "schemaVersion": 2,
-  "catastrophes": {
-    "binarization": {
-      "blankRegionFloods": 0,
-      "brokenStrokeExplosions": 0
-    },
-    "content": {
-      "contentLostOutsideCrop": 2
-    },
-    "deskew": {
-      "confidentButWrong": 0
-    },
-    "despeckle": {
-      "erasedPages": 0
-    },
-    "dewarp": {
-      "catastrophicWarps": 0,
-      "curledNonImprovements": 0,
-      "flatPageModels": 0,
-      "photoSparseModels": 0
-    },
-    "split": {
-      "classificationErrors": 1,
-      "offcutMisclassifications": 1
-    }
-  },
   "corpus": {
-    "real": 36,
+    "total": 51,
+    "real": 37,
+    "synthetic": 14,
     "realCategories": {
       "glyph": 3,
       "glyph/punctuation": 2,
       "glyph/speckle": 1,
-      "split": 33,
+      "split": 34,
       "split/hard-case": 10,
-      "split/luther-soft-gutter": 4,
+      "split/luther-soft-gutter": 5,
       "split/spread-control": 19
     },
-    "synthetic": 14,
     "syntheticCategories": {
       "black-scan-edge": 1,
       "blank": 1,
@@ -55,256 +31,288 @@
       "stained-aged": 1,
       "synthetic": 14,
       "two-page-spread": 1
-    },
-    "total": 50
+    }
   },
-  "metrics": {
+  "catastrophes": {
     "binarization": {
-      "blankPixelsEvaluated": 1918624,
-      "blankRegionFloodIds": [],
       "blankRegionFloods": 0,
-      "brokenStrokeDelta": 2,
-      "brokenStrokeExplosionIds": [],
-      "brokenStrokeExplosions": 0,
-      "componentCountDelta": 1,
-      "componentPagesEvaluated": 15,
-      "expectedComponents": 2857,
-      "outputComponents": 2858,
-      "pagesEvaluated": 50,
-      "pepperDensity": 0.0,
-      "pepperPixels": 0,
-      "routeCounts": {
-        "otsu": 32,
-        "wolf": 18
-      }
+      "brokenStrokeExplosions": 0
     },
     "content": {
-      "contentLostOutsideCrop": 2,
-      "evaluated": 14,
-      "lostInkPixels": 392,
-      "meanIou": 0.819646,
-      "minimumIou": 0.0,
-      "samples": [
+      "contentLostOutsideCrop": 0
+    },
+    "deskew": {
+      "confidentButWrong": 0
+    },
+    "despeckle": {
+      "erasedPages": 0
+    },
+    "dewarp": {
+      "catastrophicWarps": 0,
+      "curledNonImprovements": 0,
+      "flatPageModels": 0,
+      "photoSparseModels": 0
+    },
+    "split": {
+      "classificationErrors": 0,
+      "offcutMisclassifications": 0
+    }
+  },
+  "metrics": {
+    "split": {
+      "evaluated": 51,
+      "correct": 51,
+      "accuracy": 1,
+      "offcutEvaluated": 1,
+      "offcutMisclassifications": 0,
+      "cutterEvaluated": 7,
+      "meanCutterErrorPx": 3.585714,
+      "meanCutterErrorWidthFraction": 0.003127,
+      "maxCutterErrorPx": 7,
+      "misclassifiedIds": [],
+      "cutterSamples": [
         {
-          "id": "real-glyph-arabic-wright-p82-dots",
-          "iou": 1.0,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 54484
+          "id": "spread-luther-plate-p00126",
+          "errorPx": 0.6,
+          "errorWidthFraction": 0.0005
         },
         {
-          "id": "real-glyph-bedjan-p2-speckles",
-          "iou": 0.718163,
-          "lostInkFraction": 0.000331,
-          "lostInkPixels": 17,
-          "truthInkPixels": 51328
+          "id": "spread-luther-soft-gutter-p00001",
+          "errorPx": 6,
+          "errorWidthFraction": 0.005
         },
         {
-          "id": "real-glyph-hebrew-bhs-p126-niqqud",
-          "iou": 0.994657,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 10328
+          "id": "spread-luther-soft-gutter-p00002",
+          "errorPx": 7,
+          "errorWidthFraction": 0.005833
         },
         {
-          "id": "synthetic-border-noise-black-edges",
-          "iou": 0.995729,
-          "lostInkFraction": 0.0287,
-          "lostInkPixels": 255,
-          "truthInkPixels": 8885
+          "id": "spread-luther-soft-gutter-p00003",
+          "errorPx": 2,
+          "errorWidthFraction": 0.001667
         },
         {
-          "id": "synthetic-curled-cylindrical",
-          "iou": 0.998016,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 10944
+          "id": "spread-luther-soft-gutter-p00004",
+          "errorPx": 5,
+          "errorWidthFraction": 0.004167
         },
         {
-          "id": "synthetic-faint-pencil",
-          "iou": 0.997826,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 8912
+          "id": "synthetic-page-with-offcut",
+          "errorPx": 0.5,
+          "errorWidthFraction": 0.000556
         },
         {
-          "id": "synthetic-halftone-photo",
-          "iou": 0.350847,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 6642
-        },
-        {
-          "id": "synthetic-marginalia-edge",
-          "iou": 0.996163,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 9425
-        },
-        {
-          "id": "synthetic-page-number-only",
-          "iou": 0.0,
-          "lostInkFraction": 1.0,
-          "lostInkPixels": 120,
-          "truthInkPixels": 120
-        },
-        {
-          "id": "synthetic-skew-minus-2",
-          "iou": 0.913544,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 10692
-        },
-        {
-          "id": "synthetic-skew-minus-7",
-          "iou": 0.791617,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 10692
-        },
-        {
-          "id": "synthetic-skew-plus-2",
-          "iou": 0.927451,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 10692
-        },
-        {
-          "id": "synthetic-skew-plus-7",
-          "iou": 0.798992,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 10692
-        },
-        {
-          "id": "synthetic-stained-aged-gradient",
-          "iou": 0.992043,
-          "lostInkFraction": 0.0,
-          "lostInkPixels": 0,
-          "truthInkPixels": 10692
+          "id": "synthetic-two-page-dark-gutter",
+          "errorPx": 4,
+          "errorWidthFraction": 0.004167
         }
       ]
     },
     "deskew": {
-      "accepted": 4,
-      "confidentButWrong": 0,
       "evaluated": 4,
-      "maxAngleErrorDegrees": 0.1875,
+      "accepted": 4,
       "meanAngleErrorDegrees": 0.053711,
+      "maxAngleErrorDegrees": 0.1875,
+      "confidentButWrong": 0,
       "samples": [
         {
-          "accepted": true,
-          "confidence": 6.948849,
+          "id": "synthetic-skew-minus-2",
+          "expectedDegrees": -2,
           "detectedDegrees": -2.1875,
-          "errorDegrees": 0.1875,
-          "expectedDegrees": -2.0,
-          "id": "synthetic-skew-minus-2"
+          "confidence": 6.948849,
+          "accepted": true,
+          "errorDegrees": 0.1875
         },
         {
-          "accepted": true,
+          "id": "synthetic-skew-minus-7",
+          "expectedDegrees": -7,
+          "detectedDegrees": -7,
           "confidence": 5.409432,
-          "detectedDegrees": -7.0,
-          "errorDegrees": 0.0,
-          "expectedDegrees": -7.0,
-          "id": "synthetic-skew-minus-7"
+          "accepted": true,
+          "errorDegrees": 0
         },
         {
-          "accepted": true,
-          "confidence": 7.40788,
+          "id": "synthetic-skew-plus-2",
+          "expectedDegrees": 2,
           "detectedDegrees": 2.027344,
-          "errorDegrees": 0.027344,
-          "expectedDegrees": 2.0,
-          "id": "synthetic-skew-plus-2"
+          "confidence": 7.40788,
+          "accepted": true,
+          "errorDegrees": 0.027344
         },
         {
-          "accepted": true,
+          "id": "synthetic-skew-plus-7",
+          "expectedDegrees": 7,
+          "detectedDegrees": 7,
           "confidence": 6.291106,
-          "detectedDegrees": 7.0,
-          "errorDegrees": 0.0,
-          "expectedDegrees": 7.0,
-          "id": "synthetic-skew-plus-7"
+          "accepted": true,
+          "errorDegrees": 0
+        }
+      ]
+    },
+    "content": {
+      "evaluated": 14,
+      "meanIou": 0.896781,
+      "minimumIou": 0.350847,
+      "lostInkPixels": 1,
+      "contentLostOutsideCrop": 0,
+      "samples": [
+        {
+          "id": "real-glyph-arabic-wright-p82-dots",
+          "iou": 1,
+          "truthInkPixels": 54484,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "real-glyph-bedjan-p2-speckles",
+          "iou": 0.934614,
+          "truthInkPixels": 51328,
+          "lostInkPixels": 1,
+          "lostInkFraction": 0.000019
+        },
+        {
+          "id": "real-glyph-hebrew-bhs-p126-niqqud",
+          "iou": 0.994657,
+          "truthInkPixels": 10328,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-border-noise-black-edges",
+          "iou": 1,
+          "truthInkPixels": 8885,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-curled-cylindrical",
+          "iou": 0.998016,
+          "truthInkPixels": 10944,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-faint-pencil",
+          "iou": 0.997826,
+          "truthInkPixels": 8912,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-halftone-photo",
+          "iou": 0.350847,
+          "truthInkPixels": 6642,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-marginalia-edge",
+          "iou": 0.996163,
+          "truthInkPixels": 9425,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-page-number-only",
+          "iou": 0.886364,
+          "truthInkPixels": 120,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-skew-minus-2",
+          "iou": 0.909962,
+          "truthInkPixels": 10692,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-skew-minus-7",
+          "iou": 0.787098,
+          "truthInkPixels": 10692,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-skew-plus-2",
+          "iou": 0.918349,
+          "truthInkPixels": 10692,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-skew-plus-7",
+          "iou": 0.792934,
+          "truthInkPixels": 10692,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
+        },
+        {
+          "id": "synthetic-stained-aged-gradient",
+          "iou": 0.9881,
+          "truthInkPixels": 10692,
+          "lostInkPixels": 0,
+          "lostInkFraction": 0
         }
       ]
     },
     "despeckle": {
-      "erasedPageIds": [],
-      "erasedPages": 0,
       "pagesEvaluated": 16,
       "punctuationMarkers": 15,
       "retainedPunctuationMarkers": 15,
-      "retainedPunctuationRate": 1.0
+      "retainedPunctuationRate": 1,
+      "erasedPages": 0,
+      "erasedPageIds": []
+    },
+    "binarization": {
+      "pagesEvaluated": 51,
+      "componentPagesEvaluated": 15,
+      "expectedComponents": 2857,
+      "outputComponents": 2858,
+      "componentCountDelta": 1,
+      "brokenStrokeDelta": 1,
+      "brokenStrokeExplosions": 0,
+      "blankPixelsEvaluated": 1918624,
+      "pepperPixels": 0,
+      "pepperDensity": 0,
+      "blankRegionFloods": 0,
+      "routeCounts": {
+        "otsu": 42,
+        "wolf": 9
+      },
+      "brokenStrokeExplosionIds": [],
+      "blankRegionFloodIds": []
     },
     "dewarp": {
-      "catastrophicWarps": 0,
       "curledEvaluated": 1,
       "curledModelsDetected": 1,
       "curledNonImprovements": 0,
+      "identityMeanResidualPx": 4.546266,
       "dewarpedMeanResidualPx": 3.283449,
+      "residualImprovementFraction": 0.27777,
       "flatGuardEvaluated": 13,
       "flatGuardModels": 0,
-      "guardModelIds": [],
-      "identityMeanResidualPx": 4.546266,
       "photoSparseGuardEvaluated": 3,
       "photoSparseGuardModels": 0,
-      "residualImprovementFraction": 0.27777,
+      "catastrophicWarps": 0,
+      "guardModelIds": [],
       "samples": [
         {
-          "dewarpedResidualPx": 3.283449,
           "id": "synthetic-curled-cylindrical",
+          "modelDetected": true,
           "identityResidualPx": 4.546266,
-          "improvementFraction": 0.27777,
-          "modelDetected": true
+          "dewarpedResidualPx": 3.283449,
+          "improvementFraction": 0.27777
         }
       ]
-    },
-    "split": {
-      "accuracy": 0.98,
-      "correct": 49,
-      "cutterEvaluated": 5,
-      "cutterSamples": [
-        {
-          "errorPx": 6.0,
-          "errorWidthFraction": 0.005,
-          "id": "spread-luther-soft-gutter-p00001"
-        },
-        {
-          "errorPx": 7.0,
-          "errorWidthFraction": 0.005833,
-          "id": "spread-luther-soft-gutter-p00002"
-        },
-        {
-          "errorPx": 2.0,
-          "errorWidthFraction": 0.001667,
-          "id": "spread-luther-soft-gutter-p00003"
-        },
-        {
-          "errorPx": 5.0,
-          "errorWidthFraction": 0.004167,
-          "id": "spread-luther-soft-gutter-p00004"
-        },
-        {
-          "errorPx": 4.0,
-          "errorWidthFraction": 0.004167,
-          "id": "synthetic-two-page-dark-gutter"
-        }
-      ],
-      "evaluated": 50,
-      "maxCutterErrorPx": 7.0,
-      "meanCutterErrorPx": 4.8,
-      "meanCutterErrorWidthFraction": 0.004167,
-      "misclassifiedIds": [
-        "synthetic-page-with-offcut"
-      ],
-      "offcutEvaluated": 1,
-      "offcutMisclassifications": 1
     }
   },
   "stubHooks": {
-    "curledTruthAmplitudesPx": [
-      34.0
-    ],
-    "curledTruthBaselineCount": 8,
+    "ocrProxy": "stub: optional Tesseract CER is deferred",
     "curledTruthFixtures": 1,
-    "ocrProxy": "stub: optional Tesseract CER is deferred"
+    "curledTruthAmplitudesPx": [
+      34
+    ],
+    "curledTruthBaselineCount": 8
   }
 }
