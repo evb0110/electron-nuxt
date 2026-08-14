@@ -357,6 +357,27 @@ describe('scan-cleanup native artifact codecs', () => {
         })).toThrow('intrinsic content placement exceeds its canvas');
     });
 
+    it('accepts omitted and numeric fold clips but rejects explicit null values', () => {
+        const omitted = outputMetadata();
+        delete (omitted as Partial<typeof omitted>).foldClipLeftPx;
+        delete (omitted as Partial<typeof omitted>).foldClipRightPx;
+
+        expect(decodeNativeScanCleanupOutputMetadata(omitted)).toBe(omitted);
+        expect(decodeNativeScanCleanupOutputMetadata(outputMetadata())).toMatchObject({
+            foldClipLeftPx: 2,
+            foldClipRightPx: 3,
+        });
+        for (const key of [
+            'foldClipLeftPx',
+            'foldClipRightPx',
+        ] as const) {
+            expect(() => decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                [key]: null,
+            })).toThrow(`${key} must be a safe integer >= 0`);
+        }
+    });
+
     it('enforces preview-only required metadata at the native preview boundary', () => {
         const page = pageMetadata();
         delete (page.outputs[0] as Partial<typeof page.outputs[number]>).appliedMargins;

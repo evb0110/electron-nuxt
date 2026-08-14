@@ -145,6 +145,7 @@ async function streamScanCleanupSidecar(
     let protocolError: Error | null = null;
     let nativeFailure: NativeScanCleanupError | null = null;
     let terminationPromise: Promise<void> | null = null;
+    let settleFatal: (() => void) | null = null;
     let timedPages = 0;
     const stageTotalsMs: TScanCleanupStageTotalsMs = {
         decode: 0,
@@ -181,6 +182,17 @@ async function streamScanCleanupSidecar(
         });
         return terminationPromise;
     };
+    const fatalSettlement = new Promise<never>((_resolve, reject) => {
+        settleFatal = () => {
+            void terminateForFatalError().then(() => {
+                if (protocolError !== null) {
+                    reject(protocolError);
+                    return;
+                }
+                reject(abortErrorFromSignal(signal));
+            });
+        };
+    });
     child.stderr?.setEncoding('utf8');
     child.stderr?.on('data', (chunk: string) => {
         stderr = `${stderr}${chunk}`.slice(-64 * 1024);
@@ -199,7 +211,7 @@ async function streamScanCleanupSidecar(
         // A fatal decoder/schema/progress-consumer failure means stdout can no
         // longer be consumed safely. Stop the whole detached tree immediately;
         // the recorded protocol error remains the terminal authority.
-        void terminateForFatalError();
+        settleFatal?.();
         log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
     };
     lines.on('line', line => {
@@ -244,7 +256,7 @@ async function streamScanCleanupSidecar(
         aborting = true;
         // AbortSignal is the transport boundary. This native adapter first asks
         // the detached process tree to exit, then force-kills after its grace period.
-        void terminateForFatalError();
+        settleFatal?.();
     };
     signal.addEventListener('abort', handleAbort, {once: true});
     if (signal.aborted) handleAbort();
@@ -280,6 +292,7 @@ async function streamScanCleanupSidecar(
                     }, timeoutMs);
                     timeoutHandle.unref?.();
                 }),
+                fatalSettlement,
             ]);
         } catch (error) {
             throwIfError(protocolError);

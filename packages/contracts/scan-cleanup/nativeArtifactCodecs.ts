@@ -620,17 +620,18 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
         'matchedCanvasIntrinsicOverflowLeftPx',
         'matchedCanvasIntrinsicOverflowRightPx',
         'matchedCanvasIntrinsicOverflowTopPx',
-        'foldClipLeftPx',
-        'foldClipRightPx',
         'resamplePasses',
     ] as const) if (source[key] !== undefined && source[key] !== null) integer(
         source[key],
         artifact,
         key,
         key === 'resamplePasses'
-            || key.startsWith('matchedCanvasIntrinsicOverflow')
-            || key.startsWith('foldClip') ? 0 : 1,
+            || key.startsWith('matchedCanvasIntrinsicOverflow') ? 0 : 1,
     );
+    for (const key of [
+        'foldClipLeftPx',
+        'foldClipRightPx',
+    ] as const) if (source[key] !== undefined) integer(source[key], artifact, key);
     for (const key of [
         'detectedSkewDegrees',
         'skewConfidence',

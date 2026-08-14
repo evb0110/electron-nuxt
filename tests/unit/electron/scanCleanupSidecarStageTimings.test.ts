@@ -87,7 +87,7 @@ describe('scan cleanup sidecar stage timings', () => {
         vi.useRealTimers();
     });
 
-    it('terminates a malformed NDJSON sidecar once and surfaces the protocol error after exit', async () => {
+    it('terminates a malformed NDJSON sidecar once and surfaces the protocol error', async () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
@@ -99,13 +99,14 @@ describe('scan cleanup sidecar stage timings', () => {
             vi.fn<TWorkerLog>(),
             () => {},
         );
+        const rejected = expect(run).rejects.toThrow();
 
         child.stdout.write('{not-json}\n');
         child.stdout.write('{still-not-json}\n');
         await vi.waitFor(() => expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce());
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
         child.emit('close', 1, null);
-        await expect(run).rejects.toThrow();
+        await rejected;
     });
 
     it('keeps the fatal protocol error authoritative when abort follows malformed NDJSON', async () => {
@@ -114,6 +115,7 @@ describe('scan cleanup sidecar stage timings', () => {
         const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const controller = new AbortController();
         const run = runScanCleanupSidecar('/native/evb-scan-cleanup', '/scratch/malformed.json', controller.signal, vi.fn<TWorkerLog>(), () => {});
+        const rejected = expect(run).rejects.toBeInstanceOf(SyntaxError);
         child.stdout.write('{not-json}\n');
         await vi.waitFor(() => expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce());
         // Abort shares the same termination guard. It must not issue a second
@@ -121,7 +123,7 @@ describe('scan cleanup sidecar stage timings', () => {
         controller.abort(new DOMException('Canceled later', 'AbortError'));
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce();
         child.emit('close', null, 'SIGTERM');
-        await expect(run).rejects.toBeInstanceOf(SyntaxError);
+        await rejected;
     });
 
     it('reports per-stage totals summed across every page the sidecar timed', async () => {
