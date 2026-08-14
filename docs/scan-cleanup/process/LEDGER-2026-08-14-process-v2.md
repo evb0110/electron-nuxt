@@ -387,3 +387,74 @@ R15 2026-08-14 (user-provided audit, ETA architecture): two independent
    progress.etaSeconds (single owner); the renderer-side run-path
    estimator is retired; terminal-stage labels from the current fix
    are kept; analysis phase unchanged.
+R16 2026-08-14 (cross-session 14-agent audit received; 61 verified
+   findings; evidence in .devkit/analysis/scan-cleanup-audit-2026-08-14/).
+   ADOPTED as the governing sequence, superseding the prior backlog
+   ordering. Root causes RC1-RC5 accepted (duplicate-and-wire-the-
+   worse-one; monotone-append geometry where content.rs:392-408's
+   qualified-picture union runs LAST and can only expand — why twelve
+   trimmer landings could not work; acceptance statistics coarser
+   than the defect; preview is not the shipped artifact — renderer
+   discards native placementOffsetXPx via placement.ts:64-148 with
+   alignment a required prop, no foldClip terms on the contract;
+   nothing pixel-observing is enforced). Stay-fixed rate 0/3 adopted
+   as the ONLY process metric.
+   SEQUENCED PLAN (audit §7), status-annotated:
+   0. Sidecar exit->close + wall-clock timeout (runScanCleanupSidecar
+      ~231) — IMMEDIATE next fix; cleans the observation channel.
+   1. Preview-truth deletions: DELETE renderer placement
+      re-derivation (consume placementOffsetXPx unconditionally,
+      stale-state for optimism), ship foldClipLeft/RightPx on the
+      contract, make pinned-vs-live disclosure unconditional
+      (PreviewShell.vue:745-746 currently gates it on matchPageSize).
+      [Phase-edge PR #15 already removed the terminal rejection; this
+      completes the family.]
+   2. Wire owned oracles: regen harness-baseline against the CURRENT
+      corpus (drift: baseline says 33/4/50, fixtures.json has 34/5),
+      drive catastrophe entries to zero w/ named-exceptions file,
+      inventory assertion (compare_catastrophes reads no denominator),
+      --baseline into pr_native_build_safety; fix preview-harness:637
+      to compose through native placement AFTER step 1; enforcement
+      decision (pre-push hook, since ruleset was declined R5).
+   3. Weight statistic BEFORE any bw.rs acceptance: promote the
+      component-granularity weight-letters script to a tracked oracle
+      (median ridge width via distance transform, per-line offender
+      count at 1.6x line median, p95/p50), calibrated RED on the R13
+      specimen. The in-flight rescue-caps fix (wt-rescue dispatch) is
+      adjudicated against THIS gate, not the word-mean proxy. Check
+      the Sauvola-dead lead (bw.rs:895 sample_scale vs :1290 <=8.0 —
+      possibly unreachable at production DPI).
+   4. Native ownership fixes: content.rs union must not re-expand a
+      trimmed side (each box side = exactly one owner); whole-side
+      abort at :2062-2068 -> partial trim; text_evidence needs min
+      pixel count not one pixel; FoldBand::{Measured,Unmeasured{reason}}
+      enum with conservative degraded mode replacing the bare Option
+      pair. NOTE: the in-flight fold-mask fix must feed BEFORE/INTO
+      the union ownership or it is another appended stage (RC2) —
+      adjudicate its report against this.
+   5. Dependency-free deletions in one sitting: O6 tripwire+baseline+
+      test (landed today; audit shows it measures 169 of ~3380 tuning
+      numbers — delete per evidence), quarantineGraduationPolicy
+      invariants pinning blocking:false, unreachable !preview_mode
+      half of match_page_sizes, placeUniformBox + main-process
+      lossless placement block, evaluate.rs self-comparing baseline
+      test, duplicate jobs.subscribe registrations (leak), coverage
+      include + zero-execution roots gain scan-cleanup-core/** and
+      scan-cleanup-adapters/**.
+   6. Ongoing: supported-document-class declaration (dense-text ~300
+      DPI two-page spreads) as acceptance corpus; conservative
+      fallback for the rest; stay-fixed rate tracked; external
+      adoption (MRC/ScanTailor) revisited only when a red-calibrated
+      family needs a 4th landing.
+   BOUNDARY FINDINGS (audit §8, queued after the batch): output lives
+   only in OS temp pruned at 7 days by mtime (user-data-loss HIGH —
+   last-access prune + path in success toast + durable location);
+   packaged binary smoke mac-only (add Linux/Windows); packaged e2e
+   verifier gated on untracked .devkit fixture; OCR preprocessing
+   inherits default binarization (pin options or oracle); Rust CI
+   x64-linux only; .coderabbit.yaml path_instructions should point at
+   tracked docs/architecture-audit-2026-07-23.md.
+   CORRECTIONS TO MY RECORD: R13 post-mortem cited a Rust harness
+   weight gate that does not exist (the red gate was the JS preview
+   harness); closure vocabulary tightened — closed requires pre-fix
+   specimen RED -> GREEN at defect granularity on the EXPORT.
