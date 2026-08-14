@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 2,
+  "oracle": "component-ridge-width-local-line-median",
+  "label": "origin/main ed92303ba328bcd7e24c0f080263f9e7b9d53503",
+  "inputs": {
+    "dpi": 300,
+    "images": [
+      ".devkit/tmp/stroke-weight-oracle/diyarbakir-clean.png",
+      ".devkit/tmp/stroke-weight-oracle/wahrscheinlich-clean.png",
+      ".devkit/tmp/stroke-weight-oracle/handschrift-clean.png"
+    ],
+    "pdf": null,
+    "summary": null
+  },
+  "calibration": {
+    "componentAreaMinPx": 8,
+    "componentHeightMinPxAt300Dpi": 12,
+    "componentHeightMaxPxAt300Dpi": 70,
+    "componentWidthMinPxAt300Dpi": 2,
+    "componentWidthMaxPxAt300Dpi": 200,
+    "connectivity": 8,
+    "lineClusterGapHeightFraction": 0.72,
+    "localWindowMm": 32,
+    "localWindowMinComponents": 7,
+    "minimumLineComponents": 8,
+    "offenderRatio": 1.6
+  },
+  "pages": [
+    {
+      "source": "image",
+      "imagePath": ".devkit/tmp/stroke-weight-oracle/diyarbakir-clean.png",
+      "imageName": "diyarbakir-clean.png",
+      "status": "measured",
+      "raster": {
+        "width": 1830,
+        "height": 77,
+        "xDpi": 300,
+        "yDpi": 300
+      },
+      "eligibleComponentCount": 53,
+      "measuredLineCount": 1,
+      "offenderCount": 6,
+      "maxLineP95P50Ratio": 1.333333,
+      "lines": [
+        {
+          "line": 1,
+          "centerY": 44.373563,
+          "componentCount": 53,
+          "p50WidthMm": 0.508,
+          "p95WidthMm": 0.677333,
+          "p95P50Ratio": 1.333333,
+          "offenderCount": 6,
+          "offenders": [
+            {
+              "line": 1,
+              "bbox": [
+                147,
+                30,
+                56,
+                40
+              ],
+              "centerX": 170.96281,
+              "centerY": 45.854339,
+              "strokeWidthPx": 7.193787,
+              "strokeWidthMm": 0.609074,
+              "localMedianWidthMm": 0.372008,
+              "ratio": 1.637259,
+              "localComponentCount": 16
+            },
+            {
+              "line": 1,
+              "bbox": [
+                289,
+                31,
+                13,
+                26
+              ],
+              "centerX": 295.681818,
+              "centerY": 43.70202,
+              "strokeWidthPx": 8,
+              "strokeWidthMm": 0.677333,
+              "localMedianWidthMm": 0.372008,
+              "ratio": 1.820748,
+              "localComponentCount": 17
+            },
+            {
+              "line": 1,
+              "bbox": [
+                1486,
+                34,
+                14,
+                24
+              ],
+              "centerX": 1492.746032,
+              "centerY": 45.761905,
+              "strokeWidthPx": 8,
+              "strokeWidthMm": 0.677333,
+              "localMedianWidthMm": 0.42307,
+              "ratio": 1.600997,
+              "localComponentCount": 23
+            },
+            {
+              "line": 1,
+              "bbox": [
+                1578,
+                33,
+                29,
+                27
+              ],
+              "centerX": 1592.480687,
+              "centerY": 45.328326,
+              "strokeWidthPx": 8,
+              "strokeWidthMm": 0.677333,
+              "localMedianWidthMm": 0.397539,
+              "ratio": 1.703816,
+              "localComponentCount": 22
+            },
+            {
+              "line": 1,
+              "bbox": [
+                1631,
+                20,
+                34,
+                40
+              ],
+              "centerX": 1646.90989,
+              "centerY": 36.723077,
+              "strokeWidthPx": 8,
+              "strokeWidthMm": 0.677333,
+              "localMedianWidthMm": 0.372008,
+              "ratio": 1.820748,
+              "localComponentCount": 21
+            },
+            {
+              "line": 1,
+              "bbox": [
+                1665,
+                32,
+                48,
+                29
+              ],
+              "centerX": 1687.639037,
+              "centerY": 45.59492,
+              "strokeWidthPx": 8,
+              "strokeWidthMm": 0.677333,
+              "localMedianWidthMm": 0.42307,
+              "ratio": 1.600997,
+              "localComponentCount": 19
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "image",
+      "imagePath": ".devkit/tmp/stroke-weight-oracle/wahrscheinlich-clean.png",
+      "imageName": "wahrscheinlich-clean.png",
+      "status": "measured",
+      "raster": {
+        "width": 1830,
+        "height": 72,
+        "xDpi": 300,
+        "yDpi": 300
+      },
+      "eligibleComponentCount": 53,
+      "measuredLineCount": 1,
+      "offenderCount": 0,
+      "maxLineP95P50Ratio": 1.133333,
+      "lines": [
+        {
+          "line": 1,
+          "centerY": 38.541547,
+          "componentCount": 53,
+          "p50WidthMm": 0.508,
+          "p95WidthMm": 0.575733,
+          "p95P50Ratio": 1.133333,
+          "offenderCount": 0,
+          "offenders": []
+        }
+      ]
+    },
+    {
+      "source": "image",
+      "imagePath": ".devkit/tmp/stroke-weight-oracle/handschrift-clean.png",
+      "imageName": "handschrift-clean.png",
+      "status": "measured",
+      "raster": {
+        "width": 1710,
+        "height": 72,
+        "xDpi": 300,
+        "yDpi": 300
+      },
+      "eligibleComponentCount": 76,
+      "measuredLineCount": 1,
+      "offenderCount": 0,
+      "maxLineP95P50Ratio": 1.5,
+      "lines": [
+        {
+          "line": 2,
+          "centerY": 44.962085,
+          "componentCount": 75,
+          "p50WidthMm": 0.338667,
+          "p95WidthMm": 0.508,
+          "p95P50Ratio": 1.5,
+          "offenderCount": 0,
+          "offenders": []
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "pageCountRequested": 3,
+    "pageCountMeasured": 3,
+    "pageCountUnmeasured": 0,
+    "offenderCount": 6,
+    "offendingPageCount": 1,
+    "corpusMaxP95P50Ratio": 1.5,
+    "gatePass": false
+  }
+}
