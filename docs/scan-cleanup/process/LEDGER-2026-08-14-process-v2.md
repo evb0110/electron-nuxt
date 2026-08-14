@@ -295,3 +295,15 @@ R9 2026-08-14 (R8 closure): PR #12 merged (48600c0f4), push
    gate with proven red probes. Optional follow-up recorded:
    layout-derived expected-half set for the missing-half check.
    Containment now exactly 1.0 on all measurable leaves, both states.
+R10 2026-08-14 (defect report, user, post-restart): page 1 left leaf's
+   crop box is STILL asymmetric and wrong after restarting on the
+   PR-12 build. Disposition: defect, S1. ORCHESTRATOR ERROR logged
+   with it: I read the user's 20:27 screenshot as proof of fix; the
+   user contradicts and is presumed right (F2). Suspected metric gap:
+   PR 12's acceptance measured SOURCE-SPACE ink containment (all ink
+   inside box) — that does not measure box symmetry around the ink or
+   display-layer overlay registration. The long-bucketed "pre-existing
+   weight/margin/OVERLAY violations" (incl. settled overlay failures
+   on page 1) may contain exactly this defect and were repeatedly
+   waved off as unrelated. Investigation: measure the screenshot,
+   then the harness margins/overlay metrics for page 1 left.
