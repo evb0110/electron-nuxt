@@ -275,6 +275,25 @@ export interface INativeScanCleanupOutputModeDiagnosticsV3 {
 }
 
 /** Gate-level evidence behind the native spread/single decision. */
+export type TNativeScanCleanupFoldBandUnmeasuredReasonV3 =
+    | 'not-applicable'
+    | 'no-fold-evidence'
+    | 'fold-evidence-unquantified'
+    | 'cutter-invalidated'
+    | 'measurement-unavailable';
+
+export type TNativeScanCleanupFoldBandV3 =
+    | {
+        status: 'measured';
+        leftXPx: number;
+        rightXPx: number;
+    }
+    | {
+        status: 'unmeasured';
+        reason: TNativeScanCleanupFoldBandUnmeasuredReasonV3;
+        nominalHalfWidthPx: number;
+    };
+
 export interface INativeScanCleanupSplitDiagnosticsV3 {
     analysisDpi: number;
     deskewAngleDegrees: number;
@@ -331,6 +350,7 @@ export interface INativeScanCleanupSplitDiagnosticsV3 {
     evidenceAgreementGatePassed: boolean;
     sparseSpreadRecovered: boolean;
     abstained: boolean;
+    foldBand: TNativeScanCleanupFoldBandV3;
 }
 
 /** Metadata written once for every page in a protocol-v3 batch. */

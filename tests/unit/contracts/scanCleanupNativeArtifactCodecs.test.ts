@@ -143,6 +143,11 @@ function fullSplitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
         evidenceAgreementGatePassed: true,
         sparseSpreadRecovered: true,
         abstained: false,
+        foldBand: {
+            status: 'unmeasured',
+            reason: 'fold-evidence-unquantified',
+            nominalHalfWidthPx: 6,
+        },
     };
 }
 
@@ -165,6 +170,17 @@ describe('scan-cleanup native artifact codecs', () => {
             ...pageMetadata(),
             splitDiagnostics: missingField,
         })).toThrow();
+        expect(() => decodeNativeScanCleanupPageMetadata({
+            ...pageMetadata(),
+            splitDiagnostics: {
+                ...diagnostics,
+                foldBand: {
+                    status: 'unmeasured',
+                    reason: 'unknown',
+                    nominalHalfWidthPx: 6,
+                },
+            },
+        })).toThrow('splitDiagnostics.foldBand.reason');
     });
 
     it('decodes page and output artifacts while preserving additive fields', () => {

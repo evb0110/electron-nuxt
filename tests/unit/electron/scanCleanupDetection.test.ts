@@ -88,6 +88,11 @@ function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
         evidenceAgreementGatePassed: true,
         sparseSpreadRecovered: true,
         abstained: false,
+        foldBand: {
+            status: 'unmeasured',
+            reason: 'fold-evidence-unquantified',
+            nominalHalfWidthPx: 6,
+        },
     };
 }
 
@@ -579,6 +584,15 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const malformedState = structuredClone(state);
         malformedState.results[0]!.splitDiagnostics!.gutterGatePassed = 'yes' as never;
         expect(() => decodeScanCleanupDetectionJobState(malformedState))
+            .toThrow('invalid scan-cleanup split diagnostics');
+
+        const malformedFoldState = structuredClone(state);
+        malformedFoldState.results[0]!.splitDiagnostics!.foldBand = {
+            status: 'unmeasured',
+            reason: 'unknown',
+            nominalHalfWidthPx: 6,
+        } as never;
+        expect(() => decodeScanCleanupDetectionJobState(malformedFoldState))
             .toThrow('invalid scan-cleanup split diagnostics');
     });
 

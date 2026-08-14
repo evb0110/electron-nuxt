@@ -454,6 +454,25 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
         'sparseSpreadRecovered',
         'abstained',
     ] as const) if (typeof source[key] !== 'boolean') fail(artifact, `${label}.${key} must be boolean`);
+    const foldBand = record(source.foldBand, artifact, `${label}.foldBand`);
+    if (foldBand.status === 'measured') {
+        const left = finite(foldBand.leftXPx, artifact, `${label}.foldBand.leftXPx`);
+        const right = finite(foldBand.rightXPx, artifact, `${label}.foldBand.rightXPx`);
+        if (left < 0 || right < left) fail(artifact, `${label}.foldBand must be ordered and non-negative`);
+    } else if (foldBand.status === 'unmeasured') {
+        oneOf(foldBand.reason, [
+            'not-applicable',
+            'no-fold-evidence',
+            'fold-evidence-unquantified',
+            'cutter-invalidated',
+            'measurement-unavailable',
+        ] as const, artifact, `${label}.foldBand.reason`);
+        if (finite(foldBand.nominalHalfWidthPx, artifact, `${label}.foldBand.nominalHalfWidthPx`) < 0) {
+            fail(artifact, `${label}.foldBand.nominalHalfWidthPx must be non-negative`);
+        }
+    } else {
+        fail(artifact, `${label}.foldBand.status must be measured or unmeasured`);
+    }
 }
 
 function documentPrior(value: unknown, artifact: TArtifact, label: string) {

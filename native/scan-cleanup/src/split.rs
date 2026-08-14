@@ -135,9 +135,134 @@ pub struct LayoutDecision {
     pub reconciliation: ReconciliationMetadata,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FoldBandUnmeasuredReason {
+    NotApplicable,
+    NoFoldEvidence,
+    FoldEvidenceUnquantified,
+    CutterInvalidated,
+    MeasurementUnavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(
+    tag = "status",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum FoldBand {
+    Measured {
+        left_x_px: f64,
+        right_x_px: f64,
+    },
+    Unmeasured {
+        reason: FoldBandUnmeasuredReason,
+        nominal_half_width_px: f64,
+    },
+}
+
+impl Default for FoldBand {
+    fn default() -> Self {
+        Self::unmeasured(FoldBandUnmeasuredReason::NotApplicable)
+    }
+}
+
+impl FoldBand {
+    pub(crate) fn measured(left_x_px: f64, right_x_px: f64) -> Self {
+        Self::Measured {
+            left_x_px,
+            right_x_px,
+        }
+    }
+
+    pub(crate) fn unmeasured(reason: FoldBandUnmeasuredReason) -> Self {
+        Self::Unmeasured {
+            reason,
+            nominal_half_width_px: 0.0,
+        }
+    }
+
+    fn unquantified_evidence(analysis_dpi: f64) -> Self {
+        // One physical millimetre on each side is deliberately nominal, not
+        // a claim of measured geometry. It is used only after independent fold
+        // evidence passed while the shadow edges could not be quantified.
+        let nominal_half_width_px = (analysis_dpi.max(1.0) / 25.4).round().max(1.0);
+        Self::Unmeasured {
+            reason: FoldBandUnmeasuredReason::FoldEvidenceUnquantified,
+            nominal_half_width_px,
+        }
+    }
+
+    pub(crate) fn edges(self, cutter_x: f64, width: usize) -> (f64, f64) {
+        let maximum = width as f64;
+        match self {
+            Self::Measured {
+                left_x_px,
+                right_x_px,
+            } => (
+                left_x_px.clamp(0.0, cutter_x),
+                right_x_px.clamp(cutter_x, maximum),
+            ),
+            Self::Unmeasured {
+                reason: FoldBandUnmeasuredReason::FoldEvidenceUnquantified,
+                nominal_half_width_px,
+            } => (
+                (cutter_x - nominal_half_width_px).clamp(0.0, cutter_x),
+                (cutter_x + nominal_half_width_px).clamp(cutter_x, maximum),
+            ),
+            Self::Unmeasured { .. } => (cutter_x, cutter_x),
+        }
+    }
+
+    pub(crate) fn has_suppression(self, cutter_x: f64) -> bool {
+        match self {
+            Self::Measured {
+                left_x_px,
+                right_x_px,
+            } => left_x_px < cutter_x - 0.5 || right_x_px > cutter_x + 0.5,
+            Self::Unmeasured {
+                reason: FoldBandUnmeasuredReason::FoldEvidenceUnquantified,
+                nominal_half_width_px,
+            } => nominal_half_width_px > 0.5,
+            Self::Unmeasured { .. } => false,
+        }
+    }
+
+    pub(crate) fn needs_raw_remeasurement(self, cutter_x: f64) -> bool {
+        match self {
+            Self::Measured {
+                left_x_px,
+                right_x_px,
+            } => left_x_px >= cutter_x - 0.5 || right_x_px <= cutter_x + 0.5,
+            Self::Unmeasured { .. } => true,
+        }
+    }
+
+    pub(crate) fn scale_x(&mut self, scale_x: f64, full_width: usize) {
+        match self {
+            Self::Measured {
+                left_x_px,
+                right_x_px,
+            } => {
+                *left_x_px = (*left_x_px / scale_x).clamp(0.0, full_width as f64);
+                *right_x_px = (*right_x_px / scale_x).clamp(0.0, full_width as f64);
+            }
+            Self::Unmeasured {
+                nominal_half_width_px,
+                ..
+            } => {
+                *nominal_half_width_px =
+                    (*nominal_half_width_px / scale_x).clamp(0.0, full_width as f64);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SplitDiagnostics {
+    pub fold_band: FoldBand,
     pub analysis_dpi: f64,
     pub deskew_angle_degrees: f64,
     pub deskew_confidence: f64,
@@ -202,18 +327,6 @@ pub struct SplitResult {
     /// Where the right leaf begins, and the only leaf edge that survives the
     /// analyze-to-clean handoff.
     pub cutter_x: Option<f64>,
-    /// Where the left leaf ends: the left edge of the fold shadow the cutter
-    /// runs through, in the same coordinate space as
-    /// [`SplitResult::cutter_x`] and never right of it. The strip between the
-    /// two is fold rather than page and belongs to neither leaf. Absent means
-    /// no measurable shadow, so the leaves meet at the cutter exactly as they
-    /// always did.
-    ///
-    /// The right leaf's new left edge is the far edge of the same measured
-    /// shadow run. The cutter itself remains the classifier's ownership
-    /// anchor; both leaves merely give up the fold material around it.
-    pub gutter_left_x: Option<f64>,
-    pub gutter_right_x: Option<f64>,
     pub pages: Vec<Polygon>,
     pub split_seam: Option<SplitSeamPolyline>,
     pub diagnostics: SplitDiagnostics,
@@ -236,15 +349,13 @@ impl SplitResult {
             .filter(|_| self.classification == LayoutClassification::TwoPageSpread)
             .and_then(|cutter| gutter_shadow_band(gray, cutter));
         if let Some((left, right)) = band {
-            self.gutter_left_x = Some(left);
-            self.gutter_right_x = Some(right);
+            self.diagnostics.fold_band = FoldBand::measured(left, right);
             self.pages = match self.cutter_x {
                 Some(cutter) => leaf_polygons(
                     output_width,
                     output_height,
                     cutter,
-                    self.gutter_left_x,
-                    self.gutter_right_x,
+                    self.diagnostics.fold_band,
                 ),
                 None => vec![page_polygon(0.0, output_width as f64, output_height)],
             };
@@ -279,20 +390,12 @@ impl SplitResult {
         // and a prior-forced split never observed a fold shadow at all. Carry
         // both sides as one evidence decision so a prior cannot leave an
         // asymmetric band behind.
-        self.gutter_left_x = self
-            .gutter_left_x
-            .filter(|_| decision.cutter_x == previous_cutter);
-        self.gutter_right_x = self
-            .gutter_right_x
-            .filter(|_| decision.cutter_x == previous_cutter);
+        if decision.cutter_x != previous_cutter {
+            self.diagnostics.fold_band =
+                FoldBand::unmeasured(FoldBandUnmeasuredReason::CutterInvalidated);
+        }
         self.pages = match decision.cutter_x {
-            Some(cutter) => leaf_polygons(
-                width,
-                height,
-                cutter,
-                self.gutter_left_x,
-                self.gutter_right_x,
-            ),
+            Some(cutter) => leaf_polygons(width, height, cutter, self.diagnostics.fold_band),
             None => vec![page_polygon(0.0, width as f64, height)],
         };
         if decision.classification != LayoutClassification::TwoPageSpread {
@@ -327,8 +430,7 @@ impl SplitResult {
         self.classification = LayoutClassification::SingleUncutPage;
         self.reconciliation.tier1_verdict = LayoutClassification::SingleUncutPage;
         self.cutter_x = None;
-        self.gutter_left_x = None;
-        self.gutter_right_x = None;
+        self.diagnostics.fold_band = FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable);
         let width = self
             .pages
             .iter()
@@ -473,12 +575,19 @@ fn detect_split_impl(
         let gutter_band = matches!(classification, LayoutClassification::TwoPageSpread)
             .then(|| gutter_shadow_band(gray, cutter))
             .flatten();
+        let fold_band = if matches!(classification, LayoutClassification::TwoPageSpread) {
+            gutter_band.map_or_else(
+                || FoldBand::measured(cutter, cutter),
+                |(left, right)| FoldBand::measured(left, right),
+            )
+        } else {
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable)
+        };
         return split_at(
             gray.width(),
             gray.height(),
             cutter,
-            gutter_band.map(|(left, _)| left),
-            gutter_band.map(|(_, right)| right),
+            fold_band,
             classification,
             1.0,
             SplitDiagnostics::default(),
@@ -497,8 +606,7 @@ fn detect_split_impl(
                 gray.width(),
                 gray.height(),
                 gray.width() as f64 * 0.5,
-                None,
-                None,
+                FoldBand::unmeasured(FoldBandUnmeasuredReason::NoFoldEvidence),
                 mode_classification(mode),
                 1.0,
                 SplitDiagnostics::default(),
@@ -830,12 +938,15 @@ fn spread_decision(
             scale_x(right, analysis.gray.width(), original.width()),
         )
     });
+    let fold_band = gutter_band.map_or_else(
+        || fold_band_without_measurement(diagnostics),
+        |(left, right)| FoldBand::measured(left, right),
+    );
     let mut result = split_at(
         original.width(),
         original.height(),
         cutter,
-        gutter_band.map(|(left, _)| left),
-        gutter_band.map(|(_, right)| right),
+        fold_band,
         LayoutClassification::TwoPageSpread,
         confidence,
         *diagnostics,
@@ -845,6 +956,14 @@ fn spread_decision(
             |seam| seam_in_source_coordinates(seam, analysis, original.width(), original.height()),
         );
     Some(result)
+}
+
+fn fold_band_without_measurement(diagnostics: &SplitDiagnostics) -> FoldBand {
+    if diagnostics.independent_gutter_gate_passed {
+        FoldBand::unquantified_evidence(diagnostics.analysis_dpi)
+    } else {
+        FoldBand::unmeasured(FoldBandUnmeasuredReason::NoFoldEvidence)
+    }
 }
 
 fn offcut_decision(
@@ -928,8 +1047,7 @@ fn offcut_decision(
         original.width(),
         original.height(),
         cutter,
-        None,
-        None,
+        FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable),
         LayoutClassification::PageWithOffcut,
         evidence_product,
         *diagnostics,
@@ -2563,8 +2681,9 @@ fn single(
     width: usize,
     height: usize,
     confidence: f64,
-    diagnostics: SplitDiagnostics,
+    mut diagnostics: SplitDiagnostics,
 ) -> SplitResult {
+    diagnostics.fold_band = FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable);
     let reconciliation = ReconciliationMetadata {
         tier1_verdict: LayoutClassification::SingleUncutPage,
         reconciled: false,
@@ -2574,8 +2693,6 @@ fn single(
         classification: LayoutClassification::SingleUncutPage,
         confidence,
         cutter_x: None,
-        gutter_left_x: None,
-        gutter_right_x: None,
         pages: vec![page_polygon(0.0, width as f64, height)],
         split_seam: None,
         diagnostics,
@@ -2588,12 +2705,12 @@ fn split_at(
     width: usize,
     height: usize,
     x: f64,
-    gutter_left_x: Option<f64>,
-    gutter_right_x: Option<f64>,
+    fold_band: FoldBand,
     classification: LayoutClassification,
     confidence: f64,
-    diagnostics: SplitDiagnostics,
+    mut diagnostics: SplitDiagnostics,
 ) -> SplitResult {
+    diagnostics.fold_band = fold_band;
     let reconciliation = ReconciliationMetadata {
         tier1_verdict: classification,
         reconciled: false,
@@ -2603,9 +2720,7 @@ fn split_at(
         classification,
         confidence,
         cutter_x: Some(x),
-        gutter_left_x,
-        gutter_right_x,
-        pages: leaf_polygons(width, height, x, gutter_left_x, gutter_right_x),
+        pages: leaf_polygons(width, height, x, fold_band),
         split_seam: None,
         diagnostics,
         reconciliation,
@@ -2613,16 +2728,11 @@ fn split_at(
     }
 }
 
-fn leaf_polygons(
-    width: usize,
-    height: usize,
-    x: f64,
-    gutter_left_x: Option<f64>,
-    gutter_right_x: Option<f64>,
-) -> Vec<Polygon> {
+fn leaf_polygons(width: usize, height: usize, x: f64, fold_band: FoldBand) -> Vec<Polygon> {
+    let (left_edge, right_edge) = fold_band.edges(x, width);
     vec![
-        page_polygon(0.0, gutter_left_x.unwrap_or(x).min(x), height),
-        page_polygon(gutter_right_x.unwrap_or(x).max(x), width as f64, height),
+        page_polygon(0.0, left_edge, height),
+        page_polygon(right_edge, width as f64, height),
     ]
 }
 
@@ -2650,6 +2760,16 @@ fn mode_classification(mode: LayoutMode) -> LayoutClassification {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn measured_fold_edges(split: &SplitResult) -> (f64, f64) {
+        match split.diagnostics.fold_band {
+            FoldBand::Measured {
+                left_x_px,
+                right_x_px,
+            } => (left_x_px, right_x_px),
+            other => panic!("expected a measured fold band, got {other:?}"),
+        }
+    }
 
     fn add_text_lines(gray: &mut GrayImage, x1: usize, x2: usize) {
         for y in (28..gray.height().saturating_sub(28)).step_by(18) {
@@ -2957,17 +3077,12 @@ mod tests {
         // left leaf pulls back into the fold.
         let cutter = result.cutter_x.unwrap();
         assert!((cutter - 330.0).abs() <= 8.0);
-        let gutter_left = result
-            .gutter_left_x
-            .expect("a soft fold still casts a measurable shadow");
+        let (gutter_left, gutter_right) = measured_fold_edges(&result);
         assert!(gutter_left < cutter, "{gutter_left}..{cutter}");
         assert!(
             cutter - gutter_left <= 660.0 * MAX_GUTTER_BAND_FRACTION,
             "{gutter_left}..{cutter}"
         );
-        let gutter_right = result
-            .gutter_right_x
-            .expect("the far edge of the measured fold is published");
         assert!(gutter_right > cutter, "{cutter}..{gutter_right}");
         assert!(
             gutter_right - cutter <= 660.0 * MAX_GUTTER_BAND_FRACTION,
@@ -3220,8 +3335,7 @@ mod tests {
             660,
             936,
             570.0,
-            None,
-            None,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable),
             LayoutClassification::PageWithOffcut,
             0.7,
             diagnostics,
@@ -3236,8 +3350,7 @@ mod tests {
             660,
             420,
             330.0,
-            None,
-            None,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::NoFoldEvidence),
             LayoutClassification::TwoPageSpread,
             0.8,
             SplitDiagnostics::default(),
@@ -3263,8 +3376,7 @@ mod tests {
             900,
             760,
             686.0,
-            None,
-            None,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable),
             LayoutClassification::PageWithOffcut,
             0.7,
             diagnostics,
@@ -3290,8 +3402,7 @@ mod tests {
                 900,
                 760,
                 686.0,
-                None,
-                None,
+                FoldBand::unmeasured(FoldBandUnmeasuredReason::NotApplicable),
                 LayoutClassification::PageWithOffcut,
                 0.7,
                 diagnostics,
@@ -3439,25 +3550,23 @@ mod tests {
             page.width(),
             page.height(),
             1000.0,
-            Some(990.0),
-            Some(1000.0),
+            FoldBand::measured(990.0, 1000.0),
             LayoutClassification::TwoPageSpread,
             0.9,
             SplitDiagnostics::default(),
         );
         split.remeasure_gutter_band_from_source(&page, page.width(), page.height());
         assert_eq!(split.cutter_x, Some(1000.0));
-        assert_eq!(split.gutter_left_x, Some(1000.0));
-        assert!(split.gutter_right_x.is_some_and(|right| right > 1000.0));
-        assert_eq!(
-            split.pages[1].points[0].x,
-            split.gutter_right_x.expect("raw fold edge")
-        );
+        let (left, right) = measured_fold_edges(&split);
+        assert_eq!(left, 1000.0);
+        assert!(right > 1000.0);
+        assert_eq!(split.pages[1].points[0].x, right);
 
         let shadowless = GrayImage::new(2000, 600, 245);
         split.remeasure_gutter_band_from_source(&shadowless, 2000, 600);
-        assert_eq!(split.gutter_left_x, Some(1000.0));
-        assert!(split.gutter_right_x.is_some_and(|right| right > 1000.0));
+        let (left, right) = measured_fold_edges(&split);
+        assert_eq!(left, 1000.0);
+        assert!(right > 1000.0);
     }
 
     #[test]
@@ -3490,10 +3599,7 @@ mod tests {
         }
         let banded = detect_split(&gray, 150.0, LayoutMode::Auto, None);
         assert_eq!(banded.classification, LayoutClassification::TwoPageSpread);
-        let gutter_left = banded.gutter_left_x.expect("a measured fold shadow");
-        let gutter_right = banded
-            .gutter_right_x
-            .expect("the same measured fold has a right edge");
+        let (gutter_left, gutter_right) = measured_fold_edges(&banded);
         let cutter = banded.cutter_x.expect("a spread cuts somewhere");
         // The cut still lands in the fold, and the left leaf pulls back to the
         // near edge of it.
@@ -3507,8 +3613,7 @@ mod tests {
             1200,
             800,
             600.0,
-            None,
-            None,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::NoFoldEvidence),
             LayoutClassification::TwoPageSpread,
             0.9,
             SplitDiagnostics::default(),
@@ -3534,17 +3639,21 @@ mod tests {
         // pass left it.
         let carried = detect_split(&gray, 150.0, LayoutMode::Auto, Some(cutter));
         assert_eq!(carried.cutter_x, Some(cutter));
-        assert_eq!(carried.gutter_left_x, measured.gutter_left_x);
-        assert_eq!(carried.gutter_right_x, measured.gutter_right_x);
         assert_eq!(
-            carried.pages[1].points[0].x,
-            measured.gutter_right_x.unwrap()
+            carried.diagnostics.fold_band,
+            measured.diagnostics.fold_band
         );
+        assert_eq!(carried.pages[1].points[0].x, measured.pages[1].points[0].x);
 
         let shadowless = GrayImage::new(1200, 800, 245);
         assert_eq!(
-            detect_split(&shadowless, 150.0, LayoutMode::Auto, Some(600.0)).gutter_left_x,
-            None
+            measured_fold_edges(&detect_split(
+                &shadowless,
+                150.0,
+                LayoutMode::Auto,
+                Some(600.0)
+            )),
+            (600.0, 600.0)
         );
     }
 
@@ -3634,8 +3743,7 @@ mod tests {
             1200,
             800,
             700.0,
-            Some(690.0),
-            Some(710.0),
+            FoldBand::measured(690.0, 710.0),
             LayoutClassification::TwoPageSpread,
             0.4,
             SplitDiagnostics {
@@ -3647,8 +3755,10 @@ mod tests {
         moved.classification = LayoutClassification::SingleUncutPage;
         moved.apply_document_prior(1200, 800, prior);
         assert_eq!(moved.cutter_x, Some(600.0));
-        assert_eq!(moved.gutter_left_x, None);
-        assert_eq!(moved.gutter_right_x, None);
+        assert_eq!(
+            moved.diagnostics.fold_band,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::CutterInvalidated)
+        );
         assert_eq!(moved.pages[0].points[1].x, 600.0);
         assert_eq!(moved.pages[1].points[0].x, 600.0);
 
@@ -3656,8 +3766,7 @@ mod tests {
             1200,
             800,
             600.0,
-            Some(590.0),
-            Some(610.0),
+            FoldBand::measured(590.0, 610.0),
             LayoutClassification::TwoPageSpread,
             0.8,
             SplitDiagnostics {
@@ -3667,8 +3776,7 @@ mod tests {
             },
         );
         kept.apply_document_prior(1200, 800, prior);
-        assert_eq!(kept.gutter_left_x, Some(590.0));
-        assert_eq!(kept.gutter_right_x, Some(610.0));
+        assert_eq!(measured_fold_edges(&kept), (590.0, 610.0));
         assert_eq!(kept.pages[0].points[1].x, 590.0);
         assert_eq!(kept.pages[1].points[0].x, 610.0);
     }
@@ -3703,5 +3811,71 @@ mod tests {
         assert_eq!(decision.cutter_x, None);
         assert!(!decision.reconciliation.reconciled);
         assert_eq!(decision.reconciliation.cluster_agreement, -0.94);
+    }
+
+    #[test]
+    fn typed_fold_band_applies_nominal_suppression_only_to_unquantified_evidence() {
+        let evidenced_diagnostics = SplitDiagnostics {
+            analysis_dpi: 150.0,
+            fold_score: 0.8,
+            independent_gutter_gate_passed: true,
+            ..SplitDiagnostics::default()
+        };
+        let evidenced = split_at(
+            1200,
+            800,
+            600.0,
+            fold_band_without_measurement(&evidenced_diagnostics),
+            LayoutClassification::TwoPageSpread,
+            0.9,
+            evidenced_diagnostics,
+        );
+        assert!(evidenced.pages[0].points[1].x < 600.0);
+        assert!(evidenced.pages[1].points[0].x > 600.0);
+
+        let no_evidence = split_at(
+            1200,
+            800,
+            600.0,
+            fold_band_without_measurement(&SplitDiagnostics::default()),
+            LayoutClassification::TwoPageSpread,
+            0.9,
+            SplitDiagnostics::default(),
+        );
+        assert_eq!(no_evidence.pages[0].points[1].x, 600.0);
+        assert_eq!(no_evidence.pages[1].points[0].x, 600.0);
+    }
+
+    #[test]
+    fn typed_fold_band_serializes_cutter_invalidation_reason() {
+        let prior = DocumentPrior {
+            dominant_layout: LayoutClassification::TwoPageSpread,
+            cutter_ratio_median: Some(0.50),
+            cluster_dims: ClusterDimensions {
+                width: 1200.0,
+                height: 800.0,
+            },
+            agreement_strength: 0.90,
+            stroke_width_median_px: None,
+            x_height_median_px: None,
+        };
+        let mut moved = split_at(
+            1200,
+            800,
+            700.0,
+            FoldBand::measured(690.0, 710.0),
+            LayoutClassification::TwoPageSpread,
+            0.4,
+            SplitDiagnostics {
+                decision_x: 700.0,
+                whitespace_score: 0.6,
+                ..SplitDiagnostics::default()
+            },
+        );
+        moved.classification = LayoutClassification::SingleUncutPage;
+        moved.apply_document_prior(1200, 800, prior);
+
+        let diagnostics = serde_json::to_value(moved.diagnostics).unwrap();
+        assert_eq!(diagnostics["foldBand"]["reason"], "cutter-invalidated");
     }
 }

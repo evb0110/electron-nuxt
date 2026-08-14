@@ -178,6 +178,11 @@ describe('CLI scan cleanup acceptance evidence', () => {
             evidenceAgreementGatePassed: true,
             sparseSpreadRecovered: true,
             abstained: false,
+            foldBand: {
+                status: 'measured' as const,
+                leftXPx: 1188,
+                rightXPx: 1215,
+            },
         };
         const results = compactScanCleanupDetectionVerdicts([{
             pageNumber: 1,
