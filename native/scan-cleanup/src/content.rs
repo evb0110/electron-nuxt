@@ -364,20 +364,30 @@ fn detect_content_at_analysis_scale(
             );
         }
     }
-    if matches!(purpose, ContentAnalysisPurpose::Crop { .. })
-        && !crop_evidence_supports_bounds(
+    if matches!(purpose, ContentAnalysisPurpose::Crop { .. }) {
+        let retained_ink_pixels = blocks
+            .iter()
+            .filter(|block| block.initialized)
+            .map(|block| block.ink_area)
+            .sum();
+        let ordinary_evidence = crop_evidence_supports_bounds(
             text.summary.ink_pixels,
-            blocks
-                .iter()
-                .filter(|block| block.initialized)
-                .map(|block| block.ink_area)
-                .sum(),
+            retained_ink_pixels,
             analysis_picture_mask,
             working.width(),
             working.height(),
-        )
-    {
-        bounds = None;
+        );
+        let sparse_text_evidence = sparse_text_evidence_supports_bounds(
+            text.summary.ink_pixels,
+            &map,
+            &blocks,
+            working.width(),
+            working.height(),
+            calibration,
+        );
+        if !ordinary_evidence && !sparse_text_evidence {
+            bounds = None;
+        }
     }
     if let Some(picture_bounds) = picture_mask.and_then(|mask| {
         crop_qualified_picture_bounds_with_authority(
@@ -471,6 +481,41 @@ fn crop_evidence_supports_bounds(
         );
     }
     supported
+}
+
+/// A folio or short running mark can be genuine page content while remaining
+/// below every page-wide ink-density floor. Admit that case only when all of
+/// the retained evidence is one compact, internally recognized text block.
+/// Requiring multiple glyph components and a majority of the block's ink in
+/// the text mask keeps isolated dust and blank-leaf fold fragments on the
+/// conservative no-crop path.
+fn sparse_text_evidence_supports_bounds(
+    text_ink_pixels: usize,
+    map: &ComponentMap,
+    blocks: &[BlockStats],
+    width: usize,
+    height: usize,
+    calibration: PageCalibration,
+) -> bool {
+    let mut retained = blocks.iter().filter(|block| block.initialized);
+    let Some(block) = retained.next() else {
+        return false;
+    };
+    let nominal_height = heading_nominal_glyph_height(calibration);
+    let glyph_like_components = map
+        .components()
+        .iter()
+        .filter(|component| block.labels.contains(&component.label))
+        .filter(|component| heading_glyph_like(component, nominal_height))
+        .count();
+    retained.next().is_none()
+        && (block.text_evidence || block.heading_evidence)
+        && (2..=16).contains(&block.component_count)
+        && glyph_like_components == block.component_count
+        && block.ink_area > block.component_count.saturating_mul(16)
+        && text_ink_pixels.saturating_mul(2) >= block.ink_area
+        && block.width().saturating_mul(3) <= width
+        && block.height().saturating_mul(3) <= height
 }
 
 /// A page never prints a column narrower than a margin, so a box that thin
@@ -1346,11 +1391,7 @@ fn annotate_heading_evidence(
     blocks: &mut [BlockStats],
     calibration: PageCalibration,
 ) {
-    let nominal_height = if calibration.valid {
-        calibration.x_height_px.max(1.0)
-    } else {
-        (8.0 * calibration.effective_dpi / 150.0).max(4.0)
-    };
+    let nominal_height = heading_nominal_glyph_height(calibration);
     if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
         eprintln!(
             "{{\"event\":\"heading-nominal\",\"nominal\":{nominal_height:.2},\"valid\":{}}}",
@@ -1376,15 +1417,9 @@ fn annotate_heading_evidence(
                 .iter()
                 .filter(|component| candidate.labels.contains(&component.label))
             {
-                let width = component.right - component.left + 1;
                 let height = component.bottom - component.top + 1;
-                let height_f64 = height as f64;
                 component_heights.push(height);
-                if height_f64 >= 0.7 * nominal_height
-                    && height_f64 <= 4.0 * nominal_height
-                    && width as f64 <= 4.0 * height_f64
-                    && component.area >= 3
-                {
+                if heading_glyph_like(component, nominal_height) {
                     glyph_like += 1;
                 }
             }
@@ -1431,6 +1466,24 @@ fn annotate_heading_evidence(
     for (block, heading_evidence) in blocks.iter_mut().zip(heading_flags) {
         block.heading_evidence = heading_evidence;
     }
+}
+
+fn heading_nominal_glyph_height(calibration: PageCalibration) -> f64 {
+    if calibration.valid {
+        calibration.x_height_px.max(1.0)
+    } else {
+        (8.0 * calibration.effective_dpi / 150.0).max(4.0)
+    }
+}
+
+fn heading_glyph_like(component: &Component, nominal_height: f64) -> bool {
+    let width = component.right - component.left + 1;
+    let height = component.bottom - component.top + 1;
+    let height = height as f64;
+    height >= 0.7 * nominal_height
+        && height <= 4.0 * nominal_height
+        && width as f64 <= 4.0 * height
+        && component.area >= 3
 }
 
 fn build_protected_mask(
@@ -3156,6 +3209,83 @@ mod tests {
             2_238,
             3_252
         ));
+    }
+
+    #[test]
+    fn isolated_two_glyph_folio_earns_a_sparse_content_box() {
+        let mut image = GrayImage::new(360, 480, 246);
+        for left in [170, 177] {
+            for y in 445..452 {
+                for x in left..left + 2 {
+                    image.set(x, y, 80);
+                }
+            }
+            for y in 445..447 {
+                for x in left..left + 5 {
+                    image.set(x, y, 80);
+                }
+            }
+            for x in left..left + 4 {
+                image.set(x, 448, 80);
+            }
+        }
+
+        let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
+        let content = result.content.expect("the two-glyph folio is page content");
+        assert!(
+            content.x <= 170.0,
+            "left folio stroke was clipped: {content:?}"
+        );
+        assert!(
+            content.y <= 445.0,
+            "top folio stroke was clipped: {content:?}"
+        );
+        assert!(
+            content.right() >= 181.0,
+            "folio right edge was clipped: {content:?}"
+        );
+        assert!(
+            content.bottom() >= 452.0,
+            "folio bottom edge was clipped: {content:?}"
+        );
+    }
+
+    #[test]
+    fn sparse_speck_groups_never_earn_a_content_box() {
+        type SpeckCase<'a> = (&'a str, usize, usize, &'a [(usize, usize)]);
+        let cases: &[SpeckCase<'_>] = &[
+            ("two-central-5x6", 5, 6, &[(170, 230), (180, 230)]),
+            ("three-corner-4x4", 4, 4, &[(8, 8), (16, 8), (24, 8)]),
+            (
+                "four-fold-5x6",
+                5,
+                6,
+                &[(330, 180), (338, 190), (330, 205), (338, 215)],
+            ),
+            (
+                "four-mixed-5x6",
+                5,
+                6,
+                &[(8, 8), (170, 230), (338, 120), (338, 440)],
+            ),
+        ];
+        for &(name, speck_width, speck_height, positions) in cases {
+            let mut image = GrayImage::new(360, 480, 246);
+            for &(left, top) in positions {
+                for y in top..top + speck_height {
+                    for x in left..left + speck_width {
+                        image.set(x, y, 70);
+                    }
+                }
+            }
+
+            let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
+            assert_eq!(
+                result.content, None,
+                "{name} dust produced a crop: {:?}",
+                result.content
+            );
+        }
     }
 
     #[test]

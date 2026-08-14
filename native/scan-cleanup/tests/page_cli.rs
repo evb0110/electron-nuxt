@@ -3863,13 +3863,17 @@ fn batch_preserves_asymmetric_margin_order_in_named_metadata() {
         })
     );
     let content = &metadata_json["contentBox"];
+    let content_x = content["xPx"].as_f64().unwrap();
+    let content_y = content["yPx"].as_f64().unwrap();
+    let content_right = content_x + content["widthPx"].as_f64().unwrap();
+    let content_bottom = content_y + content["heightPx"].as_f64().unwrap();
     assert_eq!(
         metadata_json["outputWidthPx"].as_f64().unwrap(),
-        (content["widthPx"].as_f64().unwrap() + 24.0).ceil()
+        (content_right + 17.0).ceil() - (content_x - 7.0).floor()
     );
     assert_eq!(
         metadata_json["outputHeightPx"].as_f64().unwrap(),
-        (content["heightPx"].as_f64().unwrap() + 34.0).ceil()
+        (content_bottom + 23.0).ceil() - (content_y - 11.0).floor()
     );
 }
 
