@@ -362,7 +362,10 @@ describe('scan-cleanup native artifact codecs', () => {
         delete (omitted as Partial<typeof omitted>).foldClipLeftPx;
         delete (omitted as Partial<typeof omitted>).foldClipRightPx;
 
-        expect(decodeNativeScanCleanupOutputMetadata(omitted)).toBe(omitted);
+        const decodedOmitted = decodeNativeScanCleanupOutputMetadata(omitted);
+        expect(decodedOmitted.foldClipLeftPx).toBeUndefined();
+        expect(decodedOmitted.foldClipRightPx).toBeUndefined();
+        expect(decodedOmitted.cropRect).toEqual(outputMetadata().cropRect);
         expect(decodeNativeScanCleanupOutputMetadata(outputMetadata())).toMatchObject({
             foldClipLeftPx: 2,
             foldClipRightPx: 3,
