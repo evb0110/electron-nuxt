@@ -149,7 +149,12 @@ export interface IMainJobRegistry<
 > {
     start(options: IMainJobStartOptions<TProgress, TResult, TError, TSender>): IMainJobHandle<TProgress, TResult, TError>;
     get(jobId: string, actor: IMainJobActor<TSender>): TMainJobSnapshot<TProgress, TResult, TError> | null;
-    subscribe(jobId: string, actor: IMainJobActor<TSender>, listener: (snapshot: TMainJobSnapshot<TProgress, TResult, TError>) => void): (() => void) | null;
+    subscribe(
+        jobId: string,
+        actor: IMainJobActor<TSender>,
+        listener: (snapshot: TMainJobSnapshot<TProgress, TResult, TError>) => void,
+        onClose?: () => void,
+    ): (() => void) | null;
     subscribeOwner(actor: IMainJobActor<TSender>): () => void;
     cancel(jobId: string, actor: IMainJobActor<TSender>, reason?: string): boolean;
     await(jobId: string, actor: IMainJobActor<TSender>): Promise<TMainJobTerminalSnapshot<TProgress, TResult, TError>>;
@@ -174,7 +179,7 @@ export function createMainJobRegistry<
         operation: IRegisteredMainOperation;
         controller: AbortController;
         snapshot: TSnapshot;
-        subscribers: Set<(snapshot: TSnapshot) => void>;
+        subscribers: Set<ISubscription>;
         handle: THandle;
         resolveTerminal: (snapshot: TTerminal) => void;
         cancelPromise: Promise<void>;
@@ -182,6 +187,10 @@ export function createMainJobRegistry<
         terminalAtMs: number | null;
         retentionTimer: ReturnType<typeof setTimeout> | null;
         settled: boolean;
+    }
+    interface ISubscription {
+        close: () => void;
+        listener: (snapshot: TSnapshot) => void;
     }
     interface IBinding {
         sender: TSender;
@@ -223,7 +232,8 @@ export function createMainJobRegistry<
             },
         },
     }) : null;
-    function notify(record: IRecord) { for (const listener of record.subscribers) listener(record.snapshot); }
+    function notify(record: IRecord) { for (const subscription of record.subscribers) subscription.listener(record.snapshot); }
+    function closeSubscriptions(record: IRecord) { for (const subscription of [...record.subscribers]) subscription.close(); }
     function emit(record: IRecord, terminal = false, flushKey?: string) {
         if (!pump || options.progress?.getEventKey(record.snapshot.progress) === null) {
             return;
@@ -248,7 +258,7 @@ export function createMainJobRegistry<
     }
     function remove(record: IRecord) { if (records.get(record.snapshot.jobId) !== record) {
         return;
-    } if (record.retentionTimer) clearTimeout(record.retentionTimer); records.delete(record.snapshot.jobId); record.subscribers.clear(); unbind(record); }
+    } if (record.retentionTimer) clearTimeout(record.retentionTimer); records.delete(record.snapshot.jobId); closeSubscriptions(record); unbind(record); }
     function prune() {
         const cap = options.retention.maxTerminalRecords;
         if (cap === undefined) {
@@ -301,7 +311,7 @@ export function createMainJobRegistry<
         return true;
     }
     function ownerEnd(record: IRecord, action: TMainJobOwnerEndAction | undefined, reason: string) {
-        record.subscribers.clear();
+        closeSubscriptions(record);
         if (action === 'cancel') {
             requestCancel(record, reason);
             unbind(record);
@@ -439,13 +449,25 @@ export function createMainJobRegistry<
     return {
         start,
         get: (jobId, actor) => authorized(jobId, actor)?.snapshot ?? null,
-        subscribe: (jobId, actor, listener) => {
+        subscribe: (jobId, actor, listener, onClose) => {
             const record = authorized(jobId, actor); if (!record) {
                 return null;
             }
             bind(record);
-            record.subscribers.add(listener); listener(record.snapshot);
-            return () => record.subscribers.delete(listener);
+            let active = true;
+            const subscription: ISubscription = {
+                listener,
+                close: () => {
+                    if (!active) {
+                        return;
+                    }
+                    active = false;
+                    record.subscribers.delete(subscription);
+                    onClose?.();
+                },
+            };
+            record.subscribers.add(subscription); listener(record.snapshot);
+            return subscription.close;
         },
         subscribeOwner: actor => {
             if (!pump) {

@@ -77,6 +77,23 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         expect(ownerSender.send).not.toHaveBeenCalled(); expect(jobs.get('replay', actor)?.status).toBe('completed');
         expect(jobs.subscribe('replay', actor, vi.fn())).not.toBeNull(); await jobs.clearForTests();
     });
+    it('closes subscriptions through owner loss and record disposal', async () => {
+        const jobs = registry(); const ownerSender = sender(11); const actor = {sender: ownerSender}; const closedOnOwnerLoss = vi.fn();
+        const active = start(jobs, actor, 'owner-loss', context => new Promise<IResult>((_resolve, reject) => {
+            const abort = () => reject(context.signal.reason);
+            if (context.signal.aborted) abort();
+            else context.signal.addEventListener('abort', abort, {once: true});
+        }));
+        expect(jobs.subscribe('owner-loss', actor, vi.fn(), closedOnOwnerLoss)).not.toBeNull();
+
+        ownerSender.emit('destroyed');
+
+        await active.settled; expect(closedOnOwnerLoss).toHaveBeenCalledOnce();
+        const disposedSender = sender(12); const disposedActor = {sender: disposedSender}; const closedOnDisposal = vi.fn();
+        const terminal = start(jobs, disposedActor, 'disposed', async () => ({value: 'done'}));
+        await terminal.settled; expect(jobs.subscribe('disposed', disposedActor, vi.fn(), closedOnDisposal)).not.toBeNull();
+        await jobs.clearForTests(); expect(closedOnDisposal).toHaveBeenCalledOnce();
+    });
     it('publishes exactly one synthesized terminal and ignores late results', async () => {
         const jobs = registry(); const ownerSender = sender(5); let context!: TContext;
         const handle = start(jobs, {sender: ownerSender}, 'terminal', async current => { context = current; throw new Error('boom'); });
