@@ -336,12 +336,19 @@ fn detect_content_at_analysis_scale(
     );
     annotate_heading_evidence(&map, &mut blocks, calibration);
     let text = build_text_line_mask(&candidate_image, &blocks, &distance_to_white, calibration);
-    annotate_text_evidence(&map, &component_blocks, &mut blocks, &text.mask);
+    annotate_text_evidence(
+        &map,
+        &component_blocks,
+        &mut blocks,
+        &text.mask,
+        calibration,
+    );
     let protected_mask = build_protected_mask(
         working.width(),
         working.height(),
         analysis_picture_mask,
         &blocks,
+        calibration,
     );
     let garbage = garbage_seed_labels(&borders, &cleaned, &protected_mask, calibration);
     let (mut bounds, side_confidence, accepted_trims) = trim_content_bounds(
@@ -411,7 +418,7 @@ fn detect_content_at_analysis_scale(
     }
     let protected_blocks = blocks
         .iter()
-        .filter(|block| block.initialized && block.protected())
+        .filter(|block| block.initialized && block.protected(calibration))
         .map(block_evidence)
         .collect();
     let diagnostics = ContentDiagnostics {
@@ -694,9 +701,10 @@ struct BlockStats {
 }
 
 impl BlockStats {
-    fn protected(&self) -> bool {
+    fn protected(&self, calibration: PageCalibration) -> bool {
         self.grayscale_supported
-            || self.picture_mask_overlap_pixels != 0
+            || self.picture_mask_overlap_pixels
+                >= calibration.content_minimum_picture_overlap_pixels()
             || self.heading_evidence
             || self.text_evidence
     }
@@ -761,7 +769,13 @@ fn cluster_content_blocks(
     // ever prove it was text, and the crop bound followed the deletion.
     let text_lines =
         build_text_line_mask(&candidate_image, &blocks, distance_to_white, calibration);
-    annotate_text_evidence(map, &component_blocks, &mut blocks, &text_lines.mask);
+    annotate_text_evidence(
+        map,
+        &component_blocks,
+        &mut blocks,
+        &text_lines.mask,
+        calibration,
+    );
     let fragmented_edge_continuations = blocks
         .iter()
         .map(|block| {
@@ -794,7 +808,7 @@ fn cluster_content_blocks(
         .map(|(block, &edge_continuation)| {
             block.initialized
                 && edge_continuation == 0
-                && (block.protected()
+                && (block.protected(calibration)
                     || block.ink_area >= (maximum_area / 12).max(minimum_block_area)
                     || block.component_count >= (maximum_count / 8).max(3))
         })
@@ -837,7 +851,7 @@ fn cluster_content_blocks(
         });
         retained[component.label as usize] = fragmented_edge_continuations[block_label] == 0
             && (dominant[block_label]
-                || block.protected()
+                || block.protected(calibration)
                 || supported_marginalia
                 || top_furniture);
         if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some()
@@ -865,7 +879,7 @@ fn cluster_content_blocks(
                 block.ink_area,
                 block.component_count,
                 dominant[label],
-                block.protected(),
+                block.protected(calibration),
                 fragmented_edge_continuations[label] != 0,
             );
         }
@@ -1490,13 +1504,14 @@ fn build_protected_mask(
     height: usize,
     picture_mask: Option<&BinaryImage>,
     blocks: &[BlockStats],
+    calibration: PageCalibration,
 ) -> BinaryImage {
     let mut protected = picture_mask
         .cloned()
         .unwrap_or_else(|| BinaryImage::new(width, height));
     for block in blocks
         .iter()
-        .filter(|block| block.initialized && block.protected())
+        .filter(|block| block.initialized && block.protected(calibration))
     {
         for y in block.top..=block.bottom {
             for x in block.left..=block.right {
@@ -1512,7 +1527,9 @@ fn annotate_text_evidence(
     component_blocks: &[usize],
     blocks: &mut [BlockStats],
     text_mask: &BinaryImage,
+    calibration: PageCalibration,
 ) {
+    let mut evidence_pixels = vec![0usize; blocks.len()];
     for y in 0..text_mask.height() {
         for x in 0..text_mask.width() {
             if !text_mask.get(x, y) {
@@ -1524,9 +1541,13 @@ fn annotate_text_evidence(
                 .copied()
                 .unwrap_or_default();
             if block_label != 0 {
-                blocks[block_label].text_evidence = true;
+                evidence_pixels[block_label] += 1;
             }
         }
+    }
+    let minimum = calibration.content_minimum_text_evidence_pixels();
+    for (block, pixels) in blocks.iter_mut().zip(evidence_pixels) {
+        block.text_evidence = pixels >= minimum;
     }
 }
 
@@ -2128,14 +2149,9 @@ fn build_trim_geometry(
             TrimSide::Right => block.right == current.right,
             TrimSide::Bottom => block.bottom == current.bottom,
         };
-        removed_blocks[label] = touches;
+        removed_blocks[label] = touches && !block.protected(calibration);
     }
-    if !removed_blocks.iter().any(|&remove| remove)
-        || blocks
-            .iter()
-            .enumerate()
-            .any(|(label, block)| removed_blocks[label] && block.protected())
-    {
+    if !removed_blocks.iter().any(|&remove| remove) {
         return None;
     }
     let remaining_active = active
@@ -2737,6 +2753,15 @@ mod tests {
         artifact_bottom: usize,
         artifact_is_garbage: bool,
     ) -> (Option<PixelBounds>, [f64; 4], Vec<ContentAcceptedTrim>) {
+        direct_trim_fixture_with_evidence(artifact_top, artifact_bottom, artifact_is_garbage, 0)
+    }
+
+    fn direct_trim_fixture_with_evidence(
+        artifact_top: usize,
+        artifact_bottom: usize,
+        artifact_is_garbage: bool,
+        picture_mask_overlap_pixels: usize,
+    ) -> (Option<PixelBounds>, [f64; 4], Vec<ContentAcceptedTrim>) {
         let width = 200;
         let height = 200;
         let mut content = BinaryImage::new(width, height);
@@ -2764,6 +2789,7 @@ mod tests {
             right: artifact.right,
             bottom: artifact.bottom,
             initialized: true,
+            picture_mask_overlap_pixels,
             labels: vec![artifact.label],
             ..BlockStats::default()
         };
@@ -3795,6 +3821,20 @@ mod tests {
     }
 
     #[test]
+    fn calibrated_evidence_ignores_one_picture_pixel_when_trimming() {
+        let (bounds, _, accepted_trims) = direct_trim_fixture_with_evidence(0, 30, true, 1);
+        let bounds = bounds.expect("edge residue and body are content");
+
+        assert!(accepted_trims
+            .iter()
+            .any(|trim| trim.side == ContentTrimSide::Top));
+        assert!(
+            bounds.top >= 80,
+            "one overlap pixel vetoed the trim: {bounds:?}"
+        );
+    }
+
+    #[test]
     fn a_side_below_its_trim_threshold_is_left_untrimmed() {
         let (trimmed, trimmed_confidence, trims) = direct_trim_fixture_with_garbage(0, 30, true);
         let trimmed = trimmed.expect("artifact and body are content");
@@ -3876,7 +3916,7 @@ mod tests {
     }
 
     #[test]
-    fn text_evidence_belongs_to_component_ink_not_an_overlapping_block_box() {
+    fn calibrated_evidence_ignores_one_text_mask_pixel() {
         let mut components = BinaryImage::new(10, 10);
         components.set(1, 1, true);
         components.set(4, 4, true);
@@ -3906,13 +3946,29 @@ mod tests {
         let mut text_mask = BinaryImage::new(10, 10);
         text_mask.set(4, 4, true);
 
-        annotate_text_evidence(&map, &component_blocks, &mut blocks, &text_mask);
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 40.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        annotate_text_evidence(
+            &map,
+            &component_blocks,
+            &mut blocks,
+            &text_mask,
+            calibration,
+        );
 
         assert!(
             !blocks[1].text_evidence,
             "a block must not inherit text protection merely because its bounding box contains text"
         );
-        assert!(blocks[2].text_evidence);
+        assert!(
+            !blocks[2].text_evidence,
+            "one text-mask pixel must not hard-protect an entire side block"
+        );
     }
 
     #[test]

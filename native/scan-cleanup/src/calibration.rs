@@ -259,6 +259,30 @@ impl PageCalibration {
         self.content_reference_area(5_000.0)
     }
 
+    /// One text-mask hit is not enough to give an entire clustered block crop
+    /// authority. A calibrated stem (stroke width by x-height) is the smallest
+    /// repeatable text unit; the fallback preserves the same physical scale at
+    /// the analysis DPI.
+    pub(crate) fn content_minimum_text_evidence_pixels(self) -> usize {
+        if self.valid {
+            (self.stroke_width_px.max(1.0) * self.x_height_px.max(self.stroke_width_px))
+                .round()
+                .max(4.0) as usize
+        } else {
+            self.content_reference_area(12.0)
+        }
+    }
+
+    /// Picture overlap must cover at least one calibrated stroke area before
+    /// it can hard-protect a whole content block from trimming.
+    pub(crate) fn content_minimum_picture_overlap_pixels(self) -> usize {
+        if self.valid {
+            self.stroke_width_px.powi(2).round().max(4.0) as usize
+        } else {
+            self.content_reference_area(4.0)
+        }
+    }
+
     fn content_reference_length(self, pixels_at_150_dpi: f64) -> usize {
         (pixels_at_150_dpi * self.effective_dpi / CONTENT_REFERENCE_DPI)
             .round()
