@@ -600,7 +600,12 @@ for (let index = 0; index < top.length; index += 1) {
     offender.sourceMedianThicknessProxyPx = round(offender.sourceMedianThicknessProxyPx);
     offender.strokeThicknessProxyPx = round(offender.strokeThicknessProxyPx);
 }
-await saveContactSheet(top, join(root, 'top-10-pairs-contact-sheet.png'));
+// An offender with no source match has no pair crop; the sheet must not take the whole
+// run down with it, because the results file is still unwritten at this point.
+const pairedTop = top.filter(item => item.pairCrop);
+if (pairedTop.length > 0) {
+    await saveContactSheet(pairedTop, join(root, 'top-10-pairs-contact-sheet.png'));
+}
 
 const matchedTop = top.filter(item => item.amplificationVsSource !== null);
 const result = {

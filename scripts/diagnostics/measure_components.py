@@ -187,7 +187,7 @@ def component_stroke_width(component: dict) -> float:
     return statistics.median(ridge or [1.0])
 
 
-def mask_for_box(image: Image.Image, box: tuple[int, int, int, int], source_gray: bool = False) -> tuple[bytes, int, int, int | None]:
+def mask_for_box(image: Image.Image, box: tuple[int, int, int, int], *, source_gray: bool = False) -> tuple[bytes, int, int, int | None]:
     crop = image.crop(box).convert("L")
     raw = crop.tobytes()
     threshold = otsu_threshold(raw) if source_gray else 127
@@ -195,8 +195,8 @@ def mask_for_box(image: Image.Image, box: tuple[int, int, int, int], source_gray
     return mask, crop.width, crop.height, threshold if source_gray else None
 
 
-def measure_box(image: Image.Image, box: tuple[int, int, int, int], source_gray: bool = False, keep_components: bool = False) -> dict:
-    mask, width, height, threshold = mask_for_box(image, box, source_gray)
+def measure_box(image: Image.Image, box: tuple[int, int, int, int], *, source_gray: bool = False, keep_components: bool = False) -> dict:
+    mask, width, height, threshold = mask_for_box(image, box, source_gray=source_gray)
     components = components_from_mask(mask, width, height)
     plausible = [component for component in components if (
         component["area"] >= 7
@@ -317,8 +317,15 @@ def finite(value: float) -> bool:
     return not math.isnan(value) and not math.isinf(value)
 
 
+def json_safe(value: object) -> object:
+    # json.dumps emits bare NaN/Infinity tokens, which no strict JSON reader accepts.
+    if isinstance(value, float):
+        return round(value, 4) if finite(value) else None
+    return value
+
+
 def clean_metric(metric: dict) -> dict:
-    return {key: (round(value, 4) if isinstance(value, float) and finite(value) else value) for key, value in metric.items() if key not in {"components", "mask"}}
+    return {key: json_safe(value) for key, value in metric.items() if key not in {"components", "mask"}}
 
 
 def component_rescue_differential(current: dict, baseline: dict) -> list[dict]:
@@ -496,7 +503,9 @@ def main() -> None:
         writer.writeheader()
         for row in leaf_rows:
             writer.writerow({key: round(value, 4) if isinstance(value, float) else value for key, value in row.items()})
-    (ROOT / "metrics/page-leaf-summary.json").write_text(json.dumps(leaf_rows, indent=2) + "\n")
+    (ROOT / "metrics/page-leaf-summary.json").write_text(
+        json.dumps([{key: json_safe(value) for key, value in row.items()} for row in leaf_rows], indent=2) + "\n",
+    )
 
     print(json.dumps({
         "lines": len(records),

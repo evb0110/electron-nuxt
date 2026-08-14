@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -13,8 +14,31 @@ from measure_components import align_variant, mapped_source
 
 
 ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
-FONT_PATH = Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf")
-FONT = ImageFont.truetype(str(FONT_PATH), 30) if FONT_PATH.exists() else ImageFont.load_default()
+LABEL_SIZE = 30
+# The panel header is a fixed 48px, so the bitmap fallback leaves the labels unreadable.
+# Try the platform bold faces in turn and let DIAG_CROP_FONT override.
+FONT_CANDIDATES = [
+    os.environ.get("DIAG_CROP_FONT"),
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
+]
+
+
+def label_font() -> ImageFont.ImageFont:
+    for candidate in FONT_CANDIDATES:
+        if candidate and Path(candidate).exists():
+            return ImageFont.truetype(candidate, LABEL_SIZE)
+    print(
+        f"warning: no bold TrueType font found (set DIAG_CROP_FONT); panel labels fall back to the "
+        f"default bitmap font and ignore the {LABEL_SIZE}px size",
+        file=sys.stderr,
+    )
+    return ImageFont.load_default()
+
+
+FONT = label_font()
 
 
 def geometry(variant: str, output_page: int) -> dict:

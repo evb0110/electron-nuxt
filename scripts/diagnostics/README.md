@@ -294,14 +294,15 @@ Two one-off measurement scripts back the stroke-weight closure numbers quoted in
 written inside untracked `.devkit` analysis directories, which made those numbers
 impossible to recompute from a clone; they are tracked here so the numbers can be
 reproduced. Their corpora, renders, OCR caches, and image outputs stay untracked —
-every script takes the artifact root as its first argument and reads and writes only
-inside it.
+every script takes the artifact root as its first argument, and that root is the only
+place any of them writes. The sole read outside it is `make_crops.py` looking up a bold
+system font for its panel labels (override with `DIAG_CROP_FONT`).
 
 `analyze-word-weight.mjs` is the word-granularity study (the "1,691 matched words"
 figure). It expects `renders/output`, `renders/source`, and
-`conversion-evidence/native` under the artifact root, shells out to `tesseract` for
-per-word boxes (cached in `ocr/`), and writes `word-weight-results.json` plus
-comparison crops:
+`conversion-evidence/native` under the artifact root, shells out to
+`tesseract <page>.png stdout -l eng --psm 3 tsv` for per-word boxes (cached under
+`ocr/`), and writes `word-weight-results.json` plus comparison crops:
 
 ```bash
 node scripts/diagnostics/analyze-word-weight.mjs /absolute/path/to/artifact-root
@@ -309,20 +310,27 @@ node scripts/diagnostics/analyze-word-weight.mjs /absolute/path/to/artifact-root
 
 `measure_components.py` is its component-granularity replacement — the one that can
 see a single bold letter inside a word, which the word-mean statistic averages away.
-It expects a `source/` directory plus one directory per variant (`current`,
-`rescue-off`, `wolf`, `smoothing-off`), each with its `<variant>.pdf.summary.json`
-and rendered leaves, and OCR TSVs under `ocr/`. It writes line, component, and
-per-leaf metrics into `metrics/`. `make_crops.py` is its companion crop renderer and
-imports its alignment helpers, so both must stay in the same directory:
+The fixture shape is hard-coded to the study's corpus: 10 scanned source pages at
+`source/source299-01.png` … `source299-10.png`, and one directory per variant
+(`current`, `rescue-off`, `wolf`, `smoothing-off`) holding `<variant>.pdf.summary.json`
+plus 20 rendered leaves `leaf-01.png` … `leaf-20.png` — two leaves per source page,
+left then right. OCR comes from pre-generated TSVs at `ocr/current-leaf-NN.tsv`, one per
+leaf, read but never produced by the script. The original study's `tesseract` flags for
+those TSVs are not recorded in its logs; use the word-study invocation above
+(`-l eng --psm 3 tsv`) as the reference recipe. Output is line, component, and per-leaf
+metrics under `metrics/`. `make_crops.py` is the companion crop renderer and imports the
+alignment helpers, so both must stay in the same directory:
 
 ```bash
 python3 scripts/diagnostics/measure_components.py /absolute/path/to/artifact-root
 python3 scripts/diagnostics/make_crops.py /absolute/path/to/artifact-root
 ```
 
-Both Python scripts require Pillow. They previously hard-coded the artifact root to
-their own directory; that is the only behavioral change made while tracking them,
-together with creating the `metrics/` and `crops/` output directories on demand.
+Both Python scripts require Pillow. Tracking them changed only their portability, not
+their measurements: the artifact root became an argument instead of the script's own
+directory, `metrics/` and `crops/` are created on demand, the label font is looked up
+across platforms instead of assuming a macOS path, and non-finite metrics serialize as
+`null` instead of the bare `NaN` token that strict JSON readers reject.
 
 ## Navigation blink trace
 

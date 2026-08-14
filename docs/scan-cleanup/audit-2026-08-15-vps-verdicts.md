@@ -1,5 +1,5 @@
 <!-- Provenance: copied verbatim from .devkit/analysis/branch-audit-2026-08-15/vps-verification.md (untracked working artifact), produced 2026-08-15. -->
-<!-- Independent VPS re-verification of the 2026-08-15 corrective audit findings. Body unmodified. -->
+<!-- Independent VPS re-verification of the 2026-08-15 corrective audit. Its companions are tracked beside it: REPORT.txt as audit-2026-08-15-corrective.md, CORRECTIONS.md as audit-2026-08-15-corrections.md, VERIFICATION.md as audit-2026-08-15-verification.md. Body unmodified. -->
 
 # Independent adversarial verification of `REPORT.txt`
 
