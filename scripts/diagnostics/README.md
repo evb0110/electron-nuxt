@@ -287,6 +287,43 @@ substitution policy. The conversion summary also retains every page's final and
 tier-1 layout verdict so a page-limited conversion can audit the full detection
 pass without keeping its raster workspace.
 
+## Scan-cleanup stroke-weight studies
+
+Two one-off measurement scripts back the stroke-weight closure numbers quoted in
+`docs/scan-cleanup/audit-2026-08-14/SYNTHESIS.md` and the process ledger. They were
+written inside untracked `.devkit` analysis directories, which made those numbers
+impossible to recompute from a clone; they are tracked here so the numbers can be
+reproduced. Their corpora, renders, OCR caches, and image outputs stay untracked —
+every script takes the artifact root as its first argument and reads and writes only
+inside it.
+
+`analyze-word-weight.mjs` is the word-granularity study (the "1,691 matched words"
+figure). It expects `renders/output`, `renders/source`, and
+`conversion-evidence/native` under the artifact root, shells out to `tesseract` for
+per-word boxes (cached in `ocr/`), and writes `word-weight-results.json` plus
+comparison crops:
+
+```bash
+node scripts/diagnostics/analyze-word-weight.mjs /absolute/path/to/artifact-root
+```
+
+`measure_components.py` is its component-granularity replacement — the one that can
+see a single bold letter inside a word, which the word-mean statistic averages away.
+It expects a `source/` directory plus one directory per variant (`current`,
+`rescue-off`, `wolf`, `smoothing-off`), each with its `<variant>.pdf.summary.json`
+and rendered leaves, and OCR TSVs under `ocr/`. It writes line, component, and
+per-leaf metrics into `metrics/`. `make_crops.py` is its companion crop renderer and
+imports its alignment helpers, so both must stay in the same directory:
+
+```bash
+python3 scripts/diagnostics/measure_components.py /absolute/path/to/artifact-root
+python3 scripts/diagnostics/make_crops.py /absolute/path/to/artifact-root
+```
+
+Both Python scripts require Pillow. They previously hard-coded the artifact root to
+their own directory; that is the only behavioral change made while tracking them,
+together with creating the `metrics/` and `crops/` output directories on demand.
+
 ## Navigation blink trace
 
 Use the blink trace for blank frames, delayed skeletons, or canvas/skeleton flicker:
