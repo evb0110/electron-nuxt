@@ -17,6 +17,15 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
   (opus-medium + sol-high, once) -> ONE fix round -> PR -> sol-high
   babysits CodeRabbit (fail-open) -> joint adjudication, reply to
   every handled thread before resolving -> merge -> next step.
+- PRE-MERGE THREAD SWEEP (added after the S1 miss, R6): every push to
+  a PR branch can trigger an incremental CodeRabbit review that adds
+  NEW threads minutes later. Therefore merging requires, in order:
+  (1) CodeRabbit's review of the LAST pushed commit is complete;
+  (2) a fresh enumeration of ALL review threads (GraphQL
+  reviewThreads) shows zero unresolved threads and no thread whose
+  trailing comment is an unanswered reviewer finding. The CodeRabbit
+  STATUS CHECK being green is never sufficient — it reports review
+  completion, not thread disposition.
 - B1 report capture (manual, blocking-local): every user message
   carrying a report becomes a row here at receipt, with disposition
   (defect | instruction | question | duplicate | out-of-scope),
@@ -127,6 +136,19 @@ R5 2026-08-14 (instruction, user): "you shouldn't change anything on
    (ruleset/enforce_admins/merge queue) cancelled; PR flow stays a
    ledger-enforced convention; no repository settings will be
    modified. G1(c)/(d) in the approach are superseded by this row.
+R6 2026-08-14 (defect report, user): CodeRabbit thread r3780029144 on
+   PR #6 (backtick the O7 glob paths so ** is not eaten as Markdown
+   bold) was never replied to. Root cause: the fix-commit push at
+   00:03 triggered an INCREMENTAL CodeRabbit review that posted the
+   new finding at 00:07 - after the reply/resolve sweep at 00:04-00:05
+   - and the pre-merge check only consulted the CodeRabbit status
+   check, which reports review completion, not thread disposition.
+   Swept all PRs: this was the only unaddressed thread anywhere.
+   Handled: globs backticked in both doc locations (O7 body + S1
+   backlog line), thread replied and resolved, and the PRE-MERGE
+   THREAD SWEEP standing rule added so an incremental review can
+   never be missed again. Disposition: defect (process execution),
+   fixed.
 
 ## Open items carried from prior ledger
 

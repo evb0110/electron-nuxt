@@ -309,8 +309,8 @@ O6 Threshold-count tripwire (T1 flagship; ~10 lines, blocking):
    committed machine-written baseline file; no transcribed count
    anywhere is authoritative; count may not rise without a paired
    baseline update in the same diff.
-O7 Changed-area repair (R11) — LANDED in S1: scan-cleanup-core/** and
-   scan-cleanup-adapters/** matched NO area (the blocking smoke lane
+O7 Changed-area repair (R11) — LANDED in S1: `scan-cleanup-core/**`
+   and `scan-cleanup-adapters/**` matched NO area (the blocking smoke lane
    silently skipped the package owning the preview/final seam). The
    executable contract is scripts/release/policy.mjs, pinned by
    tests/unit/architecture/changedAreaPolicyCensus.test.ts, which
@@ -388,7 +388,7 @@ corrected baseline so I1 does not contradict blessed state.
 S1 CI truth + hygiene — TWO ORDERED OPERATIONS. Op 1 (workflow PR):
    concurrency cancel-in-progress only for pull_request events;
    gates_ok aggregator job; unit tests on the PR path; O7 changed-area
-   repair (scan-cleanup-core/** and scan-cleanup-adapters/** into the
+   repair (`scan-cleanup-core/**` and `scan-cleanup-adapters/**` into the
    blocking smoke area; census enumerates top-level source DIRS, not
    workspace packages — adapters has no package.json); native build
    prereq in the blocking smoke lane (without it O7 routes the seam
