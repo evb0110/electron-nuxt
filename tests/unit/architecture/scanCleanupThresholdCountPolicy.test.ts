@@ -46,6 +46,7 @@ describe('scan-cleanup threshold count policy', () => {
         expect(count('pub(crate) static FLOOR: f64 = 0.5;')).toBe(1);
         expect(count('static mut LEVEL: f64 = 0.5;')).toBe(1);
         expect(count('const DEPTHS: [f64; 5] = [0.0; 5];')).toBe(1);
+        expect(count('const A: f32 = 1.0; const B: f64 = 2.0;')).toBe(2);
         expect(count('const PAIRS: &[(f64, f64)] = &[];')).toBe(1);
         expect(count('// const HIDDEN: f64 = 1.0;')).toBe(0);
         expect(count('/* const HIDDEN: f64 = 1.0; */')).toBe(0);
