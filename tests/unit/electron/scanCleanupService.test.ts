@@ -620,6 +620,8 @@ describe('scan cleanup service', () => {
 
         expect(lifecycleSender.send).toHaveBeenCalledOnce();
         expect(service.cancel(webContents, started.jobId, owner)).toBe(true);
+        await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
+            .toMatchObject({status: 'canceled'}));
     });
 
     it('removes the just-registered listener when its state is unavailable', () => {
