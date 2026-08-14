@@ -31,23 +31,27 @@ const {RELEASE_TARGET_MANIFEST} = await import(
 }};
 const nativeToolSmokePolicy = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/release/native-tool-smoke-policy.mjs')).href
-) as {getMacPackagedToolSmokePolicy: (toolName: string) => {
+) as {getPackagedToolSmokePolicy: (toolName: string) => {
     allowedExitCodes: ReadonlySet<number>;
     expectedOutputTokens: readonly string[];
 }};
 
-const getMacSmokePolicy = nativeToolSmokePolicy.getMacPackagedToolSmokePolicy;
+const getSmokePolicy = nativeToolSmokePolicy.getPackagedToolSmokePolicy;
 
 function readVerifierSource() {
     return readFileSync(resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh'), 'utf8');
 }
 
+function smokedToolNames() {
+    return Array.from(
+        readVerifierSource().matchAll(/run_(?:macos|host)_packaged_tool_smoke "([^"]+)"/gu),
+        match => match[1],
+    );
+}
+
 describe('native tool smoke source policy', () => {
-    it('keeps mac packaged tool smoke expectations explicit per tool', () => {
-        const verifierTools = Array.from(
-            readVerifierSource().matchAll(/run_macos_packaged_tool_smoke "([^"]+)"/gu),
-            match => match[1],
-        );
+    it('keeps packaged tool smoke expectations explicit per tool on every executing host', () => {
+        const verifierTools = Array.from(new Set(smokedToolNames()));
         const expectedPolicies = new Map<string, Set<number>>([
             [
                 'ddjvu',
@@ -131,15 +135,12 @@ describe('native tool smoke source policy', () => {
             toolName,
             allowedExitCodes,
         ] of expectedPolicies) {
-            expect(getMacSmokePolicy(toolName).allowedExitCodes).toEqual(allowedExitCodes);
+            expect(getSmokePolicy(toolName).allowedExitCodes).toEqual(allowedExitCodes);
         }
     });
 
     it('joins the release-target manifest to the contracts and packaging verifier', () => {
-        const smokeTools = new Set(Array.from(
-            readVerifierSource().matchAll(/run_macos_packaged_tool_smoke "([^"]+)"/gu),
-            match => match[1],
-        ));
+        const smokeTools = new Set(smokedToolNames());
         const generatedFamilies = RELEASE_TARGET_MANIFEST.families
             .filter((family): family is ReturnType<typeof getPackagedNativeToolFamilies>[number] & {binaryName: string} => (
                 family.binaryName !== null
@@ -176,7 +177,7 @@ describe('native tool smoke source policy', () => {
         for (const family of generatedFamilies) {
             expect(smokeTools.has(family.binaryName)).toBe(true);
             if (smokeTools.has(`${family.binaryName}-protocol`)) {
-                expect(getMacSmokePolicy(`${family.binaryName}-protocol`).expectedOutputTokens)
+                expect(getSmokePolicy(`${family.binaryName}-protocol`).expectedOutputTokens)
                     .toEqual([String(family.protocolVersion)]);
             }
         }
@@ -223,10 +224,25 @@ describe('native tool smoke source policy', () => {
         expect(verifierSource).not.toContain('LD_LIBRARY_PATH=');
         expect(verifierSource).toContain('windows-pe-dependencies.mjs');
         expect(verifierSource).not.toContain('objdump -p');
-        expect(verifierSource).toContain('run_host_packaged_tool_smoke "tesseract" "tesseract"');
-        expect(verifierSource).toContain('run_host_packaged_tool_smoke "unpaper" "unpaper|usage"');
+        expect(verifierSource).toContain('run_host_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)"');
+        expect(verifierSource).toContain('run_host_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)"');
         const tesseract = RELEASE_TARGET_MANIFEST.families.find(family => family.id === 'tesseract');
         expect(tesseract?.packagedEntries.find(entry => entry.id === 'unpaper')?.skip)
             .toEqual({win32: 'not bundled on Windows'});
+    });
+
+    it('gives every host that can execute the sidecar functional evidence, and names the host that cannot', () => {
+        const verifierSource = readVerifierSource();
+
+        // The host helper must not carry a second, looser expectation of its own.
+        expect(verifierSource).not.toContain('expected_pattern');
+        expect(verifierSource).toContain('node scripts/release/assert-packaged-tool-smoke.mjs "$tool_name"');
+        expect(
+            verifierSource.match(/run_packaged_scan_cleanup_fold_clip_smoke "\$\(packaged_entry_path evb-scan-cleanup\)"/gu),
+        ).toHaveLength(3);
+        expect(
+            verifierSource.match(/run_(?:macos|host)_packaged_tool_smoke "evb-scan-cleanup(?:-protocol)?" /gu),
+        ).toHaveLength(6);
+        expect(verifierSource.match(/Named gap: /gu)).toHaveLength(3);
     });
 });
