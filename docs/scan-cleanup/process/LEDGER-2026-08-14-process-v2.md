@@ -73,6 +73,55 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
   fixtures, benchmarks) can run remotely faster than locally; no stale
   remote processes left behind.
 
+## Parallelization mechanisms (R8: triple advisory fable/opus/sol, adjudicated)
+
+ADOPTED conventions (effective immediately):
+- DRAFT-PR PREFLIGHT (opus#1): open a DRAFT PR the moment implementation
+  completes; PR CI runs during the adversarial-review window; CodeRabbit
+  stays silent (drafts:false) until `gh pr ready` after the fix round.
+  Pre-merge sweep gains two conditions: PR is not draft, and CodeRabbit
+  has reviewed the exact head SHA.
+- ATTESTATION BARRIER / REBASE-TRAIN (fable#2+sol#1): when PR A merges,
+  immediately rebase track B onto landed main and start B's final PR CI
+  + CodeRabbit concurrently with A's push attestation. B merges only
+  when: A's push gates_ok green on the landed SHA; B's gates_ok green on
+  the rebased head; CodeRabbit reviewed that head; thread sweep clean.
+  (Opus's skip-attestation-for-disjoint-surfaces variant DECLINED —
+  2-of-3 advisors require the barrier.)
+- VPS PREFLIGHT (all three): Ubuntu preflight of CI-shaped gates on the
+  exact SHA is nonblocking rehearsal evidence only; never a substitute
+  for required CI; never downgrades a CI red; sweep after.
+- ISOLATION (opus hazards + sol#7 + fable#6): per-track Electron session
+  names (never 'default'), per-worktree nuxt prepare, no concurrent
+  pnpm install ever; worktree warm-up via APFS clone of native/target +
+  caches (.devkit/scripts/worktree-warm.sh); local sccache bootstrap
+  allowed; shared CARGO_TARGET_DIR BANNED (cargo lock serializes).
+- SHARED DETECTION CACHE (opus#7, verified content-addressed on binary
+  sha256 + source sha256 + options, atomic writes): stable shared path
+  allowed with a size budget and documented purge.
+- SPECULATIVE WORK (all three): label-independent tooling/scaffolding
+  may run ahead of dependencies; any speculated baseline/label ARTIFACT
+  is disposable (.devkit only), never committed, never cited as
+  evidence; final artifacts recomputed from authoritative inputs.
+ADOPTED config changes (one workflow PR after S4-independent lands, X2):
+- Rust build cache in native jobs (Swatinem rust-cache, SHA-pinned).
+- Native lane 3-way split (unit/integration/build+lint+deny) with a
+  MANDATORY architecture test pinning that every Cargo target kind is
+  claimed by exactly one CI invocation (opus#2's pin), gates_ok needs +
+  skip-map + topology updates in the same diff.
+- pr_unit job split from pr_quality (PR: test:unit; push:
+  test:coverage), removing the push-path double suite run.
+REJECTED: batching ledger steps into one PR (unanimous UNSAFE);
+concurrent/stacked merges (sol#10); skipping push attestation via PR
+artifacts (sol#11); docs-only CI fast path (single-advisor, needs a
+derived-exclusion pin — deferred, not scheduled); cargo-nextest (low
+priority until the split is measured).
+Measured basis (opus): PR CI 27 min + push 22 min; native job = 51 s
+compile + 838 s test execution; three test binaries with 1-2 tests
+serialize 162/86/77 s. Expected combined effect of adopted items:
+per-landing tail ~49 -> ~22 min, with draft-PR moving most of the
+remainder off the orchestrator's critical path.
+
 ## Backlog (from approach Part 4 FINAL; each step = one X2 cycle)
 
 - [x] S1 CI truth + hygiene — DONE 2026-08-14 (see R3-R5). Op 1
