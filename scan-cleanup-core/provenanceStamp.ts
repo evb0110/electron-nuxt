@@ -106,7 +106,7 @@ export interface IScanCleanupStampBuildIdsV1 extends IScanCleanupStampBuildIdsBa
 
 export interface IScanCleanupStampBuildIds extends IScanCleanupStampBuildIdsBase {
     coreSchemaId: typeof SCAN_CLEANUP_STAMP_SCHEMA_ID;
-    gitSha?: string;
+    gitSha: string;
 }
 
 export type TScanCleanupStampBuildIds = IScanCleanupStampBuildIdsV1 | IScanCleanupStampBuildIds;
@@ -312,7 +312,7 @@ export function readScanCleanupStampGitSha(stamp: TScanCleanupProvenanceStamp): 
     if (stamp.schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1) {
         return null;
     }
-    return stamp.buildIds.gitSha ?? null;
+    return stamp.buildIds.gitSha;
 }
 
 export function verifyScanCleanupProvenanceStampHex(
@@ -596,20 +596,6 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
     return actual.length === expected.size && actual.every(key => expected.has(key));
 }
 
-function hasRequiredAndOptionalKeys(
-    value: Record<string, unknown>,
-    requiredKeys: readonly string[],
-    optionalKeys: readonly string[],
-) {
-    const actual = new Set(Object.keys(value));
-    const allowed = new Set([
-        ...requiredKeys,
-        ...optionalKeys,
-    ]);
-    return requiredKeys.every(key => actual.has(key))
-        && [...actual].every(key => allowed.has(key));
-}
-
 function assertPositiveInteger(value: unknown, label: string) {
     if (!Number.isSafeInteger(value) || (value as number) < 1) fail(`${label} must be a positive integer`);
 }
@@ -813,8 +799,11 @@ function assertBuildIds(
         if (!hasExactKeys(value, legacyKeys)) {
             fail('stamp schema version mismatch: v1 buildIds must use the legacy exact key set');
         }
-    } else if (!hasRequiredAndOptionalKeys(value, legacyKeys, ['gitSha'])) {
-        fail('stamp schema v2 buildIds contains an unsupported or missing field');
+    } else if (!hasExactKeys(value, [
+        ...legacyKeys,
+        'gitSha',
+    ])) {
+        fail('stamp schema v2 buildIds must carry gitSha alongside the legacy key set');
     }
     const expectedSchemaId = schemaVersion === SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1
         ? SCAN_CLEANUP_STAMP_SCHEMA_ID_V1
