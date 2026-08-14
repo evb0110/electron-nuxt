@@ -39,6 +39,16 @@ PR; the round 1-4 reviewer reports live in ./reviews/.
 - Test policy: full suite, never scoped, before landing
   (`pnpm exec vitest run tests/unit`); Rust: cargo fmt --check +
   clippy + release tests + integration targets under native/*/tests/.
+- EYEBALL PACK (added at user request, R7): every step closes with a
+  2-minute user-reviewable artifact set — before/after images or a
+  short recording of the exact user-visible behavior the step claims
+  to change — delivered in chat and referenced in the PR. Closure
+  claims without an eyeball pack are invalid.
+- PARALLEL TRACKS (R7): steps with disjoint file surfaces may run
+  concurrently (separate worktrees/dispatches); MERGES stay
+  serialized in ledger order. User-visible feature work (S2) always
+  outranks governance work; S3-S6 investment is re-checked against
+  the user's app-level confirmation after S2 lands.
 - Scope guard: build the scan-cleanup feature, not a civilization.
   Appendix items (hash chains, digest archives, classifiers, full
   oracle formalism, VPS residency tiers, E1b, cadence caps) need a
