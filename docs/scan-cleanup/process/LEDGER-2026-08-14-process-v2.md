@@ -716,3 +716,54 @@ R19 2026-08-15 (Verification of the corrective audit adopted): the
      installs Pillow at `ci.yml:80/:423/:480/:588`; the "no Python
      lane" constraint is withdrawn. Tracking and parameterizing the
      script is the remaining gap.
+
+R20 2026-08-15 (S4 complete; fold fix landed; batch item 3 closed;
+   stay-fixed: pending):
+   1. S4(a-c) landed as PR #26 (merge 6ee7d708 lineage, attested):
+      side-authority invariants including collateral retractions,
+      wiring-level mutation-killed pins, and typed `FoldBand` with
+      legacy-decode compatibility. Adjudicated closure class:
+      preservation proof plus negative probe. Two adversarial reviews
+      proved the re-expansion path unobservable on the current corpus;
+      this was recorded honestly as an enabler, not the gutter fix.
+   2. S4(d) landed as PR #27 (merged, attested green, main 91bd04a79):
+      the fold fix was reduced to the `split.rs` measured-fold-band core
+      after two NOT-SOUND reviews proved the `content.rs` exclusion half
+      inert (zero pixels on all surfaces) and directionally wrong if
+      live. The landing deleted 360 lines (-360); `bw.rs` is
+      byte-identical to main. The clamp was deleted with an honest
+      zero-execution record, not a subsumption claim. Evidence: tracked
+      fold runner plus pinned
+      recipe, with the 150-DPI OCR classifier separated from the
+      authoritative 300-DPI intrinsic measurement; residue review
+      improved 6 -> 5; exemplars measured -20.15 mm / -4.40 mm; the
+      change was weight-neutral (offenders 6 -> 6, control green, and
+      p95/p50 identical). The PR body contains the per-leaf adjudication
+      table. The eyeball pack was delivered to the user in chat; it is
+      regenerable from the tracked runner, and the worktree copy was
+      cleaned with the worktree.
+   3. BATCH STATUS (R15 list): items 1 (IPC, PR #14), 2 (phase-edge,
+      PR #15), 3 (gutter/fold, PR #27), and 5 (ETA, PR #16) are LANDED
+      and attested. Item 4 (sub-word weight) remains OPEN as the only
+      remaining batch item. It proceeds as S5(d) with a NEW `bw.rs`
+      design adjudicated by the tracked stroke-weight oracle; RED
+      calibration is recorded at
+      `scripts/diagnostics/stroke-weight-oracle/calibration/main-ed92303ba.json`.
+      The rescue-caps design is dead: the oracle recorded FAIL in the
+      tracked verdict document.
+   4. Also landed this cycle, all attested: PR #18 (1.4 reconnect
+      idempotency), PR #19 (design charter plus tracked audit evidence,
+      closes 2.10/2.11/G5), PR #20 (1.13 OCR options pinning), PR #21
+      (1.6 output lifecycle data loss), PR #22 (S5(c) tracked weight
+      oracle), PR #23 (1.7 + #12 functional packaged sidecar smoke),
+      PR #24 (S3 oracle wiring including its fix round), PR #25
+      (ratchet train-collision hotfix), PR #26, and PR #27.
+   5. PROCESS RULE (from the #22/#24 red-main incident): any PR touching
+      `coverage-baseline.json`, checker scripts, or gate configurations
+      must be re-validated against current main immediately before
+      merge. Individually green PRs collided on the ratchet
+      (`scripts-core` -0.81 pp) and produced a red attestation window,
+      fixed by PR #25 with seven real tests plus a residual-only
+      rebaseline for subprocess CLIs that Vitest cannot instrument.
+   6. Stay-fixed: all R20 items enter the seven-day re-report window
+      from 2026-08-15.
