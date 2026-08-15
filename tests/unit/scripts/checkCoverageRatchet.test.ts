@@ -8,11 +8,11 @@ import {
     mkdir,
     mkdtemp,
     readFile,
-    rm,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {createTemporaryDirectoryRegistry} from '@tests/helpers/createTemporaryDirectoryRegistry';
 import {
     compareCoverageToBaseline,
     createCoverageBaseline,
@@ -22,12 +22,9 @@ import {
     runCoverageRatchet,
 } from '@scripts/checkCoverageRatchet';
 
-const temporaryDirectories: string[] = [];
+const temporaryDirectories = createTemporaryDirectoryRegistry();
 
-afterEach(async () => Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
-    force: true,
-    recursive: true,
-}))));
+afterEach(() => temporaryDirectories.cleanup());
 
 function metricSummary(pct: number) {
     return Object.fromEntries([
@@ -66,8 +63,9 @@ function summary(totalPct: number, filePct = totalPct, projectRoot = '/repo') {
 }
 
 async function createTemporaryProject() {
-    const projectRoot = await mkdtemp(path.join(tmpdir(), 'evb-coverage-ratchet-'));
-    temporaryDirectories.push(projectRoot);
+    const projectRoot = temporaryDirectories.register(
+        await mkdtemp(path.join(tmpdir(), 'evb-coverage-ratchet-')),
+    );
     await Promise.all([
         'app/.nuxt',
         'coverage',

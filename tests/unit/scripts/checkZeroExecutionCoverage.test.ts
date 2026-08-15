@@ -8,11 +8,11 @@ import {
 import {
     mkdir,
     mkdtemp,
-    rm,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {createTemporaryDirectoryRegistry} from '@tests/helpers/createTemporaryDirectoryRegistry';
 import {
     checkZeroExecutionCoverage,
     collectZeroExecutionTripwireTargets,
@@ -22,14 +22,11 @@ import {
     runZeroExecutionCoverage,
 } from '@scripts/checkZeroExecutionCoverage';
 
-const temporaryDirectories: string[] = [];
+const temporaryDirectories = createTemporaryDirectoryRegistry();
 
 afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
-        force: true,
-        recursive: true,
-    })));
+    await temporaryDirectories.cleanup();
 });
 
 function fileSummary(total: number, covered: number) {
@@ -120,8 +117,9 @@ describe('zero-execution coverage tripwire', () => {
     });
 
     it('discovers and checks targets across the widened production roots', async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), 'evb-zero-execution-'));
-        temporaryDirectories.push(projectRoot);
+        const projectRoot = temporaryDirectories.register(
+            await mkdtemp(path.join(tmpdir(), 'evb-zero-execution-')),
+        );
         const targetFiles = [
             'app/platform/search.worker.ts',
             'electron/platform-ipc/nested/registrar.ts',
@@ -165,8 +163,9 @@ describe('zero-execution coverage tripwire', () => {
     });
 
     it('marks a failed filesystem-backed tripwire run for process failure', async () => {
-        const projectRoot = await mkdtemp(path.join(tmpdir(), 'evb-zero-execution-failure-'));
-        temporaryDirectories.push(projectRoot);
+        const projectRoot = temporaryDirectories.register(
+            await mkdtemp(path.join(tmpdir(), 'evb-zero-execution-failure-')),
+        );
         await Promise.all([
             'app/platform',
             'electron',
