@@ -332,7 +332,7 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Install PDF audit tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils qpdf
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils python3-numpy python3-opencv python3-pil qpdf
 
       - name: Preview, export, and word-loss gates
         run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"

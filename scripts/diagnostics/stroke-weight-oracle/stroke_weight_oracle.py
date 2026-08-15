@@ -21,20 +21,23 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import cv2
-import numpy as np
-from PIL import Image
-
 MASK_THRESHOLD = 128
-CALIBRATION_DPI = 300.0
-COMPONENT_AREA_MIN_PX = 8
-COMPONENT_HEIGHT_MIN_PX = 12
-COMPONENT_HEIGHT_MAX_PX = 70
-COMPONENT_WIDTH_MIN_PX = 2
-COMPONENT_WIDTH_MAX_PX = 200
-LINE_CLUSTER_GAP_HEIGHT_FRACTION = 0.72
-MINIMUM_LINE_COMPONENTS = 8
 MILLIMETRES_PER_INCH = 25.4
+CALIBRATION: dict[str, Any] = {}
+cv2: Any = None
+np: Any = None
+Image: Any = None
+
+
+def load_pixel_dependencies() -> None:
+    global cv2, np, Image
+    import cv2 as cv2_module
+    import numpy as numpy_module
+    from PIL import Image as image_module
+
+    cv2 = cv2_module
+    np = numpy_module
+    Image = image_module
 
 
 def parse_pages(value: str | None, page_count: int) -> list[int]:
@@ -88,6 +91,43 @@ def rounded(value: float | None, digits: int = 6) -> float | None:
     return None if value is None else round(float(value), digits)
 
 
+def round_half_away_from_zero(value: float) -> int:
+    return math.floor(value + 0.5) if value >= 0 else math.ceil(value - 0.5)
+
+
+def scaled_eligibility_bounds(x_dpi: float, y_dpi: float) -> dict[str, int]:
+    calibration_dpi = float(CALIBRATION['calibrationDpi'])
+    x_scale = x_dpi / calibration_dpi
+    y_scale = y_dpi / calibration_dpi
+    area_scale = max(0.25, x_scale * y_scale)
+    return {
+        'minimumArea': max(
+            2,
+            round_half_away_from_zero(
+                float(CALIBRATION['componentAreaMinPx']) * area_scale
+            ),
+        ),
+        'minimumHeight': max(
+            1,
+            round_half_away_from_zero(
+                float(CALIBRATION['componentHeightMinPxAt300Dpi']) * y_scale
+            ),
+        ),
+        'maximumHeight': round_half_away_from_zero(
+            float(CALIBRATION['componentHeightMaxPxAt300Dpi']) * y_scale
+        ),
+        'minimumWidth': max(
+            1,
+            round_half_away_from_zero(
+                float(CALIBRATION['componentWidthMinPxAt300Dpi']) * x_scale
+            ),
+        ),
+        'maximumWidth': round_half_away_from_zero(
+            float(CALIBRATION['componentWidthMaxPxAt300Dpi']) * x_scale
+        ),
+    }
+
+
 def component_ridge_width(component: np.ndarray) -> float:
     # Every component crop is foreground-tight. A white guard is required or an
     # all-foreground crop makes OpenCV report its effectively-infinite sentinel
@@ -100,26 +140,25 @@ def component_ridge_width(component: np.ndarray) -> float:
     return float(2.0 * np.median(distance[ridge])) if ridge.any() else 0.0
 
 
-def find_components(mask: np.ndarray, x_dpi: float, y_dpi: float) -> list[dict[str, Any]]:
+def find_components(
+    mask: np.ndarray, x_dpi: float, y_dpi: float
+) -> tuple[list[dict[str, Any]], int]:
     count, labels, stats, centroids = cv2.connectedComponentsWithStats(
         mask.astype(np.uint8), 8
     )
-    x_scale = x_dpi / CALIBRATION_DPI
-    y_scale = y_dpi / CALIBRATION_DPI
-    area_scale = max(0.25, x_scale * y_scale)
-    minimum_area = max(2, round(COMPONENT_AREA_MIN_PX * area_scale))
-    minimum_height = max(1, round(COMPONENT_HEIGHT_MIN_PX * y_scale))
-    maximum_height = round(COMPONENT_HEIGHT_MAX_PX * y_scale)
-    minimum_width = max(1, round(COMPONENT_WIDTH_MIN_PX * x_scale))
-    maximum_width = round(COMPONENT_WIDTH_MAX_PX * x_scale)
+    bounds = scaled_eligibility_bounds(x_dpi, y_dpi)
+    sub_floor_component_count = sum(
+        0 < int(stats[label][cv2.CC_STAT_AREA]) < bounds['minimumArea']
+        for label in range(1, count)
+    )
     result: list[dict[str, Any]] = []
     for label in range(1, count):
         x, y, width, height, area = map(int, stats[label])
-        if area < minimum_area:
+        if area < bounds['minimumArea']:
             continue
-        if not minimum_height <= height <= maximum_height:
+        if not bounds['minimumHeight'] <= height <= bounds['maximumHeight']:
             continue
-        if not minimum_width <= width <= maximum_width:
+        if not bounds['minimumWidth'] <= width <= bounds['maximumWidth']:
             continue
         component = labels[y:y + height, x:x + width] == label
         stroke_width_px = component_ridge_width(component)
@@ -135,14 +174,16 @@ def find_components(mask: np.ndarray, x_dpi: float, y_dpi: float) -> list[dict[s
             'strokeWidthPx': stroke_width_px,
             'strokeWidthMm': stroke_width_px * MILLIMETRES_PER_INCH / y_dpi,
         })
-    return result
+    return result, sub_floor_component_count
 
 
 def group_lines(components: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     if not components:
         return []
     median_height = statistics.median(item['height'] for item in components)
-    max_center_gap = max(2.0, LINE_CLUSTER_GAP_HEIGHT_FRACTION * median_height)
+    max_center_gap = max(
+        2.0, float(CALIBRATION['lineClusterGapHeightFraction']) * median_height
+    )
     groups: list[list[dict[str, Any]]] = []
     for component in sorted(components, key=lambda item: (item['centerY'], item['centerX'])):
         best_index = None
@@ -204,13 +245,13 @@ def measure_mask(
     ratio_limit: float,
     min_local: int,
 ) -> dict[str, Any]:
-    components = find_components(mask, x_dpi, y_dpi)
+    components, sub_floor_component_count = find_components(mask, x_dpi, y_dpi)
     lines = group_lines(components)
     window_px = window_mm * x_dpi / MILLIMETRES_PER_INCH
     line_reports: list[dict[str, Any]] = []
     page_offenders: list[dict[str, Any]] = []
     for line_index, line in enumerate(lines, start=1):
-        if len(line) < MINIMUM_LINE_COMPONENTS:
+        if len(line) < int(CALIBRATION['minimumLineComponents']):
             continue
         widths = [item['strokeWidthMm'] for item in line]
         p50 = percentile(widths, 50)
@@ -261,6 +302,7 @@ def measure_mask(
             'yDpi': y_dpi,
         },
         'eligibleComponentCount': len(components),
+        'subFloorComponentCount': sub_floor_component_count,
         'measuredLineCount': len(line_reports),
         'offenderCount': len(page_offenders),
         'maxLineP95P50Ratio': rounded(
@@ -332,20 +374,34 @@ def measure_pdf(args: argparse.Namespace) -> list[dict[str, Any]]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
+    parser.add_argument('--calibration', type=Path, required=True)
     parser.add_argument('--pdf', type=Path)
     parser.add_argument('--image', type=Path, action='append', default=[])
-    parser.add_argument('--dpi', type=float, default=CALIBRATION_DPI)
+    parser.add_argument('--dpi', type=float)
+    parser.add_argument('--print-eligibility', action='store_true')
     parser.add_argument('--rendered-metrics', type=Path)
     parser.add_argument('--summary', type=Path)
     parser.add_argument('--pages')
-    parser.add_argument('--window-mm', type=float, required=True)
-    parser.add_argument('--ratio', type=float, required=True)
-    parser.add_argument('--min-local', type=int, required=True)
+    parser.add_argument('--window-mm', type=float)
+    parser.add_argument('--ratio', type=float)
+    parser.add_argument('--min-local', type=int)
     return parser
 
 
 def main() -> None:
+    global CALIBRATION
     args = build_parser().parse_args()
+    CALIBRATION = json.loads(args.calibration.read_text(encoding='utf-8'))
+    if CALIBRATION.get('roundingRule') != 'half-away-from-zero':
+        raise ValueError('calibration roundingRule must be half-away-from-zero')
+    if args.dpi is None:
+        args.dpi = float(CALIBRATION['calibrationDpi'])
+    if args.print_eligibility:
+        print(json.dumps(scaled_eligibility_bounds(args.dpi, args.dpi), separators=(',', ':')))
+        return
+    if args.window_mm is None or args.ratio is None or args.min_local is None:
+        raise ValueError('--window-mm, --ratio, and --min-local are required')
+    load_pixel_dependencies()
     if bool(args.pdf) == bool(args.image):
         raise ValueError('exactly one of --pdf or --image inputs is required')
     if args.pdf is not None:
@@ -365,6 +421,9 @@ def main() -> None:
             'pageCountMeasured': len(measured),
             'pageCountUnmeasured': len(results) - len(measured),
             'offenderCount': offenders,
+            'subFloorComponentCount': sum(
+                result['subFloorComponentCount'] for result in measured
+            ),
             'offendingPageCount': sum(result['offenderCount'] > 0 for result in measured),
             'corpusMaxP95P50Ratio': rounded(corpus_max),
             'gatePass': len(measured) == len(results) and offenders == 0,

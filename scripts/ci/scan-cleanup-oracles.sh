@@ -16,6 +16,23 @@ build_scan_cleanup_tool() {
   pnpm run build:scan-cleanup
 }
 
+run_stroke_weight_oracle() {
+  stroke_output="$output_root/stroke-weight"
+  mkdir -p "$stroke_output"
+  node --test scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.test.mjs
+  native/target/release/evb-scan-cleanup \
+    --manifest scripts/diagnostics/stroke-weight-oracle/calibration/render-manifest.json
+  node scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs \
+    --image .devkit/tmp/stroke-weight-oracle/diyarbakir-clean.png \
+    --image .devkit/tmp/stroke-weight-oracle/wahrscheinlich-clean.png \
+    --image .devkit/tmp/stroke-weight-oracle/handschrift-clean.png \
+    --dpi 300 \
+    --out "$stroke_output/report.json"
+  node scripts/diagnostics/stroke-weight-oracle/assert-calibration.mjs \
+    --report "$stroke_output/report.json" \
+    --reference scripts/diagnostics/stroke-weight-oracle/calibration/s5-line-stroke-budget-green.json
+}
+
 supports_type_stripping() {
   command -v node >/dev/null 2>&1 || return 1
   node -e '
@@ -72,6 +89,7 @@ case "$mode" in
       exit 1
     fi
     build_scan_cleanup_tool
+    run_stroke_weight_oracle
     run_export_oracles
     ;;
   pre-push)
@@ -80,6 +98,7 @@ case "$mode" in
       run_catastrophe_oracle
       if supports_type_stripping; then
         build_scan_cleanup_tool
+        run_stroke_weight_oracle
       fi
     fi
     if ! supports_type_stripping; then

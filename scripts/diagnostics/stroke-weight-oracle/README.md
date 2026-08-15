@@ -7,8 +7,9 @@ defect; a single word or letter rendered fat next to normal-weight text is.
 
 The oracle exists so that binarization work (`native/scan-cleanup/src/bw.rs`
 and the rescue paths that feed it) can be judged from a clone instead of a
-one-off research host. It is a **diagnostic runner**, not a CI gate: nothing in
-`ci.yml` invokes it yet.
+one-off research host. The tracked three-specimen calibration is also an
+executable CI gate in `scripts/ci/scan-cleanup-oracles.sh`; arbitrary book or
+PDF runs remain diagnostic.
 
 ## Measurement
 
@@ -24,6 +25,12 @@ one-off research host. It is a **diagnostic runner**, not a CI gate: nothing in
 6. A component whose ratio exceeds the offender threshold is an offender. The
    gate passes only when every requested page is measurable and no page has an
    offender.
+
+The schema also reports `subFloorComponentCount`: every connected ink component
+smaller than the DPI-scaled eligible-area floor. Those components do not enter
+the ridge census, but the CI calibration pin requires their count not to rise
+above the tracked green reference so detached debris cannot hide below the
+oracle's 8 px eligibility floor.
 
 ## Calibration constants
 
@@ -42,6 +49,11 @@ with the recorded baseline and with the FAIL verdict already on record.
 | local horizontal radius | 32 mm |
 | minimum local components | 7 |
 | offender ratio | > 1.6 × local median |
+
+`calibration.json` owns these values for the Node entry point and Python pixel
+helper. A CI conformance test compares every corresponding Rust constant. DPI
+scaled integer bounds use **round half away from zero** in both Rust and Python;
+the 312.5 DPI half-tie (`12 × 312.5 / 300 = 12.5`) is pinned to 13.
 
 The radius was chosen because 32 mm is the smallest tested value that keeps the
 audit's 1.6× threshold, makes both Vorwort leaves red, and leaves the manually
@@ -63,9 +75,10 @@ Exit status is 0 for a green gate, 1 for a red gate, 2 for invalid input or a
 measurement failure. `--pdf` additionally needs `pdfimages`/`jbig2dec` on PATH,
 because it reuses `scan-cleanup-rendered-metrics.py` for mask extraction.
 
-The measurement helper needs OpenCV, NumPy and Pillow. CI installs Pillow only,
-so the interpreter is selectable with `--python` or `$EVB_PYTHON`; a virtualenv
-with `opencv-python-headless numpy Pillow` is enough.
+The measurement helper needs OpenCV, NumPy and Pillow. CI installs the matching
+Ubuntu Python packages in the scan-cleanup oracle job. Locally, the interpreter
+is selectable with `--python` or `$EVB_PYTHON`; a virtualenv with
+`opencv-python-headless numpy Pillow` is enough.
 
 ## Specimen provenance
 

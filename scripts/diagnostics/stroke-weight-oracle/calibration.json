@@ -1,0 +1,15 @@
+{
+  "calibrationDpi": 300,
+  "componentAreaMinPx": 8,
+  "componentHeightMinPxAt300Dpi": 12,
+  "componentHeightMaxPxAt300Dpi": 70,
+  "componentWidthMinPxAt300Dpi": 2,
+  "componentWidthMaxPxAt300Dpi": 200,
+  "connectivity": 8,
+  "lineClusterGapHeightFraction": 0.72,
+  "localWindowMm": 32,
+  "localWindowMinComponents": 7,
+  "minimumLineComponents": 8,
+  "offenderRatio": 1.6,
+  "roundingRule": "half-away-from-zero"
+}

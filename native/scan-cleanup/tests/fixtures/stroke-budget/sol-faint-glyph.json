@@ -1,0 +1,21 @@
+{
+  "width": 300,
+  "height": 80,
+  "paperGray": 232,
+  "dpi": 300.0,
+  "comparatorCount": 7,
+  "comparatorStartX": 10,
+  "comparatorStrideX": 28,
+  "comparatorTop": 30,
+  "comparatorWidth": 4,
+  "comparatorHeight": 20,
+  "comparatorGray": 40,
+  "faintBodyLeft": 232,
+  "faintBodyTop": 23,
+  "faintBodyWidth": 8,
+  "faintBodyHeight": 34,
+  "faintBodyGray": 150,
+  "capturedSkeletonLeft": 235,
+  "capturedSkeletonWidth": 2,
+  "expectedRescuedPixels": 204
+}
