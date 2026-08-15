@@ -61,7 +61,10 @@ classifier; it is not the production-PDF metric from the historical untracked
 VPS runner. The 300-DPI, intrinsic-canvas exemplars directly measure how much
 fold-side source canvas remains on the right leaf. Exact source hashes, DPI,
 render options, and OCR thresholds live in
-`fold-adjudication-recipe.json`.
+`fold-adjudication-recipe.json`. The residue classifier also pins the canonical
+`eng` model from `packages/contracts/ocrLanguages.ts`, verifies the tracked
+`tessdata-best` file under `resources/tesseract/tessdata`, and passes that model
+directory to Tesseract explicitly.
 
 Render the pinned sources from both refs with the recorded protocol-v3 options,
 then measure the four manifest trees:
@@ -72,6 +75,17 @@ python3 scripts/diagnostics/fold-adjudication.py \
   --branch-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/branch/manifest.json \
   --main-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/main/manifest.json \
   --branch-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/branch/manifest.json \
+  --out .devkit/analysis/s4d-rescue/fold-adjudication.json
+```
+
+On Windows PowerShell, run the same measurement with the Python launcher:
+
+```powershell
+py -3 scripts/diagnostics/fold-adjudication.py `
+  --main-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/main/manifest.json `
+  --branch-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/branch/manifest.json `
+  --main-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/main/manifest.json `
+  --branch-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/branch/manifest.json `
   --out .devkit/analysis/s4d-rescue/fold-adjudication.json
 ```
 

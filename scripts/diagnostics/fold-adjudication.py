@@ -98,14 +98,19 @@ def right_output(page):
     return page["outputs"][1]
 
 
-def accepted_words(image_path, metadata, recipe, tesseract):
+def accepted_words(image_path, metadata, recipe, tesseract, tessdata_dir):
     command = [
         tesseract,
         str(image_path),
         "stdout",
+        "--tessdata-dir",
+        str(tessdata_dir),
+        "-l",
+        recipe["tesseractLanguage"],
         "--psm",
         str(recipe["tesseractPageSegmentationMode"]),
-        "tsv",
+        "-c",
+        "tessedit_create_tsv=1",
     ]
     result = subprocess.run(
         command,
@@ -137,7 +142,7 @@ def accepted_words(image_path, metadata, recipe, tesseract):
     return words
 
 
-def residue_rows(manifest_path, surface, tesseract):
+def residue_rows(manifest_path, surface, tesseract, tessdata_dir):
     pages = indexed_pages(manifest_path)
     rows = []
     for specimen in surface["pages"]:
@@ -150,7 +155,13 @@ def residue_rows(manifest_path, surface, tesseract):
         dimensions = png_dimensions(image_path)
         if dimensions != (metadata["outputWidthPx"], metadata["outputHeightPx"]):
             raise ValueError(f"PNG/metadata dimensions disagree: {image_path}")
-        words = accepted_words(image_path, metadata, surface, tesseract)
+        words = accepted_words(
+            image_path,
+            metadata,
+            surface,
+            tesseract,
+            tessdata_dir,
+        )
         content = metadata.get("contentBox")
         if content is None:
             gap = None
@@ -224,25 +235,48 @@ def command_version(command):
     return result.stdout.splitlines()[0]
 
 
+def pinned_tessdata(surface):
+    tessdata_dir = Path(surface["tessdataDir"])
+    if not tessdata_dir.is_absolute():
+        tessdata_dir = ROOT / tessdata_dir
+    model_path = tessdata_dir / f"{surface['tesseractLanguage']}.traineddata"
+    actual_sha = sha256(model_path)
+    expected_sha = surface["tessdataModelSha256"]
+    if actual_sha != expected_sha:
+        raise ValueError(
+            f"{model_path}: expected SHA-256 {expected_sha}, got {actual_sha}"
+        )
+    return tessdata_dir
+
+
 def main():
     args = parse_args()
     recipe = load_json(args.recipe)
     if recipe.get("schemaVersion") != 1:
         raise ValueError("Unsupported fold adjudication recipe")
+    residue_surface = recipe["residueSurface"]
+    tessdata_dir = pinned_tessdata(residue_surface)
     main_residue = residue_rows(
         args.main_fold_manifest,
-        recipe["residueSurface"],
+        residue_surface,
         args.tesseract,
+        tessdata_dir,
     )
     branch_residue = residue_rows(
         args.branch_fold_manifest,
-        recipe["residueSurface"],
+        residue_surface,
         args.tesseract,
+        tessdata_dir,
     )
     report = {
         "schemaVersion": 1,
         "recipe": str(args.recipe),
         "tesseract": command_version(args.tesseract),
+        "ocr": {
+            "language": residue_surface["tesseractLanguage"],
+            "tessdataDir": str(tessdata_dir),
+            "modelSha256": residue_surface["tessdataModelSha256"],
+        },
         "residueSurface": {
             "mainCount": sum(row["verdict"] == "residue-review" for row in main_residue),
             "branchCount": sum(row["verdict"] == "residue-review" for row in branch_residue),
