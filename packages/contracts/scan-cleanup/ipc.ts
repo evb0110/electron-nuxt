@@ -196,7 +196,10 @@ export interface IScanCleanupContentAcceptedTrim {
 export interface IScanCleanupContentDiagnostics {
     sideConfidence: IScanCleanupContentSideConfidence;
     textMask: IScanCleanupContentTextMaskSummary;
-    /** Exact analysis-scale content box after all native side writers. */
+    /**
+     * Exact analysis-space detector box after all native side writers. Export
+     * still maps it through source support and margins; this is not output cropRect.
+     */
     shippedBounds?: IScanCleanupPixelRect;
     acceptedTrims?: IScanCleanupContentAcceptedTrim[];
     protectedBlocks?: IScanCleanupContentBlockEvidence[];

@@ -183,15 +183,8 @@ impl FoldBand {
         }
     }
 
-    fn unquantified_evidence(analysis_dpi: f64) -> Self {
-        // One physical millimetre on each side is deliberately nominal, not
-        // a claim of measured geometry. It is used only after independent fold
-        // evidence passed while the shadow edges could not be quantified.
-        let nominal_half_width_px = (analysis_dpi.max(1.0) / 25.4).round().max(1.0);
-        Self::Unmeasured {
-            reason: FoldBandUnmeasuredReason::FoldEvidenceUnquantified,
-            nominal_half_width_px,
-        }
+    fn unquantified_evidence() -> Self {
+        Self::unmeasured(FoldBandUnmeasuredReason::FoldEvidenceUnquantified)
     }
 
     pub(crate) fn edges(self, cutter_x: f64, width: usize) -> (f64, f64) {
@@ -204,13 +197,6 @@ impl FoldBand {
                 left_x_px.clamp(0.0, cutter_x),
                 right_x_px.clamp(cutter_x, maximum),
             ),
-            Self::Unmeasured {
-                reason: FoldBandUnmeasuredReason::FoldEvidenceUnquantified,
-                nominal_half_width_px,
-            } => (
-                (cutter_x - nominal_half_width_px).clamp(0.0, cutter_x),
-                (cutter_x + nominal_half_width_px).clamp(cutter_x, maximum),
-            ),
             Self::Unmeasured { .. } => (cutter_x, cutter_x),
         }
     }
@@ -221,10 +207,6 @@ impl FoldBand {
                 left_x_px,
                 right_x_px,
             } => left_x_px < cutter_x - 0.5 || right_x_px > cutter_x + 0.5,
-            Self::Unmeasured {
-                reason: FoldBandUnmeasuredReason::FoldEvidenceUnquantified,
-                nominal_half_width_px,
-            } => nominal_half_width_px > 0.5,
             Self::Unmeasured { .. } => false,
         }
     }
@@ -577,7 +559,7 @@ fn detect_split_impl(
             .flatten();
         let fold_band = if matches!(classification, LayoutClassification::TwoPageSpread) {
             gutter_band.map_or_else(
-                || FoldBand::measured(cutter, cutter),
+                || FoldBand::unmeasured(FoldBandUnmeasuredReason::MeasurementUnavailable),
                 |(left, right)| FoldBand::measured(left, right),
             )
         } else {
@@ -960,7 +942,7 @@ fn spread_decision(
 
 fn fold_band_without_measurement(diagnostics: &SplitDiagnostics) -> FoldBand {
     if diagnostics.independent_gutter_gate_passed {
-        FoldBand::unquantified_evidence(diagnostics.analysis_dpi)
+        FoldBand::unquantified_evidence()
     } else {
         FoldBand::unmeasured(FoldBandUnmeasuredReason::NoFoldEvidence)
     }
@@ -3646,14 +3628,12 @@ mod tests {
         assert_eq!(carried.pages[1].points[0].x, measured.pages[1].points[0].x);
 
         let shadowless = GrayImage::new(1200, 800, 245);
+        let unavailable = detect_split(&shadowless, 150.0, LayoutMode::Auto, Some(600.0));
+        assert_eq!(unavailable.pages[0].points[1].x, 600.0);
+        assert_eq!(unavailable.pages[1].points[0].x, 600.0);
         assert_eq!(
-            measured_fold_edges(&detect_split(
-                &shadowless,
-                150.0,
-                LayoutMode::Auto,
-                Some(600.0)
-            )),
-            (600.0, 600.0)
+            unavailable.diagnostics.fold_band,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::MeasurementUnavailable),
         );
     }
 
@@ -3814,7 +3794,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_fold_band_applies_nominal_suppression_only_to_unquantified_evidence() {
+    fn typed_fold_band_preserves_the_plain_cutter_for_unquantified_evidence() {
         let evidenced_diagnostics = SplitDiagnostics {
             analysis_dpi: 150.0,
             fold_score: 0.8,
@@ -3830,8 +3810,12 @@ mod tests {
             0.9,
             evidenced_diagnostics,
         );
-        assert!(evidenced.pages[0].points[1].x < 600.0);
-        assert!(evidenced.pages[1].points[0].x > 600.0);
+        assert_eq!(
+            evidenced.diagnostics.fold_band,
+            FoldBand::unmeasured(FoldBandUnmeasuredReason::FoldEvidenceUnquantified),
+        );
+        assert_eq!(evidenced.pages[0].points[1].x, 600.0);
+        assert_eq!(evidenced.pages[1].points[0].x, 600.0);
 
         let no_evidence = split_at(
             1200,

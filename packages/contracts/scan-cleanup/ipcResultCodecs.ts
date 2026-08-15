@@ -21,6 +21,10 @@ import {
     isLayoutClassification,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
+    isNativeScanCleanupFoldBandV3,
+    legacyNativeScanCleanupFoldBandV3,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
+import {
     isScanCleanupOutputMode,
     isScanCleanupOutputModeRecommendationReason,
 } from '@contracts/scan-cleanup/outputModeGuards';
@@ -942,6 +946,12 @@ function decodeSplitDiagnostics(
     value: unknown,
 ): NonNullable<TScanCleanupDetectionJobState['results'][number]['splitDiagnostics']> {
     if (!isRecord(value)) throw new Error('invalid scan-cleanup split diagnostics');
+    const candidate = value.foldBand === undefined
+        ? {
+            ...value,
+            foldBand: legacyNativeScanCleanupFoldBandV3(),
+        }
+        : value;
     const integerKeys = [
         'leftInkPixels',
         'rightInkPixels',
@@ -1012,48 +1022,25 @@ function decodeSplitDiagnostics(
     type TSplitDiagnostics = NonNullable<
         TScanCleanupDetectionJobState['results'][number]['splitDiagnostics']
     >;
-    const foldBand = value.foldBand;
-    const validFoldBand = isRecord(foldBand) && (
-        (foldBand.status === 'measured'
-            && Object.keys(foldBand).every(key => ['status', 'leftXPx', 'rightXPx'].includes(key))
-            && typeof foldBand.leftXPx === 'number'
-            && Number.isFinite(foldBand.leftXPx)
-            && foldBand.leftXPx >= 0
-            && typeof foldBand.rightXPx === 'number'
-            && Number.isFinite(foldBand.rightXPx)
-            && foldBand.rightXPx >= foldBand.leftXPx)
-        || (foldBand.status === 'unmeasured'
-            && Object.keys(foldBand).every(key => ['status', 'reason', 'nominalHalfWidthPx'].includes(key))
-            && [
-                'not-applicable',
-                'no-fold-evidence',
-                'fold-evidence-unquantified',
-                'cutter-invalidated',
-                'measurement-unavailable',
-            ].includes(foldBand.reason as string)
-            && typeof foldBand.nominalHalfWidthPx === 'number'
-            && Number.isFinite(foldBand.nominalHalfWidthPx)
-            && foldBand.nominalHalfWidthPx >= 0)
-    );
     const isValid = (
-        candidate: Record<string, unknown>,
-    ): candidate is Record<string, unknown> & TSplitDiagnostics =>
-        !Object.keys(candidate).some(key => !allowed.has(key))
+        subject: Record<string, unknown>,
+    ): subject is Record<string, unknown> & TSplitDiagnostics =>
+        !Object.keys(subject).some(key => !allowed.has(key))
         && integerKeys.every(key => (
-            typeof candidate[key] === 'number'
-            && Number.isSafeInteger(candidate[key])
-            && candidate[key] >= 0
+            typeof subject[key] === 'number'
+            && Number.isSafeInteger(subject[key])
+            && subject[key] >= 0
         ))
         && numberKeys.every(key => (
-            typeof candidate[key] === 'number'
-            && Number.isFinite(candidate[key])
+            typeof subject[key] === 'number'
+            && Number.isFinite(subject[key])
         ))
-        && booleanKeys.every(key => typeof candidate[key] === 'boolean')
-        && validFoldBand;
-    if (!isValid(value)) {
+        && booleanKeys.every(key => typeof subject[key] === 'boolean')
+        && isNativeScanCleanupFoldBandV3(subject.foldBand);
+    if (!isValid(candidate)) {
         throw new Error('invalid scan-cleanup split diagnostics');
     }
-    return value;
+    return candidate;
 }
 
 export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanupDetectionJobState | null {

@@ -431,6 +431,43 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(retention.release).toHaveBeenCalledOnce();
     });
 
+    it('normalizes real pre-fold-band persisted detection diagnostics', async () => {
+        const artifact = JSON.parse(await readFile(
+            new URL('../../fixtures/scan-cleanup/protocol-v3-page-before-fold-band.json', import.meta.url),
+            'utf8',
+        )) as {
+            layoutClassification: 'two-page-spread';
+            layoutConfidence: number;
+            cutterXPx: number;
+            splitDiagnostics: Record<string, unknown>;
+        };
+        const decoded = decodeScanCleanupDetectionJobState({
+            jobId: 'legacy-protocol-v3',
+            status: 'completed',
+            progress: {
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 1,
+                percent: 100,
+                completedPageNumbers: [1],
+            },
+            results: [{
+                pageNumber: 1,
+                classification: artifact.layoutClassification,
+                confidence: artifact.layoutConfidence,
+                cutterXPx: artifact.cutterXPx,
+                splitDiagnostics: artifact.splitDiagnostics,
+            }],
+            updatedAtMs: 1,
+        });
+
+        expect(decoded?.results[0]?.splitDiagnostics?.foldBand).toEqual({
+            status: 'unmeasured',
+            reason: 'legacy-protocol-v3',
+            nominalHalfWidthPx: 0,
+        });
+    });
+
     it('retains native split diagnostics through detection, IPC decoding, and compact evidence', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-test-'));
         dirs.push(tempDir);
