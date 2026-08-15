@@ -793,7 +793,7 @@ watch(() => openInProgress, (isOpening) => {
 .recent-row--data {
     border: 0;
     border-bottom: 1px solid var(--app-start-row-divider);
-    cursor: pointer;
+    cursor: default;
     color: var(--ui-text);
 }
 
