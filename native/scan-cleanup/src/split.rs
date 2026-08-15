@@ -29,6 +29,7 @@ const CURVED_SEAM_BAND_WIDTH_FRACTION: f64 = 0.015;
 /// must stop asking them to look equally printed.
 const FOLDED_SHEET_BILATERAL_FLOOR: f64 = 0.10;
 const MAX_GUTTER_BAND_FRACTION: f64 = 0.03;
+const MAX_OFFSET_GUTTER_BAND_FRACTION: f64 = 0.08;
 const MIN_GUTTER_BAND_DEPRESSION: f64 = 6.0;
 const GUTTER_BAND_PAPER_ROW_SHARE: f64 = 0.10;
 const GUTTER_BAND_INK_ROW_SHARE: f64 = 0.10;
@@ -2468,17 +2469,160 @@ fn dimension_matches(actual: usize, expected: f64) -> bool {
 /// own. The caller keeps the cutter where it was and uses the two returned
 /// edges only as leaf geometry.
 ///
-/// The band is the run of columns around the cutter that are shadow and
-/// nothing else, and every rule here can only shorten it: a hard cap of
-/// [`MAX_GUTTER_BAND_FRACTION`] per side, the requirement that no paper shows
-/// through the column, and the requirement that the column holds no ink. The
-/// last two are what protect content: a column of glyphs, however dense, keeps
-/// bright paper between its rows and its ink sits far below the fold it would
-/// have to hide in. A page whose fold leaves no measurable shadow yields
-/// `None`, which cuts at a single column exactly as before. The band may be
+/// Each side is measured against paper from that same source leaf. The search
+/// may reach [`MAX_OFFSET_GUTTER_BAND_FRACTION`] beyond the cutter, but it can
+/// claim only a vertically continuous depressed run with no ink-like column.
+/// The returned exclusion joins the cutter to the far edge of each proven
+/// run, so an offset shadow cannot survive in the retained leaf as a pale
+/// content block. A page whose fold leaves no measurable shadow yields `None`,
+/// which cuts at a single column exactly as before. The band may be
 /// asymmetric, since a sheet lit from one side casts its shadow mostly onto
 /// one leaf.
 fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
+    let width = gray.width();
+    let legacy_cap = (width as f64 * MAX_GUTTER_BAND_FRACTION).floor() as usize;
+    let search_cap = (width as f64 * MAX_OFFSET_GUTTER_BAND_FRACTION).floor() as usize;
+    let legacy_band = legacy_gutter_shadow_band(gray, cutter_x);
+    let center = clamp_cutter(width, cutter_x);
+    let lower = center.saturating_sub(search_cap).max(1);
+    let upper = (center + search_cap).min(width.saturating_sub(1));
+    if legacy_cap == 0
+        || search_cap == 0
+        || gray.height() < 16
+        || lower >= center
+        || upper <= center
+    {
+        return None;
+    }
+    let top = gray.height() / 20;
+    let bottom = gray.height() - top;
+    let rows = (bottom - top).max(1);
+    let column = |x: usize| {
+        let mut histogram = [0u32; 256];
+        let mut sum = 0u64;
+        for y in top..bottom {
+            let value = gray.get(x, y);
+            histogram[usize::from(value)] += 1;
+            sum += u64::from(value);
+        }
+        let share = |fraction: f64| (rows as f64 * fraction).ceil() as u32;
+        ColumnProfile {
+            mean: sum as f64 / rows as f64,
+            bright: brightest_quantile(&histogram, share(GUTTER_BAND_PAPER_ROW_SHARE)),
+            dark: darkest_quantile(&histogram, share(GUTTER_BAND_INK_ROW_SHARE)),
+        }
+    };
+    // Each leaf supplies its own paper reference. A dark photograph on the
+    // facing leaf must not lower the retained leaf's paper floor, which was
+    // the reason the pale 125R shadow straddled every old gate. The upper
+    // quartile of shoulder columns tolerates ordinary text without allowing
+    // one near-white outlier to define the whole leaf.
+    let shoulder_reference = |from: usize, to: usize| {
+        (from < to).then(|| {
+            let mut profiles = (from..to).map(column).collect::<Vec<_>>();
+            profiles.sort_by(|left, right| left.mean.total_cmp(&right.mean));
+            profiles[(profiles.len() - 1) * 3 / 4]
+        })
+    };
+    let left_reference = shoulder_reference(lower.saturating_sub(legacy_cap), lower)?;
+    let right_reference =
+        shoulder_reference((upper + 1).min(width), (upper + legacy_cap + 1).min(width))?;
+    let columns: Vec<ColumnProfile> = (lower..=upper).map(column).collect();
+    // A shadowed column is dark over nearly its whole height and has no ink in
+    // it: paper still shows through wherever glyphs are, and ink is far darker
+    // than the fold it sits in. Both tests are per column, so the band can only
+    // grow through columns that are shadow and nothing else.
+    let shadowed = |offset: usize, reference: ColumnProfile| {
+        let profile = columns[offset];
+        profile.bright <= reference.bright - MIN_GUTTER_BAND_DEPRESSION
+            && profile.mean - profile.dark <= GUTTER_BAND_MAX_COLUMN_CONTRAST
+    };
+    let center_offset = center - lower;
+    let valid_run = |left_offset: usize, right_offset: usize, reference: ColumnProfile| {
+        let deepest = (left_offset..=right_offset)
+            .map(|offset| reference.bright - columns[offset].bright)
+            .fold(f64::MIN, f64::max);
+        (deepest >= MIN_GUTTER_BAND_DEPRESSION).then_some((left_offset, right_offset))
+    };
+    let continuous_run = |range: Box<dyn Iterator<Item = usize>>, reference: ColumnProfile| {
+        let run_is_long_enough = |first: usize, last: usize| {
+            let run_length = first.abs_diff(last) + 1;
+            let claimed_distance = first
+                .abs_diff(center_offset)
+                .max(last.abs_diff(center_offset));
+            let minimum_columns = search_cap
+                .div_ceil(80)
+                .max(2)
+                .max(claimed_distance.div_ceil(4));
+            run_length >= minimum_columns
+        };
+        let mut current: Option<(usize, usize)> = None;
+        let mut runs = Vec::new();
+        for offset in range {
+            if columns[offset].mean - columns[offset].dark > GUTTER_BAND_MAX_COLUMN_CONTRAST + 24.0
+            {
+                if let Some(run) = current.take() {
+                    if run_is_long_enough(run.0, run.1) {
+                        runs.push(run);
+                    }
+                }
+                break;
+            }
+            if shadowed(offset, reference) {
+                current = Some(current.map_or((offset, offset), |(first, _)| (first, offset)));
+            } else if let Some(run) = current.take() {
+                if run_is_long_enough(run.0, run.1) {
+                    runs.push(run);
+                }
+            }
+        }
+        if let Some(run) = current {
+            if run_is_long_enough(run.0, run.1) {
+                runs.push(run);
+            }
+        }
+        runs.into_iter()
+            .filter_map(|(first, last)| valid_run(first.min(last), first.max(last), reference))
+            .max_by(|left, right| {
+                let left_depth = (left.0..=left.1)
+                    .map(|offset| reference.bright - columns[offset].bright)
+                    .fold(f64::MIN, f64::max);
+                let right_depth = (right.0..=right.1)
+                    .map(|offset| reference.bright - columns[offset].bright)
+                    .fold(f64::MIN, f64::max);
+                left_depth.total_cmp(&right_depth)
+            })
+    };
+    let left_run = continuous_run(Box::new((0..=center_offset).rev()), left_reference);
+    let right_run = continuous_run(Box::new(center_offset..columns.len()), right_reference);
+    let mut left_edge = left_run.map_or(center, |(first, last)| lower + first.min(last));
+    let mut right_edge = right_run
+        .map_or(center, |(first, last)| lower + first.max(last) + 1)
+        .min(width);
+    // A few extra columns beyond the legacy band are too small to establish
+    // an offset fold, but large enough to move the leaf origin and perturb
+    // downstream component grouping. Keep the legacy boundary in that
+    // ambiguous transition; only a materially offset run may extend it.
+    let minimum_offset_extension = legacy_cap.div_ceil(8).max(4);
+    if let Some((legacy_left_edge, legacy_right_edge)) = legacy_band {
+        let legacy_left_edge = legacy_left_edge as usize;
+        let legacy_right_edge = legacy_right_edge as usize;
+        if left_edge < legacy_left_edge && legacy_left_edge - left_edge < minimum_offset_extension {
+            left_edge = legacy_left_edge;
+        }
+        if right_edge > legacy_right_edge
+            && right_edge - legacy_right_edge < minimum_offset_extension
+        {
+            right_edge = legacy_right_edge;
+        }
+    }
+    (left_edge < right_edge).then_some((left_edge as f64, right_edge as f64))
+}
+
+/// Replays the pre-offset measurement as a stability reference. The wider
+/// detector may supersede it only when the newly claimed distance is large
+/// enough to establish an offset fold rather than a reference-sensitive edge.
+fn legacy_gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
     let width = gray.width();
     let cap = (width as f64 * MAX_GUTTER_BAND_FRACTION).floor() as usize;
     let center = clamp_cutter(width, cutter_x);
@@ -2505,9 +2649,6 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
             dark: darkest_quantile(&histogram, share(GUTTER_BAND_INK_ROW_SHARE)),
         }
     };
-    // The shoulders sit just outside the widest band we would ever remove, so
-    // they measure undisturbed page rather than shadow.
-    let shoulder = cap;
     let shoulder_reference = |from: usize, to: usize| {
         (from < to).then(|| {
             let count = (to - from) as f64;
@@ -2520,29 +2661,17 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
                 })
         })
     };
-    let left_reference = shoulder_reference(lower.saturating_sub(shoulder), lower)?;
-    let right_reference =
-        shoulder_reference((upper + 1).min(width), (upper + shoulder + 1).min(width))?;
-    // The dimmer shoulder yields the smaller depressions, hence the narrower
-    // band: when the two leaves are lit differently, prefer under-removal.
+    let left_reference = shoulder_reference(lower.saturating_sub(cap), lower)?;
+    let right_reference = shoulder_reference((upper + 1).min(width), (upper + cap + 1).min(width))?;
     let reference = left_reference.mean.min(right_reference.mean);
-    let paper_reference = left_reference.bright.min(right_reference.bright);
+    let paper_limit =
+        left_reference.bright.min(right_reference.bright) - MIN_GUTTER_BAND_DEPRESSION;
     let columns: Vec<ColumnProfile> = (lower..=upper).map(column).collect();
-    // A shadowed column is dark over nearly its whole height and has no ink in
-    // it: paper still shows through wherever glyphs are, and ink is far darker
-    // than the fold it sits in. Both tests are per column, so the band can only
-    // grow through columns that are shadow and nothing else.
-    let paper_limit = paper_reference - MIN_GUTTER_BAND_DEPRESSION;
     let shadowed = |offset: usize| {
         let profile = columns[offset];
         profile.bright <= paper_limit
             && profile.mean - profile.dark <= GUTTER_BAND_MAX_COLUMN_CONTRAST
     };
-    // A cutter normally lands inside the shadow, but a sparse leaf can put the
-    // classifier at the shadow's near edge. In that case, permit a run just
-    // beyond the fixed cutter only when the transition is monotonic and has no
-    // ink-like contrast. The transition is not itself claimed as measured
-    // shadow; it is already on the fold side of the cutter.
     let center_offset = center - lower;
     let valid_run = |left_offset: usize, right_offset: usize| {
         let deepest = (left_offset..=right_offset)
@@ -2562,9 +2691,6 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
                 break;
             }
             let profile = columns[current];
-            // The bridge may be a fold ramp with small brightness rebounds as
-            // the scan crosses a crease. It cannot contain an ink-like column;
-            // that hard contrast stop is what makes a glyph end the walk.
             if profile.mean - profile.dark > GUTTER_BAND_MAX_COLUMN_CONTRAST + 24.0 {
                 break;
             }
@@ -2600,23 +2726,14 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
         let left = anchored_run(-1);
         let right = anchored_run(1);
         match (left, right) {
-            (Some(left), Some(right)) => {
-                // If both sides have an anchored run, the cutter is between
-                // two measured shadow shoulders; keep both rather than
-                // letting one side silently reintroduce an asymmetric crop.
-                Some((left.0, right.1, left.2.max(right.2)))
-            }
+            (Some(left), Some(right)) => Some((left.0, right.1, left.2.max(right.2))),
             (Some(left), None) => Some((left.0, center_offset, left.2)),
             (None, Some(right)) => Some((center_offset, right.1, right.2)),
             (None, None) => None,
         }
     }?;
-    let (left_offset, right_offset, _) = run;
-    let left_edge = lower + left_offset;
-    // Leaf rectangles are half-open. The right leaf must begin one column
-    // beyond the final proven shadow column; clamp to the same per-side cap so
-    // the coordinate convention cannot buy an extra pixel of removal.
-    let right_edge = (lower + right_offset + 1)
+    let left_edge = lower + run.0;
+    let right_edge = (lower + run.1 + 1)
         .min(center.saturating_add(cap))
         .min(width);
     (left_edge < right_edge).then_some((left_edge as f64, right_edge as f64))
@@ -3522,6 +3639,39 @@ mod tests {
         assert_eq!(left, 500.0);
         assert_eq!(right, 529.0, "the right edge is half-open");
         assert!(right - 500.0 <= 1000.0 * MAX_GUTTER_BAND_FRACTION);
+    }
+
+    #[test]
+    fn gutter_band_finds_a_continuous_same_side_shadow_beyond_the_legacy_cap() {
+        let mut page = GrayImage::new(2200, 900, 255);
+        // Facing-page tone must not lower the right leaf's paper reference.
+        for y in 0..page.height() {
+            for x in 0..900 {
+                page.set(x, y, 174);
+            }
+        }
+        // The retained leaf has ordinary text columns, then a fold shadow
+        // beginning 117 px beyond the cutter (the adjudicated 125R geometry).
+        add_text_lines(&mut page, 1240, 2100);
+        for y in 45..855 {
+            for x in 1120..1172 {
+                page.set(x, y, 231);
+            }
+            for x in 1130..1150 {
+                page.set(x, y, 184);
+            }
+        }
+
+        let (left, right) = gutter_shadow_band(&page, 1003.0).expect("offset fold shadow");
+        assert_eq!(left, 1003.0, "only the right leaf owns this shadow");
+        assert!(right >= 1172.0, "offset shadow survived at {left}..{right}");
+    }
+
+    #[test]
+    fn gutter_band_rejects_a_short_run_that_would_claim_a_distant_band() {
+        let page = fold_shadow_page(1_000, 600, 575, 1, 60);
+
+        assert_eq!(gutter_shadow_band(&page, 500.0), None);
     }
 
     #[test]

@@ -2,6 +2,7 @@ use crate::{
     analysis::build_analysis_level,
     bw::{despeckle_connected_calibrated, rescue_component_scoped_faint_strokes},
     calibration::{CalibrationConfig, PageCalibration},
+    domain::geometry::PageHalf,
     protocol::manifest_v3::{
         ContentAcceptedTrim, ContentBlockEvidence, ContentDiagnosticRect, ContentDiagnostics,
         ContentSideConfidence, ContentTextMaskSummary, ContentTrimSide,
@@ -27,6 +28,167 @@ pub(crate) struct ContentAnalysisEvidence {
     pub diagnostics: ContentDiagnostics,
     pub text_mask: BinaryImage,
     pub text_vicinity_mask: BinaryImage,
+}
+
+const FOLD_EXCLUSION_MAXIMUM_FRACTION: f64 = 0.12;
+const FOLD_EXCLUSION_MAXIMUM_MM: f64 = 25.0;
+const FOLD_EXCLUSION_MINIMUM_DEPRESSION: u8 = 12;
+const FOLD_EXCLUSION_MINIMUM_DARK_SAMPLE: u8 = 160;
+const FOLD_EXCLUSION_MAXIMUM_CONTRAST: u8 = 84;
+
+#[derive(Clone, Copy)]
+struct FoldColumnProfile {
+    mean: u8,
+    bright: u8,
+    dark: u8,
+    sparse_dark: u8,
+    lower_dark: u8,
+}
+
+/// Builds the source-gray authority shared by crop analysis and final rescue.
+/// It can claim only the inner edge of an already split leaf, and a genuine
+/// ink column is an absolute stop. Pale paper gaps are allowed after the first
+/// persistent depression because the adjudicated folds contain exactly that
+/// low-frequency ramp/texture alternation.
+pub(crate) fn fold_side_source_exclusion(
+    source: &GrayImage,
+    half: PageHalf,
+    dpi: f64,
+) -> BinaryImage {
+    let mut exclusion = BinaryImage::new(source.width(), source.height());
+    if half == PageHalf::Full || source.width() < 16 || source.height() < 16 {
+        return exclusion;
+    }
+    let corridor = ((source.width() as f64 * FOLD_EXCLUSION_MAXIMUM_FRACTION).ceil() as usize)
+        .min((dpi.max(1.0) * FOLD_EXCLUSION_MAXIMUM_MM / 25.4).ceil() as usize)
+        .clamp(4, source.width().saturating_sub(1));
+    let top = source.height() / 20;
+    let bottom = source.height() - top;
+    let trimmed_rows = (bottom - top).max(1);
+    let full_rows = source.height().max(1);
+    let profile = |x: usize| {
+        let mut trimmed_histogram = [0usize; 256];
+        let mut full_histogram = [0usize; 256];
+        let mut sum = 0usize;
+        for y in 0..source.height() {
+            let value = source.get(x, y);
+            full_histogram[usize::from(value)] += 1;
+            if (top..bottom).contains(&y) {
+                trimmed_histogram[usize::from(value)] += 1;
+                sum += usize::from(value);
+            }
+        }
+        let quantile =
+            |histogram: &[usize; 256], rows: usize, from_bright: bool, divisor: usize| {
+                let target = rows.div_ceil(divisor);
+                let mut seen = 0usize;
+                if from_bright {
+                    for (value, count) in histogram.iter().enumerate().rev() {
+                        seen += count;
+                        if seen >= target {
+                            return value as u8;
+                        }
+                    }
+                    0
+                } else {
+                    for (value, count) in histogram.iter().enumerate() {
+                        seen += count;
+                        if seen >= target {
+                            return value as u8;
+                        }
+                    }
+                    255
+                }
+            };
+        FoldColumnProfile {
+            mean: (sum / trimmed_rows).min(255) as u8,
+            bright: quantile(&trimmed_histogram, trimmed_rows, true, 10),
+            dark: quantile(&trimmed_histogram, trimmed_rows, false, 10),
+            sparse_dark: quantile(&full_histogram, full_rows, false, 100),
+            lower_dark: quantile(&full_histogram, full_rows, false, 20),
+        }
+    };
+    let sample_step = source.width().div_ceil(256).max(1);
+    let reference_range = match half {
+        PageHalf::Right => corridor..source.width(),
+        PageHalf::Left => 0..source.width().saturating_sub(corridor),
+        PageHalf::Full => unreachable!("full leaves returned above"),
+    };
+    let mut references = reference_range
+        .step_by(sample_step)
+        .map(profile)
+        .collect::<Vec<_>>();
+    if references.is_empty() {
+        return exclusion;
+    }
+    references.sort_by_key(|sample| sample.mean);
+    // A photographed leaf can occupy most columns (Luther 125R), so a p90
+    // mean is still photograph rather than paper. The sampled p99 remains
+    // robust to a lone white scratch while finding the leaf's own paper.
+    let reference = references[(references.len() - 1) * 99 / 100];
+    let mut inspected = 0usize;
+    let mut shadow_columns = 0usize;
+    let mut previous_mean = None;
+    let sparse_ink_backoff = (dpi.max(1.0) / 25.4).ceil() as usize;
+    for offset in 0..corridor {
+        let x = match half {
+            PageHalf::Right => offset,
+            PageHalf::Left => source.width() - 1 - offset,
+            PageHalf::Full => unreachable!("full leaves returned above"),
+        };
+        let sample = profile(x);
+        let contrast = sample.mean.saturating_sub(sample.dark);
+        if sample.sparse_dark < FOLD_EXCLUSION_MINIMUM_DARK_SAMPLE {
+            if sample.lower_dark >= FOLD_EXCLUSION_MINIMUM_DARK_SAMPLE {
+                inspected = inspected.saturating_sub(sparse_ink_backoff);
+            }
+            break;
+        }
+        if contrast > FOLD_EXCLUSION_MAXIMUM_CONTRAST {
+            break;
+        }
+        if offset == 0
+            && sample.mean
+                > reference
+                    .mean
+                    .saturating_sub(FOLD_EXCLUSION_MINIMUM_DEPRESSION)
+        {
+            return exclusion;
+        }
+        if previous_mean.is_some_and(|inner_mean| sample.mean < inner_mean) {
+            break;
+        }
+        previous_mean = Some(sample.mean);
+        inspected += 1;
+        if sample.mean
+            <= reference
+                .mean
+                .saturating_sub(FOLD_EXCLUSION_MINIMUM_DEPRESSION)
+            && sample.dark
+                <= reference
+                    .bright
+                    .saturating_sub(FOLD_EXCLUSION_MINIMUM_DEPRESSION)
+        {
+            shadow_columns += 1;
+        }
+    }
+    let minimum_shadow_columns = corridor.div_ceil(30).max(3);
+    if shadow_columns < minimum_shadow_columns
+        || shadow_columns.saturating_mul(5) < inspected.max(1)
+    {
+        return exclusion;
+    }
+    let (left, right) = match half {
+        PageHalf::Right => (0, inspected),
+        PageHalf::Left => (source.width().saturating_sub(inspected), source.width()),
+        PageHalf::Full => unreachable!("full leaves returned above"),
+    };
+    for y in 0..source.height() {
+        for x in left..right {
+            exclusion.set(x, y, true);
+        }
+    }
+    exclusion
 }
 
 #[derive(Clone, Copy)]
@@ -66,6 +228,7 @@ pub fn detect_content_and_margins_with_calibration_config(
     let (detected, diagnostics, _, _) = detect_content_at_analysis_scale(
         &level.image,
         None,
+        None,
         ContentAnalysisPurpose::Crop {
             manual_picture_authority: None,
         },
@@ -97,6 +260,7 @@ pub(crate) fn detect_content_and_margins_calibrated(
         source,
         picture_mask,
         None,
+        None,
         dpi,
         margins_mm,
         margins_pixels,
@@ -108,6 +272,7 @@ pub(crate) fn detect_content_and_margins_calibrated_with_crop_authority(
     source: &GrayImage,
     picture_mask: Option<&BinaryImage>,
     crop_authoritative_picture_mask: Option<&BinaryImage>,
+    source_exclusion: Option<&BinaryImage>,
     dpi: f64,
     margins_mm: Option<[f64; 4]>,
     margins_pixels: Option<[f64; 4]>,
@@ -116,6 +281,7 @@ pub(crate) fn detect_content_and_margins_calibrated_with_crop_authority(
     let (content, diagnostics, _, _) = detect_content_at_analysis_scale(
         source,
         picture_mask,
+        source_exclusion,
         ContentAnalysisPurpose::Crop {
             manual_picture_authority: crop_authoritative_picture_mask,
         },
@@ -134,6 +300,7 @@ pub(crate) fn analyze_content_evidence_calibrated(
     let (_, diagnostics, text_mask, text_vicinity_mask) = detect_content_at_analysis_scale(
         source,
         picture_mask,
+        None,
         ContentAnalysisPurpose::Semantic,
         calibration,
     );
@@ -147,10 +314,17 @@ pub(crate) fn analyze_content_evidence_calibrated(
 fn detect_content_at_analysis_scale(
     working: &GrayImage,
     picture_mask: Option<&BinaryImage>,
+    source_exclusion: Option<&BinaryImage>,
     purpose: ContentAnalysisPurpose<'_>,
     calibration: PageCalibration,
 ) -> (Option<Rect>, ContentDiagnostics, BinaryImage, BinaryImage) {
     if let Some(mask) = picture_mask {
+        assert_eq!(
+            (working.width(), working.height()),
+            (mask.width(), mask.height())
+        );
+    }
+    if let Some(mask) = source_exclusion {
         assert_eq!(
             (working.width(), working.height()),
             (mask.width(), mask.height())
@@ -180,6 +354,7 @@ fn detect_content_at_analysis_scale(
         },
     );
     let borders = border_artifact_mask_from_binary(working, &binary);
+    let base_artifacts = source_exclusion.map_or_else(|| borders.clone(), |mask| borders.or(mask));
     // Picture ownership is semantic/render state, but content bounds need a
     // stricter authority. Qualify it after the spread has been split into
     // local pages: a central gutter is not an outer-sheet rail, while each
@@ -199,6 +374,10 @@ fn detect_content_at_analysis_scale(
                 0,
                 calibration,
             );
+            if let Some(exclusion) = source_exclusion {
+                qualification.included = qualification.included.subtract(exclusion);
+                qualification.excluded = qualification.excluded.or(exclusion);
+            }
             // A vetted owner can contain a detached text-shaped island inside
             // a rejected frame rail. Keep that island out of picture bounds,
             // but do not let the rail veto erase its underlying glyph ink
@@ -208,18 +387,26 @@ fn detect_content_at_analysis_scale(
                 working,
                 Some(&qualification.included),
                 None,
-                Some(&qualification.excluded),
+                Some(&qualification.row_evidence_excluded),
                 BinarizationMode::Wolf,
                 BinarizationMode::Wolf,
                 calibration.content_despeckle_dpi(),
                 false,
             );
+            let faint_stroke_binary = source_exclusion
+                .map_or(faint_stroke_binary.clone(), |exclusion| {
+                    faint_stroke_binary.subtract(exclusion)
+                });
             let structured_text = restore_structured_text_from_rejected_picture_rail(
                 &faint_stroke_binary.subtract(&qualification.included),
                 &qualification.excluded,
                 calibration,
             );
-            qualification.structured_text = structured_text;
+            qualification.structured_text = if let Some(exclusion) = source_exclusion {
+                structured_text.subtract(exclusion)
+            } else {
+                structured_text
+            };
             qualification.structured_text_edge_sides = structured_text_edge_sides(
                 &qualification.excluded,
                 &qualification.structured_text,
@@ -234,8 +421,12 @@ fn detect_content_at_analysis_scale(
         .or(picture_mask);
     let crop_artifacts = early_picture_qualification
         .as_ref()
-        .map(|qualification| borders.or(&qualification.excluded));
-    let mut artifact_free_binary = binary.subtract(crop_artifacts.as_ref().unwrap_or(&borders));
+        .map(|qualification| base_artifacts.or(&qualification.excluded));
+    let row_evidence_artifacts = early_picture_qualification
+        .as_ref()
+        .map(|qualification| borders.or(&qualification.row_evidence_excluded));
+    let mut artifact_free_binary =
+        binary.subtract(crop_artifacts.as_ref().unwrap_or(&base_artifacts));
     if let Some(qualification) = early_picture_qualification.as_ref() {
         artifact_free_binary = artifact_free_binary.or(&qualification.structured_text);
     }
@@ -245,21 +436,24 @@ fn detect_content_at_analysis_scale(
             calibration.content_despeckle_dpi(),
             calibration,
         ),
-        ContentAnalysisPurpose::Crop { .. } => rescue_component_scoped_faint_strokes(
-            &despeckle_connected_calibrated(
-                &artifact_free_binary,
+        ContentAnalysisPurpose::Crop { .. } => {
+            let rescued = rescue_component_scoped_faint_strokes(
+                &despeckle_connected_calibrated(
+                    &artifact_free_binary,
+                    calibration.content_despeckle_dpi(),
+                    calibration,
+                ),
+                working,
+                picture_mask,
+                None,
+                Some(row_evidence_artifacts.as_ref().unwrap_or(&borders)),
+                BinarizationMode::Wolf,
+                BinarizationMode::Wolf,
                 calibration.content_despeckle_dpi(),
-                calibration,
-            ),
-            working,
-            picture_mask,
-            None,
-            Some(crop_artifacts.as_ref().unwrap_or(&borders)),
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            calibration.content_despeckle_dpi(),
-            false,
-        ),
+                false,
+            );
+            source_exclusion.map_or(rescued.clone(), |exclusion| rescued.subtract(exclusion))
+        }
     };
     let cleaned = if let Some(qualification) = early_picture_qualification.as_ref() {
         cleaned.or(&qualification.structured_text)
@@ -401,7 +595,7 @@ fn detect_content_at_analysis_scale(
             bounds = None;
         }
     }
-    if let Some(picture_bounds) = picture_mask.and_then(|mask| {
+    if let Some(picture_bounds) = analysis_picture_mask.and_then(|mask| {
         crop_qualified_picture_bounds_with_authority(
             mask,
             manual_picture_authority,
@@ -987,6 +1181,7 @@ fn crop_qualified_picture_bounds_with_authority(
 struct CropPictureQualification {
     included: BinaryImage,
     excluded: BinaryImage,
+    row_evidence_excluded: BinaryImage,
     structured_text: BinaryImage,
     structured_text_edge_sides: u8,
 }
@@ -1088,6 +1283,7 @@ fn qualify_picture_mask_for_crop_with_authority(
     let excluded = picture_mask.subtract(&included);
     CropPictureQualification {
         included,
+        row_evidence_excluded: excluded.clone(),
         excluded,
         structured_text: BinaryImage::new(picture_mask.width(), picture_mask.height()),
         structured_text_edge_sides: 0,
@@ -2552,6 +2748,17 @@ mod tests {
             .ok()
             .and_then(|value| value.parse::<f64>().ok())
             .unwrap_or(360.0);
+        let half = match std::env::var("EVB_CONTENT_HALF").as_deref() {
+            Ok("left") => PageHalf::Left,
+            Ok("right") => PageHalf::Right,
+            _ => PageHalf::Full,
+        };
+        let fold = fold_side_source_exclusion(&image.gray, half, dpi);
+        eprintln!(
+            "fold exclusion: {} px, {:?}",
+            fold.count_black(),
+            ComponentMap::from_binary(&fold).components()
+        );
         let result = detect_content_and_margins(&image.gray, dpi, Some([5.0; 4]), None);
         eprintln!("content result: {:?}", result.content);
     }
@@ -2564,6 +2771,75 @@ mod tests {
     };
 
     const CENSUS_NEIGHBORHOOD: (usize, usize) = (40, 24);
+
+    #[test]
+    fn fold_source_exclusion_claims_a_genuine_edge_anchored_shadow_ramp_until_real_ink() {
+        let mut page = GrayImage::new(1_000, 600, 255);
+        for y in 30..570 {
+            for x in 0..80 {
+                page.set(x, y, 220 + (x * 24 / 79) as u8);
+            }
+            page.set(80, y, 32);
+        }
+
+        let exclusion = fold_side_source_exclusion(&page, PageHalf::Right, 300.0);
+
+        assert!(exclusion.get(0, 300));
+        assert!(exclusion.get(79, 300));
+        assert!(!exclusion.get(80, 300), "real marginal ink was claimed");
+        assert!(!exclusion.get(120, 300));
+    }
+
+    #[test]
+    fn fold_source_exclusion_rejects_a_shallow_illumination_ramp_without_a_fold() {
+        let mut page = GrayImage::new(1_000, 600, 255);
+        for y in 0..page.height() {
+            for x in 0..120 {
+                page.set(x, y, 247 + (x * 8 / 119) as u8);
+            }
+        }
+
+        assert_eq!(
+            fold_side_source_exclusion(&page, PageHalf::Right, 300.0).count_black(),
+            0
+        );
+    }
+
+    #[test]
+    fn fold_source_exclusion_stops_at_bottom_margin_ink_outside_trimmed_rows() {
+        let mut page = GrayImage::new(1_000, 600, 255);
+        for y in 0..page.height() {
+            for x in 0..80 {
+                page.set(x, y, 220 + (x * 24 / 79) as u8);
+            }
+        }
+        for y in 585..page.height() {
+            for x in 52..58 {
+                page.set(x, y, 24);
+            }
+        }
+
+        let exclusion = fold_side_source_exclusion(&page, PageHalf::Right, 300.0);
+
+        assert!(exclusion.get(39, 300));
+        assert!(!exclusion.get(52, 300), "bottom-margin ink was swallowed");
+    }
+
+    #[test]
+    fn fold_source_exclusion_abstains_when_marginal_text_binds_the_edge() {
+        let mut page = GrayImage::new(1_000, 600, 255);
+        for y in 30..570 {
+            page.set(4, y, 24);
+            for x in 20..90 {
+                page.set(x, y, 238);
+            }
+        }
+
+        assert_eq!(
+            fold_side_source_exclusion(&page, PageHalf::Right, 300.0).count_black(),
+            0
+        );
+    }
 
     #[test]
     fn physical_margins_expand_outward_to_an_integer_raster_crop() {
@@ -4196,6 +4472,7 @@ mod tests {
             &image,
             Some(&expanded_picture),
             Some(&manual_authority),
+            None,
             150.0,
             None,
             Some([0.0; 4]),
@@ -4243,6 +4520,7 @@ mod tests {
             &image,
             Some(&expanded_picture),
             Some(&manual_authority),
+            None,
             150.0,
             None,
             Some([0.0; 4]),
