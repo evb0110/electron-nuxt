@@ -32,7 +32,7 @@ use crate::{
     calibration::{CalibrationConfig, PageCalibration},
     content::{
         analyze_content_evidence_calibrated,
-        detect_content_and_margins_calibrated_with_crop_authority,
+        detect_content_and_margins_calibrated_with_crop_authority, fold_side_source_exclusion,
     },
     deskew::{detect_skew, DeskewResult},
     dewarp::{
@@ -2257,6 +2257,8 @@ fn analyze_page_with_color_and_document_prior_impl(
             region.height * prepared.scale_y,
         );
         let working = crop_gray(&prepared.normalized, analysis_region);
+        let source_working = crop_gray(&support_source, region)
+            .downscale_to_dimensions(working.width(), working.height());
         let text_tone_diagnostics = if prepared.resolved_output_mode == OutputMode::Grayscale {
             prepared
                 .text_mask
@@ -2285,6 +2287,9 @@ fn analyze_page_with_color_and_document_prior_impl(
         let manual_picture_crop_authority = manual_picture_crop_authority
             .as_ref()
             .map(|mask| crop_binary(mask, analysis_region));
+        let fold_exclusion =
+            fold_side_source_exclusion(&source_working, half, prepared.calibration.effective_dpi);
+        let fold_exclusion = (fold_exclusion.count_black() > 0).then_some(fold_exclusion);
         let (detected_content, content_diagnostics) = if let Some(manual) =
             options.resolved_content_for(half, prepared.full_width, prepared.full_height)
         {
@@ -2298,6 +2303,7 @@ fn analyze_page_with_color_and_document_prior_impl(
                 &working,
                 content_picture_mask.as_ref(),
                 manual_picture_crop_authority.as_ref(),
+                fold_exclusion.as_ref(),
                 prepared.calibration.effective_dpi,
                 None,
                 Some([0.0; 4]),
@@ -4984,6 +4990,8 @@ fn clean_region(
         region.height * analysis_scale_y,
     );
     let analysis_working = crop_gray(analysis_normalized, analysis_region);
+    let analysis_source_working = crop_gray(routing_source, region)
+        .downscale_to_dimensions(analysis_working.width(), analysis_working.height());
     let analysis_picture_working =
         analysis_picture_mask.map(|mask| crop_binary(mask, analysis_region));
     let manual_picture_crop_authority = manual_picture_crop_authority(
@@ -5109,6 +5117,16 @@ fn clean_region(
     } else {
         analysis_working
     };
+    let deskewed_source_analysis = if deskew.accepted {
+        render_affine_gray(
+            &analysis_source_working,
+            analysis_source_working.width(),
+            analysis_source_working.height(),
+            analysis_deskew_inverse,
+        )
+    } else {
+        analysis_source_working
+    };
     let deskewed_picture_mask = analysis_picture_working.map(|mask| {
         if deskew.accepted {
             render_binary_mask(&mask, mask.width(), mask.height(), |point| {
@@ -5158,6 +5176,15 @@ fn clean_region(
                 .map(|mapped| Point::new(mapped.x * local_scale_x, mapped.y * local_scale_y))
         })
     });
+    let dewarped_source_analysis = dewarp_model.as_ref().map(|model| {
+        let width = deskewed_source_analysis.width();
+        let height = deskewed_source_analysis.height();
+        rasterize_inverse_area_with(&deskewed_source_analysis, width, height, |point| {
+            model
+                .map_unit_to_source(point.x / width as f64, point.y / height as f64)
+                .map(|mapped| Point::new(mapped.x * local_scale_x, mapped.y * local_scale_y))
+        })
+    });
     let dewarped_picture_mask = dewarp_model.as_ref().and_then(|model| {
         deskewed_picture_mask.as_ref().map(|mask| {
             let width = mask.width();
@@ -5181,6 +5208,12 @@ fn clean_region(
         })
     });
     let content_analysis = dewarped_analysis.as_ref().unwrap_or(&deskewed_analysis);
+    let fold_source_analysis = dewarped_source_analysis
+        .as_ref()
+        .unwrap_or(&deskewed_source_analysis);
+    let fold_exclusion =
+        fold_side_source_exclusion(fold_source_analysis, half, calibration.effective_dpi);
+    let fold_exclusion = (fold_exclusion.count_black() > 0).then_some(fold_exclusion);
     let content_picture_mask = dewarped_picture_mask
         .as_ref()
         .or(deskewed_picture_mask.as_ref());
@@ -5248,6 +5281,7 @@ fn clean_region(
                 content_analysis,
                 content_picture_mask,
                 manual_picture_crop_authority,
+                fold_exclusion.as_ref(),
                 calibration.effective_dpi,
                 None,
                 Some([0.0; 4]),
@@ -5255,9 +5289,10 @@ fn clean_region(
             );
             if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
                 eprintln!(
-                    "{{\"event\":\"content-call\",\"page\":{source_page_index},\"dpi\":{},\"pictureMask\":{},\"detected\":{:?}}}",
+                    "{{\"event\":\"content-call\",\"page\":{source_page_index},\"dpi\":{},\"pictureMask\":{},\"foldExclusionPixels\":{},\"detected\":{:?}}}",
                     calibration.effective_dpi,
                     content_picture_mask.is_some(),
+                    fold_exclusion.as_ref().map_or(0, BinaryImage::count_black),
                     detected_result.content,
                 );
             }
