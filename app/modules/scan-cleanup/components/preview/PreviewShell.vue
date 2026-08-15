@@ -452,7 +452,7 @@ import {
     scanCleanupAnalysisWidth,
     scanCleanupCutterRatio,
     scanCleanupCutterXFromRatio,
-    transformPreviewContentBox,
+    transformPreviewEffectiveContentBox,
     transformPreviewSourceHalfRect,
     unrotatePreviewRect,
 } from '@app/modules/scan-cleanup/geometry/coordinates';
@@ -1607,7 +1607,7 @@ const renderedOutputs = computed(() => {
         const contentRect = manualContentRect ?? metadata.contentBox;
         const content = manualContentRect
             ? transformPreviewSourceHalfRect(metadata, contentRect)
-            : transformPreviewContentBox(metadata);
+            : transformPreviewEffectiveContentBox(metadata);
         return {
             metadata,
             pixelSwap: cleanedPixelSwaps[metadata.half] ?? createPreviewImageSwap(),
@@ -1673,7 +1673,7 @@ const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() =>
         const contentRect = resolveNormalizedContentBox(output.metadata, normalized) ?? output.contentRect;
         const transformed = normalized
             ? transformPreviewSourceHalfRect(output.metadata, contentRect)
-            : transformPreviewContentBox(output.metadata);
+            : transformPreviewEffectiveContentBox(output.metadata);
         if (!contentRect || !transformed) {
             return [];
         }
