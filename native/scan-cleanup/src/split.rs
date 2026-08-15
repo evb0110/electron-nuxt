@@ -2464,6 +2464,29 @@ fn dimension_matches(actual: usize, expected: f64) -> bool {
     (actual as f64 - expected).abs() / expected.max(1.0) <= 0.02
 }
 
+fn gutter_column_profiles(gray: &GrayImage, range: std::ops::Range<usize>) -> Vec<ColumnProfile> {
+    let top = gray.height() / 20;
+    let bottom = gray.height() - top;
+    let rows = (bottom - top).max(1);
+    range
+        .map(|x| {
+            let mut histogram = [0u32; 256];
+            let mut sum = 0u64;
+            for y in top..bottom {
+                let value = gray.get(x, y);
+                histogram[usize::from(value)] += 1;
+                sum += u64::from(value);
+            }
+            let share = |fraction: f64| (rows as f64 * fraction).ceil() as u32;
+            ColumnProfile {
+                mean: sum as f64 / rows as f64,
+                bright: brightest_quantile(&histogram, share(GUTTER_BAND_PAPER_ROW_SHARE)),
+                dark: darkest_quantile(&histogram, share(GUTTER_BAND_INK_ROW_SHARE)),
+            }
+        })
+        .collect()
+}
+
 /// Measures the run of fold shadow the cutter stands in, so both leaves can
 /// end at their near edge instead of carrying the fold into a page of their
 /// own. The caller keeps the cutter where it was and uses the two returned
@@ -2494,24 +2517,6 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
     {
         return None;
     }
-    let top = gray.height() / 20;
-    let bottom = gray.height() - top;
-    let rows = (bottom - top).max(1);
-    let column = |x: usize| {
-        let mut histogram = [0u32; 256];
-        let mut sum = 0u64;
-        for y in top..bottom {
-            let value = gray.get(x, y);
-            histogram[usize::from(value)] += 1;
-            sum += u64::from(value);
-        }
-        let share = |fraction: f64| (rows as f64 * fraction).ceil() as u32;
-        ColumnProfile {
-            mean: sum as f64 / rows as f64,
-            bright: brightest_quantile(&histogram, share(GUTTER_BAND_PAPER_ROW_SHARE)),
-            dark: darkest_quantile(&histogram, share(GUTTER_BAND_INK_ROW_SHARE)),
-        }
-    };
     // Each leaf supplies its own paper reference. A dark photograph on the
     // facing leaf must not lower the retained leaf's paper floor, which was
     // the reason the pale 125R shadow straddled every old gate. The upper
@@ -2519,7 +2524,7 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
     // one near-white outlier to define the whole leaf.
     let shoulder_reference = |from: usize, to: usize| {
         (from < to).then(|| {
-            let mut profiles = (from..to).map(column).collect::<Vec<_>>();
+            let mut profiles = gutter_column_profiles(gray, from..to);
             profiles.sort_by(|left, right| left.mean.total_cmp(&right.mean));
             profiles[(profiles.len() - 1) * 3 / 4]
         })
@@ -2527,7 +2532,7 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
     let left_reference = shoulder_reference(lower.saturating_sub(legacy_cap), lower)?;
     let right_reference =
         shoulder_reference((upper + 1).min(width), (upper + legacy_cap + 1).min(width))?;
-    let columns: Vec<ColumnProfile> = (lower..=upper).map(column).collect();
+    let columns = gutter_column_profiles(gray, lower..upper + 1);
     // A shadowed column is dark over nearly its whole height and has no ink in
     // it: paper still shows through wherever glyphs are, and ink is far darker
     // than the fold it sits in. Both tests are per column, so the band can only
@@ -2602,16 +2607,20 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
     // A few extra columns beyond the legacy band are too small to establish
     // an offset fold, but large enough to move the leaf origin and perturb
     // downstream component grouping. Keep the legacy boundary in that
-    // ambiguous transition; only a materially offset run may extend it.
+    // ambiguous transition; only a materially offset run may extend it. The
+    // compatibility detector and clamp may be removed only after the shared
+    // corpus and native integration pins prove the wider detector never
+    // contracts a pre-offset band on previously covered inputs.
     let minimum_offset_extension = legacy_cap.div_ceil(8).max(4);
     if let Some((legacy_left_edge, legacy_right_edge)) = legacy_band {
         let legacy_left_edge = legacy_left_edge as usize;
         let legacy_right_edge = legacy_right_edge as usize;
-        if left_edge < legacy_left_edge && legacy_left_edge - left_edge < minimum_offset_extension {
+        if left_edge >= legacy_left_edge || legacy_left_edge - left_edge < minimum_offset_extension
+        {
             left_edge = legacy_left_edge;
         }
-        if right_edge > legacy_right_edge
-            && right_edge - legacy_right_edge < minimum_offset_extension
+        if right_edge <= legacy_right_edge
+            || right_edge - legacy_right_edge < minimum_offset_extension
         {
             right_edge = legacy_right_edge;
         }
@@ -2631,34 +2640,17 @@ fn legacy_gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f6
     if cap == 0 || gray.height() < 16 || lower >= center || upper <= center {
         return None;
     }
-    let top = gray.height() / 20;
-    let bottom = gray.height() - top;
-    let rows = (bottom - top).max(1);
-    let column = |x: usize| {
-        let mut histogram = [0u32; 256];
-        let mut sum = 0u64;
-        for y in top..bottom {
-            let value = gray.get(x, y);
-            histogram[usize::from(value)] += 1;
-            sum += u64::from(value);
-        }
-        let share = |fraction: f64| (rows as f64 * fraction).ceil() as u32;
-        ColumnProfile {
-            mean: sum as f64 / rows as f64,
-            bright: brightest_quantile(&histogram, share(GUTTER_BAND_PAPER_ROW_SHARE)),
-            dark: darkest_quantile(&histogram, share(GUTTER_BAND_INK_ROW_SHARE)),
-        }
-    };
     let shoulder_reference = |from: usize, to: usize| {
         (from < to).then(|| {
             let count = (to - from) as f64;
-            (from..to)
-                .map(column)
-                .fold(ColumnProfile::default(), |sums, profile| ColumnProfile {
+            gutter_column_profiles(gray, from..to).into_iter().fold(
+                ColumnProfile::default(),
+                |sums, profile| ColumnProfile {
                     mean: sums.mean + profile.mean / count,
                     bright: sums.bright + profile.bright / count,
                     dark: sums.dark + profile.dark / count,
-                })
+                },
+            )
         })
     };
     let left_reference = shoulder_reference(lower.saturating_sub(cap), lower)?;
@@ -2666,7 +2658,7 @@ fn legacy_gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f6
     let reference = left_reference.mean.min(right_reference.mean);
     let paper_limit =
         left_reference.bright.min(right_reference.bright) - MIN_GUTTER_BAND_DEPRESSION;
-    let columns: Vec<ColumnProfile> = (lower..=upper).map(column).collect();
+    let columns = gutter_column_profiles(gray, lower..upper + 1);
     let shadowed = |offset: usize| {
         let profile = columns[offset];
         profile.bright <= paper_limit
@@ -3650,6 +3642,17 @@ mod tests {
             Some((470.0, 530.0))
         );
         assert_eq!(gutter_shadow_band(&page, 500.0), Some((470.0, 530.0)));
+    }
+
+    #[test]
+    fn gutter_band_keeps_a_legacy_run_rejected_by_the_offset_length_gate() {
+        let page = fold_shadow_page(1_000, 600, 500, 0, 60);
+
+        assert_eq!(
+            legacy_gutter_shadow_band(&page, 500.0),
+            Some((500.0, 501.0))
+        );
+        assert_eq!(gutter_shadow_band(&page, 500.0), Some((500.0, 501.0)));
     }
 
     #[test]
