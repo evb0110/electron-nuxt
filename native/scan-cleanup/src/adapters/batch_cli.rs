@@ -2349,15 +2349,31 @@ fn run_page(
                 .is_some()
                 .then(|| optical_content_bounds_x_for_output(output))
                 .flatten();
-            let fold_side_near_paper_run = if matched_placement.is_none()
-                && options.match_page_size
-                && !options.ocr_mode
-                && optical_content_bounds_x.is_some()
-            {
-                fold_side_near_paper_run_for_output(output)
-            } else {
-                0
-            };
+            let fold_side_near_paper_run =
+                if matched_placement.is_some() || !options.match_page_size || options.ocr_mode {
+                    0
+                } else if let Some(canvas) = document_canvas {
+                    let fit = canvas_fit_for(
+                        output.image.width(),
+                        output.image.height(),
+                        paper_width,
+                        paper_height,
+                        output.metadata.content_box.is_some(),
+                        &options,
+                        &canvas,
+                    );
+                    if horizontal_overflow_requires_fold_scan(
+                        output.image.width(),
+                        output.metadata.half,
+                        fit,
+                    ) {
+                        fold_side_near_paper_run_for_output(output)
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
             let outer_near_paper_edge_runs = if matched_placement.is_none()
                 && options.match_page_size
                 && !options.ocr_mode

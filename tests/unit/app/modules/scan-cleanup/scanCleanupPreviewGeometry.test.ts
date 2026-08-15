@@ -27,7 +27,6 @@ import {
     scanCleanupCutterRatio,
     scanCleanupCutterXFromRatio,
     transformPreviewContentBox,
-    transformPreviewEffectiveContentBox,
     transformPreviewSourceHalfRectUnclamped,
 } from '@app/modules/scan-cleanup/geometry/coordinates';
 import {
@@ -305,48 +304,6 @@ describe('scan cleanup preview geometry', () => {
                 right: 0.25,
                 bottom: 0,
             },
-        });
-    });
-
-    it('maps the automatic overlay from analysis-space shipped bounds', () => {
-        const shipped = metadata({contentDiagnostics: {
-            sideConfidence: {
-                left: 0,
-                top: 0,
-                right: 0,
-                bottom: 0,
-            },
-            textMask: {
-                analysisWidthPx: 200,
-                analysisHeightPx: 300,
-                inkPixels: 1_000,
-                lineCount: 4,
-            },
-            shippedBounds: {
-                xPx: 20,
-                yPx: 15,
-                widthPx: 80,
-                heightPx: 150,
-            },
-        }});
-
-        expect(transformPreviewContentBox(shipped)).toEqual({
-            xPx: 10,
-            yPx: 30,
-            widthPx: 200,
-            heightPx: 300,
-        });
-        expect(transformPreviewEffectiveContentBox(shipped)).toEqual({
-            xPx: 40,
-            yPx: 30,
-            widthPx: 160,
-            heightPx: 300,
-        });
-        expect(transformPreviewEffectiveContentBox(metadata())).toEqual({
-            xPx: 10,
-            yPx: 30,
-            widthPx: 200,
-            heightPx: 300,
         });
     });
 

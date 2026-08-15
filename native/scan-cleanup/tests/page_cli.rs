@@ -3529,10 +3529,12 @@ fn matched_canvas_preview_matches_final_optical_placement_for_a_sparse_wide_spre
     let metadata_right = scratch.path("matched-sparse-spread-preview-right.json");
     let mut image = GrayImage::new(240, 200, 255);
     // The off-centre split makes the left intrinsic raster wider than its
-    // 120 px paper frame. Its sparse title is biased toward the fold, while
-    // the white outer and fold tails prove that optical overhang is lossless.
+    // 120 px paper frame. Its sparse title is biased toward the outer edge,
+    // so centering needs the white fold tail to overhang the opposite edge.
+    // This must exercise the in-memory `run_page` placement, not only the
+    // deferred placement helper used after analysis.
     for y in (55..145).step_by(15) {
-        for x in 30..110 {
+        for x in 10..60 {
             if (x / 8 + y / 5) % 3 != 0 {
                 image.set(x, y, 20);
             }
@@ -3644,12 +3646,18 @@ fn matched_canvas_preview_matches_final_optical_placement_for_a_sparse_wide_spre
     let left = &preview_metadata[0];
     assert_eq!(left["half"], "left");
     assert_eq!(left["matchedCanvasOpticalPlacement"], true);
-    assert!(
+    assert_eq!(
         left["matchedCanvasIntrinsicOverflowLeftPx"]
+            .as_u64()
+            .unwrap_or(0),
+        0,
+    );
+    assert!(
+        left["matchedCanvasIntrinsicOverflowRightPx"]
             .as_u64()
             .unwrap_or(0)
             > 0,
-        "fixture did not exercise the proof-gated optical overhang: {left}",
+        "fixture did not exercise the fold-side proof used by in-memory placement: {left}",
     );
     assert_native_canvas_owns_image(&final_metadata[0]);
 }
