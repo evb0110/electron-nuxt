@@ -204,29 +204,56 @@ function getPreviewRequestOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
 }
 
-function readPngDimensions(bytes: Uint8Array) {
-    if (
-        bytes.byteLength < 24
-        || bytes[0] !== 0x89
-        || bytes[1] !== 0x50
-        || bytes[2] !== 0x4e
-        || bytes[3] !== 0x47
-        || bytes[12] !== 0x49
-        || bytes[13] !== 0x48
-        || bytes[14] !== 0x44
-        || bytes[15] !== 0x52
-    ) {
-        throw new Error('Native PDF preview renderer produced an invalid PNG');
+const JPEG_START_OF_FRAME_MARKERS = new Set([
+    0xc0,
+    0xc1,
+    0xc2,
+    0xc3,
+    0xc5,
+    0xc6,
+    0xc7,
+    0xc9,
+    0xca,
+    0xcb,
+    0xcd,
+    0xce,
+    0xcf,
+]);
+
+export function readJpegDimensions(bytes: Uint8Array) {
+    if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+        throw new Error('Native PDF preview renderer produced an invalid JPEG');
     }
 
-    return {
-        width: bytes.buffer instanceof ArrayBuffer
-            ? new DataView(bytes.buffer, bytes.byteOffset + 16, 8).getUint32(0)
-            : Buffer.from(bytes).readUInt32BE(16),
-        height: bytes.buffer instanceof ArrayBuffer
-            ? new DataView(bytes.buffer, bytes.byteOffset + 16, 8).getUint32(4)
-            : Buffer.from(bytes).readUInt32BE(20),
-    };
+    let offset = 2;
+    while (offset < bytes.byteLength) {
+        while (offset < bytes.byteLength && bytes[offset] !== 0xff) offset += 1;
+        while (offset < bytes.byteLength && bytes[offset] === 0xff) offset += 1;
+        if (offset >= bytes.byteLength) break;
+
+        const marker = bytes[offset];
+        offset += 1;
+        if (marker === undefined || marker === 0xd9 || marker === 0xda) break;
+        if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) continue;
+        if (offset + 2 > bytes.byteLength) break;
+
+        const segmentLength = (Number(bytes[offset]) << 8) | Number(bytes[offset + 1]);
+        if (segmentLength < 2 || offset + segmentLength > bytes.byteLength) break;
+        if (JPEG_START_OF_FRAME_MARKERS.has(marker) && segmentLength >= 7) {
+            const height = (Number(bytes[offset + 3]) << 8) | Number(bytes[offset + 4]);
+            const width = (Number(bytes[offset + 5]) << 8) | Number(bytes[offset + 6]);
+            if (width > 0 && height > 0) {
+                return {
+                    width,
+                    height,
+                };
+            }
+            break;
+        }
+        offset += segmentLength;
+    }
+
+    throw new Error('Native PDF preview renderer produced an invalid JPEG');
 }
 
 async function resolvePdfPath(context: IDocumentsSenderIdContext, filePath: unknown) {
@@ -656,7 +683,7 @@ async function runPdfNativePagePreview(
         })}`);
         tempDir = await mkdtemp(join(tmpdir(), 'evb-pdf-native-preview-'));
         const outputPrefix = join(tempDir, 'page');
-        const outputPath = `${outputPrefix}.png`;
+        const outputPath = `${outputPrefix}.jpg`;
         const renderPage = async (physicalPath: string) => {
             logger.debug(`Native PDF preview render started: ${JSON.stringify({
                 ownerId,
@@ -668,7 +695,9 @@ async function runPdfNativePagePreview(
             await runNativeToolCommand(
                 tools.pdftoppm,
                 [
-                    '-png',
+                    '-jpeg',
+                    '-jpegopt',
+                    'quality=98,optimize=n,progressive=n',
                     '-singlefile',
                     '-scale-to-x',
                     String(requestedTargetWidthPx),
@@ -704,7 +733,7 @@ async function runPdfNativePagePreview(
         const {
             width,
             height,
-        } = readPngDimensions(bytes);
+        } = readJpegDimensions(bytes);
         if (width * height > PDF_RENDER_MAX_OUTPUT_PIXELS) {
             throw new RangeError('Native PDF preview exceeds the 64-megapixel surface limit');
         }

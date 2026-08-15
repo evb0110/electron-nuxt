@@ -16,8 +16,8 @@ interface INativePdfRenderedPageObjectUrl {
     promotePriority?: (priority: number) => void;
 }
 
-function createPngObjectUrl(bytes: Uint8Array) {
-    return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+function createJpegObjectUrl(bytes: Uint8Array) {
+    return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
 }
 
 let nextNativePreviewSourceInstanceId = 0;
@@ -107,7 +107,7 @@ export function createNativePdfPreviewSourceFromPath(
                     activePreviewRequestIdsByPage.delete(pageNumber);
                 }
             }
-            const objectUrl = createPngObjectUrl(preview.bytes);
+            const objectUrl = createJpegObjectUrl(preview.bytes);
             const leaseEntry = {
                 lease: null as IWorkspaceSurfaceBudgetLeasePort | null,
                 invalidationListeners: new Set<() => void>(),

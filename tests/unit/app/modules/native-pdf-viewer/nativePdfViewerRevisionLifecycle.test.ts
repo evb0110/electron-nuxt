@@ -306,6 +306,87 @@ describe('NativePdfViewer revision lifecycle', () => {
         expect(host.querySelector('img[src="blob:r2:page-1"]')).not.toBeNull();
     });
 
+    it('projects a mouse-scrolled page into the shared viewport authority', async () => {
+        vi.useFakeTimers();
+        class PreloadImage {
+            onload: (() => void) | null = null;
+
+            set src(_value: string) {
+                queueMicrotask(() => this.onload?.());
+            }
+        }
+        vi.stubGlobal('Image', PreloadImage);
+
+        const documentPath = '/managed/mouse-scroll.pdf';
+        const source = createSource('mouse-scroll', Array.from({length: 4}, () => ({
+            width: 400,
+            height: 800,
+        })));
+        nativePdfMocks.createSource.mockReturnValue(source);
+        const host = document.createElement('div');
+        const viewport = document.createElement('div');
+        document.body.append(host, viewport);
+        Object.defineProperties(viewport, {
+            clientHeight: {
+                configurable: true,
+                value: 600,
+            },
+            clientWidth: {
+                configurable: true,
+                value: 800,
+            },
+        });
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        authority.bindViewportElement(viewport);
+        authority.openSurface.begin({
+            documentId: documentPath,
+            documentRevision: 'drt1:test:mouse-scroll',
+        });
+        const currentPageUpdates: number[] = [];
+        const Root = defineComponent({setup() {
+            provide(documentViewerChassisAuthorityKey, authority);
+            return () => h(NativePdfViewer, {
+                src: documentPath,
+                isActive: true,
+                currentPage: 1,
+                'onUpdate:currentPage': (pageNumber: number) => currentPageUpdates.push(pageNumber),
+            });
+        }});
+        const app = createApp(Root);
+        const ElementStub = defineComponent({setup: () => () => h('span')});
+        app.component('UButton', ElementStub);
+        app.component('UIcon', ElementStub);
+        app.component('USkeleton', ElementStub);
+        app.mount(host);
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            viewport.remove();
+            activeUnmounts.delete(unmount);
+        };
+        activeUnmounts.add(unmount);
+
+        await settlePendingWork();
+        await settleImagePaint(requireElement<HTMLImageElement>(
+            host,
+            'img[src="blob:mouse-scroll:page-1"]',
+        ));
+        await settlePendingWork();
+        expect(authority.openSurface.viewportSession.value.lifecycle).toBe('ready');
+
+        viewport.scrollTop = 1_700;
+        authority.dispatchViewportEvent('scroll', new Event('scroll'));
+        await nextTick();
+
+        expect(authority.openSurface.viewportSession.value).toMatchObject({
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 2,
+        });
+        expect(authority.currentPage.value).toBe(2);
+        expect(currentPageUpdates.at(-1)).toBe(2);
+    });
+
     it('invalidates a budget-evicted current visual until its replacement paint settles', async () => {
         vi.useFakeTimers();
         class PreloadImage {

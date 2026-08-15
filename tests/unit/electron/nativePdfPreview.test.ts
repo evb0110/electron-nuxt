@@ -6,9 +6,29 @@ import {
 import {
     parsePdfInfoPageSizes,
     parsePdfOpeningGeometryMetadata,
+    readJpegDimensions,
 } from '@electron/features/documents/main/nativePdfPreview';
 
 describe('native PDF preview metadata parsing', () => {
+    it('reads dimensions from the final JPEG raster', () => {
+        const bytes = Uint8Array.of(
+            0xff, 0xd8,
+            0xff, 0xe0, 0x00, 0x04, 0x00, 0x00,
+            0xff, 0xc2, 0x00, 0x0b, 0x08, 0x04, 0x38, 0x07, 0x80, 0x01, 0x01, 0x11, 0x00,
+            0xff, 0xd9,
+        );
+
+        expect(readJpegDimensions(bytes)).toEqual({
+            width: 1_920,
+            height: 1_080,
+        });
+    });
+
+    it('rejects a malformed native preview JPEG', () => {
+        expect(() => readJpegDimensions(Uint8Array.of(0xff, 0xd8, 0xff, 0xd9)))
+            .toThrow('invalid JPEG');
+    });
+
     it('parses per-page sizes from pdfinfo -box output', () => {
         expect(parsePdfInfoPageSizes(`
 Pages:           3

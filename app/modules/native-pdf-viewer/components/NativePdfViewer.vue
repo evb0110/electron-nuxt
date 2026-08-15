@@ -631,15 +631,15 @@ function getVisiblePageNumber() {
     })?.mostVisiblePage ?? activePage.value;
 }
 
-function syncCurrentPageFromViewport() {
+function syncCurrentPageFromViewport(options: {supersedeNavigation: boolean}) {
     const nextPage = getVisiblePageNumber();
     if (nextPage === activePage.value) {
         return;
     }
-    activePage.value = nextPage;
-    emit('update:currentPage', nextPage);
+    const observedPage = chassisAuthority?.observePage(nextPage, options) ?? nextPage;
+    activePage.value = observedPage;
+    emit('update:currentPage', observedPage);
 }
-
 function getActivePageSet() {
     const activePages = new Set<number>();
     for (const pageNumber of renderedPageNumbers.value) {
@@ -973,13 +973,13 @@ function handleViewerScroll() {
     }
     if (viewportWritePort.consumeAuthorityScroll(container)) {
         scrollTop.value = Math.max(0, container.scrollTop);
-        syncCurrentPageFromViewport();
+        syncCurrentPageFromViewport({supersedeNavigation: false});
         syncLoadedPages();
         return;
     }
     viewportWritePort.observeUserScroll(container);
     scrollTop.value = Math.max(0, container.scrollTop);
-    syncCurrentPageFromViewport();
+    syncCurrentPageFromViewport({supersedeNavigation: true});
     syncLoadedPages();
 }
 
