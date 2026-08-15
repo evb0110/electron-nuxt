@@ -4931,6 +4931,160 @@ fn luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_p
 }
 
 #[test]
+fn cli_content_box_only_inherits_local_rejected_rail_authority() {
+    fn draw_glyph_line(
+        image: &mut GrayImage,
+        left: usize,
+        top: usize,
+        glyphs: usize,
+        glyph_width: usize,
+        glyph_height: usize,
+        spacing: usize,
+    ) {
+        for glyph in 0..glyphs {
+            let glyph_left = left + glyph * spacing;
+            for y in top..top + glyph_height {
+                for x in glyph_left..glyph_left + glyph_width {
+                    if x < glyph_left + 4 || y < top + 4 || y + 4 >= top + glyph_height {
+                        image.set(x, y, 22);
+                    }
+                }
+            }
+        }
+    }
+
+    let scratch = Scratch::new("localized-rail-content-box");
+    let manifest = scratch.path("manifest.json");
+    let input = scratch.path("input.png");
+    let selection_path = scratch.path("selection.png");
+    let mut image = GrayImage::new(800, 800, 244);
+    draw_glyph_line(&mut image, 150, 95, 15, 12, 38, 16);
+    for row in 0..8 {
+        draw_glyph_line(&mut image, 145, 165 + row * 55, 15, 12, 38, 16);
+    }
+    // Compact margin glyphs share rows with the body and sit just inside the
+    // grown picture rail, satisfying the shipped structured-text rescue.
+    draw_glyph_line(&mut image, 110, 165, 2, 12, 38, 16);
+    draw_glyph_line(&mut image, 110, 220, 2, 12, 38, 16);
+    // Fragmented frame evidence marks this corridor as scanner contamination
+    // independently of where the tonal rail happens to lie vertically.
+    for top in (0..215).step_by(8) {
+        let left = 34 + (top / 8 % 7) * 4;
+        for y in top..(top + 5).min(image.height()) {
+            for x in left..left + 5 {
+                image.set(x, y, 18);
+            }
+        }
+    }
+    for top in (742..800).step_by(8) {
+        let left = 32 + (top / 8 % 7) * 4;
+        for y in top..(top + 5).min(image.height()) {
+            for x in left..left + 5 {
+                image.set(x, y, 18);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let mut selection = GrayImage::new(image.width(), image.height(), 255);
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            if image.get(x, y) < 80 {
+                selection.set(x, y, 0);
+            }
+        }
+    }
+    fs::write(&selection_path, encode_gray(&selection).unwrap()).unwrap();
+
+    let mut pages = Vec::new();
+    let mut metadata_paths = Vec::new();
+    for (index, (label, rail_top)) in [("adjacent", 130), ("distant", 700)]
+        .into_iter()
+        .enumerate()
+    {
+        let trusted_background_path = scratch.path(&format!("{label}-background.png"));
+        let output = scratch.path(&format!("{label}-output.png"));
+        let metadata_path = scratch.path(&format!("{label}-output.json"));
+        let page_metadata_path = scratch.path(&format!("{label}-page.json"));
+        let picture_mask_path = scratch.path(&format!("{label}-picture-mask.pbm"));
+        let mut trusted_background = GrayImage::new(image.width(), image.height(), 244);
+        for y in rail_top..image.height() {
+            for x in 14..50 {
+                trusted_background.set(x, y, 32 + ((x * 17 + y * 29) % 181) as u8);
+            }
+        }
+        fs::write(
+            &trusted_background_path,
+            encode_gray(&trusted_background).unwrap(),
+        )
+        .unwrap();
+        metadata_paths.push(metadata_path.clone());
+        pages.push(serde_json::json!({
+            "inputPath": input,
+            "trustedForegroundMaskPath": selection_path,
+            "trustedMrcBackgroundPath": trusted_background_path,
+            "sourcePageIndex": index,
+            "pageMetadataPath": page_metadata_path,
+            "options": {
+                "dpi": 150,
+                "sourceDpi": 150,
+                "sourceBackgroundDpi": 150,
+                "sourceHasBilevelLayer": true,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                "cropContent": true,
+                "outputMode": "mixed",
+                "matchPageSize": false,
+                "manualSkewDegrees": 0,
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+            },
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": metadata_path,
+                "pictureMaskOutputPath": picture_mask_path
+            }]
+        }));
+    }
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "pages": pages
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let metadata = metadata_paths
+        .iter()
+        .map(|path| serde_json::from_slice::<Value>(&fs::read(path).unwrap()).unwrap())
+        .collect::<Vec<_>>();
+    let adjacent = &metadata[0]["contentBox"];
+    let distant = &metadata[1]["contentBox"];
+    assert_eq!(
+        adjacent["xPx"].as_f64(),
+        Some(0.0),
+        "rail-adjacent text no longer expands shipped metadata to the physical edge: {adjacent}"
+    );
+    assert!(
+        distant["xPx"].as_f64().is_some_and(|left| left >= 100.0),
+        "perpendicularly distant text borrowed the rail's edge authority: {distant}"
+    );
+}
+
+#[test]
 fn batch_prior_stabilizes_a_cropped_thin_complete_source_mask_without_removing_ink() {
     fn text_page(glyph_width: usize, glyph_height: usize) -> (GrayImage, GrayImage) {
         let mut raw = GrayImage::new(120, 100, 250);
