@@ -213,7 +213,16 @@ describe('runInitSequence external open IPC', () => {
         });
 
         expect(harness.app.setAboutPanelOptions).toHaveBeenCalledWith(expect.objectContaining({
-            applicationVersion: developmentApplicationVersion,
+            applicationVersion: developmentApplicationVersion.split('+', 1)[0],
+            version: 'Beta',
+        }));
+    });
+
+    it('omits build metadata from the About panel version', async () => {
+        const harness = await createHarness({appVersion: `0.1.387+${'a'.repeat(40)}`});
+
+        expect(harness.app.setAboutPanelOptions).toHaveBeenCalledWith(expect.objectContaining({
+            applicationVersion: '0.1.387',
             version: 'Beta',
         }));
     });
