@@ -874,12 +874,19 @@ describe('scan cleanup pipeline', () => {
                 height: number
             }}>
         }>} | null = null;
+        let losslessUsesCanonicalPair = false;
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                inputPath: string;
+                analysisInputPath?: string;
+                analysisDpi?: number;
                 pageMetadataPath: string;
                 options: Record<string, unknown>
             }>};
             analyzedOptions = manifest.pages[0]!.options;
+            losslessUsesCanonicalPair = manifest.pages.every(page =>
+                page.analysisInputPath === page.inputPath && page.analysisDpi === 150,
+            );
             await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
                 layoutClassification: 'two-page-spread',
                 cutterXPx: 250,
@@ -984,12 +991,14 @@ describe('scan cleanup pipeline', () => {
         }, pipelinePaths(fixture.dir, true), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(analyzedOptions).toMatchObject({
+            dpi: 150,
             outputMode: 'color',
             thickness: 0,
             despeckle: false,
             skipBlankPages: false,
             experimental: {autoDewarp: false},
         });
+        expect(losslessUsesCanonicalPair).toBe(true);
         expect(splitInstructions).toEqual({pages: [{
             sourcePageIndex: 0,
             rotationQuarterTurns: 1,
@@ -1234,7 +1243,9 @@ describe('scan cleanup pipeline', () => {
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         const renderedDpis = vi.mocked(pipelineDependencies.renderPagePpm).mock.calls
             .map(call => call[5]);
-        expect(renderedDpis).toEqual([
+        expect(renderedDpis.toSorted((left, right) => left - right)).toEqual([
+            150,
+            150,
             300,
             300,
         ]);
@@ -1260,6 +1271,10 @@ describe('scan cleanup pipeline', () => {
             foregroundMaskOutputPath: expect.stringMatching(/clean-1-0-mask\.pbm$/u),
         });
         expect(cleanupManifest!.pages[0]!.inputPath).toMatch(/source-1\.ppm$/u);
+        expect(cleanupManifest!.pages[0]).toMatchObject({
+            analysisInputPath: expect.stringMatching(/source-1-analysis-150dpi\.ppm$/u),
+            analysisDpi: 150,
+        });
         const recordKinds = combineManifest.trim().split('\n').map(line => line.split('\t')[0]);
         expect(recordKinds).toEqual([
             'image-bilevel',
@@ -1585,7 +1600,7 @@ describe('scan cleanup pipeline', () => {
         const run = await runOversizedRasterPipeline(1024 * 1024 * 1024);
 
         expect(run.pipelineDependencies.renderPagePpm).not.toHaveBeenCalled();
-        expect(run.pipelineDependencies.renderPage).toHaveBeenCalledTimes(2);
+        expect(run.pipelineDependencies.renderPage).toHaveBeenCalledTimes(4);
         expect(run.inputPaths).toEqual([
             expect.stringMatching(/source-1\.png$/u),
             expect.stringMatching(/source-2\.png$/u),
@@ -1600,7 +1615,7 @@ describe('scan cleanup pipeline', () => {
         const run = await runOversizedRasterPipeline(400 * 1024 * 1024 * 1024);
 
         expect(run.pipelineDependencies.renderPage).not.toHaveBeenCalled();
-        expect(run.pipelineDependencies.renderPagePpm).toHaveBeenCalledTimes(2);
+        expect(run.pipelineDependencies.renderPagePpm).toHaveBeenCalledTimes(4);
         expect(run.inputPaths).toEqual([
             expect.stringMatching(/source-1\.ppm$/u),
             expect.stringMatching(/source-2\.ppm$/u),
@@ -1696,12 +1711,15 @@ describe('scan cleanup pipeline', () => {
         const rasterStarted = Promise.withResolvers<undefined>();
         const releaseRaster = Promise.withResolvers<undefined>();
         const sidecarStarted = Promise.withResolvers<undefined>();
+        const canonicalRendered = Promise.withResolvers<undefined>();
+        let canonicalPath = '';
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
             async (_binary, manifestPath, _signal, _log, onProgress) => {
                 sidecarStarted.resolve(undefined);
                 const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
                     rasterWindow?: number;
                     pages: Array<{
+                        analysisInputPath: string;
                         pageMetadataPath: string;
                         options: {dpi: number};
                         outputs: ICleanupOutput[]
@@ -1709,6 +1727,9 @@ describe('scan cleanup pipeline', () => {
                 };
                 expect(manifest.rasterWindow).toBe(highTierPolicy.rasterConcurrency);
                 const page = manifest.pages[0]!;
+                canonicalPath = page.analysisInputPath;
+                await canonicalRendered.promise;
+                await expect(readFile(canonicalPath)).resolves.toEqual(PPM);
                 await writeFile(page.pageMetadataPath, JSON.stringify({
                     layoutClassification: 'single-uncut-page',
                     cutterXPx: null,
@@ -1745,9 +1766,14 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.createRasterPipes = vi.fn(async () => undefined);
-        pipelineDependencies.renderPagePpm = vi.fn(async () => {
-            rasterStarted.resolve(undefined);
-            await releaseRaster.promise;
+        pipelineDependencies.renderPagePpm = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+            if (outputPath.includes('-analysis-')) {
+                await writeFile(outputPath, PPM);
+                canonicalRendered.resolve(undefined);
+            } else {
+                rasterStarted.resolve(undefined);
+                await releaseRaster.promise;
+            }
         });
         const progress = vi.fn();
         const running = runScanCleanupPipeline({
@@ -1768,6 +1794,7 @@ describe('scan cleanup pipeline', () => {
         releaseRaster.resolve(undefined);
         await running;
 
+        await expect(readFile(canonicalPath)).rejects.toMatchObject({code: 'ENOENT'});
         expect(pipelineDependencies.createRasterPipes).toHaveBeenCalledOnce();
         expect(runSidecar).toHaveBeenCalledOnce();
         const progressReports = progress.mock.calls.map(([report]) => report as TScanCleanupProgress);
@@ -1902,8 +1929,10 @@ describe('scan cleanup pipeline', () => {
             inputPages: 2,
             outputPages: 2,
         });
-        expect(renderedSourcePages).toEqual([
+        expect(renderedSourcePages.toSorted()).toEqual([
             2,
+            2,
+            4,
             4,
         ]);
         expect(manifestSourceIndexes).toEqual([
@@ -3384,7 +3413,11 @@ describe('scan cleanup pipeline', () => {
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
-        expect(renderedDpis).toEqual([
+        expect(renderedDpis.toSorted((left, right) => left - right)).toEqual([
+            150,
+            150,
+            150,
+            150,
             720,
             720,
             720,

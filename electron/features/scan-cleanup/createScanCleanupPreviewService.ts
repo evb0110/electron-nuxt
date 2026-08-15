@@ -1867,7 +1867,8 @@ async function runPreview(
         // proven lower-resolution page at its own DPI makes native rebuild the
         // common physical canvas on a smaller pixel grid, so changing pages
         // visibly changes the frame and disagrees with the final document.
-        // Source DPI remains separate below and still governs analysis.
+        // Source DPI remains separate below and governs only the working grid;
+        // analysis is materialized on the canonical grid after this raster.
         const basePreviewDpi = documentCanvas === null
             ? previewRasterPlan.renderDpiByPageNumber.get(request.pageNumber)
                 ?? previewRasterPlan.dpi
@@ -2058,6 +2059,18 @@ async function runPreview(
         if (signal.aborted) throw signal.reason;
         const binary = dependencies.resolveBinary();
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
+        const canonicalRaw = baseRaw.dpi === DETECTION_DPI
+            ? baseRaw
+            : await materializeRawRaster(
+                document,
+                request.pageNumber,
+                signal,
+                retention,
+                dependencies,
+                baseRaw.totalPages,
+                DETECTION_DPI,
+                pageSizes?.find(page => page.pageNumber === request.pageNumber),
+            );
         const outputs = [
             0,
             1,
@@ -2164,7 +2177,9 @@ async function runPreview(
             },
             ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
             pages: [{
-                inputPath,
+                inputPath: lossless ? canonicalRaw.path : inputPath,
+                analysisInputPath: canonicalRaw.path,
+                analysisDpi: DETECTION_DPI,
                 ...(trustedMrcLayers === null
                     ? {}
                     : {
@@ -2172,7 +2187,7 @@ async function runPreview(
                         trustedMrcBackgroundPath: trustedMrcLayers.backgroundPath,
                     }),
                 pageNumber: request.pageNumber,
-                dpi: renderDpi,
+                dpi: lossless ? DETECTION_DPI : renderDpi,
                 sourceDpi,
                 sourceHasBilevelLayer: sourceRasterStructure.bilevelLayerPages
                     ?.has(request.pageNumber) ?? false,

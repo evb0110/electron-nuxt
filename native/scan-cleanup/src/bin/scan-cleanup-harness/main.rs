@@ -113,3 +113,86 @@ fn default_output_directory() -> PathBuf {
         .join("../..")
         .join(".devkit/scratch/scan-cleanup-harness")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::corpus;
+    use evb_scan_cleanup::{
+        bw::clean_black_and_white_with_calibration_config,
+        calibration::CalibrationConfig,
+        engine::render::{clean_page_with_canonical_analysis, CanonicalAnalysisPlane},
+        BinarizationMode,
+    };
+    #[test]
+    fn tracked_corpus_routes_reconciliation_and_leaf_resolution_are_dpi_identical() {
+        for entry in corpus::build_corpus().unwrap() {
+            let mut identities = Vec::new();
+            for dpi in [298.0, 299.0, 300.0] {
+                let mut options = entry.options.clone();
+                options.dpi = dpi;
+                options.skip_blank_pages = true;
+                let result = clean_page_with_canonical_analysis(
+                    &entry.image,
+                    CanonicalAnalysisPlane {
+                        gray: &entry.image,
+                        color: None,
+                        dpi: entry.dpi,
+                    },
+                    &options,
+                    0,
+                )
+                .unwrap_or_else(|error| panic!("{} at {dpi} DPI: {error}", entry.id));
+                identities.push((
+                    result.blank_outputs_skipped,
+                    result
+                        .outputs
+                        .iter()
+                        .map(|output| {
+                            (
+                                output.metadata.half,
+                                output.metadata.binarization_mode,
+                                output
+                                    .metadata
+                                    .binarization_diagnostics
+                                    .and_then(|diagnostics| diagnostics.spread_plan)
+                                    .map(|plan| plan.decision),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                ));
+            }
+            assert!(
+                identities.windows(2).all(|pair| pair[0] == pair[1]),
+                "{} changed route/reconciliation/leaf resolution: {identities:?}",
+                entry.id,
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_wolf_fixture_routes_are_pinned() {
+        let expected_wolf = [
+            "hard-04-dict-mandaic-old-p00125",
+            "spread-spread-ishodad-p00001",
+            "spread-spread-ishodad-p00002",
+            "spread-spread-walton-p00002",
+            "spread-spread-walton-p00191",
+            "spread-spread-walton-p00382",
+            "spread-spread-walton-p00573",
+            "spread-spread-walton-p00764",
+            "synthetic-border-noise-black-edges",
+        ];
+        let corpus = corpus::build_corpus().unwrap();
+        for id in expected_wolf {
+            let entry = corpus.iter().find(|entry| entry.id == id).unwrap();
+            let mut options = entry.options.clone();
+            options.despeckle = false;
+            let result = clean_black_and_white_with_calibration_config(
+                &entry.image,
+                &options,
+                CalibrationConfig::default(),
+            );
+            assert_eq!(result.mode, BinarizationMode::Wolf, "{id} route drifted");
+        }
+    }
+}

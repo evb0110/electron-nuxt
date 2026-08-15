@@ -747,13 +747,16 @@ export async function runScanCleanupConversion(
                 };
             }),
         }));
+        const canonicalAnalysisDpi = 150;
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,
             raster: plan.guardrail,
+            additionalRenderDpis: [canonicalAnalysisDpi],
+            // A streaming slot can hold the producer/native working copies and
+            // one canonical file until native reports that page complete.
+            renderCopies: supportsRasterStreaming ? 2 : 1,
         })), scratch, dependencies.getAvailableScratchBytes, supportsRasterStreaming
-            // At most one producer PPM and one native materialization per
-            // window slot can coexist while a FIFO transfer is in flight.
-            ? policy.rasterConcurrency * 2
+            ? policy.rasterConcurrency
             : rasterPlans.length);
         logRasterHandoff(log, 'final', rasterHandoff);
         const pageDpi = new Map<number, number>();
@@ -884,6 +887,11 @@ export async function runScanCleanupConversion(
             const trustedMrcLayers = trustedMrcLayersByPage.get(plan.pageNumber);
             return {
                 inputPath,
+                analysisInputPath: join(
+                    scratch,
+                    `source-${plan.pageNumber}-analysis-${canonicalAnalysisDpi}dpi.${extension}`,
+                ),
+                analysisDpi: canonicalAnalysisDpi,
                 ...(trustedMrcLayers === undefined
                     ? {}
                     : {
@@ -991,6 +999,30 @@ export async function runScanCleanupConversion(
                     maxPixels: resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode),
                     maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
                 };
+                const analysisLimits: IScanCleanupRasterRenderLimits = {
+                    expectedWidthPx: Math.max(
+                        1,
+                        Math.ceil(guardrail.width * canonicalAnalysisDpi / guardrail.dpi),
+                    ),
+                    expectedHeightPx: Math.max(
+                        1,
+                        Math.ceil(guardrail.height * canonicalAnalysisDpi / guardrail.dpi),
+                    ),
+                    maxPixels: resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode),
+                    maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
+                };
+                await renderer(
+                    paths,
+                    log,
+                    plan.pageNumber,
+                    prepared.pdfPath,
+                    page.analysisInputPath,
+                    canonicalAnalysisDpi,
+                    undefined,
+                    operationSignal,
+                    undefined,
+                    analysisLimits,
+                );
                 await renderer(
                     paths,
                     log,
@@ -1026,6 +1058,8 @@ export async function runScanCleanupConversion(
             });
         };
         const renderedPageNumbers = new Set<number>();
+        const releasedAnalysisPages = new Set<number>();
+        const analysisReleasePromises: Promise<void>[] = [];
         const sourcePageNumberByManifestIndex = new Map(pages.map((page, index) => [
             index + 1,
             page.sourcePageIndex + 1,
@@ -1045,6 +1079,14 @@ export async function runScanCleanupConversion(
                     );
                 }
                 renderedPageNumbers.add(sourcePageNumber);
+                if (!releasedAnalysisPages.has(sourcePageNumber)) {
+                    releasedAnalysisPages.add(sourcePageNumber);
+                    const analysisPath = pageInputs.find(page => page.pageNumber === sourcePageNumber)
+                        ?.analysisInputPath;
+                    if (analysisPath !== undefined) {
+                        analysisReleasePromises.push(rm(analysisPath, {force: true}));
+                    }
+                }
             }
             emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
         };
@@ -1070,6 +1112,7 @@ export async function runScanCleanupConversion(
                 }
             },
         });
+        await Promise.all(analysisReleasePromises);
         emitProgress('collecting', 0, pages.length, []);
         const outputPages: IRenderedCleanupOutputPage[] = [];
         const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();

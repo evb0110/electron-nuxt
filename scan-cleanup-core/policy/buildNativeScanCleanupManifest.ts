@@ -25,6 +25,8 @@ import {assertScanCleanupPathWithinRoot} from '@scan-cleanup-core/assertScanClea
 
 export interface IScanCleanupManifestPageInput {
     inputPath: string;
+    analysisInputPath?: string;
+    analysisDpi?: number;
     trustedForegroundMaskPath?: string;
     trustedMrcBackgroundPath?: string;
     pageNumber: number;
@@ -78,6 +80,13 @@ function assertManifestPagePaths(
 ) {
     const pageLabel = `page ${String(pageIndex + 1)}`;
     assertScanCleanupPathWithinRoot(page.inputPath, allowedPathRoot, `${pageLabel} input path`);
+    if (page.analysisInputPath !== undefined) {
+        assertScanCleanupPathWithinRoot(
+            page.analysisInputPath,
+            allowedPathRoot,
+            `${pageLabel} analysis input path`,
+        );
+    }
     assertScanCleanupPathWithinRoot(page.pageMetadataPath, allowedPathRoot, `${pageLabel} metadata path`);
     for (const [
         label,
@@ -233,6 +242,15 @@ export function buildNativeScanCleanupManifest({
             : {rasterWindow: clampNativeLimit(rasterWindow, 16, 'rasterWindow')}),
         pages: pages.map((page, pageIndex) => {
             assertManifestOutputContract(page, pageIndex);
+            if (
+                (page.analysisInputPath === undefined) !== (page.analysisDpi === undefined)
+                || (page.analysisDpi !== undefined
+                    && (!Number.isFinite(page.analysisDpi) || page.analysisDpi <= 0))
+            ) {
+                throw new ScanCleanupContractError(
+                    `page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`,
+                );
+            }
             if (allowedPathRoot !== undefined) assertManifestPagePaths(page, pageIndex, allowedPathRoot);
             const resolvedOptions = {
                 ...resolveEffectiveScanCleanupOptions({
@@ -285,6 +303,9 @@ export function buildNativeScanCleanupManifest({
             );
             return {
                 inputPath: page.inputPath,
+                ...(page.analysisInputPath === undefined
+                    ? {}
+                    : {analysisInputPath: page.analysisInputPath, analysisDpi: page.analysisDpi}),
                 ...(page.trustedForegroundMaskPath === undefined
                     ? {}
                     : {trustedForegroundMaskPath: page.trustedForegroundMaskPath}),

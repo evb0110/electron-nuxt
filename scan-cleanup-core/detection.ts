@@ -46,10 +46,8 @@ import {
 } from '@scan-cleanup-core/policy/documentCanvas';
 
 export const PREVIEW_DPI = 150;
-// Native mode selection and final rendering share a 150-DPI analysis ceiling.
-// A proven lower-resolution scan is analyzed on its own grid: upsampling it for
-// detection produces text-tone evidence that cannot be replayed by the final
-// renderer on the source grid.
+// Native mode selection, preview, and final rendering share this canonical
+// analysis grid. The separate working raster remains free to follow source DPI.
 export const DETECTION_DPI = 150;
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
 const PREVIEW_MAX_IMAGE_PIXELS = 45_000_000;
@@ -637,9 +635,7 @@ export async function runScanCleanupDetection<TDocument>(
                 )
                 : null,
         );
-        const detectionDpiForPage = (pageNumber: number) =>
-            previewRasterPlan.detectionDpiByPageNumber.get(pageNumber)
-            ?? Math.min(DETECTION_DPI, previewRasterPlan.dpi);
+        const detectionDpiForPage = (_pageNumber: number) => DETECTION_DPI;
         const results = new Map<number, IScanCleanupDetectionResult>();
         const publishedResults = () => [...results.values()]
             .sort((left, right) => left.pageNumber - right.pageNumber);
@@ -669,10 +665,9 @@ export async function runScanCleanupDetection<TDocument>(
         };
         let analyzedPages = 0;
         const completedPages = new Set<number>();
-        // Detection and visible previews use the native classifier's 150-DPI
-        // ceiling without upsampling a proven lower-resolution page. On POSIX,
-        // feed raw PPM through FIFOs so native starts classifying the first page
-        // while Poppler is still producing the rest.
+        // Detection and final rendering use the same canonical 150-DPI
+        // analysis plane. On POSIX, feed raw PPM through FIFOs so native starts
+        // classifying the first page while Poppler produces the rest.
         let streamRasters = process.platform !== 'win32'
             && dependencies.createRasterPipes !== undefined;
         if (streamRasters && pageNumbers.length > 0) {
@@ -682,6 +677,7 @@ export async function runScanCleanupDetection<TDocument>(
                     const limits = resolveRasterRenderLimits(pageSizeByNumber.get(pageNumber), dpi);
                     return {
                         renderDpi: dpi,
+                        renderCopies: 2,
                         raster: {
                             dpi,
                             width: limits.expectedWidthPx,
@@ -691,7 +687,7 @@ export async function runScanCleanupDetection<TDocument>(
                 }),
                 scratch,
                 dependencies.getAvailableScratchBytes ?? readAvailableScratchBytes,
-                policy.rasterConcurrency * 2,
+                policy.rasterConcurrency,
             );
             logRasterHandoff(log, 'detection stream', handoff);
             // The fallback already has a bounded retained-PNG path. Use it
@@ -899,6 +895,8 @@ export async function runScanCleanupDetection<TDocument>(
             const sourceBackgroundDpi = sourceRasterStructure.backgroundDpiByPage?.get(pageNumber);
             return {
                 inputPath: renderedPaths.get(pageNumber) ?? retained.get(pageNumber)!.path,
+                analysisInputPath: renderedPaths.get(pageNumber) ?? retained.get(pageNumber)!.path,
+                analysisDpi: DETECTION_DPI,
                 pageNumber,
                 dpi: detectionDpiForPage(pageNumber),
                 sourceDpi: previewRasterPlan.pageDpiByNumber.get(pageNumber)

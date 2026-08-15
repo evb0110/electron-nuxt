@@ -38,6 +38,7 @@ const TILE_PAPER_DELTA: u8 = 48;
 const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
 const MIN_QUALIFYING_PAPER_TILES: usize = 4;
 const UNIFORM_PAPER_MAXIMUM_RANGE: u8 = 8;
+const FALLBACK_X_HEIGHT_AT_300_DPI_PX: f64 = 17.0;
 
 // A rule is preserved only when the source itself contains a long, thin run
 // of dark pixels. The geometry is intentionally shared with the render-side
@@ -996,7 +997,10 @@ fn trace_line_stroke_budget(interventions: &LineStrokeBudgetInterventions) {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+/// Raw Auto-routing measurements from the canonical, at-most-256px routing
+/// sample. These values intentionally describe the decision basis rather than
+/// the working-resolution raster that receives the selected threshold.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinarizationDiagnostics {
     pub route: BinarizationMode,
@@ -1041,20 +1045,13 @@ pub(crate) struct SpreadBinarizationPlan {
     threshold_anchor: u8,
     threshold_radius: usize,
     x_height_anchor_px: f64,
+    route_diagnostics: BinarizationDiagnostics,
     diagnostics: SpreadBinarizationPlanDiagnostics,
 }
 
 impl SpreadBinarizationPlan {
-    pub(crate) fn route(self) -> BinarizationMode {
-        self.route
-    }
-
-    pub(crate) fn diagnostics_for(
-        self,
-        routing_sample: &GrayImage,
-        options: &CleanupOptions,
-    ) -> BinarizationDiagnostics {
-        let mut diagnostics = measure_binarization_diagnostics(routing_sample, options);
+    pub(crate) fn diagnostics(self) -> BinarizationDiagnostics {
+        let mut diagnostics = self.route_diagnostics;
         diagnostics.route = self.route;
         diagnostics.spread_plan = Some(self.diagnostics);
         diagnostics
@@ -1156,7 +1153,7 @@ fn binarize_normalized_calibrated(
 pub(crate) fn binarize_normalized_with_diagnostics(
     normalized: &GrayImage,
     raw_source: &GrayImage,
-    routing_sample: &GrayImage,
+    routing_diagnostics: BinarizationDiagnostics,
     global_threshold_source: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
@@ -1172,10 +1169,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     let mut timings = BinarizationStageTimings::default();
     let preparation_started = Instant::now();
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
-    let diagnostics = spread_plan.map_or_else(
-        || resolve_binarization_diagnostics(routing_sample, options),
-        |plan| plan.diagnostics_for(routing_sample, options),
-    );
+    let diagnostics = spread_plan.map_or(routing_diagnostics, |plan| plan.diagnostics());
     timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
     let thresholding_started = Instant::now();
     let binary = threshold_with_mode(
@@ -1212,6 +1206,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
 pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     normalized: &GrayImage,
     raw_source: &GrayImage,
+    routing_diagnostics: BinarizationDiagnostics,
     global_threshold_source: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
@@ -1252,10 +1247,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
             }
         });
     let threshold_input = smooth_for_binarization(&masked_input, options.dpi);
-    let diagnostics = spread_plan.map_or_else(
-        || resolve_binarization_diagnostics(&masked_input, options),
-        |plan| plan.diagnostics_for(&masked_input, options),
-    );
+    let diagnostics = spread_plan.map_or(routing_diagnostics, |plan| plan.diagnostics());
     timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
     let thresholding_started = Instant::now();
     let binary = threshold_with_mode_excluding(
@@ -1859,6 +1851,9 @@ fn measure_binarization_diagnostics(
         f64::from(image_percentile(&sample, 0.95)) - f64::from(image_percentile(&sample, 0.05));
     let illumination_deviation = tile_paper_deviation(&sample);
     let edge_density = edge_density(&sample);
+    // Keep the established full-input pixel unit. Callers choose the fixed
+    // canonical input plane; the internal 256px sample is only an efficient
+    // measurement raster and must not leak its scale into this diagnostic.
     let sample_scale = (image.width() as f64 / sample.width().max(1) as f64)
         .max(image.height() as f64 / sample.height().max(1) as f64);
     let estimated_stroke_width_px = estimated_stroke_width(&otsu) * sample_scale;
@@ -1883,57 +1878,59 @@ fn measure_binarization_diagnostics(
 /// pass.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_spread_binarization_plans(
-    normalized: &GrayImage,
-    left: &GrayImage,
-    right: &GrayImage,
-    picture_mask: Option<&BinaryImage>,
-    left_picture_mask: Option<&BinaryImage>,
-    right_picture_mask: Option<&BinaryImage>,
+    routing_joint: &GrayImage,
+    routing_left: &GrayImage,
+    routing_right: &GrayImage,
+    canonical_left: &GrayImage,
+    canonical_right: &GrayImage,
+    canonical_left_picture_mask: Option<&BinaryImage>,
+    canonical_right_picture_mask: Option<&BinaryImage>,
+    canonical_dpi: f64,
     options: &CleanupOptions,
     calibration: PageCalibration,
     document_stroke_width_px: Option<f64>,
     document_x_height_px: Option<f64>,
 ) -> SpreadBinarizationPlans {
-    let joint_input = masked_spread_input(normalized, picture_mask, options);
-    let left_input = masked_spread_input(left, left_picture_mask, options);
-    let right_input = masked_spread_input(right, right_picture_mask, options);
-    let joint = measure_binarization_diagnostics(&joint_input, options);
-    let left_candidate = measure_binarization_diagnostics(&left_input, options);
-    let right_candidate = measure_binarization_diagnostics(&right_input, options);
+    let joint = measure_binarization_diagnostics(routing_joint, options);
+    let left_candidate = measure_binarization_diagnostics(routing_left, options);
+    let right_candidate = measure_binarization_diagnostics(routing_right, options);
     let joint_route = match options.binarization {
         BinarizationMode::Auto => resolve_route_for_diagnostics(&joint, options),
         explicit => explicit,
     };
     let left_route = resolve_route_for_diagnostics(&left_candidate, options);
     let right_route = resolve_route_for_diagnostics(&right_candidate, options);
-    let left_protected_picture_mask =
-        left_picture_mask.map(|mask| protected_picture_mask(mask, options));
-    let right_protected_picture_mask =
-        right_picture_mask.map(|mask| protected_picture_mask(mask, options));
+    let canonical_dpi = canonical_dpi.max(1.0);
+    // Absolute gray-level anchors are measured on the full canonical leaf.
+    // Downscaling is valid for route features, but it blends away the ink core
+    // this histogram threshold deliberately anchors to. Picture ownership is
+    // excluded, not whitened into the paper population.
     let left_anchor =
-        paper_ink_midpoint_threshold(left, left_protected_picture_mask.as_ref()).threshold;
+        full_leaf_intensity_anchor(canonical_left, canonical_left_picture_mask, canonical_dpi);
     let right_anchor =
-        paper_ink_midpoint_threshold(right, right_protected_picture_mask.as_ref()).threshold;
-    // `left` and `right` are the full working-resolution leaves, while the
-    // calibration carried into this function was measured on the bounded
-    // analysis raster (normally 150 DPI).  Measuring a full leaf with the
-    // analysis DPI makes its pixel x-height look twice as large physically;
-    // the resulting radius then clamps at 64 and destroys the thinner leaf on
-    // a route-mismatch fallback.  Measure leaf evidence in working pixels,
-    // then express it in the analysis calibration's reference pixels below.
-    let working_dpi = options.dpi.max(1.0);
-    let left_calibration = PageCalibration::estimate(left, working_dpi, calibration.config);
-    let right_calibration = PageCalibration::estimate(right, working_dpi, calibration.config);
-    // Agreement is measured from each leaf's own calibration. The document
-    // prior anchors a shared plan, but must not mask a real per-leaf radius
-    // drift and thereby force a damaging shared threshold onto one leaf.
-    let left_x_height = leaf_x_height(left_calibration, None, calibration, working_dpi);
-    let right_x_height = leaf_x_height(right_calibration, None, calibration, working_dpi);
-    let left_radius = threshold_radius_for_x_height(left_x_height, options, calibration);
-    let right_radius = threshold_radius_for_x_height(right_x_height, options, calibration);
+        full_leaf_intensity_anchor(canonical_right, canonical_right_picture_mask, canonical_dpi);
+    let left_input =
+        masked_spread_input(canonical_left, canonical_left_picture_mask, canonical_dpi);
+    let right_input =
+        masked_spread_input(canonical_right, canonical_right_picture_mask, canonical_dpi);
+    // Reconciliation must not depend on the output render. Measure it on the
+    // full canonical leaves, retaining the established semantics of comparing
+    // clamped pixel radii (rather than raw x-heights). The selected radii are
+    // subsequently expressed in working pixels for the actual threshold.
+    let left_calibration =
+        PageCalibration::estimate(canonical_left, canonical_dpi, calibration.config);
+    let right_calibration =
+        PageCalibration::estimate(canonical_right, canonical_dpi, calibration.config);
+    let left_x_height = leaf_x_height(left_calibration, None, calibration, canonical_dpi);
+    let right_x_height = leaf_x_height(right_calibration, None, calibration, canonical_dpi);
+    let left_reference_radius =
+        threshold_radius_for_x_height_at_dpi(left_x_height, canonical_dpi, calibration);
+    let right_reference_radius =
+        threshold_radius_for_x_height_at_dpi(right_x_height, canonical_dpi, calibration);
     let route_mismatch = left_route != right_route;
     let anchor_drift = relative_difference(f64::from(left_anchor), f64::from(right_anchor)) > 0.20;
-    let radius_drift = relative_difference(left_radius as f64, right_radius as f64) > 0.20;
+    let radius_drift =
+        relative_difference(left_reference_radius as f64, right_reference_radius as f64) > 0.20;
     let faint_ink_drift = relative_difference(
         faint_ink_fraction(&left_input),
         faint_ink_fraction(&right_input),
@@ -1952,7 +1949,12 @@ pub(crate) fn resolve_spread_binarization_plans(
     if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_SPREAD_PLAN").is_some() {
         eprintln!(
             "spread-plan left-anchor={} right-anchor={} left-radius={} right-radius={} left-route={:?} right-route={:?} decision={decision:?}",
-            left_anchor, right_anchor, left_radius, right_radius, left_route, right_route,
+            left_anchor,
+            right_anchor,
+            left_reference_radius,
+            right_reference_radius,
+            left_route,
+            right_route,
         );
     }
 
@@ -1967,13 +1969,13 @@ pub(crate) fn resolve_spread_binarization_plans(
                 left_calibration,
                 left_candidate.estimated_stroke_width_px,
                 calibration,
-                working_dpi,
+                canonical_dpi,
             );
             let right_stroke = leaf_stroke_width(
                 right_calibration,
                 right_candidate.estimated_stroke_width_px,
                 calibration,
-                working_dpi,
+                canonical_dpi,
             );
             (left_stroke + right_stroke) / 2.0
         });
@@ -2002,6 +2004,7 @@ pub(crate) fn resolve_spread_binarization_plans(
         threshold_anchor: shared_anchor,
         threshold_radius: threshold_radius_for_x_height(shared_x_height, options, calibration),
         x_height_anchor_px: shared_x_height,
+        route_diagnostics: left_candidate,
         diagnostics: common_diagnostics(
             joint_route,
             shared_anchor,
@@ -2014,7 +2017,10 @@ pub(crate) fn resolve_spread_binarization_plans(
     if decision == SpreadBinarizationPlanDecision::SharedJoint {
         return SpreadBinarizationPlans {
             left: shared_plan,
-            right: shared_plan,
+            right: SpreadBinarizationPlan {
+                route_diagnostics: right_candidate,
+                ..shared_plan
+            },
         };
     }
 
@@ -2025,9 +2031,10 @@ pub(crate) fn resolve_spread_binarization_plans(
         left_candidate.estimated_stroke_width_px,
         options,
         calibration,
-        working_dpi,
+        canonical_dpi,
         document_stroke_width_px,
         document_x_height_px,
+        left_candidate,
         common_diagnostics,
         decision,
     );
@@ -2038,9 +2045,10 @@ pub(crate) fn resolve_spread_binarization_plans(
         right_candidate.estimated_stroke_width_px,
         options,
         calibration,
-        working_dpi,
+        canonical_dpi,
         document_stroke_width_px,
         document_x_height_px,
+        right_candidate,
         common_diagnostics,
         decision,
     );
@@ -2061,6 +2069,7 @@ fn leaf_plan<F>(
     working_dpi: f64,
     document_stroke_width_px: Option<f64>,
     document_x_height_px: Option<f64>,
+    route_diagnostics: BinarizationDiagnostics,
     diagnostics: F,
     decision: SpreadBinarizationPlanDecision,
 ) -> SpreadBinarizationPlan
@@ -2109,6 +2118,7 @@ where
         threshold_anchor,
         threshold_radius,
         x_height_anchor_px,
+        route_diagnostics,
         diagnostics: plan_diagnostics,
     }
 }
@@ -2116,12 +2126,12 @@ where
 fn masked_spread_input(
     image: &GrayImage,
     picture_mask: Option<&BinaryImage>,
-    options: &CleanupOptions,
+    dpi: f64,
 ) -> GrayImage {
     let Some(picture_mask) = picture_mask else {
         return image.clone();
     };
-    let protected = protected_picture_mask(picture_mask, options);
+    let protected = protected_picture_mask(picture_mask, dpi);
     let mut masked = image.clone();
     for y in 0..masked.height() {
         for x in 0..masked.width() {
@@ -2145,12 +2155,21 @@ fn faint_ink_fraction(image: &GrayImage) -> f64 {
         / total as f64
 }
 
-fn protected_picture_mask(mask: &BinaryImage, options: &CleanupOptions) -> BinaryImage {
+fn protected_picture_mask(mask: &BinaryImage, dpi: f64) -> BinaryImage {
     dilate(
         mask,
-        picture_protection_radius(options.dpi),
-        picture_protection_radius(options.dpi),
+        picture_protection_radius(dpi),
+        picture_protection_radius(dpi),
     )
+}
+
+fn full_leaf_intensity_anchor(
+    image: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    dpi: f64,
+) -> u8 {
+    let protected_picture_mask = picture_mask.map(|mask| protected_picture_mask(mask, dpi));
+    paper_ink_midpoint_threshold(image, protected_picture_mask.as_ref()).threshold
 }
 
 fn leaf_x_height(
@@ -2170,7 +2189,9 @@ fn leaf_x_height(
                 )
                 .filter(|value| value.is_finite() && *value > 0.0)
         })
-        .unwrap_or(17.0 * spread_calibration.effective_dpi.max(1.0) / 300.0)
+        .unwrap_or(
+            FALLBACK_X_HEIGHT_AT_300_DPI_PX * spread_calibration.effective_dpi.max(1.0) / 300.0,
+        )
 }
 
 fn leaf_stroke_width(
@@ -2198,7 +2219,15 @@ fn threshold_radius_for_x_height(
     options: &CleanupOptions,
     calibration: PageCalibration,
 ) -> usize {
-    (1.5 * x_height_anchor_px * options.dpi.max(1.0) / calibration.effective_dpi.max(1.0))
+    threshold_radius_for_x_height_at_dpi(x_height_anchor_px, options.dpi, calibration)
+}
+
+fn threshold_radius_for_x_height_at_dpi(
+    x_height_anchor_px: f64,
+    dpi: f64,
+    calibration: PageCalibration,
+) -> usize {
+    (1.5 * x_height_anchor_px * dpi.max(1.0) / calibration.effective_dpi.max(1.0))
         .round()
         .clamp(8.0, 64.0) as usize
 }
@@ -4161,9 +4190,11 @@ mod tests {
             &normalized,
             &left,
             &right,
+            &left,
+            &right,
             None,
             None,
-            None,
+            options.dpi,
             &options,
             calibration,
             Some(2.5),
@@ -4173,17 +4204,19 @@ mod tests {
             &normalized,
             &right,
             &left,
+            &right,
+            &left,
             None,
             None,
-            None,
+            options.dpi,
             &options,
             calibration,
             Some(2.5),
             Some(18.0),
         );
 
-        assert_eq!(plans.left.route(), swapped.right.route());
-        assert_eq!(plans.right.route(), swapped.left.route());
+        assert_eq!(plans.left.route, swapped.right.route);
+        assert_eq!(plans.right.route, swapped.left.route);
         assert_eq!(plans.left.threshold_anchor, swapped.right.threshold_anchor);
         assert_eq!(plans.left.threshold_radius, 27);
         assert_eq!(plans.left.threshold_radius, swapped.right.threshold_radius);
@@ -4200,7 +4233,7 @@ mod tests {
         let (_, left_diagnostics, _, _) = binarize_normalized_with_diagnostics(
             &left,
             &left,
-            &left,
+            resolve_binarization_diagnostics(&left, &options),
             None,
             &options,
             calibration,
@@ -4211,7 +4244,7 @@ mod tests {
         let (_, right_diagnostics, _, _) = binarize_normalized_with_diagnostics(
             &right,
             &right,
-            &right,
+            resolve_binarization_diagnostics(&right, &options),
             None,
             &options,
             calibration,
@@ -4219,8 +4252,8 @@ mod tests {
             None,
             Some(&plans.right),
         );
-        assert_eq!(left_diagnostics.route, plans.left.route());
-        assert_eq!(right_diagnostics.route, plans.right.route());
+        assert_eq!(left_diagnostics.route, plans.left.route);
+        assert_eq!(right_diagnostics.route, plans.right.route);
         assert_eq!(
             left_diagnostics.spread_plan.unwrap().threshold_radius,
             plans.left.threshold_radius
@@ -4263,17 +4296,19 @@ mod tests {
             &normalized,
             &left,
             &right,
+            &left,
+            &right,
             None,
             None,
-            None,
+            options.dpi,
             &options,
             calibration,
             Some(2.5),
             Some(18.0),
         );
 
-        assert_eq!(plans.left.route(), BinarizationMode::Otsu);
-        assert_eq!(plans.right.route(), BinarizationMode::Otsu);
+        assert_eq!(plans.left.route, BinarizationMode::Otsu);
+        assert_eq!(plans.right.route, BinarizationMode::Otsu);
         assert_eq!(
             plans.left.diagnostics.decision,
             SpreadBinarizationPlanDecision::PerLeafAnchorDrift
@@ -4286,6 +4321,63 @@ mod tests {
             plans.left.threshold_anchor, plans.right.threshold_anchor,
             "the fallback must retain each leaf's measured threshold anchor"
         );
+    }
+
+    #[test]
+    fn spread_reconciliation_is_carried_from_canonical_samples_across_working_dpi() {
+        let mut routing_left = GrayImage::new(128, 192, 242);
+        for y in 20..172 {
+            for x in (12..116).step_by(13) {
+                for stroke_x in x..x + 3 {
+                    routing_left.set(stroke_x, y, 48);
+                }
+            }
+        }
+        let routing_right = routing_left.clone();
+        let mut routing_joint = GrayImage::new(256, 192, 242);
+        for y in 0..192 {
+            for x in 0..128 {
+                routing_joint.set(x, y, routing_left.get(x, y));
+                routing_joint.set(x + 128, y, routing_right.get(x, y));
+            }
+        }
+
+        let mut decisions = Vec::new();
+        let mut routes = Vec::new();
+        for dpi in [298.0, 299.0, 300.0, 600.0] {
+            let options = CleanupOptions {
+                dpi,
+                normalize_illumination: false,
+                despeckle: false,
+                ..CleanupOptions::default()
+            };
+            let calibration =
+                PageCalibration::estimate(&routing_joint, 150.0, CalibrationConfig::default());
+            let plans = resolve_spread_binarization_plans(
+                &routing_joint,
+                &routing_left,
+                &routing_right,
+                &routing_left,
+                &routing_right,
+                None,
+                None,
+                150.0,
+                &options,
+                calibration,
+                Some(2.5),
+                Some(18.0),
+            );
+            decisions.push(plans.left.diagnostics.decision);
+            routes.push((plans.left.route, plans.right.route));
+        }
+
+        assert!(
+            decisions
+                .iter()
+                .all(|decision| *decision == SpreadBinarizationPlanDecision::SharedJoint),
+            "working DPI must not reopen canonical spread reconciliation: {decisions:?}"
+        );
+        assert!(routes.windows(2).all(|pair| pair[0] == pair[1]));
     }
 
     #[test]
@@ -4371,7 +4463,7 @@ mod tests {
             let (routed, diagnostics, _, _) = binarize_normalized_with_diagnostics(
                 &normalized,
                 &raw,
-                &raw,
+                resolve_binarization_diagnostics(&raw, &options),
                 None,
                 &options,
                 calibration,
@@ -5122,6 +5214,46 @@ mod tests {
     }
 
     #[test]
+    fn full_leaf_intensity_anchor_is_scale_stable_with_picture_exclusion() {
+        let mut small = GrayImage::new(240, 180, 248);
+        let mut small_picture = BinaryImage::new(240, 180);
+        for y in 18..162 {
+            for x in (16..168).step_by(14) {
+                small.set(x, y, 6);
+                small.set(x + 1, y, 72);
+            }
+        }
+        for y in 30..150 {
+            for x in 176..228 {
+                small.set(x, y, 118 + ((x + y) % 32) as u8);
+                small_picture.set(x, y, true);
+            }
+        }
+        let mut large = GrayImage::new(480, 360, 255);
+        let mut large_picture = BinaryImage::new(480, 360);
+        for y in 0..large.height() {
+            for x in 0..large.width() {
+                large.set(x, y, small.get(x / 2, y / 2));
+                large_picture.set(x, y, small_picture.get(x / 2, y / 2));
+            }
+        }
+
+        let small_anchor = full_leaf_intensity_anchor(&small, Some(&small_picture), 150.0);
+        let large_anchor = full_leaf_intensity_anchor(&large, Some(&large_picture), 300.0);
+
+        assert_eq!(small_anchor, 127);
+        assert_eq!(large_anchor, 127);
+        assert!(
+            (i16::from(small_anchor) - i16::from(large_anchor)).abs() <= 1,
+            "full-leaf anchor drifted across scale: {small_anchor} vs {large_anchor}",
+        );
+        assert!(
+            small_anchor < 150,
+            "anchor was measured after destructive downscaling"
+        );
+    }
+
+    #[test]
     fn router_diagnostics_are_finite_and_bounded() {
         let mut image = GrayImage::new(160, 120, 238);
         for y in 18..102 {
@@ -5146,6 +5278,106 @@ mod tests {
         assert!(diagnostics.edge_density <= 1.0);
         assert!(diagnostics.dark_border_coverage <= 1.0);
         assert!(diagnostics.otsu_adaptive_agreement <= 1.0);
+    }
+
+    #[test]
+    fn stroke_width_diagnostic_retains_full_input_pixel_units() {
+        let mut canonical = GrayImage::new(256, 192, 242);
+        for y in 18..174 {
+            for x in (16..240).step_by(14) {
+                for stroke_x in x..x + 3 {
+                    canonical.set(stroke_x, y, 46 + (y % 24) as u8);
+                }
+            }
+        }
+        let mut full_resolution = GrayImage::new(1_024, 768, 255);
+        for y in 0..full_resolution.height() {
+            for x in 0..full_resolution.width() {
+                full_resolution.set(x, y, canonical.get(x / 4, y / 4));
+            }
+        }
+        let options = CleanupOptions::default();
+        let canonical_diagnostics = resolve_binarization_diagnostics(&canonical, &options);
+        let full_resolution_diagnostics =
+            resolve_binarization_diagnostics(&full_resolution, &options);
+
+        assert!(
+            (full_resolution_diagnostics.estimated_stroke_width_px
+                - canonical_diagnostics.estimated_stroke_width_px * 4.0)
+                .abs()
+                < f64::EPSILON,
+            "stroke width must be expressed in the full input's pixels",
+        );
+        assert_eq!(
+            canonical_diagnostics.dark_border_coverage,
+            full_resolution_diagnostics.dark_border_coverage
+        );
+    }
+
+    #[test]
+    fn canonical_cell_edge_routes_are_carried_across_working_dpi() {
+        let clean_working = GrayImage::new(96, 96, 244);
+        let mut dirty_working = clean_working.clone();
+        for y in 0..dirty_working.height() {
+            for x in 0..dirty_working.width() {
+                if x < 18 || x + 18 >= dirty_working.width() || (x + y) % 3 == 0 {
+                    dirty_working.set(x, y, 24);
+                }
+            }
+        }
+        let mut route_by_dpi = Vec::new();
+        for (dpi, working) in [(299.0, &clean_working), (300.0, &dirty_working)] {
+            let options = CleanupOptions {
+                dpi,
+                normalize_illumination: false,
+                despeckle: false,
+                ..CleanupOptions::default()
+            };
+            route_by_dpi.push(resolve_binarization_diagnostics(working, &options).route);
+        }
+        assert_ne!(
+            route_by_dpi[0], route_by_dpi[1],
+            "the mutation control must disagree when routing bypasses canonical evidence"
+        );
+
+        for cells in 380..=383 {
+            let coverage = cells as f64 / 4_752.0;
+            let expected = choose_mode(128.0, 0.704, 0.384, 2.0, coverage, 0.985);
+            let canonical = BinarizationDiagnostics {
+                route: expected,
+                robust_contrast: 128.0,
+                illumination_deviation: 0.704,
+                edge_density: 0.384,
+                estimated_stroke_width_px: 2.0,
+                dark_border_coverage: coverage,
+                otsu_adaptive_agreement: 0.985,
+                spread_plan: None,
+            };
+            let mut rendered_routes = Vec::new();
+            for (dpi, working) in [(299.0, &clean_working), (300.0, &dirty_working)] {
+                let options = CleanupOptions {
+                    dpi,
+                    normalize_illumination: false,
+                    despeckle: false,
+                    ..CleanupOptions::default()
+                };
+                let calibration =
+                    PageCalibration::estimate(working, dpi, CalibrationConfig::default());
+                let (_, diagnostics, _, _) = binarize_normalized_with_diagnostics(
+                    working,
+                    working,
+                    canonical,
+                    None,
+                    &options,
+                    calibration,
+                    None,
+                    None,
+                    None,
+                );
+                rendered_routes.push(diagnostics.route);
+            }
+            assert_eq!(rendered_routes, [expected, expected], "cells={cells}");
+        }
     }
 
     #[test]

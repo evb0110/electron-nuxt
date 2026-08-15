@@ -23,6 +23,10 @@ const COMBINE_OUTPUT_BYTES_FLOOR = 512 * 1024 * 1024;
 
 export interface IScanCleanupRasterHandoffPlan {
     renderDpi: number;
+    /** Additional fixed-grid rasters retained alongside this page. */
+    additionalRenderDpis?: readonly number[];
+    /** Simultaneous raw copies of the primary render (producer/native). */
+    renderCopies?: number;
     raster: {
         dpi: number;
         width: number;
@@ -60,17 +64,34 @@ function estimateRawRasterBytes(
         ) {
             return null;
         }
-        const width = Math.max(1, Math.ceil(raster.width * plan.renderDpi / raster.dpi));
-        const height = Math.max(1, Math.ceil(raster.height * plan.renderDpi / raster.dpi));
-        const pixelBytes = width * height * 3;
-        if (!Number.isSafeInteger(pixelBytes)) {
+        const rasterBytesAtDpi = (dpi: number) => {
+            if (!Number.isFinite(dpi) || dpi <= 0) return null;
+            const width = Math.max(1, Math.ceil(raster.width * dpi / raster.dpi));
+            const height = Math.max(1, Math.ceil(raster.height * dpi / raster.dpi));
+            const pixelBytes = width * height * 3;
+            if (!Number.isSafeInteger(pixelBytes)) return null;
+            const fileOverheadBytes = Math.max(
+                RAW_RASTER_FILE_OVERHEAD_FLOOR_BYTES,
+                Math.ceil(pixelBytes * RAW_RASTER_FILE_OVERHEAD_SHARE),
+            );
+            const bytes = pixelBytes + fileOverheadBytes;
+            return Number.isSafeInteger(bytes) ? bytes : null;
+        };
+        const primaryBytes = rasterBytesAtDpi(plan.renderDpi);
+        const renderCopies = plan.renderCopies ?? 1;
+        if (
+            primaryBytes === null
+            || !Number.isSafeInteger(renderCopies)
+            || renderCopies < 1
+        ) {
             return null;
         }
-        const fileOverheadBytes = Math.max(
-            RAW_RASTER_FILE_OVERHEAD_FLOOR_BYTES,
-            Math.ceil(pixelBytes * RAW_RASTER_FILE_OVERHEAD_SHARE),
-        );
-        const pageBytes = pixelBytes + fileOverheadBytes;
+        let pageBytes = primaryBytes * renderCopies;
+        for (const dpi of plan.additionalRenderDpis ?? []) {
+            const additionalBytes = rasterBytesAtDpi(dpi);
+            if (additionalBytes === null) return null;
+            pageBytes += additionalBytes;
+        }
         if (!Number.isSafeInteger(pageBytes)) {
             return null;
         }

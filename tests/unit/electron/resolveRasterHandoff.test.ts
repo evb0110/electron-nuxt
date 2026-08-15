@@ -127,4 +127,21 @@ describe('scan-cleanup raster handoff scratch budget', () => {
             + 200 * 200 * 3 + 64 * 1024,
         );
     });
+
+    it('counts canonical analysis scratch and primary raster copies per resident page', async () => {
+        const result = await resolveRasterHandoff([{
+            renderDpi: 300,
+            additionalRenderDpis: [150],
+            renderCopies: 2,
+            raster: {
+                dpi: 300,
+                height: 400,
+                width: 200,
+            },
+        }], '/scratch', vi.fn(async () => null), 1);
+
+        const workingBytes = 200 * 400 * 3 + 64 * 1024;
+        const canonicalBytes = 100 * 200 * 3 + 64 * 1024;
+        expect(result.estimatedBytes).toBe(workingBytes * 2 + canonicalBytes);
+    });
 });
