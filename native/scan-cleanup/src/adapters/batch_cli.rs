@@ -2071,7 +2071,7 @@ fn run_page(
                         .as_ref()
                         .map(|plan| plan.shared_fit),
                     fold_trim,
-                    outer_near_paper_edge_runs_for_output(output),
+                    placement_near_paper_edge_runs_for_output(output),
                 );
                 (placement, canvas)
             })
@@ -2349,31 +2349,15 @@ fn run_page(
                 .is_some()
                 .then(|| optical_content_bounds_x_for_output(output))
                 .flatten();
-            let fold_side_near_paper_run =
-                if matched_placement.is_some() || !options.match_page_size || options.ocr_mode {
-                    0
-                } else if let Some(canvas) = document_canvas {
-                    let fit = canvas_fit_for(
-                        output.image.width(),
-                        output.image.height(),
-                        paper_width,
-                        paper_height,
-                        output.metadata.content_box.is_some(),
-                        &options,
-                        &canvas,
-                    );
-                    if horizontal_overflow_requires_fold_scan(
-                        output.image.width(),
-                        output.metadata.half,
-                        fit,
-                    ) {
-                        fold_side_near_paper_run_for_output(output)
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
+            let fold_side_near_paper_run = if matched_placement.is_none()
+                && options.match_page_size
+                && !options.ocr_mode
+                && optical_content_bounds_x.is_some()
+            {
+                fold_side_near_paper_run_for_output(output)
+            } else {
+                0
+            };
             let outer_near_paper_edge_runs = if matched_placement.is_none()
                 && options.match_page_size
                 && !options.ocr_mode
@@ -3003,6 +2987,27 @@ fn outer_near_paper_edge_runs_for_output(output: &CleanupResult) -> NearPaperEdg
     }
 }
 
+fn placement_near_paper_edge_runs_for_output(output: &CleanupResult) -> NearPaperEdgeRuns {
+    near_paper_edge_runs_with_fold_side(
+        outer_near_paper_edge_runs_for_output(output),
+        output.metadata.half,
+        fold_side_near_paper_run_for_output(output),
+    )
+}
+
+fn near_paper_edge_runs_with_fold_side(
+    mut runs: NearPaperEdgeRuns,
+    half: crate::pipeline::PageHalf,
+    fold_side_run: usize,
+) -> NearPaperEdgeRuns {
+    match half {
+        crate::pipeline::PageHalf::Left => runs.right = runs.right.max(fold_side_run),
+        crate::pipeline::PageHalf::Right => runs.left = runs.left.max(fold_side_run),
+        crate::pipeline::PageHalf::Full => {}
+    }
+    runs
+}
+
 fn fold_trim_for(
     width: usize,
     half: crate::pipeline::PageHalf,
@@ -3220,6 +3225,11 @@ fn plan_canvas_placement_with_shared_fit(
             )
         })
         .unwrap_or_default();
+    let placement_near_paper_edge_runs = near_paper_edge_runs_with_fold_side(
+        output.outer_near_paper_edge_runs,
+        output.half,
+        output.fold_side_near_paper_run,
+    );
     plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
         output.width,
         output.height,
@@ -3232,7 +3242,7 @@ fn plan_canvas_placement_with_shared_fit(
         output.optical_content_bounds_x,
         shared_overflow_plan.map(|plan| plan.shared_fit),
         fold_trim,
-        output.outer_near_paper_edge_runs,
+        placement_near_paper_edge_runs,
     )
 }
 
@@ -5898,6 +5908,36 @@ mod tests {
         assert!(deferred.optical_content_centered);
         assert_eq!(deferred.intrinsic_overflow_left, 71);
         assert_eq!(deferred.intrinsic_overflow_right, 31);
+
+        // Tightening a false outer-rail content bound removes the rail from
+        // the intrinsic raster. The genuine paper-only fold tail must still
+        // authorize the same optical placement, or the visible stencil moves
+        // even though its ownership box is unchanged.
+        let tightened = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
+            2_010,
+            2_811,
+            output.paper_width,
+            output.paper_height,
+            output.content_detected,
+            &options,
+            output.half,
+            &canvas,
+            Some((47.0, 1_713.0)),
+            Some(shared_plan.shared_fit),
+            FoldSideTrim::default(),
+            NearPaperEdgeRuns {
+                left: 0,
+                right: 220,
+            },
+        );
+        assert!(tightened.optical_content_centered);
+        assert_eq!(tightened.left, 218);
+        assert_eq!(tightened.intrinsic_overflow_right, 32);
+        let original_optical_left =
+            deferred.left as isize - deferred.intrinsic_overflow_left as isize + 336;
+        let tightened_optical_left =
+            tightened.left as isize - tightened.intrinsic_overflow_left as isize + 47;
+        assert_eq!(tightened_optical_left, original_optical_left);
     }
 
     #[test]

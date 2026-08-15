@@ -1245,6 +1245,11 @@ fn structured_text_edge_sides(
         (8.0 * calibration.effective_dpi / 150.0).max(4.0)
     };
     let maximum_gap = (3.0 * nominal_height).round().max(8.0) as usize;
+    // Edge authority is local in both axes. A fragmented rail may sit close
+    // to a text column along the crop axis while belonging to a wholly
+    // different part of the page; one x-height keeps genuine neighbouring
+    // fragments connected without letting that rail reopen a distant title.
+    let maximum_perpendicular_gap = nominal_height.round().max(4.0) as usize;
     let horizontal_corridor = excluded_picture.width().div_ceil(8).max(1);
     let vertical_corridor = excluded_picture.height().div_ceil(8).max(1);
     let excluded_map = ComponentMap::from_binary(excluded_picture);
@@ -1263,6 +1268,13 @@ fn structured_text_edge_sides(
                 && text.left > rail.right
                 && text.left - rail.right - 1 <= maximum_gap
                 && text.left < horizontal_corridor.saturating_mul(2)
+                && intervals_are_local(
+                    rail.top,
+                    rail.bottom,
+                    text.top,
+                    text.bottom,
+                    maximum_perpendicular_gap,
+                )
             {
                 sides |= CROP_ARTIFACT_LEFT;
             }
@@ -1273,6 +1285,13 @@ fn structured_text_edge_sides(
                     .right
                     .saturating_add(horizontal_corridor.saturating_mul(2))
                     >= excluded_picture.width()
+                && intervals_are_local(
+                    rail.top,
+                    rail.bottom,
+                    text.top,
+                    text.bottom,
+                    maximum_perpendicular_gap,
+                )
             {
                 sides |= CROP_ARTIFACT_RIGHT;
             }
@@ -1280,6 +1299,13 @@ fn structured_text_edge_sides(
                 && text.top > rail.bottom
                 && text.top - rail.bottom - 1 <= maximum_gap
                 && text.top < vertical_corridor.saturating_mul(2)
+                && intervals_are_local(
+                    rail.left,
+                    rail.right,
+                    text.left,
+                    text.right,
+                    maximum_perpendicular_gap,
+                )
             {
                 sides |= CROP_ARTIFACT_TOP;
             }
@@ -1290,12 +1316,35 @@ fn structured_text_edge_sides(
                     .bottom
                     .saturating_add(vertical_corridor.saturating_mul(2))
                     >= excluded_picture.height()
+                && intervals_are_local(
+                    rail.left,
+                    rail.right,
+                    text.left,
+                    text.right,
+                    maximum_perpendicular_gap,
+                )
             {
                 sides |= CROP_ARTIFACT_BOTTOM;
             }
         }
     }
     sides
+}
+
+fn intervals_are_local(
+    first_start: usize,
+    first_end: usize,
+    second_start: usize,
+    second_end: usize,
+    maximum_gap: usize,
+) -> bool {
+    if first_end < second_start {
+        second_start - first_end - 1 <= maximum_gap
+    } else if second_end < first_start {
+        first_start - second_end - 1 <= maximum_gap
+    } else {
+        true
+    }
 }
 
 fn expand_bounds_for_structured_edge_text(
@@ -3616,6 +3665,79 @@ mod tests {
             "the numeric margin was cropped with the rejected rail: {bounds:?}"
         );
         assert!(bounds.right() >= 335.0, "body text was cropped: {bounds:?}");
+    }
+
+    #[test]
+    fn structured_edge_authority_requires_perpendicular_locality() {
+        let mut excluded = BinaryImage::new(300, 400);
+        for y in 260..360 {
+            for x in 0..10 {
+                excluded.set(x, y, true);
+            }
+        }
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 3.0,
+            x_height_px: 12.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let initial = PixelBounds {
+            left: 15,
+            top: 40,
+            right: 180,
+            bottom: 320,
+        };
+
+        let mut adjacent_text = BinaryImage::new(300, 400);
+        for y in 275..291 {
+            for x in 15..23 {
+                adjacent_text.set(x, y, true);
+            }
+        }
+        let adjacent_sides = structured_text_edge_sides(&excluded, &adjacent_text, calibration);
+        assert_eq!(
+            adjacent_sides, CROP_ARTIFACT_LEFT,
+            "genuine rail-adjacent text lost its edge authority"
+        );
+        let mut adjacent_bounds = Some(initial);
+        expand_bounds_for_structured_edge_text(
+            &mut adjacent_bounds,
+            adjacent_sides,
+            300,
+            400,
+            AcceptedTrimAuthority::default(),
+        );
+        assert_eq!(
+            adjacent_bounds.expect("adjacent content bounds").left,
+            0,
+            "genuine rail-adjacent text no longer expands to the physical edge"
+        );
+
+        let mut distant_text = BinaryImage::new(300, 400);
+        for y in 40..56 {
+            for x in 15..23 {
+                distant_text.set(x, y, true);
+            }
+        }
+        let distant_sides = structured_text_edge_sides(&excluded, &distant_text, calibration);
+        assert_eq!(
+            distant_sides, 0,
+            "text far along the perpendicular axis borrowed the rail's edge authority"
+        );
+        let mut distant_bounds = Some(initial);
+        expand_bounds_for_structured_edge_text(
+            &mut distant_bounds,
+            distant_sides,
+            300,
+            400,
+            AcceptedTrimAuthority::default(),
+        );
+        assert_eq!(
+            distant_bounds.expect("distant content bounds").left,
+            initial.left,
+            "distant text reopened the content box to the physical edge"
+        );
     }
 
     #[test]

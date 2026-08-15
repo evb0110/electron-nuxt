@@ -148,6 +148,35 @@ export function transformPreviewContentBox(metadata: IScanCleanupPreviewMetadata
     return transformPreviewSourceHalfRect(metadata, metadata.contentBox);
 }
 
+/**
+ * The automatic overlay follows the detector box after every native side
+ * writer. Diagnostics retain that box on the analysis raster, while placement
+ * consumes source-half coordinates, so map it through the one recorded scale
+ * instead of displaying the earlier floating detector envelope.
+ */
+export function transformPreviewEffectiveContentBox(metadata: IScanCleanupPreviewMetadata) {
+    const shipped = metadata.contentDiagnostics?.shippedBounds;
+    const analysisWidth = metadata.contentDiagnostics?.textMask.analysisWidthPx;
+    const analysisHeight = metadata.contentDiagnostics?.textMask.analysisHeightPx;
+    if (
+        !shipped
+        || !analysisWidth
+        || !analysisHeight
+        || !Number.isFinite(analysisWidth)
+        || !Number.isFinite(analysisHeight)
+        || analysisWidth <= 0
+        || analysisHeight <= 0
+    ) {
+        return transformPreviewContentBox(metadata);
+    }
+    return transformPreviewSourceHalfRect(metadata, {
+        xPx: shipped.xPx * metadata.sourceRegion.widthPx / analysisWidth,
+        yPx: shipped.yPx * metadata.sourceRegion.heightPx / analysisHeight,
+        widthPx: shipped.widthPx * metadata.sourceRegion.widthPx / analysisWidth,
+        heightPx: shipped.heightPx * metadata.sourceRegion.heightPx / analysisHeight,
+    });
+}
+
 export function transformPreviewSourceHalfRectUnclamped(
     metadata: IScanCleanupPreviewMetadata,
     rect: IScanCleanupPixelRect | null | undefined,
