@@ -7,6 +7,17 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 describe('PdfEmptyState Recent eligibility contract', () => {
+    it('keeps the recent row cursor consistent with native button controls', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'app/modules/pdf-viewer/components/PdfEmptyState.vue'),
+            'utf8',
+        );
+        const rowStyle = source.match(/\.recent-row--data\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+        expect(rowStyle).toContain('cursor: default;');
+        expect(rowStyle).not.toContain('cursor: pointer;');
+    });
+
     it('keeps command readiness independent from picker progress and exact-frame readiness', async () => {
         const source = await readFile(
             join(process.cwd(), 'app/modules/pdf-viewer/components/PdfEmptyState.vue'),
