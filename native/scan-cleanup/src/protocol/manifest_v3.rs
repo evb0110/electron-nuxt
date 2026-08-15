@@ -98,8 +98,9 @@ pub struct ContentAcceptedTrim {
 pub struct ContentDiagnostics {
     pub side_confidence: ContentSideConfidence,
     pub text_mask: ContentTextMaskSummary,
-    /// Exact analysis-scale content box shipped after every post-trim writer.
-    /// Absent means the detector shipped no crop box.
+    /// Exact analysis-space detector box after every post-trim writer. Export
+    /// maps this box through source-pixel support and margin transforms; it is
+    /// not the final output crop rectangle. Absent means no detected crop box.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shipped_bounds: Option<ContentDiagnosticRect>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

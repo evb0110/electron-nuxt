@@ -8,6 +8,8 @@ import type {
     IScanCleanupPixelPoint,
 } from '@contracts/scan-cleanup/geometry';
 import {
+    legacyNativeScanCleanupFoldBandV3,
+    NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3,
     SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
     type INativeScanCleanupAnalysisOutputV3,
     type INativeScanCleanupDewarpModelV3,
@@ -454,25 +456,33 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
         'sparseSpreadRecovered',
         'abstained',
     ] as const) if (typeof source[key] !== 'boolean') fail(artifact, `${label}.${key} must be boolean`);
-    const foldBand = record(source.foldBand, artifact, `${label}.foldBand`);
+    const foldBandValue = source.foldBand === undefined
+        ? legacyNativeScanCleanupFoldBandV3()
+        : source.foldBand;
+    const foldBand = record(foldBandValue, artifact, `${label}.foldBand`);
     if (foldBand.status === 'measured') {
         const left = finite(foldBand.leftXPx, artifact, `${label}.foldBand.leftXPx`);
         const right = finite(foldBand.rightXPx, artifact, `${label}.foldBand.rightXPx`);
         if (left < 0 || right < left) fail(artifact, `${label}.foldBand must be ordered and non-negative`);
     } else if (foldBand.status === 'unmeasured') {
-        oneOf(foldBand.reason, [
-            'not-applicable',
-            'no-fold-evidence',
-            'fold-evidence-unquantified',
-            'cutter-invalidated',
-            'measurement-unavailable',
-        ] as const, artifact, `${label}.foldBand.reason`);
+        oneOf(
+            foldBand.reason,
+            NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3,
+            artifact,
+            `${label}.foldBand.reason`,
+        );
         if (finite(foldBand.nominalHalfWidthPx, artifact, `${label}.foldBand.nominalHalfWidthPx`) < 0) {
             fail(artifact, `${label}.foldBand.nominalHalfWidthPx must be non-negative`);
         }
     } else {
         fail(artifact, `${label}.foldBand.status must be measured or unmeasured`);
     }
+    return foldBandValue === source.foldBand
+        ? source
+        : {
+            ...source,
+            foldBand: foldBandValue,
+        };
 }
 
 function documentPrior(value: unknown, artifact: TArtifact, label: string) {
@@ -531,7 +541,7 @@ export function decodeNativeScanCleanupPageMetadata(
     // Early protocol-v3 analysis artifacts predate page/document canvas
     // reporting. They were page-scoped by definition; preserve that one
     // unambiguous compatibility default while rejecting unknown values.
-    const source = decodedSource.canvasScope === undefined
+    let source = decodedSource.canvasScope === undefined
         ? {
             ...decodedSource,
             canvasScope: 'page',
@@ -572,7 +582,15 @@ export function decodeNativeScanCleanupPageMetadata(
     ] as const, artifact, 'recommendedOutputModeReason');
     optionalBoolean(source, 'softAlphaForegroundRecommendation', artifact);
     if (source.outputModeDiagnostics !== undefined) outputModeDiagnostics(source.outputModeDiagnostics, artifact, 'outputModeDiagnostics');
-    if (source.splitDiagnostics !== undefined) splitDiagnostics(source.splitDiagnostics, artifact, 'splitDiagnostics');
+    if (source.splitDiagnostics !== undefined) {
+        const diagnostics = splitDiagnostics(source.splitDiagnostics, artifact, 'splitDiagnostics');
+        if (diagnostics !== source.splitDiagnostics) {
+            source = {
+                ...source,
+                splitDiagnostics: diagnostics,
+            };
+        }
+    }
     if (source.tier1Verdict !== undefined) oneOf(source.tier1Verdict, LAYOUTS, artifact, 'tier1Verdict');
     optionalBoolean(source, 'reconciled', artifact);
     if (source.clusterAgreement !== undefined) {

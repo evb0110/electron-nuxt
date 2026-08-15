@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import {
     decodeNativeScanCleanupOutputMetadata,
     decodeNativeScanCleanupOutputMetadataJson,
@@ -26,6 +27,10 @@ const appliedMargins = {
     rightPx: 0,
     bottomPx: 0,
 };
+const legacyProtocolV3Page = readFileSync(
+    new URL('../../fixtures/scan-cleanup/protocol-v3-page-before-fold-band.json', import.meta.url),
+    'utf8',
+);
 
 function pageMetadata() {
     return {
@@ -152,6 +157,16 @@ function fullSplitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
 }
 
 describe('scan-cleanup native artifact codecs', () => {
+    it('normalizes a real pre-fold-band protocol-v3 artifact to an honest legacy state', () => {
+        const decoded = decodeNativeScanCleanupPageMetadataJson(legacyProtocolV3Page);
+
+        expect(decoded.splitDiagnostics?.foldBand).toEqual({
+            status: 'unmeasured',
+            reason: 'legacy-protocol-v3',
+            nominalHalfWidthPx: 0,
+        });
+    });
+
     it('decodes split diagnostics carrying every field the native binary emits, and rejects a payload missing one', () => {
         const diagnostics = fullSplitDiagnostics();
         const page = {
@@ -181,6 +196,13 @@ describe('scan-cleanup native artifact codecs', () => {
                 },
             },
         })).toThrow('splitDiagnostics.foldBand.reason');
+        expect(() => decodeNativeScanCleanupPageMetadata({
+            ...pageMetadata(),
+            splitDiagnostics: {
+                ...diagnostics,
+                foldBand: null,
+            },
+        })).toThrow('splitDiagnostics.foldBand must be an object');
     });
 
     it('decodes page and output artifacts while preserving additive fields', () => {

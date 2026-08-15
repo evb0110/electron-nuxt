@@ -262,7 +262,9 @@ impl PageCalibration {
     /// One text-mask hit is not enough to give an entire clustered block crop
     /// authority. A calibrated stem (stroke width by x-height) is the smallest
     /// repeatable text unit; the fallback preserves the same physical scale at
-    /// the analysis DPI.
+    /// the analysis DPI. The four-pixel floor comes from the calibration
+    /// component census above; the 12-pixel fallback is that floor across the
+    /// existing three-component minimum for structured edge text.
     pub(crate) fn content_minimum_text_evidence_pixels(self) -> usize {
         if self.valid {
             (self.stroke_width_px.max(1.0) * self.x_height_px.max(self.stroke_width_px))
@@ -274,7 +276,9 @@ impl PageCalibration {
     }
 
     /// Picture overlap must cover at least one calibrated stroke area before
-    /// it can hard-protect a whole content block from trimming.
+    /// it can hard-protect a whole content block from trimming. Its four-pixel
+    /// floor is the same minimum component area admitted to calibration, so a
+    /// fallback means one smallest admitted component rather than a new scale.
     pub(crate) fn content_minimum_picture_overlap_pixels(self) -> usize {
         if self.valid {
             self.stroke_width_px.powi(2).round().max(4.0) as usize

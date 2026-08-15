@@ -1801,9 +1801,9 @@ fn diagnostic_rect(bounds: PixelBounds) -> ContentDiagnosticRect {
     }
 }
 
-/// Final authority for the four content-box sides. Accepted trim sides are
-/// immutable outer limits; sides with no accepted trim remain available to
-/// qualified picture and structured-edge evidence.
+/// Final authority for the four content-box sides. Every side retracted by an
+/// accepted trim owns its new outer limit, including extrema that moved as
+/// collateral when the accepted proposal removed a corner-spanning block.
 #[derive(Clone, Copy, Debug, Default)]
 struct AcceptedTrimAuthority {
     trimmed_bounds: Option<PixelBounds>,
@@ -1821,6 +1821,35 @@ impl AcceptedTrimAuthority {
                 ContentTrimSide::Bottom => 3,
             };
             accepted_sides[index] = true;
+        }
+        if let Some(trimmed) = trimmed_bounds {
+            let before_trims = accepted_trims
+                .iter()
+                .flat_map(|trim| &trim.removed_blocks)
+                .fold(trimmed, |bounds, block| {
+                    let removed = PixelBounds {
+                        left: block.bounds.x_px,
+                        top: block.bounds.y_px,
+                        right: block
+                            .bounds
+                            .x_px
+                            .saturating_add(block.bounds.width_px.saturating_sub(1)),
+                        bottom: block
+                            .bounds
+                            .y_px
+                            .saturating_add(block.bounds.height_px.saturating_sub(1)),
+                    };
+                    PixelBounds {
+                        left: bounds.left.min(removed.left),
+                        top: bounds.top.min(removed.top),
+                        right: bounds.right.max(removed.right),
+                        bottom: bounds.bottom.max(removed.bottom),
+                    }
+                });
+            accepted_sides[0] |= trimmed.left > before_trims.left;
+            accepted_sides[1] |= trimmed.top > before_trims.top;
+            accepted_sides[2] |= trimmed.right < before_trims.right;
+            accepted_sides[3] |= trimmed.bottom < before_trims.bottom;
         }
         Self {
             trimmed_bounds,
@@ -3835,6 +3864,63 @@ mod tests {
     }
 
     #[test]
+    fn protected_survivor_at_shared_extreme_degrades_to_no_trim() {
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 40.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let blocks = vec![
+            BlockStats::default(),
+            BlockStats {
+                ink_area: 40,
+                left: 10,
+                top: 0,
+                right: 20,
+                bottom: 20,
+                initialized: true,
+                ..BlockStats::default()
+            },
+            BlockStats {
+                ink_area: 40,
+                left: 60,
+                top: 0,
+                right: 70,
+                bottom: 20,
+                initialized: true,
+                grayscale_supported: true,
+                ..BlockStats::default()
+            },
+            BlockStats {
+                ink_area: 400,
+                left: 40,
+                top: 80,
+                right: 140,
+                bottom: 160,
+                initialized: true,
+                ..BlockStats::default()
+            },
+        ];
+        let current = PixelBounds {
+            left: 10,
+            top: 0,
+            right: 140,
+            bottom: 160,
+        };
+
+        assert!(build_trim_geometry(
+            TrimSide::Top,
+            current,
+            &blocks,
+            &[false, true, true, true],
+            calibration,
+        )
+        .is_none());
+    }
+
+    #[test]
     fn a_side_below_its_trim_threshold_is_left_untrimmed() {
         let (trimmed, trimmed_confidence, trims) = direct_trim_fixture_with_garbage(0, 30, true);
         let trimmed = trimmed.expect("artifact and body are content");
@@ -3971,8 +4057,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepted_artifact_trim_cannot_cascade_through_picture_or_heading() {
+    fn accepted_top_trim_raster() -> (GrayImage, BinaryImage, PageCalibration) {
         let mut image = GrayImage::new(620, 760, 245);
         for y in 8..18 {
             for x in 32..588 {
@@ -4005,6 +4090,12 @@ mod tests {
             }
         }
         let calibration = PageCalibration::estimate(&image, 150.0, CalibrationConfig::default());
+        (image, picture_mask, calibration)
+    }
+
+    #[test]
+    fn accepted_artifact_trim_cannot_cascade_through_picture_or_heading() {
+        let (image, picture_mask, calibration) = accepted_top_trim_raster();
         let result = detect_content_and_margins_calibrated(
             &image,
             Some(&picture_mask),
@@ -4080,65 +4171,109 @@ mod tests {
     }
 
     #[test]
-    fn accepted_top_trim_is_not_reexpanded_by_picture_geometry() {
-        let trimmed = PixelBounds {
-            left: 60,
-            top: 80,
-            right: 140,
-            bottom: 160,
-        };
-        let picture = PixelBounds {
-            left: 90,
-            top: 40,
-            right: 110,
-            bottom: 70,
-        };
+    fn accepted_top_trim_owns_the_side_through_qualified_picture_union() {
+        let (image, picture_mask, calibration) = accepted_top_trim_raster();
+        let baseline = detect_content_and_margins_calibrated(
+            &image,
+            Some(&picture_mask),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .content
+        .expect("the fixture has retained content");
+        let mut expanded_picture = picture_mask.clone();
+        let mut manual_authority = BinaryImage::new(image.width(), image.height());
+        for y in 70..100 {
+            for x in 480..520 {
+                expanded_picture.set(x, y, true);
+                manual_authority.set(x, y, true);
+            }
+        }
 
-        let accepted = [ContentAcceptedTrim {
-            side: ContentTrimSide::Top,
-            iteration: 1,
-            score: 1.0,
-            threshold: 0.5,
-            content_distance_sum: 1.0,
-            garbage_distance_sum: 0.0,
-            removed_blocks: Vec::new(),
-        }];
-        let authority = AcceptedTrimAuthority::new(Some(trimmed), &accepted);
+        let result = detect_content_and_margins_calibrated_with_crop_authority(
+            &image,
+            Some(&expanded_picture),
+            Some(&manual_authority),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        );
+        let shipped = result
+            .content
+            .expect("qualified picture geometry is content");
+        let diagnostics = result.diagnostics.expect("content diagnostics");
 
-        let shipped = union_picture_bounds(Some(trimmed), picture, authority).unwrap();
-
-        assert_eq!(shipped.top, trimmed.top);
-        assert_eq!(shipped.left, trimmed.left);
+        assert!(
+            70.0 < baseline.y,
+            "the picture must reach outside the accepted trim"
+        );
+        assert!(diagnostics
+            .accepted_trims
+            .iter()
+            .any(|trim| trim.side == ContentTrimSide::Top));
+        assert_eq!(shipped.y, baseline.y);
+        assert_eq!(diagnostics.shipped_bounds.unwrap().y_px as f64, baseline.y);
     }
 
     #[test]
-    fn structured_edge_write_does_not_cross_an_accepted_top_trim() {
-        let trimmed = PixelBounds {
-            left: 60,
-            top: 80,
-            right: 140,
-            bottom: 160,
-        };
-        let mut shipped = Some(trimmed);
-        let accepted = [ContentAcceptedTrim {
-            side: ContentTrimSide::Top,
-            iteration: 1,
-            score: 1.0,
-            threshold: 0.5,
-            content_distance_sum: 1.0,
-            garbage_distance_sum: 0.0,
-            removed_blocks: Vec::new(),
-        }];
-        let authority = AcceptedTrimAuthority::new(Some(trimmed), &accepted);
-
-        expand_bounds_for_structured_edge_text(
-            &mut shipped,
-            CROP_ARTIFACT_TOP,
-            200,
-            200,
-            authority,
+    fn collateral_side_retraction_owns_the_side_through_qualified_picture_union() {
+        let (image, picture_mask, calibration) = accepted_top_trim_raster();
+        let baseline = detect_content_and_margins_calibrated(
+            &image,
+            Some(&picture_mask),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
         );
+        let baseline_bounds = baseline.content.expect("the fixture has retained content");
+        let mut expanded_picture = picture_mask.clone();
+        let mut manual_authority = BinaryImage::new(image.width(), image.height());
+        for y in 300..330 {
+            for x in 40..52 {
+                expanded_picture.set(x, y, true);
+                manual_authority.set(x, y, true);
+            }
+        }
 
-        assert_eq!(shipped.unwrap().top, trimmed.top);
+        let result = detect_content_and_margins_calibrated_with_crop_authority(
+            &image,
+            Some(&expanded_picture),
+            Some(&manual_authority),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        );
+        let shipped = result
+            .content
+            .expect("qualified picture geometry is content");
+        let diagnostics = result.diagnostics.expect("content diagnostics");
+        let top_trim = diagnostics
+            .accepted_trims
+            .iter()
+            .find(|trim| trim.side == ContentTrimSide::Top)
+            .expect("the top proposal is accepted");
+
+        assert!(
+            baseline_bounds.x > 40.0,
+            "the picture must reach outside the collateral trim"
+        );
+        assert!(top_trim
+            .removed_blocks
+            .iter()
+            .any(|block| block.bounds.x_px < baseline_bounds.x as usize));
+        assert!(!diagnostics
+            .accepted_trims
+            .iter()
+            .any(|trim| trim.side == ContentTrimSide::Left));
+        assert_eq!(shipped.x, baseline_bounds.x);
+        assert_eq!(
+            diagnostics.shipped_bounds.unwrap().x_px as f64,
+            baseline_bounds.x
+        );
     }
 }

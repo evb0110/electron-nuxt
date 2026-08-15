@@ -280,7 +280,8 @@ export type TNativeScanCleanupFoldBandUnmeasuredReasonV3 =
     | 'no-fold-evidence'
     | 'fold-evidence-unquantified'
     | 'cutter-invalidated'
-    | 'measurement-unavailable';
+    | 'measurement-unavailable'
+    | 'legacy-protocol-v3';
 
 export type TNativeScanCleanupFoldBandV3 =
     | {
@@ -293,6 +294,52 @@ export type TNativeScanCleanupFoldBandV3 =
         reason: TNativeScanCleanupFoldBandUnmeasuredReasonV3;
         nominalHalfWidthPx: number;
     };
+
+export const NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3 = [
+    'not-applicable',
+    'no-fold-evidence',
+    'fold-evidence-unquantified',
+    'cutter-invalidated',
+    'measurement-unavailable',
+    'legacy-protocol-v3',
+] as const satisfies readonly TNativeScanCleanupFoldBandUnmeasuredReasonV3[];
+
+/** Compatibility state synthesized when early protocol-v3 data has no typed fold outcome. */
+export function legacyNativeScanCleanupFoldBandV3(): TNativeScanCleanupFoldBandV3 {
+    return {
+        status: 'unmeasured',
+        reason: 'legacy-protocol-v3',
+        nominalHalfWidthPx: 0,
+    };
+}
+
+export function isNativeScanCleanupFoldBandV3(value: unknown): value is TNativeScanCleanupFoldBandV3 {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const candidate = value as Record<string, unknown>;
+    if (candidate.status === 'measured') {
+        return Object.keys(candidate).every(key => (
+            key === 'status' || key === 'leftXPx' || key === 'rightXPx'
+        ))
+            && typeof candidate.leftXPx === 'number'
+            && Number.isFinite(candidate.leftXPx)
+            && candidate.leftXPx >= 0
+            && typeof candidate.rightXPx === 'number'
+            && Number.isFinite(candidate.rightXPx)
+            && candidate.rightXPx >= candidate.leftXPx;
+    }
+    return candidate.status === 'unmeasured'
+        && Object.keys(candidate).every(key => (
+            key === 'status' || key === 'reason' || key === 'nominalHalfWidthPx'
+        ))
+        && NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3.includes(
+            candidate.reason as TNativeScanCleanupFoldBandUnmeasuredReasonV3,
+        )
+        && typeof candidate.nominalHalfWidthPx === 'number'
+        && Number.isFinite(candidate.nominalHalfWidthPx)
+        && candidate.nominalHalfWidthPx >= 0;
+}
 
 export interface INativeScanCleanupSplitDiagnosticsV3 {
     analysisDpi: number;
