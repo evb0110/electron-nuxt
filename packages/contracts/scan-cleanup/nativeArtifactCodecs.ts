@@ -461,10 +461,18 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
         : source.foldBand;
     const foldBand = record(foldBandValue, artifact, `${label}.foldBand`);
     if (foldBand.status === 'measured') {
+        const unknownKey = Object.keys(foldBand).find(key => (
+            key !== 'status' && key !== 'leftXPx' && key !== 'rightXPx'
+        ));
+        if (unknownKey !== undefined) fail(artifact, `${label}.foldBand.${unknownKey} is not supported`);
         const left = finite(foldBand.leftXPx, artifact, `${label}.foldBand.leftXPx`);
         const right = finite(foldBand.rightXPx, artifact, `${label}.foldBand.rightXPx`);
         if (left < 0 || right < left) fail(artifact, `${label}.foldBand must be ordered and non-negative`);
     } else if (foldBand.status === 'unmeasured') {
+        const unknownKey = Object.keys(foldBand).find(key => (
+            key !== 'status' && key !== 'reason' && key !== 'nominalHalfWidthPx'
+        ));
+        if (unknownKey !== undefined) fail(artifact, `${label}.foldBand.${unknownKey} is not supported`);
         oneOf(
             foldBand.reason,
             NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3,

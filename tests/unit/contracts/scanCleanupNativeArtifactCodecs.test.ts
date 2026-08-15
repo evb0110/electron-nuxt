@@ -200,6 +200,18 @@ describe('scan-cleanup native artifact codecs', () => {
             ...pageMetadata(),
             splitDiagnostics: {
                 ...diagnostics,
+                foldBand: {
+                    status: 'measured',
+                    leftXPx: 1,
+                    rightXPx: 2,
+                    extra: true,
+                },
+            },
+        })).toThrow('splitDiagnostics.foldBand.extra is not supported');
+        expect(() => decodeNativeScanCleanupPageMetadata({
+            ...pageMetadata(),
+            splitDiagnostics: {
+                ...diagnostics,
                 foldBand: null,
             },
         })).toThrow('splitDiagnostics.foldBand must be an object');
