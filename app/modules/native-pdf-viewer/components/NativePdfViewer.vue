@@ -35,6 +35,7 @@
                     <NativePdfPageContent
                         :page-number="pageNumber"
                         :page-state="pageStates[pageNumber - 1]"
+                        :skeleton-content-height="pageLayouts[pageNumber - 1]?.height ?? null"
                         :show-skeleton="shouldShowPageSkeleton(pageNumber)"
                         :visual-committed="isPageVisualCommitted(pageNumber)"
                         @retry="retryPage(pageNumber)"
@@ -45,9 +46,11 @@
         </div>
     </div>
 </template>
-
 <script setup lang="ts">
-import { useResizeObserver } from '@vueuse/core';
+import {
+    useDevicePixelRatio,
+    useResizeObserver,
+} from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -60,13 +63,20 @@ import NativePdfPageContent from '@app/modules/native-pdf-viewer/components/Nati
 import {
     createNativePdfRasterIdentity,
     type INativePdfRasterIdentity,
-    nativePdfRasterIdentityMatches,
+    nativePdfRasterIdentityCovers,
+    nativePdfRasterOutputCoversRequest,
     resolveNativePdfRasterTargetWidth,
     shouldInvalidateNativePdfRaster,
     shouldPresentNativePdfPageSkeleton,
+    withNativePdfRasterTargetWidth,
 } from '@app/modules/native-pdf-viewer/runtime/nativePdfRasterPresentation';
-import { canRestoreNativePdfViewportLayout } from '@app/modules/native-pdf-viewer/runtime/canRestoreNativePdfViewportLayout';
+import * as nativePdfViewportRestore from '@app/modules/native-pdf-viewer/runtime/canRestoreNativePdfViewportLayout';
 import { resolveNativePdfRenderQueue } from '@app/modules/native-pdf-viewer/runtime/resolveNativePdfRenderQueue';
+import {
+    createIdleNativePdfPageState,
+    preloadNativePdfPageObjectUrl,
+    resolveNativePdfPageShellStyle,
+} from '@app/modules/native-pdf-viewer/runtime/nativePdfPagePresentation';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
@@ -101,7 +111,6 @@ interface IProps {
     dragMode?: boolean;
     isActive?: boolean;
 }
-
 let nextNativePageSlotOwnerId = 0;
 
 const {
@@ -153,6 +162,7 @@ function setPageElement(pageNumber: number, element: Element | ComponentPublicIn
 }
 const pageSizes = ref<IPdfNativePageSize[]>([]);
 const pageStates = ref<IDocumentPreviewPageState[]>([]);
+const {pixelRatio: devicePixelRatio} = useDevicePixelRatio();
 const activePage = ref(1);
 const containerWidth = ref(0);
 const containerHeight = ref(0);
@@ -165,7 +175,7 @@ onMounted(() => {
     viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
     releaseViewportFeature = chassisAuthority?.bindViewportFeature({
         getClass: () => [
-            'native-pdf-viewer-container h-full w-full overflow-auto app-scrollbar app-scroll-region--balanced',
+            'native-pdf-viewer-container h-full w-full app-scrollbar',
             {
                 'cursor-grab': dragMode.value,
                 'cursor-default': !dragMode.value,
@@ -190,7 +200,8 @@ let initialVisualSettlePromise: Promise<void> | null = null;
 let resolveInitialVisualSettlePromise: (() => void) | null = null;
 const activeRenderPageNumbers = new Set<number>();
 const retainedPageNumbers = new Set<number>();
-const paintedPageObjectUrls = new Map<number, string>();
+const paintedPageObjectUrls = reactive(new Map<number, string>());
+const invalidatedPageVisuals = reactive(new Set<number>());
 const pageInvalidationCleanup = new Map<number, () => void>();
 const pageVisualErrorAttempts = new Map<number, number>();
 const requestedRasterIdentities = new Map<number, INativePdfRasterIdentity>();
@@ -198,18 +209,15 @@ const committedRasterIdentities = new Map<number, INativePdfRasterIdentity>();
 const pageRasterWidthCeilings = new Map<number, number>();
 const pageRenderGenerations = new Map<number, number>();
 const NATIVE_PDF_VISUAL_ERROR_MAX_RETRIES = 2;
-const manualZoom = computed(() => {
-    return clampDocumentManualZoom(zoom ?? 1);
-});
+const nativePdfOutputScale = computed(() => Number.isFinite(devicePixelRatio.value)
+    ? Math.min(Math.max(devicePixelRatio.value, 1), NATIVE_PDF_DEVICE_PIXEL_RATIO_CAP)
+    : 1);
+const manualZoom = computed(() => clampDocumentManualZoom(zoom ?? 1));
 const zoomMode = computed(() => zoomModeProp ?? (
     fitMode === 'height' ? 'fit-height' : 'fit-width'
 ));
-function fitWidthAvailable() {
-    return Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2);
-}
-function fitHeightAvailable() {
-    return Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2);
-}
+const fitWidthAvailable = () => Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2);
+const fitHeightAvailable = () => Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2);
 function resolvePageDisplayScale(pageSize: IPdfNativePageSize | null | undefined) {
     return documentPageDisplayLayout.resolveDocumentPageDisplayScale({
         availableHeight: fitHeightAvailable(),
@@ -219,14 +227,11 @@ function resolvePageDisplayScale(pageSize: IPdfNativePageSize | null | undefined
         zoomMode: zoomMode.value,
     });
 }
-
 const effectiveZoom = computed(() => {
     const pageSize = pageSizes.value[activePage.value - 1] ?? pageSizes.value[0] ?? null;
     return resolvePageDisplayScale(pageSize);
 });
-
 const handleWheel = createDocumentWheelZoomHandler(effectiveZoom, zoomMode, emit);
-
 const pageLayouts = computed<IPageLayout[]>(() => {
     const dimensions = documentPageDisplayLayout.resolveDocumentPageDisplayLayouts({
         availableHeight: fitHeightAvailable(),
@@ -245,22 +250,18 @@ const pageLayouts = computed<IPageLayout[]>(() => {
         top: geometry.pageTops[index] ?? DOCUMENT_PAGE_GUTTER_PX,
     }));
 });
-
 const continuousGeometry = computed(() => resolveDocumentContinuousScrollGeometry({
     pageGapPx: DOCUMENT_PAGE_GUTTER_PX,
     pageHeights: pageLayouts.value.map(page => page.height),
     totalPages: totalPages.value,
 }));
-
 const continuousSurfaceWidth = computed(() => {
     const maxPageWidth = pageLayouts.value.reduce((maxWidth, layout) => Math.max(maxWidth, layout.width), 0);
     return Math.max(containerWidth.value, maxPageWidth + DOCUMENT_PAGE_GUTTER_PX * 2, 1);
 });
-
 const continuousDocumentHeight = computed(() => {
     return Math.max(containerHeight.value, continuousGeometry.value.totalHeight, 1);
 });
-
 const renderedPageNumbers = computed(() => {
     if (totalPages.value <= 0) {
         return [] as number[];
@@ -276,22 +277,10 @@ const renderedPageNumbers = computed(() => {
     });
     return pages.length ? pages : [activePage.value];
 });
-
 const renderedPagesSurfaceStyle = computed(() => ({
     height: `${continuousDocumentHeight.value}px`,
     width: `${continuousSurfaceWidth.value}px`,
 }));
-
-function createIdlePageState(): IDocumentPreviewPageState {
-    return {
-        failedRenderPx: 0,
-        objectUrl: null,
-        renderedPx: 0,
-        status: 'idle',
-        token: 0,
-    };
-}
-
 function emitLoading(nextLoading: boolean, options: { force?: boolean } = {}) {
     if (!options.force && isLoading.value === nextLoading) {
         return;
@@ -300,17 +289,12 @@ function emitLoading(nextLoading: boolean, options: { force?: boolean } = {}) {
     isLoading.value = nextLoading;
     emit('loading', nextLoading);
 }
-
-function isCurrentLoadGeneration(generation: number) {
-    return generation === loadGeneration;
-}
-
+const isCurrentLoadGeneration = (generation: number) => generation === loadGeneration;
 function resolveInitialVisualSettle() {
     resolveInitialVisualSettlePromise?.();
     initialVisualSettlePromise = null;
     resolveInitialVisualSettlePromise = null;
 }
-
 function ensureInitialVisualSettlePromise() {
     initialVisualSettlePromise ??= new Promise<void>((resolve) => {
         resolveInitialVisualSettlePromise = resolve;
@@ -318,14 +302,12 @@ function ensureInitialVisualSettlePromise() {
 
     return initialVisualSettlePromise;
 }
-
 function beginInitialVisualWait(generation: number) {
     resolveInitialVisualSettle();
     pendingInitialVisualGeneration = generation;
     readyInitialVisualGeneration = null;
     emit('initial-visual-pending');
 }
-
 function commitPageVisualToViewportSession(generation: number, pageNumber: number) {
     const openSurface = chassisAuthority?.openSurface;
     if (!openSurface) {
@@ -385,7 +367,6 @@ function commitPageVisualToViewportSession(generation: number, pageNumber: numbe
         top: viewport.scrollTop,
     }) && openSurface.markReady(fence);
 }
-
 function markInitialVisualReady(generation: number, pageNumber: number) {
     if (
         !isCurrentLoadGeneration(generation)
@@ -405,7 +386,6 @@ function markInitialVisualReady(generation: number, pageNumber: number) {
     resolveInitialVisualSettle();
     return true;
 }
-
 function markInitialVisualFailed(generation: number, error: unknown) {
     if (
         !isCurrentLoadGeneration(generation)
@@ -428,7 +408,6 @@ function markInitialVisualFailed(generation: number, error: unknown) {
     emitLoading(false);
     resolveInitialVisualSettle();
 }
-
 function waitForViewerLoadSettled() {
     if (
         !isActive.value
@@ -441,21 +420,13 @@ function waitForViewerLoadSettled() {
 
     return ensureInitialVisualSettlePromise();
 }
-
 function getPageShellStyle(pageNumber: number) {
-    const layout = pageLayouts.value[pageNumber - 1];
-    if (!layout) {
-        return {};
-    }
-
-    return {
-        left: `${Math.max(DOCUMENT_PAGE_GUTTER_PX, Math.round((continuousSurfaceWidth.value - layout.width) / 2))}px`,
-        top: `${layout.top}px`,
-        width: `${layout.width}px`,
-        height: `${layout.height}px`,
-    };
+    return resolveNativePdfPageShellStyle({
+        gutterPx: DOCUMENT_PAGE_GUTTER_PX,
+        layout: pageLayouts.value[pageNumber - 1],
+        surfaceWidth: continuousSurfaceWidth.value,
+    });
 }
-
 function measureContainer() {
     const element = viewerContainer.value;
     if (!element) {
@@ -466,23 +437,17 @@ function measureContainer() {
     containerHeight.value = Math.max(0, element.clientHeight);
     scrollTop.value = Math.max(0, element.scrollTop);
 }
-
 function getNeededDeviceWidth(pageNumber: number) {
     const layout = pageLayouts.value[pageNumber - 1];
     const cssWidth = Math.max(1, layout?.width ?? 1);
-    const devicePixelRatio = typeof window !== 'undefined'
-        ? Math.min(window.devicePixelRatio || 1, NATIVE_PDF_DEVICE_PIXEL_RATIO_CAP)
-        : 1;
-    return Math.max(1, Math.ceil(cssWidth * devicePixelRatio));
+    return Math.max(1, Math.ceil(cssWidth * nativePdfOutputScale.value));
 }
-
 function getPageRenderTargetWidth(pageNumber: number) {
     return resolveNativePdfRasterTargetWidth(
         getNeededDeviceWidth(pageNumber),
         pageRasterWidthCeilings.get(pageNumber),
     );
 }
-
 function getPageRasterIdentity(pageNumber: number) {
     const pageSize = pageSizes.value[pageNumber - 1];
     if (!pageSize) {
@@ -496,14 +461,12 @@ function getPageRasterIdentity(pageNumber: number) {
         targetWidthPx: getPageRenderTargetWidth(pageNumber),
     });
 }
-
 function shouldShowPageSkeleton(pageNumber: number) {
     const openSurface = chassisAuthority?.openSurface;
     return shouldPresentNativePdfPageSkeleton({
-        residentVisualInvalidated: paintedPageObjectUrls.has(pageNumber)
-            && paintedPageObjectUrls.get(pageNumber) !== pageStates.value[pageNumber - 1]?.objectUrl,
-        visual: openSurface?.viewportSession.value.visual,
-        pageNumber,
+        residentVisualInvalidated: invalidatedPageVisuals.has(pageNumber)
+            || paintedPageObjectUrls.has(pageNumber)
+                && paintedPageObjectUrls.get(pageNumber) !== pageStates.value[pageNumber - 1]?.objectUrl,
         surfaceReady: openSurface?.snapshot.value.phase === 'ready',
         visualCommitted: isPageVisualCommitted(pageNumber),
     });
@@ -516,7 +479,6 @@ function isPageVisualCommitted(pageNumber: number) {
         && (!renderSession || renderSession.getPageVisual(pageNumber) === 'fresh'),
     );
 }
-
 function revokeObjectUrl(pageNumber: number, objectUrl: string) {
     if (!activeSource) {
         return;
@@ -531,7 +493,6 @@ function revokeObjectUrl(pageNumber: number, objectUrl: string) {
         });
     }
 }
-
 function revokePageUrl(pageNumber: number) {
     const pageState = pageStates.value[pageNumber - 1];
     pageInvalidationCleanup.get(pageNumber)?.();
@@ -549,7 +510,6 @@ function revokePageUrl(pageNumber: number) {
     pageState.failedRenderPx = 0;
     pageState.renderedPx = 0;
 }
-
 function resetPageState(pageNumber: number) {
     const pageState = pageStates.value[pageNumber - 1];
     if (!pageState) {
@@ -564,13 +524,13 @@ function resetPageState(pageNumber: number) {
     pageState.status = 'idle';
     requestedRasterIdentities.delete(pageNumber);
 }
-
 function cleanupRenderedPages() {
     for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
         revokePageUrl(pageNumber);
     }
     retainedPageNumbers.clear();
     paintedPageObjectUrls.clear();
+    invalidatedPageVisuals.clear();
     pageInvalidationCleanup.clear();
     pageVisualErrorAttempts.clear();
     requestedRasterIdentities.clear();
@@ -578,7 +538,6 @@ function cleanupRenderedPages() {
     pageRasterWidthCeilings.clear();
     pageRenderGenerations.clear();
 }
-
 function stopSource() {
     resolveInitialVisualSettle();
     cleanupRenderedPages();
@@ -591,8 +550,8 @@ function stopSource() {
     activeSource?.terminate();
     activeSource = null;
 }
-
 function cleanupViewerState() {
+    viewportLayoutLifecycle.cancelPendingRestore();
     stopSource();
     pageSizes.value = [];
     pageStates.value = [];
@@ -611,7 +570,6 @@ function cleanupViewerState() {
     emit('update:document', null);
     emit('update:totalPages', 0);
 }
-
 function getVisiblePageNumber() {
     const container = viewerContainer.value;
     if (!container || pageLayouts.value.length === 0) {
@@ -630,7 +588,6 @@ function getVisiblePageNumber() {
         overscanViewports: 0,
     })?.mostVisiblePage ?? activePage.value;
 }
-
 function syncCurrentPageFromViewport(options: {supersedeNavigation: boolean}) {
     const nextPage = getVisiblePageNumber();
     if (nextPage === activePage.value) {
@@ -656,7 +613,6 @@ function getActivePageSet() {
     activePages.add(activePage.value);
     return activePages;
 }
-
 function releaseInactivePages(activePages: Set<number>) {
     for (const pageNumber of retainedPageNumbers) {
         if (activePages.has(pageNumber)) {
@@ -666,6 +622,10 @@ function releaseInactivePages(activePages: Set<number>) {
         if (pageState && pageState.status !== 'idle') {
             resetPageState(pageNumber);
         }
+        renderSession?.releasePage(pageNumber);
+        invalidatedPageVisuals.delete(pageNumber);
+        pageVisualErrorAttempts.delete(pageNumber);
+        pageRasterWidthCeilings.delete(pageNumber);
     }
     retainedPageNumbers.clear();
     for (const pageNumber of activePages) {
@@ -694,6 +654,9 @@ function invalidateNonCanonicalRasters(activePages: Set<number>) {
             committedIdentity,
             targetIdentity,
         })) {
+            if (pageState.objectUrl || paintedPageObjectUrls.has(pageNumber)) {
+                invalidatedPageVisuals.add(pageNumber);
+            }
             resetPageState(pageNumber);
         }
     }
@@ -742,20 +705,8 @@ function failCurrentPageTransition(pageNumber: number, error: unknown) {
     const message = error instanceof Error
         ? error.message
         : 'Failed to render the requested PDF page';
+    viewportLayoutLifecycle.cancelPendingRestore();
     return openSurface.failPageTransition(pageNumber, message);
-}
-
-function preloadPageObjectUrl(objectUrl: string) {
-    if (typeof Image === 'undefined') {
-        return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error('Failed to decode PDF page preview'));
-        image.src = objectUrl;
-    });
 }
 
 async function ensurePageLoaded(pageNumber: number, generation: number) {
@@ -778,6 +729,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
     requestedRasterIdentities.set(pageNumber, rasterIdentity);
     let pendingObjectUrl: string | null = null;
     let committedObjectUrl = false;
+    let pendingInvalidationCleanup: (() => void) | null = null;
 
     try {
         const {
@@ -787,14 +739,48 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
             onInvalidated,
         } = await source.renderPageObjectUrl(pageNumber, { targetWidthPx });
         pendingObjectUrl = objectUrl;
+        let rasterInvalidated = false;
+        if (onInvalidated) {
+            pendingInvalidationCleanup = onInvalidated(() => {
+                rasterInvalidated = true;
+                const invalidatedState = pageStates.value[pageNumber - 1];
+                if (
+                    source !== activeSource
+                    || !invalidatedState
+                    || invalidatedState.token !== token
+                    || invalidatedState.objectUrl !== objectUrl
+                ) {
+                    return;
+                }
+                if (!chassisAuthority?.openSurface.invalidateResidentVisual(pageNumber)) {
+                    paintedPageObjectUrls.delete(pageNumber);
+                }
+                invalidatedPageVisuals.add(pageNumber);
+                pageInvalidationCleanup.delete(pageNumber);
+                invalidatedState.objectUrl = null;
+                invalidatedState.renderedPx = 0;
+                invalidatedState.status = 'idle';
+                invalidatedState.token += 1;
+                committedRasterIdentities.delete(pageNumber);
+                requestedRasterIdentities.delete(pageNumber);
+                syncLoadedPages();
+            });
+        }
+        if (!nativePdfRasterOutputCoversRequest(
+            renderedPx, targetWidthPx, rasterWidthCeilingPx,
+        )) {
+            throw new Error('Native PDF preview rendered below its requested width');
+        }
         const currentState = pageStates.value[pageNumber - 1];
         if (
             !isCurrentLoadGeneration(generation)
             || source !== activeSource
             || !currentState
             || currentState.token !== token
-            || !nativePdfRasterIdentityMatches(getPageRasterIdentity(pageNumber), rasterIdentity)
+            || !nativePdfRasterIdentityCovers(rasterIdentity, getPageRasterIdentity(pageNumber))
         ) {
+            pendingInvalidationCleanup?.();
+            pendingInvalidationCleanup = null;
             source.revokeObjectURL(objectUrl);
             pendingObjectUrl = null;
             if (
@@ -810,18 +796,23 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
         let canonicalRasterIdentity = rasterIdentity;
         if (rasterWidthCeilingPx !== undefined) {
             pageRasterWidthCeilings.set(pageNumber, rasterWidthCeilingPx);
-            canonicalRasterIdentity = getPageRasterIdentity(pageNumber) ?? rasterIdentity;
+            canonicalRasterIdentity = withNativePdfRasterTargetWidth(rasterIdentity, renderedPx);
             requestedRasterIdentities.set(pageNumber, canonicalRasterIdentity);
         }
-        await preloadPageObjectUrl(objectUrl);
+        await preloadNativePdfPageObjectUrl(objectUrl);
+        if (rasterInvalidated) {
+            throw new Error('Native PDF preview evicted before image decode');
+        }
         const decodedState = pageStates.value[pageNumber - 1];
         if (
             !isCurrentLoadGeneration(generation)
             || source !== activeSource
             || !decodedState
             || decodedState.token !== token
-            || !nativePdfRasterIdentityMatches(getPageRasterIdentity(pageNumber), canonicalRasterIdentity)
+            || !nativePdfRasterIdentityCovers(canonicalRasterIdentity, getPageRasterIdentity(pageNumber))
         ) {
+            pendingInvalidationCleanup?.();
+            pendingInvalidationCleanup = null;
             source.revokeObjectURL(objectUrl);
             pendingObjectUrl = null;
             if (
@@ -835,7 +826,9 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
             return;
         }
         const previousObjectUrl = decodedState.objectUrl;
-        if (previousObjectUrl !== null || !paintedPageObjectUrls.has(pageNumber)) paintedPageObjectUrls.delete(pageNumber);
+        if (previousObjectUrl !== null) {
+            paintedPageObjectUrls.delete(pageNumber);
+        }
         decodedState.objectUrl = objectUrl;
         decodedState.renderedPx = renderedPx;
         decodedState.failedRenderPx = 0;
@@ -843,33 +836,16 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
         committedRasterIdentities.set(pageNumber, canonicalRasterIdentity);
         committedObjectUrl = true;
         pageInvalidationCleanup.get(pageNumber)?.();
-        if (onInvalidated) {
-            pageInvalidationCleanup.set(pageNumber, onInvalidated(() => {
-                const invalidatedState = pageStates.value[pageNumber - 1];
-                if (
-                    source !== activeSource
-                    || !invalidatedState
-                    || invalidatedState.token !== token
-                    || invalidatedState.objectUrl !== objectUrl
-                ) {
-                    return;
-                }
-                if (!chassisAuthority?.openSurface.invalidateResidentVisual(pageNumber)) paintedPageObjectUrls.delete(pageNumber);
-                pageInvalidationCleanup.delete(pageNumber);
-                invalidatedState.objectUrl = null;
-                invalidatedState.renderedPx = 0;
-                invalidatedState.status = 'idle';
-                invalidatedState.token += 1;
-                committedRasterIdentities.delete(pageNumber);
-                requestedRasterIdentities.delete(pageNumber);
-                syncLoadedPages();
-            }));
+        if (pendingInvalidationCleanup) {
+            pageInvalidationCleanup.set(pageNumber, pendingInvalidationCleanup);
+            pendingInvalidationCleanup = null;
         }
         if (previousObjectUrl && previousObjectUrl !== objectUrl) {
             revokeObjectUrl(pageNumber, previousObjectUrl);
         }
         finishInitialLoadIfSettled();
     } catch (error) {
+        pendingInvalidationCleanup?.();
         if (pendingObjectUrl && !committedObjectUrl) {
             source.revokeObjectURL(pendingObjectUrl);
         }
@@ -880,6 +856,18 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
             || !currentState
             || currentState.token !== token
         ) {
+            return;
+        }
+        const attempt = pageVisualErrorAttempts.get(pageNumber) ?? 0;
+        if (attempt < NATIVE_PDF_VISUAL_ERROR_MAX_RETRIES) {
+            pageVisualErrorAttempts.set(pageNumber, attempt + 1);
+            resetPageState(pageNumber);
+            BrowserLogger.warn('native-pdf-viewer', 'Retrying PDF page preview after load failure', {
+                pageNumber,
+                attempt: attempt + 1,
+                error,
+            });
+            queueMicrotask(syncLoadedPages);
             return;
         }
         currentState.status = 'error';
@@ -939,7 +927,7 @@ async function loadSource(nextSrc: TDocumentRef, generation: number) {
     }
 
     pageSizes.value = sizes;
-    pageStates.value = sizes.map(createIdlePageState);
+    pageStates.value = sizes.map(createIdleNativePdfPageState);
     if (sizes.length > 0) {
         const initialPageNumber = clamp(
             chassisAuthority?.currentPage.value ?? requestedCurrentPage,
@@ -977,6 +965,7 @@ function handleViewerScroll() {
         syncLoadedPages();
         return;
     }
+    viewportLayoutLifecycle.cancelPendingRestore();
     viewportWritePort.observeUserScroll(container);
     scrollTop.value = Math.max(0, container.scrollTop);
     syncCurrentPageFromViewport({supersedeNavigation: true});
@@ -993,6 +982,7 @@ function handleContainerResize() {
 }
 
 function retryPage(pageNumber: number) {
+    pageVisualErrorAttempts.delete(pageNumber);
     resetPageState(pageNumber);
     syncLoadedPages();
 }
@@ -1015,6 +1005,7 @@ function handlePageVisualReady(payload: {
     }
 
     paintedPageObjectUrls.set(payload.pageNumber, payload.objectUrl);
+    invalidatedPageVisuals.delete(payload.pageNumber);
     pageVisualErrorAttempts.delete(payload.pageNumber);
     commitPageVisualToViewportSession(loadGeneration, payload.pageNumber);
     finishInitialLoadIfSettled();
@@ -1045,12 +1036,13 @@ function handlePageVisualError(payload: {
     syncLoadedPages();
 }
 
-async function projectViewportSessionNavigation() {
+async function projectViewportSessionNavigation(options: {commitVisual?: boolean} = {}) {
     const session = chassisAuthority?.openSurface.viewportSession.value;
     const intent = session?.viewportIntent;
     if (!session?.identity || !intent || pageLayouts.value.length === 0) {
         return;
     }
+    viewportLayoutLifecycle.cancelPendingRestore();
     const normalizedPage = clamp(session.requestedPage, 1, totalPages.value || 1);
     const expectedIntentId = intent.id;
     if (activePage.value !== normalizedPage) {
@@ -1081,7 +1073,9 @@ async function projectViewportSessionNavigation() {
     scrollTop.value = Math.max(0, container.scrollTop);
     syncLoadedPages();
     await nextTick();
-    commitPageVisualToViewportSession(loadGeneration, normalizedPage);
+    if (options.commitVisual !== false) {
+        commitPageVisualToViewportSession(loadGeneration, normalizedPage);
+    }
 }
 
 function scrollToPage(pageNumber: number) {
@@ -1104,15 +1098,17 @@ watch(
 watch(effectiveZoom, (value) => {
     emit('update:effectiveZoom', value);
 }, { immediate: true });
-
-useDocumentViewportLayoutLifecycle({
+const viewportLayoutLifecycle = useDocumentViewportLayoutLifecycle({
     viewerContainer,
     pageLayouts,
-    captureRestoreEpoch: () => loadGeneration,
-    canRestore: epoch => canRestoreNativePdfViewportLayout(epoch, {
+    captureRestoreEpoch: () => nativePdfViewportRestore.createNativePdfRestoreEpoch(loadGeneration, viewportWritePort.getInteractionEpoch()),
+    canRestore: epoch => nativePdfViewportRestore.canRestoreNativePdfViewportLayout(epoch, {
+        currentInteractionEpoch: viewportWritePort.getInteractionEpoch(),
         currentLoadGeneration: loadGeneration,
         hasDocumentIdentity: chassisAuthority?.openSurface.viewportSession.value.identity !== null,
         initialVisualReady: readyInitialVisualGeneration === loadGeneration,
+        viewportReady: chassisAuthority === null
+            || chassisAuthority.openSurface.viewportSession.value.lifecycle === 'ready',
     }),
     applyRestoredScroll: restored => {
         const container = viewerContainer.value;
@@ -1130,8 +1126,15 @@ useDocumentViewportLayoutLifecycle({
 watch(pageLayouts, () => {
     if (activeSource && pageStates.value.length > 0) {
         invalidateNonCanonicalRasters(getActivePageSet());
+        if (chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'transitioning') {
+            void projectViewportSessionNavigation({commitVisual: false});
+        }
     }
 }, {flush: 'sync'});
+watch(nativePdfOutputScale, () => {
+    invalidateNonCanonicalRasters(getActivePageSet());
+    syncLoadedPages();
+});
 
 watch(
     [
@@ -1271,14 +1274,12 @@ watch([
 
 onMounted(measureContainer);
 useResizeObserver(viewerContainer, handleContainerResize);
-
 onBeforeUnmount(() => {
     releaseViewportFeature?.();
     loadGeneration += 1;
     renderSession?.dispose();
     stopSource();
 });
-
 defineExpose<IDocumentViewerExpose & {
     captureScrollSnapshot: () => unknown;
     restoreScrollSnapshot: (snapshot: unknown, options: {fallbackPage: number}) => void;
@@ -1308,5 +1309,4 @@ defineExpose<IDocumentViewerExpose & {
     },
 });
 </script>
-
 <style src="./NativePdfViewer.css"></style>

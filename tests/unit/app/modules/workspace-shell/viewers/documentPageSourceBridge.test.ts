@@ -17,6 +17,12 @@ describe('workspace document page-source bridge', () => {
         expect(chassis).toContain('source => emit(\'update:pageSource\', source)');
         expect(chassis).not.toContain('@update:page-source=');
         expect(chassis).toContain('\'update:pageSource\': [source: IDocumentPageSource | null]');
+        expect(chassis).toContain('getCurrentPage: () => chassisAuthority.currentPage.value');
+        expect(chassis).not.toContain('committedPage\n        ?? chassisAuthority.currentPage.value');
+        expect(chassis).toContain('if (interaction.intent !== \'zoom\')');
+        expect(chassis).toMatch(
+            /if \(interaction\.intent !== 'zoom'\) \{[\s\S]*?observeUserInteraction\(\);[\s\S]*?\}\s*chassisAuthority\.dispatchViewportWheel\(interaction\);/u,
+        );
         expect(workspace).toContain('const documentPageSource = shallowRef<IDocumentPageSource | null>(null)');
         expect(workspace).toContain('onPageSourceUpdate: handlePageSourceUpdate');
         expect(workspace).toContain(':page-source="documentPageSource"');

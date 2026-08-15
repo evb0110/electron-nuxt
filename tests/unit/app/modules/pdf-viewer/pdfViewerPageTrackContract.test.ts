@@ -74,7 +74,10 @@ describe('PDF physical page-track contract', () => {
         const chassis = read('app/modules/workspace-shell/components/DocumentViewerChassis.vue');
         const viewport = read('app/modules/pdf-viewer/components/PdfViewerViewport.vue');
 
-        expect(chassis).toMatch(/\[data-document-viewer-chassis-viewport\]\s*\{[^}]*overflow:\s*auto;/su);
+        expect(chassis).toContain('overflow: policy.overflow');
+        expect(chassis).toContain('scrollbarGutter: policy.scrollbarGutter');
+        expect(chassis).toContain('const policy = resolveDocumentOpenSurfaceViewportPolicy');
+        expect(chassis).not.toMatch(/\[data-document-viewer-chassis-viewport\]\s*\{[^}]*overflow:\s*auto;/su);
         expect(chassis).toMatch(/\[data-document-viewer-chassis-viewport\]\s*\{[^}]*display:\s*block;/su);
         expect(chassis).toMatch(/\[data-document-viewer-chassis-viewport\]\s*\{[^}]*padding:\s*0;/su);
         expect(chassis).toMatch(/\[data-document-viewer-chassis-viewport\]\s*\{[^}]*gap:\s*0;/su);

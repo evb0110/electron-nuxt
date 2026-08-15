@@ -25,6 +25,8 @@ export function createTestPdfViewportWritePort() {
         advanceDocumentRevision: () => ++revision,
         assertNoRogueWrite: () => {},
         consumeAuthorityScroll: () => false,
+        getInteractionEpoch: () => 0,
+        observeUserInteraction: () => {},
         observeUserScroll: () => {},
     };
     return {

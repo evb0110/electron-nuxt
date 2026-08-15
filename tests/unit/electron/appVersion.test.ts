@@ -30,12 +30,10 @@ describe('application version truth', () => {
     it('uses the bare repository version when the build commit is absent', async () => {
         const {
             canonicalBundledApplicationVersion,
-            developmentApplicationVersion,
             resolveApplicationVersion,
         } = await importAppVersion(undefined);
 
         expect(canonicalBundledApplicationVersion).toMatch(/^0\.1\.\d+$/u);
-        expect(developmentApplicationVersion).toBe(canonicalBundledApplicationVersion);
         expect(resolveApplicationVersion({
             isPackaged: false,
             getVersion: () => '42.3.3',
@@ -46,14 +44,10 @@ describe('application version truth', () => {
         const gitSha = 'a'.repeat(40);
         const {
             canonicalBundledApplicationVersion,
-            developmentApplicationVersion,
-            formatDevelopmentApplicationVersion,
             resolveApplicationVersion,
         } = await importAppVersion(gitSha);
         const expectedVersion = `${canonicalBundledApplicationVersion}+${gitSha}`;
 
-        expect(formatDevelopmentApplicationVersion(gitSha)).toBe(expectedVersion);
-        expect(developmentApplicationVersion).toBe(expectedVersion);
         expect(resolveApplicationVersion({
             isPackaged: false,
             getVersion: () => '42.3.3',
@@ -64,10 +58,13 @@ describe('application version truth', () => {
         const gitSha = 'b'.repeat(64);
         const {
             canonicalBundledApplicationVersion,
-            developmentApplicationVersion,
+            resolveApplicationVersion,
         } = await importAppVersion(gitSha);
 
-        expect(developmentApplicationVersion).toBe(`${canonicalBundledApplicationVersion}+${gitSha}`);
+        expect(resolveApplicationVersion({
+            isPackaged: false,
+            getVersion: () => '42.3.3',
+        })).toBe(`${canonicalBundledApplicationVersion}+${gitSha}`);
     });
 
     it.each([
@@ -76,20 +73,26 @@ describe('application version truth', () => {
     ])('falls back to the bare version for malformed build commit %s', async (gitSha) => {
         const {
             canonicalBundledApplicationVersion,
-            developmentApplicationVersion,
+            resolveApplicationVersion,
         } = await importAppVersion(gitSha);
 
-        expect(developmentApplicationVersion).toBe(canonicalBundledApplicationVersion);
+        expect(resolveApplicationVersion({
+            isPackaged: false,
+            getVersion: () => '42.3.3',
+        })).toBe(canonicalBundledApplicationVersion);
     });
 
     it('trims and lowercases the build commit suffix', async () => {
         const gitSha = 'AB'.repeat(20);
         const {
             canonicalBundledApplicationVersion,
-            developmentApplicationVersion,
+            resolveApplicationVersion,
         } = await importAppVersion(`  ${gitSha}\n`);
 
-        expect(developmentApplicationVersion)
+        expect(resolveApplicationVersion({
+            isPackaged: false,
+            getVersion: () => '42.3.3',
+        }))
             .toBe(`${canonicalBundledApplicationVersion}+${gitSha.toLowerCase()}`);
     });
 });

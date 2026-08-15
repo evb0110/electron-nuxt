@@ -13,6 +13,7 @@ describe('PDF viewport write port ownership tags', () => {
             scrollTop: 0,
         });
         const port = createPdfViewportWritePort();
+        expect(port.getInteractionEpoch()).toBe(0);
         const firstIntent = port.beginIntent('navigation-1');
         port.apply(container, {
             intent: firstIntent,
@@ -30,5 +31,16 @@ describe('PDF viewport write port ownership tags', () => {
         });
         container.scrollTop = 181;
         expect(port.consumeAuthorityScroll(container)).toBe(false);
+        port.observeUserScroll(container);
+        expect(port.getInteractionEpoch()).toBe(1);
+
+        const preWheelIntent = port.beginIntent('pre-wheel-layout-restore');
+        port.observeUserInteraction();
+        expect(port.getInteractionEpoch()).toBe(2);
+        expect(port.apply(container, {
+            intent: preWheelIntent,
+            reason: 'stale-after-wheel',
+            top: 220,
+        })).toBe(false);
     });
 });

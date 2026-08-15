@@ -60,7 +60,7 @@
                     data-testid="document-page-source-page"
                 >
                     <DocumentPageSkeleton
-                        v-if="chassisAuthority.openingPageVisual.value === 'skeleton'"
+                        v-if="chassisAuthority.openingPageVisual.value !== 'fresh'"
                         :content-height="chassisOpeningPageShell.height"
                     />
                 </section>
@@ -158,6 +158,11 @@ const sourceViewerRef = computed(() => activeFeaturePackRef.value);
 const openingFrameLayoutRevision = ref(0);
 let openingFrameResizeObserver: ResizeObserver | null = null;
 const retainedResizeAnchor = shallowRef<IDocumentViewportResizeAnchor | null>(null);
+let retainedResizeAnchorFence: {
+    generation: number;
+    interactionEpoch: number;
+    viewportIntentId: string | null;
+} | null = null;
 const RESIZE_ANCHOR_QUIET_MS = 120;
 let resizeAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 const documentOpenSurface = injectDocumentOpenSurfaceSession();
@@ -172,7 +177,23 @@ const chassisAuthority = createDocumentViewerChassisAuthority(
 function applyRetainedResizeAnchor(reason: string) {
     const viewport = chassisAuthority.viewportElement.value;
     const anchor = retainedResizeAnchor.value;
-    if (!viewport || !anchor) {
+    const fence = retainedResizeAnchorFence;
+    const session = chassisAuthority.openSurface.viewportSession.value;
+    if (
+        !viewport
+        || !anchor
+        || !fence
+    ) {
+        return false;
+    }
+    if (
+        session.lifecycle !== 'ready'
+        || session.requestedPage !== session.committedPage
+        || fence.generation !== session.generation
+        || fence.viewportIntentId !== (session.viewportIntent?.id ?? null)
+        || fence.interactionEpoch !== chassisAuthority.viewportWritePort.getInteractionEpoch()
+    ) {
+        releaseRetainedResizeAnchor();
         return false;
     }
     const position = resolveDocumentViewportResizeAnchorPosition(viewport, anchor);
@@ -205,6 +226,7 @@ function releaseRetainedResizeAnchor() {
         openingFrameResizeObserver?.unobserve(retainedResizeAnchor.value.element);
     }
     retainedResizeAnchor.value = null;
+    retainedResizeAnchorFence = null;
 }
 
 function retainCurrentResizeAnchor() {
@@ -214,6 +236,12 @@ function retainCurrentResizeAnchor() {
     }
     releaseRetainedResizeAnchor();
     retainedResizeAnchor.value = captureDocumentViewportResizeAnchor(viewport);
+    const session = chassisAuthority.openSurface.viewportSession.value;
+    retainedResizeAnchorFence = retainedResizeAnchor.value ? {
+        generation: session.generation,
+        interactionEpoch: chassisAuthority.viewportWritePort.getInteractionEpoch(),
+        viewportIntentId: session.viewportIntent?.id ?? null,
+    } : null;
     if (retainedResizeAnchor.value) {
         openingFrameResizeObserver?.observe(retainedResizeAnchor.value.element);
     }
@@ -241,6 +269,13 @@ function releaseResizeAnchorForViewportInteraction() {
 
 function handleViewportWheel(interaction: IDocumentWheelInteraction) {
     releaseResizeAnchorForViewportInteraction();
+    if (interaction.intent !== 'zoom') {
+        // Physical scrolling must fence pending authored restores before the
+        // browser mutates scrollTop. Zoom gestures instead need the layout
+        // lifecycle's anchor restore; bumping the epoch on every streamed zoom
+        // tick would cancel that restore one frame after it was captured.
+        chassisAuthority.viewportWritePort.observeUserInteraction();
+    }
     chassisAuthority.dispatchViewportWheel(interaction);
 }
 
@@ -347,6 +382,15 @@ watch(
                 applyRetainedResizeAnchor('resize-end-post-layout');
                 scheduleResizeAnchorRelease();
             });
+        }
+    },
+    {flush: 'sync'},
+);
+watch(
+    () => chassisAuthority.openSurface.viewportSession.value.lifecycle,
+    (lifecycle) => {
+        if (lifecycle !== 'ready' && retainedResizeAnchor.value) {
+            releaseRetainedResizeAnchor();
         }
     },
     {flush: 'sync'},
@@ -591,10 +635,7 @@ watch(() => [
 // must also project that request into the viewport; recording the requested
 // page alone does not create or commit a scroll intent.
 defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
-    getCurrentPage: () => (
-        chassisAuthority.openSurface.viewportSession.value.committedPage
-        ?? chassisAuthority.currentPage.value
-    ),
+    getCurrentPage: () => chassisAuthority.currentPage.value,
     getPendingNavigationTargetPage: () => {
         const session = chassisAuthority.openSurface.viewportSession.value;
         return session.identity !== null && session.requestedPage !== session.committedPage
@@ -626,15 +667,7 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     height: 100%;
     padding: 0;
     gap: 0;
-    overflow: auto;
-    overflow-y: scroll;
     background: var(--app-document-viewer-bg);
-
-    /* A document viewport can overflow on both axes. Do not mirror the native
-       vertical scrollbar into the inline-start edge: on overlay-scrollbar
-       platforms that gutter can change when pointer proximity changes, which
-       changes clientWidth and clamps a rightmost horizontal scroll position. */
-    scrollbar-gutter: auto;
 
     /* The viewport authority is the only owner of document position. Chromium's
        scroll anchoring must not move the track while an async feature pack

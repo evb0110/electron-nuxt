@@ -10,11 +10,12 @@ import {
     join,
 } from 'path';
 import { tmpdir } from 'os';
-import type {
-    IPdfNativePagePreview,
-    IPdfNativePagePreviewOptions,
-    IPdfNativePageSize,
-    IPdfOpeningGeometry,
+import {
+    PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX,
+    type IPdfNativePagePreview,
+    type IPdfNativePagePreviewOptions,
+    type IPdfNativePageSize,
+    type IPdfOpeningGeometry,
 } from '@contracts/electronApiDocuments';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
@@ -46,7 +47,7 @@ const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;
 const PDFINFO_PER_PAGE_STDOUT_BYTES = 512;
 const PDF_RENDER_DEFAULT_TARGET_WIDTH_PX = 1_200;
 const PDF_RENDER_MIN_TARGET_WIDTH_PX = 64;
-const PDF_RENDER_MAX_TARGET_WIDTH_PX = 4_096;
+const PDF_RENDER_MAX_TARGET_WIDTH_PX = PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX;
 const PDF_RENDER_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const PDF_RENDER_MAX_OUTPUT_PIXELS = 64 * 1024 * 1024;
 const logger = createLogger('native-pdf-preview');
@@ -742,6 +743,7 @@ async function runPdfNativePagePreview(
             bytes,
             width,
             height,
+            rasterWidthCeilingPx: PDF_RENDER_MAX_TARGET_WIDTH_PX,
         };
     } finally {
         if (tempDir !== null) {

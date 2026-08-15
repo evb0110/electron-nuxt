@@ -12,6 +12,7 @@ import {
     type TDocumentViewportSessionEffect,
     type TDocumentViewportSessionEvent,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
+import { retargetDocumentOpeningShell } from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
 
 export type {
     IDocumentViewportCommitFence,
@@ -176,7 +177,7 @@ export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpen
         || snapshot.phase === 'viewport-committed';
     return {
         overflow: isTransitioning ? 'hidden' : 'auto',
-        scrollbarGutter: 'auto',
+        scrollbarGutter: 'stable',
         committedMargin: snapshot.geometry?.margin ?? null,
     } as const;
 }
@@ -1102,6 +1103,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 || viewport.lifecycle !== 'ready'
                 || viewport.requestedPage !== normalized
                 || viewport.committedPage !== normalized
+                || viewport.observedPage !== null && viewport.observedPage !== normalized
                 || viewport.visual.kind !== 'page'
                 || viewport.visual.pageNumber !== normalized
                 || viewport.visual.presentation !== 'canvas'
@@ -1151,14 +1153,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 return current.requestedPage;
             }
             dispatchNavigation(normalized, skeletonDelayMs, retargetOpeningShell
-                ? visual => ({
-                    ...visual,
-                    presentation: 'page-shell',
-                    geometry: null,
-                    openingPageGeometry: null,
-                    openingPageFrame: null,
-                    committedViewportPosition: null,
-                })
+                ? visual => {
+                    // A saved-page restore can arrive after preflight already
+                    // measured page 1. Retarget semantic ownership without
+                    // replacing the visible shell: changing to provisional
+                    // geometry here would create a third, resizing loading
+                    // stage before the destination raster commits.
+                    return retargetDocumentOpeningShell(visual, normalized);
+                }
                 : undefined);
             logPdfRenderTrace('viewport-session-navigation-dispatched', {
                 pageNumber: normalized,

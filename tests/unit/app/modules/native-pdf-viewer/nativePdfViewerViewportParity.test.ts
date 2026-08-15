@@ -12,7 +12,10 @@ import {
     type EffectScope,
     type Ref,
 } from 'vue';
-import { canRestoreNativePdfViewportLayout } from '@app/modules/native-pdf-viewer/runtime/canRestoreNativePdfViewportLayout';
+import {
+    canRestoreNativePdfViewportLayout,
+    createNativePdfRestoreEpoch,
+} from '@app/modules/native-pdf-viewer/runtime/canRestoreNativePdfViewportLayout';
 import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
 import type { IDocumentZoomPageLayout } from '@app/utils/document-viewer/zoomAnchor';
 import {
@@ -35,6 +38,8 @@ interface INativePdfPaneAnchorHarness {
 }
 
 interface INativePdfRestoreReadiness {readonly initialVisualReady: Ref<boolean>;}
+
+const currentRestoreEpoch = () => createNativePdfRestoreEpoch(1, 0);
 
 const NATIVE_PDF_TEST_PAGE_COUNT = 12;
 const NATIVE_PDF_TEST_PAGE_HEIGHT = 800;
@@ -118,11 +123,13 @@ function createPaneAnchorHarness(
     const lifecycle = useDocumentViewportLayoutLifecycle({
         viewerContainer: ref<HTMLElement | null>(viewport),
         pageLayouts,
-        captureRestoreEpoch: () => 1,
+        captureRestoreEpoch: currentRestoreEpoch,
         canRestore: epoch => canRestoreNativePdfViewportLayout(epoch, {
+            currentInteractionEpoch: 0,
             currentLoadGeneration: 1,
             hasDocumentIdentity: true,
             initialVisualReady: readiness.initialVisualReady.value,
+            viewportReady: true,
         }),
         applyRestoredScroll: restored => {
             viewport.scrollLeft = restored.left;
@@ -165,17 +172,35 @@ function bruteForceVisiblePages(options: {
 }
 
 describe('Native PDF viewer viewport primitive parity', () => {
-    it('requires the current initial visual before restoring native viewport geometry', () => {
-        expect(canRestoreNativePdfViewportLayout(1, {
+    it('restores native viewport geometry only when the initial visual is current and navigation is settled', () => {
+        expect(canRestoreNativePdfViewportLayout(currentRestoreEpoch(), {
+            currentInteractionEpoch: 0,
             currentLoadGeneration: 1,
             hasDocumentIdentity: true,
             initialVisualReady: false,
+            viewportReady: true,
         })).toBe(false);
-        expect(canRestoreNativePdfViewportLayout(1, {
+        expect(canRestoreNativePdfViewportLayout(currentRestoreEpoch(), {
+            currentInteractionEpoch: 0,
             currentLoadGeneration: 1,
             hasDocumentIdentity: true,
             initialVisualReady: true,
+            viewportReady: true,
         })).toBe(true);
+        expect(canRestoreNativePdfViewportLayout(currentRestoreEpoch(), {
+            currentInteractionEpoch: 0,
+            currentLoadGeneration: 1,
+            hasDocumentIdentity: true,
+            initialVisualReady: true,
+            viewportReady: false,
+        })).toBe(false);
+        expect(canRestoreNativePdfViewportLayout(currentRestoreEpoch(), {
+            currentInteractionEpoch: 1,
+            currentLoadGeneration: 1,
+            hasDocumentIdentity: true,
+            initialVisualReady: true,
+            viewportReady: true,
+        })).toBe(false);
     });
 
     it.each([
@@ -333,11 +358,13 @@ describe('Native PDF viewer viewport primitive parity', () => {
         const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
             viewerContainer: ref<HTMLElement | null>(viewport),
             pageLayouts,
-            captureRestoreEpoch: () => 1,
+            captureRestoreEpoch: currentRestoreEpoch,
             canRestore: epoch => canRestoreNativePdfViewportLayout(epoch, {
+                currentInteractionEpoch: 0,
                 currentLoadGeneration: 1,
                 hasDocumentIdentity: true,
                 initialVisualReady: initialVisualReady.value,
+                viewportReady: true,
             }),
             applyRestoredScroll: restored => {
                 viewport.scrollLeft = restored.left;

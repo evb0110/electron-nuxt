@@ -20,8 +20,10 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 export {
+    installNativePdfOpeningSampler,
     readNativePdfPreviewLoadingState,
     readNativePdfPreviewState,
+    stopNativePdfOpeningSampler,
 } from '@tests/e2e/electron/helpers/viewerNativePdfState';
 
 const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {

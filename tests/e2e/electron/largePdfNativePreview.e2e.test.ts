@@ -6,14 +6,18 @@ import {
     it,
 } from 'vitest';
 import {
+    createMultiPageTextFixturePdf,
     resolveNativeLargePdfFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
+    installNativePdfOpeningSampler,
     openNativePdfPreviewInApp,
+    openPdfInApp,
     readNativePdfPreviewLoadingState,
     readNativePdfPreviewState,
+    stopNativePdfOpeningSampler,
     triggerOpenPathInApp,
     waitForNativePdfPreviewLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -166,40 +170,58 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             return;
         }
 
-        await triggerOpenPathInApp(session.page, largePdfFixture.path, LARGE_PDF_TIMEOUT_MS);
-
+        const priorPdfPath = await createMultiPageTextFixturePdf(
+            `large-native-preview-prior-${Date.now()}.pdf`,
+            2,
+        );
+        await openPdfInApp(session.page, priorPdfPath, LARGE_PDF_TIMEOUT_MS);
+        await installNativePdfOpeningSampler(session.page);
+        const openingStartedAtMs = await session.page.evaluate(() => performance.now());
         const samples: TNativePdfLoadingSample[] = [];
-        const deadline = Date.now() + 20_000;
-        while (Date.now() < deadline) {
-            const state = await readNativePdfPreviewLoadingState(session.page);
-            const screenshot = await session.page.screenshot({type: 'png'});
-            samples.push({
-                ...state,
-                contrast: measurePngRectContrast(
-                    screenshot,
-                    firstRect(state.pageShellRects)
-                    ?? state.transitionPageShellRect
-                    ?? state.transitionSurfaceRect
-                    ?? state.viewerRect
-                    ?? state.workspaceSurfaceRect,
-                    state.viewport,
-                ),
-            });
-
-            if (state.visibleRenderedImages > 0) {
-                break;
+        let openingFrames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>> = [];
+        try {
+            await triggerOpenPathInApp(session.page, largePdfFixture.path, LARGE_PDF_TIMEOUT_MS);
+            const deadline = Date.now() + 20_000;
+            while (Date.now() < deadline) {
+                const state = await readNativePdfPreviewLoadingState(session.page);
+                const screenshot = await session.page.screenshot({type: 'png'});
+                samples.push({
+                    ...state,
+                    contrast: measurePngRectContrast(
+                        screenshot,
+                        firstRect(state.pageShellRects)
+                        ?? state.transitionPageShellRect
+                        ?? state.transitionSurfaceRect
+                        ?? state.viewerRect
+                        ?? state.workspaceSurfaceRect,
+                        state.viewport,
+                    ),
+                });
+                if (state.highResolutionVisibleRasterCount > 0) {
+                    break;
+                }
+                await delay(100);
             }
-            await delay(500);
+        } finally {
+            openingFrames = await stopNativePdfOpeningSampler(session.page);
         }
 
-        const preContentSamples = samples.filter(sample => sample.visibleRenderedImages === 0);
-        const firstClaimedSampleIndex = preContentSamples.findIndex(sample => sample.openSurface.claimed);
-        const preClaimSamples = firstClaimedSampleIndex < 0
+        const preContentSamples = samples.filter(sample => sample.highResolutionVisibleRasterCount === 0);
+        // The toolbar announces the incoming document while the previously
+        // committed PDF remains visible. Scope coarse loading assertions to
+        // the first surface that belongs to the target open; rAF sampling
+        // below supplies the mandatory, non-vacuous transition evidence when
+        // a fast open falls entirely between the 100 ms coarse samples.
+        const firstTargetSurfaceSampleIndex = preContentSamples.findIndex(sample => (
+            sample.transitionSurfaceVisible
+            || sample.nativeViewerVisible
+        ));
+        const preClaimSamples = firstTargetSurfaceSampleIndex < 0
             ? preContentSamples
-            : preContentSamples.slice(0, firstClaimedSampleIndex);
-        const claimedPreContentSamples = firstClaimedSampleIndex < 0
+            : preContentSamples.slice(0, firstTargetSurfaceSampleIndex);
+        const claimedPreContentSamples = firstTargetSurfaceSampleIndex < 0
             ? []
-            : preContentSamples.slice(firstClaimedSampleIndex);
+            : preContentSamples.slice(firstTargetSurfaceSampleIndex);
         const nativeSkeletonSamples = claimedPreContentSamples.filter(sample => (
             sample.nativeViewerVisible
             && sample.visiblePageSkeletonCount > 0
@@ -232,14 +254,45 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             .map(sample => firstRect(sample.pageShellRects) ?? sample.transitionPageShellRect)
             .filter((rect): rect is IRectLike => rect !== null);
         expect(preContentSamples.length, JSON.stringify(samples)).toBeGreaterThan(0);
-        // A warm native preview can cross claim -> committed raster between
-        // polling samples. The skeleton is deliberately debounced, so that
-        // fast path must not be forced to paint a pending intermediate state.
+        const firstTransitionFrameIndex = openingFrames.findIndex(frame => frame.transitionSurfaceVisible);
+        const openingGeneration = openingFrames[firstTransitionFrameIndex]?.generation;
+        const openingDocumentId = openingFrames[firstTransitionFrameIndex]?.documentId;
+        const firstClaimedFrameIndex = openingFrames.findIndex(frame => (
+            frame.claimed
+            && frame.generation === openingGeneration
+            && frame.documentId === openingDocumentId
+        ));
+        const firstCommittedFrameIndex = openingFrames.findIndex((frame, index) => (
+            index > firstClaimedFrameIndex
+            && frame.generation === openingGeneration
+            && frame.documentId === openingDocumentId
+            && frame.committedRasterVisible
+        ));
+        const claimedOpeningFrames = firstClaimedFrameIndex < 0
+            ? []
+            : openingFrames.slice(
+                firstClaimedFrameIndex,
+                firstCommittedFrameIndex < 0 ? undefined : firstCommittedFrameIndex,
+            );
+        const openingFrameRects = claimedOpeningFrames
+            .map(frame => frame.transitionShellRect)
+            .filter((rect): rect is IRectLike => rect !== null);
+        expect(firstTransitionFrameIndex, JSON.stringify(openingFrames)).toBeGreaterThanOrEqual(0);
         expect(
-            firstClaimedSampleIndex >= 0
-            || samples.some(sample => sample.openSurface.phase === 'ready' && sample.visibleRenderedImages > 0),
-            JSON.stringify(samples),
-        ).toBe(true);
+            (openingFrames[firstTransitionFrameIndex]?.capturedAtMs ?? Number.POSITIVE_INFINITY)
+            - openingStartedAtMs,
+            JSON.stringify(openingFrames),
+        ).toBeLessThan(1_000);
+        expect(firstClaimedFrameIndex, JSON.stringify(openingFrames)).toBeGreaterThanOrEqual(0);
+        expect(firstCommittedFrameIndex, JSON.stringify(openingFrames)).toBeGreaterThan(firstClaimedFrameIndex);
+        expect(claimedOpeningFrames.length, JSON.stringify(openingFrames)).toBeGreaterThan(0);
+        expect(claimedOpeningFrames.every(frame => (
+            frame.transitionSurfaceVisible
+            && frame.transitionSkeletonCount === 1
+            && frame.transitionCoversViewport
+            && !frame.emptyStateVisible
+        )), JSON.stringify(openingFrames)).toBe(true);
+        expect(rectsAreStable(openingFrameRects, 0.5), JSON.stringify(openingFrames)).toBe(true);
         // Main-process preflight happens before the host claims its only visual
         // transaction. During that boundary the prior surface must remain
         // stable; the no-blank/skeleton obligation starts at canonical claim.
@@ -268,15 +321,13 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
                 && sample.transitionPageShellRect !== null
             )
         )), JSON.stringify(samples)).toBe(true);
-        // The chassis deliberately exposes a cold provisional shell before
-        // the delayed skeleton is promoted. An authoritative opening frame
-        // can replace that skeleton entirely, so the visual presentation is
-        // the contract for whether a skeleton should be present.
+        // Cold and prepared shells are implementation states, not additional
+        // visual stages. Every visible opening shell presents the same
+        // skeleton until the final native raster commits.
         expect(transitionSurfaceSamples.every(sample => (
-            sample.openSurface.visualPresentation === 'skeleton'
-                ? sample.visibleTransitionSkeletonCount === 1
-                : sample.visibleTransitionSkeletonCount === 0
+            sample.visibleTransitionSkeletonCount === 1
         )), JSON.stringify(samples)).toBe(true);
+        expect(transitionSurfaceSamples, JSON.stringify(samples)).toHaveLength(claimedPreContentSamples.length);
         expect(nativeViewerTopSurfaceSamples, JSON.stringify(samples)).toHaveLength(0);
         expect(topNativeSkeletonSamples, JSON.stringify(samples)).toHaveLength(0);
         expect(topBlankPendingSamples, JSON.stringify(samples)).toHaveLength(0);
@@ -289,16 +340,17 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         expect(claimedPreContentSamples.every(sample => sample.toolbar?.isOpeningDocument === true), JSON.stringify(samples)).toBe(true);
         expect(claimedPreContentSamples.every(sample => (sample.toolbar?.totalPages ?? 0) >= 0), JSON.stringify(samples)).toBe(true);
         expect(skeletonSamples.every(sample => sample.statusBarVisible), JSON.stringify(samples)).toBe(true);
+        expect(claimedOpeningFrames.some(frame => frame.transitionSkeletonCount === 1), JSON.stringify(openingFrames)).toBe(true);
         expect(skeletonSamples.every(sample => (
             sample.statusFileName.length > 0
             && !/No file open|status\\.noFileOpen/i.test(sample.statusFileName)
         )), JSON.stringify(samples)).toBe(true);
-        if (skeletonSamples.length > 0) {
-            expect(skeletonSamples.some(sample => (
-                sample.contrast.darkRatio >= 0.015
-                || sample.contrast.stdLuma >= 8
-            )), JSON.stringify(samples)).toBe(true);
-        }
+        expect(skeletonSamples.every(sample => (
+            sample.contrast.darkRatio >= 0.015
+            || sample.contrast.stdLuma >= 8
+        )), JSON.stringify(samples)).toBe(true);
+        expect(samples.every(sample => sample.lowResolutionVisibleRasterCount === 0), JSON.stringify(samples)).toBe(true);
+        expect(samples.some(sample => sample.highResolutionVisibleRasterCount > 0), JSON.stringify(samples)).toBe(true);
 
         await waitForNativePdfPreviewLoaded(session.page, LARGE_PDF_TIMEOUT_MS);
 
@@ -313,7 +365,8 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             await delay(100);
         }
 
-        expect(settledSamples.every(sample => sample.visibleRenderedImages > 0), JSON.stringify(settledSamples)).toBe(true);
+        expect(settledSamples.every(sample => sample.highResolutionVisibleRasterCount > 0), JSON.stringify(settledSamples)).toBe(true);
+        expect(settledSamples.every(sample => sample.lowResolutionVisibleRasterCount === 0), JSON.stringify(settledSamples)).toBe(true);
         expect(settledSamples.every(sample => sample.pendingDecodedImages === 0), JSON.stringify(settledSamples)).toBe(true);
         expect(settledSamples.every(sample => !sample.hostDocumentOpenFallbackVisible), JSON.stringify(settledSamples)).toBe(true);
         expect(settledSamples.every(sample => !sample.transitionSurfaceVisible), JSON.stringify(settledSamples)).toBe(true);
@@ -324,7 +377,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         )), JSON.stringify(settledSamples)).toBe(true);
     }, LARGE_PDF_TIMEOUT_MS);
 
-    it('joins post-open navigation to the physical native raster and viewport intent', async () => {
+    it('joins physical mouse-wheel scrolling to the native raster and viewport authority', async () => {
         const session = sessionFixture.getSession();
         if (!session || !largePdfFixture.path) {
             return;
@@ -335,8 +388,10 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             await openNativePdfPreviewInApp(session.page, largePdfFixture.path, LARGE_PDF_TIMEOUT_MS);
             initial = await readNativePdfPreviewState(session.page);
         }
-        const targetPage = Math.min(5, initial.toolbar?.totalPages ?? 1);
+        const totalPages = initial.toolbar?.totalPages ?? 1;
+        const targetPage = Math.min(5, totalPages - 1);
         expect(targetPage).toBeGreaterThan(1);
+        const physicalWheelPage = targetPage + 1;
 
         const command = await callWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
         expect(command.called).toBe(true);
@@ -395,6 +450,60 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             }, targetPage);
             throw new Error(`${error instanceof Error ? error.message : String(error)}: ${JSON.stringify(navigationState)}`);
         }
+
+        const viewportCenter = await session.page.evaluate(() => {
+            const host = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const viewport = host?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+            const rect = viewport?.getBoundingClientRect() ?? null;
+            return rect ? {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+                scrollTop: viewport?.scrollTop ?? 0,
+            } : null;
+        });
+        if (!viewportCenter) {
+            throw new Error('Expected a visible native PDF viewport for physical wheel input');
+        }
+        await session.page.mouse.move(viewportCenter.x, viewportCenter.y);
+        let physicalWheelState = await readNativePdfPreviewState(session.page);
+        for (let index = 0; index < 12; index += 1) {
+            await session.page.mouse.wheel({deltaY: 800});
+            await delay(100);
+            physicalWheelState = await readNativePdfPreviewState(session.page);
+            if (physicalWheelState.toolbar?.currentPage === physicalWheelPage) {
+                break;
+            }
+        }
+        expect(physicalWheelState.toolbar?.currentPage, JSON.stringify(physicalWheelState))
+            .toBe(physicalWheelPage);
+        await waitForFunctionInPage(session.page, ({
+            pageNumber,
+            previousScrollTop,
+        }) => {
+            const host = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+            const viewport = chassis?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+            const shell = host?.querySelector<HTMLElement>(
+                `.native-pdf-page-shell[data-page-number="${String(pageNumber)}"]`,
+            ) ?? null;
+            const shellRect = shell?.getBoundingClientRect() ?? null;
+            const viewportRect = viewport?.getBoundingClientRect() ?? null;
+            return chassis?.dataset.chassisCurrentPage === String(pageNumber)
+                && chassis.dataset.viewportObservedPage === String(pageNumber)
+                && (viewport?.scrollTop ?? 0) > previousScrollTop
+                && shell?.querySelector('.document-page-visual--committed') !== null
+                && shellRect !== null
+                && viewportRect !== null
+                && shellRect.bottom > viewportRect.top
+                && shellRect.top < viewportRect.bottom;
+        }, {timeout: 30_000}, {
+            pageNumber: physicalWheelPage,
+            previousScrollTop: viewportCenter.scrollTop,
+        });
 
         const settled = await readNativePdfPreviewState(session.page);
         expect(settled.openSurface, JSON.stringify(settled)).toEqual({

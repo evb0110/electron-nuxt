@@ -5,7 +5,10 @@ import {
 } from 'vitest';
 import {
     createNativePdfRasterIdentity,
+    isTrustedNativePdfRasterWidthCeiling,
+    nativePdfRasterIdentityCovers,
     nativePdfRasterIdentityMatches,
+    nativePdfRasterOutputCoversRequest,
     resolveNativePdfRasterTargetWidth,
     shouldInvalidateNativePdfRaster,
     shouldPresentNativePdfPageSkeleton,
@@ -16,6 +19,17 @@ describe('native PDF raster presentation', () => {
         expect(resolveNativePdfRasterTargetWidth(3_598, 2_008)).toBe(2_008);
         expect(resolveNativePdfRasterTargetWidth(1_600, 2_008)).toBe(1_600);
         expect(resolveNativePdfRasterTargetWidth(3_598, undefined)).toBe(3_598);
+        expect(resolveNativePdfRasterTargetWidth(6_000, 4_096)).toBe(4_096);
+        expect(nativePdfRasterOutputCoversRequest(4_096, 6_000, 4_096)).toBe(true);
+        expect(nativePdfRasterOutputCoversRequest(4_095, 6_000, 4_096)).toBe(false);
+        expect(nativePdfRasterOutputCoversRequest(640, 1_200, 4_096)).toBe(false);
+        expect(nativePdfRasterOutputCoversRequest(640, 1_200, null)).toBe(false);
+        expect(nativePdfRasterOutputCoversRequest(640, 1_200, 0)).toBe(false);
+        expect(nativePdfRasterOutputCoversRequest(640, 1_200, Number.NaN)).toBe(false);
+        expect(isTrustedNativePdfRasterWidthCeiling(undefined)).toBe(true);
+        expect(isTrustedNativePdfRasterWidthCeiling(null)).toBe(false);
+        expect(isTrustedNativePdfRasterWidthCeiling(4_096)).toBe(true);
+        expect(isTrustedNativePdfRasterWidthCeiling(2_008)).toBe(false);
 
         const firstZoom = createNativePdfRasterIdentity({
             generation: 2,
@@ -69,6 +83,37 @@ describe('native PDF raster presentation', () => {
         })).toBe(true);
     });
 
+    it('keeps a wider raster when the stabilized viewport needs fewer pixels', () => {
+        const requestedBeforeScrollbar = createNativePdfRasterIdentity({
+            generation: 8,
+            pageNumber: 1,
+            pageWidth: 612,
+            pageHeight: 972,
+            targetWidthPx: 3_658,
+        });
+        const stabilizedTarget = createNativePdfRasterIdentity({
+            ...requestedBeforeScrollbar,
+            targetWidthPx: 3_628,
+        });
+
+        expect(nativePdfRasterIdentityCovers(requestedBeforeScrollbar, stabilizedTarget)).toBe(true);
+        expect(nativePdfRasterIdentityCovers(stabilizedTarget, requestedBeforeScrollbar)).toBe(false);
+        expect(shouldInvalidateNativePdfRaster({
+            status: 'loading',
+            hasObjectUrl: false,
+            requestedIdentity: requestedBeforeScrollbar,
+            committedIdentity: null,
+            targetIdentity: stabilizedTarget,
+        })).toBe(false);
+        expect(shouldInvalidateNativePdfRaster({
+            status: 'loaded',
+            hasObjectUrl: true,
+            requestedIdentity: requestedBeforeScrollbar,
+            committedIdentity: requestedBeforeScrollbar,
+            targetIdentity: stabilizedTarget,
+        })).toBe(false);
+    });
+
     it('invalidates an in-flight render when fit geometry changes its target', () => {
         const requested = createNativePdfRasterIdentity({
             generation: 3,
@@ -98,56 +143,21 @@ describe('native PDF raster presentation', () => {
         })).toBe(false);
     });
 
-    it('projects skeleton presentation only from the shared viewport session target', () => {
-        const skeleton = {
-            kind: 'page' as const,
-            generation: 4,
-            pageNumber: 9,
-            presentation: 'skeleton' as const,
-            frameKey: null,
-            error: null,
-        };
-
+    it('keeps every pending resident page skeleton-covered on a ready surface', () => {
         expect(shouldPresentNativePdfPageSkeleton({
-            visual: skeleton,
-            pageNumber: 9,
             surfaceReady: true,
             visualCommitted: false,
         })).toBe(true);
         expect(shouldPresentNativePdfPageSkeleton({
-            visual: skeleton,
-            pageNumber: 8,
-            surfaceReady: true,
-            visualCommitted: false,
-        })).toBe(false);
-        expect(shouldPresentNativePdfPageSkeleton({
-            visual: {
-                ...skeleton,
-                presentation: 'cold-shell',
-            },
-            pageNumber: 9,
-            surfaceReady: true,
-            visualCommitted: false,
-        })).toBe(false);
-        expect(shouldPresentNativePdfPageSkeleton({
-            visual: skeleton,
-            pageNumber: 9,
             surfaceReady: true,
             visualCommitted: true,
         })).toBe(false);
         expect(shouldPresentNativePdfPageSkeleton({
-            visual: skeleton,
-            pageNumber: 9,
             surfaceReady: false,
             visualCommitted: false,
         })).toBe(false);
         expect(shouldPresentNativePdfPageSkeleton({
             residentVisualInvalidated: true,
-            visual: {
-                ...skeleton,
-                presentation: 'cold-shell',
-            },
-            pageNumber: 9,
             surfaceReady: false,
             visualCommitted: false,
         })).toBe(true);

@@ -1,9 +1,122 @@
 import type { Page } from 'puppeteer-core';
+import { PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX } from '@contracts/electronApiDocuments';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { getWorkspaceToolbarSnapshot } from '@tests/e2e/electron/helpers/workspaceExpose';
 
+export interface INativePdfOpeningFrame {
+    capturedAtMs: number;
+    claimed: boolean;
+    committedRasterVisible: boolean;
+    documentId: string;
+    emptyStateVisible: boolean;
+    generation: number;
+    nativeSkeletonVisible: boolean;
+    nativeViewerVisible: boolean;
+    transitionCoversViewport: boolean;
+    transitionShellRect: {
+        height: number;
+        left: number;
+        top: number;
+        width: number;
+    } | null;
+    transitionSkeletonCount: number;
+    transitionSurfaceVisible: boolean;
+    viewportLifecycle: string;
+}
+
+export async function installNativePdfOpeningSampler(page: Page) {
+    await evaluateInPage(page, () => {
+        const testWindow = window as typeof window & {
+            __nativePdfOpeningAnimationFrame?: number;
+            __nativePdfOpeningFrames?: INativePdfOpeningFrame[];
+        };
+        if (testWindow.__nativePdfOpeningAnimationFrame !== undefined) {
+            cancelAnimationFrame(testWindow.__nativePdfOpeningAnimationFrame);
+        }
+        testWindow.__nativePdfOpeningFrames = [];
+        const isVisible = (element: HTMLElement | null) => {
+            if (!element?.isConnected) {
+                return false;
+            }
+            let current: HTMLElement | null = element;
+            while (current) {
+                const style = getComputedStyle(current);
+                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
+                    return false;
+                }
+                current = current.parentElement;
+            }
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        };
+        const capture = () => {
+            const host = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+            const viewportHost = chassis?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+            const transitionSurface = host?.querySelector<HTMLElement>('.document-viewer-chassis__opening-page') ?? null;
+            const transitionShell = transitionSurface?.querySelector<HTMLElement>('[data-page-number]') ?? transitionSurface;
+            const transitionRect = transitionShell?.getBoundingClientRect() ?? null;
+            const viewportRect = viewportHost?.getBoundingClientRect() ?? null;
+            const nativeViewer = host?.querySelector<HTMLElement>('.native-pdf-viewer-container') ?? null;
+            testWindow.__nativePdfOpeningFrames!.push({
+                capturedAtMs: performance.now(),
+                claimed: viewportHost?.dataset.openSurfacePhase !== undefined
+                    && viewportHost.dataset.openSurfacePhase !== 'idle'
+                    && (chassis?.dataset.openSurfaceDocumentId ?? '').length > 0,
+                committedRasterVisible: Array.from(
+                    host?.querySelectorAll<HTMLElement>('.native-pdf-page-content.document-page-visual--committed') ?? [],
+                ).some(isVisible),
+                documentId: chassis?.dataset.openSurfaceDocumentId ?? '',
+                emptyStateVisible: Array.from(host?.querySelectorAll<HTMLElement>('.empty-state') ?? []).some(isVisible),
+                generation: Number(chassis?.dataset.openSurfaceGeneration ?? 0),
+                nativeSkeletonVisible: Array.from(
+                    nativeViewer?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
+                ).some(isVisible),
+                nativeViewerVisible: isVisible(nativeViewer),
+                transitionShellRect: transitionRect ? {
+                    height: transitionRect.height,
+                    left: transitionRect.left,
+                    top: transitionRect.top,
+                    width: transitionRect.width,
+                } : null,
+                transitionSkeletonCount: Array.from(
+                    transitionSurface?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
+                ).filter(isVisible).length,
+                transitionCoversViewport: transitionRect !== null
+                    && viewportRect !== null
+                    && Math.min(transitionRect.right, viewportRect.right, window.innerWidth)
+                        > Math.max(transitionRect.left, viewportRect.left, 0)
+                    && Math.min(transitionRect.bottom, viewportRect.bottom, window.innerHeight)
+                        > Math.max(transitionRect.top, viewportRect.top, 0),
+                transitionSurfaceVisible: isVisible(transitionSurface),
+                viewportLifecycle: chassis?.dataset.viewportLifecycle ?? '',
+            });
+            testWindow.__nativePdfOpeningAnimationFrame = requestAnimationFrame(capture);
+        };
+        capture();
+    });
+}
+
+export async function stopNativePdfOpeningSampler(page: Page): Promise<INativePdfOpeningFrame[]> {
+    return evaluateInPage(page, () => {
+        const testWindow = window as typeof window & {
+            __nativePdfOpeningAnimationFrame?: number;
+            __nativePdfOpeningFrames?: INativePdfOpeningFrame[];
+        };
+        if (testWindow.__nativePdfOpeningAnimationFrame !== undefined) {
+            cancelAnimationFrame(testWindow.__nativePdfOpeningAnimationFrame);
+        }
+        const frames = testWindow.__nativePdfOpeningFrames ?? [];
+        delete testWindow.__nativePdfOpeningAnimationFrame;
+        delete testWindow.__nativePdfOpeningFrames;
+        return frames;
+    });
+}
+
 export async function readNativePdfPreviewState(page: Page) {
-    const domState = await evaluateInPage(page, () => {
+    const domState = await evaluateInPage(page, (rasterWidthCeilingPx: number) => {
         const isElementVisible = (element: HTMLElement | null) => {
             if (!element?.isConnected) {
                 return false;
@@ -79,7 +192,10 @@ export async function readNativePdfPreviewState(page: Page) {
             )).length,
             renderedImageSizes: renderedImages.slice(0, 4).map(image => ({
                 height: image.naturalHeight,
-                requiredWidth: Math.ceil(image.getBoundingClientRect().width * Math.min(window.devicePixelRatio || 1, 2)),
+                requiredWidth: Math.min(
+                    rasterWidthCeilingPx,
+                    Math.ceil(image.getBoundingClientRect().width * Math.min(window.devicePixelRatio || 1, 2)),
+                ),
                 width: image.naturalWidth,
             })),
             imageCountPerShell: Array.from(container?.querySelectorAll<HTMLElement>('.native-pdf-page-shell') ?? [])
@@ -89,7 +205,7 @@ export async function readNativePdfPreviewState(page: Page) {
             standardPdfViewerVisible: isElementVisible(standardPdfViewer),
             transitionSurfaceCount: host?.querySelectorAll('.document-viewer-chassis__opening-page').length ?? 0,
         };
-    });
+    }, PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX);
     const toolbar = await getWorkspaceToolbarSnapshot(page);
     return {
         ...domState,
@@ -97,7 +213,7 @@ export async function readNativePdfPreviewState(page: Page) {
     };
 }
 export async function readNativePdfPreviewLoadingState(page: Page) {
-    const domState = await evaluateInPage(page, () => {
+    const domState = await evaluateInPage(page, (rasterWidthCeilingPx: number) => {
         const isElementVisible = (element: HTMLElement | null) => {
             if (!element?.isConnected) {
                 return false;
@@ -176,10 +292,27 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
         const pageImages = Array.from(container?.querySelectorAll<HTMLImageElement>('.native-pdf-page-shell img') ?? []);
         const renderedImages = pageImages
             .filter(image => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
-        const visibleRenderedImages = renderedImages.filter(isElementVisible);
         const transitionPageShellRect = toRect(transitionPageShell);
         const openSurfacePhase = viewportHost?.dataset.openSurfacePhase ?? '';
         const openSurfacePresentation = chassis?.dataset.openSurfacePresentation ?? '';
+        const visibleRenderedImages = renderedImages.filter(isElementVisible);
+        const visibleCommittedRasters = renderedImages.filter(image => (
+            openSurfacePresentation !== 'page-shell'
+            && elementIntersectsCanonicalViewport(image, viewportHost)
+            && image.closest('.native-pdf-page-content')?.classList.contains('document-page-visual--committed')
+        )).map((image) => {
+            const shell = image.closest<HTMLElement>('.native-pdf-page-shell');
+            const requiredWidth = Math.min(
+                rasterWidthCeilingPx,
+                Math.ceil(image.getBoundingClientRect().width * Math.min(window.devicePixelRatio || 1, 2)),
+            );
+            return {
+                highResolution: image.naturalWidth >= requiredWidth,
+                naturalWidth: image.naturalWidth,
+                pageNumber: Number(shell?.dataset.pageNumber ?? 0),
+                requiredWidth,
+            };
+        });
         const openSurfaceClaimed = isElementVisible(chassis)
             && openSurfacePhase !== ''
             && openSurfacePhase !== 'idle'
@@ -225,6 +358,9 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
             pageShellRects: pageShells.filter(isElementVisible).slice(0, 4).map(toRect),
             renderedImages: renderedImages.length,
             visibleRenderedImages: visibleRenderedImages.length,
+            visibleCommittedRasters,
+            highResolutionVisibleRasterCount: visibleCommittedRasters.filter(raster => raster.highResolution).length,
+            lowResolutionVisibleRasterCount: visibleCommittedRasters.filter(raster => !raster.highResolution).length,
             pendingDecodedImages: pageImages.filter(image => (
                 !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0
             )).length,
@@ -240,7 +376,7 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
                 width: window.innerWidth,
             },
         };
-    });
+    }, PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX);
     const toolbar = await getWorkspaceToolbarSnapshot(page);
     return {
         ...domState,

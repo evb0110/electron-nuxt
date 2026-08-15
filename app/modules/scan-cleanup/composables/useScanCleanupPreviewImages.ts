@@ -11,7 +11,7 @@ import {
     type IScanCleanupPreviewPresentationPin,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentationPin';
 
-export interface IScanCleanupDisplayedCleanedFrame<TPresentation> {
+interface IScanCleanupDisplayedCleanedFrame<TPresentation> {
     presentation: TPresentation;
     result: IScanCleanupPreviewResult;
     transitionKey: string;

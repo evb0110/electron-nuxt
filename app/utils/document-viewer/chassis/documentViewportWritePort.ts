@@ -18,6 +18,8 @@ export interface IDocumentViewportWritePort {
     advanceDocumentRevision(): number;
     assertNoRogueWrite(container: HTMLElement): void;
     consumeAuthorityScroll(container: HTMLElement): boolean;
+    getInteractionEpoch(): number;
+    observeUserInteraction(): void;
     observeUserScroll(container: HTMLElement): void;
 }
 
@@ -43,6 +45,10 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
         left: container.scrollLeft,
         top: container.scrollTop,
     });
+    const observeUserInteraction = () => {
+        interactionEpoch += 1;
+        activeIntent = null;
+    };
 
     return {
         beginIntent(intentId) {
@@ -102,9 +108,10 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             record(container);
             return true;
         },
+        getInteractionEpoch: () => interactionEpoch,
+        observeUserInteraction,
         observeUserScroll(container) {
-            interactionEpoch += 1;
-            activeIntent = null;
+            observeUserInteraction();
             authorityWrites.delete(container);
             record(container);
         },

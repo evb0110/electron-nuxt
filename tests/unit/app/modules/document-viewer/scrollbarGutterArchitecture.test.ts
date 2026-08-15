@@ -24,7 +24,7 @@ function collectStyleSources(directory: string): string[] {
 }
 
 describe('balanced scrollbar-gutter architecture', () => {
-    it('defines one shared balanced policy without one-sided component overrides', () => {
+    it('defines one shared balanced policy without one-sided CSS overrides', () => {
         const sharedStyles = read('app/assets/css/main.css');
         expect(sharedStyles).toMatch(
             /\.app-scrollbar\s*\{[^}]*scrollbar-color:/su,
@@ -54,7 +54,6 @@ describe('balanced scrollbar-gutter architecture', () => {
             'app/components/document-viewer/DocumentBookmarkTree.vue',
             'app/components/document-viewer/DocumentSearchResults.vue',
             'app/components/document-viewer/DocumentThumbnailRail.vue',
-            'app/modules/native-pdf-viewer/components/NativePdfViewer.vue',
             'app/modules/ocr-panel/components/OcrPopup.vue',
             'app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue',
             'app/modules/pdf-viewer/components/PdfEmptyState.vue',
@@ -71,7 +70,6 @@ describe('balanced scrollbar-gutter architecture', () => {
             'app/modules/pdf-viewer/components/PdfToolbar.vue',
             'app/modules/workspace-shell/components/layout/TabBar.vue',
         ];
-        const documentScrollRoots = ['app/modules/workspace-shell/components/DocumentViewerChassis.vue'];
         const dormantVendorScrollers = ['app/assets/css/vendor/pdfjs-viewer-sanitized.css'];
         const actual = collectStyleSources(join(root, 'app'))
             .filter(path => scrollDeclaration.test(readFileSync(path, 'utf8')))
@@ -82,19 +80,12 @@ describe('balanced scrollbar-gutter architecture', () => {
             ...locallyBalanced,
             ...balancedByOwningComponent,
             ...horizontalOrHidden,
-            ...documentScrollRoots,
             ...dormantVendorScrollers,
         ].sort());
         for (const path of locallyBalanced) {
             expect(read(path), path).toMatch(
                 /app-scroll-region--balanced|app-panel-scroll|scrollbar-gutter:\s*stable both-edges/u,
             );
-        }
-
-        for (const path of documentScrollRoots) {
-            expect(read(path), path).toMatch(/overflow-y:\s*scroll/u);
-            expect(read(path), path).toMatch(/scrollbar-gutter:\s*auto/u);
-            expect(read(path), path).not.toContain('app-scroll-region--balanced');
         }
 
         // The companion templates own the shared class for split Vue/CSS files.
@@ -158,10 +149,14 @@ describe('balanced scrollbar-gutter architecture', () => {
         const openSurface = read(
             'app/utils/document-viewer/chassis/documentOpenSurfaceSession.ts',
         );
+        const chassis = read('app/modules/workspace-shell/components/DocumentViewerChassis.vue');
         const sidebarShell = read('app/components/sidebar/AppSidebarShell.vue');
         const pdfSidebar = read('app/modules/pdf-viewer/components/PdfSidebar.vue');
 
-        expect(openSurface).toContain('scrollbarGutter: \'auto\'');
+        expect(openSurface).toContain('scrollbarGutter: \'stable\'');
+        expect(chassis).toContain('scrollbarGutter: policy.scrollbarGutter');
+        expect(chassis).not.toMatch(/scrollbar-gutter:\s*(?:auto|stable)/u);
+        expect(chassis).not.toContain('app-scroll-region--balanced');
         expect(sidebarShell).toContain('outerScroll = false');
         expect(pdfSidebar).toContain(':outer-scroll="false"');
         expect(pdfSidebar).not.toMatch(/:outer-scroll="[^"]*activeTab/u);

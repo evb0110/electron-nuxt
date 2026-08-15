@@ -228,4 +228,99 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         expect(writes).not.toContain(120);
         scope.stop();
     });
+
+    it('cancels a queued geometry restore when navigation supersedes its anchor', async () => {
+        const frames: FrameRequestCallback[] = [];
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(120);
+        const pageLayouts = ref([
+            {
+                top: 0,
+                width: 100,
+                height: 100,
+            },
+            {
+                top: 120,
+                width: 100,
+                height: 100,
+            },
+        ]);
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts,
+            captureRestoreEpoch: () => 1,
+            canRestore: () => true,
+            applyRestoredScroll: restored => {
+                viewport.scrollTop = restored.top;
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+
+        pageLayouts.value = [
+            {
+                top: 0,
+                width: 100,
+                height: 500,
+            },
+            {
+                top: 520,
+                width: 100,
+                height: 100,
+            },
+        ];
+        await nextTick();
+        await vi.waitFor(() => expect(frames).toHaveLength(1));
+        lifecycle.cancelPendingRestore();
+        viewport.scrollTop = 4_200;
+        frames.splice(0).forEach(callback => callback(0));
+
+        expect(viewport.scrollTop).toBe(4_200);
+        scope.stop();
+    });
+
+    it('fences the post-frame half of a layout transaction after user supersession', async () => {
+        const frames: FrameRequestCallback[] = [];
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(120);
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts: ref([
+                {
+                    top: 0,
+                    width: 100,
+                    height: 100,
+                },
+                {
+                    top: 120,
+                    width: 100,
+                    height: 100,
+                },
+            ]),
+            captureRestoreEpoch: () => 1,
+            canRestore: () => true,
+            applyRestoredScroll: restored => {
+                viewport.scrollTop = restored.top;
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+
+        const transaction = lifecycle.beginLayoutTransaction();
+        const ending = lifecycle.endLayoutTransaction(transaction);
+        await vi.waitFor(() => expect(frames).toHaveLength(1));
+        lifecycle.cancelPendingRestore();
+        viewport.scrollTop = 4_200;
+        frames.splice(0).forEach(callback => callback(0));
+        await ending;
+
+        expect(viewport.scrollTop).toBe(4_200);
+        scope.stop();
+    });
 });

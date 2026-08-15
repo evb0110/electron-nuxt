@@ -413,6 +413,8 @@ export interface IPdfNativePagePreviewOptions {
     targetWidthPx?: number;
 }
 
+export const PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX = 4_096;
+
 export interface IPdfNativePagePreview {
     bytes: Uint8Array;
     width: number;

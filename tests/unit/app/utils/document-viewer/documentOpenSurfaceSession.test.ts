@@ -238,6 +238,13 @@ describe('document open surface session', () => {
             committedPage: 1,
             observedPage: 6,
         });
+        expect(session.invalidateResidentVisual(1)).toBe(false);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 6,
+        });
 
         session.requestNavigation(12);
         expect(session.viewportSession.value.lifecycle).toBe('transitioning');
@@ -434,7 +441,7 @@ describe('document open surface session', () => {
         vi.useRealTimers();
     });
 
-    it('invalidates source-page geometry when empty-surface navigation targets another page', () => {
+    it('retargets empty-surface ownership without resizing its measured opening shell', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = session.beginPrepared({
             documentId: 'scan.pdf',
@@ -466,8 +473,18 @@ describe('document open surface session', () => {
         expect(session.snapshot.value).toMatchObject({
             generation,
             presentation: 'page-shell',
-            openingPageGeometry: null,
-            openingPageFrame: null,
+            openingPageGeometry: {
+                pageNumber: 7,
+                width: 612,
+                height: 792,
+            },
+            openingPageFrame: {
+                pageNumber: 7,
+                style: {
+                    width: '612px',
+                    height: '792px',
+                },
+            },
         });
         expect(session.viewportSession.value.requestedPage).toBe(7);
         expect(session.viewportSession.value).toMatchObject({
@@ -502,10 +519,20 @@ describe('document open surface session', () => {
         }))).toBe(true);
 
         const previousIntent = session.viewportSession.value.viewportIntent?.id;
+        const previousGeometry = session.snapshot.value.geometry;
+        const previousFrameStyle = session.snapshot.value.openingPageFrame?.style;
         expect(session.requestNavigation(18)).toBe(18);
         expect(session.viewportSession.value.viewportIntent?.id).not.toBe(previousIntent);
-        expect(session.snapshot.value.openingPageGeometry).toBeNull();
-        expect(session.snapshot.value.openingPageFrame).toBeNull();
+        expect(session.snapshot.value.geometry).toEqual(previousGeometry);
+        expect(session.snapshot.value.openingPageGeometry).toMatchObject({
+            pageNumber: 18,
+            width: 600,
+            height: 800,
+        });
+        expect(session.snapshot.value.openingPageFrame).toMatchObject({
+            pageNumber: 18,
+            style: previousFrameStyle,
+        });
         expect(session.viewportSession.value).toMatchObject({
             requestedPage: 18,
             visual: {
@@ -1660,7 +1687,7 @@ describe('document open surface session', () => {
         const generation = beginSurface(session, 'a.pdf', 'rev-a');
         expect(resolveDocumentOpenSurfaceViewportPolicy(session.snapshot.value)).toEqual({
             overflow: 'hidden',
-            scrollbarGutter: 'auto',
+            scrollbarGutter: 'stable',
             committedMargin: null,
         });
         session.commitGeometry(generation, {
@@ -1677,7 +1704,7 @@ describe('document open surface session', () => {
 
         expect(resolveDocumentOpenSurfaceViewportPolicy(session.snapshot.value)).toEqual({
             overflow: 'auto',
-            scrollbarGutter: 'auto',
+            scrollbarGutter: 'stable',
             committedMargin: 20,
         });
     });
