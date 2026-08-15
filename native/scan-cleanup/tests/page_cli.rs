@@ -2483,6 +2483,7 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
     );
     assert_eq!(String::from_utf8_lossy(&result.stderr), "");
     let mut content_sizes = Vec::new();
+    let mut binarization_diagnostics = Vec::new();
     for (path, metadata_path, expected_half) in [
         (&output_left, &metadata_left, "left"),
         (&output_right, &metadata_right, "right"),
@@ -2508,6 +2509,7 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
         assert_eq!(metadata_json["canvasWidthPx"], 100);
         assert_eq!(metadata_json["canvasHeightPx"], 320);
         assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
+        binarization_diagnostics.push(metadata_json["binarizationDiagnostics"].clone());
         content_sizes.push((
             metadata_json["matchedCanvasContentWidthPx"]
                 .as_u64()
@@ -2523,6 +2525,14 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
             content_width * 2 > 100 && content_height * 2 > 320,
             "a half was padded into the canvas instead of filling it ({content_width}x{content_height})"
         );
+    }
+    assert_eq!(binarization_diagnostics.len(), 2);
+    for diagnostics in &binarization_diagnostics {
+        assert_eq!(diagnostics["route"], "otsu");
+        assert_eq!(diagnostics["spreadPlan"]["decision"], "sharedJoint");
+        assert_eq!(diagnostics["spreadPlan"]["jointCandidateRoute"], "otsu");
+        assert_eq!(diagnostics["spreadPlan"]["leftCandidateRoute"], "otsu");
+        assert_eq!(diagnostics["spreadPlan"]["rightCandidateRoute"], "otsu");
     }
 }
 

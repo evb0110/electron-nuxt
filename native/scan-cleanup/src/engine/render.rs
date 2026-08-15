@@ -1147,8 +1147,7 @@ struct PreparedPage<'a> {
     analysis_normalized: Option<Arc<GrayImage>>,
     canonical_routing_source: Arc<GrayImage>,
     canonical_routing_dpi: f64,
-    canonical_routing_scale_x: f64,
-    canonical_routing_scale_y: f64,
+    canonical_regions: Vec<(Rect, PageHalf)>,
     analysis_scale_x: f64,
     analysis_scale_y: f64,
     calibration: PageCalibration,
@@ -2679,8 +2678,7 @@ fn clean_page_with_color_and_calibration_config(
         analysis_normalized,
         canonical_routing_source,
         canonical_routing_dpi,
-        canonical_routing_scale_x,
-        canonical_routing_scale_y,
+        canonical_regions,
         analysis_scale_x,
         analysis_scale_y,
         calibration,
@@ -2709,16 +2707,13 @@ fn clean_page_with_color_and_calibration_config(
         &split,
         options.layout,
     );
-    let canonical_regions = regions
+    debug_assert!(canonical_regions
         .iter()
-        .map(|(region, _)| {
-            Rect::new(
-                region.x * canonical_routing_scale_x,
-                region.y * canonical_routing_scale_y,
-                region.width * canonical_routing_scale_x,
-                region.height * canonical_routing_scale_y,
-            )
-        })
+        .zip(&regions)
+        .all(|((_, canonical_half), (_, working_half))| canonical_half == working_half));
+    let canonical_regions = canonical_regions
+        .into_iter()
+        .map(|(region, _)| region)
         .collect::<Vec<_>>();
     let canonical_routing_inputs = canonical_regions
         .iter()
@@ -2906,6 +2901,33 @@ fn prepare_page<'a>(
             prepared_analysis.full_height,
         );
     }
+    // Preserve the exact canonical leaf rectangles before the split is scaled
+    // onto the working raster. Mapping rounded working rectangles back into
+    // canonical pixels can move a crop edge by one sample at nearby DPIs and
+    // reopen the very route instability the fixed plane is meant to remove.
+    let canonical_scale_x = prepared_analysis.canonical_routing_source.width() as f64
+        / prepared_analysis.normalized.width().max(1) as f64;
+    let canonical_scale_y = prepared_analysis.canonical_routing_source.height() as f64
+        / prepared_analysis.normalized.height().max(1) as f64;
+    let canonical_regions = output_regions(
+        prepared_analysis.normalized.width(),
+        prepared_analysis.normalized.height(),
+        &prepared_analysis.split,
+        options.layout,
+    )
+    .into_iter()
+    .map(|(region, half)| {
+        (
+            Rect::new(
+                region.x * canonical_scale_x,
+                region.y * canonical_scale_y,
+                region.width * canonical_scale_x,
+                region.height * canonical_scale_y,
+            ),
+            half,
+        )
+    })
+    .collect();
     if canonical_analysis.is_some() {
         let canonical_to_working_x =
             prepared_analysis.full_width as f64 / working_width.max(1) as f64;
@@ -3102,18 +3124,13 @@ fn prepare_page<'a>(
     };
     timings.quality_normalization_ms +=
         quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
-    let canonical_routing_scale_x =
-        canonical_routing_source.width() as f64 / normalized.width().max(1) as f64;
-    let canonical_routing_scale_y =
-        canonical_routing_source.height() as f64 / normalized.height().max(1) as f64;
     PreparedPage {
         rotated_source,
         normalized,
         analysis_normalized,
         canonical_routing_source,
         canonical_routing_dpi,
-        canonical_routing_scale_x,
-        canonical_routing_scale_y,
+        canonical_regions,
         analysis_scale_x: scale_x,
         analysis_scale_y: scale_y,
         calibration,

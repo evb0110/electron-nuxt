@@ -131,8 +131,13 @@ mod tests {
                 let mut options = entry.options.clone();
                 options.dpi = dpi;
                 options.skip_blank_pages = true;
+                let scale = dpi / entry.dpi.max(1.0);
+                let working = entry.image.resample_to_dimensions(
+                    ((entry.image.width() as f64 * scale).round() as usize).max(1),
+                    ((entry.image.height() as f64 * scale).round() as usize).max(1),
+                );
                 let result = clean_page_with_canonical_analysis(
-                    &entry.image,
+                    &working,
                     CanonicalAnalysisPlane {
                         gray: &entry.image,
                         color: None,

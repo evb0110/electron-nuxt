@@ -1831,10 +1831,6 @@ async function runPreview(
                     : resolvePagePreviewDpi(pageSize, dpi);
                 previewRasterPlan = {
                     dpi,
-                    detectionDpiByPageNumber: new Map([[
-                        request.pageNumber,
-                        Math.min(DETECTION_DPI, renderDpi),
-                    ]]),
                     pageDpiByNumber: new Map([[
                         request.pageNumber,
                         sourceDpiCandidate,

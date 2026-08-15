@@ -154,20 +154,14 @@ export function resolvePreviewRasterPlan(
     documentDpi = documentDpi > 0 ? documentDpi : PREVIEW_DPI;
     const dpi = Math.min(PREVIEW_DPI, documentDpi);
     const renderDpiByPageNumber = new Map<number, number>();
-    const detectionDpiByPageNumber = new Map<number, number>();
     for (const pageSize of pageSizes ?? []) {
         const sourceDpi = pageDpiByNumber.get(pageSize.pageNumber);
         const requestedDpi = Math.min(PREVIEW_DPI, sourceDpi ?? dpi);
         const renderDpi = resolvePagePreviewDpi(pageSize, requestedDpi);
         renderDpiByPageNumber.set(pageSize.pageNumber, renderDpi);
-        detectionDpiByPageNumber.set(
-            pageSize.pageNumber,
-            Math.min(DETECTION_DPI, renderDpi),
-        );
     }
     return {
         dpi,
-        detectionDpiByPageNumber,
         pageDpiByNumber,
         renderDpiByPageNumber,
     };
@@ -895,8 +889,6 @@ export async function runScanCleanupDetection<TDocument>(
             const sourceBackgroundDpi = sourceRasterStructure.backgroundDpiByPage?.get(pageNumber);
             return {
                 inputPath: renderedPaths.get(pageNumber) ?? retained.get(pageNumber)!.path,
-                analysisInputPath: renderedPaths.get(pageNumber) ?? retained.get(pageNumber)!.path,
-                analysisDpi: DETECTION_DPI,
                 pageNumber,
                 dpi: detectionDpiForPage(pageNumber),
                 sourceDpi: previewRasterPlan.pageDpiByNumber.get(pageNumber)

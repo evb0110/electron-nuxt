@@ -3494,9 +3494,14 @@ describe('scan cleanup preview', () => {
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             await firstRasterStarted.promise;
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                analysisInputPath?: string;
+                analysisDpi?: number;
                 inputPath: string;
                 sourcePageIndex: number;
             }>};
+            expect(manifest.pages.every(page =>
+                page.analysisInputPath === undefined && page.analysisDpi === undefined,
+            )).toBe(true);
             await writeDetectionMetadata(manifestPath);
             const waitForDelivery = async (page: typeof manifest.pages[number]) => {
                 await vi.waitFor(async () => {
@@ -3804,8 +3809,7 @@ describe('scan cleanup preview', () => {
         let manifestDpiByPage = new Map<number, {
             dpi: number;
             sourceDpi: number
-            analysisDpi: number;
-            hasCanonicalPair: boolean;
+            hasSeparateCanonicalInput: boolean;
         }>();
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
@@ -3823,8 +3827,8 @@ describe('scan cleanup preview', () => {
                 {
                     dpi: page.options.dpi,
                     sourceDpi: page.options.sourceDpi,
-                    analysisDpi: page.analysisDpi ?? 0,
-                    hasCanonicalPair: page.analysisInputPath === page.inputPath,
+                    hasSeparateCanonicalInput:
+                        page.analysisInputPath !== undefined || page.analysisDpi !== undefined,
                 },
             ]));
             await writeDetectionMetadata(manifestPath);
@@ -3868,20 +3872,17 @@ describe('scan cleanup preview', () => {
             1: {
                 dpi: 150,
                 sourceDpi: 100,
-                analysisDpi: 150,
-                hasCanonicalPair: true,
+                hasSeparateCanonicalInput: false,
             },
             2: {
                 dpi: 150,
                 sourceDpi: 300,
-                analysisDpi: 150,
-                hasCanonicalPair: true,
+                hasSeparateCanonicalInput: false,
             },
             3: {
                 dpi: 150,
                 sourceDpi: 150,
-                analysisDpi: 150,
-                hasCanonicalPair: true,
+                hasSeparateCanonicalInput: false,
             },
         });
     });

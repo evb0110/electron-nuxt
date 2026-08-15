@@ -64,7 +64,5 @@ describe('scan cleanup detection raster plan', () => {
         expect(plan.dpi).toBe(150);
         expect(plan.pageDpiByNumber.get(1)).toBe(360);
         expect(plan.pageDpiByNumber.get(2)).toBe(82);
-        expect(plan.detectionDpiByPageNumber.get(1)).toBe(150);
-        expect(plan.detectionDpiByPageNumber.get(2)).toBe(82);
     });
 });

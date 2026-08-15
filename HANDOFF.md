@@ -37,9 +37,11 @@ weighting has been hidden to make the raw count green.
    analysis input rather than writing raw PPMs. The measured canonical PPM is
    10,687,715 bytes/page, now bounded by raster concurrency rather than retained
    for the entire book.
-5. **Preview parity — corrected.** Preview, final, lossless analysis, and
-   detection all pass the paired canonical path/DPI contract. The preview
-   harness reports placement identity true and no violations.
+5. **Preview parity — corrected.** Preview, final, and lossless analysis pass
+   the paired canonical path/DPI contract. Detection's primary input is already
+   the canonical 150-DPI raster, so it deliberately omits a duplicate analysis
+   path (especially for its one-shot FIFO transport). The preview harness
+   reports placement identity true and no violations.
 6. **Stroke-width units — restored.** `estimated_stroke_width_px` again includes
    the internal routing-sample scale and is expressed in full input pixels. Its
    permanent unit test guards the Sauvola/UI contract; R19 is not included.

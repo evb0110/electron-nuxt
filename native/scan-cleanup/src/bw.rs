@@ -2066,7 +2066,7 @@ fn leaf_plan<F>(
     estimated_stroke_width_px: f64,
     options: &CleanupOptions,
     spread_calibration: PageCalibration,
-    working_dpi: f64,
+    canonical_dpi: f64,
     document_stroke_width_px: Option<f64>,
     document_x_height_px: Option<f64>,
     route_diagnostics: BinarizationDiagnostics,
@@ -2084,12 +2084,12 @@ where
     ) -> SpreadBinarizationPlanDiagnostics,
 {
     let x_height_anchor_px = if leaf_calibration.valid {
-        leaf_x_height(leaf_calibration, None, spread_calibration, working_dpi)
+        leaf_x_height(leaf_calibration, None, spread_calibration, canonical_dpi)
     } else {
         document_x_height_px
             .filter(|value| value.is_finite() && *value > 0.0)
             .unwrap_or_else(|| {
-                leaf_x_height(leaf_calibration, None, spread_calibration, working_dpi)
+                leaf_x_height(leaf_calibration, None, spread_calibration, canonical_dpi)
             })
     };
     let threshold_radius =
@@ -2101,7 +2101,7 @@ where
                 leaf_calibration,
                 estimated_stroke_width_px,
                 spread_calibration,
-                working_dpi,
+                canonical_dpi,
             )
         });
     let mut plan_diagnostics = diagnostics(
@@ -4334,6 +4334,15 @@ mod tests {
             }
         }
         let routing_right = routing_left.clone();
+        let working_left = routing_left.clone();
+        let mut working_right = GrayImage::new(128, 192, 242);
+        for y in 20..172 {
+            for x in (12..116).step_by(13) {
+                for stroke_x in x..x + 3 {
+                    working_right.set(stroke_x, y, 198);
+                }
+            }
+        }
         let mut routing_joint = GrayImage::new(256, 192, 242);
         for y in 0..192 {
             for x in 0..128 {
@@ -4378,6 +4387,34 @@ mod tests {
             "working DPI must not reopen canonical spread reconciliation: {decisions:?}"
         );
         assert!(routes.windows(2).all(|pair| pair[0] == pair[1]));
+
+        let options = CleanupOptions {
+            dpi: 300.0,
+            normalize_illumination: false,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+        let calibration =
+            PageCalibration::estimate(&routing_joint, 150.0, CalibrationConfig::default());
+        let substituted = resolve_spread_binarization_plans(
+            &routing_joint,
+            &routing_left,
+            &routing_right,
+            &working_left,
+            &working_right,
+            None,
+            None,
+            300.0,
+            &options,
+            calibration,
+            Some(2.5),
+            Some(18.0),
+        );
+        assert_ne!(
+            substituted.left.diagnostics.decision,
+            SpreadBinarizationPlanDecision::SharedJoint,
+            "the mutation control must fail when reconciliation reads working rasters"
+        );
     }
 
     #[test]
