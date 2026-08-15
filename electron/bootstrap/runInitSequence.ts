@@ -251,7 +251,7 @@ async function bootDevDockIcon(options: IRunInitSequenceOptions) {
 }
 
 function bootAboutPanel(options: IRunInitSequenceOptions) {
-    const appVersion = resolveApplicationVersion(options.app);
+    const appVersion = resolveApplicationVersion(options.app).split('+', 1)[0]!;
     options.app.setAboutPanelOptions({
         applicationName: 'EVB Viewer',
         applicationVersion: appVersion,

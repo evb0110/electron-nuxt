@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { runInitSequence } from '@electron/bootstrap/runInitSequence';
-import { developmentApplicationVersion } from '@electron/appVersion';
+import { canonicalBundledApplicationVersion } from '@electron/appVersion';
 import { config } from '@electron/config';
 import { DEFAULT_SETTINGS } from '@contracts/settings';
 
@@ -213,7 +213,16 @@ describe('runInitSequence external open IPC', () => {
         });
 
         expect(harness.app.setAboutPanelOptions).toHaveBeenCalledWith(expect.objectContaining({
-            applicationVersion: developmentApplicationVersion,
+            applicationVersion: canonicalBundledApplicationVersion,
+            version: 'Beta',
+        }));
+    });
+
+    it('omits build metadata from the About panel version', async () => {
+        const harness = await createHarness({appVersion: `0.1.387+${'a'.repeat(40)}`});
+
+        expect(harness.app.setAboutPanelOptions).toHaveBeenCalledWith(expect.objectContaining({
+            applicationVersion: '0.1.387',
             version: 'Beta',
         }));
     });
