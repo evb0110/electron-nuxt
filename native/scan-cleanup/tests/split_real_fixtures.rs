@@ -60,7 +60,7 @@ fn carried_cutter_finds_a_distant_same_side_fold_shadow() {
     let (left, right) = measured_fold_edges(&page, 1_003.0);
     assert_eq!(left, 1_003.0, "only the right leaf owns this shadow");
     assert!(
-        right >= 1_172.0,
+        (1_172.0..1_240.0).contains(&right),
         "offset shadow survived at {left}..{right}"
     );
 }
