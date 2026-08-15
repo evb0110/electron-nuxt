@@ -189,6 +189,7 @@ impl FoldBand {
 
     pub(crate) fn edges(self, cutter_x: f64, width: usize) -> (f64, f64) {
         let maximum = width as f64;
+        let cutter_x = cutter_x.clamp(0.0, maximum);
         match self {
             Self::Measured {
                 left_x_px,
@@ -2742,6 +2743,14 @@ fn mode_classification(mode: LayoutMode) -> LayoutClassification {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn measured_fold_edges_clamp_an_inconsistent_cutter_to_the_image() {
+        let band = FoldBand::measured(10.0, 90.0);
+
+        assert_eq!(band.edges(-5.0, 100), (0.0, 90.0));
+        assert_eq!(band.edges(105.0, 100), (10.0, 100.0));
+    }
 
     fn measured_fold_edges(split: &SplitResult) -> (f64, f64) {
         match split.diagnostics.fold_band {
