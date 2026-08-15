@@ -61,15 +61,15 @@
       }
     },
     "release-scripts": {
-      "fileCount": 27,
+      "fileCount": 28,
       "include": [
         "scripts/release/"
       ],
       "metrics": {
-        "statements": 47.93,
-        "branches": 51.1,
-        "functions": 53.28,
-        "lines": 47.36
+        "statements": 46.78,
+        "branches": 50.3,
+        "functions": 52.62,
+        "lines": 46.24
       }
     },
     "scan-cleanup-adapters": {
@@ -97,15 +97,15 @@
       }
     },
     "scripts-core": {
-      "fileCount": 159,
+      "fileCount": 162,
       "include": [
         "scripts/"
       ],
       "metrics": {
-        "statements": 33.61,
-        "branches": 33.78,
-        "functions": 39.45,
-        "lines": 33.89
+        "statements": 33.06,
+        "branches": 33.53,
+        "functions": 39.14,
+        "lines": 33.39
       }
     },
     "workspace-shell": {
