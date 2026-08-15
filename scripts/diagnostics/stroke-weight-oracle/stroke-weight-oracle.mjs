@@ -14,6 +14,7 @@
  */
 
 import {execFile} from 'node:child_process';
+import {readFileSync} from 'node:fs';
 import {
     access,
     mkdir,
@@ -31,29 +32,16 @@ import {promisify} from 'node:util';
 const execFileAsync = promisify(execFile);
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const helperPath = resolve(scriptDirectory, 'stroke_weight_oracle.py');
+const calibrationPath = resolve(scriptDirectory, 'calibration.json');
 const renderedMetricsPath = resolve(scriptDirectory, '../scan-cleanup-rendered-metrics.py');
 
 /**
  * Adjudicated on the Luther Vorwort specimen: see README.md. Changing any of
  * these values makes a report incomparable with the recorded baseline.
  */
-const CALIBRATION = Object.freeze({
-    componentAreaMinPx: 8,
-    // Twelve pixels excludes detached punctuation/diacritics whose naturally
-    // round blobs are not comparable to a letter-body ridge.
-    componentHeightMinPxAt300Dpi: 12,
-    componentHeightMaxPxAt300Dpi: 70,
-    componentWidthMinPxAt300Dpi: 2,
-    componentWidthMaxPxAt300Dpi: 200,
-    connectivity: 8,
-    lineClusterGapHeightFraction: 0.72,
-    localWindowMm: 32,
-    localWindowMinComponents: 7,
-    minimumLineComponents: 8,
-    offenderRatio: 1.6,
-});
+const CALIBRATION = Object.freeze(JSON.parse(readFileSync(calibrationPath, 'utf8')));
 
-const DEFAULT_IMAGE_DPI = 300;
+const DEFAULT_IMAGE_DPI = CALIBRATION.calibrationDpi;
 const PATH_FLAGS = new Set([
     '--out',
     '--pdf',
@@ -147,6 +135,8 @@ function parseArgs(argv) {
 function helperArguments(options) {
     const args = [
         helperPath,
+        '--calibration',
+        calibrationPath,
         '--window-mm',
         String(options.windowMm),
         '--ratio',
@@ -206,7 +196,7 @@ async function main() {
         }
         const measurement = await measure(options);
         const report = {
-            schemaVersion: 2,
+            schemaVersion: 3,
             oracle: 'component-ridge-width-local-line-median',
             label: options.label,
             inputs: {

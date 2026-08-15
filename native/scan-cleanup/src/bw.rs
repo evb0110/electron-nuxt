@@ -76,6 +76,921 @@ const WOLF_SOLID_STROKE_CEILING: u8 = 128;
 // few detached dark samples around an otherwise complete solid glyph.
 const WOLF_SOLID_MAXIMUM_DEEP_MISSING_DENOMINATOR: usize = 4;
 
+// These are the tracked stroke-weight oracle's calibration constants. The
+// production guard deliberately uses the same component census, line grouping,
+// 32 mm comparison population, and >1.6x decision boundary as the judge in
+// scripts/diagnostics/stroke-weight-oracle. Keep this as the single owner of
+// the Rust-side ridge-width measurement used by all three interventions below.
+const STROKE_BUDGET_CALIBRATION_DPI: f64 = 300.0;
+const STROKE_BUDGET_COMPONENT_AREA_MIN_PX: usize = 8;
+const STROKE_BUDGET_COMPONENT_HEIGHT_MIN_PX_AT_300_DPI: f64 = 12.0;
+const STROKE_BUDGET_COMPONENT_HEIGHT_MAX_PX_AT_300_DPI: f64 = 70.0;
+const STROKE_BUDGET_COMPONENT_WIDTH_MIN_PX_AT_300_DPI: f64 = 2.0;
+const STROKE_BUDGET_COMPONENT_WIDTH_MAX_PX_AT_300_DPI: f64 = 200.0;
+const STROKE_BUDGET_LINE_CLUSTER_GAP_HEIGHT_FRACTION: f64 = 0.72;
+const STROKE_BUDGET_MINIMUM_LINE_COMPONENTS: usize = 8;
+// A quarter of a line over tolerance is systemic/bimodal evidence, not the
+// sparse one-off weight defect this budget is allowed to rewrite.
+const STROKE_BUDGET_SYSTEMIC_OFFENDER_DENOMINATOR: usize = 4;
+const STROKE_BUDGET_LOCAL_WINDOW_MM: f64 = 32.0;
+const STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS: usize = 7;
+const STROKE_BUDGET_TOLERANCE_RATIO: f64 = 1.6;
+
+// OpenCV DIST_L2 with maskSize=5 is the oracle's distance transform. These
+// documented chamfer weights reproduce it without introducing a second width
+// proxy (maximum radius, run length, or area/extent) into the mechanism.
+const DISTANCE_L2_5_CARDINAL: u32 = 65_536;
+const DISTANCE_L2_5_DIAGONAL: u32 = 91_750;
+const DISTANCE_L2_5_KNIGHT: u32 = 143_976;
+const DISTANCE_L2_5_INFINITY: u32 = u32::MAX - DISTANCE_L2_5_KNIGHT;
+const DISTANCE_L2_5_SCALE: f32 = 1.0 / 65_536.0;
+
+#[derive(Clone, Debug)]
+struct StrokeBudgetComponent {
+    center_x: f64,
+    center_y: f64,
+    ridge_width_px: f64,
+}
+
+#[derive(Clone, Debug)]
+struct StrokeBudgetLine {
+    center_y: f64,
+    intervention_enabled: bool,
+    components: Vec<StrokeBudgetComponent>,
+}
+
+#[derive(Clone, Debug)]
+struct LineStrokeBudget {
+    dpi: f64,
+    minimum_component_area: usize,
+    maximum_center_gap: f64,
+    lines: Vec<StrokeBudgetLine>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LocalStrokeBudget {
+    median_width_px: f64,
+    maximum_width_px: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct InitialStrokeBudgetOffender {
+    label: u32,
+    maximum_width_px: f64,
+    before_width_px: f64,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LineStrokeBudgetInterventions {
+    raster_width: usize,
+    raster_height: usize,
+    source_components_normalized: usize,
+    source_pixels_removed: usize,
+    source_components_unreachable: usize,
+    smoothing_components_capped: usize,
+    smoothing_pixels_suppressed: usize,
+    rescue_components_capped: usize,
+    rescue_bridge_components_capped: usize,
+    rescue_pixels_suppressed: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StrokeBudgetAdditionStage {
+    Smoothing,
+    Rescue,
+}
+
+impl LineStrokeBudget {
+    fn from_binary(
+        source: &BinaryImage,
+        dpi: f64,
+    ) -> Option<(Self, Vec<InitialStrokeBudgetOffender>)> {
+        if source.width() == 0 || source.height() == 0 {
+            return None;
+        }
+        let map = ComponentMap::from_binary(source);
+        let eligibility = stroke_budget_eligibility(dpi);
+        let mut sums_x = vec![0u64; map.components().len() + 1];
+        let mut sums_y = vec![0u64; map.components().len() + 1];
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                let label = map.label_at(x, y) as usize;
+                if label != 0 {
+                    sums_x[label] += x as u64;
+                    sums_y[label] += y as u64;
+                }
+            }
+        }
+        let mut measured = Vec::new();
+        for component in map.components() {
+            let width = component.right - component.left + 1;
+            let height = component.bottom - component.top + 1;
+            if component.area < eligibility.minimum_area
+                || !(eligibility.minimum_height..=eligibility.maximum_height).contains(&height)
+                || !(eligibility.minimum_width..=eligibility.maximum_width).contains(&width)
+            {
+                continue;
+            }
+            let ridge_width_px = component_ridge_width(source, &map, component.label);
+            if ridge_width_px <= 0.0 {
+                continue;
+            }
+            measured.push((
+                component.label,
+                height,
+                StrokeBudgetComponent {
+                    center_x: sums_x[component.label as usize] as f64 / component.area as f64,
+                    center_y: sums_y[component.label as usize] as f64 / component.area as f64,
+                    ridge_width_px,
+                },
+            ));
+        }
+        if measured.len() < STROKE_BUDGET_MINIMUM_LINE_COMPONENTS {
+            return None;
+        }
+        let mut heights = measured
+            .iter()
+            .map(|(_, height, _)| *height as f64)
+            .collect::<Vec<_>>();
+        let median_height = median_f64(&mut heights)?;
+        let maximum_center_gap =
+            (STROKE_BUDGET_LINE_CLUSTER_GAP_HEIGHT_FRACTION * median_height).max(2.0);
+        measured.sort_by(|left, right| {
+            left.2
+                .center_y
+                .total_cmp(&right.2.center_y)
+                .then_with(|| left.2.center_x.total_cmp(&right.2.center_x))
+        });
+        let mut grouped = Vec::<Vec<(u32, StrokeBudgetComponent)>>::new();
+        for (label, _, component) in measured {
+            let mut best = None;
+            for (index, group) in grouped.iter().enumerate() {
+                let mut centers = group
+                    .iter()
+                    .map(|(_, item)| item.center_y)
+                    .collect::<Vec<_>>();
+                let center = median_f64(&mut centers).unwrap_or(component.center_y);
+                let distance = (component.center_y - center).abs();
+                if distance <= maximum_center_gap
+                    && best.is_none_or(|(_, best_distance)| distance < best_distance)
+                {
+                    best = Some((index, distance));
+                }
+            }
+            if let Some((index, _)) = best {
+                grouped[index].push((label, component));
+            } else {
+                grouped.push(vec![(label, component)]);
+            }
+        }
+        let mut lines = Vec::new();
+        let mut offenders = Vec::new();
+        for mut group in grouped {
+            if group.len() < STROKE_BUDGET_MINIMUM_LINE_COMPONENTS {
+                continue;
+            }
+            group.sort_by(|left, right| left.1.center_x.total_cmp(&right.1.center_x));
+            let mut centers = group
+                .iter()
+                .map(|(_, component)| component.center_y)
+                .collect::<Vec<_>>();
+            let center_y = median_f64(&mut centers).unwrap_or_default();
+            let components = group
+                .iter()
+                .map(|(_, component)| component.clone())
+                .collect::<Vec<_>>();
+            let mut line = StrokeBudgetLine {
+                center_y,
+                intervention_enabled: true,
+                components,
+            };
+            let mut line_offenders = Vec::new();
+            for (label, component) in &group {
+                if let Some(local_budget) = local_stroke_budget(&line, component.center_x, dpi) {
+                    if component.ridge_width_px > local_budget.maximum_width_px {
+                        line_offenders.push(InitialStrokeBudgetOffender {
+                            label: *label,
+                            maximum_width_px: local_budget.maximum_width_px,
+                            before_width_px: component.ridge_width_px,
+                        });
+                    }
+                }
+            }
+            line.intervention_enabled = line_offenders
+                .len()
+                .saturating_mul(STROKE_BUDGET_SYSTEMIC_OFFENDER_DENOMINATOR)
+                < group.len();
+            if line.intervention_enabled {
+                offenders.extend(line_offenders);
+            }
+            lines.push(line);
+        }
+        (!lines.is_empty()).then_some((
+            Self {
+                dpi,
+                minimum_component_area: eligibility.minimum_area,
+                maximum_center_gap,
+                lines,
+            },
+            offenders,
+        ))
+    }
+
+    fn local_budget_at(&self, center_x: f64, center_y: f64) -> Option<LocalStrokeBudget> {
+        let line = self
+            .lines
+            .iter()
+            .filter(|line| line.intervention_enabled)
+            .filter_map(|line| {
+                let distance = (line.center_y - center_y).abs();
+                (distance <= self.maximum_center_gap).then_some((line, distance))
+            })
+            .min_by(|left, right| left.1.total_cmp(&right.1))?
+            .0;
+        local_stroke_budget(line, center_x, self.dpi)
+    }
+}
+
+fn local_stroke_budget(
+    line: &StrokeBudgetLine,
+    center_x: f64,
+    dpi: f64,
+) -> Option<LocalStrokeBudget> {
+    let window_px = STROKE_BUDGET_LOCAL_WINDOW_MM * dpi.max(1.0) / 25.4;
+    let mut widths = line
+        .components
+        .iter()
+        .filter(|component| (component.center_x - center_x).abs() <= window_px)
+        .map(|component| component.ridge_width_px)
+        .collect::<Vec<_>>();
+    if widths.len() < STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS {
+        return None;
+    }
+    median_f64(&mut widths).map(|median_width_px| LocalStrokeBudget {
+        median_width_px,
+        maximum_width_px: median_width_px * STROKE_BUDGET_TOLERANCE_RATIO,
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StrokeBudgetEligibility {
+    minimum_area: usize,
+    minimum_height: usize,
+    maximum_height: usize,
+    minimum_width: usize,
+    maximum_width: usize,
+}
+
+fn stroke_budget_eligibility(dpi: f64) -> StrokeBudgetEligibility {
+    let scale = dpi.max(1.0) / STROKE_BUDGET_CALIBRATION_DPI;
+    // Rust's round is half-away-from-zero. The Python oracle deliberately uses
+    // the same rule; changing either side is covered by the conformance pin.
+    StrokeBudgetEligibility {
+        minimum_area: ((STROKE_BUDGET_COMPONENT_AREA_MIN_PX as f64) * (scale * scale).max(0.25))
+            .round()
+            .max(2.0) as usize,
+        minimum_height: (STROKE_BUDGET_COMPONENT_HEIGHT_MIN_PX_AT_300_DPI * scale)
+            .round()
+            .max(1.0) as usize,
+        maximum_height: (STROKE_BUDGET_COMPONENT_HEIGHT_MAX_PX_AT_300_DPI * scale)
+            .round()
+            .max(1.0) as usize,
+        minimum_width: (STROKE_BUDGET_COMPONENT_WIDTH_MIN_PX_AT_300_DPI * scale)
+            .round()
+            .max(1.0) as usize,
+        maximum_width: (STROKE_BUDGET_COMPONENT_WIDTH_MAX_PX_AT_300_DPI * scale)
+            .round()
+            .max(1.0) as usize,
+    }
+}
+
+fn median_f64(values: &mut [f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_unstable_by(f64::total_cmp);
+    let middle = values.len() / 2;
+    Some(if values.len() % 2 == 0 {
+        (values[middle - 1] + values[middle]) * 0.5
+    } else {
+        values[middle]
+    })
+}
+
+fn component_ridge_width(source: &BinaryImage, map: &ComponentMap, label: u32) -> f64 {
+    let Some(component) = map.components().get(label as usize - 1) else {
+        return 0.0;
+    };
+    let width = component.right - component.left + 1;
+    let height = component.bottom - component.top + 1;
+    let isolated = BinaryImage::from_fn_parallel(width, height, |x, y| {
+        map.label_at(component.left + x, component.top + y) == label
+            && source.get(component.left + x, component.top + y)
+    });
+    ridge_width_of_isolated_component(&isolated)
+}
+
+fn ridge_width_of_isolated_component(component: &BinaryImage) -> f64 {
+    if component.count_black() == 0 {
+        return 0.0;
+    }
+    let padding = 2usize;
+    let width = component.width() + padding * 2;
+    let height = component.height() + padding * 2;
+    let mut distances = vec![0u32; width * height];
+    for y in 0..component.height() {
+        for x in 0..component.width() {
+            if component.get(x, y) {
+                distances[(y + padding) * width + x + padding] = DISTANCE_L2_5_INFINITY;
+            }
+        }
+    }
+    for y in padding..height - padding {
+        for x in padding..width - padding {
+            let index = y * width + x;
+            if distances[index] != DISTANCE_L2_5_INFINITY {
+                continue;
+            }
+            distances[index] = distance_l2_5_forward(&distances, width, x, y);
+        }
+    }
+    for y in (padding..height - padding).rev() {
+        for x in (padding..width - padding).rev() {
+            let index = y * width + x;
+            if distances[index] == 0 {
+                continue;
+            }
+            distances[index] =
+                distances[index].min(distance_l2_5_backward(&distances, width, x, y));
+        }
+    }
+    let mut ridge = Vec::new();
+    for y in padding..height - padding {
+        for x in padding..width - padding {
+            let value = distances[y * width + x];
+            if value == 0 {
+                continue;
+            }
+            let mut local_maximum = 0u32;
+            for neighbor_y in y - 1..=y + 1 {
+                for neighbor_x in x - 1..=x + 1 {
+                    local_maximum = local_maximum.max(distances[neighbor_y * width + neighbor_x]);
+                }
+            }
+            if value == local_maximum {
+                ridge.push(f64::from(value as f32 * DISTANCE_L2_5_SCALE) * 2.0);
+            }
+        }
+    }
+    median_f64(&mut ridge).unwrap_or_default()
+}
+
+fn distance_l2_5_forward(distances: &[u32], width: usize, x: usize, y: usize) -> u32 {
+    [
+        distances[y * width + x - 1].saturating_add(DISTANCE_L2_5_CARDINAL),
+        distances[(y - 1) * width + x].saturating_add(DISTANCE_L2_5_CARDINAL),
+        distances[(y - 1) * width + x - 1].saturating_add(DISTANCE_L2_5_DIAGONAL),
+        distances[(y - 1) * width + x + 1].saturating_add(DISTANCE_L2_5_DIAGONAL),
+        distances[(y - 1) * width + x - 2].saturating_add(DISTANCE_L2_5_KNIGHT),
+        distances[(y - 2) * width + x - 1].saturating_add(DISTANCE_L2_5_KNIGHT),
+        distances[(y - 2) * width + x + 1].saturating_add(DISTANCE_L2_5_KNIGHT),
+        distances[(y - 1) * width + x + 2].saturating_add(DISTANCE_L2_5_KNIGHT),
+    ]
+    .into_iter()
+    .min()
+    .unwrap_or(DISTANCE_L2_5_INFINITY)
+}
+
+fn distance_l2_5_backward(distances: &[u32], width: usize, x: usize, y: usize) -> u32 {
+    [
+        distances[y * width + x + 1].saturating_add(DISTANCE_L2_5_CARDINAL),
+        distances[(y + 1) * width + x].saturating_add(DISTANCE_L2_5_CARDINAL),
+        distances[(y + 1) * width + x - 1].saturating_add(DISTANCE_L2_5_DIAGONAL),
+        distances[(y + 1) * width + x + 1].saturating_add(DISTANCE_L2_5_DIAGONAL),
+        distances[(y + 1) * width + x - 2].saturating_add(DISTANCE_L2_5_KNIGHT),
+        distances[(y + 2) * width + x - 1].saturating_add(DISTANCE_L2_5_KNIGHT),
+        distances[(y + 2) * width + x + 1].saturating_add(DISTANCE_L2_5_KNIGHT),
+        distances[(y + 1) * width + x + 2].saturating_add(DISTANCE_L2_5_KNIGHT),
+    ]
+    .into_iter()
+    .min()
+    .unwrap_or(DISTANCE_L2_5_INFINITY)
+}
+
+fn establish_line_stroke_budget(
+    source: &BinaryImage,
+    dpi: f64,
+) -> (
+    BinaryImage,
+    Option<LineStrokeBudget>,
+    LineStrokeBudgetInterventions,
+) {
+    let Some((budget, offenders)) = LineStrokeBudget::from_binary(source, dpi) else {
+        let interventions = LineStrokeBudgetInterventions {
+            raster_width: source.width(),
+            raster_height: source.height(),
+            ..LineStrokeBudgetInterventions::default()
+        };
+        return (source.clone(), None, interventions);
+    };
+    let initial_map = ComponentMap::from_binary(source);
+    let mut normalized = source.clone();
+    let mut interventions = LineStrokeBudgetInterventions {
+        raster_width: source.width(),
+        raster_height: source.height(),
+        ..LineStrokeBudgetInterventions::default()
+    };
+    for offender in offenders {
+        let Some(component) = initial_map.components().get(offender.label as usize - 1) else {
+            continue;
+        };
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let mut isolated = BinaryImage::from_fn_parallel(width, height, |x, y| {
+            initial_map.label_at(component.left + x, component.top + y) == offender.label
+        });
+        let Some((candidate, removed, current_width)) = normalize_offender_component(
+            &isolated,
+            offender.before_width_px,
+            offender.maximum_width_px,
+            budget.minimum_component_area,
+            &topology_preserving_boundary_removal,
+        ) else {
+            interventions.source_components_unreachable += 1;
+            continue;
+        };
+        isolated = candidate;
+        interventions.source_components_normalized += 1;
+        interventions.source_pixels_removed += removed;
+        if current_width > offender.maximum_width_px {
+            interventions.source_components_unreachable += 1;
+        }
+        for y in 0..height {
+            for x in 0..width {
+                if initial_map.label_at(component.left + x, component.top + y) == offender.label
+                    && !isolated.get(x, y)
+                {
+                    normalized.set(component.left + x, component.top + y, false);
+                }
+            }
+        }
+    }
+    (normalized, Some(budget), interventions)
+}
+
+fn line_stroke_budget_has_offenders(source: &BinaryImage, dpi: f64) -> bool {
+    LineStrokeBudget::from_binary(source, dpi).is_some_and(|(_, offenders)| !offenders.is_empty())
+}
+
+fn inactive_line_stroke_budget_interventions(
+    source: &BinaryImage,
+) -> LineStrokeBudgetInterventions {
+    LineStrokeBudgetInterventions {
+        raster_width: source.width(),
+        raster_height: source.height(),
+        ..LineStrokeBudgetInterventions::default()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_thresholded_with_line_budget(
+    thresholded: &BinaryImage,
+    normalized: &GrayImage,
+    raw_source: &GrayImage,
+    options: &CleanupOptions,
+    calibration: PageCalibration,
+    picture_mask: Option<&BinaryImage>,
+    text_vicinity: Option<&BinaryImage>,
+    requested_mode: BinarizationMode,
+    selected_mode: BinarizationMode,
+    spread_fallback: bool,
+    output_exclusion: Option<&BinaryImage>,
+) -> (BinaryImage, bool, LineStrokeBudgetInterventions) {
+    let mut preview_interventions = inactive_line_stroke_budget_interventions(thresholded);
+    let (preview, preview_fallback) = postprocess_binary_with_diagnostics_and_raw_budgeted(
+        thresholded,
+        Some(normalized),
+        Some(raw_source),
+        options,
+        calibration,
+        None,
+        &mut preview_interventions,
+    );
+    let preview = rescue_component_scoped_faint_strokes_budgeted(
+        &preview,
+        raw_source,
+        picture_mask,
+        text_vicinity,
+        None,
+        requested_mode,
+        selected_mode,
+        options.dpi,
+        spread_fallback,
+        None,
+        &mut preview_interventions,
+    );
+    let preview = output_exclusion.map_or(preview.clone(), |mask| preview.subtract(mask));
+    if !line_stroke_budget_has_offenders(&preview, options.dpi) {
+        return (preview, preview_fallback, preview_interventions);
+    }
+
+    let (source, budget, mut interventions) =
+        establish_line_stroke_budget(thresholded, options.dpi);
+    let (output, fallback) = postprocess_binary_with_diagnostics_and_raw_budgeted(
+        &source,
+        Some(normalized),
+        Some(raw_source),
+        options,
+        calibration,
+        budget.as_ref(),
+        &mut interventions,
+    );
+    let output = rescue_component_scoped_faint_strokes_budgeted(
+        &output,
+        raw_source,
+        picture_mask,
+        text_vicinity,
+        None,
+        requested_mode,
+        selected_mode,
+        options.dpi,
+        spread_fallback,
+        budget.as_ref(),
+        &mut interventions,
+    );
+    let output = output_exclusion.map_or(output.clone(), |mask| output.subtract(mask));
+    (output, fallback, interventions)
+}
+
+fn normalize_offender_component<F>(
+    component: &BinaryImage,
+    before_width_px: f64,
+    maximum_width_px: f64,
+    minimum_component_area: usize,
+    can_remove: &F,
+) -> Option<(BinaryImage, usize, f64)>
+where
+    F: Fn(&BinaryImage, usize, usize) -> bool,
+{
+    let before_topology = binary_topology_signature(component);
+    let before_sub_floor = component_count_below_area(component, minimum_component_area);
+    let mut candidate = component.clone();
+    let mut removed = 0usize;
+    let mut current_width = before_width_px;
+    while current_width > maximum_width_px {
+        let (removed_in_ring, measured_width) = erode_one_topology_preserving_boundary_ring(
+            &mut candidate,
+            maximum_width_px,
+            can_remove,
+        );
+        if removed_in_ring == 0 {
+            break;
+        }
+        removed += removed_in_ring;
+        current_width = measured_width;
+    }
+    if removed == 0 {
+        return None;
+    }
+    // The simple-point predicate is the primary topology guarantee. Keep a
+    // whole-component release-build backstop so a future predicate regression
+    // can only make an offender unreachable, never publish a split or hole.
+    if before_topology != binary_topology_signature(&candidate)
+        || component_count_below_area(&candidate, minimum_component_area) > before_sub_floor
+    {
+        return None;
+    }
+    Some((candidate, removed, current_width))
+}
+
+fn erode_one_topology_preserving_boundary_ring<F>(
+    component: &mut BinaryImage,
+    target_width_px: f64,
+    can_remove: &F,
+) -> (usize, f64)
+where
+    F: Fn(&BinaryImage, usize, usize) -> bool,
+{
+    let mut boundary = Vec::new();
+    for y in 0..component.height() {
+        for x in 0..component.width() {
+            if !component.get(x, y) {
+                continue;
+            }
+            let touches_paper = x == 0
+                || y == 0
+                || x + 1 == component.width()
+                || y + 1 == component.height()
+                || !component.get(x - 1, y)
+                || !component.get(x + 1, y)
+                || !component.get(x, y - 1)
+                || !component.get(x, y + 1);
+            if touches_paper {
+                boundary.push((x, y));
+            }
+        }
+    }
+    let mut removed = 0usize;
+    for (x, y) in boundary {
+        if component.get(x, y) && can_remove(component, x, y) {
+            component.set(x, y, false);
+            removed += 1;
+            let current_width = ridge_width_of_isolated_component(component);
+            if current_width <= target_width_px {
+                return (removed, current_width);
+            }
+        }
+    }
+    (removed, ridge_width_of_isolated_component(component))
+}
+
+fn topology_preserving_boundary_removal(component: &BinaryImage, x: usize, y: usize) -> bool {
+    let mut pattern = 0u16;
+    for offset_y in 0..3isize {
+        for offset_x in 0..3isize {
+            let sample_x = x as isize + offset_x - 1;
+            let sample_y = y as isize + offset_y - 1;
+            if sample_x >= 0
+                && sample_y >= 0
+                && sample_x < component.width() as isize
+                && sample_y < component.height() as isize
+                && component.get(sample_x as usize, sample_y as usize)
+            {
+                pattern |= 1 << (offset_y * 3 + offset_x);
+            }
+        }
+    }
+    let neighbor_count = (pattern & !(1 << 4)).count_ones();
+    if pattern & (1 << 4) == 0 || neighbor_count < 2 {
+        return false;
+    }
+    let changed = pattern & !(1 << 4);
+    neighborhood_component_count(pattern, true, true)
+        == neighborhood_component_count(changed, true, true)
+        && neighborhood_component_count(pattern, false, false)
+            == neighborhood_component_count(changed, false, false)
+}
+
+fn binary_topology_signature(source: &BinaryImage) -> (usize, usize) {
+    let ink_components = ComponentMap::from_binary(source).components().len();
+    let padded = BinaryImage::from_fn_parallel(source.width() + 2, source.height() + 2, |x, y| {
+        x == 0
+            || y == 0
+            || x == source.width() + 1
+            || y == source.height() + 1
+            || !source.get(x - 1, y - 1)
+    });
+    let paper_components = ComponentMap::from_binary(&padded).components().len();
+    (ink_components, paper_components.saturating_sub(1))
+}
+
+fn component_count_below_area(source: &BinaryImage, minimum_area: usize) -> usize {
+    ComponentMap::from_binary(source)
+        .components()
+        .iter()
+        .filter(|component| component.area < minimum_area)
+        .count()
+}
+
+fn cap_added_ink_to_stroke_budget(
+    base: &BinaryImage,
+    candidate: &BinaryImage,
+    source_supported_additions: Option<&BinaryImage>,
+    budget: Option<&LineStrokeBudget>,
+    stage: StrokeBudgetAdditionStage,
+    interventions: &mut LineStrokeBudgetInterventions,
+) -> BinaryImage {
+    let Some(budget) = budget else {
+        return candidate.clone();
+    };
+    debug_assert_eq!(
+        (base.width(), base.height()),
+        (candidate.width(), candidate.height())
+    );
+    debug_assert!(source_supported_additions.is_none_or(|mask| {
+        mask.width() == candidate.width() && mask.height() == candidate.height()
+    }));
+    let stage_budget =
+        LineStrokeBudget::from_binary(candidate, budget.dpi).map(|(budget, _)| budget);
+    let comparison_budget = stage_budget.as_ref().unwrap_or(budget);
+    let map = ComponentMap::from_binary(candidate);
+    let mut output = candidate.clone();
+    let mut capped_components = 0usize;
+    let mut capped_pixels = 0usize;
+    for component in map.components() {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let mut sum_x = 0u64;
+        let mut sum_y = 0u64;
+        let mut added = 0usize;
+        let mut isolated_candidate = BinaryImage::new(width, height);
+        let mut base_overlap = BinaryImage::new(width, height);
+        let mut protected_overlap = BinaryImage::new(width, height);
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if map.label_at(x, y) != component.label {
+                    continue;
+                }
+                isolated_candidate.set(x - component.left, y - component.top, true);
+                sum_x += x as u64;
+                sum_y += y as u64;
+                if base.get(x, y) {
+                    base_overlap.set(x - component.left, y - component.top, true);
+                } else {
+                    added += 1;
+                    if source_supported_additions.is_some_and(|mask| mask.get(x, y)) {
+                        protected_overlap.set(x - component.left, y - component.top, true);
+                    }
+                }
+            }
+        }
+        if added == 0 || base_overlap.count_black() == 0 {
+            continue;
+        }
+        let center_x = sum_x as f64 / component.area as f64;
+        let center_y = sum_y as f64 / component.area as f64;
+        let Some(local_budget) = comparison_budget.local_budget_at(center_x, center_y) else {
+            continue;
+        };
+        let candidate_width = component_ridge_width(candidate, &map, component.label);
+        // The cap is an offender guard, not a normalizer. A line/component
+        // already within the oracle's >1.6x tolerance is bit-for-bit untouched.
+        if candidate_width <= local_budget.maximum_width_px {
+            continue;
+        }
+        let base_map = ComponentMap::from_binary(&base_overlap);
+        let base_width = base_map
+            .components()
+            .iter()
+            .map(|base_component| {
+                component_ridge_width(&base_overlap, &base_map, base_component.label)
+            })
+            .fold(0.0f64, f64::max);
+        // A merge can evade the ridge cap when two already complete glyphs have
+        // the same maximum ridge as the merged silhouette. Above tolerance,
+        // reject that bridge rather than directionally shaving both glyphs.
+        let rescue_crosses_full_weight = stage == StrokeBudgetAdditionStage::Rescue
+            && base_map.components().len() > 1
+            && base_width >= local_budget.median_width_px
+            && candidate_width >= base_width;
+        let protect_source_support =
+            stage == StrokeBudgetAdditionStage::Rescue && base_width < local_budget.median_width_px;
+        let mut capped = isolated_candidate.clone();
+        let mut removed = 0usize;
+        if base_width >= local_budget.maximum_width_px || rescue_crosses_full_weight {
+            for y in 0..height {
+                for x in 0..width {
+                    if capped.get(x, y)
+                        && !base_overlap.get(x, y)
+                        && !(protect_source_support && protected_overlap.get(x, y))
+                    {
+                        capped.set(x, y, false);
+                        removed += 1;
+                    }
+                }
+            }
+        } else {
+            let (trimmed, reached_budget) = trim_added_ink_to_budget(
+                &mut capped,
+                &base_overlap,
+                protect_source_support.then_some(&protected_overlap),
+                local_budget.maximum_width_px,
+            );
+            removed = trimmed;
+            // When ordinary additions cannot be brought within tolerance by
+            // simple-point trimming, fall back to the base delta. The fragment
+            // floor below rejects that fallback if it would detach debris.
+            // Source-supported faint rescue is different: keep every protected
+            // pixel and publish only safe pale-shell trimming.
+            if !reached_budget && !protect_source_support {
+                if base_width < local_budget.maximum_width_px {
+                    capped = base_overlap.clone();
+                    removed = added;
+                } else {
+                    continue;
+                }
+            }
+        }
+        if removed == 0 {
+            continue;
+        }
+        let before_sub_floor = component_count_below_area(
+            &isolated_candidate,
+            comparison_budget.minimum_component_area,
+        );
+        if component_count_below_area(&capped, comparison_budget.minimum_component_area)
+            > before_sub_floor
+        {
+            if !rescue_crosses_full_weight || base_width >= local_budget.maximum_width_px {
+                continue;
+            }
+            capped = isolated_candidate.clone();
+            let (trimmed, reached_budget) = trim_added_ink_to_budget(
+                &mut capped,
+                &base_overlap,
+                None,
+                local_budget.maximum_width_px,
+            );
+            if !reached_budget
+                || component_count_below_area(&capped, comparison_budget.minimum_component_area)
+                    > before_sub_floor
+            {
+                continue;
+            }
+            removed = trimmed;
+        }
+        capped_components += 1;
+        capped_pixels += removed;
+        if rescue_crosses_full_weight {
+            interventions.rescue_bridge_components_capped += 1;
+        }
+        for y in 0..height {
+            for x in 0..width {
+                if isolated_candidate.get(x, y) && !capped.get(x, y) {
+                    output.set(component.left + x, component.top + y, false);
+                }
+            }
+        }
+    }
+    match stage {
+        StrokeBudgetAdditionStage::Smoothing => {
+            interventions.smoothing_components_capped += capped_components;
+            interventions.smoothing_pixels_suppressed += capped_pixels;
+        }
+        StrokeBudgetAdditionStage::Rescue => {
+            interventions.rescue_components_capped += capped_components;
+            interventions.rescue_pixels_suppressed += capped_pixels;
+        }
+    }
+    if capped_components == 0 {
+        return candidate.clone();
+    }
+    output
+}
+
+fn trim_added_ink_to_budget(
+    candidate: &mut BinaryImage,
+    base: &BinaryImage,
+    protected: Option<&BinaryImage>,
+    maximum_width_px: f64,
+) -> (usize, bool) {
+    let mut removed = 0usize;
+    let mut current_width = ridge_width_of_isolated_component(candidate);
+    while current_width > maximum_width_px {
+        let mut boundary = Vec::new();
+        for y in 0..candidate.height() {
+            for x in 0..candidate.width() {
+                if !candidate.get(x, y)
+                    || base.get(x, y)
+                    || protected.is_some_and(|mask| mask.get(x, y))
+                {
+                    continue;
+                }
+                let touches_paper = x == 0
+                    || y == 0
+                    || x + 1 == candidate.width()
+                    || y + 1 == candidate.height()
+                    || !candidate.get(x - 1, y)
+                    || !candidate.get(x + 1, y)
+                    || !candidate.get(x, y - 1)
+                    || !candidate.get(x, y + 1);
+                if touches_paper {
+                    boundary.push((x, y));
+                }
+            }
+        }
+        let before_ring = removed;
+        for (x, y) in boundary {
+            if candidate.get(x, y)
+                && !base.get(x, y)
+                && topology_preserving_boundary_removal(candidate, x, y)
+            {
+                candidate.set(x, y, false);
+                removed += 1;
+                current_width = ridge_width_of_isolated_component(candidate);
+                if current_width <= maximum_width_px {
+                    return (removed, true);
+                }
+            }
+        }
+        if removed == before_ring {
+            break;
+        }
+        current_width = ridge_width_of_isolated_component(candidate);
+    }
+    (removed, current_width <= maximum_width_px)
+}
+
+fn trace_line_stroke_budget(interventions: &LineStrokeBudgetInterventions) {
+    if std::env::var_os("EVB_STROKE_BUDGET_TRACE").is_some() {
+        eprintln!(
+            "EVB_STROKE_BUDGET {}",
+            serde_json::to_string(interventions).expect("stroke-budget trace must serialize")
+        );
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinarizationDiagnostics {
@@ -269,24 +1184,20 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     );
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback) = postprocess_binary_with_diagnostics_and_raw(
+    let (binary, despeckle_fallback, interventions) = finish_thresholded_with_line_budget(
         &binary,
-        Some(normalized),
-        Some(raw_source),
+        normalized,
+        raw_source,
         options,
         calibration,
-    );
-    let binary = rescue_component_scoped_faint_strokes(
-        &binary,
-        raw_source,
         picture_mask,
         text_vicinity,
-        None,
         options.binarization,
         diagnostics.route,
-        options.dpi,
         should_rescue_spread_fallback(spread_plan, &diagnostics),
+        None,
     );
+    trace_line_stroke_budget(&interventions);
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (binary, diagnostics, despeckle_fallback, timings)
 }
@@ -354,25 +1265,20 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     );
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback) = postprocess_binary_with_diagnostics_and_raw(
+    let (binary, despeckle_fallback, interventions) = finish_thresholded_with_line_budget(
         &binary,
-        Some(normalized),
-        Some(raw_source),
+        normalized,
+        raw_source,
         options,
         calibration,
-    );
-    let binary = rescue_component_scoped_faint_strokes(
-        &binary,
-        raw_source,
         Some(picture_mask),
         text_vicinity,
-        None,
         options.binarization,
         diagnostics.route,
-        options.dpi,
         should_rescue_spread_fallback(spread_plan, &diagnostics),
-    )
-    .subtract(&protected_picture_mask);
+        Some(&protected_picture_mask),
+    );
+    trace_line_stroke_budget(&interventions);
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (binary, diagnostics, despeckle_fallback, timings)
 }
@@ -421,24 +1327,21 @@ fn binarize_with_mode(
         calibration,
         None,
     );
-    let binary = postprocess_binary_with_raw(
+    let (output, _, interventions) = finish_thresholded_with_line_budget(
         &binary,
-        Some(normalized),
-        Some(raw_source),
+        normalized,
+        raw_source,
         options,
         calibration,
-    );
-    rescue_component_scoped_faint_strokes(
-        &binary,
-        raw_source,
         picture_mask,
         text_vicinity,
-        None,
         options.binarization,
         mode,
-        options.dpi,
         false,
-    )
+        None,
+    );
+    trace_line_stroke_budget(&interventions);
+    output
 }
 
 fn threshold_with_mode(
@@ -802,6 +1705,7 @@ fn sobel_gradient_magnitude(image: &GrayImage, x: usize, y: usize) -> u16 {
         as u16
 }
 
+#[cfg(test)]
 fn postprocess_binary_with_raw(
     binary: &BinaryImage,
     normalized: Option<&GrayImage>,
@@ -809,7 +1713,38 @@ fn postprocess_binary_with_raw(
     options: &CleanupOptions,
     calibration: PageCalibration,
 ) -> BinaryImage {
-    postprocess_binary_with_diagnostics_and_raw(binary, normalized, raw, options, calibration).0
+    let mut interventions = LineStrokeBudgetInterventions::default();
+    postprocess_binary_with_raw_budgeted(
+        binary,
+        normalized,
+        raw,
+        options,
+        calibration,
+        None,
+        &mut interventions,
+    )
+}
+
+#[cfg(test)]
+fn postprocess_binary_with_raw_budgeted(
+    binary: &BinaryImage,
+    normalized: Option<&GrayImage>,
+    raw: Option<&GrayImage>,
+    options: &CleanupOptions,
+    calibration: PageCalibration,
+    budget: Option<&LineStrokeBudget>,
+    interventions: &mut LineStrokeBudgetInterventions,
+) -> BinaryImage {
+    postprocess_binary_with_diagnostics_and_raw_budgeted(
+        binary,
+        normalized,
+        raw,
+        options,
+        calibration,
+        budget,
+        interventions,
+    )
+    .0
 }
 
 pub(crate) fn postprocess_binary_with_diagnostics_and_raw(
@@ -818,6 +1753,27 @@ pub(crate) fn postprocess_binary_with_diagnostics_and_raw(
     raw: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
+) -> (BinaryImage, bool) {
+    let mut interventions = LineStrokeBudgetInterventions::default();
+    postprocess_binary_with_diagnostics_and_raw_budgeted(
+        binary,
+        normalized,
+        raw,
+        options,
+        calibration,
+        None,
+        &mut interventions,
+    )
+}
+
+fn postprocess_binary_with_diagnostics_and_raw_budgeted(
+    binary: &BinaryImage,
+    normalized: Option<&GrayImage>,
+    raw: Option<&GrayImage>,
+    options: &CleanupOptions,
+    calibration: PageCalibration,
+    budget: Option<&LineStrokeBudget>,
+    interventions: &mut LineStrokeBudgetInterventions,
 ) -> (BinaryImage, bool) {
     let level = options.effective_despeckle_level();
     let rule_components = raw
@@ -837,7 +1793,15 @@ pub(crate) fn postprocess_binary_with_diagnostics_and_raw(
     } else {
         (binary.clone(), false)
     };
-    let smoothed = smooth_edges_for_page(&despeckled, options.dpi);
+    let smoothed_candidate = smooth_edges_for_page(&despeckled, options.dpi);
+    let smoothed = cap_added_ink_to_stroke_budget(
+        &despeckled,
+        &smoothed_candidate,
+        None,
+        budget,
+        StrokeBudgetAdditionStage::Smoothing,
+        interventions,
+    );
     let preserved_rules = rule_components.map(|flags| {
         ComponentMap::from_binary(binary).retain(|component| flags[component.label as usize])
     });
@@ -1357,6 +2321,37 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
     dpi: f64,
     spread_fallback: bool,
 ) -> BinaryImage {
+    let mut interventions = LineStrokeBudgetInterventions::default();
+    let budget = LineStrokeBudget::from_binary(damaged, dpi).map(|(budget, _)| budget);
+    rescue_component_scoped_faint_strokes_budgeted(
+        damaged,
+        raw,
+        picture_mask,
+        text_vicinity,
+        row_evidence_exclusion,
+        requested_mode,
+        selected_mode,
+        dpi,
+        spread_fallback,
+        budget.as_ref(),
+        &mut interventions,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rescue_component_scoped_faint_strokes_budgeted(
+    damaged: &BinaryImage,
+    raw: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    text_vicinity: Option<&BinaryImage>,
+    row_evidence_exclusion: Option<&BinaryImage>,
+    requested_mode: BinarizationMode,
+    selected_mode: BinarizationMode,
+    dpi: f64,
+    spread_fallback: bool,
+    budget: Option<&LineStrokeBudget>,
+    interventions: &mut LineStrokeBudgetInterventions,
+) -> BinaryImage {
     let faint_rescue_enabled = spread_fallback
         || selected_mode == BinarizationMode::Otsu
         || (matches!(
@@ -1432,6 +2427,7 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
         });
     let minimum_independent_row_support = (dpi * 0.30 / 25.4).round().max(4.0) as usize;
     let mut rescued = BinaryImage::new(damaged.width(), damaged.height());
+    let mut source_supported_rescued = BinaryImage::new(damaged.width(), damaged.height());
     let mut retained = damaged.clone();
 
     if selected_mode == BinarizationMode::Wolf {
@@ -1619,11 +2615,22 @@ pub(crate) fn rescue_component_scoped_faint_strokes(
                 let gradient = raw_max.get(x, y).saturating_sub(raw_min.get(x, y));
                 if is_crisp_or_deep_sample(raw.get(x, y), local_paper.get(x, y), gradient) {
                     rescued.set(x, y, true);
+                    if raw.get(x, y) < local_paper.get(x, y).saturating_sub(BLEED_SHALLOW_DEPTH) {
+                        source_supported_rescued.set(x, y, true);
+                    }
                 }
             }
         }
     }
-    retained.or(&rescued)
+    let candidate = retained.or(&rescued);
+    cap_added_ink_to_stroke_budget(
+        &retained,
+        &candidate,
+        Some(&source_supported_rescued),
+        budget,
+        StrokeBudgetAdditionStage::Rescue,
+        interventions,
+    )
 }
 
 fn has_coherent_noncore_run(
@@ -2643,6 +3650,329 @@ mod tests {
         binary
     }
 
+    fn assert_binary_eq(left: &BinaryImage, right: &BinaryImage) {
+        assert_eq!(
+            (left.width(), left.height()),
+            (right.width(), right.height())
+        );
+        for y in 0..left.height() {
+            for x in 0..left.width() {
+                assert_eq!(left.get(x, y), right.get(x, y), "pixel ({x}, {y})");
+            }
+        }
+    }
+
+    fn solid_component_line(widths: &[usize]) -> BinaryImage {
+        let mut image = BinaryImage::new(20 + widths.len() * 28, 48);
+        for (index, &width) in widths.iter().enumerate() {
+            let left = 10 + index * 28;
+            for y in 14..34 {
+                for x in left..left + width {
+                    image.set(x, y, true);
+                }
+            }
+        }
+        image
+    }
+
+    #[test]
+    fn ridge_width_matches_the_oracles_opencv_l2_5_measurement() {
+        let mut rectangle = BinaryImage::new(5, 9);
+        for y in 0..rectangle.height() {
+            for x in 0..rectangle.width() {
+                rectangle.set(x, y, true);
+            }
+        }
+        assert_eq!(ridge_width_of_isolated_component(&rectangle), 6.0);
+
+        let mut diamond = BinaryImage::new(11, 11);
+        for y in 0..diamond.height() {
+            for x in 0..diamond.width() {
+                if x.abs_diff(5) + y.abs_diff(5) <= 4 {
+                    diamond.set(x, y, true);
+                }
+            }
+        }
+        let diamond_width = ridge_width_of_isolated_component(&diamond);
+        assert!(
+            (diamond_width - 7.193_786_6).abs() < 0.000_01,
+            "diamond width {diamond_width}"
+        );
+    }
+
+    #[test]
+    fn stroke_budget_rounding_is_half_away_from_zero_at_half_tie_dpi() {
+        assert_eq!(
+            stroke_budget_eligibility(312.5),
+            StrokeBudgetEligibility {
+                minimum_area: 9,
+                minimum_height: 13,
+                maximum_height: 73,
+                minimum_width: 2,
+                maximum_width: 208,
+            }
+        );
+    }
+
+    #[test]
+    fn simple_point_guard_rejects_a_two_sided_articulation() {
+        let mut component = BinaryImage::new(5, 3);
+        for x in 1..=3 {
+            component.set(x, 1, true);
+        }
+        assert!(!topology_preserving_boundary_removal(&component, 2, 1));
+    }
+
+    #[test]
+    fn endpoint_guard_rejects_a_removable_digital_simple_point() {
+        let mut component = BinaryImage::new(5, 3);
+        component.set(1, 1, true);
+        component.set(2, 1, true);
+        assert!(!topology_preserving_boundary_removal(&component, 1, 1));
+    }
+
+    #[test]
+    fn release_backstop_rejects_a_faulty_removal_predicate() {
+        let mut dumbbell = BinaryImage::new(17, 9);
+        for y in 1..8 {
+            for x in 1..7 {
+                dumbbell.set(x, y, true);
+            }
+            for x in 10..16 {
+                dumbbell.set(x, y, true);
+            }
+        }
+        for x in 7..10 {
+            dumbbell.set(x, 4, true);
+        }
+        let before_width = ridge_width_of_isolated_component(&dumbbell);
+        assert!(normalize_offender_component(
+            &dumbbell,
+            before_width,
+            2.0,
+            STROKE_BUDGET_COMPONENT_AREA_MIN_PX,
+            &|_, _, _| true,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn source_heavy_normalization_stops_at_budget_without_changing_topology() {
+        let source = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 8]);
+        let before_topology = binary_topology_signature(&source);
+        let (normalized, budget, interventions) = establish_line_stroke_budget(&source, 300.0);
+        assert!(budget.is_some());
+        assert_eq!(interventions.source_components_normalized, 1);
+        assert_eq!(interventions.source_components_unreachable, 0);
+        assert_eq!(binary_topology_signature(&normalized), before_topology);
+
+        let map = ComponentMap::from_binary(&normalized);
+        let label = map.label_at(10 + 7 * 28 + 4, 24);
+        let width = component_ridge_width(&normalized, &map, label);
+        assert!((4.0..=6.4).contains(&width), "normalized width {width}");
+    }
+
+    #[test]
+    fn source_heavy_normalization_preserves_an_existing_counter() {
+        let mut source = solid_component_line(&[2, 2, 2, 2, 2, 2, 2, 14]);
+        let left = 10 + 7 * 28;
+        for y in 18..30 {
+            for x in left + 4..left + 10 {
+                source.set(x, y, false);
+            }
+        }
+        let before_topology = binary_topology_signature(&source);
+        assert_eq!(before_topology, (8, 1));
+
+        let (normalized, budget, interventions) = establish_line_stroke_budget(&source, 300.0);
+        assert!(budget.is_some());
+        assert_eq!(interventions.source_components_normalized, 1);
+        assert_eq!(interventions.source_components_unreachable, 0);
+        assert_eq!(binary_topology_signature(&normalized), before_topology);
+    }
+
+    #[test]
+    fn systemic_heavy_line_abstains_but_a_sparse_offender_remains_actionable() {
+        let systemic = solid_component_line(&[4, 4, 4, 4, 4, 4, 8, 8]);
+        let (systemic_budget, systemic_offenders) =
+            LineStrokeBudget::from_binary(&systemic, 300.0).unwrap();
+        assert!(systemic_offenders.is_empty());
+        assert!(systemic_budget.local_budget_at(10.0, 24.0).is_none());
+
+        let sparse = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 8]);
+        let (sparse_budget, sparse_offenders) =
+            LineStrokeBudget::from_binary(&sparse, 300.0).unwrap();
+        assert_eq!(sparse_offenders.len(), 1);
+        assert!(sparse_budget.local_budget_at(10.0, 24.0).is_some());
+    }
+
+    #[test]
+    fn smoothing_guard_suppresses_only_the_delta_that_crosses_the_shared_budget() {
+        let base = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 6]);
+        let (budget, offenders) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
+        assert!(offenders.is_empty());
+        let mut candidate = base.clone();
+        let left = 10 + 7 * 28;
+        for y in 14..34 {
+            candidate.set(left - 1, y, true);
+            candidate.set(left + 6, y, true);
+        }
+        let mut interventions = LineStrokeBudgetInterventions::default();
+        let guarded = cap_added_ink_to_stroke_budget(
+            &base,
+            &candidate,
+            None,
+            Some(&budget),
+            StrokeBudgetAdditionStage::Smoothing,
+            &mut interventions,
+        );
+        for y in 0..base.height() {
+            for x in 0..base.width() {
+                assert!(!base.get(x, y) || guarded.get(x, y));
+            }
+        }
+        let guarded_map = ComponentMap::from_binary(&guarded);
+        let label = guarded_map.label_at(left + 3, 24);
+        let guarded_width = component_ridge_width(&guarded, &guarded_map, label);
+        assert!(guarded_width <= 6.4, "guarded width {guarded_width}");
+        assert_eq!(interventions.smoothing_components_capped, 1);
+        assert!((1..40).contains(&interventions.smoothing_pixels_suppressed));
+    }
+
+    #[test]
+    fn rescue_guard_does_not_merge_full_weight_comparator_components() {
+        let mut base = solid_component_line(&[4, 4, 4, 4, 4, 4]);
+        let left = 10 + 6 * 28;
+        for y in 14..34 {
+            for x in left..left + 4 {
+                base.set(x, y, true);
+            }
+            for x in left + 6..left + 10 {
+                base.set(x, y, true);
+            }
+        }
+        let (budget, offenders) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
+        assert!(offenders.is_empty());
+        let mut candidate = base.clone();
+        for y in 14..34 {
+            candidate.set(left + 4, y, true);
+            candidate.set(left + 5, y, true);
+        }
+        let mut interventions = LineStrokeBudgetInterventions::default();
+        let guarded = cap_added_ink_to_stroke_budget(
+            &base,
+            &candidate,
+            None,
+            Some(&budget),
+            StrokeBudgetAdditionStage::Rescue,
+            &mut interventions,
+        );
+        assert_binary_eq(&guarded, &base);
+        assert_eq!(interventions.rescue_components_capped, 1);
+        assert_eq!(interventions.rescue_bridge_components_capped, 1);
+        assert_eq!(interventions.rescue_pixels_suppressed, 40);
+    }
+
+    #[test]
+    fn addition_guard_does_not_touch_a_candidate_within_offender_tolerance() {
+        let mut base = solid_component_line(&[4, 4, 4, 4, 4, 4]);
+        let left = 10 + 6 * 28;
+        for y in 8..22 {
+            for x in left..left + 4 {
+                base.set(x, y, true);
+            }
+        }
+        for y in 24..38 {
+            for x in left..left + 4 {
+                base.set(x, y, true);
+            }
+        }
+        let (budget, _) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
+        let mut candidate = base.clone();
+        for y in 22..24 {
+            for x in left..left + 4 {
+                candidate.set(x, y, true);
+            }
+        }
+        let mut interventions = LineStrokeBudgetInterventions::default();
+        let guarded = cap_added_ink_to_stroke_budget(
+            &base,
+            &candidate,
+            None,
+            Some(&budget),
+            StrokeBudgetAdditionStage::Rescue,
+            &mut interventions,
+        );
+        assert_binary_eq(&guarded, &candidate);
+        assert_eq!(interventions.rescue_components_capped, 0);
+    }
+
+    #[test]
+    fn addition_guard_rejects_delta_when_the_base_is_already_over_budget() {
+        let base = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 8]);
+        let (budget, offenders) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
+        assert_eq!(offenders.len(), 1);
+        let mut candidate = base.clone();
+        let left = 10 + 7 * 28;
+        for y in 14..34 {
+            candidate.set(left - 1, y, true);
+            candidate.set(left + 8, y, true);
+        }
+        let mut interventions = LineStrokeBudgetInterventions::default();
+        let guarded = cap_added_ink_to_stroke_budget(
+            &base,
+            &candidate,
+            None,
+            Some(&budget),
+            StrokeBudgetAdditionStage::Smoothing,
+            &mut interventions,
+        );
+        assert_binary_eq(&guarded, &base);
+        assert_eq!(interventions.smoothing_pixels_suppressed, 40);
+    }
+
+    #[test]
+    fn addition_guard_will_not_detach_a_sub_floor_fragment() {
+        let mut base = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 4]);
+        let left = 10 + 7 * 28;
+        for y in 21..24 {
+            base.set(left + 10, y, true);
+        }
+        let (budget, _) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
+        let mut candidate = base.clone();
+        for y in 14..34 {
+            for x in left + 4..left + 8 {
+                candidate.set(x, y, true);
+            }
+        }
+        for x in left + 8..=left + 10 {
+            candidate.set(x, 22, true);
+        }
+        assert_eq!(component_count_below_area(&base, 8), 1);
+        assert_eq!(component_count_below_area(&candidate, 8), 0);
+        let mut interventions = LineStrokeBudgetInterventions::default();
+        let guarded = cap_added_ink_to_stroke_budget(
+            &base,
+            &candidate,
+            None,
+            Some(&budget),
+            StrokeBudgetAdditionStage::Rescue,
+            &mut interventions,
+        );
+        assert_eq!(
+            component_count_below_area(&guarded, budget.minimum_component_area),
+            0,
+            "budget suppression detached a sub-floor fragment"
+        );
+        let guarded_map = ComponentMap::from_binary(&guarded);
+        assert_eq!(
+            guarded_map.label_at(left, 22),
+            guarded_map.label_at(left + 10, 22),
+            "the three-pixel mark must remain attached to its parent glyph"
+        );
+        assert_eq!(component_count_below_area(&guarded, 8), 0);
+    }
+
     fn black_count(image: &BinaryImage) -> usize {
         (0..image.height())
             .map(|y| (0..image.width()).filter(|&x| image.get(x, y)).count())
@@ -3510,17 +4840,49 @@ mod tests {
 
     #[test]
     fn faint_rescue_keeps_a_pale_captured_skeleton_with_a_deep_missing_body() {
-        let mut raw = GrayImage::new(120, 80, 232);
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/stroke-budget/sol-faint-glyph.json"
+        ))
+        .unwrap();
+        let number = |name: &str| fixture[name].as_u64().unwrap() as usize;
+        let mut raw = GrayImage::new(number("width"), number("height"), number("paperGray") as u8);
         let mut damaged = BinaryImage::new(raw.width(), raw.height());
         let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
-        for y in 24..56 {
-            for x in 50..56 {
-                raw.set(x, y, 60);
+        for index in 0..number("comparatorCount") {
+            let left = number("comparatorStartX") + index * number("comparatorStrideX");
+            for y in number("comparatorTop")..number("comparatorTop") + number("comparatorHeight") {
+                for x in left..left + number("comparatorWidth") {
+                    raw.set(x, y, number("comparatorGray") as u8);
+                    damaged.set(x, y, true);
+                    text_vicinity.set(x, y, true);
+                }
+            }
+        }
+        for y in number("faintBodyTop")..number("faintBodyTop") + number("faintBodyHeight") {
+            for x in number("faintBodyLeft")..number("faintBodyLeft") + number("faintBodyWidth") {
+                raw.set(x, y, number("faintBodyGray") as u8);
                 text_vicinity.set(x, y, true);
             }
-            raw.set(52, y, 90);
-            damaged.set(52, y, true);
+            for x in number("capturedSkeletonLeft")
+                ..number("capturedSkeletonLeft") + number("capturedSkeletonWidth")
+            {
+                damaged.set(x, y, true);
+            }
         }
+        let dpi = fixture["dpi"].as_f64().unwrap();
+        let (budget, offenders) = LineStrokeBudget::from_binary(&damaged, dpi).unwrap();
+        assert!(offenders.is_empty());
+        let faint_base_map = ComponentMap::from_binary(&damaged);
+        let body_center_y = number("faintBodyTop") + number("faintBodyHeight") / 2;
+        let faint_label = faint_base_map.label_at(number("capturedSkeletonLeft"), body_center_y);
+        let faint_base_width = component_ridge_width(&damaged, &faint_base_map, faint_label);
+        let local_budget = budget
+            .local_budget_at(
+                number("capturedSkeletonLeft") as f64 + 0.5,
+                body_center_y as f64,
+            )
+            .unwrap();
+        assert!(faint_base_width < local_budget.median_width_px);
 
         for mode in [BinarizationMode::Otsu, BinarizationMode::Wolf] {
             let rescued = rescue_component_scoped_faint_strokes(
@@ -3531,13 +4893,26 @@ mod tests {
                 None,
                 mode,
                 mode,
-                300.0,
+                dpi,
                 true,
             );
 
-            assert!(rescued.get(50, 40), "{mode:?} lost the deep body");
-            assert!(rescued.get(55, 40), "{mode:?} lost the deep body");
-            assert!(rescued.count_black() > damaged.count_black());
+            assert!(
+                rescued.get(number("faintBodyLeft"), body_center_y),
+                "{mode:?} lost the deep body"
+            );
+            assert!(
+                rescued.get(
+                    number("faintBodyLeft") + number("faintBodyWidth") - 1,
+                    body_center_y
+                ),
+                "{mode:?} lost the deep body"
+            );
+            assert_eq!(
+                rescued.count_black() - damaged.count_black(),
+                number("expectedRescuedPixels"),
+                "{mode:?} did not preserve the complete source-supported body"
+            );
         }
     }
 
@@ -4052,6 +5427,80 @@ mod tests {
                 retention * 100.0
             );
         }
+    }
+
+    #[test]
+    fn niqqud_page_is_untouched_when_rescue_stays_within_budget() {
+        let raw = crate::png::decode_gray(
+            include_bytes!("../tests/fixtures/glyphs/hebrew-bhs-p126-niqqud-input.png"),
+            1_000_000,
+            2_000,
+        )
+        .unwrap();
+        let options = CleanupOptions {
+            dpi: 300.0,
+            normalize_illumination: true,
+            ..CleanupOptions::default()
+        };
+        let normalized = normalize_illumination(&raw, options.dpi);
+        let calibration =
+            PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
+        let threshold_input = smooth_for_binarization(&normalized, options.dpi);
+        let mode = resolve_binarization_diagnostics(&threshold_input, &options).route;
+        let thresholded = threshold_with_mode(
+            &threshold_input,
+            &normalized,
+            None,
+            &options,
+            mode,
+            calibration,
+            None,
+        );
+        let mut expected_interventions = LineStrokeBudgetInterventions::default();
+        let expected = postprocess_binary_with_raw_budgeted(
+            &thresholded,
+            Some(&normalized),
+            Some(&raw),
+            &options,
+            calibration,
+            None,
+            &mut expected_interventions,
+        );
+        let expected = rescue_component_scoped_faint_strokes_budgeted(
+            &expected,
+            &raw,
+            None,
+            None,
+            None,
+            options.binarization,
+            mode,
+            options.dpi,
+            false,
+            None,
+            &mut expected_interventions,
+        );
+
+        let (_, expected_offenders) = LineStrokeBudget::from_binary(&expected, options.dpi)
+            .expect("niqqud fixture must have eligible lines");
+        assert!(expected_offenders.is_empty());
+        let (actual, _, actual_interventions) = finish_thresholded_with_line_budget(
+            &thresholded,
+            &normalized,
+            &raw,
+            &options,
+            calibration,
+            None,
+            None,
+            options.binarization,
+            mode,
+            false,
+            None,
+        );
+
+        assert_binary_eq(&actual, &expected);
+        assert_eq!(actual_interventions.source_components_normalized, 0);
+        assert_eq!(actual_interventions.rescue_components_capped, 0);
+        assert_eq!(actual_interventions.rescue_pixels_suppressed, 0);
     }
 
     #[test]
