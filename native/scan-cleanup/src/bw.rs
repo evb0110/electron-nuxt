@@ -764,13 +764,18 @@ fn cap_added_ink_to_stroke_budget(
     let Some(budget) = budget else {
         return candidate.clone();
     };
-    debug_assert_eq!(
+    assert_eq!(
         (base.width(), base.height()),
         (candidate.width(), candidate.height())
     );
-    debug_assert!(source_supported_additions.is_none_or(|mask| {
+    assert!(source_supported_additions.is_none_or(|mask| {
         mask.width() == candidate.width() && mask.height() == candidate.height()
     }));
+    let adds_ink = (0..candidate.height())
+        .any(|y| (0..candidate.width()).any(|x| candidate.get(x, y) && !base.get(x, y)));
+    if !adds_ink {
+        return candidate.clone();
+    }
     let stage_budget =
         LineStrokeBudget::from_binary(candidate, budget.dpi).map(|(budget, _)| budget);
     let comparison_budget = stage_budget.as_ref().unwrap_or(budget);
