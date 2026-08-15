@@ -19,6 +19,7 @@ build_scan_cleanup_tool() {
 run_stroke_weight_oracle() {
   stroke_output="$output_root/stroke-weight"
   mkdir -p "$stroke_output"
+  mkdir -p .devkit/tmp/stroke-weight-oracle
   node --test scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.test.mjs
   native/target/release/evb-scan-cleanup \
     --manifest scripts/diagnostics/stroke-weight-oracle/calibration/render-manifest.json

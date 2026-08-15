@@ -2055,6 +2055,88 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
 }
 
 #[test]
+fn final_cli_pins_the_adjudicated_stroke_budget_and_rescue_counters() {
+    let scratch = Scratch::new("stroke-budget-trace");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/rescue/luther-p5-diyarbakir-line.png");
+    let output = scratch.path("diyarbakir-clean.png");
+    let output_metadata = scratch.path("diyarbakir-clean.json");
+    let page_metadata = scratch.path("diyarbakir-page.json");
+    let manifest = scratch.path("stroke-budget-manifest.json");
+    let options = CleanupOptions {
+        dpi: 300.0,
+        source_dpi: Some(300.0),
+        requested_render_dpi: Some(300.0),
+        binarization: BinarizationMode::Auto,
+        output_mode: OutputMode::Bw,
+        layout: LayoutMode::Single,
+        normalize_illumination: true,
+        crop_content: false,
+        match_page_size: false,
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": fixture,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .env("EVB_STROKE_BUDGET_TRACE", "1")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    let traces = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("EVB_STROKE_BUDGET "))
+        .map(|trace| serde_json::from_str::<Value>(trace).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        traces,
+        vec![serde_json::json!({
+            "rasterWidth": 1830,
+            "rasterHeight": 77,
+            "sourceComponentsNormalized": 2,
+            "sourcePixelsRemoved": 39,
+            "sourceComponentsUnreachable": 0,
+            "smoothingComponentsCapped": 2,
+            "smoothingPixelsSuppressed": 4,
+            "rescueComponentsCapped": 3,
+            "rescueBridgeComponentsCapped": 2,
+            "rescuePixelsSuppressed": 494,
+        })],
+        "the public final-render path changed its adjudicated stroke-budget interventions",
+    );
+
+    let cleaned = decode_gray(&fs::read(&output).unwrap(), 1_000_000, 2_000).unwrap();
+    assert_eq!((cleaned.width(), cleaned.height()), (1830, 77));
+    assert_eq!(
+        cleaned.data().iter().filter(|&&value| value < 128).count(),
+        22_365,
+        "the public final-render path changed the adjudicated ink outcome",
+    );
+}
+
+#[test]
 fn auto_small_picture_uses_mixed_but_explicit_bw_stays_bilevel() {
     let scratch = Scratch::new("auto-small-picture");
     let input = scratch.path("small-picture-input.png");
