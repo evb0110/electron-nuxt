@@ -3642,6 +3642,17 @@ mod tests {
     }
 
     #[test]
+    fn gutter_band_keeps_the_legacy_edge_for_an_immaterial_offset_extension() {
+        let page = fold_shadow_page(1_000, 600, 500, 32, 60);
+
+        assert_eq!(
+            legacy_gutter_shadow_band(&page, 500.0),
+            Some((470.0, 530.0))
+        );
+        assert_eq!(gutter_shadow_band(&page, 500.0), Some((470.0, 530.0)));
+    }
+
+    #[test]
     fn gutter_band_finds_a_continuous_same_side_shadow_beyond_the_legacy_cap() {
         let mut page = GrayImage::new(2200, 900, 255);
         // Facing-page tone must not lower the right leaf's paper reference.

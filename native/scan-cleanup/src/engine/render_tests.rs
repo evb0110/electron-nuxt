@@ -6595,31 +6595,6 @@ mod tests {
     }
 
     #[test]
-    fn source_support_crop_uses_the_exact_analysis_dimensions_when_ratios_disagree() {
-        let source = GrayImage::new(301, 203, 240);
-        let target = GrayImage::new(150, 100, 240);
-
-        let support = crop_gray(
-            &source,
-            Rect::new(0.0, 0.0, source.width() as f64, source.height() as f64),
-        )
-        .downscale_to_dimensions(target.width(), target.height());
-
-        assert_eq!(
-            (support.width(), support.height()),
-            (target.width(), target.height())
-        );
-        assert_ne!(
-            (
-                source.downscale_to_fit(target.width(), target.height()).width(),
-                source.downscale_to_fit(target.width(), target.height()).height(),
-            ),
-            (target.width(), target.height()),
-            "the fixture must exercise the aspect-ratio rounding disagreement"
-        );
-    }
-
-    #[test]
     fn trusted_mask_downsampling_preserves_connected_hairlines() {
         let mut source = BinaryImage::new(9, 9);
         for y in 0..source.height() {

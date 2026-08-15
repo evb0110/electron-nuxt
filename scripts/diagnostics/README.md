@@ -53,6 +53,33 @@ profile effective for that hidden session and the source/working-output paths.
 
 ## Scan-cleanup release corpus
 
+### Fold adjudication surfaces
+
+The S4(d) fold comparison intentionally keeps two measurements separate. The
+150-DPI, content-cropped ten-spread surface is an OCR/content-box residue-review
+classifier; it is not the production-PDF metric from the historical untracked
+VPS runner. The 300-DPI, intrinsic-canvas exemplars directly measure how much
+fold-side source canvas remains on the right leaf. Exact source hashes, DPI,
+render options, and OCR thresholds live in
+`fold-adjudication-recipe.json`.
+
+Render the pinned sources from both refs with the recorded protocol-v3 options,
+then measure the four manifest trees:
+
+```bash
+python3 scripts/diagnostics/fold-adjudication.py \
+  --main-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/main/manifest.json \
+  --branch-fold-manifest .devkit/analysis/s4d-rescue/fold-corpus/branch/manifest.json \
+  --main-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/main/manifest.json \
+  --branch-exemplar-manifest .devkit/analysis/s4d-rescue/fold300/branch/manifest.json \
+  --out .devkit/analysis/s4d-rescue/fold-adjudication.json
+```
+
+The runner rejects a mismatched source hash or render recipe, records the local
+Tesseract version, reports every right-leaf signed OCR gap, and converts the
+300-DPI main-to-branch canvas-width change to millimetres. A negative
+`branchMinusMainMm` means that the branch removed fold-side canvas.
+
 Copy `scan-cleanup-corpus-config.example.json` to the ignored
 `.devkit/scan-cleanup-corpus.json` and replace each `pdfPath` with an absolute local
 path. Build the staged release tools, then run:
