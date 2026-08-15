@@ -240,8 +240,9 @@ describe('createNativePdfPreviewSourceFromPath', () => {
                 height: 25,
             })),
         };
+        const createObjectURL = vi.fn(() => 'blob:leased-preview');
         vi.stubGlobal('URL', {
-            createObjectURL: vi.fn(() => 'blob:leased-preview'),
+            createObjectURL,
             revokeObjectURL: vi.fn(),
         });
         const before = workspaceSurfaceBudgetController.getSnapshot();
@@ -250,6 +251,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
         const rendered = await source.renderPageObjectUrl(1);
 
         const leased = workspaceSurfaceBudgetController.getSnapshot();
+        expect(createObjectURL).toHaveBeenCalledWith(expect.objectContaining({type: 'image/jpeg'}));
         expect(leased.reservedBytesByCategory['native-preview'])
             .toBe(before.reservedBytesByCategory['native-preview'] + 40 * 25 * 4);
         source.revokeObjectURL(rendered.objectUrl);

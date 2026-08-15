@@ -49,22 +49,33 @@ class FakeSender extends EventEmitter {
     }
 }
 
-function createPngBytes(width: number, height: number) {
-    const bytes = Buffer.alloc(24);
+function createJpegBytes(width: number, height: number) {
+    const bytes = Buffer.alloc(23);
     bytes.set([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
+        0xff,
+        0xd8,
+        0xff,
+        0xe0,
+        0x00,
+        0x04,
+        0x00,
+        0x00,
+        0xff,
+        0xc2,
+        0x00,
+        0x0b,
+        0x08,
     ], 0);
+    bytes.writeUInt16BE(height, 13);
+    bytes.writeUInt16BE(width, 15);
     bytes.set([
-        0x49,
-        0x48,
-        0x44,
-        0x52,
-    ], 12);
-    bytes.writeUInt32BE(width, 16);
-    bytes.writeUInt32BE(height, 20);
+        0x01,
+        0x01,
+        0x11,
+        0x00,
+        0xff,
+        0xd9,
+    ], 17);
     return bytes;
 }
 
@@ -72,7 +83,7 @@ describe('native PDF preview lifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.mkdtemp.mockResolvedValue('/tmp/native-preview');
-        mocks.readFile.mockResolvedValue(createPngBytes(640, 480));
+        mocks.readFile.mockResolvedValue(createJpegBytes(640, 480));
         mocks.rm.mockResolvedValue(undefined);
         mocks.stat.mockResolvedValue({
             size: 28_000_000,
@@ -685,6 +696,11 @@ describe('native PDF preview lifecycle', () => {
         const scaleToXIndex = args?.indexOf('-scale-to-x') ?? -1;
         expect(scaleToXIndex).toBeGreaterThanOrEqual(0);
         expect(args?.[scaleToXIndex + 1]).toBe('4096');
+        expect(args).toContain('-jpeg');
+        expect(args).not.toContain('-png');
+        expect(args?.[args.indexOf('-jpegopt') + 1]).toBe('quality=98,optimize=n,progressive=n');
+        expect(mocks.stat).toHaveBeenCalledWith('/tmp/native-preview/page.jpg');
+        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/native-preview/page.jpg');
     });
 
     it('renders a searchable full-page scan at the requested width without an unsafe raster ceiling', async () => {
