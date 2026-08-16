@@ -183,7 +183,7 @@ onMounted(() => {
             },
         ],
         getStyle: () => ({}),
-        events: {scroll: () => handleViewerScroll()},
+        events: {scroll: event => handleViewerScroll(event)},
         wheel: handleWheel,
     }) ?? null;
 });
@@ -950,7 +950,7 @@ function clearFailedLoadSource(generation: number) {
     pageStates.value = [];
     emit('update:totalPages', 0);
 }
-function handleViewerScroll() {
+function handleViewerScroll(event?: Event) {
     const container = viewerContainer.value;
     if (!container) {
         return;
@@ -964,6 +964,9 @@ function handleViewerScroll() {
     if (viewportLayoutLifecycle.hasPendingPointerRestore()) {
         scrollTop.value = Math.max(0, container.scrollTop);
         syncLoadedPages();
+        return;
+    }
+    if (event?.isTrusted !== true) {
         return;
     }
     viewportLayoutLifecycle.cancelPendingRestore();
@@ -1079,7 +1082,6 @@ async function projectViewportSessionNavigation(options: {commitVisual?: boolean
         commitPageVisualToViewportSession(loadGeneration, normalizedPage);
     }
 }
-
 function scrollToPage(pageNumber: number) {
     const normalizedPage = clamp(pageNumber, 1, totalPages.value || 1);
     if (chassisAuthority) {
@@ -1090,13 +1092,11 @@ function scrollToPage(pageNumber: number) {
     activePage.value = normalizedPage;
     emit('update:currentPage', normalizedPage);
 }
-
 watch(
     () => chassisAuthority?.openSurface.viewportSession.value.viewportIntent?.id ?? null,
     () => void projectViewportSessionNavigation(),
     {flush: 'post'},
 );
-
 watch(effectiveZoom, (value) => {
     emit('update:effectiveZoom', value);
 }, { immediate: true });

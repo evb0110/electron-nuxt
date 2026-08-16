@@ -156,7 +156,7 @@ export const useDocumentViewportLayoutLifecycle = (
         }
         const packetAt = typeof point.timeStamp === 'number' && Number.isFinite(point.timeStamp)
             ? point.timeStamp
-            : Date.now();
+            : performance.now();
         const startsNewGesture = !activePointerAnchor
             || packetAt < lastPointerAnchorPacketAt
             || packetAt - lastPointerAnchorPacketAt > DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS;

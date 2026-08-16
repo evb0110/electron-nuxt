@@ -686,17 +686,56 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             };
         }, anchor);
         type TAnchorState = Awaited<ReturnType<typeof readAnchorState>>;
+        const waitForConvergedAnchorState = async (previousZoom: number, direction: 'in' | 'out') => {
+            await waitForFunctionInPage(session.page, ({
+                direction: zoomDirection,
+                pageNumber: targetPage,
+                pageXRatio,
+                pageYRatio,
+                previousZoom: priorZoom,
+                x,
+                y,
+            }) => {
+                const host = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+                ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const shell = host?.querySelector<HTMLElement>(
+                    `.native-pdf-page-shell[data-page-number="${String(targetPage)}"]`,
+                ) ?? null;
+                const rect = shell?.getBoundingClientRect() ?? null;
+                const zoom = window.__evbTestApi?.getActiveToolbarSnapshot()?.effectiveZoom ?? null;
+                return rect !== null
+                    && zoom !== null
+                    && (zoomDirection === 'in' ? zoom > priorZoom : zoom < priorZoom)
+                    && Math.abs(rect.left + rect.width * pageXRatio - x) <= 2
+                    && Math.abs(rect.top + rect.height * pageYRatio - y) <= 2;
+            }, {
+                polling: 'raf',
+                timeout: 150,
+            }, {
+                ...anchor,
+                direction,
+                previousZoom,
+            });
+            return readAnchorState();
+        };
 
         const isMac = await session.page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform));
         await session.page.mouse.move(anchor.x, anchor.y);
-        await session.page.keyboard.down(isMac ? 'Meta' : 'Control');
+        const modifierKey = isMac ? 'Meta' : 'Control';
         const zoomInSamples: TAnchorState[] = [];
-        for (let index = 0; index < 5; index += 1) {
-            await session.page.mouse.wheel({deltaY: -24});
-            await delay(16);
-            zoomInSamples.push(await readAnchorState());
+        await session.page.keyboard.down(modifierKey);
+        try {
+            let previousZoom = anchor.zoom ?? 0;
+            for (let index = 0; index < 5; index += 1) {
+                await session.page.mouse.wheel({deltaY: -24});
+                const sample = await waitForConvergedAnchorState(previousZoom, 'in');
+                zoomInSamples.push(sample);
+                previousZoom = sample.zoom ?? previousZoom;
+            }
+        } finally {
+            await session.page.keyboard.up(modifierKey);
         }
-        await session.page.keyboard.up(isMac ? 'Meta' : 'Control');
         zoomInSamples.forEach((sample, index) => {
             expect(Math.abs(sample.anchorErrorX ?? Number.POSITIVE_INFINITY), JSON.stringify({
                 index,
@@ -742,14 +781,19 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         expect(settled.targetPageSkeletonCount, JSON.stringify(settled)).toBe(0);
         expect(settled.zoom, JSON.stringify(settled)).toBeGreaterThan(anchor.zoom ?? 0);
 
-        await session.page.keyboard.down(isMac ? 'Meta' : 'Control');
         const zoomOutSamples: TAnchorState[] = [];
-        for (let index = 0; index < 5; index += 1) {
-            await session.page.mouse.wheel({deltaY: 24});
-            await delay(16);
-            zoomOutSamples.push(await readAnchorState());
+        await session.page.keyboard.down(modifierKey);
+        try {
+            let previousZoom = settled.zoom ?? Number.POSITIVE_INFINITY;
+            for (let index = 0; index < 5; index += 1) {
+                await session.page.mouse.wheel({deltaY: 24});
+                const sample = await waitForConvergedAnchorState(previousZoom, 'out');
+                zoomOutSamples.push(sample);
+                previousZoom = sample.zoom ?? previousZoom;
+            }
+        } finally {
+            await session.page.keyboard.up(modifierKey);
         }
-        await session.page.keyboard.up(isMac ? 'Meta' : 'Control');
         zoomOutSamples.forEach((sample, index) => {
             expect(Math.abs(sample.anchorErrorX ?? Number.POSITIVE_INFINITY), JSON.stringify({
                 index,

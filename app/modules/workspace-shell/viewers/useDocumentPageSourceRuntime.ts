@@ -201,9 +201,12 @@ export const useDocumentPageSourceRuntime = (options: {
         viewportHeight: containerHeight.value,
     }));
     const surfaceStyle = computed(() => ({height: props.value.continuousScroll ? `${Math.max(1, totalHeight.value)}px` : '100%'}));
+    function resolvePageLeft(pageWidth: number) {
+        return Math.max(DOCUMENT_PAGE_GUTTER_PX, (containerWidth.value - pageWidth) / 2);
+    }
     const zoomAnchorPageLayouts = computed(() => pageLayouts.value.map(layout => ({
         ...layout,
-        left: Math.max(DOCUMENT_PAGE_GUTTER_PX, (containerWidth.value - layout.width) / 2),
+        left: resolvePageLeft(layout.width),
     })));
     function getPageStyle(pageNumber: number) {
         const layout = pageLayouts.value[pageNumber - 1];
@@ -216,7 +219,7 @@ export const useDocumentPageSourceRuntime = (options: {
             top: `${String(props.value.continuousScroll
                 ? pageTops.value[pageNumber - 1] ?? DOCUMENT_PAGE_GUTTER_PX
                 : DOCUMENT_PAGE_GUTTER_PX)}px`,
-            left: `max(${String(DOCUMENT_PAGE_GUTTER_PX)}px, calc(50% - ${String(layout.width / 2)}px))`,
+            left: `${String(resolvePageLeft(layout.width))}px`,
             display: !props.value.continuousScroll && pageNumber !== props.value.currentPage
                 ? 'none'
                 : undefined,
