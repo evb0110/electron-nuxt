@@ -119,6 +119,8 @@ pub enum Operation {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum AnalysisPurpose {
+    /// Retained for direct native `--manifest` callers. The Electron app
+    /// emits `page-plan` (or omits this field, which defaults to it).
     Classification,
     #[default]
     PagePlan,
@@ -622,6 +624,30 @@ mod tests {
             assert_eq!(page.options.manual_skew_degrees, None);
             assert_eq!(page.options.experimental.auto_dewarp_depth, None);
         }
+    }
+
+    #[test]
+    fn direct_manifests_default_to_page_plan_and_retain_classification_purpose() {
+        let json = r#"{
+            "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
+            "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
+              "outputs":[],"options":{}}
+            ]
+        }"#;
+        let page_plan: ManifestV3 = serde_json::from_str(json).unwrap();
+        page_plan.validate().unwrap();
+        assert_eq!(page_plan.analysis_purpose, AnalysisPurpose::PagePlan);
+
+        let classification_json = json.replace(
+            "\"pages\"",
+            "\"analysisPurpose\":\"classification\",\"pages\"",
+        );
+        let classification: ManifestV3 = serde_json::from_str(&classification_json).unwrap();
+        classification.validate().unwrap();
+        assert_eq!(
+            classification.analysis_purpose,
+            AnalysisPurpose::Classification
+        );
     }
 
     #[test]

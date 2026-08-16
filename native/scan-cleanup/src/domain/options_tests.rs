@@ -332,6 +332,7 @@ fn advanced_control_ranges_are_validated_and_serialize_additively() {
 #[test]
 fn option_objects_reject_unknown_fields() {
     assert!(serde_json::from_str::<CleanupOptions>(r#"{"unknown":true}"#).is_err());
+    assert!(serde_json::from_str::<CleanupOptions>(r#"{"classifyOnly":true}"#).is_err());
     assert!(serde_json::from_str::<CleanupOptions>(
         r#"{"margins":{"leftMm":5,"topMm":5,"rightMm":5,"bottomMm":5,"unknown":true}}"#
     )
