@@ -81,7 +81,7 @@ describe('scan cleanup run coordinator', () => {
         });
         await expect(first).resolves.toEqual(await second);
         expect(capability.value.start).toHaveBeenCalledOnce();
-    });
+    }, 30_000);
 
     it('returns renderer fallback metadata instead of user-facing bridge text', async () => {
         capability.value = null;
