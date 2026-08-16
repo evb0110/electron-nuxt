@@ -8,6 +8,10 @@ import {join} from 'node:path';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 
 export const SCAN_CLEANUP_SCRATCH_PREFIX = 'scan-cleanup-';
+// Preview raster retention roots are the only scratch directories whose
+// trailing digits identify the owning process. Other scratch directories use
+// mkdtemp's random suffix and must never be mistaken for pid-owned roots.
+export const SCAN_CLEANUP_PID_ROOT_PREFIX = `${SCAN_CLEANUP_SCRATCH_PREFIX}rasters-`;
 export const SCAN_CLEANUP_SCRATCH_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export interface IScanCleanupScratchDirectoryEntry {
@@ -56,6 +60,9 @@ function defaultIsProcessAlive(pid: number) {
 // live regardless of its age: an app session older than the stale window must
 // not have its caches deleted out from under it by another instance's sweep.
 function ownerPidOf(name: string) {
+    if (!name.startsWith(SCAN_CLEANUP_PID_ROOT_PREFIX)) {
+        return null;
+    }
     const match = /-(\d+)$/.exec(name);
     return match ? Number.parseInt(match[1]!, 10) : null;
 }
