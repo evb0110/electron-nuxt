@@ -1308,18 +1308,117 @@ describe('scan cleanup preview', () => {
                 layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
                 layoutDetectionComplete: true,
             });
-            await previewOf(service, sender(), {
+            const retainedProcessingPath = processingPath;
+            expect(retainedProcessingPath).toMatch(/page-1-300\.png$/u);
+            await rm(retainedProcessingPath!);
+
+            const rerendered = await previewOf(service, sender(), {
                 ...request,
                 requestId: 'path-only-repeat',
                 layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
                 layoutDetectionComplete: true,
             });
 
-            expect(processingPath).toMatch(/page-1-300\.png$/u);
+            expect(rerendered).toMatchObject({
+                pageNumber: 1,
+                outputs: [{metadata: expect.any(Object)}],
+            });
+            expect(vi.mocked(deps.renderPage).mock.calls.map(call => call[5])).toEqual([
+                150,
+                300,
+                300,
+            ]);
+            expect(processingPath).toBe(retainedProcessingPath);
+            await expect(stat(retainedProcessingPath!)).resolves.toMatchObject({size: PNG.byteLength});
             expect(fsMocks.readFile.mock.calls.filter(([path]) => path === processingPath)).toHaveLength(0);
         } finally {
             fsMocks.readFile.mockClear();
         }
+    });
+
+    it('surfaces a corrupt retained path-only raster without silently rerendering it', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([1]),
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+        let processingPath: string | undefined;
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
+            const manifest = JSON.parse(await readFile(args[1], 'utf8')) as {pages: Array<{inputPath: string}>};
+            processingPath = manifest.pages[0]?.inputPath;
+            await originalSidecar(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        await previewOf(service, sender(), {
+            ...request,
+            layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+            layoutDetectionComplete: true,
+        });
+        expect(processingPath).toMatch(/page-1-300\.png$/u);
+        await truncate(processingPath!, 8);
+        const renderCallsBeforeRetry = vi.mocked(deps.renderPage).mock.calls.length;
+
+        fsMocks.readFile.mockClear();
+        try {
+            await expect(previewOf(service, sender(), {
+                ...request,
+                requestId: 'path-only-corrupt-repeat',
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                layoutDetectionComplete: true,
+            })).rejects.toThrow();
+
+            expect(deps.renderPage).toHaveBeenCalledTimes(renderCallsBeforeRetry);
+            expect(fsMocks.readFile.mock.calls.filter(([path]) => path === processingPath)).toHaveLength(0);
+        } finally {
+            fsMocks.readFile.mockClear();
+        }
+    });
+
+    it('removes a path-only raster canceled after rendering and before retention', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([1]),
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+        const previewSender = sender();
+        let canceled = false;
+        let canceledScratchPath: string | undefined;
+        const originalRenderPage = deps.renderPage;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            args[1]('debug', 'path-only render completed');
+            await originalRenderPage(...args);
+            if (args[5] === 300) {
+                canceledScratchPath = args[4];
+                canceled = service.cancel(previewSender, {
+                    ...request,
+                    invalidateRawCache: false,
+                });
+            }
+        });
+        const service: IScanCleanupPreviewService = createScanCleanupPreviewService(deps);
+
+        await expect(service.preview(previewSender, {
+            ...request,
+            layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+            layoutDetectionComplete: true,
+        })).resolves.toEqual({canceled: true});
+
+        expect(canceled).toBe(true);
+        expect(canceledScratchPath).toBeDefined();
+        await vi.waitFor(async () => {
+            await expect(stat(canceledScratchPath!)).rejects.toMatchObject({code: 'ENOENT'});
+        });
     });
 
     it('renders only the requested zoom region at true output DPI within the tile budget', async () => {
