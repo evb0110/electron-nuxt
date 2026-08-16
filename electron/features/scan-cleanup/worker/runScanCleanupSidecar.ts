@@ -5,7 +5,6 @@ import {
     stat,
 } from 'fs/promises';
 import {basename} from 'path';
-import {createInterface} from 'readline';
 import {
     constants as osConstants,
     setPriority,
@@ -28,6 +27,7 @@ import {
 } from '@electron/features/scan-cleanup/native/protocolCodec';
 import {verifyNativeToolProtocol} from '@electron/native-tools/runNativeToolCommand';
 import {acquireNativeCommandAdmission} from '@electron/native-tools/runNativeCommand';
+import {createScanCleanupSidecarProtocolHandler} from '@scan-cleanup-core/createScanCleanupSidecarProtocolHandler';
 
 export class NativeScanCleanupError extends Error {
     constructor(readonly code: TNativeErrorCode, message: string) {
@@ -140,7 +140,6 @@ async function streamScanCleanupSidecar(
         }
     }
     const startedAt = performance.now();
-    let stderr = '';
     let terminalResult: 'success' | 'failure' | null = null;
     let protocolError: Error | null = null;
     let nativeFailure: NativeScanCleanupError | null = null;
@@ -188,28 +187,19 @@ async function streamScanCleanupSidecar(
             });
         };
     });
-    child.stderr?.setEncoding('utf8');
-    child.stderr?.on('data', (chunk: string) => {
-        stderr = `${stderr}${chunk}`.slice(-64 * 1024);
+    const protocol = createScanCleanupSidecarProtocolHandler({
+        stdout: child.stdout!,
+        stderr: child.stderr,
+        onProtocolError: error => {
+            protocolError = error;
+            // A fatal decoder/schema/progress-consumer failure means stdout can no
+            // longer be consumed safely. Stop the whole detached tree immediately;
+            // the recorded protocol error remains the terminal authority.
+            settleFatal?.();
+        },
+        log,
     });
-    const lines = createInterface({input: child.stdout!});
-    const failProtocol = (error: unknown, line: string) => {
-        if (protocolError !== null) {
-            return;
-        }
-        protocolError = error instanceof Error ? error : new Error(String(error));
-        try {
-            lines.close();
-        } catch {
-            // Termination and the original protocol failure still take precedence.
-        }
-        // A fatal decoder/schema/progress-consumer failure means stdout can no
-        // longer be consumed safely. Stop the whole detached tree immediately;
-        // the recorded protocol error remains the terminal authority.
-        settleFatal?.();
-        log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
-    };
-    lines.on('line', line => {
+    protocol.lines.on('line', line => {
         if (protocolError || terminalResult) {
             return;
         }
@@ -246,7 +236,7 @@ async function streamScanCleanupSidecar(
                 nativeFailure = new NativeScanCleanupError(envelope.result.code, envelope.result.message);
             }
         } catch (error) {
-            failProtocol(error, line);
+            protocol.failProtocol(error, line);
         }
     });
     let aborting = false;
@@ -308,7 +298,7 @@ async function streamScanCleanupSidecar(
         if (aborting || signal.aborted) throw abortErrorFromSignal(signal);
         throwIfError(nativeFailure);
         if (result.code !== 0) {
-            const envelope = parseNativeScanCleanupStderr(stderr);
+            const envelope = parseNativeScanCleanupStderr(protocol.stderr);
             if (envelope) throw new NativeScanCleanupError(envelope.code, envelope.message);
             throw new NativeScanCleanupError(
                 'native-failure',
@@ -321,7 +311,7 @@ async function streamScanCleanupSidecar(
     } finally {
         if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
         signal.removeEventListener('abort', handleAbort);
-        lines.close();
+        protocol.lines.close();
         const stageTotalsMs: TScanCleanupStageTotalsMs = {
             decode: 0,
             analysisLevel: 0,

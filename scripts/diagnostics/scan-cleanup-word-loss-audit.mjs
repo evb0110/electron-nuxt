@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /* eslint-disable max-lines -- The audit keeps its extraction, matching, and report policy in one inspectable CLI. */
 
-import {spawn} from 'node:child_process';
 import {inflateSync} from 'node:zlib';
 import {
     mkdtemp,
@@ -19,6 +18,7 @@ import {
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {tsImport} from 'tsx/esm/api';
+import {runDiagnosticCommand} from './scan-cleanup-command.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const {
@@ -216,44 +216,30 @@ function parseFailOn(value) {
 }
 
 async function run(command, args) {
-    return new Promise((resolveRun, rejectRun) => {
-        const child = spawn(resolveAuditTool(command), args, {
-            cwd: projectRoot,
-            env: process.env,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-        });
-        let stdout = '';
-        let stderr = '';
-        child.stdout.setEncoding('utf8');
-        child.stderr.setEncoding('utf8');
-        child.stdout.on('data', chunk => {
-            stdout += chunk;
-        });
-        child.stderr.on('data', chunk => {
-            stderr += chunk;
-        });
-        child.on('error', rejectRun);
-        child.on('close', code => {
-            if (code !== 0) {
-                const commandLine = [
-                    command,
-                    ...args,
-                ].join(' ');
-                rejectRun(new Error(
-                    `${commandLine} exited with ${String(code)}${stderr.trim() ? `: ${stderr.trim()}` : ''}`,
-                ));
-                return;
-            }
-            resolveRun({
-                stderr,
-                stdout,
-            });
-        });
+    const result = await runDiagnosticCommand(command, args, {
+        completionEvent: 'close',
+        cwd: projectRoot,
+        env: process.env,
+        onFailure: ({
+            args: failedArgs,
+            code,
+            command: failedCommand,
+            stderr,
+        }) => {
+            const commandLine = [
+                failedCommand,
+                ...failedArgs,
+            ].join(' ');
+            return new Error(
+                `${commandLine} exited with ${String(code)}${stderr.trim() ? `: ${stderr.trim()}` : ''}`,
+            );
+        },
+        resolveCommand: resolveAuditTool,
     });
+    return {
+        stderr: result.stderr,
+        stdout: result.stdout,
+    };
 }
 
 function parsePdfImagesListing(text) {
@@ -510,7 +496,7 @@ function decodePng(buffer, includeGray = false) {
     };
 }
 
-function resizeGrayBitmap(bitmap, width, height, scaleX, scaleY = scaleX) {
+function resizeBitmapValues(bitmap, width, height, scaleX, scaleY, sourceValues) {
     const values = new Uint8Array(width * height);
     for (let y = 0; y < height; y += 1) {
         const sourceY = Math.min(
@@ -524,7 +510,7 @@ function resizeGrayBitmap(bitmap, width, height, scaleX, scaleY = scaleX) {
                 bitmap.width - 1,
                 Math.max(0, Math.floor((x + 0.5) / scaleX - 0.5)),
             );
-            values[targetOffset + x] = bitmap.values[sourceOffset + sourceX];
+            values[targetOffset + x] = sourceValues[sourceOffset + sourceX];
         }
     }
     return {
@@ -532,6 +518,10 @@ function resizeGrayBitmap(bitmap, width, height, scaleX, scaleY = scaleX) {
         values,
         width,
     };
+}
+
+function resizeGrayBitmap(bitmap, width, height, scaleX, scaleY = scaleX) {
+    return resizeBitmapValues(bitmap, width, height, scaleX, scaleY, bitmap.values);
 }
 
 async function renderPdfPageGray({
@@ -665,51 +655,8 @@ function bitmapBounds(bitmap) {
         };
 }
 
-function rotateBitmap(bitmap, quarterTurns) {
+function rotateBitmapValues(bitmap, quarterTurns, sourceValues) {
     const turns = ((quarterTurns % 4) + 4) % 4;
-    if (turns === 0) {
-        return bitmap;
-    }
-    const width = turns % 2 === 0 ? bitmap.width : bitmap.height;
-    const height = turns % 2 === 0 ? bitmap.height : bitmap.width;
-    const pixels = new Uint8Array(width * height);
-    for (let y = 0; y < bitmap.height; y += 1) {
-        for (let x = 0; x < bitmap.width; x += 1) {
-            let targetX;
-            let targetY;
-            if (turns === 1) {
-                targetX = bitmap.height - 1 - y;
-                targetY = x;
-            } else if (turns === 2) {
-                targetX = bitmap.width - 1 - x;
-                targetY = bitmap.height - 1 - y;
-            } else {
-                targetX = y;
-                targetY = bitmap.width - 1 - x;
-            }
-            pixels[targetY * width + targetX] = bitmap.pixels[y * bitmap.width + x];
-        }
-    }
-    return makeBitmap(width, height, pixels);
-}
-
-function cropBitmap(bitmap, x, y, width, height) {
-    const pixels = new Uint8Array(width * height);
-    for (let row = 0; row < height; row += 1) {
-        const sourceOffset = (y + row) * bitmap.width + x;
-        pixels.set(
-            bitmap.pixels.subarray(sourceOffset, sourceOffset + width),
-            row * width,
-        );
-    }
-    return makeBitmap(width, height, pixels);
-}
-
-function rotateGrayBitmap(bitmap, quarterTurns) {
-    const turns = ((quarterTurns % 4) + 4) % 4;
-    if (turns === 0) {
-        return bitmap;
-    }
     const width = turns % 2 === 0 ? bitmap.width : bitmap.height;
     const height = turns % 2 === 0 ? bitmap.height : bitmap.width;
     const values = new Uint8Array(width * height);
@@ -727,7 +674,7 @@ function rotateGrayBitmap(bitmap, quarterTurns) {
                 targetX = y;
                 targetY = bitmap.width - 1 - x;
             }
-            values[targetY * width + targetX] = bitmap.values[y * bitmap.width + x];
+            values[targetY * width + targetX] = sourceValues[y * bitmap.width + x];
         }
     }
     return {
@@ -737,15 +684,50 @@ function rotateGrayBitmap(bitmap, quarterTurns) {
     };
 }
 
-function cropGrayBitmap(bitmap, x, y, width, height) {
-    const values = new Uint8Array(width * height);
+function rotateBitmap(bitmap, quarterTurns) {
+    const turns = ((quarterTurns % 4) + 4) % 4;
+    if (turns === 0) {
+        return bitmap;
+    }
+    const rotated = rotateBitmapValues(bitmap, turns, bitmap.pixels);
+    return makeBitmap(rotated.width, rotated.height, rotated.values);
+}
+
+function cropBitmapValues(bitmap, x, y, width, height, sourceValues) {
+    const pixels = new Uint8Array(width * height);
     for (let row = 0; row < height; row += 1) {
         const sourceOffset = (y + row) * bitmap.width + x;
-        values.set(
-            bitmap.values.subarray(sourceOffset, sourceOffset + width),
+        pixels.set(
+            sourceValues.subarray(sourceOffset, sourceOffset + width),
             row * width,
         );
     }
+    return pixels;
+}
+
+function cropBitmap(bitmap, x, y, width, height) {
+    return makeBitmap(
+        width,
+        height,
+        cropBitmapValues(bitmap, x, y, width, height, bitmap.pixels),
+    );
+}
+
+function rotateGrayBitmap(bitmap, quarterTurns) {
+    const turns = ((quarterTurns % 4) + 4) % 4;
+    if (turns === 0) {
+        return bitmap;
+    }
+    const rotated = rotateBitmapValues(bitmap, turns, bitmap.values);
+    return {
+        height: rotated.height,
+        values: rotated.values,
+        width: rotated.width,
+    };
+}
+
+function cropGrayBitmap(bitmap, x, y, width, height) {
+    const values = cropBitmapValues(bitmap, x, y, width, height, bitmap.values);
     return {
         height,
         values,
@@ -824,23 +806,8 @@ function downsampleBitmap(bitmap, factor) {
 }
 
 function resizeBitmap(bitmap, width, height, scaleX, scaleY = scaleX) {
-    const pixels = new Uint8Array(width * height);
-    for (let y = 0; y < height; y += 1) {
-        const sourceY = Math.min(
-            bitmap.height - 1,
-            Math.max(0, Math.floor((y + 0.5) / scaleY - 0.5)),
-        );
-        const sourceOffset = sourceY * bitmap.width;
-        const targetOffset = y * width;
-        for (let x = 0; x < width; x += 1) {
-            const sourceX = Math.min(
-                bitmap.width - 1,
-                Math.max(0, Math.floor((x + 0.5) / scaleX - 0.5)),
-            );
-            pixels[targetOffset + x] = bitmap.pixels[sourceOffset + sourceX];
-        }
-    }
-    return makeBitmap(width, height, pixels);
+    const resized = resizeBitmapValues(bitmap, width, height, scaleX, scaleY, bitmap.pixels);
+    return makeBitmap(resized.width, resized.height, resized.values);
 }
 
 function collectBlackRows(bitmap, maxSamples) {

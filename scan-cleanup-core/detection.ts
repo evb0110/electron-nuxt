@@ -1,5 +1,4 @@
 import {
-    open,
     readFile,
     rm,
     stat,
@@ -25,19 +24,21 @@ import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCleanupJsonEvidence';
 import {
     detectSourceDpiFromPageSizes,
+    type IDetectedPageRaster,
     type IPdfPageSize,
-    type IScanCleanupRasterRenderLimits,
     type TScanCleanupLog,
     type TScanCleanupRenderPage,
     type TScanCleanupRunSidecar,
 } from '@scan-cleanup-core/types';
-import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
-import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@scan-cleanup-core/policy/effectiveOptions';
 import {
     readAvailableScratchBytes,
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
+import {
+    renderScanCleanupRasterToDisk as renderRasterToDisk,
+    resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
+} from '@scan-cleanup-core/rasterValidation';
 import {
     resolveScanCleanupProvisionalDocumentCanvas,
     scanCleanupDocumentCanvasSignature,
@@ -48,7 +49,6 @@ export const PREVIEW_DPI = DETECTION_DPI;
 // Native mode selection, preview, and final rendering share this canonical
 // analysis grid. The separate working raster remains free to follow source DPI.
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
-const PREVIEW_MAX_IMAGE_PIXELS = 45_000_000;
 
 /**
  * Binary cleanup needs the source's stroke samples even though the UI presents
@@ -88,38 +88,6 @@ function sumByteFootprint(values: Iterable<number>) {
         }
     }
     return total;
-}
-
-function resolveRasterRenderLimits(
-    pageSize: IPdfPageSize | undefined,
-    dpi: number,
-    maxPixels = PREVIEW_MAX_IMAGE_PIXELS,
-    crop?: {
-        width: number;
-        height: number;
-    },
-): IScanCleanupRasterRenderLimits {
-    if (pageSize === undefined) {
-        const scaleToFitPx = Math.max(1, Math.floor(Math.sqrt(maxPixels)));
-        return {
-            expectedWidthPx: scaleToFitPx,
-            expectedHeightPx: scaleToFitPx,
-            maxPixels,
-            maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
-            scaleToFitPx,
-        };
-    }
-    const swapsAxes = Math.abs(Math.round(pageSize.rotation / 90)) % 2 === 1;
-    return {
-        expectedWidthPx: crop?.width ?? Math.max(1, Math.ceil(
-            (swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) * dpi / 72,
-        )),
-        expectedHeightPx: crop?.height ?? Math.max(1, Math.ceil(
-            (swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) * dpi / 72,
-        )),
-        maxPixels,
-        maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
-    };
 }
 
 export function resolvePagePreviewDpi(
@@ -177,6 +145,52 @@ export interface IScanCleanupDocumentRasterPages {
     bilevelLayerPages?: ReadonlySet<number>;
     dominantBilevelLayerPages?: ReadonlySet<number>;
     backgroundDpiByPage?: ReadonlyMap<number, number>;
+}
+
+export function createScanCleanupDocumentRasterPages(
+    detected: boolean,
+    pageRasterByNumber: ReadonlyMap<number, IDetectedPageRaster>,
+): IScanCleanupDocumentRasterPages {
+    return {
+        detected,
+        pages: new Set(pageRasterByNumber.keys()),
+        sourceDpiByPage: new Map(
+            [...pageRasterByNumber].map(([
+                pageNumber,
+                raster,
+            ]) => [
+                pageNumber,
+                raster.dpi,
+            ] as const),
+        ),
+        bilevelLayerPages: new Set(
+            [...pageRasterByNumber]
+                .filter(([
+                    , raster,
+                ]) => raster.hasBilevelLayer)
+                .map(([pageNumber]) => pageNumber),
+        ),
+        dominantBilevelLayerPages: new Set(
+            [...pageRasterByNumber]
+                .filter(([
+                    , raster,
+                ]) => raster.hasDominantBilevelLayer)
+                .map(([pageNumber]) => pageNumber),
+        ),
+        backgroundDpiByPage: new Map(
+            [...pageRasterByNumber].flatMap(([
+                pageNumber,
+                raster,
+            ]) =>
+                raster.backgroundDpi === undefined
+                    ? []
+                    : [[
+                        pageNumber,
+                        raster.backgroundDpi,
+                    ] as const],
+            ),
+        ),
+    };
 }
 
 export interface IScanCleanupRetainedRaster {
@@ -243,110 +257,6 @@ export interface IScanCleanupDetectionDependencies {
         log: TScanCleanupLog,
     ) => Promise<void>;
     runSidecar: TScanCleanupRunSidecar;
-}
-
-function readPngDimensions(bytes: Uint8Array, maxPixels = PREVIEW_MAX_IMAGE_PIXELS) {
-    const signature = [
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
-    ];
-    const hasIhdr = bytes[12] === 0x49
-        && bytes[13] === 0x48
-        && bytes[14] === 0x44
-        && bytes[15] === 0x52;
-    if (bytes.byteLength < 24 || !signature.every((value, index) => bytes[index] === value) || !hasIhdr) {
-        throw new Error('Scan cleanup detection produced an invalid PNG');
-    }
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const width = view.getUint32(16);
-    const height = view.getUint32(20);
-    if (width < 1 || height < 1 || width * height > maxPixels) {
-        throw new Error(`Scan cleanup detection PNG dimensions ${width}x${height} exceed limits`);
-    }
-    return {
-        width,
-        height,
-    };
-}
-
-async function renderRasterToDisk(
-    sourcePdfPath: string,
-    pageNumber: number,
-    outputPath: string,
-    signal: AbortSignal,
-    dependencies: IScanCleanupDetectionDependencies,
-    log: TScanCleanupLog,
-    renderDpi: number,
-    maxPixels?: number,
-    crop?: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    },
-    format: 'png' | 'ppm' = 'png',
-    limits?: IScanCleanupRasterRenderLimits,
-) {
-    await (format === 'ppm' ? dependencies.renderPagePpm : dependencies.renderPage)(
-        {pdftoppmBinary: dependencies.getPdftoppmBinary()},
-        log,
-        pageNumber,
-        sourcePdfPath,
-        outputPath,
-        renderDpi,
-        undefined,
-        signal,
-        crop,
-        limits,
-    );
-    if (format === 'ppm') {
-        const dimensions = await readPpmDimensions(outputPath);
-        if (
-            (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels)
-            || (
-                limits !== undefined
-                && (
-                    dimensions.width > limits.maxDimensionPx
-                    || dimensions.height > limits.maxDimensionPx
-                    || dimensions.width * dimensions.height > limits.maxPixels
-                )
-            )
-        ) {
-            throw new Error(
-                `Scan cleanup detection raster dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
-            );
-        }
-        return dimensions;
-    }
-    const handle = await open(outputPath, 'r');
-    try {
-        const header = Buffer.alloc(24);
-        const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
-        if (bytesRead !== header.byteLength) {
-            throw new Error('Scan cleanup detection raster produced a truncated PNG');
-        }
-        const dimensions = readPngDimensions(
-            header,
-            Math.min(maxPixels ?? PREVIEW_MAX_IMAGE_PIXELS, limits?.maxPixels ?? PREVIEW_MAX_IMAGE_PIXELS),
-        );
-        if (limits !== undefined && (
-            dimensions.width > limits.maxDimensionPx
-            || dimensions.height > limits.maxDimensionPx
-        )) {
-            throw new Error(
-                `Scan cleanup detection raster dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
-            );
-        }
-        return dimensions;
-    } finally {
-        await handle.close();
-    }
 }
 
 async function mapDetectionPages<T>(
@@ -636,6 +546,8 @@ export async function runScanCleanupDetection<TDocument>(
                     undefined,
                     'png',
                     resolveRasterRenderLimits(pageSizeByNumber.get(pageNumber), pageDpi),
+                    'detection raster',
+                    'detection',
                 );
                 const raster = await retention.retain({
                     document,
