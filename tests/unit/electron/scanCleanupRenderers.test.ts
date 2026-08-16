@@ -7,9 +7,18 @@ import {
 } from 'vitest';
 import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
 
+const mocks = vi.hoisted(() => ({readPngDimensions: vi.fn()}));
+
+vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
+
 describe('createScanCleanupRenderers', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.readPngDimensions.mockResolvedValue({
+            width: 1,
+            height: 1,
+            isColor: true,
+        });
     });
 
     it('asks pdftoppm for PNG output without a main-process conversion pass', async () => {
@@ -52,6 +61,7 @@ describe('createScanCleanupRenderers', () => {
             ],
             expect.objectContaining({signal: controller.signal}),
         );
+        expect(mocks.readPngDimensions).toHaveBeenCalledWith('/tmp/page.png');
     });
 
     it('keeps the PPM route available for sidecar-only handoffs', async () => {

@@ -1,9 +1,11 @@
+import {rm} from 'node:fs/promises';
 import type {
     IScanCleanupRasterRenderLimits,
     TScanCleanupLog,
     TScanCleanupRenderPage,
     TScanCleanupRunCommand,
 } from '@scan-cleanup-core/types';
+import {readPngDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
@@ -116,7 +118,7 @@ async function renderPage(
 
 export function createScanCleanupRenderers(
     runCommand: TScanCleanupRunCommand,
-    _fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
+    fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
 ) {
     const renderPageToPng: TScanCleanupRenderPage = async (
         paths,
@@ -129,20 +131,41 @@ export function createScanCleanupRenderers(
         signal,
         crop,
         limits,
-    ) => renderPage(
-        runCommand,
-        'png',
-        paths,
-        log,
-        pageNumber,
-        sourcePdfPath,
-        outputPngPath,
-        dpi,
-        popplerEnv,
-        signal,
-        crop,
-        limits,
-    );
+    ) => {
+        await renderPage(
+            runCommand,
+            'png',
+            paths,
+            log,
+            pageNumber,
+            sourcePdfPath,
+            outputPngPath,
+            dpi,
+            popplerEnv,
+            signal,
+            crop,
+            limits,
+        );
+        try {
+            signal?.throwIfAborted();
+            const dimensions = await readPngDimensions(outputPngPath);
+            const maxDimensionPx = limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx;
+            const maxPixels = limits?.maxPixels ?? fallbackLimits.maxPixels;
+            if (
+                dimensions.width > maxDimensionPx
+                || dimensions.height > maxDimensionPx
+                || dimensions.width * dimensions.height > maxPixels
+            ) {
+                throw new RangeError(
+                    `PNG raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
+                );
+            }
+            signal?.throwIfAborted();
+        } catch (error) {
+            await rm(outputPngPath, {force: true});
+            throw error;
+        }
+    };
     const renderPageToPpm: TScanCleanupRenderPage = (
         paths,
         log,

@@ -42,8 +42,10 @@ refuted or intentional behavior as an implementation success.
 ## Resource and lifecycle bounds
 
 - Preview/detection PNG compression runs in the `pdftoppm` child process rather
-  than synchronously on the Electron main thread. Path-only consumers validate
-  the PNG header and size without loading the compressed payload.
+  than synchronously on the Electron main thread. The shared renderer validates
+  PNG dimensions from the header and removes over-budget output without loading
+  the compressed payload; preview and detection retain their context-specific
+  bounds as defense in depth.
 - Render bypasses decoded-input caching while Analyze retains replayable
   decodes. Cache reservation is operation-aware, and the trusted-MRC ink
   prepass uses the memory-derived page bound.
@@ -101,4 +103,7 @@ deadlock a one-thread pool, and a resumed page panic bypassed transaction
 rollback. Both findings were accepted and fixed before publication. The same
 pass made trusted-ink prepass failures observable, skipped that prepass when no
 eligible trusted inputs exist, enforced PNG `IHDR` and post-render bounds in
-both preview paths, and replaced the final raw localization-key fallback.
+both preview paths, and replaced the final raw localization-key fallback. The
+post-review full matrix then exposed stale OCR expectations and a lost shared
+renderer bound; direct PNG output now retains header-only limits for OCR and all
+other renderer consumers as well.
