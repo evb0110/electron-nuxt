@@ -45,6 +45,7 @@ export const useDocumentViewportLayoutLifecycle = (
         anchor: IDocumentZoomAnchor | null;
         epoch: unknown;
         generation: number;
+        pointerAuthored: boolean;
     } | null = null;
     let restoreGeneration = 0;
     let restoreScheduled = false;
@@ -107,10 +108,15 @@ export const useDocumentViewportLayoutLifecycle = (
         anchor: IDocumentZoomAnchor | null,
         epoch: unknown,
     ) => {
+        const retainedPointerRestore = activePointerAnchor === null
+            && pendingRestore?.pointerAuthored === true
+            ? pendingRestore
+            : null;
         pendingRestore = {
-            anchor,
+            anchor: retainedPointerRestore?.anchor ?? anchor,
             epoch,
             generation: restoreGeneration,
+            pointerAuthored: activePointerAnchor !== null || retainedPointerRestore !== null,
         };
         if (restoreScheduled) {
             return;
@@ -298,7 +304,7 @@ export const useDocumentViewportLayoutLifecycle = (
         cancelPendingRestore,
         capturePointerAnchor,
         endLayoutTransaction,
-        hasPendingPointerRestore: () => activePointerAnchor !== null && pendingRestore !== null,
+        hasPendingPointerRestore: () => pendingRestore?.pointerAuthored === true,
         isResizeTransitionActive,
         preserveLayoutMutation,
         refreshLayoutTransactionAnchor,

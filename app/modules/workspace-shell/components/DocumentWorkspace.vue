@@ -959,6 +959,7 @@ const {
 } = documentDriver.bindView({
     documentSourceCurrentResultIndex: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.currentResultIndex.value : -1),
     documentSourceSearchResults: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.results.value : []),
+    isInteractionActive: isActiveRef,
     isRenderActive: computed(() => isRenderActive),
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
     navigationFeedbackPage,

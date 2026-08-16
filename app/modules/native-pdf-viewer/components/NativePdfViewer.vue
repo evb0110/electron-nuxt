@@ -47,7 +47,6 @@
 <script setup lang="ts">
 import {
     useDevicePixelRatio,
-    useEventListener,
     useResizeObserver,
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
@@ -99,6 +98,7 @@ import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
 import { createDocumentWheelZoomHandler } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import { useDocumentWheelZoomSessionBoundaries } from '@app/utils/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
 import * as documentPageDisplayLayout from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
 interface IProps {
     src: TDocumentRef | null;
@@ -111,6 +111,7 @@ interface IProps {
     currentPage?: number;
     dragMode?: boolean;
     isActive?: boolean;
+    isInteractionActive?: boolean;
 }
 let nextNativePageSlotOwnerId = 0;
 const {
@@ -118,6 +119,7 @@ const {
     dragMode: dragModeProp,
     fitMode = undefined,
     isActive: isActiveProp = true,
+    isInteractionActive: isInteractionActiveProp = undefined,
     currentPage: requestedCurrentPage = 1,
     src,
     viewMode: _viewMode = undefined,
@@ -126,9 +128,7 @@ const {
 } = defineProps<IProps>();
 const chassisAuthority = injectDocumentViewerChassisAuthority();
 const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
-const renderSession = chassisAuthority?.renderCoordinator.createSession(
-    `native-pdf-feature:${String(++nextNativePageSlotOwnerId)}`,
-);
+const renderSession = chassisAuthority?.renderCoordinator.createSession(`native-pdf-feature:${String(++nextNativePageSlotOwnerId)}`);
 const pageSlots = renderSession?.pageSlots;
 const viewportWritePort = chassisAuthority?.viewportWritePort ?? createDocumentViewportWritePort();
 const emit = defineEmits<{
@@ -275,9 +275,10 @@ const handleWheel = createDocumentWheelZoomHandler(effectiveZoom, zoomMode, emit
     onNonZoom: () => viewportLayoutLifecycle.cancelPendingRestore(),
     readSessionKey: () => loadGeneration,
 });
-function cancelWheelInteraction() { if (isActive.value) { handleWheel.reset(); viewportLayoutLifecycle.cancelPendingRestore(); } }
-useEventListener(import.meta.client ? document : null, 'pointerdown', cancelWheelInteraction, {capture: true});
-useEventListener(import.meta.client ? document : null, 'keydown', cancelWheelInteraction, {capture: true});
+const cancelWheelInteraction = useDocumentWheelZoomSessionBoundaries({
+    isInteractionActive: computed(() => isInteractionActiveProp ?? isActiveProp),
+    reset: () => { handleWheel.reset(); viewportLayoutLifecycle.cancelPendingRestore(); },
+});
 const continuousDocumentHeight = computed(() => Math.max(containerHeight.value, continuousGeometry.value.totalHeight, 1));
 const renderedPageNumbers = computed(() => {
     if (totalPages.value <= 0) {
@@ -682,7 +683,6 @@ function finishInitialLoadIfSettled() {
         );
     }
 }
-
 function failCurrentPageTransition(pageNumber: number, error: unknown) {
     const openSurface = chassisAuthority?.openSurface;
     const viewport = openSurface?.viewportSession.value;

@@ -11,6 +11,33 @@ const WHEEL_DELTA_PAGE_MODE = 2;
 
 export type TDocumentWheelIntent = 'scroll' | 'platform-scroll' | 'zoom';
 
+const DOCUMENT_WHEEL_ZOOM_MODIFIER_KEYS = new Set([
+    'Alt',
+    'AltGraph',
+    'Control',
+    'Meta',
+    'Shift',
+]);
+
+export function isDocumentWheelZoomSessionBoundaryKey(
+    event: Pick<KeyboardEvent, 'key' | 'repeat'>,
+) {
+    return !event.repeat && !DOCUMENT_WHEEL_ZOOM_MODIFIER_KEYS.has(event.key);
+}
+
+export function shouldResetDocumentWheelZoomSession(
+    isInteractionActive: boolean,
+    event?: Pick<Event, 'type'> & Partial<Pick<KeyboardEvent, 'key' | 'repeat'>>,
+) {
+    if (!isInteractionActive) {
+        return false;
+    }
+    return event?.type !== 'keydown' || isDocumentWheelZoomSessionBoundaryKey({
+        key: event.key ?? '',
+        repeat: event.repeat === true,
+    });
+}
+
 /**
  * The renderer-facing subset of the physical wheel event. Modifier keys and
  * deltaZ deliberately stay behind the shared intent resolver so consumers
