@@ -12,7 +12,15 @@ import {
     type TDocumentViewportSessionEffect,
     type TDocumentViewportSessionEvent,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
-import { retargetDocumentOpeningShell } from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
+import {
+    retargetDocumentOpeningShell,
+    type IDocumentOpenSurfaceGeometry,
+    type IDocumentOpenSurfacePageFrame,
+    type IDocumentOpenSurfacePageGeometry,
+    type IDocumentOpenSurfaceVisualState,
+    type TDocumentOpenSurfacePresentation,
+    type TDocumentOpenSurfaceVisualPresentation,
+} from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
 
 export type {
     IDocumentViewportCommitFence,
@@ -36,26 +44,18 @@ export {
     reduceDocumentViewportSession,
     resolveDocumentViewportCurrentPage,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
+export type {
+    IDocumentOpenSurfaceGeometry,
+    IDocumentOpenSurfacePageFrame,
+    IDocumentOpenSurfacePageGeometry,
+    TDocumentOpenSurfacePresentation,
+} from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
 
 export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
     | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';
-export type TDocumentOpenSurfacePresentation = 'idle' | 'page-shell'
-    | 'committed' | 'failed';
 export interface IDocumentOpenSurfaceIdentity {
     readonly documentId: string;
     readonly documentRevision: string;
-}
-export interface IDocumentOpenSurfaceGeometry {
-    readonly width: number;
-    readonly height: number;
-    readonly margin: number;
-}
-export interface IDocumentOpenSurfacePageFrame {
-    readonly generation: number;
-    readonly ownerId: string;
-    readonly pageNumber: number;
-    readonly intentKey: string;
-    readonly style: Readonly<Record<string, string>>;
 }
 export interface IDocumentOpenSurfacePreparedPageFrame {
     readonly documentId: string;
@@ -67,16 +67,6 @@ export interface IDocumentOpenSurfacePreparedPageFrame {
     readonly sourceRevisionKey: string | null;
     readonly style: Readonly<Record<string, string>>;
     readonly geometry: IDocumentOpenSurfacePageGeometry;
-}
-export interface IDocumentOpenSurfacePageGeometry {
-    readonly documentId: string;
-    readonly pageNumber: number;
-    readonly pageCount: number;
-    readonly width: number;
-    readonly height: number;
-    readonly rotation: number;
-    readonly size?: number;
-    readonly modifiedAt?: number;
 }
 export interface IDocumentOpenSurfacePageGeometrySeed extends IDocumentOpenSurfacePageGeometry {
     readonly size: number;
@@ -248,20 +238,6 @@ export function commitDocumentOpenSurfaceViewport(
         left: commit.left,
         top: commit.top,
     });
-}
-
-type TDocumentOpenSurfaceVisualPresentation = Exclude<TDocumentOpenSurfacePresentation, 'failed'>;
-
-interface IDocumentOpenSurfaceVisualState {
-    presentation: TDocumentOpenSurfaceVisualPresentation;
-    geometry: IDocumentOpenSurfaceGeometry | null;
-    openingPageGeometry: IDocumentOpenSurfacePageGeometry | null;
-    openingPageFrame: IDocumentOpenSurfacePageFrame | null;
-    committedViewportPosition: {
-        readonly viewportIntentId: string;
-        readonly left: number;
-        readonly top: number;
-    } | null;
 }
 
 const idleVisualState = (): IDocumentOpenSurfaceVisualState => ({

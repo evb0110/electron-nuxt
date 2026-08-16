@@ -468,13 +468,28 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         }
         await session.page.mouse.move(viewportCenter.x, viewportCenter.y);
         let physicalWheelState = await readNativePdfPreviewState(session.page);
-        for (let index = 0; index < 12; index += 1) {
+        let previousPage = physicalWheelState.toolbar?.currentPage ?? 0;
+        let previousScrollTop = physicalWheelState.viewportScrollTop;
+        let stalledIterations = 0;
+        for (let index = 0; index < 48; index += 1) {
             await session.page.mouse.wheel({deltaY: 800});
             await delay(100);
             physicalWheelState = await readNativePdfPreviewState(session.page);
             if (physicalWheelState.toolbar?.currentPage === physicalWheelPage) {
                 break;
             }
+            const currentPage = physicalWheelState.toolbar?.currentPage ?? 0;
+            const currentScrollTop = physicalWheelState.viewportScrollTop;
+            if (currentPage > previousPage || currentScrollTop > previousScrollTop + 0.5) {
+                stalledIterations = 0;
+            } else {
+                stalledIterations += 1;
+            }
+            if (stalledIterations >= 3) {
+                break;
+            }
+            previousPage = currentPage;
+            previousScrollTop = currentScrollTop;
         }
         expect(physicalWheelState.toolbar?.currentPage, JSON.stringify(physicalWheelState))
             .toBe(physicalWheelPage);

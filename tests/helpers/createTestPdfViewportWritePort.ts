@@ -5,6 +5,7 @@ import type {
 
 export function createTestPdfViewportWritePort() {
     const writes: IPdfViewportWrite[] = [];
+    let interactionEpoch = 0;
     let revision = 0;
     let sequence = 0;
     const port: IPdfViewportWritePort = {
@@ -12,7 +13,7 @@ export function createTestPdfViewportWritePort() {
             return {
                 intentId,
                 documentRevision: revision,
-                interactionEpoch: 0,
+                interactionEpoch,
                 sequence: ++sequence,
             };
         },
@@ -25,8 +26,10 @@ export function createTestPdfViewportWritePort() {
         advanceDocumentRevision: () => ++revision,
         assertNoRogueWrite: () => {},
         consumeAuthorityScroll: () => false,
-        getInteractionEpoch: () => 0,
-        observeUserInteraction: () => {},
+        getInteractionEpoch: () => interactionEpoch,
+        observeUserInteraction: () => {
+            interactionEpoch += 1;
+        },
         observeUserScroll: () => {},
     };
     return {

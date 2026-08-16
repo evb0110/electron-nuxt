@@ -192,10 +192,7 @@ export async function readNativePdfPreviewState(page: Page) {
             )).length,
             renderedImageSizes: renderedImages.slice(0, 4).map(image => ({
                 height: image.naturalHeight,
-                requiredWidth: Math.min(
-                    rasterWidthCeilingPx,
-                    Math.ceil(image.getBoundingClientRect().width * Math.min(window.devicePixelRatio || 1, 2)),
-                ),
+                requiredWidth: globalThis.__evbE2E.getRequiredRasterWidth(image, rasterWidthCeilingPx),
                 width: image.naturalWidth,
             })),
             imageCountPerShell: Array.from(container?.querySelectorAll<HTMLElement>('.native-pdf-page-shell') ?? [])
@@ -204,6 +201,7 @@ export async function readNativePdfPreviewState(page: Page) {
             skeletonCount: host?.querySelectorAll('.native-pdf-page-shell .document-page-skeleton').length ?? 0,
             standardPdfViewerVisible: isElementVisible(standardPdfViewer),
             transitionSurfaceCount: host?.querySelectorAll('.document-viewer-chassis__opening-page').length ?? 0,
+            viewportScrollTop: viewportHost?.scrollTop ?? 0,
         };
     }, PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX);
     const toolbar = await getWorkspaceToolbarSnapshot(page);
@@ -296,16 +294,13 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
         const openSurfacePhase = viewportHost?.dataset.openSurfacePhase ?? '';
         const openSurfacePresentation = chassis?.dataset.openSurfacePresentation ?? '';
         const visibleRenderedImages = renderedImages.filter(isElementVisible);
-        const visibleCommittedRasters = renderedImages.filter(image => (
-            openSurfacePresentation !== 'page-shell'
-            && elementIntersectsCanonicalViewport(image, viewportHost)
+        const acceptsCommittedRasters = openSurfacePresentation !== 'page-shell';
+        const visibleCommittedRasters = (acceptsCommittedRasters ? renderedImages : []).filter(image => (
+            elementIntersectsCanonicalViewport(image, viewportHost)
             && image.closest('.native-pdf-page-content')?.classList.contains('document-page-visual--committed')
         )).map((image) => {
             const shell = image.closest<HTMLElement>('.native-pdf-page-shell');
-            const requiredWidth = Math.min(
-                rasterWidthCeilingPx,
-                Math.ceil(image.getBoundingClientRect().width * Math.min(window.devicePixelRatio || 1, 2)),
-            );
+            const requiredWidth = globalThis.__evbE2E.getRequiredRasterWidth(image, rasterWidthCeilingPx);
             return {
                 highResolution: image.naturalWidth >= requiredWidth,
                 naturalWidth: image.naturalWidth,

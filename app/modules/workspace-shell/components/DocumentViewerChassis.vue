@@ -182,12 +182,12 @@ function applyRetainedResizeAnchor(reason: string) {
     if (
         !viewport
         || !anchor
-        || !fence
     ) {
         return false;
     }
     if (
-        session.lifecycle !== 'ready'
+        !fence
+        || session.lifecycle !== 'ready'
         || session.requestedPage !== session.committedPage
         || fence.generation !== session.generation
         || fence.viewportIntentId !== (session.viewportIntent?.id ?? null)

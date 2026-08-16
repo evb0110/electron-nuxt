@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import { cast } from '@tests/helpers/cast';
 import { createPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 
 describe('PDF viewport write port ownership tags', () => {
     it('consumes an authority-authored scroll burst and rejects drift as user input', () => {
@@ -42,5 +43,18 @@ describe('PDF viewport write port ownership tags', () => {
             reason: 'stale-after-wheel',
             top: 220,
         })).toBe(false);
+    });
+});
+
+describe('shared test PDF viewport write port', () => {
+    it('models user interaction superseding an existing intent', () => {
+        const {port} = createTestPdfViewportWritePort();
+        const beforeInteraction = port.beginIntent('before-interaction');
+
+        port.observeUserInteraction();
+
+        expect(port.getInteractionEpoch()).toBe(1);
+        expect(beforeInteraction.interactionEpoch).toBe(0);
+        expect(port.beginIntent('after-interaction').interactionEpoch).toBe(1);
     });
 });
