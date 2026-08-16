@@ -249,6 +249,7 @@ describe('NativePdfViewer revision lifecycle', () => {
             documentId: documentPath,
             documentRevision: firstRevision,
         });
+        const commitCanvas = vi.spyOn(authority.openSurface, 'commitCanvas');
         const Root = defineComponent({setup() {
             provide(documentViewerChassisAuthorityKey, authority);
             return () => h(NativePdfViewer, {
@@ -281,6 +282,7 @@ describe('NativePdfViewer revision lifecycle', () => {
         await settleImagePaint(firstImage);
         await expect(requireViewer(viewer.value).waitForViewerLoadSettled()).resolves.toBeUndefined();
         expect(totalPageUpdates.at(-1)).toBe(2);
+        expect(commitCanvas).toHaveBeenCalledTimes(1);
 
         authority.openSurface.begin({
             documentId: documentPath,
@@ -307,6 +309,7 @@ describe('NativePdfViewer revision lifecycle', () => {
         await settleImagePaint(secondImage);
         await secondSettle;
         expect(secondSettled).toBe(true);
+        expect(commitCanvas).toHaveBeenCalledTimes(2);
         expect(host.querySelector('img[src^="blob:r1:"]')).toBeNull();
         expect(host.querySelector('img[src="blob:r2:page-1"]')).not.toBeNull();
     });

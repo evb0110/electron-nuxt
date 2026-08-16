@@ -7,7 +7,6 @@ import {
     createNativePdfRasterIdentity,
     isTrustedNativePdfRasterWidthCeiling,
     nativePdfRasterIdentityCovers,
-    nativePdfRasterIdentityMatches,
     nativePdfRasterOutputCoversRequest,
     resolveNativePdfRasterTargetWidth,
     shouldInvalidateNativePdfRaster,
@@ -38,17 +37,7 @@ describe('native PDF raster presentation', () => {
             pageHeight: 765.36,
             targetWidthPx: resolveNativePdfRasterTargetWidth(3_598, 2_008),
         });
-        const higherZoom = createNativePdfRasterIdentity({
-            ...firstZoom,
-            targetWidthPx: resolveNativePdfRasterTargetWidth(4_096, 2_008),
-        });
-        const lowerZoom = createNativePdfRasterIdentity({
-            ...firstZoom,
-            targetWidthPx: resolveNativePdfRasterTargetWidth(1_600, 2_008),
-        });
-
-        expect(nativePdfRasterIdentityMatches(firstZoom, higherZoom)).toBe(true);
-        expect(nativePdfRasterIdentityMatches(firstZoom, lowerZoom)).toBe(false);
+        expect(firstZoom.targetWidthPx).toBe(2_008);
     });
 
     it('treats target pixel width as part of the canonical raster identity', () => {
@@ -64,16 +53,6 @@ describe('native PDF raster presentation', () => {
             targetWidthPx: 1_836,
         });
 
-        expect(nativePdfRasterIdentityMatches(committed, zoomedTarget)).toBe(false);
-        expect(nativePdfRasterIdentityMatches(committed, {
-            ...committed,
-            generation: committed.generation + 1,
-        })).toBe(false);
-        expect(nativePdfRasterIdentityMatches(committed, {
-            ...committed,
-            pageWidth: committed.pageHeight,
-            pageHeight: committed.pageWidth,
-        })).toBe(false);
         expect(shouldInvalidateNativePdfRaster({
             status: 'loaded',
             hasObjectUrl: true,
@@ -161,5 +140,11 @@ describe('native PDF raster presentation', () => {
             surfaceReady: false,
             visualCommitted: false,
         })).toBe(true);
+        expect(shouldPresentNativePdfPageSkeleton({
+            openingSurfaceVisible: true,
+            residentVisualInvalidated: true,
+            surfaceReady: false,
+            visualCommitted: false,
+        })).toBe(false);
     });
 });

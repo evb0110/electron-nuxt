@@ -59,21 +59,6 @@ export function isTrustedNativePdfRasterWidthCeiling(value: number | null | unde
     return value === undefined || value === PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX;
 }
 
-export function nativePdfRasterIdentityMatches(
-    left: INativePdfRasterIdentity | null | undefined,
-    right: INativePdfRasterIdentity | null | undefined,
-) {
-    return Boolean(
-        left
-        && right
-        && left.generation === right.generation
-        && left.pageNumber === right.pageNumber
-        && left.pageWidth === right.pageWidth
-        && left.pageHeight === right.pageHeight
-        && left.targetWidthPx === right.targetWidthPx,
-    );
-}
-
 export function nativePdfRasterIdentityCovers(
     available: INativePdfRasterIdentity | null | undefined,
     required: INativePdfRasterIdentity | null | undefined,
@@ -106,11 +91,12 @@ export function shouldInvalidateNativePdfRaster(options: {
 }
 
 export function shouldPresentNativePdfPageSkeleton(options: {
+    openingSurfaceVisible?: boolean;
     residentVisualInvalidated?: boolean;
     surfaceReady: boolean;
     visualCommitted: boolean;
 }) {
-    return !options.visualCommitted && (
+    return options.openingSurfaceVisible !== true && !options.visualCommitted && (
         options.residentVisualInvalidated === true
         || options.surfaceReady
     );

@@ -274,7 +274,9 @@ function handleViewportWheel(interaction: IDocumentWheelInteraction) {
         // browser mutates scrollTop. Zoom gestures instead need the layout
         // lifecycle's anchor restore; bumping the epoch on every streamed zoom
         // tick would cancel that restore one frame after it was captured.
-        chassisAuthority.viewportWritePort.observeUserInteraction();
+        chassisAuthority.viewportWritePort.observeUserInteraction(
+            chassisAuthority.viewportElement.value ?? undefined,
+        );
     }
     chassisAuthority.dispatchViewportWheel(interaction);
 }

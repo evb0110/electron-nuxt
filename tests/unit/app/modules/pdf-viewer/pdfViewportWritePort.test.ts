@@ -36,8 +36,9 @@ describe('PDF viewport write port ownership tags', () => {
         expect(port.getInteractionEpoch()).toBe(1);
 
         const preWheelIntent = port.beginIntent('pre-wheel-layout-restore');
-        port.observeUserInteraction();
+        port.observeUserInteraction(container);
         expect(port.getInteractionEpoch()).toBe(2);
+        expect(port.consumeAuthorityScroll(container)).toBe(false);
         expect(port.apply(container, {
             intent: preWheelIntent,
             reason: 'stale-after-wheel',

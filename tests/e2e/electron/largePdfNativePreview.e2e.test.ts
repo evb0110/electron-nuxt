@@ -292,6 +292,10 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             && frame.transitionCoversViewport
             && !frame.emptyStateVisible
         )), JSON.stringify(openingFrames)).toBe(true);
+        expect(
+            claimedOpeningFrames.every(frame => !frame.nativeSkeletonVisible),
+            JSON.stringify(openingFrames),
+        ).toBe(true);
         expect(rectsAreStable(openingFrameRects, 0.5), JSON.stringify(openingFrames)).toBe(true);
         // Main-process preflight happens before the host claims its only visual
         // transaction. During that boundary the prior surface must remain

@@ -112,7 +112,6 @@ interface IProps {
     isActive?: boolean;
 }
 let nextNativePageSlotOwnerId = 0;
-
 const {
     documentRevisionToken = null,
     dragMode: dragModeProp,
@@ -378,7 +377,6 @@ function markInitialVisualReady(generation: number, pageNumber: number) {
     if (!commitPageVisualToViewportSession(generation, pageNumber)) {
         return false;
     }
-
     readyInitialVisualGeneration = generation;
     pendingInitialVisualGeneration = null;
     markStartupMetricOnce('evb:first-page-painted');
@@ -464,6 +462,7 @@ function getPageRasterIdentity(pageNumber: number) {
 function shouldShowPageSkeleton(pageNumber: number) {
     const openSurface = chassisAuthority?.openSurface;
     return shouldPresentNativePdfPageSkeleton({
+        openingSurfaceVisible: chassisAuthority !== null && showInitialSurfacePlaceholder.value,
         residentVisualInvalidated: invalidatedPageVisuals.has(pageNumber)
             || paintedPageObjectUrls.has(pageNumber)
                 && paintedPageObjectUrls.get(pageNumber) !== pageStates.value[pageNumber - 1]?.objectUrl,
@@ -661,17 +660,12 @@ function invalidateNonCanonicalRasters(activePages: Set<number>) {
         }
     }
 }
-
 function finishInitialLoadIfSettled() {
     if (!isActive.value || !isLoading.value) {
         return;
     }
 
     const initialPageNumber = activePage.value;
-    if (!renderedPageNumbers.value.includes(initialPageNumber)) {
-        return;
-    }
-
     const initialPageState = pageStates.value[initialPageNumber - 1];
     if (
         initialPageState?.objectUrl
@@ -1007,7 +1001,12 @@ function handlePageVisualReady(payload: {
     paintedPageObjectUrls.set(payload.pageNumber, payload.objectUrl);
     invalidatedPageVisuals.delete(payload.pageNumber);
     pageVisualErrorAttempts.delete(payload.pageNumber);
-    commitPageVisualToViewportSession(loadGeneration, payload.pageNumber);
+    const isPendingInitialVisual = isLoading.value
+        && pendingInitialVisualGeneration === loadGeneration
+        && payload.pageNumber === activePage.value;
+    if (!isPendingInitialVisual) {
+        commitPageVisualToViewportSession(loadGeneration, payload.pageNumber);
+    }
     finishInitialLoadIfSettled();
     syncLoadedPages();
 }

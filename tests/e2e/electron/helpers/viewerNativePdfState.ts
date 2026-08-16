@@ -49,6 +49,15 @@ export async function installNativePdfOpeningSampler(page: Page) {
             const rect = element.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0;
         };
+        const intersects = (element: HTMLElement, viewport: HTMLElement | null) => {
+            const elementRect = element.getBoundingClientRect();
+            const viewportRect = viewport?.getBoundingClientRect() ?? null;
+            return viewportRect !== null
+                && elementRect.right > viewportRect.left
+                && elementRect.left < viewportRect.right
+                && elementRect.bottom > viewportRect.top
+                && elementRect.top < viewportRect.bottom;
+        };
         const capture = () => {
             const host = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
@@ -59,7 +68,7 @@ export async function installNativePdfOpeningSampler(page: Page) {
             const transitionShell = transitionSurface?.querySelector<HTMLElement>('[data-page-number]') ?? transitionSurface;
             const transitionRect = transitionShell?.getBoundingClientRect() ?? null;
             const viewportRect = viewportHost?.getBoundingClientRect() ?? null;
-            const nativeViewer = host?.querySelector<HTMLElement>('.native-pdf-viewer-container') ?? null;
+            const nativeViewer = host?.querySelector<HTMLElement>('.native-pdf-viewer') ?? null;
             testWindow.__nativePdfOpeningFrames!.push({
                 capturedAtMs: performance.now(),
                 claimed: viewportHost?.dataset.openSurfacePhase !== undefined
@@ -73,7 +82,7 @@ export async function installNativePdfOpeningSampler(page: Page) {
                 generation: Number(chassis?.dataset.openSurfaceGeneration ?? 0),
                 nativeSkeletonVisible: Array.from(
                     nativeViewer?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
-                ).some(isVisible),
+                ).some(element => isVisible(element) && intersects(element, viewportHost)),
                 nativeViewerVisible: isVisible(nativeViewer),
                 transitionShellRect: transitionRect ? {
                     height: transitionRect.height,
