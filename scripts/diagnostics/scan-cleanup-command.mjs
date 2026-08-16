@@ -24,7 +24,17 @@ export function runDiagnosticCommand(
     } = {},
 ) {
     return new Promise((resolveRun, rejectRun) => {
-        const child = spawn(resolveCommand(command), args, {
+        const resolved = resolveCommand(command);
+        const spawnedCommand = typeof resolved === 'string'
+            ? resolved
+            : resolved.command;
+        const spawnedArgs = typeof resolved === 'string'
+            ? args
+            : [
+                ...resolved.args,
+                ...args,
+            ];
+        const child = spawn(spawnedCommand, spawnedArgs, {
             cwd,
             env,
             stdio: [
@@ -54,9 +64,9 @@ export function runDiagnosticCommand(
             clearTimeout(drainTimeout);
             if (code !== 0 && !allowFailure) {
                 rejectRun(onFailure({
-                    args,
+                    args: spawnedArgs,
                     code,
-                    command,
+                    command: spawnedCommand,
                     stderr,
                     stdout,
                 }));

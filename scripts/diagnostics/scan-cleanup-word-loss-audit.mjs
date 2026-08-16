@@ -44,6 +44,17 @@ function resolveAuditTool(command) {
             ? process.env.EVB_PDFIMAGES_PATH
             : undefined;
         resolved = resolveCliNativeToolPath(command, crate, projectRoot, envOverride) ?? command;
+        if (
+            process.platform === 'win32'
+            && command === 'pdfimages'
+            && resolved.toLowerCase().endsWith('.mjs')
+        ) {
+            // CreateProcess does not dispatch .mjs files when shell execution is disabled.
+            resolved = {
+                args: [resolved],
+                command: process.execPath,
+            };
+        }
         auditToolPaths.set(command, resolved);
     }
     return resolved;

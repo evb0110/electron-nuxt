@@ -1324,9 +1324,12 @@ mod tests {
 
         let mut non_finite: ComparableReport = serde_json::from_str(baseline_json).unwrap();
         non_finite.metrics.content.minimum_iou = f64::NAN;
-        assert!(compare_load_bearing_metrics(&non_finite.metrics, &baseline.metrics)
-            .iter()
-            .any(|regression| regression == "metrics.content.minimumIou: current metric is non-finite"));
+        assert!(
+            compare_load_bearing_metrics(&non_finite.metrics, &baseline.metrics)
+                .iter()
+                .any(|regression| regression
+                    == "metrics.content.minimumIou: current metric is non-finite")
+        );
     }
 
     #[test]
