@@ -27,6 +27,10 @@ import type * as FsPromises from 'node:fs/promises';
 let tempRoot = '';
 let resetModulesAfterTest = false;
 const MULTI_CHUNK_FIXTURE_BYTES = 1024 * 1024 + 17;
+// V8 coverage instrumentation makes each real multi-chunk materialization take
+// roughly 15 seconds on a saturated validation host. Lifecycle cases perform
+// two such phases, so retain a bounded budget with enough coverage headroom.
+const MATERIALIZATION_TEST_TIMEOUT_MS = 60_000;
 
 vi.mock('electron', () => ({app: {getPath: vi.fn(() => tempRoot)}}));
 
@@ -118,7 +122,7 @@ describe('workingCopyMaterialization', () => {
             .toEqual([...progress.map(entry => entry.bytesCopied)].sort((left, right) => left - right));
         const revisionAfter = await getWorkingCopyRevision(fixture.workingPath, 7);
         expect(revisionAfter).toEqual(revisionBefore);
-    }, 30_000);
+    }, MATERIALIZATION_TEST_TIMEOUT_MS);
 
     it('shares one flight across concurrent demand waiters', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 19));
@@ -198,7 +202,7 @@ describe('workingCopyMaterialization', () => {
         });
         expect(secondResult.status).toBe('fulfilled');
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
-    }, 30_000);
+    }, MATERIALIZATION_TEST_TIMEOUT_MS);
 
     it('lets a document consumer finish the copy a cancelled scan cleanup request started', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 24));
@@ -235,7 +239,7 @@ describe('workingCopyMaterialization', () => {
         expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)).toMatchObject({backingState: 'materialized'});
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
         expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
-    }, 30_000);
+    }, MATERIALIZATION_TEST_TIMEOUT_MS);
 
     it('stops a joined flight once the last waiter is gone', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 31));
@@ -286,7 +290,7 @@ describe('workingCopyMaterialization', () => {
             reason: 'page-operation',
         })).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
-    }, 30_000);
+    }, MATERIALIZATION_TEST_TIMEOUT_MS);
 
     it('recovers a registration left materializing and a flight already tearing down', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 25));
@@ -316,7 +320,7 @@ describe('workingCopyMaterialization', () => {
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
         expect(getWorkingCopyMaterializationFlightCountForTests()).toBe(0);
         expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
-    }, 30_000);
+    }, MATERIALIZATION_TEST_TIMEOUT_MS);
 
     it('keeps a flight background-leased when the lease attaches after a demand waiter', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 27));
@@ -349,7 +353,7 @@ describe('workingCopyMaterialization', () => {
         });
         expect(backgroundResult.status).toBe('fulfilled');
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
-    }, 30_000);
+    }, MATERIALIZATION_TEST_TIMEOUT_MS);
 
     it('explicitly cancels shared work, removes its partial, and permits retry', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 29));
@@ -380,7 +384,7 @@ describe('workingCopyMaterialization', () => {
             reason: 'save',
         })).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
-    }, 30_000);
+    }, MATERIALIZATION_TEST_TIMEOUT_MS);
 
     it('keeps ENOSPC retryable and never publishes partial target content', async () => {
         const actualFs = await import('node:fs/promises');
