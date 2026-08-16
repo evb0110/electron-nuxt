@@ -1,6 +1,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {
+    chmod,
     mkdtemp,
     readFile,
     rm,
@@ -36,6 +37,7 @@ const execFileAsync = promisify(execFile);
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const auditScript = join(projectRoot, 'scripts/diagnostics/scan-cleanup-word-loss-audit.mjs');
 const qpdfBinary = resolveCliNativeToolPath('qpdf', 'qpdf', projectRoot) ?? 'qpdf';
+const pdfimagesBinary = resolveCliNativeToolPath('pdfimages', 'poppler', projectRoot) ?? 'pdfimages';
 
 function buildMinimalPdf() {
     const objects = [
@@ -59,7 +61,6 @@ function buildMinimalPdf() {
 
 interface ISyntheticRaster {
     bitsPerComponent: number;
-    corruptImageStream?: boolean;
     height: number;
     imageMask?: boolean;
     pixels: Uint8Array;
@@ -78,7 +79,6 @@ type TSyntheticCleanedVariant =
 
 function buildRasterPdf({
     bitsPerComponent,
-    corruptImageStream,
     height,
     imageMask,
     pixels,
@@ -88,12 +88,10 @@ function buildRasterPdf({
     const imageDictionary = imageMask
         ? [
             `<< /Type /XObject /Subtype /Image /Width ${String(width)} /Height ${String(height)}`,
-            ...(corruptImageStream ? ['/Filter /FlateDecode'] : []),
             `/ImageMask true /BitsPerComponent 1 /Decode [1 0] /Length ${String(pixels.length)} >>`,
         ].join(' ')
         : [
             `<< /Type /XObject /Subtype /Image /Width ${String(width)} /Height ${String(height)}`,
-            ...(corruptImageStream ? ['/Filter /FlateDecode'] : []),
             `/ColorSpace /DeviceGray /BitsPerComponent ${String(bitsPerComponent)} /Length ${String(pixels.length)} >>`,
         ].join(' ');
     const imageStream = Buffer.concat([
@@ -343,6 +341,7 @@ const options: IScanCleanupOptions = {
 
 interface IRunAuditOptions {
     failOn?: 'any' | 'invented-ink' | 'none' | 'silhouette' | 'text-loss';
+    pdfimagesPath?: string;
     verifyStamp?: boolean;
 }
 
@@ -352,6 +351,7 @@ async function runAudit(
     output: string,
     {
         failOn = 'none',
+        pdfimagesPath,
         verifyStamp = true,
     }: IRunAuditOptions = {},
 ) {
@@ -372,6 +372,12 @@ async function runAudit(
         ];
         await execFileAsync(process.execPath, args, {
             cwd: projectRoot,
+            env: pdfimagesPath === undefined
+                ? process.env
+                : {
+                    ...process.env,
+                    EVB_PDFIMAGES_PATH: pdfimagesPath,
+                },
             maxBuffer: 2 * 1024 * 1024,
         });
         return 0;
@@ -519,17 +525,28 @@ describe('scan-cleanup word-loss audit coverage', () => {
         try {
             const source = join(temporaryDirectory, 'source.pdf');
             const cleaned = join(temporaryDirectory, 'cleaned.pdf');
+            const failingPdfimages = join(temporaryDirectory, 'pdfimages-fail-extraction.mjs');
             const reportPath = join(temporaryDirectory, 'report.json');
             const sourceRaster = buildSyntheticSourceRaster();
             const cleanedRaster = buildSyntheticCleanedRaster(sourceRaster, 'equal');
             await writeFile(source, buildRasterPdf(sourceRaster));
-            await writeFile(cleaned, buildRasterPdf({
-                ...cleanedRaster,
-                corruptImageStream: true,
-            }));
+            await writeFile(cleaned, buildRasterPdf(cleanedRaster));
+            await writeFile(failingPdfimages, [
+                '#!/usr/bin/env node',
+                'import {spawnSync} from \'node:child_process\';',
+                'if (!process.argv.includes(\'-list\')) {',
+                '    process.stderr.write(\'intentional extraction failure\\n\');',
+                '    process.exit(72);',
+                '}',
+                `const result = spawnSync(${JSON.stringify(pdfimagesBinary)}, process.argv.slice(2), {stdio: 'inherit'});`,
+                'process.exit(result.status ?? 1);',
+                '',
+            ].join('\n'));
+            await chmod(failingPdfimages, 0o755);
 
             expect(await runAudit(source, cleaned, reportPath, {
                 failOn: 'text-loss',
+                pdfimagesPath: failingPdfimages,
                 verifyStamp: false,
             })).toBe(1);
             expect(JSON.parse(await readFile(reportPath, 'utf8')).summary).toMatchObject({

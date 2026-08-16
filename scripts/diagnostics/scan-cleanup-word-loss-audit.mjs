@@ -40,7 +40,10 @@ function resolveAuditTool(command) {
     }
     let resolved = auditToolPaths.get(command);
     if (resolved === undefined) {
-        resolved = resolveCliNativeToolPath(command, crate, projectRoot) ?? command;
+        const envOverride = command === 'pdfimages'
+            ? process.env.EVB_PDFIMAGES_PATH
+            : undefined;
+        resolved = resolveCliNativeToolPath(command, crate, projectRoot, envOverride) ?? command;
         auditToolPaths.set(command, resolved);
     }
     return resolved;
