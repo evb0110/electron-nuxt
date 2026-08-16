@@ -6016,7 +6016,7 @@ describe('scan cleanup preview', () => {
         )?.status).toBe('canceled'));
     });
 
-    it('releases streamed detection cursors when a destroyed renderer drops terminal delivery', async () => {
+    it('does not deliver terminal detection state after a renderer is destroyed', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const entered = Promise.withResolvers<undefined>();
@@ -6049,24 +6049,17 @@ describe('scan cleanup preview', () => {
         const started = await service.detectAll(owner, detectionRequest);
         await entered.promise;
 
-        const cursorKey = `${owner.id}\u0000${started.jobId}`;
-        const deleteSpy = vi.spyOn(Map.prototype, 'delete');
-        const deletesBeforeDestroy = deleteSpy.mock.calls.filter(([key]) => key === cursorKey).length;
-        try {
-            owner.destroyed = true;
-            owner.emit('destroyed');
+        const sendsBeforeDestroy = owner.send.mock.calls.length;
+        owner.destroyed = true;
+        owner.emit('destroyed');
 
-            await vi.waitFor(() => expect(service.getDetectionJobState(
-                owner,
-                started.jobId,
-                detectionRequest,
-            )?.status).toBe('canceled'));
-            await vi.waitFor(() => expect(
-                deleteSpy.mock.calls.filter(([key]) => key === cursorKey).length,
-            ).toBeGreaterThan(deletesBeforeDestroy));
-        } finally {
-            deleteSpy.mockRestore();
-        }
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('canceled'));
+        expect(owner.send.mock.calls.length).toBe(sendsBeforeDestroy);
+        await service.dispose();
     });
 
     it.each([

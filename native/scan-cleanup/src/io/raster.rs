@@ -170,11 +170,7 @@ fn open_sniffed(path: &Path) -> Result<(impl Read, bool), RasterReadError> {
 
 fn map_decoder_error(error: evb_raster_io::RasterError) -> RasterReadError {
     match error {
-        evb_raster_io::RasterError::Invalid(message)
-            if message.contains("dimensions exceed") && message.contains("guardrails") =>
-        {
-            RasterReadError::TooLarge(message)
-        }
+        evb_raster_io::RasterError::TooLarge(message) => RasterReadError::TooLarge(message),
         evb_raster_io::RasterError::Invalid(message) => RasterReadError::Invalid(message),
         evb_raster_io::RasterError::Io(error) => RasterReadError::Io(error),
     }
@@ -196,6 +192,7 @@ fn map_bounded_io_error(error: super::BoundedIoError) -> RasterReadError {
 mod tests {
     use super::*;
     use crate::io::png::encode_gray;
+    use evb_raster_io::RasterError;
     use std::fs;
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -303,6 +300,37 @@ mod tests {
             "unexpected error: {error}"
         );
         fs::remove_file(&ppm_path).unwrap();
+    }
+
+    #[test]
+    fn maps_decoder_error_variants_without_reclassifying_messages() {
+        assert!(matches!(
+            map_decoder_error(RasterError::TooLarge("oversized dimensions".to_string())),
+            RasterReadError::TooLarge(message) if message == "oversized dimensions"
+        ));
+        assert!(matches!(
+            map_decoder_error(RasterError::Invalid("dimensions exceed guardrails".to_string())),
+            RasterReadError::Invalid(message) if message == "dimensions exceed guardrails"
+        ));
+        let io_error = std::io::Error::other("read failed");
+        let mapped = map_decoder_error(RasterError::Io(io_error));
+        assert!(matches!(
+            mapped,
+            RasterReadError::Io(error) if error.to_string() == "read failed"
+        ));
+    }
+
+    #[test]
+    fn rejects_png_inputs_beyond_the_pixel_guardrail() {
+        let mut image = GrayImage::new(4, 4, 255);
+        image.set(0, 0, 0);
+        let png_path = temp_path("oversized.png");
+        fs::write(&png_path, encode_gray(&image).unwrap()).unwrap();
+
+        let error = read_dimensions(&png_path, 8, 16).unwrap_err();
+
+        assert!(matches!(error, RasterReadError::TooLarge(_)));
+        fs::remove_file(&png_path).unwrap();
     }
 
     #[test]

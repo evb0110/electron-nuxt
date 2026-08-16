@@ -69,12 +69,18 @@ pub enum PixelBuffer<'a> {
 pub enum RasterError {
     #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
+    TooLarge(String),
     #[error(transparent)]
     Io(#[from] io::Error),
 }
 impl RasterError {
     fn invalid(message: impl Into<String>) -> Self {
         Self::Invalid(message.into())
+    }
+
+    fn too_large(message: impl Into<String>) -> Self {
+        Self::TooLarge(message.into())
     }
 }
 pub fn read_png_passthrough<R: Read>(
@@ -331,13 +337,14 @@ pub fn decode_p4(
         return Err(RasterError::invalid("Invalid PBM P4 dimensions"));
     }
     let (width, height) = (dimensions[0], dimensions[1]);
-    if width == 0
-        || height == 0
-        || width > max_dimension as usize
+    if width == 0 || height == 0 {
+        return Err(RasterError::invalid("Invalid PBM P4 dimensions"));
+    }
+    if width > max_dimension as usize
         || height > max_dimension as usize
         || (width as u64).saturating_mul(height as u64) > max_pixels
     {
-        return Err(RasterError::invalid(format!(
+        return Err(RasterError::too_large(format!(
             "PBM P4 dimensions exceed guardrails: {width}x{height}"
         )));
     }
@@ -556,13 +563,14 @@ fn parse_ppm_header<R: Read>(
     let width = read_ppm_number(reader, "width")?;
     let height = read_ppm_number(reader, "height")?;
     let max_value = read_ppm_number(reader, "max value")?;
-    if width == 0
-        || height == 0
-        || width > u64::from(limits.max_dimension)
+    if width == 0 || height == 0 {
+        return Err(RasterError::invalid("Invalid PPM P6 dimensions"));
+    }
+    if width > u64::from(limits.max_dimension)
         || height > u64::from(limits.max_dimension)
-        || width * height > limits.max_pixels
+        || width.saturating_mul(height) > limits.max_pixels
     {
-        return Err(RasterError::invalid(format!(
+        return Err(RasterError::too_large(format!(
             "PPM P6 dimensions exceed guardrails: {width}x{height}"
         )));
     }
@@ -788,14 +796,17 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
             (limits.max_pixels, Some(limits.max_dimension))
         }
     };
-    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > max_pixels {
-        return Err(RasterError::invalid(format!(
+    if width == 0 || height == 0 {
+        return Err(RasterError::invalid("PNG dimensions must be non-zero"));
+    }
+    if u64::from(width) * u64::from(height) > max_pixels {
+        return Err(RasterError::too_large(format!(
             "PNG dimensions exceed pixel guardrails: {width}x{height}"
         )));
     }
     if let Some(max_dimension) = max_dimension {
         if width > max_dimension || height > max_dimension {
-            return Err(RasterError::invalid(format!(
+            return Err(RasterError::too_large(format!(
                 "PNG dimensions exceed cleanup guardrails: {width}x{height}"
             )));
         }

@@ -132,21 +132,21 @@ export function createScanCleanupRenderers(
         crop,
         limits,
     ) => {
-        await renderPage(
-            runCommand,
-            'png',
-            paths,
-            log,
-            pageNumber,
-            sourcePdfPath,
-            outputPngPath,
-            dpi,
-            popplerEnv,
-            signal,
-            crop,
-            limits,
-        );
         try {
+            await renderPage(
+                runCommand,
+                'png',
+                paths,
+                log,
+                pageNumber,
+                sourcePdfPath,
+                outputPngPath,
+                dpi,
+                popplerEnv,
+                signal,
+                crop,
+                limits,
+            );
             signal?.throwIfAborted();
             const dimensions = await readPngDimensions(outputPngPath);
             const maxDimensionPx = limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx;
@@ -162,7 +162,9 @@ export function createScanCleanupRenderers(
             }
             signal?.throwIfAborted();
         } catch (error) {
-            await rm(outputPngPath, {force: true});
+            // The renderer error is the useful failure. A best-effort cleanup
+            // must not replace it when the output path cannot be removed.
+            await rm(outputPngPath, {force: true}).catch(() => undefined);
             throw error;
         }
     };

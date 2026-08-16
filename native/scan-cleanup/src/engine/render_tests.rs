@@ -7402,5 +7402,22 @@ mod tests {
             200,
             200,
         ));
+
+        let anisotropic_canonical = vec![
+            (Rect::new(0.0, 0.0, 400.0, 100.0), PageHalf::Left),
+            (Rect::new(600.0, 0.0, 400.0, 100.0), PageHalf::Right),
+        ];
+        let anisotropic_working = vec![
+            (Rect::new(0.0, 0.0, 820.0, 200.0), PageHalf::Left),
+            (Rect::new(1200.0, 0.0, 800.0, 200.0), PageHalf::Right),
+        ];
+        assert!(!regions_match_in_common_coordinates(
+            &anisotropic_canonical,
+            &anisotropic_working,
+            1_000,
+            100,
+            2_000,
+            200,
+        ));
     }
 }

@@ -53,10 +53,27 @@ export function resolveScanCleanupMatchedCanvasPlacement(input: {
     placementOffsetXPx: number;
     placementOffsetYPx: number;
 }): IScanCleanupMatchedCanvasPlacement {
-    const contentWidthPx = input.matchedCanvasContentWidthPx ?? input.outputWidthPx;
-    const contentHeightPx = input.matchedCanvasContentHeightPx ?? input.outputHeightPx;
-    const intrinsicRasterWidthPx = input.intrinsicRasterWidthPx ?? input.outputWidthPx;
-    const intrinsicRasterHeightPx = input.intrinsicRasterHeightPx ?? input.outputHeightPx;
+    const positiveFiniteOr = (value: number | null | undefined, fallback: number) => (
+        typeof value === 'number' && Number.isFinite(value) && value > 0
+            ? value
+            : fallback
+    );
+    const contentWidthPx = positiveFiniteOr(
+        input.matchedCanvasContentWidthPx,
+        input.outputWidthPx,
+    );
+    const contentHeightPx = positiveFiniteOr(
+        input.matchedCanvasContentHeightPx,
+        input.outputHeightPx,
+    );
+    const intrinsicRasterWidthPx = positiveFiniteOr(
+        input.intrinsicRasterWidthPx,
+        input.outputWidthPx,
+    );
+    const intrinsicRasterHeightPx = positiveFiniteOr(
+        input.intrinsicRasterHeightPx,
+        input.outputHeightPx,
+    );
     return {
         contentWidthPx,
         contentHeightPx,

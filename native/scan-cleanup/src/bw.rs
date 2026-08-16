@@ -1647,29 +1647,6 @@ fn multiscale_threshold_radii(
     )
 }
 
-#[cfg(test)]
-fn multiscale_consensus(
-    normalized: &GrayImage,
-    small: &BinaryImage,
-    medium: &BinaryImage,
-    large: &BinaryImage,
-) -> BinaryImage {
-    assert_eq!(
-        (small.width(), small.height()),
-        (normalized.width(), normalized.height())
-    );
-    assert_eq!(medium.width(), small.width());
-    assert_eq!(medium.height(), small.height());
-    assert_eq!(large.width(), small.width());
-    assert_eq!(large.height(), small.height());
-
-    BinaryImage::from_fn_parallel(small.width(), small.height(), |x, y| {
-        (medium.get(x, y) && large.get(x, y))
-            || (small.get(x, y)
-                && sobel_gradient_magnitude(normalized, x, y) > STROKE_EDGE_THRESHOLD)
-    })
-}
-
 fn sobel_gradient_magnitude(image: &GrayImage, x: usize, y: usize) -> u16 {
     if image.width() == 0 || image.height() == 0 {
         return 0;
@@ -4443,42 +4420,6 @@ mod tests {
             SpreadBinarizationPlanDecision::SharedJoint,
             "the mutation control must fail when reconciliation reads working rasters"
         );
-    }
-
-    #[test]
-    fn multiscale_consensus_recovers_faint_thin_stroke_only_with_gradient_support() {
-        let mut normalized = GrayImage::new(15, 15, 220);
-        let mut small = BinaryImage::new(15, 15);
-        let medium = BinaryImage::new(15, 15);
-        let large = BinaryImage::new(15, 15);
-        for y in 2..13 {
-            for x in 6..8 {
-                normalized.set(x, y, 190);
-                small.set(x, y, true);
-            }
-        }
-
-        let recovered = multiscale_consensus(&normalized, &small, &medium, &large);
-        assert!(recovered.get(6, 7));
-        assert!(recovered.get(7, 7));
-
-        let flat = GrayImage::new(15, 15, 220);
-        let unsupported = multiscale_consensus(&flat, &small, &medium, &large);
-        assert!(!unsupported.get(6, 7));
-        assert!(!unsupported.get(7, 7));
-    }
-
-    #[test]
-    fn multiscale_consensus_rejects_isolated_low_variance_noise_from_smallest_window() {
-        let mut normalized = GrayImage::new(11, 11, 220);
-        normalized.set(5, 5, 219);
-        let mut small = BinaryImage::new(11, 11);
-        small.set(5, 5, true);
-        let medium = BinaryImage::new(11, 11);
-        let large = BinaryImage::new(11, 11);
-
-        let consensus = multiscale_consensus(&normalized, &small, &medium, &large);
-        assert!(!consensus.get(5, 5));
     }
 
     fn faint_text_fixture() -> (GrayImage, BinaryImage) {

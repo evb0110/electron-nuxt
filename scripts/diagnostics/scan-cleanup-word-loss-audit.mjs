@@ -220,7 +220,6 @@ function parseFailOn(value) {
 
 async function run(command, args) {
     const result = await runDiagnosticCommand(command, args, {
-        completionEvent: 'close',
         cwd: projectRoot,
         env: process.env,
         onFailure: ({
@@ -658,8 +657,15 @@ function bitmapBounds(bitmap) {
         };
 }
 
-function rotateBitmapValues(bitmap, quarterTurns, sourceValues) {
+export function rotateBitmapValues(bitmap, quarterTurns, sourceValues) {
     const turns = ((quarterTurns % 4) + 4) % 4;
+    if (turns === 0) {
+        return {
+            height: bitmap.height,
+            values: sourceValues,
+            width: bitmap.width,
+        };
+    }
     const width = turns % 2 === 0 ? bitmap.width : bitmap.height;
     const height = turns % 2 === 0 ? bitmap.height : bitmap.width;
     const values = new Uint8Array(width * height);
@@ -3639,9 +3645,11 @@ async function main() {
     }
 }
 
-try {
-    process.exitCode = (await main()) ? 1 : 0;
-} catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    try {
+        process.exitCode = (await main()) ? 1 : 0;
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+    }
 }

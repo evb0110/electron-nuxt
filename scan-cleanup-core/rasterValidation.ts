@@ -157,15 +157,7 @@ export async function renderScanCleanupRasterToDisk(
             Math.min(maxPixels ?? SCAN_CLEANUP_RASTER_MAX_PIXELS, limits?.maxPixels ?? SCAN_CLEANUP_RASTER_MAX_PIXELS),
             pngErrorContext,
         );
-        if (limits !== undefined && (
-            dimensions.width > limits.maxDimensionPx
-            || dimensions.height > limits.maxDimensionPx
-        )) {
-            throw new Error(
-                `Scan cleanup ${errorContext} dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
-            );
-        }
-        return dimensions;
+        return assertRasterDimensionsWithinLimits(dimensions, maxPixels, limits, errorContext);
     } finally {
         await handle.close();
     }

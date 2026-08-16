@@ -5,15 +5,27 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as FsPromises from 'node:fs/promises';
 import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
 
-const mocks = vi.hoisted(() => ({readPngDimensions: vi.fn()}));
+const mocks = vi.hoisted(() => ({
+    readPngDimensions: vi.fn(),
+    rm: vi.fn(),
+}));
 
 vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
+vi.mock('node:fs/promises', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
+    return {
+        ...actual,
+        rm: mocks.rm,
+    };
+});
 
 describe('createScanCleanupRenderers', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.rm.mockResolvedValue(undefined);
         mocks.readPngDimensions.mockResolvedValue({
             width: 1,
             height: 1,
@@ -62,6 +74,41 @@ describe('createScanCleanupRenderers', () => {
             expect.objectContaining({signal: controller.signal}),
         );
         expect(mocks.readPngDimensions).toHaveBeenCalledWith('/tmp/page.png');
+    });
+
+    it('preserves the renderer error when failed cleanup cannot remove the output', async () => {
+        const runCommand = vi.fn().mockResolvedValue(undefined);
+        const rendererError = new Error('renderer produced an invalid PNG');
+        mocks.readPngDimensions.mockRejectedValue(rendererError);
+        mocks.rm.mockRejectedValue(new Error('cleanup failed'));
+        const {renderPage} = createScanCleanupRenderers(runCommand);
+
+        await expect(renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/source.pdf',
+            '/tmp/page.png',
+            300,
+        )).rejects.toBe(rendererError);
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
+    });
+
+    it('removes a partial PNG without masking a command failure', async () => {
+        const rendererError = new Error('pdftoppm failed after opening the output');
+        const runCommand = vi.fn().mockRejectedValue(rendererError);
+        mocks.rm.mockRejectedValue(new Error('cleanup failed'));
+        const {renderPage} = createScanCleanupRenderers(runCommand);
+
+        await expect(renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/source.pdf',
+            '/tmp/page.png',
+            300,
+        )).rejects.toBe(rendererError);
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
     });
 
     it('keeps the PPM route available for sidecar-only handoffs', async () => {

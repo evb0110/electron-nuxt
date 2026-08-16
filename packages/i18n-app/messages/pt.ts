@@ -408,10 +408,10 @@ export default {
             'evidenceMissing': 'A limpeza requer uma análise uniforme concluída das páginas. Execute novamente a deteção.',
         },
         'errors': {
-            'alreadyRunning': 'A limpeza do digitalizado já está em execução.',
+            'alreadyRunning': 'A limpeza de digitalizações já está em execução.',
             'detectionSubscriptionFailed': 'Não foi possível acompanhar a deteção das páginas depois de a subscrição falhar.',
-            'runSubscriptionFailed': 'Não foi possível acompanhar a limpeza do digitalizado depois de a subscrição falhar.',
-            'runRecoveryFailed': 'Não foi possível recuperar a limpeza do digitalizado depois de restaurar a sessão do processo de renderização.',
+            'runSubscriptionFailed': 'Não foi possível acompanhar a limpeza de digitalizações depois de a subscrição falhar.',
+            'runRecoveryFailed': 'Não foi possível recuperar a limpeza de digitalizações depois de restaurar a sessão do processo de renderização.',
         },
         'cancelingDetection': 'A parar a análise em segundo plano…',
         'startingCleanup': 'A iniciar a limpeza…',

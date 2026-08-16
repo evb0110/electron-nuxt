@@ -4214,10 +4214,9 @@ fn regions_match_in_common_coordinates(
             canonical_edges[..]
                 .iter()
                 .zip(working_edges)
-                .all(|(left, right)| {
-                    left.is_finite()
-                        && right.is_finite()
-                        && (left - right).abs() <= tolerance_x.max(tolerance_y)
+                .zip([tolerance_x, tolerance_y, tolerance_x, tolerance_y])
+                .all(|((left, right), tolerance)| {
+                    left.is_finite() && right.is_finite() && (left - right).abs() <= tolerance
                 })
         },
     )

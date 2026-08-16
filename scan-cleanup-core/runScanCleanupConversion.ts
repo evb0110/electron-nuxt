@@ -1156,7 +1156,10 @@ export async function runScanCleanupConversion(
                 }
             },
         });
-        await Promise.all(analysisReleasePromises);
+        // Rejections are observed and reported by the outer finally block;
+        // this barrier only ensures every scratch release has settled before
+        // collection begins.
+        await Promise.allSettled(analysisReleasePromises);
         emitProgress('collecting', 0, pages.length, []);
         const outputPages: IRenderedCleanupOutputPage[] = [];
         const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();

@@ -15,6 +15,7 @@ import {
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarning,
+    resolveScanCleanupMatchedCanvasPlacement,
     resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupOutputPageRect,
     resolveScanCleanupPageCanvasBox,
@@ -79,6 +80,71 @@ const spread = page({
 });
 
 describe('scan cleanup document canvas', () => {
+    it.each([
+        0,
+        -1,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+    ])('falls back to output dimensions for an invalid intrinsic width (%s)', intrinsicRasterWidthPx => {
+        expect(resolveScanCleanupMatchedCanvasPlacement({
+            outputWidthPx: 100,
+            outputHeightPx: 80,
+            intrinsicRasterWidthPx,
+            intrinsicRasterHeightPx: 40,
+            placementOffsetXPx: 0,
+            placementOffsetYPx: 0,
+        })).toMatchObject({
+            intrinsicRasterWidthPx: 100,
+            intrinsicRasterHeightPx: 40,
+            matchScaleX: 1,
+            matchScaleY: 2,
+        });
+    });
+
+    it.each([
+        0,
+        -1,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+    ])('falls back to output dimensions for an invalid intrinsic height (%s)', intrinsicRasterHeightPx => {
+        expect(resolveScanCleanupMatchedCanvasPlacement({
+            outputWidthPx: 100,
+            outputHeightPx: 80,
+            intrinsicRasterWidthPx: 50,
+            intrinsicRasterHeightPx,
+            placementOffsetXPx: 0,
+            placementOffsetYPx: 0,
+        })).toMatchObject({
+            intrinsicRasterWidthPx: 50,
+            intrinsicRasterHeightPx: 80,
+            matchScaleX: 2,
+            matchScaleY: 1,
+        });
+    });
+
+    it.each([
+        0,
+        -1,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+    ])('falls back to output dimensions for an invalid matched content width (%s)', matchedCanvasContentWidthPx => {
+        expect(resolveScanCleanupMatchedCanvasPlacement({
+            outputWidthPx: 100,
+            outputHeightPx: 80,
+            matchedCanvasContentWidthPx,
+            matchedCanvasContentHeightPx: 40,
+            intrinsicRasterWidthPx: 50,
+            intrinsicRasterHeightPx: 40,
+            placementOffsetXPx: 0,
+            placementOffsetYPx: 0,
+        })).toMatchObject({
+            contentWidthPx: 100,
+            contentHeightPx: 40,
+            matchScaleX: 2,
+            matchScaleY: 1,
+        });
+    });
+
     it('uses one fractional placement owner for every lossless alignment', () => {
         const content = {
             x: 10,

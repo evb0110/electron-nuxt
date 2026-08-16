@@ -408,10 +408,10 @@ export default {
             'evidenceMissing': 'Opschonen vereist een voltooide uniforme pagina-analyse. Voer de detectie opnieuw uit.',
         },
         'errors': {
-            'alreadyRunning': 'Scanopruiming wordt al uitgevoerd.',
+            'alreadyRunning': 'Scanopschoning wordt al uitgevoerd.',
             'detectionSubscriptionFailed': 'Paginadetectie kon niet worden gevolgd nadat het abonnement was mislukt.',
-            'runSubscriptionFailed': 'Scanopruiming kon niet worden gevolgd nadat het abonnement was mislukt.',
-            'runRecoveryFailed': 'Scanopruiming kon niet worden hersteld nadat de renderersessie was hersteld.',
+            'runSubscriptionFailed': 'Scanopschoning kon niet worden gevolgd nadat het abonnement was mislukt.',
+            'runRecoveryFailed': 'Scanopschoning kon niet worden hersteld nadat de renderersessie was hersteld.',
         },
         'cancelingDetection': 'Achtergrondanalyse stoppen…',
         'startingCleanup': 'Opschoning starten…',

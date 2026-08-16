@@ -821,13 +821,24 @@ function sourceMrcForegroundPdfMatrix(page, pageWidthPoints, pageHeightPoints) {
         metadata,
         trustedMrcLayers,
     } = page;
+    const positiveFinite = value => typeof value === 'number'
+        && Number.isFinite(value)
+        && value > 0;
     const matrix = metadata.forwardTransform?.matrix;
     if (
         trustedMrcLayers === null
         || trustedMrcLayers === undefined
         || matrix === undefined
-        || metadata.inputWidthPx === undefined
-        || metadata.inputHeightPx === undefined
+        || !positiveFinite(metadata.inputWidthPx)
+        || !positiveFinite(metadata.inputHeightPx)
+        || !positiveFinite(metadata.outputWidthPx)
+        || !positiveFinite(metadata.outputHeightPx)
+        || (metadata.intrinsicRasterWidthPx !== undefined
+            && metadata.intrinsicRasterWidthPx !== null
+            && !positiveFinite(metadata.intrinsicRasterWidthPx))
+        || (metadata.intrinsicRasterHeightPx !== undefined
+            && metadata.intrinsicRasterHeightPx !== null
+            && !positiveFinite(metadata.intrinsicRasterHeightPx))
         || metadata.rotationDegrees !== 0
         || metadata.dewarpMapping != null
     ) {
@@ -990,7 +1001,7 @@ function buildRenderManifestPage(page, fixtureDir, renderMode) {
     const pagePrefix = isPreview ? 'preview' : 'clean';
     const pageNumber = page.pageNumber;
     const pageDpi = isPreview ? page.detectionDpi : page.renderDpi;
-    const previewPlan = isPreview
+    const renderPlan = isPreview
         ? {
             // The UI preview is rendered in intrinsic output space. Matched
             // document canvases are a final-PDF assembly concern and require a
@@ -1018,7 +1029,7 @@ function buildRenderManifestPage(page, fixtureDir, renderMode) {
         ...(page.analysis.softAlphaForegroundRecommendation === undefined
             ? {}
             : {preferSoftAlphaForeground: page.analysis.softAlphaForegroundRecommendation}),
-        resolvedOptions: previewPlan,
+        resolvedOptions: renderPlan,
         outputs: [
             0,
             1,

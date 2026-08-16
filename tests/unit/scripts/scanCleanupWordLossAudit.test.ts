@@ -22,6 +22,7 @@ import {
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {resolveCliNativeToolPath} from '@scripts/scanCleanupCliAdapters';
+import {rotateBitmapValues} from '@scripts/diagnostics/scan-cleanup-word-loss-audit.mjs';
 import {
     SCAN_CLEANUP_CORE_BUILD_ID,
     SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
@@ -481,6 +482,37 @@ describe('scan-cleanup word-loss audit stamp verification', () => {
             });
         }
     }, 30_000);
+});
+
+describe('scan-cleanup word-loss bitmap transforms', () => {
+    it('preserves a non-square bitmap for normalized zero rotation', () => {
+        const values = new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+        ]);
+        const rotated = rotateBitmapValues({
+            height: 2,
+            width: 3,
+        }, 4, values);
+
+        expect(rotated).toMatchObject({
+            height: 2,
+            width: 3,
+        });
+        expect(rotated.values).toBe(values);
+        expect([...rotated.values]).toEqual([
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+        ]);
+    });
 });
 
 describe('scan-cleanup word-loss audit coverage', () => {

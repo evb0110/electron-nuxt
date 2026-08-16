@@ -100,13 +100,16 @@ describe('scan cleanup run coordinator', () => {
         });
 
         coordinator.scanCleanupRun.inFlight = true;
-        await expect(coordinator.startScanCleanup(request)).resolves.toMatchObject({
-            started: false,
-            error: '',
-            errorCode: 'internal',
-            fallback: 'already-running',
-        });
-        coordinator.scanCleanupRun.inFlight = false;
+        try {
+            await expect(coordinator.startScanCleanup(request)).resolves.toMatchObject({
+                started: false,
+                error: '',
+                errorCode: 'internal',
+                fallback: 'already-running',
+            });
+        } finally {
+            coordinator.scanCleanupRun.inFlight = false;
+        }
     });
 
     it('reconciles a rejected subscription from the authoritative job state', async () => {

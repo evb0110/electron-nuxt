@@ -4,6 +4,11 @@ import {
     readdirSync,
 } from 'node:fs';
 import {
+    join,
+    relative,
+    sep,
+} from 'node:path';
+import {
     describe,
     expect,
     it,
@@ -43,6 +48,20 @@ function readJsonRecord(path: string) {
         throw new Error(`${path} must contain a JSON object.`);
     }
     return value;
+}
+
+function toRepoRelativePath(path: string) {
+    return relative('.', path).split(sep).join('/');
+}
+
+function quarantineTestPaths() {
+    return readdirSync(quarantineDirectory, {
+        encoding: 'utf8',
+        recursive: true,
+    })
+        .filter(name => name.endsWith('.e2e.test.ts'))
+        .map(name => toRepoRelativePath(join(quarantineDirectory, name)))
+        .sort();
 }
 
 function parseTestMetadata(value: unknown, index: number): IQuarantineTestMetadata {
@@ -123,10 +142,7 @@ function workflowJob(workflow: string, jobName: string) {
 describe('Electron E2E quarantine graduation policy', () => {
     it('keeps the manifest inventory complete and separates diagnostics', () => {
         const policy = parseGraduationPolicy();
-        const actualTestPaths = readdirSync(quarantineDirectory)
-            .filter(name => name.endsWith('.e2e.test.ts'))
-            .map(name => `${quarantineDirectory}/${name}`)
-            .sort();
+        const actualTestPaths = quarantineTestPaths();
         const metadataPaths = policy.tests.map(test => test.path).sort();
         const diagnosticPaths = policy.operatorDiagnostics.map(diagnostic => diagnostic.path).sort();
         const declaredPaths = [

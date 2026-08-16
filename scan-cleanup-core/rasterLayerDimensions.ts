@@ -99,12 +99,9 @@ export function readPngHeader(path: string) {
 export async function readPngDimensions(path: string) {
     const {
         colorType,
-        ...dimensions
-    } = await inspectPngHeader(path, `Unable to inspect raster dimensions for ${path}`);
-    const {
         width,
         height,
-    } = dimensions;
+    } = await inspectPngHeader(path, `Unable to inspect raster dimensions for ${path}`);
     if (
         width === 0
         || height === 0
@@ -118,7 +115,10 @@ export async function readPngDimensions(path: string) {
     ) {
         throw new Error(`Invalid PNG header for ${path}`);
     }
-    return dimensions;
+    return {
+        width,
+        height,
+    };
 }
 
 async function inspectNetpbm(

@@ -468,6 +468,12 @@ fn compare_load_bearing_metrics(current: &MetricReport, baseline: &MetricReport)
     );
     compare_metric_count(
         &mut regressions,
+        "metrics.split.offcutEvaluated",
+        current.split.offcut_evaluated,
+        baseline.split.offcut_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
         "metrics.split.cutterEvaluated",
         current.split.cutter_evaluated,
         baseline.split.cutter_evaluated,
@@ -624,6 +630,10 @@ fn compare_metric_upper_bound(
     current: f64,
     baseline: f64,
 ) {
+    if !current.is_finite() {
+        regressions.push(format!("{name}: current metric is non-finite"));
+        return;
+    }
     if current > baseline + METRIC_COMPARISON_EPSILON {
         regressions.push(format!("{name}: {current:.6} > baseline {baseline:.6}"));
     }
@@ -635,6 +645,10 @@ fn compare_metric_lower_bound(
     current: f64,
     baseline: f64,
 ) {
+    if !current.is_finite() {
+        regressions.push(format!("{name}: current metric is non-finite"));
+        return;
+    }
     if current + METRIC_COMPARISON_EPSILON < baseline {
         regressions.push(format!("{name}: {current:.6} < baseline {baseline:.6}"));
     }
@@ -1280,6 +1294,7 @@ mod tests {
         let mut regressed: ComparableReport = serde_json::from_str(baseline_json).unwrap();
         regressed.metrics.content.minimum_iou -= 0.1;
         regressed.metrics.split.max_cutter_error_px += 1.0;
+        regressed.metrics.split.offcut_evaluated += 1;
         let regressions = compare_catastrophes(&regressed, &baseline).unwrap();
         assert!(regressions
             .iter()
@@ -1287,6 +1302,9 @@ mod tests {
         assert!(regressions
             .iter()
             .any(|regression| { regression.starts_with("metrics.split.maxCutterErrorPx:") }));
+        assert!(regressions
+            .iter()
+            .any(|regression| { regression.starts_with("metrics.split.offcutEvaluated:") }));
 
         let mut route_change: ComparableReport = serde_json::from_str(baseline_json).unwrap();
         route_change
@@ -1303,6 +1321,12 @@ mod tests {
             .unwrap()
             .iter()
             .all(|regression| !regression.contains("routeCounts")));
+
+        let mut non_finite: ComparableReport = serde_json::from_str(baseline_json).unwrap();
+        non_finite.metrics.content.minimum_iou = f64::NAN;
+        assert!(compare_load_bearing_metrics(&non_finite.metrics, &baseline.metrics)
+            .iter()
+            .any(|regression| regression == "metrics.content.minimumIou: current metric is non-finite"));
     }
 
     #[test]

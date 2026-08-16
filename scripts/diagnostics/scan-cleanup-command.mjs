@@ -18,8 +18,9 @@ export function runDiagnosticCommand(
             stderr.trim(),
             stdout.trim(),
         ].filter(Boolean).join('\n')),
-        completionEvent = 'exit',
+        completionEvent = 'close',
         resolveCommand = value => value,
+        stdioDrainTimeoutMs = 5_000,
     } = {},
 ) {
     return new Promise((resolveRun, rejectRun) => {
@@ -34,6 +35,9 @@ export function runDiagnosticCommand(
         });
         let stdout = '';
         let stderr = '';
+        let exitCode = null;
+        let drainTimeout;
+        let settled = false;
         child.stdout.setEncoding('utf8');
         child.stderr.setEncoding('utf8');
         child.stdout.on('data', chunk => {
@@ -42,8 +46,12 @@ export function runDiagnosticCommand(
         child.stderr.on('data', chunk => {
             stderr += chunk;
         });
-        child.once('error', rejectRun);
-        child.once(completionEvent, code => {
+        const settle = code => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(drainTimeout);
             if (code !== 0 && !allowFailure) {
                 rejectRun(onFailure({
                     args,
@@ -59,6 +67,28 @@ export function runDiagnosticCommand(
                 stderr,
                 stdout,
             });
+        };
+        child.once('error', error => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(drainTimeout);
+            rejectRun(error);
         });
+        child.once('exit', code => {
+            exitCode = code;
+            if (completionEvent === 'exit') {
+                settle(code);
+                return;
+            }
+            drainTimeout = setTimeout(() => {
+                child.stdout.destroy();
+                child.stderr.destroy();
+                settle(code);
+            }, stdioDrainTimeoutMs);
+            drainTimeout.unref();
+        });
+        child.once('close', code => settle(code ?? exitCode));
     });
 }

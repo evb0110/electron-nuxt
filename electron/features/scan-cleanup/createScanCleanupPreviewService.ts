@@ -1000,7 +1000,7 @@ async function renderUnretainedRawRaster(
         undefined,
         signal,
         undefined,
-        resolveRasterRenderLimits(pageSize, dpi, 45_000_000),
+        resolveRasterRenderLimits(pageSize, dpi),
     );
     return {
         scratchPath,

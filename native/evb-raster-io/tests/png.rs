@@ -1,6 +1,6 @@
 use evb_raster_io::{
     decode_png, encode_png, encode_png_fast, read_png_dimensions, read_png_passthrough,
-    DecodeLimits, PassthroughLimits, PixelBuffer, PngColorType,
+    DecodeLimits, PassthroughLimits, PixelBuffer, PngColorType, RasterError,
 };
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
@@ -136,10 +136,11 @@ fn fast_encoder_is_lossless_for_managed_intermediates() {
 #[test]
 fn admission_precedes_allocation_and_inflate() {
     let oversized = fixture("oversized-dimensions.png");
-    assert!(decode_png(oversized.as_slice(), DECODE)
-        .unwrap_err()
-        .to_string()
-        .contains("100000x100000"));
+    let error = decode_png(oversized.as_slice(), DECODE).unwrap_err();
+    assert!(matches!(
+        error,
+        RasterError::TooLarge(message) if message.contains("100000x100000")
+    ));
     assert_eq!(
         read_png_dimensions(fixture("rgba8.png").as_slice(), DECODE).unwrap(),
         (2, 2)
