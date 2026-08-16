@@ -1361,7 +1361,8 @@ describe('scan cleanup workspace session detection guidance', () => {
             expect.objectContaining({documentRevision: expect.any(String)}),
         );
         expect(mounted.session.detection.isDetecting.value).toBe(false);
-        expect(mounted.session.detection.error.value).toContain('could not be observed');
+        expect(mounted.session.detection.error.value)
+            .toBe('scanCleanup.errors.detectionSubscriptionFailed (detection subscription transport failed)');
         mounted.unmount();
     });
 
@@ -2297,7 +2298,30 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(getScanCleanupRunError(mounted.session.run.ownerId))
-            .toBe('scan-cleanup IPC codec failed');
+            .toBe('scanCleanup.failed (scan-cleanup IPC codec failed)');
+        mounted.unmount();
+    });
+
+    it('localizes a tools-unavailable cleanup start result at the run boundary', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`run-unavailable-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+        mounted.session.settings.values.outputMode = 'grayscale';
+        await nextTick();
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: false,
+            jobId: '',
+            error: 'Scan cleanup is unavailable',
+            errorCode: 'tools-unavailable',
+        });
+
+        await mounted.session.run.run();
+
+        expect(mounted.session.run.error.value).toBe('scanCleanup.runDisabled.unavailable');
+        expect(mounted.session.run.errorCode.value).toBe('tools-unavailable');
         mounted.unmount();
     });
 
@@ -2313,7 +2337,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(getScanCleanupRunError(mounted.session.run.ownerId))
-            .toBe('uniform detection failed');
+            .toBe('scanCleanup.detectAll.failed (uniform detection failed)');
         expect(getScanCleanupRunErrorCode(mounted.session.run.ownerId)).toBe('native-failure');
         mounted.unmount();
     });

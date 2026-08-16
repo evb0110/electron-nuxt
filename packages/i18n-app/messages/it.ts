@@ -407,6 +407,12 @@ export default {
             'failed': 'Rilevamento della pagina non riuscito.',
             'evidenceMissing': 'La pulizia richiede un’analisi uniforme completa delle pagine. Esegui di nuovo il rilevamento.',
         },
+        'errors': {
+            'alreadyRunning': 'La pulizia della scansione è già in esecuzione.',
+            'detectionSubscriptionFailed': 'Non è stato possibile osservare il rilevamento delle pagine dopo il fallimento della sottoscrizione.',
+            'runSubscriptionFailed': 'Non è stato possibile osservare la pulizia della scansione dopo il fallimento della sottoscrizione.',
+            'runRecoveryFailed': 'Non è stato possibile recuperare la pulizia della scansione dopo il ripristino della sessione del renderer.',
+        },
         'cancelingDetection': 'Arresto dell’analisi in background…',
         'startingCleanup': 'Avvio della pulizia…',
         'documentChangedBeforeRun': 'Il documento è cambiato durante l’arresto del rilevamento. Controllalo e avvia di nuovo la pulizia.',

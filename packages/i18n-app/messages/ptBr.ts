@@ -407,6 +407,12 @@ export default {
             'failed': 'Falha na detecção de página.',
             'evidenceMissing': 'A limpeza requer uma análise uniforme concluída das páginas. Execute a detecção novamente.',
         },
+        'errors': {
+            'alreadyRunning': 'A limpeza da digitalização já está em andamento.',
+            'detectionSubscriptionFailed': 'Não foi possível acompanhar a detecção das páginas após a falha da assinatura.',
+            'runSubscriptionFailed': 'Não foi possível acompanhar a limpeza da digitalização após a falha da assinatura.',
+            'runRecoveryFailed': 'Não foi possível recuperar a limpeza da digitalização após a restauração da sessão do renderizador.',
+        },
         'cancelingDetection': 'Interrompendo a análise em segundo plano…',
         'startingCleanup': 'Iniciando a limpeza…',
         'documentChangedBeforeRun': 'O documento foi alterado enquanto a detecção estava sendo interrompida. Revise-o e inicie a limpeza novamente.',

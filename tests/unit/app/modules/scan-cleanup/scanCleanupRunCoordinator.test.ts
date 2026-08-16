@@ -83,6 +83,32 @@ describe('scan cleanup run coordinator', () => {
         expect(capability.value.start).toHaveBeenCalledOnce();
     });
 
+    it('returns renderer fallback metadata instead of user-facing bridge text', async () => {
+        capability.value = null;
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const request = {
+            ...ownerContext,
+            sourcePdfPath: '/source/book.pdf',
+            options: expect.anything() as never,
+        };
+
+        await expect(coordinator.startScanCleanup(request)).resolves.toMatchObject({
+            started: false,
+            error: '',
+            errorCode: 'tools-unavailable',
+            fallback: 'unavailable',
+        });
+
+        coordinator.scanCleanupRun.inFlight = true;
+        await expect(coordinator.startScanCleanup(request)).resolves.toMatchObject({
+            started: false,
+            error: '',
+            errorCode: 'internal',
+            fallback: 'already-running',
+        });
+        coordinator.scanCleanupRun.inFlight = false;
+    });
+
     it('reconciles a rejected subscription from the authoritative job state', async () => {
         const reconciledState: TScanCleanupJobState = {
             jobId: 'reconciled-job',
@@ -164,6 +190,8 @@ describe('scan cleanup run coordinator', () => {
         })).rejects.toMatchObject({
             name: 'ScanCleanupRunReconciliationError',
             errorCode: 'internal',
+            failure: 'subscription',
+            technicalDetail: 'subscription transport failed',
         });
 
         expect(cancel).toHaveBeenCalledWith('unobserved-job', ownerContext);
@@ -409,7 +437,8 @@ describe('scan cleanup run coordinator', () => {
             progress: progress(1),
             updatedAtMs: Date.now(),
         });
-        expect(coordinator.getScanCleanupRunError(ownerContext.ownerId)).toBe('sidecar failed');
+        expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
+            .toBe('scanCleanup.failed (sidecar failed)');
         expect(coordinator.getScanCleanupRunError('another-owner')).toBe('');
         await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'error'})));
         const failureToast = toastAdd.mock.calls.at(-1)?.[0];
