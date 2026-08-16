@@ -1,60 +1,54 @@
 {
   "$schema": "./graduation-policy.schema.json",
-  "version": 1,
+  "version": 2,
   "lane": {
     "events": [
       "schedule",
       "workflow_dispatch"
     ],
     "blocking": false,
-    "retryCount": 2,
-    "minimumConsecutiveGreenScheduledRuns": 30
+    "infraRetryCount": 2,
+    "reviewAfterScheduledRuns": 30,
+    "graduationEvidence": "github-actions-scheduled-history-and-manual-review"
   },
-  "tests": [
-    {
-      "path": "tests/e2e/electron/quarantine/assistantAuthFallback.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
-    },
-    {
-      "path": "tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
-    },
-    {
-      "path": "tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
-    },
-    {
-      "path": "tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
-    },
+  "operatorDiagnostics": [
     {
       "path": "tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
-    },
-    {
-      "path": "tests/e2e/electron/quarantine/scanCleanupJourney.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
-    },
-    {
-      "path": "tests/e2e/electron/quarantine/scanCleanupLayoutStability.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
-    },
-    {
-      "path": "tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
+      "reason": "Requires an operator-supplied PDF and is excluded from graduation evidence."
     },
     {
       "path": "tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts",
-      "targetProject": "e2e-regression",
-      "consecutiveGreenScheduledRuns": 0
+      "reason": "Requires an operator-supplied PDF and is excluded from graduation evidence."
+    }
+  ],
+  "tests": [
+    {
+      "path": "tests/e2e/electron/quarantine/assistantAuthFallback.e2e.test.ts",
+      "targetProject": "e2e-regression"
+    },
+    {
+      "path": "tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts",
+      "targetProject": "e2e-regression"
+    },
+    {
+      "path": "tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts",
+      "targetProject": "e2e-regression"
+    },
+    {
+      "path": "tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts",
+      "targetProject": "e2e-regression"
+    },
+    {
+      "path": "tests/e2e/electron/quarantine/scanCleanupJourney.e2e.test.ts",
+      "targetProject": "e2e-regression"
+    },
+    {
+      "path": "tests/e2e/electron/quarantine/scanCleanupLayoutStability.e2e.test.ts",
+      "targetProject": "e2e-regression"
+    },
+    {
+      "path": "tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts",
+      "targetProject": "e2e-regression"
     }
   ]
 }

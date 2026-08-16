@@ -3331,7 +3331,55 @@ function formatPageList(pages) {
     return pages.length === 0 ? '(none)' : pages.join(', ');
 }
 
-function shouldFailFor(options, lossFlaggedPages, silhouettePages, inventedPages, suppressedPages) {
+function auditRowsForPage(page) {
+    return Array.isArray(page.outputAudits) && page.outputAudits.length > 0
+        ? page.outputAudits
+        : [page];
+}
+
+function uniqueSortedPageNumbers(rows) {
+    return [...new Set(rows
+        .map(row => row.page)
+        .filter(page => Number.isSafeInteger(page)))]
+        .sort((left, right) => left - right);
+}
+
+function summarizeAuditCoverage(pageResults, pagePlans) {
+    const auditRows = pageResults.flatMap(auditRowsForPage);
+    const analyzedRows = auditRows.filter(page => page.status === 'analyzed');
+    const errorRows = auditRows.filter(page => page.status === 'error');
+    const skippedRows = auditRows.filter(page => page.status === 'skipped');
+    const incompletePages = uniqueSortedPageNumbers(
+        pageResults.filter(page => auditRowsForPage(page).some(row => row.status !== 'analyzed')),
+    );
+    const expectedOutputPages = pagePlans.reduce(
+        (total, pagePlan) => total + Math.max(pagePlan.outputPageNumbers.length, 1),
+        0,
+    );
+    const complete = incompletePages.length === 0
+        && analyzedRows.length > 0
+        && analyzedRows.length === expectedOutputPages;
+    return {
+        analyzedOutputPages: analyzedRows.length,
+        complete,
+        errorPages: uniqueSortedPageNumbers(errorRows),
+        expectedOutputPages,
+        incompletePages,
+        skippedPages: uniqueSortedPageNumbers(skippedRows),
+    };
+}
+
+function shouldFailFor(
+    options,
+    lossFlaggedPages,
+    silhouettePages,
+    inventedPages,
+    suppressedPages,
+    coverage,
+) {
+    if (options.failOn !== 'none' && !coverage.complete) {
+        return true;
+    }
     if (options.failOn === 'text-loss') {
         return lossFlaggedPages.length > 0;
     }
@@ -3456,6 +3504,7 @@ async function main() {
         const suppressedPages = pageResults
             .filter(page => page.status === 'analyzed' && page.comparisonSuppressed !== undefined)
             .map(page => page.page);
+        const coverage = summarizeAuditCoverage(pageResults, pagePlans);
         const report = {
             generatedAt: new Date().toISOString(),
             inputs: {
@@ -3485,9 +3534,11 @@ async function main() {
                 },
             pages: pageResults,
             summary: {
+                analyzedOutputPages: coverage.analyzedOutputPages,
                 analyzedPages: pageResults.filter(page => page.status === 'analyzed').length,
+                auditCoverageComplete: coverage.complete,
                 elapsedMs,
-                errorPages: pageResults.filter(page => page.status === 'error').map(page => page.page),
+                errorPages: coverage.errorPages,
                 flaggedCount: flaggedPages.length,
                 flaggedPages,
                 inventedCount: pageResults.reduce(
@@ -3500,7 +3551,9 @@ async function main() {
                     0,
                 ),
                 pageCount: pageResults.length,
-                skippedPages: pageResults.filter(page => page.status === 'skipped').map(page => page.page),
+                skippedPages: coverage.skippedPages,
+                incompletePages: coverage.incompletePages,
+                expectedOutputPages: coverage.expectedOutputPages,
                 suppressedCount: suppressedPages.length,
                 suppressedPages,
                 silhouetteCount: pageResults.reduce(
@@ -3587,14 +3640,24 @@ async function main() {
         if (stampFail) {
             console.error(`FAIL: provenance stamp verification is ${stampVerification?.status ?? 'missing'}`);
         }
+        if (options.failOn !== 'none' && !coverage.complete) {
+            console.error(
+                `FAIL: --fail-on ${options.failOn} could not fully analyze the requested pages `
+                + `(incomplete: ${formatPageList(coverage.incompletePages)}; `
+                + `errors: ${formatPageList(coverage.errorPages)}; `
+                + `skipped: ${formatPageList(coverage.skippedPages)}; `
+                + `analyzed outputs: ${String(coverage.analyzedOutputPages)}/${String(coverage.expectedOutputPages)})`,
+            );
+        }
         const fail = shouldFailFor(
             options,
             lossFlaggedPages,
             silhouettePages,
             inventedPages,
             suppressedPages,
+            coverage,
         ) || stampFail;
-        if (fail) {
+        if (fail && coverage.complete && !stampFail) {
             console.error(`FAIL: --fail-on ${options.failOn} found a matching flag`);
         }
         return fail;

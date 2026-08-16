@@ -59,6 +59,7 @@ function buildMinimalPdf() {
 
 interface ISyntheticRaster {
     bitsPerComponent: number;
+    corruptImageStream?: boolean;
     height: number;
     imageMask?: boolean;
     pixels: Uint8Array;
@@ -77,6 +78,7 @@ type TSyntheticCleanedVariant =
 
 function buildRasterPdf({
     bitsPerComponent,
+    corruptImageStream,
     height,
     imageMask,
     pixels,
@@ -86,10 +88,12 @@ function buildRasterPdf({
     const imageDictionary = imageMask
         ? [
             `<< /Type /XObject /Subtype /Image /Width ${String(width)} /Height ${String(height)}`,
+            ...(corruptImageStream ? ['/Filter /FlateDecode'] : []),
             `/ImageMask true /BitsPerComponent 1 /Decode [1 0] /Length ${String(pixels.length)} >>`,
         ].join(' ')
         : [
             `<< /Type /XObject /Subtype /Image /Width ${String(width)} /Height ${String(height)}`,
+            ...(corruptImageStream ? ['/Filter /FlateDecode'] : []),
             `/ColorSpace /DeviceGray /BitsPerComponent ${String(bitsPerComponent)} /Length ${String(pixels.length)} >>`,
         ].join(' ');
     const imageStream = Buffer.concat([
@@ -464,6 +468,78 @@ describe('scan-cleanup word-loss audit stamp verification', () => {
 
             expect(await runAudit(source, cleaned, stampedReport)).toBe(0);
             expect(JSON.parse(await readFile(stampedReport, 'utf8')).stampVerification).toMatchObject({status: 'valid'});
+        } finally {
+            await rm(temporaryDirectory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    }, 30_000);
+});
+
+describe('scan-cleanup word-loss audit coverage', () => {
+    it('fails an enforced audit when a requested page is skipped', async () => {
+        const temporaryDirectory = await mkdtemp(join(tmpdir(), 'scan-cleanup-coverage-audit-'));
+        try {
+            const source = join(temporaryDirectory, 'source.pdf');
+            const cleaned = join(temporaryDirectory, 'cleaned.pdf');
+            const reportPath = join(temporaryDirectory, 'report.json');
+            const sourceRaster = buildSyntheticSourceRaster();
+            await writeFile(source, buildRasterPdf(sourceRaster));
+            await writeFile(cleaned, buildRasterPdf({
+                bitsPerComponent: 8,
+                height: sourceRaster.height,
+                imageMask: false,
+                pixels: new Uint8Array(sourceRaster.width * sourceRaster.height).fill(255),
+                width: sourceRaster.width,
+            }));
+
+            expect(await runAudit(source, cleaned, reportPath, {
+                failOn: 'text-loss',
+                verifyStamp: false,
+            })).toBe(1);
+            expect(JSON.parse(await readFile(reportPath, 'utf8')).summary).toMatchObject({
+                analyzedOutputPages: 0,
+                auditCoverageComplete: false,
+                errorPages: [],
+                expectedOutputPages: 1,
+                incompletePages: [1],
+                skippedPages: [1],
+            });
+        } finally {
+            await rm(temporaryDirectory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    }, 30_000);
+
+    it('fails an enforced audit when a requested page errors during extraction', async () => {
+        const temporaryDirectory = await mkdtemp(join(tmpdir(), 'scan-cleanup-error-audit-'));
+        try {
+            const source = join(temporaryDirectory, 'source.pdf');
+            const cleaned = join(temporaryDirectory, 'cleaned.pdf');
+            const reportPath = join(temporaryDirectory, 'report.json');
+            const sourceRaster = buildSyntheticSourceRaster();
+            const cleanedRaster = buildSyntheticCleanedRaster(sourceRaster, 'equal');
+            await writeFile(source, buildRasterPdf(sourceRaster));
+            await writeFile(cleaned, buildRasterPdf({
+                ...cleanedRaster,
+                corruptImageStream: true,
+            }));
+
+            expect(await runAudit(source, cleaned, reportPath, {
+                failOn: 'text-loss',
+                verifyStamp: false,
+            })).toBe(1);
+            expect(JSON.parse(await readFile(reportPath, 'utf8')).summary).toMatchObject({
+                analyzedOutputPages: 0,
+                auditCoverageComplete: false,
+                errorPages: [1],
+                expectedOutputPages: 1,
+                incompletePages: [1],
+                skippedPages: [],
+            });
         } finally {
             await rm(temporaryDirectory, {
                 force: true,
