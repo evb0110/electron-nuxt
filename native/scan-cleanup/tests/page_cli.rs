@@ -2120,9 +2120,9 @@ fn final_cli_pins_the_adjudicated_stroke_budget_and_rescue_counters() {
             "sourceComponentsUnreachable": 0,
             "smoothingComponentsCapped": 2,
             "smoothingPixelsSuppressed": 4,
-            "rescueComponentsCapped": 3,
-            "rescueBridgeComponentsCapped": 2,
-            "rescuePixelsSuppressed": 494,
+            "rescueComponentsCapped": 0,
+            "rescueBridgeComponentsCapped": 0,
+            "rescuePixelsSuppressed": 0,
         })],
         "the public final-render path changed its adjudicated stroke-budget interventions",
     );
@@ -2131,9 +2131,151 @@ fn final_cli_pins_the_adjudicated_stroke_budget_and_rescue_counters() {
     assert_eq!((cleaned.width(), cleaned.height()), (1830, 77));
     assert_eq!(
         cleaned.data().iter().filter(|&&value| value < 128).count(),
-        22_365,
+        20_973,
         "the public final-render path changed the adjudicated ink outcome",
     );
+}
+
+/// Mean horizontal ink-run length inside a word box: the stroke-thickness
+/// proxy the weight adjudications measure. Ink is the mid-gray crossing so
+/// the same rule reads the grayscale source and the bilevel render.
+fn word_stroke_runs(image: &GrayImage, left: usize, right: usize) -> f64 {
+    let mut total = 0usize;
+    let mut count = 0usize;
+    for y in 0..image.height() {
+        let mut run = 0usize;
+        for x in left..=right {
+            if image.data()[y * image.width() + x] < 128 {
+                run += 1;
+            } else if run > 0 {
+                total += run;
+                count += 1;
+                run = 0;
+            }
+        }
+        if run > 0 {
+            total += run;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        0.0
+    } else {
+        total as f64 / count as f64
+    }
+}
+
+/// Column-profile word segmentation on the source crop: an inter-word gap at
+/// 300 DPI is wider than 14 blank columns, and anything narrower than 12
+/// columns is punctuation noise rather than a word.
+fn segment_words(image: &GrayImage) -> Vec<(usize, usize)> {
+    let mut inked_columns = vec![false; image.width()];
+    for y in 0..image.height() {
+        for (x, inked) in inked_columns.iter_mut().enumerate() {
+            *inked |= image.data()[y * image.width() + x] < 128;
+        }
+    }
+    let mut words = Vec::new();
+    let mut start = None;
+    let mut gap = 0usize;
+    for (x, &inked) in inked_columns.iter().enumerate() {
+        if inked {
+            start.get_or_insert(x);
+            gap = 0;
+        } else if let Some(word_start) = start {
+            gap += 1;
+            if gap > 14 {
+                words.push((word_start, x - gap));
+                start = None;
+            }
+        }
+    }
+    if let Some(word_start) = start {
+        words.push((word_start, image.width() - 1));
+    }
+    words.retain(|(left, right)| right - left >= 12);
+    words
+}
+
+/// The word-level stroke-neutrality oracle. Aggregate ink parity once hid a
+/// per-word amplification of up to +34% on this line (the faint-ink rescue
+/// re-absorbing the gray halo around already-complete strokes), so this pin
+/// holds every individual word of the cleaned render within 5% of the source
+/// scan's stroke thickness. Binarization must normalize, never embolden.
+#[test]
+fn final_cli_keeps_every_word_stroke_run_within_source_tolerance() {
+    let scratch = Scratch::new("word-stroke-oracle");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/rescue/luther-p5-diyarbakir-line.png");
+    let output = scratch.path("diyarbakir-oracle.png");
+    let output_metadata = scratch.path("diyarbakir-oracle.json");
+    let page_metadata = scratch.path("diyarbakir-oracle-page.json");
+    let manifest = scratch.path("word-stroke-oracle-manifest.json");
+    let options = CleanupOptions {
+        dpi: 300.0,
+        source_dpi: Some(300.0),
+        requested_render_dpi: Some(300.0),
+        binarization: BinarizationMode::Auto,
+        output_mode: OutputMode::Bw,
+        layout: LayoutMode::Single,
+        normalize_illumination: true,
+        crop_content: false,
+        match_page_size: false,
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": fixture,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let source = decode_gray(&fs::read(&fixture).unwrap(), 1_000_000, 2_000).unwrap();
+    let cleaned = decode_gray(&fs::read(&output).unwrap(), 1_000_000, 2_000).unwrap();
+    assert_eq!(
+        (cleaned.width(), cleaned.height()),
+        (source.width(), source.height())
+    );
+
+    let words = segment_words(&source);
+    assert_eq!(
+        words.len(),
+        9,
+        "word segmentation drifted; the oracle no longer measures the adjudicated words",
+    );
+    for &(left, right) in &words {
+        let source_runs = word_stroke_runs(&source, left, right);
+        let cleaned_runs = word_stroke_runs(&cleaned, left, right);
+        let ratio = cleaned_runs / source_runs;
+        assert!(
+            (0.95..=1.05).contains(&ratio),
+            "word at columns {left}-{right} changed stroke weight: \
+             source runs {source_runs:.2}px, cleaned runs {cleaned_runs:.2}px, \
+             ratio {ratio:.3} outside the stroke-neutral band 0.95..=1.05",
+        );
+    }
 }
 
 #[test]
