@@ -25,6 +25,7 @@ import {
     type ISourceDpiDetectionResult,
     type TScanCleanupLog,
 } from '@scan-cleanup-core/types';
+import {DETECTION_DPI} from '@scan-cleanup-core/detection';
 import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {
     buildScanCleanupPageOpsInstructions,
@@ -53,6 +54,7 @@ import {
     placeScanCleanupCanvasBox,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@scan-cleanup-core/policy/documentCanvas';
+import {describePageNumbers} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
 import type {TEmitScanCleanupProgress} from '@scan-cleanup-core/createScanCleanupProgressReporter';
 import {createEmptyScanCleanupSummary} from '@scan-cleanup-core/createScanCleanupProgressReporter';
@@ -62,16 +64,6 @@ import {
     mapScanCleanupRasterPages,
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
-
-const CANONICAL_ANALYSIS_DPI = 150;
-
-const REPORTED_PAGE_NUMBER_LIMIT = 20;
-
-function describePageNumbers(pageNumbers: readonly number[]) {
-    return pageNumbers.length <= REPORTED_PAGE_NUMBER_LIMIT
-        ? pageNumbers.join(', ')
-        : `${pageNumbers.slice(0, REPORTED_PAGE_NUMBER_LIMIT).join(', ')} and ${String(pageNumbers.length - REPORTED_PAGE_NUMBER_LIMIT)} more`;
-}
 
 export async function runLosslessScanCleanup(
     request: IRunScanCleanupPipelineRequest,
@@ -109,7 +101,7 @@ export async function runLosslessScanCleanup(
         };
     });
     const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
-        renderDpi: CANONICAL_ANALYSIS_DPI,
+        renderDpi: DETECTION_DPI,
         raster: plan.raster,
     })), scratch, dependencies.getAvailableScratchBytes);
     logRasterHandoff(log, 'lossless analysis', rasterHandoff);
@@ -130,7 +122,7 @@ export async function runLosslessScanCleanup(
             plan.pageNumber,
             preparedPdfPath,
             inputPath,
-            CANONICAL_ANALYSIS_DPI,
+            DETECTION_DPI,
             undefined,
             signal,
         );
@@ -140,9 +132,9 @@ export async function runLosslessScanCleanup(
         return {
             inputPath,
             analysisInputPath: inputPath,
-            analysisDpi: CANONICAL_ANALYSIS_DPI,
+            analysisDpi: DETECTION_DPI,
             pageNumber: plan.pageNumber,
-            dpi: CANONICAL_ANALYSIS_DPI,
+            dpi: DETECTION_DPI,
             ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
                 ? {}
                 : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
@@ -175,6 +167,9 @@ export async function runLosslessScanCleanup(
     emitProgress('classifying', 0, pageNumbers.length, []);
     const classifiedPageNumbers = new Set<number>();
     await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, (_progress, nativeProgress) => {
+        if (nativeProgress.stage !== 'page-complete') {
+            return;
+        }
         if (nativeProgress.pageNumber !== undefined) {
             classifiedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
         }

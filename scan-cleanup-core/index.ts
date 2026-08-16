@@ -1,5 +1,9 @@
-export {runScanCleanupDetection} from './detection';
+export {
+    DETECTION_DPI,
+    runScanCleanupDetection,
+} from './detection';
 export {runScanCleanupConversion} from './runScanCleanupConversion';
+export {resolveScanCleanupMatchedCanvasPlacement} from './policy/documentCanvas';
 export * from './policy/effectiveOptions';
 export * from './policy/buildNativeScanCleanupManifest';
 export {

@@ -24,6 +24,53 @@ export interface IScanCleanupRect {
     height: number;
 }
 
+export interface IScanCleanupMatchedCanvasPlacement {
+    contentWidthPx: number;
+    contentHeightPx: number;
+    intrinsicRasterWidthPx: number;
+    intrinsicRasterHeightPx: number;
+    matchScaleX: number;
+    matchScaleY: number;
+    effectivePlacementOffsetXPx: number;
+    effectivePlacementOffsetYPx: number;
+}
+
+/**
+ * Resolves the intrinsic raster's scale and origin in the logical matched
+ * canvas. Native reports placement offsets for that logical canvas, while a
+ * materialized raster may begin after an intrinsic overflow tail has been
+ * clipped. Every affine consumer must apply the same effective origin.
+ */
+export function resolveScanCleanupMatchedCanvasPlacement(input: {
+    outputWidthPx: number;
+    outputHeightPx: number;
+    intrinsicRasterWidthPx?: number | null;
+    intrinsicRasterHeightPx?: number | null;
+    matchedCanvasContentWidthPx?: number | null;
+    matchedCanvasContentHeightPx?: number | null;
+    matchedCanvasIntrinsicOverflowLeftPx?: number | null;
+    matchedCanvasIntrinsicOverflowTopPx?: number | null;
+    placementOffsetXPx: number;
+    placementOffsetYPx: number;
+}): IScanCleanupMatchedCanvasPlacement {
+    const contentWidthPx = input.matchedCanvasContentWidthPx ?? input.outputWidthPx;
+    const contentHeightPx = input.matchedCanvasContentHeightPx ?? input.outputHeightPx;
+    const intrinsicRasterWidthPx = input.intrinsicRasterWidthPx ?? input.outputWidthPx;
+    const intrinsicRasterHeightPx = input.intrinsicRasterHeightPx ?? input.outputHeightPx;
+    return {
+        contentWidthPx,
+        contentHeightPx,
+        intrinsicRasterWidthPx,
+        intrinsicRasterHeightPx,
+        matchScaleX: contentWidthPx / intrinsicRasterWidthPx,
+        matchScaleY: contentHeightPx / intrinsicRasterHeightPx,
+        effectivePlacementOffsetXPx: input.placementOffsetXPx
+            - (input.matchedCanvasIntrinsicOverflowLeftPx ?? 0),
+        effectivePlacementOffsetYPx: input.placementOffsetYPx
+            - (input.matchedCanvasIntrinsicOverflowTopPx ?? 0),
+    };
+}
+
 /**
  * Places a canvas-sized box around fixed content without scaling the content.
  * The shared placement resolver speaks top-left free-space offsets; PDF
