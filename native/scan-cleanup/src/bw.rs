@@ -102,6 +102,12 @@ const STROKE_BUDGET_SYSTEMIC_OFFENDER_DENOMINATOR: usize = 4;
 const STROKE_BUDGET_LOCAL_WINDOW_MM: f64 = 32.0;
 const STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS: usize = 7;
 const STROKE_BUDGET_TOLERANCE_RATIO: f64 = 1.6;
+/// Ridge widths are twice an integer chamfer distance, so measured values sit
+/// on a 2-pixel lattice regardless of DPI, and odd true stroke widths inflate
+/// by one pixel. A local budget is only meaningful where its tolerance margin
+/// (median * (ratio - 1)) exceeds this quantization step; below that, one
+/// lattice step reads as an offense and ordinary small print gets eroded.
+const RIDGE_WIDTH_QUANTIZATION_STEP_PX: f64 = 2.0;
 /// Fraction of a proposed rescue cluster allowed to touch already-captured
 /// ink before the cluster is judged halo accretion rather than missing
 /// stroke material.
@@ -338,10 +344,15 @@ fn local_stroke_budget(
     if widths.len() < STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS {
         return None;
     }
-    median_f64(&mut widths).map(|median_width_px| LocalStrokeBudget {
-        median_width_px,
-        maximum_width_px: median_width_px * STROKE_BUDGET_TOLERANCE_RATIO,
-    })
+    median_f64(&mut widths)
+        .filter(|median_width_px| {
+            median_width_px * (STROKE_BUDGET_TOLERANCE_RATIO - 1.0)
+                > RIDGE_WIDTH_QUANTIZATION_STEP_PX
+        })
+        .map(|median_width_px| LocalStrokeBudget {
+            median_width_px,
+            maximum_width_px: median_width_px * STROKE_BUDGET_TOLERANCE_RATIO,
+        })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3863,10 +3874,10 @@ mod tests {
 
     #[test]
     fn source_heavy_normalization_preserves_an_existing_counter() {
-        let mut source = solid_component_line(&[2, 2, 2, 2, 2, 2, 2, 14]);
+        let mut source = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 22]);
         let left = 10 + 7 * 28;
         for y in 18..30 {
-            for x in left + 4..left + 10 {
+            for x in left + 8..left + 14 {
                 source.set(x, y, false);
             }
         }
@@ -3893,6 +3904,48 @@ mod tests {
             LineStrokeBudget::from_binary(&sparse, 300.0).unwrap();
         assert_eq!(sparse_offenders.len(), 1);
         assert!(sparse_budget.local_budget_at(10.0, 24.0).is_some());
+    }
+
+    #[test]
+    fn small_print_line_below_quantization_floor_abstains_from_budgeting() {
+        let small_print = solid_component_line(&[2, 2, 2, 2, 2, 2, 2, 4]);
+        let (budget, offenders) = LineStrokeBudget::from_binary(&small_print, 300.0).unwrap();
+        assert!(offenders.is_empty());
+        assert!(budget.local_budget_at(10.0, 24.0).is_none());
+    }
+
+    #[test]
+    fn quantization_floor_boundary_abstains_until_the_margin_exceeds_the_step() {
+        let boundary_median =
+            RIDGE_WIDTH_QUANTIZATION_STEP_PX / (STROKE_BUDGET_TOLERANCE_RATIO - 1.0);
+        let line_with_median = |median_width_px: f64| StrokeBudgetLine {
+            center_y: 24.0,
+            intervention_enabled: true,
+            components: (0..STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS)
+                .map(|index| StrokeBudgetComponent {
+                    center_x: index as f64 * 10.0,
+                    center_y: 24.0,
+                    ridge_width_px: median_width_px,
+                })
+                .collect(),
+        };
+
+        // At the boundary the rounded margin equals the step exactly, and the
+        // strict inequality must treat equality as unmeasurable.
+        assert_eq!(
+            boundary_median * (STROKE_BUDGET_TOLERANCE_RATIO - 1.0),
+            RIDGE_WIDTH_QUANTIZATION_STEP_PX
+        );
+        for median_width_px in [boundary_median.next_down(), boundary_median] {
+            assert!(
+                local_stroke_budget(&line_with_median(median_width_px), 0.0, 300.0).is_none(),
+                "median {median_width_px} must abstain",
+            );
+        }
+
+        let engaged = local_stroke_budget(&line_with_median(boundary_median.next_up()), 0.0, 300.0)
+            .expect("one ULP above the boundary must engage budgeting");
+        assert!(engaged.maximum_width_px > boundary_median);
     }
 
     #[test]
