@@ -4,6 +4,7 @@ use scan_primitives::Point;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
+    fs,
     path::{Component, Path, PathBuf},
 };
 
@@ -328,6 +329,25 @@ impl ManifestV3 {
             ));
         }
         for page in &self.pages {
+            let page_number = page.source_page_index.saturating_add(1);
+            if self.operation == Operation::Analyze {
+                validate_existing_regular_path(&page.input_path, page_number, "inputPath")?;
+            }
+            for (field, path) in [
+                ("analysisInputPath", page.analysis_input_path.as_deref()),
+                (
+                    "trustedForegroundMaskPath",
+                    page.trusted_foreground_mask_path.as_deref(),
+                ),
+                (
+                    "trustedMrcBackgroundPath",
+                    page.trusted_mrc_background_path.as_deref(),
+                ),
+            ] {
+                if let Some(path) = path {
+                    validate_existing_regular_path(path, page_number, field)?;
+                }
+            }
             match (page.analysis_input_path.as_ref(), page.analysis_dpi) {
                 (Some(_), Some(dpi)) if dpi.is_finite() && dpi > 0.0 => {}
                 (None, None) => {}
@@ -421,6 +441,26 @@ impl ManifestV3 {
         Ok(())
     }
 
+    /// Validate the filesystem contract before starting a native operation.
+    ///
+    /// Analyze pages are replayed by more than one native stage, so their
+    /// primary input must already be an existing regular file. Render keeps
+    /// its one-shot FIFO input contract, and producer-created auxiliary paths
+    /// remain optional until the corresponding Render stage consumes them.
+    pub(crate) fn validate_for_execution(&self) -> Result<(), NativeError> {
+        self.validate()?;
+        if self.operation == Operation::Analyze {
+            for page in &self.pages {
+                validate_required_regular_path(
+                    &page.input_path,
+                    page.source_page_index.saturating_add(1),
+                    "inputPath",
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     /// Every path the batch may read. Keeping this list beside the wire
     /// protocol prevents new auxiliary inputs from being missed by the output
     /// alias preflight.
@@ -489,6 +529,45 @@ impl ManifestV3 {
             }
         }
         Ok(())
+    }
+}
+
+/// Render may receive a one-shot FIFO through `inputPath`, but every other
+/// raster the native worker may read must be replayable. Producer-created
+/// files can legitimately be absent during shape validation, so only an
+/// existing path is checked here; execution admission applies the stricter
+/// Analyze input contract below.
+fn validate_existing_regular_path(
+    path: &Path,
+    page_number: usize,
+    field: &str,
+) -> Result<(), NativeError> {
+    validate_regular_path(path, page_number, field, true)
+}
+
+fn validate_required_regular_path(
+    path: &Path,
+    page_number: usize,
+    field: &str,
+) -> Result<(), NativeError> {
+    validate_regular_path(path, page_number, field, false)
+}
+
+fn validate_regular_path(
+    path: &Path,
+    page_number: usize,
+    field: &str,
+    allow_missing: bool,
+) -> Result<(), NativeError> {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(()),
+        Ok(_) => Err(invalid(format!(
+            "Page {page_number} {field} must be a regular file"
+        ))),
+        Err(error) if allow_missing && error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(invalid(format!(
+            "Page {page_number} {field} must be an existing regular file: {error}"
+        ))),
     }
 }
 
@@ -753,6 +832,65 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("positive finite"));
+    }
+
+    #[test]
+    fn analyze_rejects_nonregular_input_but_render_keeps_stream_input_allowed() {
+        let scratch = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-manifest-contract-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).unwrap();
+        let nonregular = scratch.join("input-directory");
+        std::fs::create_dir(&nonregular).unwrap();
+
+        let analyze_bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/detect-all-v3.json"),
+        )
+        .unwrap();
+        let mut analyze: ManifestV3 = serde_json::from_slice(&analyze_bytes).unwrap();
+        analyze.pages[0].input_path = nonregular.clone();
+        let input_error = analyze.validate().unwrap_err();
+        assert!(input_error.message.contains("Page 1"));
+        assert!(input_error.message.contains("inputPath"));
+        assert!(input_error.message.contains("regular file"));
+
+        let mut missing_analyze = analyze.clone();
+        missing_analyze.pages[0].input_path = scratch.join("missing-input.png");
+        missing_analyze.validate().unwrap();
+        let missing_error = missing_analyze.validate_for_execution().unwrap_err();
+        assert!(missing_error.message.contains("Page 1"));
+        assert!(missing_error.message.contains("inputPath"));
+        assert!(missing_error.message.contains("existing regular file"));
+
+        let render_bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut render: ManifestV3 = serde_json::from_slice(&render_bytes).unwrap();
+        render.pages[0].input_path = nonregular.clone();
+        render.pages[0].analysis_input_path = Some(nonregular.clone());
+        render.pages[0].analysis_dpi = Some(150.0);
+        let analysis_error = render.validate().unwrap_err();
+        assert!(analysis_error.message.contains("Page 1"));
+        assert!(analysis_error.message.contains("analysisInputPath"));
+        assert!(analysis_error.message.contains("regular file"));
+
+        render.pages[0].analysis_input_path = None;
+        render.pages[0].analysis_dpi = None;
+        render.pages[0].trusted_foreground_mask_path = Some(nonregular.clone());
+        let trusted_error = render.validate().unwrap_err();
+        assert!(trusted_error.message.contains("Page 1"));
+        assert!(trusted_error.message.contains("trustedForegroundMaskPath"));
+        assert!(trusted_error.message.contains("regular file"));
+
+        render.pages[0].trusted_foreground_mask_path = None;
+        render.validate_for_execution().unwrap();
+
+        let _ = std::fs::remove_dir_all(scratch);
     }
 
     #[test]

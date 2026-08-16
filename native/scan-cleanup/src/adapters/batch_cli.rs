@@ -258,8 +258,9 @@ struct Tier1Provenance {
     whitespace_score: f64,
 }
 
-fn manifest_cache(host_memory_bytes: Option<u64>) -> Arc<Mutex<ByteLru>> {
+fn manifest_cache(operation: Operation, host_memory_bytes: Option<u64>) -> Arc<Mutex<ByteLru>> {
     Arc::new(Mutex::new(ByteLru::new(cache_budget_bytes(
+        operation,
         host_memory_bytes,
     ))))
 }
@@ -440,7 +441,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         document_prior: None,
         detail_render_plan: None,
     };
-    let cache = manifest_cache(None);
+    let cache = manifest_cache(Operation::Render, None);
     let page_cache = page_cache_for(&page, &cache)?;
     run_page(
         &page,
@@ -457,7 +458,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
 fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
     let manifest: ManifestV3 =
         deserialize_json_file_bounded(path, MAX_MANIFEST_BYTES, "v3 batch manifest")?;
-    manifest.validate()?;
+    manifest.validate_for_execution()?;
     preflight_manifest_paths(&manifest)?;
     let total = manifest.pages.len();
     let result = run_manifest_transaction(&manifest, || run_manifest_inner(&manifest));
@@ -680,11 +681,29 @@ fn derive_page_ink_sample(page: &Page) -> Option<DocumentInkSample> {
 }
 
 fn derive_page_ink_contexts(manifest: &ManifestV3) -> Vec<Option<PageInkConsistencyContext>> {
-    let samples = manifest
-        .pages
-        .par_iter()
-        .map(derive_page_ink_sample)
-        .collect::<Vec<_>>();
+    // Trusted MRC masks are separate, replayable inputs. Use the same
+    // memory-derived page bound as the real work for regular manifests, but
+    // never hand a streamed input to `run_page_jobs`: doing so would consume a
+    // one-shot FIFO before the render pass gets its turn. Streamed renders use
+    // the conservative serial prepass instead.
+    let samples = if manifest_has_stream_inputs(manifest) {
+        manifest
+            .pages
+            .iter()
+            .map(derive_page_ink_sample)
+            .collect::<Vec<_>>()
+    } else {
+        run_page_jobs(manifest, |(_, page)| {
+            Ok::<_, NativeError>(derive_page_ink_sample(page))
+        })
+        .unwrap_or_else(|_| {
+            manifest
+                .pages
+                .iter()
+                .map(derive_page_ink_sample)
+                .collect::<Vec<_>>()
+        })
+    };
     let Some(prior) = DocumentInkPrior::from_page_samples(samples.iter().flatten().copied()) else {
         return vec![None; samples.len()];
     };
@@ -721,7 +740,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         soft_alpha_foreground_recommendation: None,
         output_mode_diagnostics: None,
     })?;
-    let cache = manifest_cache(manifest.host_memory_bytes);
+    let cache = manifest_cache(manifest.operation, manifest.host_memory_bytes);
     let total_pages = manifest.pages.len();
     // Pages finish out of order under the worker pool, but the progress stream is
     // a monotone per-page sequence, so each page's event waits for its
@@ -1132,7 +1151,7 @@ fn page_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> {
         // needs nested Rayon work to finish: a real circular wait observed as
         // 180-second pdftoppm timeouts near the end of large documents.
         Ok(1)
-    } else if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
+    } else if manifest.pages.len() > 1 {
         manifest_worker_threads(manifest)
     } else {
         Ok(1)
@@ -1144,7 +1163,6 @@ fn reconcile_classification_batch(
     results: &mut [PageRunResult],
     cache: &Arc<Mutex<ByteLru>>,
 ) -> Result<(), Box<dyn Error>> {
-    let replayable_inputs = !manifest_has_stream_inputs(manifest);
     let eligible = results
         .iter()
         .enumerate()
@@ -1274,7 +1292,7 @@ fn reconcile_classification_batch(
                 && (metadata.tier1_verdict != prior.dominant_layout
                     || metadata.tier1_confidence < 0.60
                     || candidate_is_off_prior);
-            if rerun_with_prior && replayable_inputs {
+            if rerun_with_prior {
                 let tier1 = Tier1Provenance {
                     verdict: metadata.tier1_verdict,
                     confidence: metadata.tier1_confidence,
@@ -1462,33 +1480,6 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
     }
 }
 
-fn pages_have_disjoint_destinations(manifest: &ManifestV3) -> bool {
-    let mut paths = HashSet::new();
-    manifest.pages.iter().all(|page| {
-        let page_paths = page
-            .outputs
-            .iter()
-            .flat_map(|output| {
-                [
-                    Some(&output.output_path),
-                    Some(&output.metadata_path),
-                    output.bilevel_output_path.as_ref(),
-                    output.background_output_path.as_ref(),
-                    output.foreground_mask_output_path.as_ref(),
-                    output.foreground_alpha_output_path.as_ref(),
-                    output.picture_mask_output_path.as_ref(),
-                    output.tone_preservation_alpha_output_path.as_ref(),
-                ]
-                .into_iter()
-                .flatten()
-            })
-            .chain(std::iter::once(&page.page_metadata_path));
-        page_paths
-            .into_iter()
-            .all(|path| paths.insert(path.clone()))
-    })
-}
-
 fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
     let mut input_paths = HashSet::new();
     let mut input_files = HashSet::new();
@@ -1656,8 +1647,8 @@ fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> 
         .host_memory_bytes
         .unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
     let process_budget = total_memory.saturating_mul(40) / 100;
-    let worker_budget =
-        process_budget.saturating_sub(cache_budget_bytes(manifest.host_memory_bytes) as u64);
+    let worker_budget = process_budget
+        .saturating_sub(cache_budget_bytes(manifest.operation, manifest.host_memory_bytes) as u64);
     Ok(adaptive_thread_count(
         available,
         manifest.pages.len(),
@@ -1712,9 +1703,99 @@ fn adaptive_thread_count(
     cpu_limit.min(memory_limit).min(page_count).max(1)
 }
 
-fn cache_budget_bytes(host_memory_bytes: Option<u64>) -> usize {
+fn cache_budget_bytes(operation: Operation, host_memory_bytes: Option<u64>) -> usize {
     let total_memory = host_memory_bytes.unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
-    DEFAULT_CACHE_BUDGET_BYTES.min((total_memory / 10) as usize)
+    // Analyze retains decoded sources because reconciliation may replay them.
+    // Render retains analysis-stage artifacts but deliberately does not retain
+    // decoded page inputs, so reserve half as much cache memory while keeping
+    // a non-zero budget for those reusable stages.
+    let denominator = match operation {
+        Operation::Analyze => 10,
+        Operation::Render => 20,
+    };
+    let cap = match operation {
+        Operation::Analyze => DEFAULT_CACHE_BUDGET_BYTES,
+        // Stage artifacts remain reusable during a render, but decoded page
+        // inputs no longer occupy this shared LRU. Keep half the normal cap
+        // available for those artifacts instead of reserving no cache at all.
+        Operation::Render => DEFAULT_CACHE_BUDGET_BYTES / 2,
+    };
+    cap.min((total_memory / denominator) as usize)
+}
+
+type DecodedPageInputs = (Option<Arc<raster::DecodedRaster>>, Option<Arc<GrayImage>>);
+
+fn decode_page_inputs(
+    page: &Page,
+    options: &CleanupOptions,
+    cache: &PageCache,
+    retain_decoded: bool,
+) -> Result<DecodedPageInputs, Box<dyn Error>> {
+    let color_input = if matches!(
+        options.output_mode,
+        OutputMode::Color | OutputMode::Mixed | OutputMode::Auto
+    ) {
+        let key = StageCacheKey::decoded(&cache.source, true, options);
+        let cached = retain_decoded
+            .then(|| {
+                cache
+                    .shared
+                    .lock()
+                    .ok()
+                    .and_then(|mut shared| shared.get::<raster::DecodedRaster>(&key))
+            })
+            .flatten();
+        Some(if let Some(cached) = cached {
+            cached
+        } else {
+            let decoded = Arc::new(
+                raster::read_image(&page.input_path, options.max_pixels, options.max_dimension)
+                    .map_err(map_image_error)?,
+            );
+            if retain_decoded {
+                let bytes =
+                    decoded.gray.data().len().saturating_add(
+                        decoded.rgb.width().saturating_mul(decoded.rgb.height()) * 3,
+                    );
+                if let Ok(mut shared) = cache.shared.lock() {
+                    shared.insert(key, Arc::clone(&decoded), bytes);
+                }
+            }
+            decoded
+        })
+    } else {
+        None
+    };
+    let gray_input = if color_input.is_none() {
+        let key = StageCacheKey::decoded(&cache.source, false, options);
+        let cached = retain_decoded
+            .then(|| {
+                cache
+                    .shared
+                    .lock()
+                    .ok()
+                    .and_then(|mut shared| shared.get::<GrayImage>(&key))
+            })
+            .flatten();
+        Some(if let Some(cached) = cached {
+            cached
+        } else {
+            let decoded = Arc::new(
+                raster::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
+                    .map_err(map_image_error)?,
+            );
+            if retain_decoded {
+                let bytes = decoded.data().len();
+                if let Ok(mut shared) = cache.shared.lock() {
+                    shared.insert(key, Arc::clone(&decoded), bytes);
+                }
+            }
+            decoded
+        })
+    } else {
+        None
+    };
+    Ok((color_input, gray_input))
 }
 
 fn run_page(
@@ -1730,59 +1811,11 @@ fn run_page(
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
     let decode_started = Instant::now();
-    let color_input = if matches!(
-        options.output_mode,
-        OutputMode::Color | OutputMode::Mixed | OutputMode::Auto
-    ) {
-        let key = StageCacheKey::decoded(&cache.source, true, &options);
-        let cached = cache
-            .shared
-            .lock()
-            .ok()
-            .and_then(|mut shared| shared.get::<raster::DecodedRaster>(&key));
-        Some(if let Some(cached) = cached {
-            cached
-        } else {
-            let decoded = Arc::new(
-                raster::read_image(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?,
-            );
-            let bytes = decoded
-                .gray
-                .data()
-                .len()
-                .saturating_add(decoded.rgb.width().saturating_mul(decoded.rgb.height()) * 3);
-            if let Ok(mut shared) = cache.shared.lock() {
-                shared.insert(key, Arc::clone(&decoded), bytes);
-            }
-            decoded
-        })
-    } else {
-        None
-    };
-    let gray_input = if color_input.is_none() {
-        let key = StageCacheKey::decoded(&cache.source, false, &options);
-        let cached = cache
-            .shared
-            .lock()
-            .ok()
-            .and_then(|mut shared| shared.get::<GrayImage>(&key));
-        Some(if let Some(cached) = cached {
-            cached
-        } else {
-            let decoded = Arc::new(
-                raster::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?,
-            );
-            let bytes = decoded.data().len();
-            if let Ok(mut shared) = cache.shared.lock() {
-                shared.insert(key, Arc::clone(&decoded), bytes);
-            }
-            decoded
-        })
-    } else {
-        None
-    };
+    // Render pages retain reusable analysis-stage artifacts, but decoded
+    // source rasters are intentionally scoped to this invocation. Analyze's
+    // classification path opts into decoded memoization below because its
+    // document-prior reconciliation may replay a page.
+    let (color_input, gray_input) = decode_page_inputs(page, &options, cache, false)?;
     timings.decode_ms += decode_started.elapsed().as_secs_f64() * 1_000.0;
     let input_gray = color_input
         .as_ref()
@@ -2515,56 +2548,7 @@ fn run_classification(
     // Analyze produces mode-independent diagnostics even when a concrete mode
     // is selected. A concrete final render does not publish or consume those
     // recommendations, so keep that lane grayscale-only.
-    let color_input = if recommend_output_mode {
-        let key = StageCacheKey::decoded(&cache.source, true, &options);
-        let cached = cache
-            .shared
-            .lock()
-            .ok()
-            .and_then(|mut shared| shared.get::<raster::DecodedRaster>(&key));
-        Some(if let Some(cached) = cached {
-            cached
-        } else {
-            let decoded = Arc::new(
-                raster::read_image(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?,
-            );
-            let bytes = decoded
-                .gray
-                .data()
-                .len()
-                .saturating_add(decoded.rgb.width().saturating_mul(decoded.rgb.height()) * 3);
-            if let Ok(mut shared) = cache.shared.lock() {
-                shared.insert(key, Arc::clone(&decoded), bytes);
-            }
-            decoded
-        })
-    } else {
-        None
-    };
-    let gray_input = if color_input.is_none() {
-        let key = StageCacheKey::decoded(&cache.source, false, &options);
-        let cached = cache
-            .shared
-            .lock()
-            .ok()
-            .and_then(|mut shared| shared.get::<GrayImage>(&key));
-        Some(if let Some(cached) = cached {
-            cached
-        } else {
-            let decoded = Arc::new(
-                raster::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?,
-            );
-            let bytes = decoded.data().len();
-            if let Ok(mut shared) = cache.shared.lock() {
-                shared.insert(key, Arc::clone(&decoded), bytes);
-            }
-            decoded
-        })
-    } else {
-        None
-    };
+    let (color_input, gray_input) = decode_page_inputs(page, &options, cache, true)?;
     timings.decode_ms += decode_started.elapsed().as_secs_f64() * 1_000.0;
     let input = color_input
         .as_ref()
@@ -4631,14 +4615,14 @@ mod tests {
     use super::{
         adaptive_thread_count, align_deferred_spread_vertical_placements,
         align_spread_vertical_placements, background_canvas_dimensions,
-        background_dimensions_to_publish, canvas_fit_for, edge_near_paper_run_in_gray,
-        estimate_peak_page_bytes, fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache,
-        manifest_worker_threads, map_image_error, matched_output_paper_dimensions_for,
-        materialize_gray_primary_on_canvas, materialize_stream_page,
-        normalize_trusted_foreground_selection, optical_binary_bounds_x, optical_content_bounds_x,
-        optical_content_center_x, page_worker_threads, parse_cli_args, place_on_white_canvas,
-        place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
-        plan_canvas_placement_for_with_optical_center,
+        background_dimensions_to_publish, cache_budget_bytes, canvas_fit_for, decode_page_inputs,
+        derive_page_ink_contexts, edge_near_paper_run_in_gray, estimate_peak_page_bytes,
+        fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache, manifest_worker_threads,
+        map_image_error, matched_output_paper_dimensions_for, materialize_gray_primary_on_canvas,
+        materialize_stream_page, normalize_trusted_foreground_selection, optical_binary_bounds_x,
+        optical_content_bounds_x, optical_content_center_x, page_cache_for, page_worker_threads,
+        parse_cli_args, place_on_white_canvas, place_on_white_canvas_with_source_offset,
+        plan_canvas_placement_for, plan_canvas_placement_for_with_optical_center,
         plan_canvas_placement_for_with_optical_center_and_fit,
         plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim,
         plan_canvas_placement_with_shared_fit, preflight_manifest_paths,
@@ -6104,6 +6088,131 @@ mod tests {
     }
 
     #[test]
+    fn operation_aware_cache_reservation_keeps_render_stage_budget() {
+        let analyze = cache_budget_bytes(Operation::Analyze, Some(8 * 1024 * 1024 * 1024));
+        let render = cache_budget_bytes(Operation::Render, Some(8 * 1024 * 1024 * 1024));
+
+        assert!(render > 0);
+        assert!(render < analyze);
+    }
+
+    #[test]
+    fn render_decode_bypasses_input_cache_while_analyze_retains_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-decode-cache-policy-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("page.png");
+        fs::write(
+            &input,
+            crate::png::encode_gray(&GrayImage::new(32, 24, 240)).unwrap(),
+        )
+        .unwrap();
+        let page = Page {
+            input_path: input,
+            analysis_input_path: None,
+            analysis_dpi: None,
+            trusted_foreground_mask_path: None,
+            trusted_mrc_background_path: None,
+            source_page_index: 0,
+            page_metadata_path: dir.join("page.json"),
+            options: CleanupOptions {
+                output_mode: OutputMode::Color,
+                ..CleanupOptions::default()
+            },
+            document_prior: None,
+            detail_render_plan: None,
+            outputs: Vec::new(),
+        };
+        let render_cache = manifest_cache(Operation::Render, None);
+        let render_page_cache = page_cache_for(&page, &render_cache).unwrap();
+        decode_page_inputs(&page, &page.options, &render_page_cache, false).unwrap();
+        let render_key =
+            crate::cache::StageCacheKey::decoded(&render_page_cache.source, true, &page.options);
+        assert!(render_cache
+            .lock()
+            .unwrap()
+            .get::<crate::io::raster::DecodedRaster>(&render_key)
+            .is_none());
+
+        let analyze_cache = manifest_cache(Operation::Analyze, None);
+        let analyze_page_cache = page_cache_for(&page, &analyze_cache).unwrap();
+        decode_page_inputs(&page, &page.options, &analyze_page_cache, true).unwrap();
+        assert!(analyze_cache
+            .lock()
+            .unwrap()
+            .get::<crate::io::raster::DecodedRaster>(&render_key)
+            .is_some());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn trusted_ink_prepass_uses_the_bounded_page_pool() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-ink-prepass-bound-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("page.png");
+        let mask = dir.join("foreground.png");
+        let background = dir.join("background.png");
+        fs::write(
+            &input,
+            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+        )
+        .unwrap();
+        let mut selection = GrayImage::new(100, 50, 0);
+        for y in 4..14 {
+            for x in 10..90 {
+                selection.set(x, y, 255);
+            }
+        }
+        crate::png::write_gray_atomic(&mask, &selection).unwrap();
+        crate::png::write_gray_atomic(&background, &GrayImage::new(50, 25, 240)).unwrap();
+        let pages = (0..12)
+            .map(|index| Page {
+                input_path: input.clone(),
+                analysis_input_path: None,
+                analysis_dpi: None,
+                trusted_foreground_mask_path: Some(mask.clone()),
+                trusted_mrc_background_path: Some(background.clone()),
+                source_page_index: index,
+                page_metadata_path: dir.join(format!("page-{index}.json")),
+                options: CleanupOptions {
+                    output_mode: OutputMode::Bw,
+                    source_has_bilevel_layer: true,
+                    thickness: 0,
+                    ..CleanupOptions::default()
+                },
+                document_prior: None,
+                detail_render_plan: None,
+                outputs: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Render,
+            analysis_purpose: AnalysisPurpose::PagePlan,
+            render_mode: RenderMode::Final,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            raster_window: 1,
+            pages,
+        };
+
+        assert!(manifest_worker_threads(&manifest).unwrap() > 1);
+        let contexts = derive_page_ink_contexts(&manifest);
+        assert_eq!(contexts.len(), 12);
+        assert!(contexts.iter().all(Option::is_some));
+        assert_eq!(contexts[0], contexts[11]);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn peak_page_estimate_tracks_measured_resident_high_water() {
         // Reference document, 2119x3204 gray page, 32-page Bw batch at five
         // workers, measured peak RSS 1.60 GB (audit-jul-25 U22 / SCP3). The
@@ -6111,7 +6220,7 @@ mod tests {
         // land within +/-25 % of that or the worker budget admits threads the
         // host cannot hold.
         const MEASURED_PEAK_BYTES: f64 = 1.60e9;
-        let modelled = (256 * 1024 * 1024) as f64
+        let modelled = cache_budget_bytes(Operation::Render, None) as f64
             + 5.0 * estimate_peak_page_bytes(2119, 3204, Operation::Render, OutputMode::Bw) as f64;
         let ratio = modelled / MEASURED_PEAK_BYTES;
         assert!(
@@ -6190,6 +6299,64 @@ mod tests {
             1
         );
 
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn analyze_workers_ignore_duplicate_unused_render_outputs() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-analyze-output-contract-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("page.png");
+        fs::write(
+            &input,
+            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+        )
+        .unwrap();
+        let duplicate_output = PageOutput {
+            output_path: dir.join("unused.png"),
+            metadata_path: dir.join("unused-output.json"),
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+        };
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            raster_window: 1,
+            pages: (0..2)
+                .map(|index| Page {
+                    input_path: input.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: vec![duplicate_output.clone()],
+                })
+                .collect(),
+        };
+
+        // Analyze does not publish PageOutput destinations. Validation accepts
+        // the duplicated unused values, while the worker bound still follows
+        // the memory-derived page limit instead of a destination scan.
+        manifest.validate().unwrap();
+        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -6725,13 +6892,13 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn streamed_reconciliation_uses_existing_evidence_without_reopening_inputs() {
+    fn reconciliation_does_not_skip_a_prior_rerun_for_nonregular_input() {
         let dir = PathBuf::from(format!("/tmp/evb-scan-reconcile-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        // Reconciliation must use the page evidence already in memory. An
-        // existing directory passes the cache's path metadata check but
-        // cannot be decoded as a raster, proving the invariant without a Unix
-        // socket (creation of which restricted macOS runners may deny).
+        // This direct seam intentionally bypasses ManifestV3::validate. A
+        // production Analyze manifest rejects this directory before work
+        // starts; reaching the decoder here proves reconciliation no longer
+        // silently skips its prior rerun merely because the path is streamed.
         let input = dir.join("already-consumed-input");
         fs::create_dir(&input).unwrap();
         let manifest = ManifestV3 {
@@ -6803,14 +6970,13 @@ mod tests {
             result(3, LayoutClassification::SingleUncutPage, 0.40),
         ];
 
-        reconcile_classification_batch(&manifest, &mut results, &manifest_cache(None)).unwrap();
-
-        assert_eq!(
-            results[3].metadata.layout_classification,
-            LayoutClassification::TwoPageSpread
-        );
-        assert!(results[3].metadata.reconciled);
-        assert!(results[3].metadata.document_prior.is_some());
+        let error = reconcile_classification_batch(
+            &manifest,
+            &mut results,
+            &manifest_cache(Operation::Analyze, None),
+        )
+        .unwrap_err();
+        assert!(!error.to_string().is_empty());
         let _ = fs::remove_dir_all(dir);
     }
 
