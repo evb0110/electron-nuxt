@@ -2136,6 +2136,150 @@ fn final_cli_pins_the_adjudicated_stroke_budget_and_rescue_counters() {
     );
 }
 
+#[test]
+fn spread_preview_cli_pins_the_small_print_stroke_budget_outcome() {
+    let scratch = Scratch::new("impressum-spread-trace");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/rescue/luther-p5-impressum-spread.png");
+    let outputs = [
+        (
+            scratch.path("impressum-left.png"),
+            scratch.path("impressum-left.json"),
+        ),
+        (
+            scratch.path("impressum-right.png"),
+            scratch.path("impressum-right.json"),
+        ),
+    ];
+    let page_metadata = scratch.path("impressum-page.json");
+    let manifest = scratch.path("impressum-spread-manifest.json");
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "preview",
+        "canvasScope": "page",
+        "documentCanvas": {
+            "widthPoints": 528.72,
+            "heightPoints": 780.48,
+            "widthPx": 2196,
+            "heightPx": 3241,
+        },
+        "pages": [{
+            "inputPath": fixture,
+            "sourcePageIndex": 1,
+            "pageMetadataPath": page_metadata,
+            "options": {
+                "dpi": 299,
+                "sourceDpi": 300,
+                "requestedRenderDpi": 299,
+                "binarization": "auto",
+                "thickness": 0,
+                "normalizeIllumination": true,
+                "despeckle": true,
+                "outputMode": "bw",
+                "layout": "force-two-page",
+                "automaticSplit": {
+                    "xNormalized": 0.5755787562414889,
+                    "rotationDegrees": 0,
+                },
+                "automaticContentBoxes": {
+                    "left": {
+                        "xNormalized": 0.06468452110758058,
+                        "yNormalized": 0.19516846789574063,
+                        "widthNormalized": 0.4026327734906945,
+                        "heightNormalized": 0.8048315321042594,
+                        "rotationDegrees": 0,
+                    },
+                    "right": {
+                        "xNormalized": 0,
+                        "yNormalized": 0.16815003178639543,
+                        "widthNormalized": 0.4087607807535179,
+                        "heightNormalized": 0.7797202797202797,
+                        "rotationDegrees": 0,
+                    },
+                },
+                "cropContent": true,
+                "matchPageSize": true,
+                "pageAlignment": "top-center",
+                "margins": {"leftMm": 5, "topMm": 5, "rightMm": 5, "bottomMm": 5},
+            },
+            "outputs": [
+                {"outputPath": outputs[0].0, "metadataPath": outputs[0].1},
+                {"outputPath": outputs[1].0, "metadataPath": outputs[1].1},
+            ],
+            "documentPrior": {
+                "dominantLayout": "two-page-spread",
+                "cutterRatioMedian": 0.5406264185201998,
+                "clusterDims": {"widthPx": 2203, "heightPx": 1586.5},
+                "agreementStrength": 0.826631599246961,
+                "strokeWidthMedianPx": 4.47213595499958,
+                "xHeightMedianPx": 14,
+            },
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .env("EVB_STROKE_BUDGET_TRACE", "1")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    let traces = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("EVB_STROKE_BUDGET "))
+        .map(|trace| serde_json::from_str::<Value>(trace).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        traces,
+        vec![
+            serde_json::json!({
+                "rasterWidth": 1773,
+                "rasterHeight": 2528,
+                "sourceComponentsNormalized": 3,
+                "sourcePixelsRemoved": 91,
+                "sourceComponentsUnreachable": 0,
+                "smoothingComponentsCapped": 0,
+                "smoothingPixelsSuppressed": 0,
+                "rescueComponentsCapped": 0,
+                "rescueBridgeComponentsCapped": 0,
+                "rescuePixelsSuppressed": 0,
+            }),
+            serde_json::json!({
+                "rasterWidth": 1803,
+                "rasterHeight": 2451,
+                "sourceComponentsNormalized": 3,
+                "sourcePixelsRemoved": 100,
+                "sourceComponentsUnreachable": 0,
+                "smoothingComponentsCapped": 0,
+                "smoothingPixelsSuppressed": 0,
+                "rescueComponentsCapped": 0,
+                "rescueBridgeComponentsCapped": 0,
+                "rescuePixelsSuppressed": 0,
+            }),
+        ],
+        "the spread preview path changed its adjudicated stroke-budget interventions \
+         (an erosion storm on the impressum leaf shows up here first)",
+    );
+
+    let expected = [(1773usize, 2528usize, 187_731usize), (1803, 2451, 589_086)];
+    for ((output_path, _), (width, height, ink)) in outputs.iter().zip(expected) {
+        let cleaned = decode_gray(&fs::read(output_path).unwrap(), 40_000_000, 40_000).unwrap();
+        assert_eq!((cleaned.width(), cleaned.height()), (width, height));
+        assert_eq!(
+            cleaned.data().iter().filter(|&&value| value < 128).count(),
+            ink,
+            "the spread preview path changed the adjudicated ink outcome",
+        );
+    }
+}
+
 /// Mean horizontal ink-run length inside a word box: the stroke-thickness
 /// proxy the weight adjudications measure. Ink is the mid-gray crossing so
 /// the same rule reads the grayscale source and the bilevel render.
