@@ -151,6 +151,7 @@ const NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS = 2;
 const NATIVE_PDF_RENDER_MARGIN_PAGES = 3;
 const NATIVE_PDF_RENDER_CONCURRENCY = 2;
 const NATIVE_PDF_DEVICE_PIXEL_RATIO_CAP = 2;
+const EMPTY_NATIVE_PDF_ERROR = 'PDF contains no pages';
 const viewerContainer = ref<HTMLElement | null>(null);
 function setPageElement(pageNumber: number, element: Element | ComponentPublicInstance | null) {
     if (element instanceof HTMLElement) {
@@ -1169,9 +1170,7 @@ watch(
             emit('update:totalPages', pageSizes.value.length);
             emit('update:currentPage', restoredPage);
             if (pageSizes.value.length === 0) {
-                markInitialVisualReady(generation, 1);
-                emitLoading(false);
-                return;
+                throw new Error(EMPTY_NATIVE_PDF_ERROR);
             }
 
             await nextTick();
@@ -1230,9 +1229,7 @@ watch(isActive, async (active) => {
             emit('update:totalPages', pageSizes.value.length);
             viewerError.value = null;
             if (pageSizes.value.length === 0) {
-                markInitialVisualReady(generation, 1);
-                emitLoading(false);
-                return;
+                throw new Error(EMPTY_NATIVE_PDF_ERROR);
             }
             await nextTick();
             measureContainer();

@@ -271,6 +271,60 @@ describe('document open surface session', () => {
         });
     });
 
+    it('invalidates an out-of-range committed page when refreshed metadata shrinks', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'edited.pdf', 'pdfjs:1');
+        session.metadataReady(12);
+        commitDefaultGeometry(session, generation);
+        const openingFence = createRenderFence(session, generation, 'pdfjs:1');
+        commitReadySurface(session, openingFence);
+        session.requestNavigation(7, 0);
+        const pageSevenFence = createRenderFence(session, generation, 'pdfjs:1', {
+            renderVersion: 1,
+            requestId: 2,
+            pageNumber: 7,
+        });
+        commitReadySurface(session, pageSevenFence);
+
+        expect(() => session.metadataReady(3)).not.toThrow();
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'transitioning',
+            requestedPage: 3,
+            committedPage: null,
+            observedPage: null,
+            pageCount: 3,
+            renderFence: null,
+            stagedRenderFence: null,
+            stagedViewportFence: null,
+            committedRenderFence: null,
+            committedViewportFence: null,
+            visual: {
+                kind: 'page',
+                pageNumber: 3,
+                presentation: 'skeleton',
+            },
+        });
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'geometry-committed',
+            presentation: 'idle',
+            committedRender: null,
+            committedViewport: null,
+        });
+
+        const pageThreeFence = createRenderFence(session, generation, 'pdfjs:1', {
+            renderVersion: 1,
+            requestId: 3,
+            pageNumber: 3,
+        });
+        commitReadySurface(session, pageThreeFence);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 3,
+            committedPage: 3,
+            pageCount: 3,
+        });
+    });
+
     it('dispatches an explicit command back to the stale requested page after free scrolling', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.djvu', 'djvu:1');

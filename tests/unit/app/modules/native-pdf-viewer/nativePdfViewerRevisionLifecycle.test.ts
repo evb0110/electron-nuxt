@@ -184,6 +184,70 @@ afterEach(() => {
 });
 
 describe('NativePdfViewer revision lifecycle', () => {
+    it('fails an empty native PDF immediately instead of waiting for the host timeout', async () => {
+        vi.useFakeTimers();
+        const documentPath = '/managed/empty.pdf';
+        const source = createSource('empty', []);
+        nativePdfMocks.createSource.mockReturnValue(source);
+        const host = document.createElement('div');
+        const viewport = document.createElement('div');
+        document.body.append(host, viewport);
+        Object.defineProperties(viewport, {
+            clientHeight: {
+                configurable: true,
+                value: 600,
+            },
+            clientWidth: {
+                configurable: true,
+                value: 800,
+            },
+        });
+        const viewer = ref<IViewerExpose | null>(null);
+        const loadErrors: unknown[] = [];
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        authority.bindViewportElement(viewport);
+        authority.openSurface.begin({
+            documentId: documentPath,
+            documentRevision: 'drt1:test:empty',
+        });
+        const Root = defineComponent({setup() {
+            provide(documentViewerChassisAuthorityKey, authority);
+            return () => h(NativePdfViewer, {
+                ref: viewer,
+                src: documentPath,
+                isActive: true,
+                currentPage: 1,
+                onLoadError: (error: unknown) => loadErrors.push(error),
+            });
+        }});
+        const app = createApp(Root);
+        const ElementStub = defineComponent({setup: () => () => h('span')});
+        app.component('UButton', ElementStub);
+        app.component('UIcon', ElementStub);
+        app.component('USkeleton', ElementStub);
+        app.mount(host);
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            viewport.remove();
+            activeUnmounts.delete(unmount);
+        };
+        activeUnmounts.add(unmount);
+
+        await settlePendingWork();
+        await expect(requireViewer(viewer.value).waitForViewerLoadSettled()).resolves.toBeUndefined();
+        expect(loadErrors).toHaveLength(1);
+        expect(loadErrors[0]).toEqual(expect.objectContaining({message: 'PDF contains no pages'}));
+        expect(source.terminate).toHaveBeenCalledOnce();
+        expect(authority.openSurface.snapshot.value).toMatchObject({
+            phase: 'failed',
+            presentation: 'failed',
+            failure: 'PDF contains no pages',
+        });
+        expect(host.querySelector('[data-testid="native-pdf-viewer-error"]')?.textContent)
+            .toContain('PDF contains no pages');
+    });
+
     it('fully reloads a same-path document when its revision changes', async () => {
         vi.useFakeTimers();
         class PreloadImage {
@@ -687,5 +751,9 @@ describe('NativePdfViewer revision lifecycle', () => {
         expect(host.querySelector('[data-page-number="1"] .document-page-skeleton')).toBeNull();
         expect(host.querySelector('.document-page-visual--committed img')?.getAttribute('src'))
             .toBe('blob:eviction:page-1:render-2');
+        expect(source.revokeObjectURL)
+            .not.toHaveBeenCalledWith('blob:eviction:page-1:render-1');
+        expect(source.revokeObjectURL)
+            .not.toHaveBeenCalledWith('blob:eviction:page-2:render-1');
     });
 });

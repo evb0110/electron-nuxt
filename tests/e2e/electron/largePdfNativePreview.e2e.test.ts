@@ -266,7 +266,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             index > firstClaimedFrameIndex
             && frame.generation === openingGeneration
             && frame.documentId === openingDocumentId
-            && frame.committedRasterVisible
+            && frame.committedHighResolutionRasterVisible
         ));
         const claimedOpeningFrames = firstClaimedFrameIndex < 0
             ? []
@@ -286,6 +286,9 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         expect(firstClaimedFrameIndex, JSON.stringify(openingFrames)).toBeGreaterThanOrEqual(0);
         expect(firstCommittedFrameIndex, JSON.stringify(openingFrames)).toBeGreaterThan(firstClaimedFrameIndex);
         expect(claimedOpeningFrames.length, JSON.stringify(openingFrames)).toBeGreaterThan(0);
+        expect(openingFrames.every(frame => (
+            !frame.committedLowResolutionRasterVisible
+        )), JSON.stringify(openingFrames)).toBe(true);
         expect(claimedOpeningFrames.every(frame => (
             frame.transitionSurfaceVisible
             && frame.transitionSkeletonCount === 1

@@ -6,7 +6,8 @@ import { getWorkspaceToolbarSnapshot } from '@tests/e2e/electron/helpers/workspa
 export interface INativePdfOpeningFrame {
     capturedAtMs: number;
     claimed: boolean;
-    committedRasterVisible: boolean;
+    committedHighResolutionRasterVisible: boolean;
+    committedLowResolutionRasterVisible: boolean;
     documentId: string;
     emptyStateVisible: boolean;
     generation: number;
@@ -69,14 +70,28 @@ export async function installNativePdfOpeningSampler(page: Page) {
             const transitionRect = transitionShell?.getBoundingClientRect() ?? null;
             const viewportRect = viewportHost?.getBoundingClientRect() ?? null;
             const nativeViewer = host?.querySelector<HTMLElement>('.native-pdf-viewer') ?? null;
+            const committedRasterImages = Array.from(
+                host?.querySelectorAll<HTMLImageElement>(
+                    '.native-pdf-page-content.document-page-visual--committed img',
+                ) ?? [],
+            ).filter(image => (
+                isVisible(image)
+                && intersects(image, viewportHost)
+                && image.complete
+                && image.naturalWidth > 0
+            ));
+            const outputScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
+            const rasterIsHighResolution = (image: HTMLImageElement) => image.naturalWidth
+                >= Math.ceil(image.getBoundingClientRect().width * outputScale);
             testWindow.__nativePdfOpeningFrames!.push({
                 capturedAtMs: performance.now(),
                 claimed: viewportHost?.dataset.openSurfacePhase !== undefined
                     && viewportHost.dataset.openSurfacePhase !== 'idle'
                     && (chassis?.dataset.openSurfaceDocumentId ?? '').length > 0,
-                committedRasterVisible: Array.from(
-                    host?.querySelectorAll<HTMLElement>('.native-pdf-page-content.document-page-visual--committed') ?? [],
-                ).some(isVisible),
+                committedHighResolutionRasterVisible: committedRasterImages.some(rasterIsHighResolution),
+                committedLowResolutionRasterVisible: committedRasterImages.some(image => (
+                    !rasterIsHighResolution(image)
+                )),
                 documentId: chassis?.dataset.openSurfaceDocumentId ?? '',
                 emptyStateVisible: Array.from(host?.querySelectorAll<HTMLElement>('.empty-state') ?? []).some(isVisible),
                 generation: Number(chassis?.dataset.openSurfaceGeneration ?? 0),

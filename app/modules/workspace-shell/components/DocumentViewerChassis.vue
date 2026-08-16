@@ -115,6 +115,7 @@ import {
     type IDocumentViewportResizeAnchor,
 } from '@app/utils/document-viewer/chassis/documentViewportResizeAnchor';
 import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
 
 defineOptions({ inheritAttrs: false });
 
@@ -269,15 +270,15 @@ function releaseResizeAnchorForViewportInteraction() {
 
 function handleViewportWheel(interaction: IDocumentWheelInteraction) {
     releaseResizeAnchorForViewportInteraction();
-    if (interaction.intent !== 'zoom') {
-        // Physical scrolling must fence pending authored restores before the
-        // browser mutates scrollTop. Zoom gestures instead need the layout
-        // lifecycle's anchor restore; bumping the epoch on every streamed zoom
-        // tick would cancel that restore one frame after it was captured.
-        chassisAuthority.viewportWritePort.observeUserInteraction(
-            chassisAuthority.viewportElement.value ?? undefined,
-        );
-    }
+    // Physical scrolling must fence pending authored restores before the
+    // browser mutates scrollTop. Zoom gestures instead need the layout
+    // lifecycle's anchor restore; bumping the epoch on every streamed zoom
+    // tick would cancel that restore one frame after it was captured.
+    observeDocumentViewportWheelInteraction(
+        chassisAuthority.viewportWritePort,
+        interaction.intent,
+        chassisAuthority.viewportElement.value ?? undefined,
+    );
     chassisAuthority.dispatchViewportWheel(interaction);
 }
 

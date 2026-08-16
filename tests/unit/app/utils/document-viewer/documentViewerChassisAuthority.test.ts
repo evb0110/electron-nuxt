@@ -12,6 +12,7 @@ import {
 } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
 import { cast } from '@tests/helpers/cast';
 
 function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSource {
@@ -111,7 +112,7 @@ describe('document viewer chassis authority', () => {
         expect(authority.viewportWritePort).toBe(originalViewportWritePort);
     });
 
-    it('origin-fences authority scrolls and recognizes subsequent native user input', () => {
+    it('clears an authored scroll origin for physical wheel input but preserves it for zoom', () => {
         const authority = createDocumentViewerChassisAuthority(ref('pdf'));
         const container = {
             scrollLeft: 0,
@@ -127,10 +128,31 @@ describe('document viewer chassis authority', () => {
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
 
-        container.scrollTop = 725;
+        const staleAfterWheel = authority.viewportWritePort.beginIntent('resize-restore');
+        observeDocumentViewportWheelInteraction(
+            authority.viewportWritePort,
+            'scroll',
+            container,
+        );
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(false);
-        authority.viewportWritePort.observeUserScroll(container);
-        expect(() => authority.viewportWritePort.assertNoRogueWrite(container)).not.toThrow();
+        expect(authority.viewportWritePort.apply(container, {
+            intent: staleAfterWheel,
+            reason: 'stale-after-wheel',
+            top: 725,
+        })).toBe(false);
+
+        const zoomIntent = authority.viewportWritePort.beginIntent('zoom-anchor-restore');
+        expect(authority.viewportWritePort.apply(container, {
+            intent: zoomIntent,
+            reason: 'zoom-anchor',
+            top: 730,
+        })).toBe(true);
+        observeDocumentViewportWheelInteraction(
+            authority.viewportWritePort,
+            'zoom',
+            container,
+        );
+        expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
     });
 
     it('resets a stale viewport offset synchronously when a document generation begins', () => {
