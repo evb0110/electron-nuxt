@@ -10,8 +10,8 @@ use scan_primitives::{
     threshold::{
         otsu_threshold, otsu_threshold_excluding, threshold_global, threshold_global_biased,
         threshold_local, threshold_local_biased, threshold_local_biased_excluding,
-        threshold_local_biased_with_integrals_for_consensus,
-        threshold_local_multiscale_biased_excluding_with_integrals_for_consensus, IntegralImages,
+        threshold_local_multiscale_biased_excluding_with_integrals_for_consensus,
+        threshold_local_multiscale_biased_with_integrals_for_consensus, IntegralImages,
         LocalThreshold, MaskedIntegralImages,
     },
     BinaryImage, ComponentMap, GrayImage,
@@ -1614,28 +1614,14 @@ fn threshold_local_for_route(
         shared_threshold_radius,
         shared_x_height_px,
     );
-    let small = threshold_local_biased_with_integrals_for_consensus(
+    threshold_local_multiscale_biased_with_integrals_for_consensus(
         threshold_input,
         &integrals,
-        small_radius,
+        [small_radius, medium_radius, large_radius],
         method,
         bias,
-    );
-    let medium = threshold_local_biased_with_integrals_for_consensus(
-        threshold_input,
-        &integrals,
-        medium_radius,
-        method,
-        bias,
-    );
-    let large = threshold_local_biased_with_integrals_for_consensus(
-        threshold_input,
-        &integrals,
-        large_radius,
-        method,
-        bias,
-    );
-    multiscale_consensus(normalized, &small, &medium, &large)
+        |x, y| sobel_gradient_magnitude(normalized, x, y) > STROKE_EDGE_THRESHOLD,
+    )
 }
 
 fn multiscale_threshold_radii(
@@ -1661,6 +1647,7 @@ fn multiscale_threshold_radii(
     )
 }
 
+#[cfg(test)]
 fn multiscale_consensus(
     normalized: &GrayImage,
     small: &BinaryImage,
@@ -2152,11 +2139,9 @@ fn faint_ink_fraction(image: &GrayImage) -> f64 {
     let paper = paper_reference(image);
     let threshold = paper.saturating_sub(24);
     let total = image.width().saturating_mul(image.height()).max(1);
-    image
-        .data()
-        .iter()
-        .filter(|&&value| value < threshold)
-        .count() as f64
+    (0..image.height())
+        .map(|y| image.row(y).iter().filter(|&&value| value < threshold).count())
+        .sum::<usize>() as f64
         / total as f64
 }
 
@@ -2302,8 +2287,10 @@ fn choose_mode(
 
 fn image_percentile(image: &GrayImage, fraction: f64) -> u8 {
     let mut histogram = [0usize; 256];
-    for &value in image.data() {
-        histogram[value as usize] += 1;
+    for y in 0..image.height() {
+        for &value in image.row(y) {
+            histogram[value as usize] += 1;
+        }
     }
     let count = image.width().saturating_mul(image.height());
     if count == 0 {
@@ -2332,10 +2319,17 @@ fn tile_paper_deviation(image: &GrayImage) -> f64 {
 
 pub(crate) fn paper_reference(image: &GrayImage) -> u8 {
     let mut histogram = [0usize; 256];
-    for &value in image.data() {
-        histogram[value as usize] += 1;
+    for y in 0..image.height() {
+        for &value in image.row(y) {
+            histogram[value as usize] += 1;
+        }
     }
-    let target = image.data().len().saturating_sub(1) * 3 / 4;
+    let target = image
+        .width()
+        .saturating_mul(image.height())
+        .saturating_sub(1)
+        .saturating_mul(3)
+        / 4;
     let mut cumulative = 0usize;
     histogram
         .iter()
@@ -3678,6 +3672,28 @@ fn axis_gap(first_start: usize, first_end: usize, second_start: usize, second_en
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grayscale_percentiles_and_faint_fraction_ignore_stride_padding() {
+        let image = GrayImage::from_vec(
+            3,
+            2,
+            6,
+            vec![10, 20, 30, 255, 255, 255, 40, 50, 60, 255, 255, 255],
+        )
+        .unwrap();
+        assert_eq!(image_percentile(&image, 0.5), 40);
+        assert_eq!(paper_reference(&image), 40);
+
+        let uniform = GrayImage::from_vec(
+            3,
+            2,
+            6,
+            vec![100, 100, 100, 0, 0, 0, 100, 100, 100, 0, 0, 0],
+        )
+        .unwrap();
+        assert_eq!(faint_ink_fraction(&uniform), 0.0);
+    }
 
     fn binary_fixture(bytes: &[u8]) -> BinaryImage {
         let gray = crate::png::decode_gray(bytes, 1_000_000, 2_000).unwrap();

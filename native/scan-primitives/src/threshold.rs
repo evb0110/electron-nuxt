@@ -533,6 +533,100 @@ pub fn threshold_local_biased_with_integrals_for_consensus(
     threshold_local_biased_with_integrals_impl(image, integrals, radius, method, bias, false)
 }
 
+/// Produces a three-scale local-threshold consensus in one traversal for an
+/// unmasked image.
+///
+/// This is the unmasked counterpart of
+/// [`threshold_local_multiscale_biased_excluding_with_integrals_for_consensus`].
+/// It preserves the exact per-radius consensus decisions of three calls to
+/// [`threshold_local_biased_with_integrals_for_consensus`] while avoiding the
+/// three temporary full-page masks and the separate combination pass.
+pub fn threshold_local_multiscale_biased_with_integrals_for_consensus(
+    image: &GrayImage,
+    integrals: &IntegralImages,
+    radii: [usize; 3],
+    method: LocalThreshold,
+    bias: i16,
+    supports_small_scale: impl Fn(usize, usize) -> bool + Sync,
+) -> BinaryImage {
+    let width = image.width();
+    let height = image.height();
+    assert_eq!((integrals.width(), integrals.height()), (width, height));
+    if width == 0 || height == 0 {
+        return BinaryImage::new(width, height);
+    }
+    let global_min = match method {
+        LocalThreshold::Wolf {
+            minimum_percentile, ..
+        } => grayscale_percentile(image, minimum_percentile),
+        LocalThreshold::Sauvola { .. } => 0,
+    };
+    let max_deviations = match method {
+        LocalThreshold::Wolf { .. } => (0..height)
+            .into_par_iter()
+            .map(|y| {
+                let mut maxima = [1.0f64; 3];
+                for x in 0..width {
+                    for (index, radius) in radii.into_iter().enumerate() {
+                        maxima[index] =
+                            maxima[index].max(integrals.mean_and_deviation(x, y, radius).1);
+                    }
+                }
+                maxima
+            })
+            .reduce(
+                || [1.0; 3],
+                |left, right| std::array::from_fn(|index| left[index].max(right[index])),
+            ),
+        LocalThreshold::Sauvola { .. } => [1.0; 3],
+    };
+    let low_variance: [bool; 3] = std::array::from_fn(|index| {
+        matches!(
+            method,
+            LocalThreshold::Wolf {
+                deviation_floor,
+                ..
+            } if max_deviations[index] <= deviation_floor
+        )
+    });
+    let mut output = BinaryImage::new(width, height);
+    let words_per_line = output.words_per_line();
+    output
+        .words_mut()
+        .par_chunks_mut(words_per_line)
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            for x in 0..width {
+                let value = image.get(x, y);
+                let mut black = [false; 3];
+                for (index, radius) in radii.into_iter().enumerate() {
+                    let (mean, deviation) = integrals.mean_and_deviation(x, y, radius);
+                    let threshold = match method {
+                        LocalThreshold::Sauvola { k } => {
+                            mean * (1.0 + k * (deviation / 128.0 - 1.0))
+                        }
+                        LocalThreshold::Wolf {
+                            k, deviation_floor, ..
+                        } => {
+                            let normalized = deviation / max_deviations[index].max(deviation_floor);
+                            mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
+                        }
+                    };
+                    black[index] = match method {
+                        LocalThreshold::Wolf { hard_ink, .. } if value <= hard_ink => true,
+                        LocalThreshold::Wolf { hard_paper, .. } if value >= hard_paper => false,
+                        LocalThreshold::Wolf { .. } if low_variance[index] => false,
+                        _ => f64::from(value) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
+                    };
+                }
+                if (black[1] && black[2]) || (black[0] && supports_small_scale(x, y)) {
+                    output_row[x / 32] |= 1 << (31 - x % 32);
+                }
+            }
+        });
+    output
+}
+
 pub fn threshold_local_biased_excluding(
     image: &GrayImage,
     excluded: &BinaryImage,
@@ -823,8 +917,10 @@ fn threshold_local_biased_with_integrals_impl(
 
 fn grayscale_percentile(image: &GrayImage, fraction: f64) -> u8 {
     let mut histogram = [0usize; 256];
-    for &value in image.data() {
-        histogram[value as usize] += 1;
+    for y in 0..image.height() {
+        for &value in image.row(y) {
+            histogram[value as usize] += 1;
+        }
     }
     let count = image.width().saturating_mul(image.height());
     if count == 0 {
@@ -880,7 +976,7 @@ mod tests {
         let global_min = match method {
             LocalThreshold::Wolf {
                 minimum_percentile, ..
-            } => grayscale_percentile(image, minimum_percentile),
+            } => reference_grayscale_percentile(image, minimum_percentile),
             LocalThreshold::Sauvola { .. } => 0,
         };
         let mut max_deviation = 1.0f64;
@@ -908,6 +1004,83 @@ mod tests {
             output.set(x, y, black);
         });
         output
+    }
+
+    fn reference_threshold_local_for_consensus(
+        image: &GrayImage,
+        radius: usize,
+        method: LocalThreshold,
+        bias: i16,
+    ) -> BinaryImage {
+        if image.width() == 0 || image.height() == 0 {
+            return BinaryImage::new(image.width(), image.height());
+        }
+        let global_min = match method {
+            LocalThreshold::Wolf {
+                minimum_percentile, ..
+            } => reference_grayscale_percentile(image, minimum_percentile),
+            LocalThreshold::Sauvola { .. } => 0,
+        };
+        let mut max_deviation = 1.0f64;
+        reference_for_each_local_stat(image, radius, |_x, _y, _mean, deviation| {
+            max_deviation = max_deviation.max(deviation);
+        });
+        let low_variance_wolf = matches!(
+            method,
+            LocalThreshold::Wolf {
+                deviation_floor,
+                ..
+            } if max_deviation <= deviation_floor
+        );
+        let mut output = BinaryImage::new(image.width(), image.height());
+        reference_for_each_local_stat(image, radius, |x, y, mean, deviation| {
+            let threshold = match method {
+                LocalThreshold::Sauvola { k } => mean * (1.0 + k * (deviation / 128.0 - 1.0)),
+                LocalThreshold::Wolf {
+                    k, deviation_floor, ..
+                } => {
+                    let normalized = deviation / max_deviation.max(deviation_floor);
+                    mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
+                }
+            };
+            let value = image.get(x, y);
+            let black = match method {
+                LocalThreshold::Wolf { hard_ink, .. } if value <= hard_ink => true,
+                LocalThreshold::Wolf { hard_paper, .. } if value >= hard_paper => false,
+                LocalThreshold::Wolf { .. } if low_variance_wolf => false,
+                _ => f64::from(value) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
+            };
+            output.set(x, y, black);
+        });
+        output
+    }
+
+    fn reference_multiscale_consensus(
+        image: &GrayImage,
+        radii: [usize; 3],
+        method: LocalThreshold,
+        bias: i16,
+        supports_small_scale: impl Fn(usize, usize) -> bool + Sync,
+    ) -> BinaryImage {
+        let scales = radii
+            .map(|radius| reference_threshold_local_for_consensus(image, radius, method, bias));
+        BinaryImage::from_fn_parallel(image.width(), image.height(), |x, y| {
+            (scales[1].get(x, y) && scales[2].get(x, y))
+                || (scales[0].get(x, y) && supports_small_scale(x, y))
+        })
+    }
+
+    fn reference_grayscale_percentile(image: &GrayImage, fraction: f64) -> u8 {
+        let mut values = Vec::with_capacity(image.width() * image.height());
+        for y in 0..image.height() {
+            values.extend_from_slice(image.row(y));
+        }
+        if values.is_empty() {
+            return 255;
+        }
+        values.sort_unstable();
+        let target = ((values.len() - 1) as f64 * fraction.clamp(0.0, 1.0)).round() as usize;
+        values[target]
     }
 
     fn reference_horizontal_window_stats(
@@ -1100,6 +1273,77 @@ mod tests {
         );
         assert!(binary.get(1, 1));
         assert!(!binary.get(2, 2));
+    }
+
+    #[test]
+    fn grayscale_percentile_ignores_stride_padding() {
+        let image = GrayImage::from_vec(
+            3,
+            2,
+            6,
+            vec![10, 20, 30, 255, 255, 255, 40, 50, 60, 255, 255, 255],
+        )
+        .unwrap();
+        assert_eq!(
+            grayscale_percentile(&image, 0.5),
+            reference_grayscale_percentile(&image, 0.5)
+        );
+        assert_eq!(grayscale_percentile(&image, 0.5), 40);
+    }
+
+    #[test]
+    fn fused_unmasked_multiscale_consensus_is_bit_exact_to_independent_scales() {
+        let mut state = 0x3c4a_1e92_776d_4f08;
+        let method = LocalThreshold::Wolf {
+            k: 0.2,
+            deviation_floor: 2.0,
+            minimum_percentile: 0.01,
+            hard_ink: 48,
+            hard_paper: 248,
+        };
+        let radii = [2, 7, 19];
+        let supports_small_scale = |x: usize, y: usize| (x * 7 + y * 13) % 19 < 8;
+        for (width, height, padding) in
+            [(1, 1, 0), (1, 7, 3), (7, 1, 2), (29, 17, 5), (137, 131, 3)]
+        {
+            let image = random_image(width, height, padding, &mut state);
+            let integrals = IntegralImages::new(&image);
+            let expected =
+                reference_multiscale_consensus(&image, radii, method, -4, supports_small_scale);
+            let actual = threshold_local_multiscale_biased_with_integrals_for_consensus(
+                &image,
+                &integrals,
+                radii,
+                method,
+                -4,
+                supports_small_scale,
+            );
+            assert_eq!(
+                actual.words(),
+                expected.words(),
+                "{width}x{height} with {padding} padding"
+            );
+        }
+    }
+
+    #[test]
+    fn fused_unmasked_multiscale_consensus_preserves_zero_dimensions() {
+        let method = LocalThreshold::Sauvola { k: 0.34 };
+        for (width, height) in [(0, 0), (0, 3), (3, 0)] {
+            let mut state = 0x70d6_5f21_49bc_8a12;
+            let image = random_image(width, height, 4, &mut state);
+            let integrals = IntegralImages::new(&image);
+            let actual = threshold_local_multiscale_biased_with_integrals_for_consensus(
+                &image,
+                &integrals,
+                [0, 1, usize::MAX],
+                method,
+                0,
+                |_, _| true,
+            );
+            assert_eq!((actual.width(), actual.height()), (width, height));
+            assert_eq!(actual.count_black(), 0);
+        }
     }
 
     #[test]
