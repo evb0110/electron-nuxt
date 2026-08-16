@@ -407,7 +407,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         const totalPages = initial.toolbar?.totalPages ?? 1;
         const targetPage = Math.min(5, totalPages - 1);
         expect(targetPage).toBeGreaterThan(1);
-        const physicalWheelPage = targetPage + 1;
+        const physicalWheelMinimumPage = Math.min(targetPage + 3, totalPages);
 
         const command = await callWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
         expect(command.called).toBe(true);
@@ -467,6 +467,12 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             throw new Error(`${error instanceof Error ? error.message : String(error)}: ${JSON.stringify(navigationState)}`);
         }
 
+        // Replaying an already-current page is a real toolbar/checkpoint path.
+        // It must not leave a programmatic navigation fence that suppresses
+        // the next physical-scroll page projection.
+        const samePageReplay = await callWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
+        expect(samePageReplay.called).toBe(true);
+
         const viewportCenter = await session.page.evaluate(() => {
             const host = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
@@ -483,20 +489,56 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             throw new Error('Expected a visible native PDF viewport for physical wheel input');
         }
         await session.page.mouse.move(viewportCenter.x, viewportCenter.y);
-        let physicalWheelState = await readNativePdfPreviewState(session.page);
-        let previousPage = physicalWheelState.toolbar?.currentPage ?? 0;
-        let previousScrollTop = physicalWheelState.viewportScrollTop;
+        let previousObservedPage = targetPage;
+        let previousScrollTop = viewportCenter.scrollTop;
         let stalledIterations = 0;
+        interface IPhysicalWheelProjection {
+            chassisCurrentPage: number | null;
+            observedPage: number | null;
+            scrollTop: number;
+            toolbarCurrentPage: number | null;
+        }
+        let physicalWheelProjection: IPhysicalWheelProjection | null = null;
+        const physicalWheelProjectionTrace: IPhysicalWheelProjection[] = [];
         for (let index = 0; index < 48; index += 1) {
             await session.page.mouse.wheel({deltaY: 800});
             await delay(100);
-            physicalWheelState = await readNativePdfPreviewState(session.page);
-            if (physicalWheelState.toolbar?.currentPage === physicalWheelPage) {
+            physicalWheelProjection = await session.page.evaluate(() => {
+                const host = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+                ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+                const viewport = chassis?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+                const parsePage = (value: string | undefined) => {
+                    const page = Number(value);
+                    return Number.isSafeInteger(page) && page > 0 ? page : null;
+                };
+                return {
+                    chassisCurrentPage: parsePage(chassis?.dataset.chassisCurrentPage),
+                    observedPage: parsePage(chassis?.dataset.viewportObservedPage),
+                    scrollTop: viewport?.scrollTop ?? 0,
+                    toolbarCurrentPage: window.__evbTestApi?.getActiveToolbarSnapshot()?.currentPage ?? null,
+                };
+            });
+            physicalWheelProjectionTrace.push(physicalWheelProjection);
+            if (physicalWheelProjection.observedPage !== null) {
+                expect(physicalWheelProjection.chassisCurrentPage, JSON.stringify(physicalWheelProjectionTrace))
+                    .toBe(physicalWheelProjection.observedPage);
+                expect(physicalWheelProjection.toolbarCurrentPage, JSON.stringify(physicalWheelProjectionTrace))
+                    .toBe(physicalWheelProjection.observedPage);
+            }
+            if (
+                physicalWheelProjection.observedPage !== null
+                && physicalWheelProjection.observedPage !== previousObservedPage
+            ) {
+                expect(physicalWheelProjection.observedPage, JSON.stringify(physicalWheelProjectionTrace))
+                    .toBeGreaterThan(previousObservedPage);
+                previousObservedPage = physicalWheelProjection.observedPage;
+            }
+            if ((physicalWheelProjection.observedPage ?? 0) >= physicalWheelMinimumPage) {
                 break;
             }
-            const currentPage = physicalWheelState.toolbar?.currentPage ?? 0;
-            const currentScrollTop = physicalWheelState.viewportScrollTop;
-            if (currentPage > previousPage || currentScrollTop > previousScrollTop + 0.5) {
+            if (physicalWheelProjection.scrollTop > previousScrollTop + 0.5) {
                 stalledIterations = 0;
             } else {
                 stalledIterations += 1;
@@ -504,11 +546,21 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
             if (stalledIterations >= 3) {
                 break;
             }
-            previousPage = currentPage;
-            previousScrollTop = currentScrollTop;
+            previousScrollTop = physicalWheelProjection.scrollTop;
         }
-        expect(physicalWheelState.toolbar?.currentPage, JSON.stringify(physicalWheelState))
-            .toBe(physicalWheelPage);
+        const physicalWheelState = await readNativePdfPreviewState(session.page);
+        expect(physicalWheelProjection?.observedPage ?? 0, JSON.stringify({
+            physicalWheelProjection,
+            physicalWheelProjectionTrace,
+            physicalWheelState,
+        })).toBeGreaterThanOrEqual(physicalWheelMinimumPage);
+        const toolbarPageTrace = physicalWheelProjectionTrace
+            .map(sample => sample.toolbarCurrentPage)
+            .filter((page): page is number => page !== null);
+        expect(toolbarPageTrace, JSON.stringify(physicalWheelProjectionTrace)).toEqual(
+            [...toolbarPageTrace].sort((left, right) => left - right),
+        );
+        const physicalWheelPage = physicalWheelProjection!.observedPage!;
         await waitForFunctionInPage(session.page, ({
             pageNumber,
             previousScrollTop,
