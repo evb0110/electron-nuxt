@@ -951,6 +951,31 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
                 return null;
             }
         },
+        async readPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
+            const key = rasterKey(document, pageNumber, dpi);
+            const raster = rasters.get(key);
+            if (!raster) {
+                return null;
+            }
+            rasters.delete(key);
+            try {
+                const metadata = await readPreviewMetadata(raster.path);
+                const refreshed: IRetainedRawRaster = {
+                    ...raster,
+                    ...metadata,
+                };
+                retainedBytes += refreshed.sizeBytes - raster.sizeBytes;
+                rasters.set(key, refreshed);
+                return refreshed;
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                    rasters.set(key, raster);
+                    throw error;
+                }
+                retainedBytes -= raster.sizeBytes;
+                return null;
+            }
+        },
         // Publishes a rendered scratch raster onto the page's stable path. The
         // previous file at that path is replaced, never unlinked, so a manifest
         // another request is still feeding to a sidecar stays readable.
@@ -1069,6 +1094,53 @@ async function materializeRawRaster(
         bytes,
         totalPages,
     };
+}
+
+// Native analysis only needs a stable path. Validate the PNG header and file
+// size without allocating its compressed payload; the displayed base raster
+// still goes through materializeRawRaster so its bytes remain available to the
+// renderer.
+async function materializeRawRasterPath(
+    document: IRetainedDocument,
+    pageNumber: number,
+    signal: AbortSignal,
+    retention: TRawRasterRetention,
+    dependencies: IScanCleanupPreviewDependencies,
+    knownTotalPages?: number,
+    dpi = PREVIEW_DPI,
+    pageSize?: IPdfPageSize,
+): Promise<IRetainedRawRaster> {
+    const retained = await retention.readPath(document, pageNumber, dpi);
+    if (retained) {
+        return retained;
+    }
+    const totalPages = knownTotalPages ?? await retention.pageCount(document, signal);
+    if (pageNumber > totalPages) throw new Error('Scan cleanup preview page is out of range');
+    const scratchPath = await retention.rasterScratchPath(document, pageNumber, dpi);
+    await dependencies.renderPage(
+        {pdftoppmBinary: dependencies.getPdftoppmBinary()},
+        (level, message) => logger[level](message),
+        pageNumber,
+        document.sourcePdfPath,
+        scratchPath,
+        dpi,
+        undefined,
+        signal,
+        undefined,
+        resolveRasterRenderLimits(pageSize, dpi, 45_000_000),
+    );
+    const metadata = await readPreviewMetadata(scratchPath);
+    if (signal.aborted) {
+        retention.remove(scratchPath);
+        throw signal.reason;
+    }
+    return retention.retain({
+        document,
+        dpi,
+        ...metadata,
+        pageNumber,
+        scratchPath,
+    });
 }
 
 /**
@@ -1525,6 +1597,27 @@ async function renderRasterToDisk(
     }
 }
 
+async function readPreviewMetadata(path: string) {
+    const file = await stat(path);
+    if (file.size < 1 || file.size > PREVIEW_MAX_IMAGE_BYTES) {
+        throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
+    }
+    const handle = await open(path, 'r');
+    try {
+        const header = Buffer.alloc(24);
+        const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
+        if (bytesRead !== header.byteLength) {
+            throw new Error('Scan cleanup raster produced a truncated PNG');
+        }
+        return {
+            ...readPngDimensions(header),
+            sizeBytes: file.size,
+        };
+    } finally {
+        await handle.close();
+    }
+}
+
 async function readPreviewBytes(path: string) {
     const file = await stat(path);
     if (file.size < 1 || file.size > PREVIEW_MAX_IMAGE_BYTES) {
@@ -1955,7 +2048,7 @@ async function runPreview(
                 ? requestedPreviewProcessingDpi
                 : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(processingDocumentCanvas)));
             if (previewProcessingDpi !== basePreviewDpi) {
-                ({path: inputPath} = await materializeRawRaster(
+                ({path: inputPath} = await materializeRawRasterPath(
                     document,
                     request.pageNumber,
                     signal,
@@ -1995,7 +2088,7 @@ async function runPreview(
                 );
             }
             if (analysis.baseRenderDpi !== baseRaw.dpi) {
-                ({path: inputPath} = await materializeRawRaster(
+                ({path: inputPath} = await materializeRawRasterPath(
                     document,
                     request.pageNumber,
                     signal,
@@ -2040,7 +2133,7 @@ async function runPreview(
                 documentCanvas,
             ));
             if (renderDpi !== baseRaw.dpi) {
-                ({path: inputPath} = await materializeRawRaster(
+                ({path: inputPath} = await materializeRawRasterPath(
                     document,
                     request.pageNumber,
                     signal,
@@ -2057,7 +2150,7 @@ async function runPreview(
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
         const canonicalRaw = baseRaw.dpi === DETECTION_DPI
             ? baseRaw
-            : await materializeRawRaster(
+            : await materializeRawRasterPath(
                 document,
                 request.pageNumber,
                 signal,
@@ -3176,6 +3269,11 @@ export function createScanCleanupPreviewService(
             };
             activeDetectionJobsByBrokerOwner.set(ownerId, activeEntry);
             void handle.settled.finally(() => {
+                // A destroyed sender makes the progress pump drop the
+                // terminal frame before the delivery callback can clear its
+                // per-job result cursor. Release it at job settlement as the
+                // lifecycle owner, while keeping terminal delivery idempotent.
+                deliveredDetectionResults.delete(detectionDeliveryKey(sender.id, jobId));
                 if (activeDetectionJobsByBrokerOwner.get(ownerId) === activeEntry) {
                     activeDetectionJobsByBrokerOwner.delete(ownerId);
                 }

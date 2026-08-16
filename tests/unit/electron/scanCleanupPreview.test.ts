@@ -7,6 +7,7 @@ import {
     truncate,
     writeFile,
 } from 'fs/promises';
+import type * as FsPromises from 'fs/promises';
 import {EventEmitter} from 'node:events';
 import {execFile} from 'child_process';
 import {tmpdir} from 'os';
@@ -64,6 +65,17 @@ configureMainJobBroker({
     detectedTier: 'high',
     performanceMode: 'auto',
     tier: 'high',
+});
+
+const fsMocks = vi.hoisted(() => ({readFile: vi.fn()}));
+
+vi.mock('fs/promises', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('fs/promises');
+    fsMocks.readFile.mockImplementation(actual.readFile);
+    return {
+        ...actual,
+        readFile: fsMocks.readFile,
+    };
 });
 
 const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
@@ -1272,6 +1284,46 @@ describe('scan cleanup preview', () => {
         expect(manifestDpi).toBe(300);
         expect(manifestAnalysisDpi).toBe(150);
         expect(routingUsesCanonicalInput).toBe(true);
+    });
+
+    it('does not read the full retained PNG when a processing raster is path-only', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([1]),
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+        let processingPath: string | undefined;
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
+            const manifest = JSON.parse(await readFile(args[1], 'utf8')) as {pages: Array<{inputPath: string}>};
+            processingPath = manifest.pages[0]?.inputPath;
+            await originalSidecar(...args);
+        });
+        fsMocks.readFile.mockClear();
+        try {
+            const service = createScanCleanupPreviewService(deps);
+            await previewOf(service, sender(), {
+                ...request,
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                layoutDetectionComplete: true,
+            });
+            await previewOf(service, sender(), {
+                ...request,
+                requestId: 'path-only-repeat',
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                layoutDetectionComplete: true,
+            });
+
+            expect(processingPath).toMatch(/page-1-300\.png$/u);
+            expect(fsMocks.readFile.mock.calls.filter(([path]) => path === processingPath)).toHaveLength(0);
+        } finally {
+            fsMocks.readFile.mockClear();
+        }
     });
 
     it('renders only the requested zoom region at true output DPI within the tile budget', async () => {
@@ -5882,6 +5934,59 @@ describe('scan cleanup preview', () => {
             started.jobId,
             detectionRequest,
         )?.status).toBe('canceled'));
+    });
+
+    it('releases streamed detection cursors when a destroyed renderer drops terminal delivery', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = Promise.withResolvers<undefined>();
+        deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal, _log, onProgress) => {
+            onProgress({
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            }, {
+                stage: 'page-complete',
+                completedPages: 1,
+                totalPages: 3,
+                pageNumber: 1,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+            });
+            entered.resolve(undefined);
+            await new Promise<void>((_resolve, reject) => {
+                if (signal.aborted) {
+                    reject(signal.reason);
+                    return;
+                }
+                signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+            });
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = lifecycleSender();
+        const started = await service.detectAll(owner, detectionRequest);
+        await entered.promise;
+
+        const cursorKey = `${owner.id}\u0000${started.jobId}`;
+        const deleteSpy = vi.spyOn(Map.prototype, 'delete');
+        const deletesBeforeDestroy = deleteSpy.mock.calls.filter(([key]) => key === cursorKey).length;
+        try {
+            owner.destroyed = true;
+            owner.emit('destroyed');
+
+            await vi.waitFor(() => expect(service.getDetectionJobState(
+                owner,
+                started.jobId,
+                detectionRequest,
+            )?.status).toBe('canceled'));
+            await vi.waitFor(() => expect(
+                deleteSpy.mock.calls.filter(([key]) => key === cursorKey).length,
+            ).toBeGreaterThan(deletesBeforeDestroy));
+        } finally {
+            deleteSpy.mockRestore();
+        }
     });
 
     it.each([

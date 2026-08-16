@@ -146,17 +146,12 @@ async function streamScanCleanupSidecar(
     let nativeFailure: NativeScanCleanupError | null = null;
     let terminationPromise: Promise<void> | null = null;
     let settleFatal: (() => void) | null = null;
-    let timedPages = 0;
-    const stageTotalsMs: TScanCleanupStageTotalsMs = {
-        decode: 0,
-        analysisLevel: 0,
-        normalization: 0,
-        split: 0,
-        deskew: 0,
-        content: 0,
-        render: 0,
-        write: 0,
-    };
+    // Analyze emits a provisional page-analyzed frame and then a terminal
+    // page-complete frame for the same page. Keep only the terminal timing
+    // payload, with last-write-wins for any repeated terminal frame, so the
+    // diagnostic totals represent each page once and use reconciled timings.
+    const terminalPageTimings = new Map<number, TNativeScanCleanupPageStageTimingsV3>();
+    let terminalUnkeyedTimings: TNativeScanCleanupPageStageTimingsV3 | null = null;
     const completedPageNumbers = new Set<number>();
     const terminateForFatalError = () => {
         if (terminationPromise !== null) {
@@ -228,9 +223,12 @@ async function streamScanCleanupSidecar(
                 ) {
                     completedPageNumbers.add(nativeProgress.pageNumber);
                 }
-                if (nativeProgress.stageTimings !== undefined) {
-                    addStageTimings(stageTotalsMs, nativeProgress.stageTimings);
-                    timedPages += 1;
+                if (nativeProgress.stage === 'page-complete' && nativeProgress.stageTimings !== undefined) {
+                    if (nativeProgress.pageNumber === undefined) {
+                        terminalUnkeyedTimings = nativeProgress.stageTimings;
+                    } else {
+                        terminalPageTimings.set(nativeProgress.pageNumber, nativeProgress.stageTimings);
+                    }
                 }
                 onProgress({
                     stage: nativeProgress.stage === 'page-analyzed' ? 'classifying' : 'rendering',
@@ -324,10 +322,26 @@ async function streamScanCleanupSidecar(
         if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
         signal.removeEventListener('abort', handleAbort);
         lines.close();
+        const stageTotalsMs: TScanCleanupStageTotalsMs = {
+            decode: 0,
+            analysisLevel: 0,
+            normalization: 0,
+            split: 0,
+            deskew: 0,
+            content: 0,
+            render: 0,
+            write: 0,
+        };
+        for (const timings of terminalPageTimings.values()) {
+            addStageTimings(stageTotalsMs, timings);
+        }
+        if (terminalUnkeyedTimings !== null) {
+            addStageTimings(stageTotalsMs, terminalUnkeyedTimings);
+        }
         log('debug', [
             `evb-scan-cleanup timings ${basename(manifestPath)}:`,
             `wall=${formatSeconds(performance.now() - startedAt)}`,
-            `timedPages=${timedPages}`,
+            `timedPages=${terminalPageTimings.size + Number(terminalUnkeyedTimings !== null)}`,
             ...describeStageTotals(stageTotalsMs),
         ].join(' '));
     }

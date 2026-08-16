@@ -31,12 +31,16 @@ class MockSidecarProcess extends EventEmitter {
     readonly kill = vi.fn();
 }
 
-function progressLine(pageNumber: number, stageTimings: Record<string, number>) {
+function progressLine(
+    pageNumber: number,
+    stageTimings: Record<string, number>,
+    stage: 'page-analyzed' | 'page-complete' = 'page-complete',
+) {
     return `${JSON.stringify({
         version: 3,
         type: 'progress',
         progress: {
-            stage: 'page-complete',
+            stage,
             completedPages: pageNumber,
             totalPages: 2,
             pageNumber,
@@ -165,6 +169,45 @@ describe('scan cleanup sidecar stage timings', () => {
         expect(message).toContain('render=0.100s');
         expect(message).toContain('write=0.010s');
         expect(message).not.toContain('deskew');
+    });
+
+    it('counts only terminal page timings once after provisional analysis frames', async () => {
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const log = vi.fn<TWorkerLog>();
+        let progressEvents = 0;
+
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/reconciled-manifest.json',
+            new AbortController().signal,
+            log,
+            () => {
+                progressEvents += 1;
+            },
+        );
+        child.stdout.write(progressLine(1, {decodeMs: 120}, 'page-analyzed'));
+        child.stdout.write(progressLine(1, {
+            decodeMs: 80,
+            renderMs: 40,
+        }));
+        child.stdout.write(progressLine(2, {decodeMs: 90}, 'page-analyzed'));
+        child.stdout.write(progressLine(2, {
+            decodeMs: 60,
+            writeMs: 10,
+        }));
+        child.stdout.write(resultLine('success'));
+        await flushLines(() => progressEvents, 4);
+        child.emit('close', 0, null);
+        await run;
+
+        const message = readTimingLog(log);
+        expect(message).toContain('timedPages=2');
+        expect(message).toContain('decode=0.140s');
+        expect(message).toContain('render=0.040s');
+        expect(message).toContain('write=0.010s');
+        expect(message).not.toContain('0.260s');
     });
 
     it('waits for close so terminal stdout delivered after exit remains authoritative', async () => {
