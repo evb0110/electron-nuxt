@@ -1,8 +1,9 @@
 use crate::adapters::single_ocr_cli::{invalid, parse_options};
 use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached, clean_detail_page_with_color,
-    clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions, CleanupRaster,
-    CleanupResult, DetailRenderSources, LayeredForegroundKind,
+    clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions,
+    CanonicalAnalysisPlane, CleanupRaster, CleanupResult, DetailRenderSources,
+    LayeredForegroundKind,
 };
 use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
 use crate::{
@@ -429,6 +430,8 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     }
     let page = Page {
         input_path: input,
+        analysis_input_path: None,
+        analysis_dpi: None,
         trusted_foreground_mask_path: None,
         trusted_mrc_background_path: None,
         outputs: Vec::new(),
@@ -1791,6 +1794,39 @@ fn run_page(
         .map(|input| &input.gray)
         .or(gray_input.as_deref())
         .expect("cleanup input is initialized");
+    let canonical_analysis_input = page
+        .analysis_input_path
+        .as_ref()
+        .map(|path| {
+            raster::read_image(path, options.max_pixels, options.max_dimension)
+                .map_err(map_image_error)
+        })
+        .transpose()?;
+    if let Some(canonical) = canonical_analysis_input.as_ref() {
+        let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
+        let canonical_aspect =
+            canonical.gray.width() as f64 / canonical.gray.height().max(1) as f64;
+        if (input_aspect / canonical_aspect - 1.0).abs() > 0.02 {
+            return Err(invalid(format!(
+                "Fixed analysis raster aspect ratio does not match page input: {}x{} versus {}x{}",
+                canonical.gray.width(),
+                canonical.gray.height(),
+                input_gray.width(),
+                input_gray.height(),
+            ))
+            .into());
+        }
+    }
+    let canonical_analysis =
+        canonical_analysis_input
+            .as_ref()
+            .map(|canonical| CanonicalAnalysisPlane {
+                gray: &canonical.gray,
+                color: Some(&canonical.rgb),
+                dpi: page
+                    .analysis_dpi
+                    .expect("validated fixed analysis raster has a DPI"),
+            });
     let trusted_foreground = page
         .trusted_foreground_mask_path
         .as_ref()
@@ -1921,6 +1957,7 @@ fn run_page(
         clean_page_with_color_and_document_prior_cached(
             input_gray,
             color_input.as_ref().map(|input| &input.rgb),
+            canonical_analysis,
             trusted_foreground_mask.as_ref(),
             trusted_mrc_background.as_ref(),
             &options,
@@ -5022,6 +5059,8 @@ mod tests {
             pages: (0..2)
                 .map(|page| Page {
                     input_path: input.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index: page,
@@ -6356,6 +6395,8 @@ mod tests {
             pages: (0..2)
                 .map(|source_page_index| Page {
                     input_path: input.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index,
@@ -6410,6 +6451,8 @@ mod tests {
             raster_window: 1,
             pages: vec![Page {
                 input_path: input,
+                analysis_input_path: None,
+                analysis_dpi: None,
                 trusted_foreground_mask_path: None,
                 trusted_mrc_background_path: None,
                 source_page_index: 0,
@@ -6479,6 +6522,8 @@ mod tests {
             pages: (0..8)
                 .map(|index| Page {
                     input_path: input.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index: index,
@@ -6532,6 +6577,8 @@ mod tests {
             pages: (0..8)
                 .map(|index| Page {
                     input_path: fifo.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index: index,
@@ -6581,6 +6628,8 @@ mod tests {
                 .enumerate()
                 .map(|(index, input_path)| Page {
                     input_path: input_path.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index: index,
@@ -6653,6 +6702,8 @@ mod tests {
                 .enumerate()
                 .map(|(index, input_path)| Page {
                     input_path: input_path.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index: index,
@@ -6740,6 +6791,8 @@ mod tests {
             .success());
         let page = Page {
             input_path: fifo.clone(),
+            analysis_input_path: None,
+            analysis_dpi: None,
             trusted_foreground_mask_path: None,
             trusted_mrc_background_path: None,
             source_page_index: 0,
@@ -6798,6 +6851,8 @@ mod tests {
                 .enumerate()
                 .map(|(index, input_path)| Page {
                     input_path: input_path.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index: index,
@@ -6862,6 +6917,8 @@ mod tests {
                 .enumerate()
                 .map(|(index, input_path)| Page {
                     input_path: input_path.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index: index,
@@ -6924,6 +6981,8 @@ mod tests {
             pages: (0..4)
                 .map(|index| Page {
                     input_path: input.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                     source_page_index: index,

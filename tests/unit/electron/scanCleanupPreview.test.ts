@@ -13,6 +13,7 @@ import {tmpdir} from 'os';
 import {promisify} from 'util';
 import {
     join,
+    normalize,
     sep,
 } from 'path';
 import {
@@ -1241,10 +1242,19 @@ describe('scan cleanup preview', () => {
             await writeFile(`${outputPath.replace(/\.png$/u, '')}.png`, PNG);
         });
         let manifestDpi: number | undefined;
+        let manifestAnalysisDpi: number | undefined;
+        let routingUsesCanonicalInput = false;
         const originalSidecar = deps.runSidecar;
         deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{options: {dpi: number}}>;};
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                inputPath: string;
+                analysisInputPath?: string;
+                analysisDpi?: number;
+                options: {dpi: number}
+            }>;};
             manifestDpi = manifest.pages[0]?.options.dpi;
+            manifestAnalysisDpi = manifest.pages[0]?.analysisDpi;
+            routingUsesCanonicalInput = manifest.pages[0]?.analysisInputPath !== manifest.pages[0]?.inputPath;
             await originalSidecar(binary, manifestPath, signal, log, onProgress);
         });
 
@@ -1259,6 +1269,8 @@ describe('scan cleanup preview', () => {
             300,
         ]);
         expect(manifestDpi).toBe(300);
+        expect(manifestAnalysisDpi).toBe(150);
+        expect(routingUsesCanonicalInput).toBe(true);
     });
 
     it('renders only the requested zoom region at true output DPI within the tile budget', async () => {
@@ -3483,9 +3495,14 @@ describe('scan cleanup preview', () => {
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             await firstRasterStarted.promise;
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                analysisInputPath?: string;
+                analysisDpi?: number;
                 inputPath: string;
                 sourcePageIndex: number;
             }>};
+            expect(manifest.pages.every(page =>
+                page.analysisInputPath === undefined && page.analysisDpi === undefined,
+            )).toBe(true);
             await writeDetectionMetadata(manifestPath);
             const waitForDelivery = async (page: typeof manifest.pages[number]) => {
                 await vi.waitFor(async () => {
@@ -3761,7 +3778,7 @@ describe('scan cleanup preview', () => {
         expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results).toHaveLength(3);
     });
 
-    it('analyzes each proven scan on its source grid instead of upsampling it to the document maximum', async () => {
+    it('analyzes every page on the same canonical 150 DPI grid as final rendering', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map((page, index) => {
@@ -3793,13 +3810,42 @@ describe('scan cleanup preview', () => {
         let manifestDpiByPage = new Map<number, {
             dpi: number;
             sourceDpi: number
+            hasSeparateCanonicalInput: boolean;
         }>();
+        const hasSeparateCanonicalInput = (page: {
+            inputPath: string;
+            analysisInputPath?: string;
+            analysisDpi?: number;
+        }): boolean => page.analysisInputPath !== undefined
+            && page.analysisDpi !== undefined
+            && normalize(page.analysisInputPath) !== normalize(page.inputPath);
+        expect(hasSeparateCanonicalInput({
+            inputPath: '/tmp/source.png',
+            analysisInputPath: '/tmp/analysis.png',
+            analysisDpi: 150,
+        })).toBe(true);
+        expect(hasSeparateCanonicalInput({
+            inputPath: '/tmp/source.png',
+            analysisInputPath: '/tmp/./source.png',
+            analysisDpi: 150,
+        })).toBe(false);
+        expect(hasSeparateCanonicalInput({
+            inputPath: '/tmp/source.png',
+            analysisInputPath: '/tmp/analysis.png',
+        })).toBe(false);
+        expect(hasSeparateCanonicalInput({
+            inputPath: '/tmp/source.png',
+            analysisDpi: 150,
+        })).toBe(false);
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
                 options: {
                     dpi: number;
                     sourceDpi: number
                 };
+                analysisInputPath?: string;
+                analysisDpi?: number;
+                inputPath: string;
                 sourcePageIndex: number;
             }>};
             manifestDpiByPage = new Map(manifest.pages.map(page => [
@@ -3807,6 +3853,7 @@ describe('scan cleanup preview', () => {
                 {
                     dpi: page.options.dpi,
                     sourceDpi: page.options.sourceDpi,
+                    hasSeparateCanonicalInput: hasSeparateCanonicalInput(page),
                 },
             ]));
             await writeDetectionMetadata(manifestPath);
@@ -3842,22 +3889,25 @@ describe('scan cleanup preview', () => {
         )?.status).toBe('completed'));
 
         expect(Object.fromEntries(renderedDpiByPage)).toEqual({
-            1: 100,
+            1: 150,
             2: 150,
             3: 150,
         });
         expect(Object.fromEntries(manifestDpiByPage)).toEqual({
             1: {
-                dpi: 100,
+                dpi: 150,
                 sourceDpi: 100,
+                hasSeparateCanonicalInput: false,
             },
             2: {
                 dpi: 150,
                 sourceDpi: 300,
+                hasSeparateCanonicalInput: false,
             },
             3: {
                 dpi: 150,
                 sourceDpi: 150,
+                hasSeparateCanonicalInput: false,
             },
         });
     });

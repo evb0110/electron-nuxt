@@ -562,6 +562,7 @@ pub(crate) fn clean_detail_page_with_color(
         mapped_color.as_ref(),
         None,
         None,
+        None,
         &tile_options,
         source_page_index,
         CalibrationConfig::default(),
@@ -1144,6 +1145,10 @@ struct PreparedPage<'a> {
     rotated_source: Option<Cow<'a, GrayImage>>,
     normalized: Arc<GrayImage>,
     analysis_normalized: Option<Arc<GrayImage>>,
+    canonical_routing_source: Arc<GrayImage>,
+    canonical_routing_dpi: f64,
+    canonical_regions: Vec<(Rect, PageHalf)>,
+    has_canonical_analysis: bool,
     analysis_scale_x: f64,
     analysis_scale_y: f64,
     calibration: PageCalibration,
@@ -1169,12 +1174,14 @@ struct PreparedPage<'a> {
 
 struct PreparedAnalysis {
     normalized: Arc<GrayImage>,
+    canonical_routing_source: Arc<GrayImage>,
     split: SplitResult,
     scale_x: f64,
     scale_y: f64,
     full_width: usize,
     full_height: usize,
     calibration: PageCalibration,
+    canonical_routing_dpi: f64,
     candidate_cutter_ratio: Option<f64>,
     whitespace_score: f64,
     text_axis: Option<TextAxisHint>,
@@ -1200,12 +1207,14 @@ struct PreparedAnalysis {
 struct AnalysisArtifact {
     normalized: Arc<GrayImage>,
     layout_normalized: Arc<GrayImage>,
+    canonical_routing_source: Arc<GrayImage>,
     scale_x: f64,
     scale_y: f64,
     full_width: usize,
     full_height: usize,
     calibration: PageCalibration,
     effective_dpi: f64,
+    canonical_routing_dpi: f64,
     picture_mask: Option<Arc<BinaryImage>>,
     halftone_zone_mask: Option<Arc<BinaryImage>>,
     spatial_tone_mask: Option<Arc<BinaryImage>>,
@@ -1224,6 +1233,15 @@ struct AnalysisArtifact {
     resolved_output_mode: OutputMode,
     analysis_threshold: Option<u8>,
     text_axis: Option<TextAxisHint>,
+}
+
+/// A fixed source plane for every decision that must not move with output DPI.
+/// PDF callers provide one Poppler render; image callers omit it because their
+/// input raster is already fixed.
+pub struct CanonicalAnalysisPlane<'a> {
+    pub gray: &'a GrayImage,
+    pub color: Option<&'a RgbImage>,
+    pub dpi: f64,
 }
 
 fn union_optional_masks(
@@ -2447,6 +2465,7 @@ pub fn clean_page(
         None,
         None,
         None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -2467,6 +2486,7 @@ pub fn clean_page_with_calibration_config(
     let mut timings = PageStageTimings::default();
     clean_page_with_color_and_calibration_config(
         source,
+        None,
         None,
         None,
         None,
@@ -2492,6 +2512,7 @@ pub fn clean_page_with_color(
         color_source,
         None,
         None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -2515,6 +2536,7 @@ pub fn clean_page_with_color_and_document_prior(
         color_source,
         None,
         None,
+        None,
         options,
         source_page_index,
         CalibrationConfig::default(),
@@ -2525,10 +2547,37 @@ pub fn clean_page_with_color_and_document_prior(
     )
 }
 
+/// Test/diagnostic entrypoint for proving that a fixed analysis plane owns all
+/// decisions while a different raster supplies only rendered output pixels.
+#[doc(hidden)]
+pub fn clean_page_with_canonical_analysis(
+    source: &GrayImage,
+    canonical_analysis: CanonicalAnalysisPlane<'_>,
+    options: &CleanupOptions,
+    source_page_index: usize,
+) -> Result<PageCleanupResult, String> {
+    let mut timings = PageStageTimings::default();
+    clean_page_with_color_and_calibration_config(
+        source,
+        None,
+        Some(canonical_analysis),
+        None,
+        None,
+        options,
+        source_page_index,
+        CalibrationConfig::default(),
+        None,
+        None,
+        PageRenderPolicy::COMPLETE,
+        &mut timings,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn clean_page_with_color_and_document_prior_cached(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
+    canonical_analysis: Option<CanonicalAnalysisPlane<'_>>,
     trusted_foreground_mask: Option<&BinaryImage>,
     trusted_mrc_background: Option<&GrayImage>,
     options: &CleanupOptions,
@@ -2542,6 +2591,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     clean_page_with_color_and_calibration_config(
         source,
         color_source,
+        canonical_analysis,
         trusted_foreground_mask,
         trusted_mrc_background,
         options,
@@ -2566,6 +2616,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
 fn clean_page_with_color_and_calibration_config(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
+    canonical_analysis: Option<CanonicalAnalysisPlane<'_>>,
     trusted_foreground_mask: Option<&BinaryImage>,
     trusted_mrc_background: Option<&GrayImage>,
     options: &CleanupOptions,
@@ -2599,6 +2650,7 @@ fn clean_page_with_color_and_calibration_config(
     let prepared = prepare_page(
         source,
         color_source,
+        canonical_analysis,
         trusted_foreground_mask,
         trusted_mrc_background,
         options,
@@ -2625,6 +2677,10 @@ fn clean_page_with_color_and_calibration_config(
         rotated_source,
         normalized,
         analysis_normalized,
+        canonical_routing_source,
+        canonical_routing_dpi,
+        canonical_regions,
+        has_canonical_analysis,
         analysis_scale_x,
         analysis_scale_y,
         calibration,
@@ -2647,58 +2703,103 @@ fn clean_page_with_color_and_calibration_config(
         use_soft_alpha_foreground,
         resolved_output_mode: _,
     } = prepared;
-    let mut split = split;
-    let needs_raw_gutter_remeasurement = gutter_band_needs_raw_remeasurement(&split);
-    if split.classification == LayoutClassification::TwoPageSpread && needs_raw_gutter_remeasurement
-    {
-        // apply_document_prior intentionally clears stale bands. If the
-        // bounded layout raster flattened a broad fold ramp, or an automatic
-        // cutter was handed across without a band, use the raw source at the
-        // same physical scale to prove a fresh pair of edges. This is new
-        // evidence, never a carried cutter-relative offset.
-        if let Some(raw_source) = rotated_source.as_deref() {
-            split.remeasure_gutter_band_from_source(
-                raw_source,
-                raw_source.width(),
-                raw_source.height(),
-            );
-        }
-    }
-    let regions = output_regions(
+    let working_regions = output_regions(
         normalized.width(),
         normalized.height(),
         &split,
         options.layout,
     );
+    debug_assert!(canonical_regions
+        .iter()
+        .zip(&working_regions)
+        .all(|((_, canonical_half), (_, working_half))| canonical_half == working_half));
+    let canonical_width = canonical_routing_source.width().max(1) as f64;
+    let canonical_height = canonical_routing_source.height().max(1) as f64;
+    let working_width = normalized.width();
+    let working_height = normalized.height();
+    let regions = if has_canonical_analysis {
+        canonical_regions
+            .iter()
+            .map(|(region, half)| {
+                let left = (region.x * working_width as f64 / canonical_width)
+                    .round()
+                    .clamp(0.0, working_width.saturating_sub(1) as f64);
+                let top = (region.y * working_height as f64 / canonical_height)
+                    .round()
+                    .clamp(0.0, working_height.saturating_sub(1) as f64);
+                let right = (region.right() * working_width as f64 / canonical_width)
+                    .round()
+                    .clamp(left + 1.0, working_width as f64);
+                let bottom = (region.bottom() * working_height as f64 / canonical_height)
+                    .round()
+                    .clamp(top + 1.0, working_height as f64);
+                (Rect::new(left, top, right - left, bottom - top), *half)
+            })
+            .collect::<Vec<_>>()
+    } else {
+        working_regions
+    };
+    let canonical_regions = canonical_regions
+        .into_iter()
+        .map(|(region, _)| region)
+        .collect::<Vec<_>>();
+    let canonical_routing_inputs = canonical_regions
+        .iter()
+        .map(|region| {
+            crop_canonical_routing_input(
+                &canonical_routing_source,
+                *region,
+                picture_mask.as_deref(),
+                canonical_routing_dpi,
+            )
+        })
+        .collect::<Vec<_>>();
+    let canonical_leaf_sources = canonical_regions
+        .iter()
+        .map(|region| crop_gray(&canonical_routing_source, *region))
+        .collect::<Vec<_>>();
+    let canonical_picture_masks = if let Some(picture_mask) = picture_mask.as_deref() {
+        let canonical_mask = resample_binary_mask_nearest(
+            picture_mask,
+            canonical_routing_source.width(),
+            canonical_routing_source.height(),
+        );
+        canonical_regions
+            .iter()
+            .map(|region| Some(crop_binary(&canonical_mask, *region)))
+            .collect::<Vec<_>>()
+    } else {
+        canonical_regions.iter().map(|_| None).collect::<Vec<_>>()
+    };
     let spread_plans = if split.classification == LayoutClassification::TwoPageSpread
         && regions.len() == 2
         && matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed)
     {
-        // Route selection follows the existing single-leaf path's raw
-        // routing raster. The normalized leaves still feed the actual
-        // threshold operation below, but using the raw working-resolution
-        // leaves here preserves uneven paper evidence instead of allowing
-        // the spread-wide illumination model to make a weak leaf look
-        // artificially uniform. Anchors remain picture-mask aware.
-        let routing_spread = rotated_source.as_deref().unwrap_or(&normalized);
-        let left = crop_gray(routing_spread, regions[0].0);
-        let right = crop_gray(routing_spread, regions[1].0);
-        let normalized_picture_mask = picture_mask.as_deref().map(|mask| {
-            resample_binary_mask_nearest(mask, normalized.width(), normalized.height())
-        });
-        let left_picture_mask = normalized_picture_mask
-            .as_ref()
-            .map(|mask| crop_binary(mask, regions[0].0));
-        let right_picture_mask = normalized_picture_mask
-            .as_ref()
-            .map(|mask| crop_binary(mask, regions[1].0));
+        // The joint keeps the base illumination-normalized evidence meaning,
+        // now on the fixed canonical plane. Leaf routes remain raw-canonical;
+        // full canonical leaves own intensity anchors, while established
+        // working-leaf units remain authoritative for radius/faint-ink drift.
+        let canonical_normalized = analysis_normalized.as_deref().unwrap_or(&normalized);
+        let joint_routing_input = crop_canonical_routing_input(
+            canonical_normalized,
+            Rect::new(
+                0.0,
+                0.0,
+                canonical_normalized.width() as f64,
+                canonical_normalized.height() as f64,
+            ),
+            picture_mask.as_deref(),
+            canonical_routing_dpi,
+        );
         Some(resolve_spread_binarization_plans(
-            &normalized,
-            &left,
-            &right,
-            normalized_picture_mask.as_ref(),
-            left_picture_mask.as_ref(),
-            right_picture_mask.as_ref(),
+            &joint_routing_input,
+            &canonical_routing_inputs[0],
+            &canonical_routing_inputs[1],
+            &canonical_leaf_sources[0],
+            &canonical_leaf_sources[1],
+            canonical_picture_masks[0].as_ref(),
+            canonical_picture_masks[1].as_ref(),
+            canonical_routing_dpi,
             options,
             calibration,
             document_prior.and_then(|prior| prior.stroke_width_median_px),
@@ -2708,7 +2809,11 @@ fn clean_page_with_color_and_calibration_config(
         None
     };
     let mut outputs = Vec::with_capacity(regions.len());
-    for (region, half) in regions {
+    for (((region, half), canonical_routing_input), canonical_leaf_source) in regions
+        .into_iter()
+        .zip(canonical_routing_inputs.iter())
+        .zip(canonical_leaf_sources.iter())
+    {
         let spread_plan = spread_plans.as_ref().map(|plans| plans.for_half(half));
         outputs.push(clean_region(
             source,
@@ -2717,6 +2822,9 @@ fn clean_page_with_color_and_calibration_config(
             analysis_normalized.as_deref().unwrap_or(&normalized),
             analysis_scale_x,
             analysis_scale_y,
+            canonical_routing_input,
+            canonical_leaf_source,
+            canonical_routing_dpi,
             calibration,
             rotated_color.as_ref(),
             content_picture_mask.as_deref(),
@@ -2769,6 +2877,7 @@ fn clean_page_with_color_and_calibration_config(
 fn prepare_page<'a>(
     source: &'a GrayImage,
     color_source: Option<&RgbImage>,
+    canonical_analysis: Option<CanonicalAnalysisPlane<'_>>,
     trusted_foreground_mask: Option<&BinaryImage>,
     trusted_mrc_background: Option<&GrayImage>,
     options: &CleanupOptions,
@@ -2778,12 +2887,103 @@ fn prepare_page<'a>(
     render_policy: PageRenderPolicy,
     timings: &mut PageStageTimings,
 ) -> PreparedPage<'a> {
+    let has_canonical_analysis = canonical_analysis.is_some();
+    let (analysis_source, analysis_color_source, analysis_dpi) = canonical_analysis
+        .as_ref()
+        .map_or((source, color_source, options.dpi), |plane| {
+            (plane.gray, plane.color, plane.dpi)
+        });
+    let mut analysis_options_storage;
+    let analysis_options = if canonical_analysis.is_some() {
+        analysis_options_storage = options.clone();
+        analysis_options_storage.dpi = analysis_dpi;
+        &analysis_options_storage
+    } else {
+        options
+    };
+    let mut prepared_analysis = prepare_analysis_page(
+        analysis_source,
+        analysis_color_source,
+        analysis_options,
+        true,
+        render_policy,
+        document_prior,
+        calibration_config,
+        cache,
+        trusted_mrc_background,
+        timings,
+    );
+    let (working_width, working_height) = match options.rotation {
+        OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => {
+            (source.width(), source.height())
+        }
+        OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270 => {
+            (source.height(), source.width())
+        }
+    };
+    if prepared_analysis.split.classification == LayoutClassification::TwoPageSpread
+        && gutter_band_needs_raw_remeasurement(&prepared_analysis.split)
+    {
+        prepared_analysis.split.remeasure_gutter_band_from_source(
+            &prepared_analysis.canonical_routing_source,
+            prepared_analysis.full_width,
+            prepared_analysis.full_height,
+        );
+    }
+    // Preserve the exact canonical leaf rectangles before the split is scaled
+    // onto the working raster. Mapping rounded working rectangles back into
+    // canonical pixels can move a crop edge by one sample at nearby DPIs and
+    // reopen the very route instability the fixed plane is meant to remove.
+    let canonical_scale_x = prepared_analysis.canonical_routing_source.width() as f64
+        / prepared_analysis.normalized.width().max(1) as f64;
+    let canonical_scale_y = prepared_analysis.canonical_routing_source.height() as f64
+        / prepared_analysis.normalized.height().max(1) as f64;
+    let canonical_regions = output_regions(
+        prepared_analysis.normalized.width(),
+        prepared_analysis.normalized.height(),
+        &prepared_analysis.split,
+        options.layout,
+    )
+    .into_iter()
+    .map(|(region, half)| {
+        (
+            Rect::new(
+                region.x * canonical_scale_x,
+                region.y * canonical_scale_y,
+                region.width * canonical_scale_x,
+                region.height * canonical_scale_y,
+            ),
+            half,
+        )
+    })
+    .collect();
+    if canonical_analysis.is_some() {
+        let canonical_to_working_x =
+            prepared_analysis.full_width as f64 / working_width.max(1) as f64;
+        let canonical_to_working_y =
+            prepared_analysis.full_height as f64 / working_height.max(1) as f64;
+        scale_split_result(
+            &mut prepared_analysis.split,
+            canonical_to_working_x,
+            canonical_to_working_y,
+            working_width,
+            working_height,
+        );
+        prepared_analysis.scale_x =
+            prepared_analysis.normalized.width() as f64 / working_width.max(1) as f64;
+        prepared_analysis.scale_y =
+            prepared_analysis.normalized.height() as f64 / working_height.max(1) as f64;
+        prepared_analysis.full_width = working_width;
+        prepared_analysis.full_height = working_height;
+    }
     let PreparedAnalysis {
         normalized: analysis_normalized,
+        canonical_routing_source,
         split,
         scale_x,
         scale_y,
         calibration,
+        canonical_routing_dpi,
         content_picture_mask: analysis_content_picture_mask,
         picture_mask: analysis_picture_mask,
         halftone_zone_mask: analysis_halftone_zone_mask,
@@ -2804,18 +3004,7 @@ fn prepare_page<'a>(
         use_soft_alpha_foreground,
         resolved_output_mode,
         ..
-    } = prepare_analysis_page(
-        source,
-        color_source,
-        options,
-        true,
-        render_policy,
-        document_prior,
-        calibration_config,
-        cache,
-        trusted_mrc_background,
-        timings,
-    );
+    } = prepared_analysis;
     // Auto Color is an explicit semantic abstention from paper cleanup: the
     // page is continuous-tone/color content, not paper plus ink. Keeping
     // illumination normalization enabled here made preview invent a visual
@@ -2968,6 +3157,10 @@ fn prepare_page<'a>(
         rotated_source,
         normalized,
         analysis_normalized,
+        canonical_routing_source,
+        canonical_routing_dpi,
+        canonical_regions,
+        has_canonical_analysis,
         analysis_scale_x: scale_x,
         analysis_scale_y: scale_y,
         calibration,
@@ -3643,6 +3836,7 @@ fn prepare_analysis_page(
         timings.mode_recommendation_ms +=
             mode_recommendation_started.elapsed().as_secs_f64() * 1_000.0;
         let quality_normalization_started = Instant::now();
+        let canonical_routing_source = Arc::new(rotate_orthogonal(source, options.rotation));
         let normalized = if options.normalize_illumination {
             if prepare_quality_raster {
                 let grayscale_normalization_exclusion = if resolved_output_mode
@@ -3699,12 +3893,14 @@ fn prepare_analysis_page(
         let artifact = Arc::new(AnalysisArtifact {
             normalized: Arc::new(normalized),
             layout_normalized: Arc::new(layout_normalized),
+            canonical_routing_source,
             scale_x,
             scale_y,
             full_width,
             full_height,
             calibration,
             effective_dpi,
+            canonical_routing_dpi: options.dpi,
             picture_mask: output_picture_mask,
             halftone_zone_mask: continuous_tone_mask.clone(),
             spatial_tone_mask,
@@ -3857,12 +4053,14 @@ fn prepare_analysis_page(
     let whitespace_score = split.diagnostics.whitespace_score;
     PreparedAnalysis {
         normalized: Arc::clone(&analysis.normalized),
+        canonical_routing_source: Arc::clone(&analysis.canonical_routing_source),
         split,
         scale_x: analysis.scale_x,
         scale_y: analysis.scale_y,
         full_width: analysis.full_width,
         full_height: analysis.full_height,
         calibration: analysis.calibration,
+        canonical_routing_dpi: analysis.canonical_routing_dpi,
         candidate_cutter_ratio,
         whitespace_score,
         text_axis,
@@ -3887,7 +4085,9 @@ fn prepare_analysis_page(
 }
 
 fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
-    let gray = artifact.normalized.data().len() + artifact.layout_normalized.data().len();
+    let gray = artifact.normalized.data().len()
+        + artifact.layout_normalized.data().len()
+        + artifact.canonical_routing_source.data().len();
     let picture_mask = artifact
         .picture_mask
         .as_deref()
@@ -4948,6 +5148,9 @@ fn clean_region(
     analysis_normalized: &GrayImage,
     analysis_scale_x: f64,
     analysis_scale_y: f64,
+    canonical_routing_sample: &GrayImage,
+    canonical_leaf_source: &GrayImage,
+    canonical_routing_dpi: f64,
     calibration: PageCalibration,
     color_source: Option<&RgbImage>,
     analysis_picture_mask: Option<&BinaryImage>,
@@ -5708,14 +5911,10 @@ fn clean_region(
     let ink_ownership_mask =
         page_ink_ownership_mask(rendered_text_mask.as_ref(), rendered_picture_mask.as_ref());
     let pale_tonal_structure =
-        !force_clean_blank && has_pale_tonal_structure(&rendered_source_gray);
+        !force_clean_blank && has_pale_tonal_structure(canonical_leaf_source);
     let effectively_blank = force_clean_blank
         || (!pale_tonal_structure
-            && if skips_gray_twin {
-                is_effectively_blank(content_analysis, calibration.effective_dpi)
-            } else {
-                is_effectively_blank(&rendered_gray, options.dpi)
-            });
+            && is_effectively_blank(canonical_leaf_source, canonical_routing_dpi));
     // A verso whose only survivor is the fold shadow along the leaf edge is a
     // blank page, and publishing the streak serves nobody. The leaf has to own
     // no text or picture ink and its inset interior must independently remain
@@ -5727,7 +5926,7 @@ fn clean_region(
         && ink_ownership_mask
             .as_ref()
             .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
-        && leaf_interior_is_blank(&rendered_gray, options.dpi);
+        && leaf_interior_is_blank(canonical_leaf_source, canonical_routing_dpi);
     // A pale reverse-side bleed-through can establish page-scale tonal
     // structure even when the leaf itself has no authored content. Treat that
     // combination as blank only when both ownership masks are below the same
@@ -5744,7 +5943,7 @@ fn clean_region(
         && rendered_picture_mask
             .as_ref()
             .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
-        && leaf_interior_is_blank(&rendered_gray, options.dpi);
+        && leaf_interior_is_blank(canonical_leaf_source, canonical_routing_dpi);
     let fail_closed_blank = force_clean_blank
         || (!pale_tonal_structure
             && content.content.is_none()
@@ -5796,10 +5995,9 @@ fn clean_region(
     } else {
         match options.output_mode {
             OutputMode::Bw => {
-                let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
                 let routing_diagnostics = spread_plan.map_or_else(
-                    || resolve_binarization_diagnostics(&routing_sample, options),
-                    |plan| plan.diagnostics_for(&routing_sample, options),
+                    || resolve_binarization_diagnostics(canonical_routing_sample, options),
+                    |plan| plan.diagnostics(),
                 );
                 let mode = routing_diagnostics.route;
                 let complete_trusted_foreground =
@@ -5880,7 +6078,7 @@ fn clean_region(
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
                             &rendered_source_gray,
-                            &routing_sample,
+                            routing_diagnostics,
                             global_threshold_source,
                             options,
                             calibration,
@@ -6006,11 +6204,11 @@ fn clean_region(
                     .as_ref()
                     .expect("mixed output prepares a picture mask");
                 if picture_mask.count_black() == 0 {
-                    let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                    let route = spread_plan.map_or_else(
-                        || resolve_binarization_diagnostics(&routing_sample, options).route,
-                        |plan| plan.route(),
+                    let routing_diagnostics = spread_plan.map_or_else(
+                        || resolve_binarization_diagnostics(canonical_routing_sample, options),
+                        |plan| plan.diagnostics(),
                     );
+                    let route = routing_diagnostics.route;
                     let global_threshold_source =
                         (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
                     let binarization_started = Instant::now();
@@ -6018,7 +6216,7 @@ fn clean_region(
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
                             &rendered_source_gray,
-                            &routing_sample,
+                            routing_diagnostics,
                             global_threshold_source,
                             options,
                             calibration,
@@ -6120,11 +6318,16 @@ fn clean_region(
                     // tone field available so a global route preserves the scan's
                     // original glyph boundary. Adaptive routes ignore this field.
                     let global_threshold_source = &rendered_source_gray;
+                    let routing_diagnostics = spread_plan.map_or_else(
+                        || resolve_binarization_diagnostics(canonical_routing_sample, options),
+                        |plan| plan.diagnostics(),
+                    );
                     let binarization_started = Instant::now();
                     let (binary, diagnostics, despeckle_fallback, stage_timings) =
                         binarize_normalized_with_diagnostics_excluding(
                             &rendered_gray,
                             &rendered_source_gray,
+                            routing_diagnostics,
                             Some(global_threshold_source),
                             options,
                             calibration,
@@ -7534,18 +7737,42 @@ fn crop_binary(source: &BinaryImage, rect: Rect) -> BinaryImage {
     output
 }
 
+#[cfg(test)]
 fn crop_gray_to_fit(
     source: &GrayImage,
     rect: Rect,
     max_width: usize,
     max_height: usize,
 ) -> GrayImage {
-    // Mode and binarization routing must see the same aggregate structure as
-    // the full raster. Point sampling aliases narrow stems, counters and
-    // halftone cells into arbitrary black/white pixels (a 360-DPI Rome page
-    // consequently reported a one-pixel stroke). The primitive's area
-    // downscaler integrates every source pixel in the crop.
     crop_gray(source, rect).downscale_to_fit(max_width, max_height)
+}
+
+/// Builds the sole Auto-routing input before working-resolution rendering.
+/// Picture ownership is removed on the fixed analysis grid. The classifier
+/// owns its bounded measurement sample so pixel-valued diagnostics retain the
+/// established full-input unit.
+fn crop_canonical_routing_input(
+    source: &GrayImage,
+    rect: Rect,
+    picture_mask: Option<&BinaryImage>,
+    routing_dpi: f64,
+) -> GrayImage {
+    let mut sample_source = crop_gray(source, rect);
+    if let Some(picture_mask) = picture_mask {
+        let routing_mask =
+            resample_binary_mask_nearest(picture_mask, source.width(), source.height());
+        let picture_crop = crop_binary(&routing_mask, rect);
+        let radius = picture_protection_radius(routing_dpi);
+        let protected = dilate(&picture_crop, radius, radius);
+        for y in 0..sample_source.height() {
+            for x in 0..sample_source.width() {
+                if protected.get(x, y) {
+                    sample_source.set(x, y, 255);
+                }
+            }
+        }
+    }
+    sample_source
 }
 
 /// Map detector bounds back through the analysis raster without treating its

@@ -858,6 +858,7 @@ describe('release policy', () => {
         expect(releaseCriticalTestGate?.owner).toBe('release');
         expect(releaseCriticalTestGate?.scripts).toEqual([
             'test:rust',
+            'test:scan-cleanup:canonical-identity',
             'test:coverage',
             'test:electron-bundle-static-integrity',
         ]);

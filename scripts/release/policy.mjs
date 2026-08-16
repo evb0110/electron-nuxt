@@ -235,6 +235,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                     owner: 'release',
                     scripts: [
                         'test:rust',
+                        'test:scan-cleanup:canonical-identity',
                         'test:coverage',
                         'test:electron-bundle-static-integrity',
                     ],

@@ -63,6 +63,8 @@ import {
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
 
+const CANONICAL_ANALYSIS_DPI = 150;
+
 const REPORTED_PAGE_NUMBER_LIMIT = 20;
 
 function describePageNumbers(pageNumbers: readonly number[]) {
@@ -107,7 +109,7 @@ export async function runLosslessScanCleanup(
         };
     });
     const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
-        renderDpi: plan.dpi,
+        renderDpi: CANONICAL_ANALYSIS_DPI,
         raster: plan.raster,
     })), scratch, dependencies.getAvailableScratchBytes);
     logRasterHandoff(log, 'lossless analysis', rasterHandoff);
@@ -128,7 +130,7 @@ export async function runLosslessScanCleanup(
             plan.pageNumber,
             preparedPdfPath,
             inputPath,
-            plan.dpi,
+            CANONICAL_ANALYSIS_DPI,
             undefined,
             signal,
         );
@@ -137,8 +139,10 @@ export async function runLosslessScanCleanup(
         emitProgress('rasterizing', rasterizedCount, pageNumbers.length, rasterizedPageNumbers);
         return {
             inputPath,
+            analysisInputPath: inputPath,
+            analysisDpi: CANONICAL_ANALYSIS_DPI,
             pageNumber: plan.pageNumber,
-            dpi: plan.dpi,
+            dpi: CANONICAL_ANALYSIS_DPI,
             ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
                 ? {}
                 : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),

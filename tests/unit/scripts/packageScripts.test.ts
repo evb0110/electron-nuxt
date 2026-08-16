@@ -172,8 +172,9 @@ describe('package scripts', () => {
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
         // S4 adds exactly three public scan-cleanup entry points: the two
         // named diagnostics now enforced by S3 CI wiring and the machine-written
-        // O6 baseline generator. Operators and architecture tests share these names.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(103);
+        // O6 baseline generator. The canonical-identity release gate adds one
+        // explicit operator-visible entry point for its release-only corpus oracle.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(104);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);
@@ -265,6 +266,14 @@ describe('package scripts', () => {
             'pnpm exec tsx scripts/checkSearchNativeParity.ts',
             'node scripts/architecture/generate-scan-cleanup-threshold-baseline.mjs --check',
         ]);
+        const canonicalIdentityCommands = scriptCommands(
+            scripts,
+            'test:scan-cleanup:canonical-identity',
+        );
+        expect(canonicalIdentityCommands).toHaveLength(1);
+        expect(canonicalIdentityCommands[0]).toBe(
+            'cargo test --release --locked --manifest-path native/Cargo.toml -p evb-scan-cleanup --bin scan-cleanup-harness tests::tracked_corpus_routes_reconciliation_and_leaf_resolution_are_dpi_identical -- --ignored --exact',
+        );
         for (const tool of [
             'pdf-image-combine',
             'pdf-page-ops',

@@ -864,7 +864,7 @@ mod tests {
         let (binary, _, _, _) = binarize_normalized_with_diagnostics(
             &raw,
             &raw,
-            &raw,
+            resolve_binarization_diagnostics(&raw, &options),
             None,
             &options,
             calibration,
@@ -1260,6 +1260,7 @@ mod tests {
         let mut timings = PageStageTimings::default();
         let output = clean_page_with_color_and_calibration_config(
             &source,
+            None,
             None,
             Some(&trusted_foreground),
             None,
@@ -2835,6 +2836,7 @@ mod tests {
         let output = clean_page_with_color_and_calibration_config(
             &source,
             None,
+            None,
             Some(&trusted_foreground),
             None,
             &CleanupOptions {
@@ -2880,6 +2882,7 @@ mod tests {
         let mut timings = PageStageTimings::default();
         let output = clean_page_with_color_and_calibration_config(
             &source,
+            None,
             None,
             Some(&trusted_foreground),
             None,
@@ -4650,6 +4653,7 @@ mod tests {
         let (stencil, _, _, _) = binarize_normalized_with_diagnostics_excluding(
             &gray,
             &gray,
+            resolve_binarization_diagnostics(&gray, &options),
             None,
             &options,
             calibration,
@@ -5159,6 +5163,7 @@ mod tests {
         let output = clean_page_with_color_and_calibration_config(
             &gray,
             None,
+            None,
             Some(&trusted_foreground),
             None,
             &options,
@@ -5362,6 +5367,7 @@ mod tests {
         let output = clean_page_with_color_and_calibration_config(
             &gray,
             None,
+            None,
             Some(&trusted_foreground),
             None,
             &options,
@@ -5424,6 +5430,7 @@ mod tests {
         let mut timings = PageStageTimings::default();
         let output = clean_page_with_color_and_calibration_config(
             &gray,
+            None,
             None,
             None,
             None,
@@ -6319,6 +6326,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &options,
             CalibrationConfig::default(),
             None,
@@ -6355,6 +6363,7 @@ mod tests {
 
             let prepared = prepare_page(
                 &source,
+                None,
                 None,
                 None,
                 None,
@@ -7281,5 +7290,89 @@ mod tests {
         split.diagnostics.fold_band =
             FoldBand::unmeasured(FoldBandUnmeasuredReason::MeasurementUnavailable);
         assert!(gutter_band_needs_raw_remeasurement(&split));
+    }
+
+    #[test]
+    fn fixed_analysis_plane_owns_route_and_leaf_resolution_across_working_rasters() {
+        let mut canonical = GrayImage::new(192, 256, 244);
+        for y in 24..232 {
+            for x in (24..168).step_by(18) {
+                for stroke_x in x..x + 3 {
+                    canonical.set(stroke_x, y, 48);
+                }
+            }
+        }
+        let clean_working = canonical.clone();
+        let mut noisy_working = GrayImage::new(384, 512, 255);
+        for y in 0..noisy_working.height() {
+            for x in 0..noisy_working.width() {
+                let canonical_value = canonical.get(x / 2, y / 2);
+                noisy_working.set(
+                    x,
+                    y,
+                    if x < 64 || x + 64 >= noisy_working.width() || (x + y) % 3 == 0 {
+                        24
+                    } else {
+                        canonical_value
+                    },
+                );
+            }
+        }
+        let direct_options = CleanupOptions {
+            normalize_illumination: false,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+        let direct_routes = [
+            resolve_binarization_diagnostics(&clean_working, &direct_options).route,
+            resolve_binarization_diagnostics(&noisy_working, &direct_options).route,
+        ];
+        assert_ne!(
+            direct_routes[0], direct_routes[1],
+            "mutation control must fail when the fixed plane is bypassed",
+        );
+
+        let expected = resolve_binarization_diagnostics(&canonical, &direct_options).route;
+        let mut identities = Vec::new();
+        for (dpi, working) in [(150.0, &clean_working), (299.0, &noisy_working)] {
+            let options = CleanupOptions {
+                dpi,
+                normalize_illumination: false,
+                despeckle: false,
+                output_mode: OutputMode::Bw,
+                layout: crate::LayoutMode::Single,
+                crop_content: false,
+                match_page_size: false,
+                skip_blank_pages: true,
+                ..CleanupOptions::default()
+            };
+            let mut timings = PageStageTimings::default();
+            let result = clean_page_with_color_and_calibration_config(
+                working,
+                None,
+                Some(CanonicalAnalysisPlane {
+                    gray: &canonical,
+                    color: None,
+                    dpi: 150.0,
+                }),
+                None,
+                None,
+                &options,
+                0,
+                CalibrationConfig::default(),
+                None,
+                None,
+                PageRenderPolicy::COMPLETE,
+                &mut timings,
+            )
+            .unwrap();
+            identities.push((
+                result.outputs[0].metadata.binarization_mode,
+                result.blank_outputs_skipped,
+                result.outputs.len(),
+            ));
+        }
+        assert!(identities.windows(2).all(|pair| pair[0] == pair[1]));
+        assert_eq!(identities[0], (Some(expected), 0, 1));
     }
 }

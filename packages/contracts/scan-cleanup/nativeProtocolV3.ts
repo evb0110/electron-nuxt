@@ -431,6 +431,11 @@ export interface INativeScanCleanupSplitResultGeometryV3 {
 }
 
 export interface INativeScanCleanupBinarizationDiagnosticsV3 {
+    /**
+     * Selected route plus raw measurements from the canonical, at-most-256px
+     * routing raster. These fields do not describe the final working-DPI
+     * threshold raster; a spread plan may select its joint candidate route.
+     */
     route: TScanCleanupBinarizationMethod;
     robustContrast: number;
     illuminationDeviation: number;
@@ -535,6 +540,12 @@ export interface INativeScanCleanupReusableGeometryV3 {
 
 export interface INativeScanCleanupPageV3 {
     inputPath: string;
+    /**
+     * Fixed-resolution PDF render used for every analysis and routing decision.
+     * Image callers omit this pair because inputPath is already a fixed source.
+     */
+    analysisInputPath?: string;
+    analysisDpi?: number;
     /**
      * One-bit PDF soft mask extracted from a compact MRC source. White samples
      * select trusted foreground pixels; native maps it through the same page

@@ -221,6 +221,12 @@ pub struct DetailRenderPlan {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Page {
     pub input_path: PathBuf,
+    /// Fixed-resolution PDF render that owns analysis and Auto-routing.
+    /// Raster/image callers omit it because input_path is already canonical.
+    #[serde(default)]
+    pub analysis_input_path: Option<PathBuf>,
+    #[serde(default)]
+    pub analysis_dpi: Option<f64>,
     /// White samples in this extracted one-bit PDF soft mask select the
     /// source MRC foreground. It shares input_path's unrotated page grid.
     #[serde(default)]
@@ -322,6 +328,15 @@ impl ManifestV3 {
             ));
         }
         for page in &self.pages {
+            match (page.analysis_input_path.as_ref(), page.analysis_dpi) {
+                (Some(_), Some(dpi)) if dpi.is_finite() && dpi > 0.0 => {}
+                (None, None) => {}
+                _ => {
+                    return Err(invalid(
+                        "analysisInputPath and a positive finite analysisDpi must be provided together",
+                    ));
+                }
+            }
             page.options.validate().map_err(|error| {
                 invalid(format!(
                     "Page {}: {error}",
@@ -414,6 +429,7 @@ impl ManifestV3 {
             .iter()
             .flat_map(|page| {
                 let mut paths = vec![page.input_path.as_path()];
+                paths.extend(page.analysis_input_path.as_deref());
                 paths.extend(page.trusted_foreground_mask_path.as_deref());
                 paths.extend(page.trusted_mrc_background_path.as_deref());
                 if let Some(detail) = &page.detail_render_plan {
@@ -710,6 +726,33 @@ mod tests {
         let error = manifest.validate().unwrap_err();
         assert_eq!(error.code, NativeErrorCode::TooLarge);
         assert!(error.message.contains("4096-byte admission ceiling"));
+    }
+
+    #[test]
+    fn canonical_analysis_input_and_dpi_are_a_required_pair() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+
+        manifest.pages[0].analysis_input_path = Some(PathBuf::from("analysis.ppm"));
+        assert!(manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("analysisInputPath and a positive finite analysisDpi"));
+
+        manifest.pages[0].analysis_dpi = Some(150.0);
+        manifest.validate().unwrap();
+
+        manifest.pages[0].analysis_dpi = Some(0.0);
+        assert!(manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("positive finite"));
     }
 
     #[test]
