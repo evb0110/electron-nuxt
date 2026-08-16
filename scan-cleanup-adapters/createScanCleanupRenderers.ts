@@ -1,15 +1,9 @@
-import {
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import {encode as encodePng} from 'fast-png';
 import type {
     IScanCleanupRasterRenderLimits,
     TScanCleanupLog,
     TScanCleanupRenderPage,
     TScanCleanupRunCommand,
 } from '@scan-cleanup-core/types';
-import {readPpmRaster} from '@scan-cleanup-core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
@@ -120,33 +114,9 @@ async function renderPage(
     });
 }
 
-async function convertPpmToPng(
-    ppmPath: string,
-    outputPngPath: string,
-    limits: IScanCleanupRasterRenderLimits | undefined,
-    fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'>,
-    signal?: AbortSignal,
-) {
-    const ppm = await readPpmRaster(ppmPath, {
-        maxDimensionPx: limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx,
-        maxPixels: limits?.maxPixels ?? fallbackLimits.maxPixels,
-        ...(signal === undefined ? {} : {signal}),
-    });
-    signal?.throwIfAborted();
-    const png = encodePng({
-        channels: 3,
-        data: ppm.pixels,
-        depth: 8,
-        height: ppm.height,
-        width: ppm.width,
-    });
-    signal?.throwIfAborted();
-    await writeFile(outputPngPath, png);
-}
-
 export function createScanCleanupRenderers(
     runCommand: TScanCleanupRunCommand,
-    fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
+    _fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
 ) {
     const renderPageToPng: TScanCleanupRenderPage = async (
         paths,
@@ -159,28 +129,20 @@ export function createScanCleanupRenderers(
         signal,
         crop,
         limits,
-    ) => {
-        const ppmPath = `${outputPngPath}.source.ppm`;
-        try {
-            await renderPage(
-                runCommand,
-                'ppm',
-                paths,
-                log,
-                pageNumber,
-                sourcePdfPath,
-                ppmPath,
-                dpi,
-                popplerEnv,
-                signal,
-                crop,
-                limits,
-            );
-            await convertPpmToPng(ppmPath, outputPngPath, limits, fallbackLimits, signal);
-        } finally {
-            await rm(ppmPath, {force: true});
-        }
-    };
+    ) => renderPage(
+        runCommand,
+        'png',
+        paths,
+        log,
+        pageNumber,
+        sourcePdfPath,
+        outputPngPath,
+        dpi,
+        popplerEnv,
+        signal,
+        crop,
+        limits,
+    );
     const renderPageToPpm: TScanCleanupRenderPage = (
         paths,
         log,
