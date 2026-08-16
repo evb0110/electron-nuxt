@@ -2265,6 +2265,146 @@ fn canonical_cli_pins_the_calibrated_dark_border_routing_band() {
     );
 }
 
+/// The fallback analysis path (no canonical `analysisInputPath`) must measure
+/// its spread-plan anchors on real leaf pixels. The split is produced in
+/// analysis-full coordinates while the fallback analysis raster is DPI-capped
+/// below full resolution, so leaf regions computed against the normalized
+/// dimensions clamp the cutter to the raster edge: the right leaf degenerates
+/// to a paper sliver, its intensity anchor saturates, and the executed
+/// threshold turns the whole leaf to ink. Pin the fallback run to the
+/// canonical-analysis reference instead of absolute numbers so the pin
+/// survives calibration drift.
+#[test]
+fn fallback_spread_analysis_matches_canonical_leaf_ink_and_content() {
+    let scratch = Scratch::new("fallback-spread-parity");
+    // 1200x800 at 300 DPI: fallback analysis normalization caps its raster at
+    // half size, which is the precondition that desynchronizes the full-space
+    // split from the normalized dimensions. The scanner margin is brighter
+    // than the leaf paper: a leaf anchor mistakenly measured on the margin
+    // then sits above the paper level and binarizes the whole leaf as ink.
+    let mut spread = GrayImage::new(1200, 800, 255);
+    for y in 40..760 {
+        for x in 40..1160 {
+            spread.set(x, y, 225);
+        }
+    }
+    for row in 0..18 {
+        let top = 120 + row * 30;
+        for word in 0..8 {
+            for y in top..top + 6 {
+                for x in 90 + word * 55..124 + word * 55 {
+                    spread.set(x, y, 20);
+                }
+                for x in 690 + word * 55..724 + word * 55 {
+                    spread.set(x, y, 20);
+                }
+            }
+        }
+    }
+    let canonical = spread.resample_to_dimensions(600, 400);
+    let spread_path = scratch.path("spread.png");
+    let canonical_path = scratch.path("canonical.png");
+    fs::write(&spread_path, encode_gray(&spread).unwrap()).unwrap();
+    fs::write(&canonical_path, encode_gray(&canonical).unwrap()).unwrap();
+
+    let run = |label: &str, with_canonical: bool| {
+        let mut page = serde_json::json!({
+            "inputPath": spread_path,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": scratch.path(&format!("{label}-page.json")),
+            "options": {
+                "dpi": 300,
+                "layout": "force-two-page",
+                "normalizeIllumination": false,
+                "cropContent": true,
+                "matchPageSize": false,
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+            },
+            "outputs": [
+                {
+                    "outputPath": scratch.path(&format!("{label}-left.png")),
+                    "metadataPath": scratch.path(&format!("{label}-left.json"))
+                },
+                {
+                    "outputPath": scratch.path(&format!("{label}-right.png")),
+                    "metadataPath": scratch.path(&format!("{label}-right.json"))
+                }
+            ]
+        });
+        if with_canonical {
+            page["analysisInputPath"] = serde_json::json!(canonical_path);
+            page["analysisDpi"] = serde_json::json!(150);
+        }
+        let manifest = scratch.path(&format!("{label}-manifest.json"));
+        fs::write(
+            &manifest,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 3,
+                "operation": "render",
+                "renderMode": "final",
+                "canvasScope": "document",
+                "pages": [page],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{label}: stdout={}\nstderr={}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr),
+        );
+        ["left", "right"]
+            .map(|half| {
+                let output = decode_gray(
+                    &fs::read(scratch.path(&format!("{label}-{half}.png"))).unwrap(),
+                    4_000_000,
+                    2000,
+                )
+                .unwrap();
+                let ink = output.data().iter().filter(|&&value| value < 128).count() as f64
+                    / (output.width() * output.height()) as f64;
+                let metadata: Value =
+                    serde_json::from_slice(&fs::read(scratch.path(&format!("{label}-{half}.json"))).unwrap())
+                        .unwrap();
+                (ink, metadata)
+            })
+    };
+
+    let fallback = run("fallback", false);
+    let reference = run("canonical", true);
+
+    for (half, ((fallback_ink, fallback_metadata), (reference_ink, reference_metadata))) in
+        ["left", "right"]
+            .into_iter()
+            .zip(fallback.into_iter().zip(reference))
+    {
+        assert!(
+            fallback_ink > 0.005 && fallback_ink < 0.5,
+            "{half} fallback leaf binarized outside plausible ink bounds: {fallback_ink}",
+        );
+        let ink_ratio = fallback_ink / reference_ink.max(f64::EPSILON);
+        assert!(
+            (0.85..=1.15).contains(&ink_ratio),
+            "{half} fallback leaf ink diverged from the canonical reference: \
+             fallback={fallback_ink} canonical={reference_ink} ratio={ink_ratio}",
+        );
+        for dimension in ["widthPx", "heightPx"] {
+            let fallback_extent = fallback_metadata["contentBox"][dimension].as_f64().unwrap();
+            let reference_extent = reference_metadata["contentBox"][dimension].as_f64().unwrap();
+            assert!(
+                (fallback_extent - reference_extent).abs() <= reference_extent * 0.05,
+                "{half} fallback content box {dimension} diverged: \
+                 fallback={fallback_extent} canonical={reference_extent}",
+            );
+        }
+    }
+}
+
 #[test]
 fn auto_small_picture_uses_mixed_but_explicit_bw_stays_bilevel() {
     let scratch = Scratch::new("auto-small-picture");
