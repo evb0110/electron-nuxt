@@ -10,6 +10,10 @@ import {
     summarizeMeasurementCoverage,
 } from '@scripts/diagnostics/scan-cleanup-representative-audit.mjs';
 import {
+    buildSpreadLeafAlignment,
+    buildSpreadLeafScale,
+} from '@scripts/diagnostics/scan-cleanup-representative-audit-leaf-alignment.mjs';
+import {
     createCanvas,
     loadImage,
 } from '@napi-rs/canvas';
@@ -178,6 +182,66 @@ describe('scan cleanup representative audit mapping inference', () => {
             side: 'right',
             sourcePage: 10,
         });
+    });
+
+    it('uses one validated spread-pair iterator for alignment and scale measurements', () => {
+        const entries = [
+            {
+                cleanedPage: 1,
+                side: 'left',
+                sourceLayout: 'spread',
+                sourcePage: 1,
+            },
+            {
+                cleanedPage: 2,
+                side: 'right',
+                sourceLayout: 'spread',
+                sourcePage: 1,
+            },
+        ];
+        const source = makeContentTopBitmap(32);
+        const cleanedPages = new Map([
+            [
+                1,
+                source,
+            ],
+            [
+                2,
+                makeContentTopBitmap(34),
+            ],
+        ]);
+        const sourcePages = new Map([[
+            1,
+            source,
+        ]]);
+        const splitHalves = () => ({
+            left: source,
+            right: makeContentTopBitmap(34),
+        });
+
+        expect(buildSpreadLeafAlignment({
+            cleanedPages,
+            dpi: 50,
+            entries,
+            sourcePages,
+            splitHalves,
+        })).toEqual([expect.objectContaining({
+            leftCleanedPage: 1,
+            rightCleanedPage: 2,
+            sourcePage: 1,
+            status: 'pass',
+        })]);
+        expect(buildSpreadLeafScale({
+            cleanedPages,
+            entries,
+            sourcePages,
+            splitHalves,
+        })).toEqual([expect.objectContaining({
+            leftCleanedPage: 1,
+            rightCleanedPage: 2,
+            sourcePage: 1,
+            status: 'pass',
+        })]);
     });
 
     it('aligns bounded placement shifts and rejects a no-overlap candidate', () => {

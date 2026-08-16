@@ -23,6 +23,7 @@ interface IWebDeploySourceStats {
 interface IWebDeploySourceModule {
     REQUIRED_VERCELIGNORE_ENTRIES: string[];
     collectWebDeploySourceStats: (options?: { projectRoot?: string }) => Promise<IWebDeploySourceStats>;
+    isExcludedWebDeploySourcePath: (fileName: string, relativeDirectory?: string) => boolean;
     validateVercelIgnoreEntries: (content: string, requiredEntries?: string[]) => unknown;
     validateWebDeploySource: (options?: {
         maxBytes?: number;
@@ -34,6 +35,7 @@ interface IWebDeploySourceModule {
 const {
     REQUIRED_VERCELIGNORE_ENTRIES,
     collectWebDeploySourceStats,
+    isExcludedWebDeploySourcePath,
     validateVercelIgnoreEntries,
     validateWebDeploySource,
 } = await import(
@@ -106,6 +108,22 @@ describe('web deploy source policy', () => {
                 recursive: true,
             });
         }
+    });
+
+    it('excludes working documents outside docs while retaining nested evidence paths', () => {
+        expect(isExcludedWebDeploySourcePath('HANDOFF.md')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('handoff.MD')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('NOTES.md')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('todo.MD')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('HANDOFF.md', 'scratch')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('NOTES.md', 'reports/2026')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('TODO.md', 'docs/../scratch')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('HANDOFF.md', '../docs')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('TODO.md', 'docs/../../docs')).toBe(true);
+        expect(isExcludedWebDeploySourcePath('HANDOFF.md', 'docs/scan-cleanup')).toBe(false);
+        expect(isExcludedWebDeploySourcePath('NOTES.md', 'docs/scan-cleanup')).toBe(false);
+        expect(isExcludedWebDeploySourcePath('TODO.md', 'docs/scan-cleanup')).toBe(false);
+        expect(isExcludedWebDeploySourcePath('HANDOFF.md', 'reports/../docs/scan-cleanup')).toBe(false);
     });
 
     it('does not count excluded local artifacts in the deploy source budget', async () => {

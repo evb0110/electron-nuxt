@@ -517,47 +517,6 @@ jobs:
       - name: Coverage
         run: pnpm run test:coverage
 
-  manual_native:
-    name: Native Rust Tests
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install scan-cleanup audit tools
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
-      - name: Install PDF text test tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
-
-      - name: Install Rust lint components
-        run: rustup component add rustfmt clippy
-
-      - name: Rust tests
-        run: pnpm run test:rust
-
-      - name: Rust formatting and clippy
-        run: pnpm run lint:rust
-
-      - name: Rust dependency policy
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          manifest-path: native/Cargo.toml
-
   nightly_rust_fuzz:
     name: Native Parser Fuzz Canaries
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}

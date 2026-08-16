@@ -8,7 +8,9 @@ import type {
     INativeScanCleanupPageMetadataV3,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {
+    getScanCleanupPageOverride,
+} from '@contracts/scanCleanupPageOverrides';
 import type {
     IDetectedPageRaster,
     IPdfMrcLayers,
@@ -19,9 +21,9 @@ import type {
     IScanCleanupWorkerPaths,
 } from '@scan-cleanup-core/types';
 import {
+    placeScanCleanupCanvasBox,
     type IScanCleanupRect,
     mapLosslessAnalysisRectToPdf,
-    placeUniformBox,
 } from '@scan-cleanup-core/policy/documentCanvas';
 import {
     buildScanCleanupPageOpsInstructions,
@@ -193,7 +195,7 @@ export function resolveCompactSourcePreservation(
         return undefined;
     }
     const alignment = pageOverride.placementOverrides?.full ?? request.options.pageAlignment;
-    const placed = placeUniformBox(
+    const placed = placeScanCleanupCanvasBox(
         {
             x: sourceCrop.x * scale,
             y: sourceCrop.y * scale,

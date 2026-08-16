@@ -2,6 +2,7 @@ import type {
     IScanCleanupDetectionResult,
     TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
+import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 
 export interface IScanCleanupDetectionSessionCacheEntry {
     ownerId: string;
@@ -26,6 +27,11 @@ const SCAN_CLEANUP_DETECTION_SESSION_CACHE_LIMITS: Readonly<IScanCleanupDetectio
 
 function documentKeyFor(key: string) {
     return key.split('\u0000', 1)[0] ?? key;
+}
+
+function lifecycleRevisionFor(key: string) {
+    const separator = key.indexOf('\u0000');
+    return separator < 0 ? null : key.slice(separator + 1);
 }
 
 function estimateEntryBytes(entry: IScanCleanupDetectionSessionCacheEntry) {
@@ -121,7 +127,7 @@ export function createScanCleanupDetectionSessionCache(
     return new ScanCleanupDetectionSessionCache(limits);
 }
 
-/** Session-restore caches keyed by lifecycle document key (documentKey + NUL + revision). */
+/** Session-restore caches keyed by lifecycle identity (path/SHA + NUL + revision). */
 export const scanCleanupDetectionSessionCache = createScanCleanupDetectionSessionCache();
 export const scanCleanupAutoDetectionCanceledDocuments = new Set<string>();
 
@@ -148,21 +154,103 @@ export function retireSupersededScanCleanupDetectionState(lifecycleKey: string |
 }
 
 /**
- * Drops every in-memory detection restore entry for a document. Closing the
- * scan-cleanup surface discards the split session; the next entry starts from
- * a fresh detection pass.
+ * A source hash is published after the renderer has already started work for
+ * the same source path.  Treat that publication as an identity promotion,
+ * rather than a document replacement, only when the path and lifecycle
+ * revision are unchanged.  Keeping this predicate beside the session cache
+ * makes the identity boundary shared by detection and preview sessions.
  */
-export function discardScanCleanupDetectionState(documentKey: string | null | undefined) {
-    if (!documentKey) {
+export function isScanCleanupLifecycleIdentityPromotion(
+    previousLifecycleKey: string | null | undefined,
+    currentLifecycleKey: string | null | undefined,
+    sourcePath: string | null | undefined,
+    sourceSha256: string | null | undefined,
+    documentRevision: string | null | undefined,
+) {
+    if (
+        !previousLifecycleKey
+        || !currentLifecycleKey
+        || !sourcePath
+        || !sourceSha256
+        || documentRevision === null
+        || documentRevision === undefined
+        || previousLifecycleKey === currentLifecycleKey
+    ) {
+        return false;
+    }
+    const previousDocumentKey = documentKeyFor(previousLifecycleKey);
+    const currentDocumentKey = documentKeyFor(currentLifecycleKey);
+    return previousDocumentKey === sourcePath
+        && isScanCleanupSourceSha256(currentDocumentKey)
+        && currentDocumentKey === sourceSha256.toLowerCase()
+        && lifecycleRevisionFor(previousLifecycleKey) === documentRevision
+        && lifecycleRevisionFor(currentLifecycleKey) === documentRevision;
+}
+
+/**
+ * Promotes one provisional lifecycle entry to its authoritative SHA-256 key.
+ * The guard is deliberately part of the cache owner: callers cannot migrate
+ * state across a source path or revision by passing arbitrary aliases.
+ */
+export function promoteScanCleanupDetectionState(options: {
+    provisionalLifecycleKey: string | null | undefined;
+    authoritativeLifecycleKey: string | null | undefined;
+    sourcePath: string | null | undefined;
+    sourceSha256: string | null | undefined;
+    documentRevision: string | null | undefined;
+}) {
+    const {
+        authoritativeLifecycleKey,
+        documentRevision,
+        provisionalLifecycleKey,
+        sourcePath,
+        sourceSha256,
+    } = options;
+    if (!isScanCleanupLifecycleIdentityPromotion(
+        provisionalLifecycleKey,
+        authoritativeLifecycleKey,
+        sourcePath,
+        sourceSha256,
+        documentRevision,
+    )) {
+        return false;
+    }
+    if (!provisionalLifecycleKey || !authoritativeLifecycleKey) {
+        return false;
+    }
+
+    const cached = scanCleanupDetectionSessionCache.get(provisionalLifecycleKey);
+    if (cached !== undefined) {
+        // `set` owns the one-entry-per-document invariant and evicts a stale
+        // authoritative alias before inserting the promoted entry.
+        scanCleanupDetectionSessionCache.delete(provisionalLifecycleKey);
+        scanCleanupDetectionSessionCache.set(authoritativeLifecycleKey, cached);
+    }
+    if (scanCleanupAutoDetectionCanceledDocuments.delete(provisionalLifecycleKey)) {
+        scanCleanupAutoDetectionCanceledDocuments.add(authoritativeLifecycleKey);
+    }
+    return true;
+}
+
+/** Drops all revisions for each of several lifecycle aliases. */
+export function discardScanCleanupDetectionStateForAliases(
+    documentKeys: ReadonlyArray<string | null | undefined>,
+) {
+    const aliases = new Set(
+        documentKeys
+            .filter((documentKey): documentKey is string => Boolean(documentKey))
+            .map(documentKeyFor),
+    );
+    if (aliases.size === 0) {
         return;
     }
     for (const key of [...scanCleanupDetectionSessionCache.keys()]) {
-        if (matchesDocument(key, documentKey)) {
+        if (aliases.has(documentKeyFor(key))) {
             scanCleanupDetectionSessionCache.delete(key);
         }
     }
     for (const key of [...scanCleanupAutoDetectionCanceledDocuments]) {
-        if (matchesDocument(key, documentKey)) {
+        if (aliases.has(documentKeyFor(key))) {
             scanCleanupAutoDetectionCanceledDocuments.delete(key);
         }
     }

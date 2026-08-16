@@ -9,6 +9,7 @@ import type {
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
+    resolveScanCleanupPlacementOffset,
 } from '@contracts/scanCleanupPageOverrides';
 import type {IPdfPageSize} from '@scan-cleanup-core/types';
 import {
@@ -21,6 +22,33 @@ export interface IScanCleanupRect {
     y: number;
     width: number;
     height: number;
+}
+
+/**
+ * Places a canvas-sized box around fixed content without scaling the content.
+ * The shared placement resolver speaks top-left free-space offsets; PDF
+ * consumers use a bottom-left y origin, so this is the one conversion owner
+ * for the lossless assembler and compact-source preservation path.
+ */
+export function placeScanCleanupCanvasBox(
+    content: IScanCleanupRect,
+    width: number,
+    height: number,
+    alignment: IScanCleanupOptions['pageAlignment'],
+): IScanCleanupRect {
+    const availableWidth = width - content.width;
+    const availableHeight = height - content.height;
+    const placement = resolveScanCleanupPlacementOffset(
+        availableWidth,
+        availableHeight,
+        alignment,
+    );
+    return {
+        x: content.x - placement.x,
+        y: content.y - (availableHeight - placement.y),
+        width,
+        height,
+    };
 }
 
 export interface IScanCleanupOrientedRect {
@@ -723,33 +751,4 @@ export function mapLosslessAnalysisRectToPdf(
     ].map(point => unrotateAnalysisPoint(point, inputWidthPx, inputHeightPx, cleanupRotation))
         .map(point => displayPointToPdf(point, inputWidthPx, inputHeightPx, page));
     return rectFromPoints(corners);
-}
-
-/**
- * A box of the canvas's size laid out around the content it holds, per the
- * page's alignment. Nothing is scaled here: the box grows around the content,
- * which is how margins and alignment stay inside the document rectangle.
- */
-export function placeUniformBox(
-    content: IScanCleanupRect,
-    width: number,
-    height: number,
-    alignment: IScanCleanupOptions['pageAlignment'],
-) {
-    const [
-        vertical,
-        horizontal = vertical,
-    ] = alignment.split('-');
-    const x = horizontal === 'left'
-        ? content.x
-        : horizontal === 'right' ? content.x + content.width - width : content.x + (content.width - width) / 2;
-    const y = vertical === 'bottom'
-        ? content.y
-        : vertical === 'top' ? content.y + content.height - height : content.y + (content.height - height) / 2;
-    return {
-        x,
-        y,
-        width,
-        height,
-    };
 }

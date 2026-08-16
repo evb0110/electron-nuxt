@@ -16,6 +16,14 @@ on:
         description: Exact commit SHA or ref to release. The checked-out package.json version must match the tag.
         required: true
         type: string
+      scan_cleanup_fixture:
+        description: Optional repository-relative packaged scan-cleanup fixture override.
+        required: false
+        type: string
+      scan_cleanup_expected_pages:
+        description: Optional expected page count for the packaged scan-cleanup fixture override.
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -160,6 +168,98 @@ jobs:
       ref: ${{ needs.prepare.outputs.target_sha }}
     secrets: inherit
 
+  verify_packaged_scan_cleanup:
+    name: Verify packaged scan-cleanup (macOS arm64)
+    needs:
+      - prepare
+      - build_artifacts
+    runs-on: macos-14
+
+    env:
+      EVB_RELEASE_SCAN_CLEANUP_FIXTURE: ${{ inputs.scan_cleanup_fixture }}
+      EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES: ${{ inputs.scan_cleanup_expected_pages }}
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Resolve required packaged scan-cleanup fixture
+        id: fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {appendFileSync} from 'node:fs';
+          import {getPackagedScanCleanupFixture} from './scripts/release/scan-cleanup-release-fixture.mjs';
+
+          const fixture = getPackagedScanCleanupFixture();
+          console.log(`Using packaged scan-cleanup fixture: ${fixture.sourcePath}`);
+          console.log(`Expected packaged scan-cleanup pages: ${fixture.expectedPages}`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `fixture=${fixture.sourcePath}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `expected_pages=${fixture.expectedPages}\n`);
+          NODE
+
+      - name: Download macOS arm64 package
+        uses: actions/download-artifact@v8
+        with:
+          name: dist-mac-arm64
+          path: artifacts
+
+      - name: Extract packaged app
+        id: packaged_app
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find artifacts -type f -name '*.zip' -print -quit)"
+          if [ -z "$archive" ]; then
+            echo "::error::The macOS arm64 build did not publish an app ZIP."
+            exit 1
+          fi
+          extract_dir="$RUNNER_TEMP/evb-release-mac-arm64"
+          mkdir -p "$extract_dir"
+          ditto -x -k "$archive" "$extract_dir"
+          executable="$(find "$extract_dir" -type f -path '*/EVB Viewer.app/Contents/MacOS/EVB Viewer' -print -quit)"
+          if [ -z "$executable" ]; then
+            echo "::error::The macOS arm64 package did not contain EVB Viewer.app."
+            exit 1
+          fi
+          echo "executable=$executable" >> "$GITHUB_OUTPUT"
+
+      - name: Run packaged scan-cleanup scale verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec tsx scripts/release/verifyPackagedScanCleanup.ts \
+            --executable "${{ steps.packaged_app.outputs.executable }}" \
+            --source "${{ steps.fixture.outputs.fixture }}" \
+            --expected-pages "${{ steps.fixture.outputs.expected_pages }}" \
+            --scale-only \
+            --artifact-dir "$RUNNER_TEMP/evb-release-packaged-scan-cleanup"
+
+      - name: Upload packaged scan-cleanup verifier evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: packaged-scan-cleanup-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evb-release-packaged-scan-cleanup/**
+          include-hidden-files: true
+          if-no-files-found: ignore
+
   build_mac_intel:
     # Supplemental macOS Intel ZIP packaging must not delay release creation.
     # It runs in parallel and, if successful, gets attached to the existing
@@ -191,6 +291,7 @@ jobs:
     needs:
       - prepare
       - build_artifacts
+      - verify_packaged_scan_cleanup
     runs-on: ubuntu-latest
     outputs:
       already_public: ${{ steps.draft_release.outputs.already_public }}

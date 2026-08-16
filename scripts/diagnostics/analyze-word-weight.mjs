@@ -17,6 +17,7 @@ import {
     createCanvas,
     loadImage,
 } from '@napi-rs/canvas';
+import {loadGrayscaleImage} from './load-grayscale-image.mjs';
 
 const execFileAsync = promisify(execFile);
 const root = resolve(process.argv[2] ?? '.');
@@ -86,24 +87,11 @@ async function numberedPngs(directory) {
 }
 
 async function imageBitmap(path) {
-    const image = await loadImage(path);
-    const canvas = createCanvas(image.width, image.height);
-    const context = canvas.getContext('2d');
-    context.fillStyle = '#fff';
-    context.fillRect(0, 0, image.width, image.height);
-    context.drawImage(image, 0, 0);
-    const rgba = context.getImageData(0, 0, image.width, image.height).data;
-    const gray = new Uint8Array(image.width * image.height);
-    for (let index = 0, pixel = 0; index < rgba.length; index += 4, pixel += 1) {
-        gray[pixel] = Math.round(
-            rgba[index] * 0.2126 + rgba[index + 1] * 0.7152 + rgba[index + 2] * 0.0722,
-        );
-    }
+    const bitmap = await loadGrayscaleImage(path);
     return {
-        gray,
-        height: image.height,
-        image,
-        width: image.width,
+        gray: bitmap.data,
+        height: bitmap.height,
+        width: bitmap.width,
     };
 }
 

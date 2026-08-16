@@ -1857,12 +1857,11 @@ fn measure_binarization_diagnostics(
         f64::from(image_percentile(&sample, 0.95)) - f64::from(image_percentile(&sample, 0.05));
     let illumination_deviation = tile_paper_deviation(&sample);
     let edge_density = edge_density(&sample);
-    // Keep the established full-input pixel unit. Callers choose the fixed
-    // canonical input plane; the internal 256px sample is only an efficient
-    // measurement raster and must not leak its scale into this diagnostic.
-    let sample_scale = (image.width() as f64 / sample.width().max(1) as f64)
-        .max(image.height() as f64 / sample.height().max(1) as f64);
-    let estimated_stroke_width_px = estimated_stroke_width(&otsu) * sample_scale;
+    // The route threshold is calibrated in the bounded measurement sample's
+    // pixels. Keep this estimate in that same space: scaling it back into the
+    // canonical input makes the <=8 Sauvola gate depend on page dimensions and
+    // silently kills the route on ordinary production pages.
+    let estimated_stroke_width_px = estimated_stroke_width(&otsu);
     let dark_border_coverage = dark_border_coverage(&sample, otsu_threshold(&sample));
     let otsu_adaptive_agreement = binary_agreement(&otsu, &adaptive);
     BinarizationDiagnostics {
@@ -5325,7 +5324,7 @@ mod tests {
     }
 
     #[test]
-    fn stroke_width_diagnostic_retains_full_input_pixel_units() {
+    fn stroke_width_diagnostic_is_scale_invariant_in_routing_sample_units() {
         let mut canonical = GrayImage::new(256, 192, 242);
         for y in 18..174 {
             for x in (16..240).step_by(14) {
@@ -5345,17 +5344,100 @@ mod tests {
         let full_resolution_diagnostics =
             resolve_binarization_diagnostics(&full_resolution, &options);
 
-        assert!(
-            (full_resolution_diagnostics.estimated_stroke_width_px
-                - canonical_diagnostics.estimated_stroke_width_px * 4.0)
-                .abs()
-                < f64::EPSILON,
-            "stroke width must be expressed in the full input's pixels",
+        assert_eq!(
+            full_resolution_diagnostics.estimated_stroke_width_px,
+            canonical_diagnostics.estimated_stroke_width_px,
+            "stroke width must stay in bounded routing-sample pixels",
         );
         assert_eq!(
             canonical_diagnostics.dark_border_coverage,
             full_resolution_diagnostics.dark_border_coverage
         );
+    }
+
+    #[test]
+    fn uneven_illumination_reaches_sauvola_through_the_full_bw_route() {
+        // This is deliberately larger than the bounded 256-pixel routing
+        // sample. With the old full-input rescaling, the sampled 3-pixel
+        // strokes become >8 pixels and this exact end-to-end route falls back
+        // to Wolf; in sample units it remains a Sauvola candidate.
+        let mut source = GrayImage::new(2_048, 1_536, 220);
+        for y in 0..source.height() {
+            let paper = 160 + (y * 64 / source.height()) as u8;
+            for x in 0..source.width() {
+                source.set(x, y, paper);
+            }
+            for x in (96..source.width().saturating_sub(96)).step_by(96) {
+                for stroke_x in x..x + 24 {
+                    for stroke_y in y.saturating_sub(2)..=(y + 2).min(source.height() - 1) {
+                        source.set(stroke_x, stroke_y, 42);
+                    }
+                }
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 150.0,
+            normalize_illumination: false,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+
+        let result = clean_black_and_white(&source, &options);
+        let diagnostics = resolve_binarization_diagnostics(
+            &smooth_for_binarization(&result.normalized, options.dpi),
+            &options,
+        );
+
+        assert!(
+            diagnostics.illumination_deviation > 12.0,
+            "fixture must exercise the uneven-illumination arm: {diagnostics:?}"
+        );
+        assert_eq!(result.mode, BinarizationMode::Sauvola, "{diagnostics:?}");
+        assert_eq!(diagnostics.route, BinarizationMode::Sauvola);
+        assert!(
+            result.binary.count_black() > 0,
+            "Sauvola fixture lost all ink"
+        );
+    }
+
+    #[test]
+    fn zero_stroke_width_remains_a_valid_sauvola_route_at_any_scale() {
+        for (width, height) in [(320, 240), (1_280, 960)] {
+            let mut source = GrayImage::new(width, height, 0);
+            for y in 0..height {
+                // The broad dark field produces only >32-pixel Otsu runs
+                // (the estimator's intentional degenerate 0.0 result), while
+                // the clean bright band keeps Otsu and local agreement high.
+                let paper = if y < height * 3 / 4 { 40 } else { 220 };
+                for x in 0..width {
+                    source.set(x, y, paper);
+                }
+            }
+            let options = CleanupOptions {
+                dpi: 150.0,
+                normalize_illumination: false,
+                despeckle: false,
+                ..CleanupOptions::default()
+            };
+            let diagnostics = resolve_binarization_diagnostics(
+                &smooth_for_binarization(&source, options.dpi),
+                &options,
+            );
+
+            assert_eq!(
+                diagnostics.estimated_stroke_width_px, 0.0,
+                "large dark runs must produce the degenerate zero estimate: {diagnostics:?}"
+            );
+            assert!(
+                diagnostics.illumination_deviation > 12.0,
+                "fixture must exercise the uneven-illumination arm: {diagnostics:?}"
+            );
+            assert_eq!(
+                diagnostics.route,
+                BinarizationMode::Sauvola,
+                "{diagnostics:?}"
+            );
+        }
     }
 
     #[test]

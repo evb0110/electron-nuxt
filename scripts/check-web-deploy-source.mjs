@@ -8,7 +8,10 @@ import { fileURLToPath } from 'node:url';
 import {
     AGENT_INSTRUCTION_FILE_NAMES,
     findAgentInstructionFileName,
+    findRootOnlyLocalArtifactFileName,
     LOCAL_ONLY_DIRECTORY_NAMES,
+    normalizeRepositoryRelativePath,
+    ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES,
 } from './lib/local-artifact-policy.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -70,9 +73,12 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES = [
     'eslint-plugin-custom.mjs',
 ];
 
+export const WEB_DEPLOY_SOURCE_ROOT_ONLY_FILE_NAMES = [...ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES];
+
 export const REQUIRED_VERCELIGNORE_ENTRIES = [
     ...WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES.map(name => `${name}/`),
     ...WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES,
+    ...WEB_DEPLOY_SOURCE_ROOT_ONLY_FILE_NAMES.map(name => `**/${name}`),
     '*.log',
 ];
 
@@ -140,12 +146,20 @@ export function isExcludedWebDeploySourceFileName(fileName) {
         || isExcludedEnvFileName(fileName);
 }
 
-function shouldSkipSourcePath(dirent) {
+export function isExcludedWebDeploySourcePath(fileName, relativeDirectory = '') {
+    if (findRootOnlyLocalArtifactFileName(fileName)) {
+        const normalizedDirectory = normalizeRepositoryRelativePath(relativeDirectory);
+        return normalizedDirectory[0] !== 'docs';
+    }
+    return isExcludedWebDeploySourceFileName(fileName);
+}
+
+function shouldSkipSourcePath(dirent, relativeDirectory) {
     if (dirent.isDirectory()) {
         return isExcludedWebDeploySourceDirectoryName(dirent.name);
     }
 
-    return isExcludedWebDeploySourceFileName(dirent.name);
+    return isExcludedWebDeploySourcePath(dirent.name, relativeDirectory);
 }
 
 export async function collectWebDeploySourceStats({projectRoot = defaultProjectRoot} = {}) {
@@ -159,7 +173,7 @@ export async function collectWebDeploySourceStats({projectRoot = defaultProjectR
         const entries = await readdir(directory, {withFileTypes: true});
 
         for (const dirent of entries) {
-            if (shouldSkipSourcePath(dirent)) {
+            if (shouldSkipSourcePath(dirent, relativeDirectory)) {
                 continue;
             }
 

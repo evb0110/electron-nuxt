@@ -100,7 +100,7 @@ function isAgentWorkspaceCommandTarget(value: unknown): value is TAgentWorkspace
         && value.sessionRevision >= 0;
 }
 
-function isDocumentReference(value: unknown): value is IAgentDocumentReference {
+function hasAgentDocumentSnapshotFields(value: unknown): value is Record<string, unknown> {
     return isRecord(value)
         && typeof value.tabId === 'string'
         && isNullableString(value.paneId)
@@ -109,7 +109,11 @@ function isDocumentReference(value: unknown): value is IAgentDocumentReference {
         && isOptionalDocumentBackend(value.originalBackend)
         && (value.documentSessionKey === undefined || value.documentSessionKey === null || typeof value.documentSessionKey === 'string')
         && (value.documentInstanceId === undefined || value.documentInstanceId === null || typeof value.documentInstanceId === 'string')
-        && (value.commandTarget === undefined || isAgentWorkspaceCommandTarget(value.commandTarget))
+        && (value.commandTarget === undefined || isAgentWorkspaceCommandTarget(value.commandTarget));
+}
+
+function isDocumentReference(value: unknown): value is IAgentDocumentReference {
+    return hasAgentDocumentSnapshotFields(value)
         && isAgentDocumentKind(value.kind);
 }
 
@@ -159,15 +163,7 @@ function isAgentDocumentReadiness(value: unknown): value is IAgentDocumentReadin
 }
 
 function isAgentTabSnapshot(value: unknown): value is IAgentTabSnapshot {
-    return isRecord(value)
-        && typeof value.tabId === 'string'
-        && isNullableString(value.paneId)
-        && isNullableString(value.fileName)
-        && isNullableString(value.originalPath)
-        && isOptionalDocumentBackend(value.originalBackend)
-        && (value.documentSessionKey === undefined || value.documentSessionKey === null || typeof value.documentSessionKey === 'string')
-        && (value.documentInstanceId === undefined || value.documentInstanceId === null || typeof value.documentInstanceId === 'string')
-        && (value.commandTarget === undefined || isAgentWorkspaceCommandTarget(value.commandTarget))
+    return hasAgentDocumentSnapshotFields(value)
         && typeof value.isDirty === 'boolean'
         && isAgentDocumentKind(value.kind)
         && typeof value.workspaceAttached === 'boolean'

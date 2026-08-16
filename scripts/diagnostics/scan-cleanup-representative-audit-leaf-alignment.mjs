@@ -263,13 +263,11 @@ export function measureSpreadLeafScale({
     return result;
 }
 
-export function buildSpreadLeafAlignment({
-    cleanedPages,
-    dpi,
+function mapSpreadLeafPairs({
     entries,
     sourcePages,
     splitHalves,
-}) {
+}, mapPair) {
     const pairs = [];
     for (let index = 0; index < entries.length; index += 2) {
         const leftEntry = entries[index];
@@ -285,7 +283,31 @@ export function buildSpreadLeafAlignment({
         ) {
             continue;
         }
-        const sourceHalves = splitHalves(sourcePages.get(leftEntry.sourcePage));
+        pairs.push(mapPair({
+            leftEntry,
+            rightEntry,
+            sourceHalves: splitHalves(sourcePages.get(leftEntry.sourcePage)),
+        }));
+    }
+    return pairs;
+}
+
+export function buildSpreadLeafAlignment({
+    cleanedPages,
+    dpi,
+    entries,
+    sourcePages,
+    splitHalves,
+}) {
+    return mapSpreadLeafPairs({
+        entries,
+        sourcePages,
+        splitHalves,
+    }, ({
+        leftEntry,
+        rightEntry,
+        sourceHalves,
+    }) => {
         const measurement = measureSpreadLeafVerticalAlignment({
             cleanedLeft: cleanedPages.get(leftEntry.cleanedPage) ?? null,
             cleanedRight: cleanedPages.get(rightEntry.cleanedPage) ?? null,
@@ -293,14 +315,13 @@ export function buildSpreadLeafAlignment({
             sourceLeft: sourceHalves.left,
             sourceRight: sourceHalves.right,
         });
-        pairs.push({
+        return {
             leftCleanedPage: leftEntry.cleanedPage,
             rightCleanedPage: rightEntry.cleanedPage,
             sourcePage: leftEntry.sourcePage,
             ...measurement,
-        });
-    }
-    return pairs;
+        };
+    });
 }
 
 export function buildSpreadLeafScale({
@@ -309,34 +330,26 @@ export function buildSpreadLeafScale({
     sourcePages,
     splitHalves,
 }) {
-    const pairs = [];
-    for (let index = 0; index < entries.length; index += 2) {
-        const leftEntry = entries[index];
-        const rightEntry = entries[index + 1];
-        if (
-            !leftEntry
-            || !rightEntry
-            || leftEntry.side !== 'left'
-            || rightEntry.side !== 'right'
-            || leftEntry.sourceLayout !== 'spread'
-            || rightEntry.sourceLayout !== 'spread'
-            || leftEntry.sourcePage !== rightEntry.sourcePage
-        ) {
-            continue;
-        }
-        const sourceHalves = splitHalves(sourcePages.get(leftEntry.sourcePage));
+    return mapSpreadLeafPairs({
+        entries,
+        sourcePages,
+        splitHalves,
+    }, ({
+        leftEntry,
+        rightEntry,
+        sourceHalves,
+    }) => {
         const measurement = measureSpreadLeafScale({
             cleanedLeft: cleanedPages.get(leftEntry.cleanedPage) ?? null,
             cleanedRight: cleanedPages.get(rightEntry.cleanedPage) ?? null,
             sourceLeft: sourceHalves.left,
             sourceRight: sourceHalves.right,
         });
-        pairs.push({
+        return {
             leftCleanedPage: leftEntry.cleanedPage,
             rightCleanedPage: rightEntry.cleanedPage,
             sourcePage: leftEntry.sourcePage,
             ...measurement,
-        });
-    }
-    return pairs;
+        };
+    });
 }

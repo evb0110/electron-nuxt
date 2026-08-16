@@ -27,6 +27,12 @@ GEMINI.md
 .claude/
 .codex/
 .devkit/
+**/HANDOFF.md
+**/NOTES.md
+**/TODO.md
+!docs/**/HANDOFF.md
+!docs/**/NOTES.md
+!docs/**/TODO.md
 
 # A local scratch note some contributors keep. Not part of the canonical
 # local-only artifact policy: it is ignored as a convenience, and nothing rejects

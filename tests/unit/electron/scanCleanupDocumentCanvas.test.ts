@@ -21,7 +21,9 @@ import {
     resolveScanCleanupProvisionalDocumentCanvas,
     resolveScanCleanupUnclassifiedPages,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+    placeScanCleanupCanvasBox,
 } from '@scan-cleanup-core/policy/documentCanvas';
+import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import {
     parsePdfInfoPageGeometry,
     parsePdfPageSizesPayload,
@@ -77,6 +79,163 @@ const spread = page({
 });
 
 describe('scan cleanup document canvas', () => {
+    it('uses one fractional placement owner for every lossless alignment', () => {
+        const content = {
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+        };
+        const targetWidth = 121.5;
+        const targetHeight = 81.5;
+        const availableWidth = targetWidth - content.width;
+        const availableHeight = targetHeight - content.height;
+
+        const expectations = [
+            [
+                'top-left',
+                {
+                    offset: {
+                        x: 0,
+                        y: 0,
+                    },
+                    box: {
+                        x: 10,
+                        y: -11.5,
+                    },
+                },
+            ],
+            [
+                'top-center',
+                {
+                    offset: {
+                        x: 10.75,
+                        y: 0,
+                    },
+                    box: {
+                        x: -0.75,
+                        y: -11.5,
+                    },
+                },
+            ],
+            [
+                'top-right',
+                {
+                    offset: {
+                        x: 21.5,
+                        y: 0,
+                    },
+                    box: {
+                        x: -11.5,
+                        y: -11.5,
+                    },
+                },
+            ],
+            [
+                'center-left',
+                {
+                    offset: {
+                        x: 0,
+                        y: 15.75,
+                    },
+                    box: {
+                        x: 10,
+                        y: 4.25,
+                    },
+                },
+            ],
+            [
+                'center',
+                {
+                    offset: {
+                        x: 10.75,
+                        y: 15.75,
+                    },
+                    box: {
+                        x: -0.75,
+                        y: 4.25,
+                    },
+                },
+            ],
+            [
+                'center-right',
+                {
+                    offset: {
+                        x: 21.5,
+                        y: 15.75,
+                    },
+                    box: {
+                        x: -11.5,
+                        y: 4.25,
+                    },
+                },
+            ],
+            [
+                'bottom-left',
+                {
+                    offset: {
+                        x: 0,
+                        y: 31.5,
+                    },
+                    box: {
+                        x: 10,
+                        y: 20,
+                    },
+                },
+            ],
+            [
+                'bottom-center',
+                {
+                    offset: {
+                        x: 10.75,
+                        y: 31.5,
+                    },
+                    box: {
+                        x: -0.75,
+                        y: 20,
+                    },
+                },
+            ],
+            [
+                'bottom-right',
+                {
+                    offset: {
+                        x: 21.5,
+                        y: 31.5,
+                    },
+                    box: {
+                        x: -11.5,
+                        y: 20,
+                    },
+                },
+            ],
+        ] as const;
+
+        // Every horizontal and vertical choice is pinned with fractional free
+        // space. The box result is the exact lossless assembler currency,
+        // including the bottom-left y reflection.
+        for (const [
+            alignment,
+            expected,
+        ] of expectations) {
+            expect(resolveScanCleanupPlacementOffset(
+                availableWidth,
+                availableHeight,
+                alignment,
+            )).toEqual(expected.offset);
+            expect(placeScanCleanupCanvasBox(
+                content,
+                targetWidth,
+                targetHeight,
+                alignment,
+            )).toEqual({
+                ...expected.box,
+                width: targetWidth,
+                height: targetHeight,
+            });
+        }
+    });
+
     it('reads the geometry evb-pdf-page-ops reports', () => {
         expect(parsePdfPageSizesPayload({pages: [{
             pageNumber: 1,

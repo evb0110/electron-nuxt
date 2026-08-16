@@ -26,6 +26,20 @@ PDF runs remain diagnostic.
    gate passes only when every requested page is measurable and no page has an
    offender.
 
+Lines with fewer than 40 eligible components use a calibrated sparse-line
+fallback when the page has at least 64 eligible components across at least two
+locally measurable lines, and only when the page-level eligible-component
+median raises the denominator over the sparse line's own median. The report
+marks that line `measured-sparse-line-fallback`, records both medians and the
+reference kind, and keeps the page measured. Short headers/footers without
+enough local population remain measured evidence with no manufactured
+offenders; they do not make an otherwise measurable page unmeasured.
+
+The 40-component floor is the conservative gap between the observed
+impressum-like populations (37) and the stable body-line populations (53).
+The page-population and denominator checks prevent a small line from becoming
+its own calibration corpus while preserving the committed RED/GREEN verdicts.
+
 The schema also reports `subFloorComponentCount`: every connected ink component
 smaller than the DPI-scaled eligible-area floor. Those components do not enter
 the ridge census, but the CI calibration pin requires their count not to rise

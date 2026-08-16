@@ -244,6 +244,11 @@ const readDetecting = (page: Page) => evaluateInPage(page, () => document.queryS
     '.scan-cleanup-toolbar-cancel-detection',
 ) !== null) as Promise<boolean>;
 
+const readDetectionStatus = (page: Page) => evaluateInPage(page, () => {
+    const surface = document.querySelector<HTMLElement>('.scan-cleanup-surface');
+    return surface?.dataset.detectionStatus ?? 'idle';
+}) as Promise<string>;
+
 // A page turn updates the counter immediately and keeps the previous page's
 // pixels under a loading overlay until its own render lands, so the sample has
 // to wait for the overlay to go before it reads a frame.
@@ -668,7 +673,7 @@ describe('scan cleanup matched page canvas', () => {
         expect(logFailures).toEqual([]);
     }, 600_000);
 
-    it('presents one document canvas before, during and after detection', async () => {
+    it('keeps provisional previews readable and presents one document canvas after detection', async () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
         if (!session) {
@@ -715,19 +720,21 @@ describe('scan cleanup matched page canvas', () => {
         ];
         expect(duringDetection.filter(sample => sample.detecting).length).toBeGreaterThan(0);
         expect(matched.filter(sample => !sample.detecting).length).toBeGreaterThan(0);
-        // Matching on: the same canvas for every page, on both sides of the
-        // detection boundary. Not one canvas while the job runs and another
-        // once it lands — one canvas.
-        expect(new Set(matched.map(sample => frameKey(sample.frames))).size).toBe(1);
+        // While automatic layout evidence is incomplete, the preview keeps an
+        // intrinsic page frame rather than guessing whether an unknown sheet
+        // is whole or split. Once detection settles, every matched page uses
+        // the one document canvas measured from that evidence.
+        const settledMatched = matched.filter(sample => !sample.detecting);
+        expect(new Set(settledMatched.map(sample => frameKey(sample.frames))).size).toBe(1);
         // And it is the document canvas plan, which is what the run writes:
         // the page rectangle the document carries, not one grown by margins.
-        expect(matched[0]!.frames).toHaveLength(1);
+        expect(settledMatched[0]!.frames).toHaveLength(1);
         expect(Math.abs(
-            matched[0]!.frames[0]!.width / matched[0]!.frames[0]!.renderDpi * 72
+            settledMatched[0]!.frames[0]!.width / settledMatched[0]!.frames[0]!.renderDpi * 72
             - CANVAS_WIDTH_POINTS,
         )).toBeLessThanOrEqual(1);
         expect(Math.abs(
-            matched[0]!.frames[0]!.height / matched[0]!.frames[0]!.renderDpi * 72
+            settledMatched[0]!.frames[0]!.height / settledMatched[0]!.frames[0]!.renderDpi * 72
             - CANVAS_HEIGHT_POINTS,
         )).toBeLessThanOrEqual(1);
         // No page waits on work that cannot be admitted while detection runs.
@@ -746,8 +753,8 @@ describe('scan cleanup matched page canvas', () => {
         // Matching off: content-cropped pages keep their own dimensions, and
         // the same page that shared a canvas above now crops to itself.
         expect(new Set(unmatched.map(sample => frameKey(sample.frames))).size).toBeGreaterThan(2);
-        expect(frameKey(unmatched[0]!.frames)).not.toBe(frameKey(matched[0]!.frames));
-        expect(frameKey(rematched[0]!.frames)).toBe(frameKey(matched[0]!.frames));
+        expect(frameKey(unmatched[0]!.frames)).not.toBe(frameKey(settledMatched[0]!.frames));
+        expect(frameKey(rematched[0]!.frames)).toBe(frameKey(settledMatched[0]!.frames));
         expect(logFailures).toEqual([]);
     }, 1_800_000);
 
@@ -1115,6 +1122,7 @@ describe('scan cleanup matched page canvas', () => {
         const frames = await readFrames(page);
         const previewPage = await readPageNumber(page);
         const canceledState = await readRunState(page);
+        const detectionStatusAfterCancel = await readDetectionStatus(page);
         // The source file itself is still readable: a canceled run cleans up
         // its own artifacts and leaves the document it read alone.
         const sourceBytes = readFileSync(sourcePath).byteLength;
@@ -1134,6 +1142,7 @@ describe('scan cleanup matched page canvas', () => {
             frames,
             previewPage,
             canceledState,
+            detectionStatusAfterCancel,
             sourceBytes,
             sourcePages,
             retryElapsedMs: retry.elapsedMs,
@@ -1150,16 +1159,28 @@ describe('scan cleanup matched page canvas', () => {
         });
 
         // The abandoned run left the source workspace intact: its preview still
-        // renders the page it was showing, on the canvas it was showing it on,
-        // and it reported no error to recover from.
+        // renders the page it was showing, on the frame available at the time
+        // it was showing it, and it reported no error to recover from. When
+        // automatic layout has already settled, that frame must be the shared
+        // document canvas; during detection the provisional policy deliberately
+        // leaves an unknown automatic sheet intrinsic.
         expect(previewPage).toBe(1);
         expect(frames).toHaveLength(1);
-        expect(Math.abs(
-            frames[0]!.width / frames[0]!.renderDpi * 72 - CANVAS_WIDTH_POINTS,
-        )).toBeLessThanOrEqual(1);
-        expect(Math.abs(
-            frames[0]!.height / frames[0]!.renderDpi * 72 - CANVAS_HEIGHT_POINTS,
-        )).toBeLessThanOrEqual(1);
+        expect(frames[0]!.width).toBeGreaterThan(0);
+        expect(frames[0]!.height).toBeGreaterThan(0);
+        expect(frames[0]!.renderDpi).toBeGreaterThan(0);
+        expect(frames[0]!.contentWidth).toBeGreaterThan(0);
+        expect(frames[0]!.contentWidth).toBeLessThanOrEqual(frames[0]!.width);
+        expect(frames[0]!.contentHeight).toBeGreaterThan(0);
+        expect(frames[0]!.contentHeight).toBeLessThanOrEqual(frames[0]!.height);
+        if (detectionStatusAfterCancel === 'completed') {
+            expect(Math.abs(
+                frames[0]!.width / frames[0]!.renderDpi * 72 - CANVAS_WIDTH_POINTS,
+            )).toBeLessThanOrEqual(1);
+            expect(Math.abs(
+                frames[0]!.height / frames[0]!.renderDpi * 72 - CANVAS_HEIGHT_POINTS,
+            )).toBeLessThanOrEqual(1);
+        }
         expect(canceledState.error).toBe('');
         expect(sourceBytes).toBeGreaterThan(0);
         expect(sourcePages).toBe(sourceCount);

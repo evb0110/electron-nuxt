@@ -49,6 +49,7 @@ import {
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
 import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
 import {resolveCompactSourcePreservation} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
+import {placeScanCleanupCanvasBox} from '@scan-cleanup-core/policy/documentCanvas';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     assertScanCleanupCompactSourceBudget,
@@ -1522,6 +1523,102 @@ describe('scan cleanup pipeline', () => {
             reason: 'auto-mixed-trusted-mrc-tone-preserved',
             sourcePageIndex: 0,
         });
+    });
+
+    it('keeps fractional preview placement identical to compact lossless assembly', () => {
+        const request = {
+            sourcePdfPath: '/source.pdf',
+            outputPdfPath: '/cleaned.pdf',
+            options: {
+                ...options,
+                outputMode: 'auto' as const,
+                preserveOriginalQuality: true,
+                pageAlignment: 'center' as const,
+                matchPageSize: true,
+                marginsMm: {
+                    leftMm: 0,
+                    topMm: 0,
+                    rightMm: 0,
+                    bottomMm: 0,
+                },
+            },
+        };
+        const pageSize = {
+            pageNumber: 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 121.5,
+            heightPoints: 81.5,
+            rotation: 0,
+        };
+        const pageMetadata = {
+            layoutClassification: 'single-uncut-page' as const,
+            outputCount: 1,
+            rotationDegrees: 0 as const,
+        };
+        const output = {
+            sourcePageNumber: 1,
+            path: '/clean-1-0.png',
+            dpi: 300,
+            resolvedOutputMode: 'color' as const,
+            metadata: {
+                half: 'full' as const,
+                cropRect: {
+                    xPx: 10,
+                    yPx: 20,
+                    widthPx: 100,
+                    heightPx: 50,
+                },
+                inputWidthPx: 121.5,
+                inputHeightPx: 81.5,
+                outputWidthPx: 100,
+                outputHeightPx: 50,
+                canvasWidthPx: 121.5,
+                canvasHeightPx: 81.5,
+                layoutClassification: 'single-uncut-page' as const,
+                skewApplied: false,
+                dewarpModel: null,
+                placementOffsetXPx: 0,
+                placementOffsetYPx: 0,
+                forwardTransform: null,
+                rotationDegrees: 0 as const,
+                matchedCanvasTargetWidthPoints: 121.5,
+                matchedCanvasTargetHeightPoints: 81.5,
+            },
+        };
+        const preserved = resolveCompactSourcePreservation(
+            request,
+            1,
+            pageMetadata as Parameters<typeof resolveCompactSourcePreservation>[2],
+            output as Parameters<typeof resolveCompactSourcePreservation>[3],
+            pageSize,
+            {
+                dpi: 300,
+                width: 121.5,
+                height: 81.5,
+                hasBilevelLayer: true,
+                backgroundDpi: 120,
+            },
+        );
+
+        expect(preserved).not.toBeUndefined();
+        const sourceCrop = {
+            x: 10,
+            y: 11.5,
+            width: 100,
+            height: 50,
+        };
+        const scale = 121.5 / 100;
+        const placed = placeScanCleanupCanvasBox({
+            x: sourceCrop.x * scale,
+            y: sourceCrop.y * scale,
+            width: sourceCrop.width * scale,
+            height: sourceCrop.height * scale,
+        }, 121.5, 81.5, 'center');
+        expect(preserved!.contentTransform.scale).toBeCloseTo(scale, 12);
+        expect(preserved!.contentTransform.translateX).toBeCloseTo(-placed.x, 12);
+        expect(preserved!.contentTransform.translateY).toBeCloseTo(-placed.y, 12);
+        expect(preserved!.contentTransform.translateY % 1).not.toBe(0);
     });
 
     async function runOversizedRasterPipeline(availableScratchBytes: number | null) {

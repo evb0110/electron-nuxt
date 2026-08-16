@@ -12,7 +12,8 @@ CACHE_DIR="${WIN_BUNDLE_CACHE_DIR:-$PROJECT_ROOT/.cache/win-tools}"
 source "$SCRIPT_DIR/win-system-dll-pattern.sh"
 source "$SCRIPT_DIR/sha256-file.sh"
 
-# TARGET_ARCH can be set by CI (e.g., TARGET_ARCH=arm64 on x64 runner).
+# TARGET_ARCH can be set by CI (the release arm64 lane runs on a native ARM64
+# runner; the script remains usable from an x64 host for static cross-bundling).
 # x64: downloads pre-built release ZIPs from upstream projects.
 # arm64: downloads native aarch64 binaries from MSYS2's clangarm64 repository.
 PLATFORM_ARCH="win32-${TARGET_ARCH:-x64}"
@@ -272,15 +273,19 @@ bundle_arm64_via_msys2() {
   echo "ARM64: Downloading native aarch64 binaries via MSYS2"
   echo "=========================================="
 
-  local msys2_root="/c/msys64"
+  local msys2_root="${MSYS2_ROOT:-/c/msys64}"
   local pacman="$msys2_root/usr/bin/pacman.exe"
+  local zstd="$msys2_root/usr/bin/zstd.exe"
+  local tar="$msys2_root/usr/bin/tar.exe"
   local iso_root="$CACHE_DIR/msys2-arm64"
   local staging="$TEMP_DIR/msys2-staging"
 
-  if [ ! -x "$pacman" ]; then
-    echo "Error: MSYS2 pacman not found at $pacman"
-    exit 1
-  fi
+  for required_tool in "$pacman" "$zstd" "$tar"; do
+    if [ ! -x "$required_tool" ]; then
+      echo "Error: MSYS2 ARM64 bundle tool not found at $required_tool"
+      exit 1
+    fi
+  done
 
   mkdir -p "$iso_root/var/lib/pacman" "$iso_root/var/cache/pacman/pkg" "$iso_root/etc"
   mkdir -p "$staging"
@@ -309,6 +314,8 @@ PACMAN_CONF
 
   echo "  Syncing clangarm64 package database..."
   "$pacman" "${pacman_opts[@]}" -Sy
+  echo "  Resolving clangarm64 package source..."
+  "$pacman" "${pacman_opts[@]}" -Sp --noconfirm "${packages[@]}" >/dev/null
 
   echo "  Downloading packages and dependencies..."
   "$pacman" "${pacman_opts[@]}" -Sw --noconfirm "${packages[@]}"
@@ -316,7 +323,7 @@ PACMAN_CONF
   echo "  Extracting packages..."
   for pkg in "$iso_root/var/cache/pacman/pkg"/mingw-w64-clang-aarch64-*.pkg.tar.zst; do
     [ -f "$pkg" ] || continue
-    zstd -dq "$pkg" --stdout | tar -xf - -C "$staging"
+    "$zstd" -dq "$pkg" --stdout | "$tar" -xf - -C "$staging"
   done
 
   local arm64_bin="$staging/clangarm64/bin"

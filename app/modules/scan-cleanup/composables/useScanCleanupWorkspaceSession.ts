@@ -67,6 +67,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         lifecycleDocumentKey,
         ownerId,
         settings: settings.values,
+        sourceSha256,
         sourcePath,
         totalPages,
     });
@@ -88,6 +89,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             detection.softAlphaForegroundRecommendationByPage,
         selectPage: selection.selectPage,
         settings: settings.values,
+        sourceSha256,
         sourcePath,
         totalPages,
     });

@@ -1,4 +1,4 @@
-import {discardScanCleanupDetectionState} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
+import {discardScanCleanupDetectionStateForAliases} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 import {resetScanCleanupDocumentOverrides} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
     invalidateScanCleanupDocumentPersistence,
@@ -6,7 +6,7 @@ import {
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 
 /**
- * Closing the scan-cleanup surface discards the split session for a document:
+ * Closing the source document discards the split session for a document:
  * in-memory detection restore state and persisted page overrides are dropped,
  * so re-entering starts a fresh detection pass. Document margins and global
  * preferences survive as editing defaults. Desktop preferences live in the
@@ -17,6 +17,7 @@ import {
 export function discardScanCleanupDocumentState(
     documentKey: string | null | undefined,
     sourceSha256?: string | null,
+    options: {discardDetection?: boolean} = {},
 ) {
     if (!documentKey && !sourceSha256) {
         return;
@@ -25,8 +26,13 @@ export function discardScanCleanupDocumentState(
     // durable entry. Otherwise scope disposal can flush the old overrides
     // after Done and silently recreate the state that was just discarded.
     invalidateScanCleanupDocumentPersistence(sourceSha256, documentKey);
+    if (options.discardDetection !== false && (documentKey || sourceSha256)) {
+        discardScanCleanupDetectionStateForAliases([
+            documentKey,
+            sourceSha256,
+        ]);
+    }
     if (documentKey) {
-        discardScanCleanupDetectionState(documentKey);
         resetScanCleanupDocumentOverrides(documentKey);
     }
     if (sourceSha256) {

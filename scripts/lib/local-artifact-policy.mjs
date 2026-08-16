@@ -19,6 +19,16 @@ export const AGENT_INSTRUCTION_FILE_NAMES = [
     'GEMINI.md',
 ];
 
+// A branch working handoff is useful while a change is in flight, but working
+// documents outside the top-level `docs/` evidence tree are not product
+// content. Keep the basename list separate so the path-aware exception remains
+// explicit and case-insensitive.
+export const ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES = [
+    'HANDOFF.md',
+    'NOTES.md',
+    'TODO.md',
+];
+
 // `.devkit/` holds local planning and run material. It is ignored working state,
 // never product source, so a forced `git add` under it must fail exactly as a
 // harness directory does.
@@ -57,6 +67,38 @@ function asciiLowerCase(value) {
 }
 
 /**
+ * Normalizes a repository-relative slash-separated path for policy checks.
+ * Traversal segments must not evade the top-level `docs/` exception.
+ *
+ * @param {string} filePath repository-relative path
+ * @returns {string[]}
+ */
+export function normalizeRepositoryRelativePath(filePath) {
+    const normalized = [];
+    for (const segment of filePath.split('/')) {
+        if (!segment || segment === '.') {
+            continue;
+        }
+        if (segment === '..') {
+            if (normalized.length === 0 || normalized.at(-1) === '..') {
+                // Preserve traversal above the repository root so a later
+                // `docs` segment cannot manufacture the docs exception.
+                normalized.push('..');
+            } else {
+                normalized.pop();
+            }
+            continue;
+        }
+        normalized.push(segment);
+    }
+    return normalized;
+}
+
+export function isTopLevelDocsPath(filePath) {
+    return normalizeRepositoryRelativePath(filePath)[0] === 'docs';
+}
+
+/**
  * Returns the canonical instruction file name a basename spells in any ASCII
  * case, or null for an ordinary file name.
  *
@@ -70,6 +112,19 @@ export function findAgentInstructionFileName(fileName) {
 }
 
 /**
+ * Returns the canonical root-only local artifact name a basename spells in
+ * any ASCII case, or null for an ordinary file name.
+ *
+ * @param {string} fileName basename, with no directory part
+ * @returns {string | null}
+ */
+export function findRootOnlyLocalArtifactFileName(fileName) {
+    const normalized = asciiLowerCase(fileName);
+    return ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES
+        .find(candidate => asciiLowerCase(candidate) === normalized) ?? null;
+}
+
+/**
  * Describes why a repository-relative path is a forbidden local-only artifact,
  * or returns null when the path is ordinary product content.
  *
@@ -77,7 +132,7 @@ export function findAgentInstructionFileName(fileName) {
  * @returns {string | null}
  */
 export function describeForbiddenArtifactPath(filePath) {
-    const segments = filePath.split('/').filter(Boolean);
+    const segments = normalizeRepositoryRelativePath(filePath);
     if (segments.length === 0) {
         return null;
     }
@@ -90,16 +145,31 @@ export function describeForbiddenArtifactPath(filePath) {
     const directorySegments = segments.slice(0, -1);
     const directory = LOCAL_ONLY_DIRECTORIES
         .find(({name}) => directorySegments.includes(name));
+    if (directory) {
+        return `${directory.kind} ${directory.name}/ at ${filePath}`;
+    }
 
-    return directory ? `${directory.kind} ${directory.name}/ at ${filePath}` : null;
+    const rootOnlyArtifactName = findRootOnlyLocalArtifactFileName(segments.at(-1));
+    return rootOnlyArtifactName && segments[0] !== 'docs'
+        ? `local working document ${rootOnlyArtifactName} outside docs/ at ${filePath}`
+        : null;
 }
 
 // A bare name ignores the artifact at any depth; a trailing slash ignores the
-// directory and everything under it.
+// directory and everything under it. Working-document entries use a glob plus
+// a docs exception because tracked evidence under `docs/` remains legal.
 export const REQUIRED_GITIGNORE_PATTERNS = [
     ...AGENT_INSTRUCTION_FILE_NAMES,
     ...LOCAL_ONLY_DIRECTORY_NAMES.map(name => `${name}/`),
 ];
+
+// Unlike the basename rules above, working-document patterns need a tracked
+// docs exception: nested `docs/**/HANDOFF.md` is evidence, not local state.
+export const REQUIRED_ROOT_GITIGNORE_PATTERNS = ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES
+    .flatMap(name => [
+        `**/${name}`,
+        `!docs/**/${name}`,
+    ]);
 
 /**
  * Returns the required ignore patterns `.gitignore` does not declare. An anchored
@@ -121,5 +191,8 @@ export function findMissingGitIgnorePatterns(content) {
         .map(line => line.trim())
         .filter(line => line.length > 0 && !line.startsWith('#'));
 
-    return REQUIRED_GITIGNORE_PATTERNS.filter(pattern => !lines.includes(pattern));
+    return [
+        ...REQUIRED_GITIGNORE_PATTERNS,
+        ...REQUIRED_ROOT_GITIGNORE_PATTERNS,
+    ].filter(pattern => !lines.includes(pattern));
 }
