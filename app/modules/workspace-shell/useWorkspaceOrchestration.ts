@@ -53,6 +53,7 @@ import { getErrorMessage } from '@app/utils/error';
 import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope: IAnalyticsDocumentScope;
@@ -498,42 +499,20 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
     const { handleExportImages } = exportControls;
 
-    const programmaticPageNavigationTarget = ref<number | null>(null);
     const bookmarkNavigationIntentVersion = ref(0);
-
-    function clearProgrammaticPageNavigationTarget(reason = 'clear') {
-        logPdfRenderTrace('workspace-programmatic-page-navigation-cleared', {
-            reason,
-            targetPage: programmaticPageNavigationTarget.value,
-        });
-        programmaticPageNavigationTarget.value = null;
-    }
-
-    function beginProgrammaticPageNavigation(page: number) {
-        const previousTargetPage = programmaticPageNavigationTarget.value;
-        programmaticPageNavigationTarget.value = page;
-        logPdfRenderTrace('workspace-programmatic-page-navigation-begin', {
-            page,
-            previousTargetPage,
-            currentPage: currentPage.value,
-        });
-    }
+    const {
+        begin: beginProgrammaticPageNavigation,
+        clampTo: clampProgrammaticPageNavigationTarget,
+        clear: clearProgrammaticPageNavigationTarget,
+        shouldAcceptPage: shouldAcceptViewerCurrentPageUpdate,
+        targetPage: programmaticPageNavigationTarget,
+    } = createWorkspacePageNavigationFence({
+        currentPage,
+        openSurface: deps.openSurface,
+    });
 
     watch(totalPages, (pageCount) => {
-        const requestedPage = programmaticPageNavigationTarget.value;
-        if (requestedPage === null || pageCount <= 0) {
-            return;
-        }
-        const clampedPage = clamp(Math.trunc(requestedPage), 1, Math.trunc(pageCount));
-        if (clampedPage === requestedPage) {
-            return;
-        }
-        logPdfRenderTrace('workspace-programmatic-page-navigation-metadata-clamp', {
-            requestedPage,
-            clampedPage,
-            pageCount,
-        });
-        programmaticPageNavigationTarget.value = clampedPage;
+        clampProgrammaticPageNavigationTarget(pageCount);
     }, {flush: 'sync'});
 
     function invalidateBookmarkNavigationRequests() {
@@ -543,46 +522,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             currentPage: currentPage.value,
             pendingProgrammaticPage: programmaticPageNavigationTarget.value,
         });
-    }
-
-    function settleProgrammaticPageNavigationTarget(page: number) {
-        logPdfRenderTrace('workspace-programmatic-page-navigation-settle', {
-            page,
-            currentPage: currentPage.value,
-        });
-        if (programmaticPageNavigationTarget.value === page) {
-            clearProgrammaticPageNavigationTarget('target-settled');
-        }
-    }
-
-    function shouldAcceptViewerCurrentPageUpdate(page: number) {
-        const targetPage = programmaticPageNavigationTarget.value;
-        if (targetPage === null) {
-            logPdfRenderTrace('workspace-viewer-current-page-update-accepted', {
-                page,
-                targetPage,
-                currentPage: currentPage.value,
-                reason: 'no-programmatic-target',
-            });
-            return true;
-        }
-        if (page !== targetPage) {
-            logPdfRenderTrace('workspace-viewer-current-page-update-rejected', {
-                page,
-                targetPage,
-                currentPage: currentPage.value,
-                reason: 'target-pending',
-            });
-            return false;
-        }
-        logPdfRenderTrace('workspace-viewer-current-page-update-accepted', {
-            page,
-            targetPage,
-            currentPage: currentPage.value,
-            reason: 'target-caught-up',
-        });
-        settleProgrammaticPageNavigationTarget(page);
-        return true;
     }
 
     // A failed open never reaches the pdfSrc transition that normally resets
