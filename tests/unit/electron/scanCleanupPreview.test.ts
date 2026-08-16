@@ -29,6 +29,7 @@ import type {
     IScanCleanupPreviewRequest,
 } from '@contracts/electronApiScanCleanup';
 import {isScanCleanupErrorEnvelope} from '@contracts/electronApiScanCleanup';
+import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {atomicReplace} from '@electron/utils/atomicReplace';
@@ -4737,6 +4738,42 @@ describe('scan cleanup preview', () => {
                 documentCanvas: DOCUMENT_CANVAS,
             },
         ]);
+
+        if (lossless) {
+            // This is the preserveOriginalQuality row in the harness table:
+            // preview reports the same free-space offset that the lossless PDF
+            // assembler consumes, with pixel flooring only at the metadata
+            // boundary. A sign or rounding mutation makes this identity red.
+            for (const output of [
+                first.outputs[0]!.metadata,
+                second.outputs[0]!.metadata,
+            ]) {
+                const contentWidthPx = output.matchedCanvasContentWidthPx!;
+                const contentHeightPx = output.matchedCanvasContentHeightPx!;
+                const innerWidthPx = output.canvasWidthPx
+                    - output.appliedMargins.leftPx
+                    - output.appliedMargins.rightPx;
+                const innerHeightPx = output.canvasHeightPx
+                    - output.appliedMargins.topPx
+                    - output.appliedMargins.bottomPx;
+                const exportPlacement = resolveScanCleanupPlacementOffset(
+                    innerWidthPx - contentWidthPx,
+                    innerHeightPx - contentHeightPx,
+                    detectRequest.options.pageAlignment,
+                );
+                expect({
+                    previewX: output.placementOffsetXPx - output.appliedMargins.leftPx,
+                    previewY: output.placementOffsetYPx - output.appliedMargins.topPx,
+                    exportX: Math.floor(exportPlacement.x),
+                    exportY: Math.floor(exportPlacement.y),
+                }).toEqual({
+                    previewX: Math.floor(exportPlacement.x),
+                    previewY: Math.floor(exportPlacement.y),
+                    exportX: Math.floor(exportPlacement.x),
+                    exportY: Math.floor(exportPlacement.y),
+                });
+            }
+        }
     });
 
     it('carries a page the engine fitted below the document scale across the bridge', async () => {

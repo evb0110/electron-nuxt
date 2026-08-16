@@ -152,7 +152,7 @@ function expectDocumentScrollRegion(
     geometry: IBalancedScrollRegionGeometry,
     detail: string,
 ) {
-    expect(geometry.gutter, detail).toBe('auto');
+    expect(geometry.gutter, detail).toBe('stable');
     expect(geometry.clientWidth, detail).toBeGreaterThan(0);
     expect(geometry.horizontalOverflow, detail).toBeLessThanOrEqual(2);
 }
@@ -2591,7 +2591,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             '.editor-pane.is-active #pdf-viewer',
             '.editor-pane.is-active #pdf-viewer .page_container[data-page="1"]',
         );
-        expectBalancedScrollRegion(pdfPageGeometry, JSON.stringify({pdfPageGeometry}));
+        expectDocumentScrollRegion(pdfPageGeometry, JSON.stringify({pdfPageGeometry}));
         const pdfThumbnailGeometry = await readBalancedScrollRegionGeometry(
             session,
             '.editor-pane.is-active .pdf-thumbnails',

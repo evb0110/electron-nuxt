@@ -813,3 +813,31 @@ R21 2026-08-16 (Batch closed: crop-box and stroke-weight landed;
       pack, release verify wiring, .devkit prune); S8 supported-class
       declaration; Sauvola unit fix (sequenced, oracle now exists); VPS
       oracle port follow-ups.
+
+R22 2026-08-16 (consolidated remaining-problems implementation;
+   stay-fixed: pending until 2026-08-23):
+   1. Product/engineering queue: sparse-line oracle fallback, canonical
+      detection-cache promotion/reopen reuse, Sauvola sample-unit repair,
+      intentional unresolved-leaf adjudication, S6 deletions, supported-class
+      declaration, and parked-design drop decisions are complete. The accepted
+      book remains 288 Otsu / 27 Wolf / 0 Sauvola / 1 intentional unresolved;
+      whole-book weight remains 1,212.
+   2. CI/release queue: dependency advisories and genuinely new fallow findings
+      are fixed; moved duplicate identities are remeasured; quarantine canvas
+      assertions match the documented provisional/settled contract; native
+      Windows ARM64 execution and packaged macOS scan-cleanup verification are
+      wired fail-closed.
+   3. Placement/policy queue: fractional lossless placement has one owner and
+      preview/export coverage plus retained actual-export and PR #17 retro
+      packs; root working-document escape paths are rejected outside `docs/`.
+   4. Hygiene: merged program branches are absent; active/unowned heads are
+      preserved; `.devkit` is 554 MB with zero dispatch logs and no release
+      fixture dependency.
+   5. Governance decision: require exact `gates_ok`, require resolved review
+      conversations, and disable force pushes at landing while preserving the
+      attribution check. Issue #37 owns the honest 2026-08-23 R20/R21
+      stay-fixed rerun, including the 80R observation constraint.
+   6. Full dispositions and evidence are in
+      `docs/scan-cleanup/process/REMAINING-PROBLEMS-CLOSURE-2026-08-16.md`.
+      PR number, merge SHA, and live settings attestation are appended after
+      the CodeRabbit-reviewed landing.

@@ -36,12 +36,13 @@ jobs:
             platform: linux
             arch: arm64
 
-          # Windows — both run on x64 runner; arm64 cross-bundles via MSYS2 clangarm64.
-          # Pin to 2022 because the windows-2025 image currently exits during pnpm install.
+          # Windows x64 remains on 2022; arm64 uses the native hosted ARM64 runner
+          # so packaged sidecars execute in the release verification step below.
+          # Pin x64 to 2022 because the windows-2025 image currently exits during pnpm install.
           - os: windows-2022
             platform: win
             arch: x64
-          - os: windows-2022
+          - os: windows-11-arm
             platform: win
             arch: arm64
 
@@ -105,7 +106,18 @@ jobs:
         timeout-minutes: 20
         run: bash scripts/bundle-tools-linux.sh
 
+      - name: Verify Windows ARM64 MSYS2 toolchain
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in /c/msys64/usr/bin/pacman.exe /c/msys64/usr/bin/zstd.exe /c/msys64/usr/bin/tar.exe; do
+            test -x "$tool"
+          done
+          /c/msys64/usr/bin/pacman.exe --version
+
       # Windows: x64 downloads pre-built release ZIPs; arm64 uses MSYS2 clangarm64
+      # on the native ARM64 runner, allowing the packaged sidecar smoke to execute.
       - name: Bundle native tools (Windows)
         if: runner.os == 'Windows'
         shell: bash

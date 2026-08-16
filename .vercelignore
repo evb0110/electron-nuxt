@@ -35,6 +35,12 @@ landing/
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+**/HANDOFF.md
+**/NOTES.md
+**/TODO.md
+**/[hH][aA][nN][dD][oO][fF][fF].[mM][dD]
+**/[nN][oO][tT][eE][sS].[mM][dD]
+**/[tT][oO][dD][oO].[mM][dD]
 
 # Local scratch note. Outside the canonical policy — it may be committed — but it
 # is never product content, so the deploy filter drops it by exact basename.

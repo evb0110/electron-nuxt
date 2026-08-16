@@ -127,8 +127,11 @@ export function resolveScanCleanupPlacementOffset(
         horizontal = vertical,
     ] = alignment.split('-');
     return {
-        x: horizontal === 'left' ? 0 : horizontal === 'right' ? availableWidth : Math.floor(availableWidth / 2),
-        y: vertical === 'top' ? 0 : vertical === 'bottom' ? availableHeight : Math.floor(availableHeight / 2),
+        // Keep this in the geometry contract's native currency. Pixel callers
+        // may quantize the result at their serialization boundary, while the
+        // lossless PDF path must retain the fractional point offset.
+        x: horizontal === 'left' ? 0 : horizontal === 'right' ? availableWidth : availableWidth / 2,
+        y: vertical === 'top' ? 0 : vertical === 'bottom' ? availableHeight : availableHeight / 2,
     };
 }
 

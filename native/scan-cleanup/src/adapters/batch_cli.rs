@@ -163,7 +163,6 @@ struct WrittenOutput {
     tone_preservation_alpha_output_path: Option<PathBuf>,
     options: CleanupOptions,
     source_page_index: usize,
-    is_color: bool,
     half: crate::pipeline::PageHalf,
     width: usize,
     height: usize,
@@ -825,11 +824,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         .iter()
         .flat_map(|page_result| page_result.outputs.iter())
         .collect::<Vec<_>>();
-    match_page_sizes(
-        &written_outputs,
-        manifest.render_mode == RenderMode::Preview,
-        manifest.document_canvas,
-    )?;
+    match_page_sizes(&written_outputs, manifest.document_canvas)?;
     write_progress(Progress {
         stage: ProgressStage::Completed,
         completed_pages: manifest.pages.len(),
@@ -2431,7 +2426,6 @@ fn run_page(
                 tone_preservation_alpha_output_path,
                 options: options.clone(),
                 source_page_index: page.source_page_index,
-                is_color: output.color_image.is_some(),
                 half: output.metadata.half,
                 width: output.image.width(),
                 height: output.image.height(),
@@ -4017,7 +4011,6 @@ fn align_deferred_spread_vertical_placements<T>(
 
 fn match_page_sizes(
     outputs: &[&WrittenOutput],
-    preview_mode: bool,
     document_canvas: Option<DocumentCanvas>,
 ) -> Result<(), Box<dyn Error>> {
     let eligible = outputs
@@ -4072,12 +4065,6 @@ fn match_page_sizes(
     for (output, placement) in eligible.into_iter().zip(placements) {
         let repad_result = (|| -> Result<(), Box<dyn Error>> {
             validate_canvas(target_width, target_height, output)?;
-            let CanvasPlacement {
-                content_width,
-                content_height,
-                top,
-                ..
-            } = placement;
             let mut metadata: CleanupMetadata =
                 serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
             metadata.intrinsic_raster_width.get_or_insert(output.width);
@@ -4086,230 +4073,9 @@ fn match_page_sizes(
                 .get_or_insert(output.height);
             apply_canvas_metadata(&mut metadata, placement, &canvas);
 
-            // A preview leaves its raster at the resolution it was rendered at
-            // and reports the box it occupies, because the renderer scales it
-            // to the frame anyway. A final run owns the pixels the assembler
-            // embeds, so it resamples them onto the canvas grid here.
-            let rewrite_raster = !preview_mode
-                && (content_width != output.width
-                    || content_height != output.height
-                    || content_width != target_width
-                    || content_height != target_height);
-            // Resample whichever raster actually carries the page. Only one of
-            // the three is on disk, so this decodes each page at most once.
-            if rewrite_raster && !metadata.layered_written {
-                if metadata.bilevel_written {
-                    let bilevel_path = output.bilevel_output_path.as_ref().ok_or_else(|| {
-                        invalid("Bilevel cleanup metadata is missing its output destination")
-                    })?;
-                    let image = pbm::read_p4(
-                        bilevel_path,
-                        output.options.max_pixels,
-                        output.options.max_dimension,
-                    )
-                    .map_err(map_image_error)?;
-                    let canvas_image = place_on_white_canvas_with_source_window(
-                        &resample_bilevel(&image, content_width, content_height),
-                        target_width,
-                        target_height,
-                        placement.materialization_left,
-                        top,
-                        placement.materialization_source_offset_left,
-                        placement.materialization_source_offset_right,
-                        0,
-                    );
-                    pbm::write_p4_atomic(bilevel_path, &canvas_image)
-                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                } else if output.is_color {
-                    let image = raster::read_image(
-                        &output.output_path,
-                        output.options.max_pixels,
-                        output.options.max_dimension,
-                    )?
-                    .rgb;
-                    let canvas_image = place_rgb_on_white_canvas_with_source_window(
-                        &resample_rgb_if_needed(&image, content_width, content_height),
-                        target_width,
-                        target_height,
-                        placement.materialization_left,
-                        top,
-                        placement.materialization_source_offset_left,
-                        placement.materialization_source_offset_right,
-                        0,
-                    );
-                    png::write_rgb_atomic(&output.output_path, &canvas_image)
-                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                } else {
-                    let image = raster::read_gray(
-                        &output.output_path,
-                        output.options.max_pixels,
-                        output.options.max_dimension,
-                    )
-                    .map_err(map_image_error)?;
-                    let canvas_image = place_on_white_canvas_with_source_window(
-                        &resample_gray_if_needed(&image, content_width, content_height),
-                        target_width,
-                        target_height,
-                        placement.materialization_left,
-                        top,
-                        placement.materialization_source_offset_left,
-                        placement.materialization_source_offset_right,
-                        0,
-                    );
-                    png::write_gray_atomic(&output.output_path, &canvas_image)
-                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                }
-            }
-            if !preview_mode {
-                // The published raster is the canvas now, so the intrinsic
-                // dimensions the assembler and the renderer read are the ones
-                // it actually carries.
-                metadata.output_width = content_width;
-                metadata.output_height = content_height;
-            }
-            if !preview_mode && metadata.layered_written {
-                let layer_result = (|| -> Result<(), Box<dyn Error>> {
-                    let background_path =
-                        output.background_output_path.as_ref().ok_or_else(|| {
-                            invalid(
-                                "Layered cleanup metadata is missing its background destination",
-                            )
-                        })?;
-                    if metadata.layered_foreground_kind == Some(LayeredForegroundKind::SoftAlpha) {
-                        let alpha_path =
-                            output.foreground_alpha_output_path.as_ref().ok_or_else(|| {
-                                invalid(
-                                    "Soft layered cleanup metadata is missing its alpha destination",
-                                )
-                            })?;
-                        let alpha = raster::read_gray(
-                            alpha_path,
-                            output.options.max_pixels,
-                            output.options.max_dimension,
-                        )
-                        .map_err(map_image_error)?;
-                        let alpha = place_on_gray_canvas_with_source_window(
-                            &resample_gray_if_needed(&alpha, content_width, content_height),
-                            target_width,
-                            target_height,
-                            placement.materialization_left,
-                            top,
-                            0,
-                            placement.materialization_source_offset_left,
-                            0,
-                            placement.materialization_source_offset_right,
-                        );
-                        write_gray_layer_background(alpha_path, &alpha)
-                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                    } else {
-                        let mask_path =
-                            output.foreground_mask_output_path.as_ref().ok_or_else(|| {
-                                invalid("Layered cleanup metadata is missing its mask destination")
-                            })?;
-                        let mask = pbm::read_p4(
-                            mask_path,
-                            output.options.max_pixels,
-                            output.options.max_dimension,
-                        )
-                        .map_err(map_image_error)?;
-                        let mask = place_on_white_canvas_with_source_window(
-                            &resample_bilevel(&mask, content_width, content_height),
-                            target_width,
-                            target_height,
-                            placement.materialization_left,
-                            top,
-                            placement.materialization_source_offset_left,
-                            placement.materialization_source_offset_right,
-                            0,
-                        );
-                        pbm::write_p4_atomic(mask_path, &mask)
-                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                    }
-
-                    // The background carries the same page at a coarser grid,
-                    // so it is normalized on its own grid rather than on the
-                    // mask's: the pair keeps the ratio the assembler expects.
-                    let background_dpi = metadata
-                        .layered_background_dpi
-                        .unwrap_or_else(|| layered_background_dpi(&output.options, false));
-                    let background_ratio = background_dpi / output.options.dpi;
-                    let on_background_grid =
-                        |value: usize| ((value as f64 * background_ratio).round() as usize).max(1);
-                    let background_width = on_background_grid(target_width);
-                    let background_height = on_background_grid(target_height);
-                    let background_content_width = on_background_grid(content_width);
-                    let background_content_height =
-                        on_background_grid(content_height).min(background_height);
-                    let background_left = ((placement.materialization_left as f64
-                        * background_ratio)
-                        .round() as usize)
-                        .min(background_width - background_content_width);
-                    let background_source_offset_left =
-                        ((placement.materialization_source_offset_left as f64 * background_ratio)
-                            .round() as usize)
-                            .min(background_content_width);
-                    let background_source_offset_right =
-                        ((placement.materialization_source_offset_right as f64 * background_ratio)
-                            .round() as usize)
-                            .min(
-                                background_content_width
-                                    .saturating_sub(background_source_offset_left),
-                            );
-                    let background_top = ((top as f64 * background_ratio).round() as usize)
-                        .min(background_height - background_content_height);
-                    if output.is_color {
-                        let background = raster::read_image(
-                            background_path,
-                            output.options.max_pixels,
-                            output.options.max_dimension,
-                        )?
-                        .rgb;
-                        let background = place_rgb_on_white_canvas_with_source_window(
-                            &resample_rgb_if_needed(
-                                &background,
-                                background_content_width,
-                                background_content_height,
-                            ),
-                            background_width,
-                            background_height,
-                            background_left,
-                            background_top,
-                            background_source_offset_left,
-                            background_source_offset_right,
-                            0,
-                        );
-                        png::write_rgb_atomic(background_path, &background)
-                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                    } else {
-                        let background = raster::read_gray(
-                            background_path,
-                            output.options.max_pixels,
-                            output.options.max_dimension,
-                        )
-                        .map_err(map_image_error)?;
-                        let background = place_on_white_canvas_with_source_window(
-                            &resample_gray_if_needed(
-                                &background,
-                                background_content_width,
-                                background_content_height,
-                            ),
-                            background_width,
-                            background_height,
-                            background_left,
-                            background_top,
-                            background_source_offset_left,
-                            background_source_offset_right,
-                            0,
-                        );
-                        png::write_gray_atomic(background_path, &background)
-                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                    }
-                    Ok(())
-                })();
-                // The layer pair is this page's only raster once publication
-                // succeeded, so a failure here has nothing left to fall back to.
-                layer_result?;
-            }
+            // Final runs materialize matched outputs in `run_page`, so the
+            // deferred path only receives preview outputs. Preview keeps its
+            // intrinsic raster and reports the measured canvas placement.
             write_json_atomic(&output.metadata_path, &metadata)?;
             Ok(())
         })();
@@ -5919,7 +5685,6 @@ mod tests {
             tone_preservation_alpha_output_path: None,
             options: options.clone(),
             source_page_index: 0,
-            is_color: false,
             half: crate::pipeline::PageHalf::Left,
             width: 2_298,
             height: 2_810,

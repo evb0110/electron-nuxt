@@ -42,9 +42,13 @@ weighting has been hidden to make the raw count green.
    the canonical 150-DPI raster, so it deliberately omits a duplicate analysis
    path (especially for its one-shot FIFO transport). The preview harness
    reports placement identity true and no violations.
-6. **Stroke-width units — restored.** `estimated_stroke_width_px` again includes
-   the internal routing-sample scale and is expressed in full input pixels. Its
-   permanent unit test guards the Sauvola/UI contract; R19 is not included.
+6. **Stroke-width units — corrected after the routing landing.**
+   `estimated_stroke_width_px` is measured and thresholded in the bounded
+   routing sample, like the companion diagnostics. The former multiplication
+   by the internal sample scale made the `<= 8` Sauvola arm unreachable on
+   ordinary production-size pages. A four-times scale-invariance pin, a
+   production-sized high-illumination Sauvola fixture, and the degenerate
+   zero-stroke route now guard the unit contract.
 7. **Real scale pin — corrected.** The render pin compares a 192x256 canonical
    raster at 150 DPI with a 384x512 working raster at 299 DPI, where
    `analysis_is_full` is false. The canonical bypass mutation remains red.
@@ -74,6 +78,12 @@ The bounded band below changes exactly seven further leaves from Wolf to Otsu,
 so the landed inventory is 288 Otsu, 27 Wolf, and 1 unresolved. Fresh full-leaf
 captures at 150, 299, and 300 working DPI report identical canonical coverage,
 route, and reconciliation for all seven leaves, with 0 disagreements.
+
+The unresolved leaf is 126L (source page 126, left). Its deskew confidence is
+0.000, so the content crop is intentionally skipped and no route diagnostics
+are emitted; the black-and-white page output remains successful and typed.
+The paired 126R leaf routes Otsu. This is intended near-blank/low-confidence
+behavior, not an analysis failure.
 
 ## Near-boundary flat-lit Otsu band
 
@@ -240,3 +250,18 @@ passes adjudication despite the raw sparse-line count of 14. The rejected
 experiments remain rejected: a blanket canonical-anchor bias worsened the raw
 result, disabling Otsu fallback rescue did not change it, and a +24
 threshold/thickness surrogate would recreate an undisclosed substitution.
+
+## Parked-design disposition
+
+The two preserved weight-program prototypes are dropped, not scheduled product
+work.
+
+- The integer three-pass shear prototype remains falsified by staircase jitter
+  and its impressum regression. Its analysis is retained as historical evidence;
+  the implementation patch has no residual production value.
+- The renderer-faithful coverage-weight rescue gate remains technically viable
+  but unnecessary. The landed routing and line-budget fixes leave no oracle
+  offender class attributable to interpolation-halo rescue promotion, so a new
+  gate and threshold would add policy surface without changing an accepted
+  page. It should be reconsidered only if a future source-supported regression
+  isolates that mechanism and supplies a new RED/GREEN adjudication.

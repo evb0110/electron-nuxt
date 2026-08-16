@@ -6,6 +6,9 @@ import {
 } from 'vitest';
 import {
     createScanCleanupDetectionSessionCache,
+    discardScanCleanupDetectionStateForAliases,
+    isScanCleanupLifecycleIdentityPromotion,
+    promoteScanCleanupDetectionState,
     retireSupersededScanCleanupDetectionState,
     scanCleanupAutoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache,
@@ -90,5 +93,82 @@ describe('scan cleanup detection session cache', () => {
         expect(scanCleanupDetectionSessionCache.has('/revision.pdf\u0000old')).toBe(false);
         expect(scanCleanupDetectionSessionCache.has('/other.pdf\u0000old')).toBe(true);
         expect(scanCleanupAutoDetectionCanceledDocuments).toEqual(new Set(['/other.pdf\u0000old']));
+    });
+
+    it('promotes a same-path, same-revision cache entry and canceled marker to SHA identity', () => {
+        const sourcePath = '/docs/book.pdf';
+        const sourceSha256 = 'a'.repeat(64);
+        const provisionalLifecycleKey = `${sourcePath}\u0000revision-1`;
+        const authoritativeLifecycleKey = `${sourceSha256}\u0000revision-1`;
+        const cached = entry('owner-1');
+        scanCleanupDetectionSessionCache.set(provisionalLifecycleKey, cached);
+        scanCleanupAutoDetectionCanceledDocuments.add(provisionalLifecycleKey);
+
+        expect(promoteScanCleanupDetectionState({
+            provisionalLifecycleKey,
+            authoritativeLifecycleKey,
+            sourcePath,
+            sourceSha256,
+            documentRevision: 'revision-1',
+        })).toBe(true);
+
+        expect(scanCleanupDetectionSessionCache.get(provisionalLifecycleKey)).toBeUndefined();
+        expect(scanCleanupDetectionSessionCache.get(authoritativeLifecycleKey)).toBe(cached);
+        expect(scanCleanupAutoDetectionCanceledDocuments).toEqual(new Set([authoritativeLifecycleKey]));
+    });
+
+    it('does not promote across a changed path or revision', () => {
+        const sourcePath = '/docs/book.pdf';
+        const sourceSha256 = 'b'.repeat(64);
+        const provisionalLifecycleKey = `${sourcePath}\u0000revision-1`;
+        const pathChangedAuthoritativeLifecycleKey = `${sourceSha256}\u0000revision-1`;
+        const revisionChangedAuthoritativeLifecycleKey = `${sourceSha256}\u0000revision-2`;
+        scanCleanupDetectionSessionCache.set(provisionalLifecycleKey, entry());
+        scanCleanupAutoDetectionCanceledDocuments.add(provisionalLifecycleKey);
+
+        expect(isScanCleanupLifecycleIdentityPromotion(
+            provisionalLifecycleKey,
+            pathChangedAuthoritativeLifecycleKey,
+            '/docs/other.pdf',
+            sourceSha256,
+            'revision-1',
+        )).toBe(false);
+        expect(isScanCleanupLifecycleIdentityPromotion(
+            provisionalLifecycleKey,
+            revisionChangedAuthoritativeLifecycleKey,
+            sourcePath,
+            sourceSha256,
+            'revision-2',
+        )).toBe(false);
+        expect(promoteScanCleanupDetectionState({
+            provisionalLifecycleKey,
+            authoritativeLifecycleKey: revisionChangedAuthoritativeLifecycleKey,
+            sourcePath,
+            sourceSha256,
+            documentRevision: 'revision-2',
+        })).toBe(false);
+
+        expect(scanCleanupDetectionSessionCache.has(provisionalLifecycleKey)).toBe(true);
+        expect(scanCleanupDetectionSessionCache.has(revisionChangedAuthoritativeLifecycleKey)).toBe(false);
+        expect(scanCleanupAutoDetectionCanceledDocuments).toEqual(new Set([provisionalLifecycleKey]));
+    });
+
+    it('discards both provisional and authoritative aliases together', () => {
+        const sourcePath = '/docs/close.pdf';
+        const sourceSha256 = 'c'.repeat(64);
+        const provisionalLifecycleKey = `${sourcePath}\u0000revision-1`;
+        const authoritativeLifecycleKey = `${sourceSha256}\u0000revision-1`;
+        scanCleanupDetectionSessionCache.set(provisionalLifecycleKey, entry());
+        scanCleanupDetectionSessionCache.set(authoritativeLifecycleKey, entry());
+        scanCleanupAutoDetectionCanceledDocuments.add(provisionalLifecycleKey);
+        scanCleanupAutoDetectionCanceledDocuments.add(authoritativeLifecycleKey);
+
+        discardScanCleanupDetectionStateForAliases([
+            sourcePath,
+            authoritativeLifecycleKey,
+        ]);
+
+        expect(scanCleanupDetectionSessionCache.size).toBe(0);
+        expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
     });
 });

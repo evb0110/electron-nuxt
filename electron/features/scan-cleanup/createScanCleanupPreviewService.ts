@@ -2406,8 +2406,11 @@ async function runPreview(
                             outputHeightPx,
                             canvasWidthPx: resolvedCanvasWidth,
                             canvasHeightPx: resolvedCanvasHeight,
-                            placementOffsetXPx: marginLeft + placement.x,
-                            placementOffsetYPx: marginTop + placement.y,
+                            // Native placement is fractional in the shared
+                            // geometry contract; preview metadata is a pixel
+                            // artifact, so quantize only at this boundary.
+                            placementOffsetXPx: marginLeft + Math.floor(placement.x),
+                            placementOffsetYPx: marginTop + Math.floor(placement.y),
                             forwardTransform: null,
                             cutterXPx: pageMetadata.cutterXPx,
                             inputWidthPx: output.inputWidthPx,

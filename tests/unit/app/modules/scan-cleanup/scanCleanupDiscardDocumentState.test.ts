@@ -18,7 +18,9 @@ import {
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 
 const DOCUMENT_KEY = '/docs/discard-me.pdf';
+const SOURCE_SHA256 = 'd'.repeat(64);
 const LIFECYCLE_KEY = `${DOCUMENT_KEY}\u0000revision-1`;
+const AUTHORITATIVE_LIFECYCLE_KEY = `${SOURCE_SHA256}\u0000revision-1`;
 
 function cacheEntry() {
     return {
@@ -51,7 +53,9 @@ describe('discardScanCleanupDocumentState', () => {
 
     it('drops detection restore state and persisted overrides but keeps document margins', () => {
         scanCleanupDetectionSessionCache.set(LIFECYCLE_KEY, cacheEntry());
+        scanCleanupDetectionSessionCache.set(AUTHORITATIVE_LIFECYCLE_KEY, cacheEntry());
         scanCleanupAutoDetectionCanceledDocuments.add(LIFECYCLE_KEY);
+        scanCleanupAutoDetectionCanceledDocuments.add(AUTHORITATIVE_LIFECYCLE_KEY);
         saveScanCleanupDocumentOverrides(DOCUMENT_KEY, {'1': {
             rotationDegrees: 90,
             layoutOverride: 'spread',
@@ -65,8 +69,8 @@ describe('discardScanCleanupDocumentState', () => {
             bottomMm: 18,
         });
 
-        discardScanCleanupDocumentState(DOCUMENT_KEY);
-        discardScanCleanupDocumentState(DOCUMENT_KEY);
+        discardScanCleanupDocumentState(DOCUMENT_KEY, SOURCE_SHA256);
+        discardScanCleanupDocumentState(DOCUMENT_KEY, SOURCE_SHA256);
 
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
         expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);

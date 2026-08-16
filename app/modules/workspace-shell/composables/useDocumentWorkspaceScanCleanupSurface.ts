@@ -86,7 +86,15 @@ export const useDocumentWorkspaceScanCleanupSurface = (
 
     function closeScanCleanup() {
         surface.closeScanCleanup();
-        discardScanCleanupState();
+        surface.discardScanCleanupSessionState();
+        // Leaving the panel is not closing the source document. Reset the
+        // ephemeral view/preferences while retaining completed authoritative
+        // detection for a same-identity reopen.
+        discardScanCleanupDocumentState(
+            options.readDocumentKey(),
+            options.readSourceSha256?.() ?? null,
+            {discardDetection: false},
+        );
     }
 
     return {

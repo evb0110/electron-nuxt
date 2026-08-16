@@ -16,6 +16,11 @@ describe('Windows ARM64 native bundle policy', () => {
         expect(bundlerSource).toContain('MSYS2_ARM64_RUNTIME_DLL_EXCLUDES=(');
         expect(bundlerSource).toContain('libpango_training.dll');
         expect(bundlerSource).toContain('should_exclude_msys2_runtime_dll');
+        expect(bundlerSource).toContain('MSYS2_ROOT:-/c/msys64');
+        expect(bundlerSource).toContain('Architecture = aarch64');
+        expect(bundlerSource).toContain('[clangarm64]');
+        expect(bundlerSource).toContain('-Sp --noconfirm "${packages[@]}"');
+        expect(bundlerSource).toContain('MSYS2 ARM64 bundle tool not found');
 
         for (const destination of [
             '$TESSERACT_DIR/bin',

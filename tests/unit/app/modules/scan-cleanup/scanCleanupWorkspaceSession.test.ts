@@ -1837,6 +1837,138 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('promotes an in-flight path detection without a second native request', async () => {
+        const harness = capabilityHarness();
+        const sourcePath = '/docs/identity-promotion.pdf';
+        const sourceSha256 = ref<string | null>(null);
+        capability.value = harness.value;
+        const mounted = mountSession('identity-promotion', {
+            documentKey: () => sourcePath,
+            documentRevision: () => 'stable-revision',
+            sourcePath: () => sourcePath,
+            sourceSha256: () => sourceSha256.value,
+        });
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        vi.mocked(harness.value.cancelDetection).mockClear();
+        sourceSha256.value = 'e'.repeat(64);
+        await nextTick();
+
+        expect(harness.value.detectAll).toHaveBeenCalledOnce();
+        expect(harness.value.cancelDetection).not.toHaveBeenCalled();
+        expect(mounted.session.detection.isDetecting.value).toBe(true);
+
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value)
+            .toBe('completed'));
+        expect(scanCleanupDetectionSessionCache.has(
+            `${'e'.repeat(64)}\u0000stable-revision`,
+        )).toBe(true);
+        expect(scanCleanupDetectionSessionCache.has(
+            `${sourcePath}\u0000stable-revision`,
+        )).toBe(false);
+        mounted.unmount();
+    });
+
+    it('retains the displayed preview raster when identity is promoted', async () => {
+        const harness = capabilityHarness();
+        const sourcePath = '/docs/preview-identity-promotion.pdf';
+        const sourceSha256 = ref<string | null>(null);
+        vi.mocked(harness.value.preview).mockImplementation(async request => previewResult(
+            request.pageNumber,
+            'single-uncut-page',
+        ));
+        capability.value = harness.value;
+        const mounted = mountSession('preview-identity-promotion', {
+            documentKey: () => sourcePath,
+            documentRevision: () => 'stable-revision',
+            sourcePath: () => sourcePath,
+            sourceSha256: () => sourceSha256.value,
+        });
+
+        await vi.waitFor(() => expect(mounted.session.preview.result.value).not.toBeNull());
+        const displayed = mounted.session.preview.result.value;
+        vi.mocked(harness.value.cancelPreview).mockClear();
+        sourceSha256.value = 'f'.repeat(64);
+        await nextTick();
+
+        expect(harness.value.cancelPreview).not.toHaveBeenCalled();
+        expect(mounted.session.preview.result.value).toBe(displayed);
+        mounted.unmount();
+    });
+
+    it('reuses completed detection after authoritative reopen but invalidates it on settings change', async () => {
+        const harness = capabilityHarness();
+        const sourcePath = '/docs/authoritative-reopen.pdf';
+        const sourceSha256 = '1'.repeat(64);
+        const options = {
+            documentKey: () => sourcePath,
+            documentRevision: () => 'stable-revision',
+            sourcePath: () => sourcePath,
+            sourceSha256: () => sourceSha256,
+        };
+        capability.value = harness.value;
+        const first = mountSession('authoritative-reopen', options);
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(first.session.detection.terminalStatus.value)
+            .toBe('completed'));
+        first.unmount();
+
+        const reopened = mountSession('authoritative-reopen', options);
+        await nextTick();
+        expect(harness.value.detectAll).toHaveBeenCalledOnce();
+        expect(reopened.session.detection.terminalStatus.value).toBe('completed');
+
+        reopened.session.settings.values.layoutMode = 'force-single';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        reopened.unmount();
+    });
+
+    it('does not discard a previous document cache when the replacement document closes', async () => {
+        const harness = capabilityHarness();
+        const firstHash = '2'.repeat(64);
+        const secondHash = '3'.repeat(64);
+        const sourcePath = ref<string | null>('/docs/cache-alias-first.pdf');
+        const documentKey = ref<string | null>(sourcePath.value);
+        const sourceSha256 = ref<string | null>(firstHash);
+        capability.value = harness.value;
+        const mounted = mountSession('cache-alias-switch', {
+            documentKey: () => documentKey.value,
+            documentRevision: () => 'stable-revision',
+            sourcePath: () => sourcePath.value,
+            sourceSha256: () => sourceSha256.value,
+        });
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(scanCleanupDetectionSessionCache.has(
+            `${firstHash}\u0000stable-revision`,
+        )).toBe(true));
+
+        sourcePath.value = '/docs/cache-alias-second.pdf';
+        documentKey.value = sourcePath.value;
+        sourceSha256.value = secondHash;
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await vi.waitFor(() => expect(scanCleanupDetectionSessionCache.has(
+            `${secondHash}\u0000stable-revision`,
+        )).toBe(true));
+
+        sourcePath.value = null;
+        documentKey.value = null;
+        sourceSha256.value = null;
+        await nextTick();
+
+        expect(scanCleanupDetectionSessionCache.has(
+            `${firstHash}\u0000stable-revision`,
+        )).toBe(true);
+        expect(scanCleanupDetectionSessionCache.has(
+            `${secondHash}\u0000stable-revision`,
+        )).toBe(false);
+        mounted.unmount();
+    });
+
     it('rejects a stale completed status synchronously when Run follows a document switch', async () => {
         const harness = capabilityHarness();
         const sourcePath = ref('/docs/immediate-run-first.pdf');

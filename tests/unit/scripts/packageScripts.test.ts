@@ -164,16 +164,13 @@ describe('package scripts', () => {
             'test:e2e:electron:headless',
             'test:e2e:electron:blocking-smoke:headless',
             'test:e2e:electron:quarantine:headless',
-            'generate:scan-cleanup-threshold-baseline',
             'diag:scan-cleanup-preview-harness',
             'diag:scan-cleanup-representative-audit',
         ];
 
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
-        // S4 adds exactly three public scan-cleanup entry points: the two
-        // named diagnostics now enforced by S3 CI wiring and the machine-written
-        // O6 baseline generator. The canonical-identity release gate adds one
-        // explicit operator-visible entry point for its release-only corpus oracle.
+        // The canonical-identity release gate adds one explicit operator-visible
+        // entry point for its release-only corpus oracle.
         expect(Object.keys(scripts).length).toBeLessThanOrEqual(104);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
@@ -264,7 +261,6 @@ describe('package scripts', () => {
         expect(scriptCommands(scripts, 'test:rust')).toEqual([
             'cargo test --manifest-path native/Cargo.toml --workspace --locked',
             'pnpm exec tsx scripts/checkSearchNativeParity.ts',
-            'node scripts/architecture/generate-scan-cleanup-threshold-baseline.mjs --check',
         ]);
         const canonicalIdentityCommands = scriptCommands(
             scripts,

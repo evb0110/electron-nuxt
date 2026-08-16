@@ -45,12 +45,12 @@ import {
     type IScanCleanupRect,
     mapLosslessAnalysisRectToPdf,
     orientScanCleanupInsetsToPageSpace,
-    placeUniformBox,
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarning,
     resolveScanCleanupOutputPageSpacePaperRect,
     resolveScanCleanupPageCanvasBox,
+    placeScanCleanupCanvasBox,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@scan-cleanup-core/policy/documentCanvas';
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
@@ -423,7 +423,7 @@ export async function runLosslessScanCleanup(
                 const alignment = page.pageOverride.placementOverrides?.[output.half]
                     ?? request.options.pageAlignment;
                 if (Math.abs(scale - 1) <= CANVAS_CONTENT_SCALE_EPSILON) {
-                    const innerBox = placeUniformBox(
+                    const innerBox = placeScanCleanupCanvasBox(
                         output.cropRect,
                         innerWidth,
                         innerHeight,
@@ -437,7 +437,7 @@ export async function runLosslessScanCleanup(
                     };
                     continue;
                 }
-                const innerBox = placeUniformBox(
+                const placed = placeScanCleanupCanvasBox(
                     {
                         x: output.cropRect.x * scale,
                         y: output.cropRect.y * scale,
@@ -448,14 +448,10 @@ export async function runLosslessScanCleanup(
                     innerHeight,
                     alignment,
                 );
-                const placed = {
-                    x: innerBox.x - marginLeft,
-                    y: innerBox.y - marginBottom,
-                };
                 output.contentTransform = {
                     scale,
-                    translateX: -placed.x,
-                    translateY: -placed.y,
+                    translateX: -(placed.x - marginLeft),
+                    translateY: -(placed.y - marginBottom),
                 };
                 output.cropRect = {
                     x: 0,

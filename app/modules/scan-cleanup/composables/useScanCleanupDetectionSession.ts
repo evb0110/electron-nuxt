@@ -14,6 +14,7 @@ import {
     resolveScanCleanupPageLayout,
     shouldShowScanCleanupOutputEstimate,
 } from '@contracts/scanCleanupPageOverrides';
+import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {ComputedRef} from 'vue';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
@@ -21,6 +22,9 @@ import {formatScanCleanupPreAnalysisProgress} from '@app/modules/scan-cleanup/ru
 import {
     scanCleanupAutoDetectionCanceledDocuments as autoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache as detectionSessionCache,
+    discardScanCleanupDetectionStateForAliases,
+    isScanCleanupLifecycleIdentityPromotion,
+    promoteScanCleanupDetectionState,
     retireSupersededScanCleanupDetectionState,
     type IScanCleanupDetectionSessionCacheEntry as IDetectionSessionCacheEntry,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
@@ -41,6 +45,7 @@ interface IUseScanCleanupDetectionSessionOptions {
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
     settings: IScanCleanupOptions;
+    sourceSha256: ComputedRef<string | null>;
     sourcePath: ComputedRef<TDocumentRef | null>;
     totalPages: ComputedRef<number>;
 }
@@ -135,6 +140,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let scheduledAutoDetection: ReturnType<typeof setTimeout> | null = null;
     let detectionRetirementTail = Promise.resolve();
     const terminalWaiters = new Map<string, Set<() => void>>();
+    // The native detection cache owns both aliases while a source hash is
+    // being published. Keep only the current document's aliases so closing a
+    // workspace cannot erase an unrelated document's restore entry.
+    const documentAliases = new Set<string>();
+    let rememberedSourcePath = options.sourcePath.value;
+
+    function rememberDocumentAliases(lifecycleKey: string | null | undefined) {
+        if (lifecycleKey) documentAliases.add(lifecycleKey);
+        if (options.sourcePath.value) documentAliases.add(options.sourcePath.value);
+    }
 
     function enqueueDetectionRetirement(detectionJobId: string, documentRevision: string) {
         const capability = getScanCleanupCapability();
@@ -818,9 +833,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
     }
 
-    function cacheIsFresh(entry: IDetectionSessionCacheEntry) {
+    function cacheIsFresh(entry: IDetectionSessionCacheEntry, lifecycleDocumentKey: string) {
+        const documentIdentity = lifecycleDocumentKey?.split('\u0000', 1)[0] ?? '';
+        const authoritativeIdentity = isScanCleanupSourceSha256(options.sourceSha256.value)
+            && documentIdentity === options.sourceSha256.value.toLowerCase();
         if (
-            entry.ownerId !== options.ownerId
+            (!authoritativeIdentity && entry.ownerId !== options.ownerId)
             || entry.totalPages !== options.totalPages.value
             || entry.signatures.size !== options.totalPages.value
         ) {
@@ -833,8 +851,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function restoreSession(key: string | null) {
-        const cached = key ? detectionSessionCache.get(key) : undefined;
-        if (!cached || !cacheIsFresh(cached)) {
+        if (key === null) {
+            return false;
+        }
+        const cached = detectionSessionCache.get(key);
+        if (!cached || !cacheIsFresh(cached, key)) {
             return false;
         }
         jobDocumentKey = key;
@@ -917,6 +938,55 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         void maybeAutoDetect();
     });
     watch(options.lifecycleDocumentKey, (key, previousKey) => {
+        const promoted = previousKey !== undefined
+            && isScanCleanupLifecycleIdentityPromotion(
+                previousKey,
+                key,
+                options.sourcePath.value,
+                options.sourceSha256.value,
+                options.documentRevision.value,
+            );
+        const sourceChanged = Boolean(
+            options.sourcePath.value
+            && options.sourcePath.value !== rememberedSourcePath
+            && !promoted,
+        );
+        if (sourceChanged) {
+            documentAliases.clear();
+        }
+        rememberedSourcePath = options.sourcePath.value;
+        // A promotion owns both spellings of one document. On a real source
+        // switch, retaining the previous document here would let closing the
+        // new document evict an unrelated recent restore entry.
+        if (!sourceChanged) rememberDocumentAliases(previousKey);
+        rememberDocumentAliases(key);
+        if (promoted) {
+            promoteScanCleanupDetectionState({
+                provisionalLifecycleKey: previousKey,
+                authoritativeLifecycleKey: key,
+                sourcePath: options.sourcePath.value,
+                sourceSha256: options.sourceSha256.value,
+                documentRevision: options.documentRevision.value,
+            });
+            // Identity publication does not replace the source or revision.
+            // Keep the native job, accumulated evidence, and renderer state;
+            // only its cache key changes.
+            jobDocumentKey = key;
+            jobDocumentRevision = options.documentRevision.value;
+            if (jobState.value === null && !isDetecting.value) {
+                autoPending.value = Boolean(options.active() && options.sourcePath.value);
+                if (previousKey !== undefined) scheduleAutoDetect();
+            }
+            return;
+        }
+        if (key === null) {
+            // The workspace can stay mounted while its document is closed.
+            // This is the actual lifecycle boundary for detection state; a
+            // panel/session unmount alone must leave an authoritative entry
+            // available for a later reopen.
+            discardScanCleanupDetectionStateForAliases([...documentAliases]);
+            documentAliases.clear();
+        }
         retireSupersededScanCleanupDetectionState(key);
         requestGeneration += 1;
         if (jobId && isDetecting.value) {
@@ -948,6 +1018,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             scheduleAutoDetect();
         }
     }, {immediate: true});
+    watch(options.sourcePath, sourcePath => {
+        if (sourcePath !== null) {
+            return;
+        }
+        // Some document-close flows clear the acquired path before clearing
+        // their legacy key, so the lifecycle key watcher is not guaranteed to
+        // observe a null transition of its own.
+        discardScanCleanupDetectionStateForAliases([...documentAliases]);
+        documentAliases.clear();
+    });
     watch(options.active, active => {
         if (active) scheduleAutoDetect();
     });

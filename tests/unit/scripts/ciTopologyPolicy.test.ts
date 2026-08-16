@@ -315,13 +315,12 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs.pr_changed_areas.outputs.native_or_build == \'true\'');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: pnpm run test:rust');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: rustup component add rustfmt clippy');
+        expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: pnpm run lint:rust');
+        expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('uses: EmbarkStudios/cargo-deny-action@v2');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: pnpm run build:strict');
         expect(workflowJob(workflow, 'pr_native_build_safety')).not.toContain('run: pnpm run build:strict:no-wasm-check');
         expect(workflowJob(workflow, 'pr_native_build_safety')).not.toContain('run: pnpm run test:e2e');
-        expect(workflow).toContain('name: Native Rust Tests');
-        expect(workflowJob(workflow, 'manual_native')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
-        expect(workflowJob(workflow, 'manual_native')).toContain('run: rustup component add rustfmt clippy');
-        expect(workflowJob(workflow, 'manual_native')).toContain('run: pnpm run test:rust');
+        expect(workflow).not.toContain('manual_native:');
         expect(workflow).toContain('name: Landing Quality Gates');
         expect(workflow).toContain('name: Landing Quality Gates For Changed Sources');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('needs.pr_changed_areas.outputs.landing == \'true\'');
@@ -383,6 +382,7 @@ describe('CI topology policy', () => {
 
     it('verifies release build artifacts before upload', async () => {
         const workflow = await readProjectFile('.github/workflows/build.yml');
+        const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
         const macSigningScript = await readProjectFile('scripts/release/configure-macos-signing.sh');
         const macCertificateImportScript = await readProjectFile('scripts/release/import-macos-codesign-certificate.sh');
         const verifyStep = workflow.slice(
@@ -406,6 +406,11 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('if: runner.os == \'Linux\' && matrix.arch == \'x64\'');
         expect(workflow).toContain('xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable release/linux-unpacked/evb-viewer');
         expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/win-unpacked/EVB Viewer.exe"');
+        expect(workflow).toContain('os: windows-11-arm\n            platform: win\n            arch: arm64');
+        expect(workflow).toContain('name: Verify Windows ARM64 MSYS2 toolchain');
+        expect(workflow).toContain('/c/msys64/usr/bin/pacman.exe --version');
+        expect(workflow).toContain('run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"');
+        expect(workflow).toContain('name: Verify packaged app contents');
         expect(workflow).toContain('unpacked_dir="win-arm64-unpacked"');
         expect(workflow).toContain('"release/${unpacked_dir}/resources/app.asar"');
         expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"');
@@ -422,6 +427,19 @@ describe('CI topology policy', () => {
         expect(macCertificateImportScript).toContain('security import "$certificate_path"');
         expect(macCertificateImportScript).toContain('security set-key-partition-list');
         expect(macCertificateImportScript).toContain('Developer ID Application');
+
+        const packagedScanCleanupVerifier = workflowJob(releaseWorkflow, 'verify_packaged_scan_cleanup');
+        const publish = workflowJob(releaseWorkflow, 'publish');
+        expect(packagedScanCleanupVerifier).toContain('runs-on: macos-14');
+        expect(packagedScanCleanupVerifier).toContain('name: Resolve required packaged scan-cleanup fixture');
+        expect(packagedScanCleanupVerifier).toContain('getPackagedScanCleanupFixture');
+        expect(packagedScanCleanupVerifier).toContain('name: Download macOS arm64 package');
+        expect(packagedScanCleanupVerifier).toContain('PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES: ${{ steps.fixture.outputs.expected_pages }}');
+        expect(packagedScanCleanupVerifier).toContain('--expected-pages "$PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES"');
+        expect(packagedScanCleanupVerifier).toContain('--scale-only');
+        expect(packagedScanCleanupVerifier).toContain('name: Upload packaged scan-cleanup verifier evidence');
+        const publishNeeds = /\n {4}needs:\n((?: {6}- .+\n)+)/u.exec(publish)?.[1] ?? '';
+        expect(publishNeeds).toContain('- verify_packaged_scan_cleanup');
     });
 
     it('keeps release quality gates from requiring pre-bundle host Linux resources', async () => {

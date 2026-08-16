@@ -7749,8 +7749,8 @@ fn crop_gray_to_fit(
 
 /// Builds the sole Auto-routing input before working-resolution rendering.
 /// Picture ownership is removed on the fixed analysis grid. The classifier
-/// owns its bounded measurement sample so pixel-valued diagnostics retain the
-/// established full-input unit.
+/// owns its bounded measurement sample so pixel-valued route diagnostics stay
+/// in the same sample-space unit as their thresholds.
 fn crop_canonical_routing_input(
     source: &GrayImage,
     rect: Rect,

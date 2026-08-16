@@ -309,6 +309,33 @@ function validatePdfImagePlacement(
     return values;
 }
 
+type TResolvedPagePlan = ReturnType<ReturnType<typeof createPagePlanResolver>['resolve']>;
+
+function buildConversionPageMetadata({
+    documentPriorByPage,
+    layoutByPage,
+    pageMetadataPath,
+    pageNumber,
+    resolvedPagePlan,
+}: {
+    documentPriorByPage: IRunScanCleanupPipelineRequest['documentPriorByPage'];
+    layoutByPage: IRunScanCleanupPipelineRequest['layoutByPage'];
+    pageMetadataPath: string;
+    pageNumber: number;
+    resolvedPagePlan: TResolvedPagePlan | undefined;
+}) {
+    return {
+        ...(layoutByPage?.[String(pageNumber)] === undefined
+            ? {}
+            : {observedLayout: layoutByPage[String(pageNumber)]}),
+        ...(documentPriorByPage?.[String(pageNumber)] === undefined
+            ? {}
+            : {documentPrior: documentPriorByPage[String(pageNumber)]}),
+        ...resolvedPagePlan,
+        pageMetadataPath,
+    };
+}
+
 export async function runScanCleanupConversion(
     request: IRunScanCleanupPipelineRequest,
     paths: IScanCleanupWorkerPaths,
@@ -736,14 +763,13 @@ export async function runScanCleanupConversion(
                     ...(plan.resolvedOutputMode === undefined
                         ? {}
                         : {resolvedOutputMode: plan.resolvedOutputMode}),
-                    ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
-                        ? {}
-                        : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
-                    ...(request.documentPriorByPage?.[String(plan.pageNumber)] === undefined
-                        ? {}
-                        : {documentPrior: request.documentPriorByPage[String(plan.pageNumber)]}),
-                    ...resolvedPagePlanByNumber.get(plan.pageNumber),
-                    pageMetadataPath: '',
+                    ...buildConversionPageMetadata({
+                        documentPriorByPage: request.documentPriorByPage,
+                        layoutByPage: request.layoutByPage,
+                        pageMetadataPath: '',
+                        pageNumber: plan.pageNumber,
+                        resolvedPagePlan: resolvedPagePlanByNumber.get(plan.pageNumber),
+                    }),
                 };
             }),
         }));
@@ -911,14 +937,13 @@ export async function runScanCleanupConversion(
                     ? {}
                     : {preferSoftAlphaForeground:
                         request.softAlphaForegroundRecommendations[String(plan.pageNumber)]}),
-                ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
-                    ? {}
-                    : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
-                ...(request.documentPriorByPage?.[String(plan.pageNumber)] === undefined
-                    ? {}
-                    : {documentPrior: request.documentPriorByPage[String(plan.pageNumber)]}),
-                ...resolvedPagePlanByNumber.get(plan.pageNumber),
-                pageMetadataPath: join(scratch, `clean-${plan.pageNumber}-page.json`),
+                ...buildConversionPageMetadata({
+                    documentPriorByPage: request.documentPriorByPage,
+                    layoutByPage: request.layoutByPage,
+                    pageMetadataPath: join(scratch, `clean-${plan.pageNumber}-page.json`),
+                    pageNumber: plan.pageNumber,
+                    resolvedPagePlan: resolvedPagePlanByNumber.get(plan.pageNumber),
+                }),
                 outputs: [
                     0,
                     1,
@@ -1059,7 +1084,7 @@ export async function runScanCleanupConversion(
         };
         const renderedPageNumbers = new Set<number>();
         const releasedAnalysisPages = new Set<number>();
-        const analysisReleasePromises: Promise<void>[] = [];
+        const analysisReleasePromises: Array<Promise<void>> = [];
         const sourcePageNumberByManifestIndex = new Map(pages.map((page, index) => [
             index + 1,
             page.sourcePageIndex + 1,

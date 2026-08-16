@@ -20,14 +20,9 @@ function getGeneratedProtocolVersion(binaryName) {
 }
 
 // One exit-code and output-signature policy for every host that can execute the
-// packaged tools it verifies: macOS arm64, linux-x64, linux-arm64, and win-x64.
-//
-// Named gap — win-arm64. Its bundle is cross-built on an x64 Windows runner, so
-// no CI host can execute the arm64 binaries at all and this policy is never
-// applied to them. That leg's evidence is limited to the static PE machine,
-// dependency, and tesseract payload checks in verify-packaged-native-tools.sh,
-// which prints the gap by name. Closing it needs an arm64 Windows runner or a
-// post-release execution check on arm64 hardware.
+// packaged tools it verifies: macOS arm64, linux-x64, linux-arm64, win-x64, and
+// the native win-arm64 release lane. The verifier retains a named fallback gap
+// for callers that inspect a Windows ARM64 bundle from a non-ARM host.
 const PACKAGED_TOOL_SMOKE_POLICY = {
     'evb-pdf-image-combine': {
         allowedExitCodes: new Set([0]),

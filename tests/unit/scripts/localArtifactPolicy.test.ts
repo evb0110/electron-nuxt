@@ -10,7 +10,9 @@ import {
 interface ILocalArtifactPolicyModule {
     AGENT_INSTRUCTION_FILE_NAMES: string[];
     LOCAL_ONLY_DIRECTORY_NAMES: string[];
+    ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES: string[];
     REQUIRED_GITIGNORE_PATTERNS: string[];
+    REQUIRED_ROOT_GITIGNORE_PATTERNS: string[];
     describeForbiddenArtifactPath: (filePath: string) => string | null;
     findMissingGitIgnorePatterns: (content: string) => string[];
 }
@@ -42,6 +44,11 @@ describe('local artifact policy', () => {
             '.claude',
             '.codex',
             '.devkit',
+        ]);
+        expect(policy.ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES).toEqual([
+            'HANDOFF.md',
+            'NOTES.md',
+            'TODO.md',
         ]);
     });
 
@@ -94,6 +101,50 @@ describe('local artifact policy', () => {
             'tools/.devkit/notes.md',
             'local working directory .devkit/',
         ],
+        [
+            'HANDOFF.md',
+            'local working document HANDOFF.md outside docs/',
+        ],
+        [
+            'handoff.MD',
+            'local working document HANDOFF.md outside docs/',
+        ],
+        [
+            'notes.md',
+            'local working document NOTES.md outside docs/',
+        ],
+        [
+            'ToDo.MD',
+            'local working document TODO.md outside docs/',
+        ],
+        [
+            'scratch/HANDOFF.md',
+            'local working document HANDOFF.md outside docs/',
+        ],
+        [
+            'reports/2026/NOTES.md',
+            'local working document NOTES.md outside docs/',
+        ],
+        [
+            'docs/../TODO.md',
+            'local working document TODO.md outside docs/',
+        ],
+        [
+            'reports/../NOTES.md',
+            'local working document NOTES.md outside docs/',
+        ],
+        [
+            '../docs/HANDOFF.md',
+            'local working document HANDOFF.md outside docs/',
+        ],
+        [
+            'docs/../../docs/TODO.md',
+            'local working document TODO.md outside docs/',
+        ],
+        [
+            'devkit/plans/notes.md',
+            'local working document NOTES.md outside docs/',
+        ],
     ])('rejects %s', (filePath, expectedReason) => {
         expect(policy.describeForbiddenArtifactPath(filePath)).toContain(expectedReason);
     });
@@ -111,8 +162,13 @@ describe('local artifact policy', () => {
         'my-agents.md',
         'docs/AGENTS.md.bak',
         'docs/devkit-notes.md',
+        'docs/HANDOFF.md',
+        'docs/scan-cleanup/HANDOFF.md',
+        'docs/NOTES.md',
+        'docs/TODO.md',
+        'reports/../docs/HANDOFF.md',
+        'HANDOFF.mdx',
         'scripts/devkit/report.mjs',
-        'devkit/plans/notes.md',
     ])('keeps product path %s legal', (filePath) => {
         expect(policy.describeForbiddenArtifactPath(filePath)).toBeNull();
     });
@@ -121,18 +177,32 @@ describe('local artifact policy', () => {
         const gitIgnore = await readFile(path.join(process.cwd(), '.gitignore'), 'utf8');
 
         expect(policy.findMissingGitIgnorePatterns(gitIgnore)).toEqual([]);
-        // A leading slash would anchor the rule to the repository root and leave
-        // `landing/CLAUDE.md` trackable.
+        // Working documents are ignored outside docs/ but explicit negations
+        // keep tracked evidence under that top-level tree legal.
         expect(policy.REQUIRED_GITIGNORE_PATTERNS.some(pattern => pattern.startsWith('/'))).toBe(false);
+        expect(policy.REQUIRED_ROOT_GITIGNORE_PATTERNS).toEqual([
+            '**/HANDOFF.md',
+            '!docs/**/HANDOFF.md',
+            '**/NOTES.md',
+            '!docs/**/NOTES.md',
+            '**/TODO.md',
+            '!docs/**/TODO.md',
+        ]);
     });
 
     it('reports missing and anchored-only patterns as missing coverage', () => {
-        expect(policy.findMissingGitIgnorePatterns(`${policy.REQUIRED_GITIGNORE_PATTERNS.join('\n')}\n`))
+        expect(policy.findMissingGitIgnorePatterns([
+            ...policy.REQUIRED_GITIGNORE_PATTERNS,
+            ...policy.REQUIRED_ROOT_GITIGNORE_PATTERNS,
+        ].join('\n') + '\n'))
             .toEqual([]);
-        // A leading slash anchors the rule to the repository root, so the
-        // artifact stays trackable in every subdirectory.
+        // Omitting either the global ignore or the docs exception leaves a
+        // forbidden working document trackable (or hides legal evidence).
         expect(policy.findMissingGitIgnorePatterns('/AGENTS.md\n/CLAUDE.md\n'))
-            .toEqual(policy.REQUIRED_GITIGNORE_PATTERNS);
+            .toEqual([
+                ...policy.REQUIRED_GITIGNORE_PATTERNS,
+                ...policy.REQUIRED_ROOT_GITIGNORE_PATTERNS,
+            ]);
     });
 
     it('derives the web deploy exclusions from the same policy', () => {

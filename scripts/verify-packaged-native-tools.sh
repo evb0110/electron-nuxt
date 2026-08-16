@@ -611,7 +611,7 @@ if [ "$platform" = "win" ]; then
     run_host_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
     run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"
   else
-    echo "Named gap: no packaged-binary execution evidence for $platform_arch; the win-arm64 bundle is cross-built on an x64 Windows runner, so no CI host executes it. Evidence for this leg is limited to the static PE machine, dependency, and tesseract payload checks above."
+    echo "Named gap: no packaged-binary execution evidence for $platform_arch; host $(uname -s)/$(uname -m) cannot execute the target. The release workflow uses windows-11-arm for this lane; this fallback is retained for cross-host invocations. Evidence for this invocation is limited to the static PE machine, dependency, and tesseract payload checks above."
   fi
 fi
 

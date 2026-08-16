@@ -10,6 +10,10 @@ import {useDocumentWorkspaceScanCleanupSurface} from '@app/modules/workspace-she
 import type {IDocumentWorkspaceProps} from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
 import type {IWorkspaceDocumentIdentity} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import {
+    scanCleanupAutoDetectionCanceledDocuments,
+    scanCleanupDetectionSessionCache,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 
 type TDocumentSession = NonNullable<IDocumentWorkspaceProps['documentSession']>;
 
@@ -51,9 +55,33 @@ function viewState(overrides: Partial<ITabViewSessionState> = {}): ITabViewSessi
     };
 }
 
+function detectionCacheEntry() {
+    return {
+        ownerId: 'owner-1',
+        results: [],
+        signatures: new Map<number, string>(),
+        state: {
+            jobId: 'detect-1',
+            status: 'completed' as const,
+            progress: {
+                stage: 'detecting' as const,
+                completedUnits: 1,
+                totalUnits: 1,
+                percent: 100,
+                completedPageNumbers: [1],
+            },
+            results: [],
+            updatedAtMs: 0,
+        },
+        totalPages: 1,
+    };
+}
+
 describe('useDocumentWorkspaceScanCleanupSurface', () => {
     beforeEach(() => {
         localStorage.clear();
+        scanCleanupDetectionSessionCache.clear();
+        scanCleanupAutoDetectionCanceledDocuments.clear();
     });
 
     it('owns scan-cleanup transitions when no document session is available', () => {
@@ -184,6 +212,47 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         expect(surface.surfaceMode.value).toBe('reader');
         expect(surface.scanCleanupSessionState.value).toBeNull();
+    });
+
+    it('retains authoritative detection for panel close but discards both aliases on document close', () => {
+        const sourceSha256 = 'e'.repeat(64);
+        const documentKey = '/docs/current.pdf';
+        const provisionalKey = `${documentKey}\u0000revision-1`;
+        const authoritativeKey = `${sourceSha256}\u0000revision-1`;
+        const snapshot = ref({
+            ...({} as TDocumentSession['snapshot']['value']),
+            identity: identity(),
+            viewState: viewState({surfaceMode: 'scan-cleanup'}),
+        });
+        const documentSession: TDocumentSession = {
+            ...({} as TDocumentSession),
+            snapshot,
+            applyViewState: vi.fn((next: typeof snapshot.value.viewState) => {
+                snapshot.value = {
+                    ...snapshot.value,
+                    viewState: next,
+                };
+            }),
+        };
+        const surface = useDocumentWorkspaceScanCleanupSurface({
+            documentSession,
+            initialViewState: null,
+            closeAllDropdowns: vi.fn(),
+            readDocumentKey: () => documentKey,
+            readSourceSha256: () => sourceSha256,
+        });
+        scanCleanupDetectionSessionCache.set(provisionalKey, detectionCacheEntry());
+        scanCleanupDetectionSessionCache.set(authoritativeKey, detectionCacheEntry());
+        scanCleanupAutoDetectionCanceledDocuments.add(provisionalKey);
+        scanCleanupAutoDetectionCanceledDocuments.add(authoritativeKey);
+
+        surface.closeScanCleanup();
+        expect(scanCleanupDetectionSessionCache.has(authoritativeKey)).toBe(true);
+        expect(scanCleanupAutoDetectionCanceledDocuments.has(authoritativeKey)).toBe(true);
+
+        surface.discardScanCleanupState();
+        expect(scanCleanupDetectionSessionCache.size).toBe(0);
+        expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
     });
 
     it('stays on the reader surface for a session that never had a document', async () => {

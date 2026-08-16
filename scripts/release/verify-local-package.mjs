@@ -25,6 +25,7 @@ import {
     shouldVerifyPackagedStartup,
 } from './policy.mjs';
 import { notarizeMacDmgArtifacts } from './notarize-macos-dmgs.mjs';
+import { getPackagedScanCleanupFixture } from './scan-cleanup-release-fixture.mjs';
 
 const RELEASE_DIR = 'release';
 
@@ -145,20 +146,7 @@ function runPackagedScanCleanupVerifier(target) {
     if (target.platform !== 'mac') {
         return;
     }
-    // The strongest packaged verifier drives the packaged app through a real
-    // scan-cleanup conversion. Its source PDF is machine-local, so the gate
-    // follows the nightly-regress convention: a .devkit fixture config makes
-    // it REQUIRED, and its absence is an explicit skip line, never silence.
-    const fixtureConfigPath = resolve(process.cwd(), '.devkit/scan-cleanup-release-fixture.json');
-    if (!existsSync(fixtureConfigPath)) {
-        process.stdout.write(
-            'SKIPPED packaged scan-cleanup verification: no fixture config at '
-            + '.devkit/scan-cleanup-release-fixture.json (create {"source": <pdf>, '
-            + '"expectedPages": <n>} to make this a required local release gate).\n',
-        );
-        return;
-    }
-    const fixture = JSON.parse(readFileSync(fixtureConfigPath, 'utf8'));
+    const fixture = getPackagedScanCleanupFixture();
     run('pnpm', [
         'exec',
         'tsx',
@@ -166,9 +154,10 @@ function runPackagedScanCleanupVerifier(target) {
         '--executable',
         packagedMacExecutablePath(target),
         '--source',
-        fixture.source,
+        fixture.sourcePath,
         '--expected-pages',
         String(fixture.expectedPages),
+        '--scale-only',
         '--artifact-dir',
         resolve(process.cwd(), '.devkit/release-verify/scan-cleanup'),
     ], { stdio: 'inherit' });

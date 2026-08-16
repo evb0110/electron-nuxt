@@ -27,6 +27,7 @@ import type {
     Ref,
 } from 'vue';
 import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPrefetcher';
+import {isScanCleanupLifecycleIdentityPromotion} from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 import {
     createScanCleanupPreviewCache,
     SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR,
@@ -64,6 +65,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     previewPage: Ref<number>;
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
     recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
+    sourceSha256?: ComputedRef<string | null>;
     softAlphaForegroundRecommendationByPage: ReadonlyMap<number, boolean>;
     selectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) => void;
     settings: IScanCleanupOptions;
@@ -199,9 +201,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let scheduledKey: string | null = null;
     let cancellationRetryKey: string | null = null;
     let cancellationRetries = 0;
-    // The source identity can remain stable while its lifecycle generation is
-    // retired (for example after its SHA becomes available). Keep that event in
-    // the scheduling/cache identity so clearing state always causes fresh work.
+    // A real source/revision lifecycle change retires this generation. A
+    // guarded path-to-SHA identity promotion leaves it untouched so retained
+    // rasters and in-flight preview work remain valid.
     const lifecycleGeneration = ref(0);
     let userPresentationGeneration = 0;
     let activeVisibleRequestId: string | null = null;
@@ -907,7 +909,20 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // invalidate the retained document.
         else cancel(false);
     }, {immediate: true});
-    watch(options.lifecycleDocumentKey, () => {
+    watch(options.lifecycleDocumentKey, (key, previousKey) => {
+        if (previousKey !== undefined && isScanCleanupLifecycleIdentityPromotion(
+            previousKey,
+            key,
+            options.sourcePath.value,
+            options.sourceSha256?.value ?? null,
+            options.documentRevision.value,
+        )) {
+            // The source path, revision, raster bytes, and native request are
+            // unchanged. Promotion only changes detection's restore alias;
+            // retaining this session avoids canceling an in-flight preview or
+            // discarding the already streamed raster.
+            return;
+        }
         cancel();
         lifecycleGeneration.value += 1;
         cancellationRetryKey = null;

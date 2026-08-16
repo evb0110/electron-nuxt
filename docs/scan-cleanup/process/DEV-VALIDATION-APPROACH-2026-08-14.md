@@ -168,13 +168,9 @@ T1 POLICY-BOUND JUDGMENT, mechanized execution. Human judgment defines
    fixture labels (fix: re-derive by independent MEASUREMENT — e.g.
    higher-DPI geometric re-check — not a second opinion), mutation
    intent (fix: assert violation-class ids derived from code),
-   threshold growth (fix: a ~10-line tripwire counting named f32/f64
-   consts in native/scan-cleanup/src; the count is COMPUTED at gate
-   time and diffed against a committed machine-written baseline — the
-   round-4 reviewers' independent manual counts of this very
-   population differed by one, which is the proof that transcription
-   is never authoritative; count may not rise without a paired
-   baseline update — the one mechanism attacking defect GENERATION),
+   threshold growth (historical O6 proposal, retired in S6: a syntax
+   count of named f32/f64 consts was not retained as a quality gate;
+   no transcribed or committed threshold is authoritative),
    report classification (B1), touched-surface maps (fix: R11 +
    census).
 T2 EVENT-CHAINED EVIDENCE. The immutable substrate the orchestrator
@@ -314,11 +310,11 @@ O5 Perf: harness already emits wall_time_ms / mean_wall_time_ms_per_
    invoked-nonblocking until workload, runner, warm/cold policy,
    variance rule, and a comparable baseline representation are
    defined; Electron-side budgets exist in matchedCanvas (one spec).
-O6 Threshold-count tripwire (T1 flagship; ~10 lines, blocking):
-   COMPUTES the named-const count at gate time and diffs against a
-   committed machine-written baseline file; no transcribed count
-   anywhere is authoritative; count may not rise without a paired
-   baseline update in the same diff.
+O6 Threshold-count tripwire (RETIRED in S6): the syntax-count tripwire,
+   generator, baseline, and Rust-script pin were deleted. The project
+   does not treat the number of named f32/f64 declarations as a proxy for
+   defect generation; behavior and native validation remain covered by
+   the substantive Rust and export gates below.
 O7 Changed-area repair (R11) — LANDED in S1: `scan-cleanup-core/**`
    and `scan-cleanup-adapters/**` matched NO area (the blocking smoke lane
    silently skipped the package owning the preview/final seam). The
@@ -416,14 +412,13 @@ S3 Ground-truth re-adjudication (R2) with measurement-based labels
    for the nonzero catastrophe entries and the 100%-ink-loss
    (minimumIou 0.0) fixture — a live I1 violation currently blessed
    as accepted state. Must precede any baseline regeneration.
-S4 Wire what exists (O1 narrowed + O6 computed + O5-lite): ratchet
+S4 Wire what exists (O1 narrowed + O5-lite): ratchet
    baseline REGENERATED FROM RE-ADJUDICATED LABELS and hooked into
    test:rust; audit + preview-harness package scripts run in the
    native validation stage with one tracked specimen caller; the
    never-executed regress-net job DELETED (its gating variable was
    never set and its manifest path is private) unless a hosted
-   manifest exists by then; threshold tripwire in computed-diff form
-   (see O6). No timing ratchet here: the harness's timings are
+   manifest exists by then. No timing ratchet here: the harness's timings are
    non-comparable (O5) and a ratchet waits on defined benchmark
    conditions.
 S5 e2e: TRIAGE FIRST — root-cause the destination lane's measured
@@ -435,6 +430,13 @@ S5 e2e: TRIAGE FIRST — root-cause the destination lane's measured
 S6 E1a invariant assertions (I1-I3) guarding content loss and
    preview/final parity — after S3 so the invariants are not written
    against a baseline that contradicts them.
+S6 deletion disposition (landed with this amendment): remove only the
+   final-render-only deferred raster and layer rewrites after re-verifying
+   that matched-page-size preview manifests reach the retained placement
+   path; keep clippy and cargo-deny in the retained PR/push native lane
+   before deleting the workflow-dispatch-only duplicate native job; retire
+   O6's generator, baseline, and package-script pin. Quarantine graduation
+   pins remain policy-owned and are not deleted by this item.
 Later (appendix, unscheduled): Tier B/C residency, E1b redesign,
    full oracle-assurance formalism, transcript receipts/hash chains,
    landing-rate caps, review classifier (see B1: v1 is no classifier).
@@ -445,8 +447,9 @@ Round 4 (opus-xhigh + sol-xhigh, exhaustive) both returned "not
 ready" with convergent MINIMAL deltas; this FINAL version applies
 them. Dispositions of their headline items:
 - Figures: both reviewers' independent counts of the same constant
-  population differed (166 vs 167). Adopted as policy: no transcribed
-  measurement is authoritative; gates compute and diff (O6 et al.).
+  population differed (166 vs 167). The proposed syntax-count gate was
+  retired in S6; no transcribed measurement or committed threshold is
+  authoritative.
 - Scope guard made operative: digest references struck from F18/B5;
   G3 daily landing cap deleted (1h closure soak kept); T2/B1
   automated join test and classifier moved to appendix-deferred
