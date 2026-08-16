@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    mapScanCleanupRasterPages,
     readAvailableScratchBytes,
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
@@ -143,5 +144,33 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         const workingBytes = 200 * 400 * 3 + 64 * 1024;
         const canonicalBytes = 100 * 200 * 3 + 64 * 1024;
         expect(result.estimatedBytes).toBe(workingBytes * 2 + canonicalBytes);
+    });
+
+    it('waits for every raster worker before rethrowing a sibling failure', async () => {
+        const siblingStarted = Promise.withResolvers<undefined>();
+        const releaseSibling = Promise.withResolvers<undefined>();
+        let settled = false;
+        const run = mapScanCleanupRasterPages([
+            1,
+            2,
+        ], 2, async (_value, index) => {
+            if (index === 0) {
+                await Promise.resolve();
+                throw new Error('first raster failed');
+            }
+            siblingStarted.resolve(undefined);
+            await releaseSibling.promise;
+            return index;
+        }).finally(() => {
+            settled = true;
+        });
+
+        await siblingStarted.promise;
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        releaseSibling.resolve(undefined);
+        await expect(run).rejects.toThrow('first raster failed');
+        expect(settled).toBe(true);
     });
 });

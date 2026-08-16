@@ -170,7 +170,9 @@ const {
     buildNativeScanCleanupManifest,
     buildScanCleanupCompactManifest,
     buildScanCleanupPageOpsInstructions,
+    DETECTION_DPI,
     resolveScanCleanupRequestedRenderDpi,
+    resolveScanCleanupMatchedCanvasPlacement,
     serializeLegacyScanCleanupCompactManifest,
     serializeLegacyScanCleanupPageOpsInstructions,
 } = await tsImport('../../scan-cleanup-core/index.ts', import.meta.url);
@@ -261,9 +263,9 @@ const corpusOptions = {
     skipBlankPages: false,
     pageOverrides: {},
 };
-// The production preview service makes the durable Auto decision at 150 DPI.
-// Verify that decision on the same grid, then replay it on final-quality input.
-const DETECTION_DPI = 150;
+// The production preview service makes the durable Auto decision on the
+// canonical detection grid. Verify that decision on the same grid, then replay
+// it on final-quality input.
 // A physical 0.05 mm tolerance is about 0.7 pixels on the current 360-DPI
 // dominant-bilevel grid. It covers coordinate rounding without coupling this
 // exact source-component ledger to whichever render grid policy is active.
@@ -861,17 +863,19 @@ function sourceMrcForegroundPdfMatrix(page, pageWidthPoints, pageHeightPoints) {
     }
     const inputScaleX = metadata.inputWidthPx / trustedMrcLayers.foregroundWidth;
     const inputScaleY = metadata.inputHeightPx / trustedMrcLayers.foregroundHeight;
-    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
-    const contentHeight = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const matchScaleX = contentWidth / metadata.outputWidthPx;
-    const matchScaleY = contentHeight / metadata.outputHeightPx;
+    const {
+        matchScaleX,
+        matchScaleY,
+        effectivePlacementOffsetXPx,
+        effectivePlacementOffsetYPx,
+    } = resolveScanCleanupMatchedCanvasPlacement(metadata);
     const sourceToCanvas = {
         a: matrix[0][0] * inputScaleX * matchScaleX,
         b: matrix[0][1] * inputScaleY * matchScaleX,
-        c: matrix[0][2] * matchScaleX + metadata.placementOffsetXPx,
+        c: matrix[0][2] * matchScaleX + effectivePlacementOffsetXPx,
         d: matrix[1][0] * inputScaleX * matchScaleY,
         e: matrix[1][1] * inputScaleY * matchScaleY,
-        f: matrix[1][2] * matchScaleY + metadata.placementOffsetYPx,
+        f: matrix[1][2] * matchScaleY + effectivePlacementOffsetYPx,
     };
     const pointScaleX = pageWidthPoints / metadata.canvasWidthPx;
     const pointScaleY = pageHeightPoints / metadata.canvasHeightPx;

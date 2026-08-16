@@ -1,3 +1,11 @@
+import {createHash} from 'node:crypto';
+import {
+    mkdtemp,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {
     afterEach,
     describe,
@@ -24,6 +32,7 @@ import {
     encodeScanCleanupProvenanceStampHex,
     materializeScanCleanupStampOptions,
     readScanCleanupStampGitSha,
+    sha256ScanCleanupFile,
     resolveEffectiveScanCleanupOptions,
     resolveScanCleanupPageScope,
     verifyScanCleanupProvenanceStampHex,
@@ -53,6 +62,8 @@ const options: IScanCleanupOptions = {
     skipBlankPages: false,
     pageOverrides: {},
 };
+
+const temporaryDirectories: string[] = [];
 
 function effectiveOptions(pageNumber: number) {
     const resolved = resolveEffectiveScanCleanupOptions({
@@ -112,6 +123,28 @@ function buildSinglePageStamp(gitSha?: string) {
 describe('scan-cleanup provenance stamp contract', () => {
     afterEach(() => {
         vi.unstubAllEnvs();
+    });
+
+    afterEach(async () => {
+        await Promise.all(temporaryDirectories.splice(0).map(path => rm(path, {
+            force: true,
+            recursive: true,
+        })));
+    });
+
+    it('preserves the SHA-256 digest while hashing a multi-chunk source stream', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'scan-cleanup-provenance-test-'));
+        temporaryDirectories.push(directory);
+        const source = join(directory, 'source.pdf');
+        const bytes = Buffer.concat([
+            Buffer.alloc(256 * 1024, 0x61),
+            Buffer.alloc(256 * 1024, 0x62),
+            Buffer.alloc(256 * 1024, 0x63),
+        ]);
+        await writeFile(source, bytes);
+
+        const expected = createHash('sha256').update(bytes).digest('hex');
+        await expect(sha256ScanCleanupFile(source)).resolves.toBe(expected);
     });
 
     it('canonicalizes sorted-key JSON and materializes stripped defaults', () => {

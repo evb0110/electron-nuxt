@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {readFile} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
 import type {
     INativeScanCleanupOptionsV3,
     IScanCleanupManualZones,
@@ -161,12 +161,15 @@ function sha256ScanCleanupJson(value: unknown): string {
     return sha256Utf8(canonicalScanCleanupJson(value));
 }
 
-function sha256ScanCleanupBytes(value: Uint8Array | string): string {
-    return createHash('sha256').update(value).digest('hex');
-}
-
 export async function sha256ScanCleanupFile(path: string): Promise<string> {
-    return sha256ScanCleanupBytes(await readFile(path));
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(path)) {
+        if (typeof chunk !== 'string' && !Buffer.isBuffer(chunk)) {
+            throw new Error(`Scan cleanup source stream produced an unsupported chunk: ${path}`);
+        }
+        hash.update(chunk);
+    }
+    return hash.digest('hex');
 }
 
 export function materializeScanCleanupStampOptions({

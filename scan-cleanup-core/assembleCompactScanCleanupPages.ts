@@ -8,9 +8,7 @@ import type {
     INativeScanCleanupPageMetadataV3,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
-import {
-    getScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import type {
     IDetectedPageRaster,
     IPdfMrcLayers,
@@ -22,6 +20,7 @@ import type {
 } from '@scan-cleanup-core/types';
 import {
     placeScanCleanupCanvasBox,
+    resolveScanCleanupMatchedCanvasPlacement,
     type IScanCleanupRect,
     mapLosslessAnalysisRectToPdf,
 } from '@scan-cleanup-core/policy/documentCanvas';
@@ -93,21 +92,19 @@ export function sourceMrcForegroundPdfMatrix(
     }
     const inputScaleX = metadata.inputWidthPx / layers.foregroundWidth;
     const inputScaleY = metadata.inputHeightPx / layers.foregroundHeight;
-    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
-    const contentHeight = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const intrinsicWidth = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
-    const intrinsicHeight = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
-    const matchScaleX = contentWidth / intrinsicWidth;
-    const matchScaleY = contentHeight / intrinsicHeight;
-    const offsetX = metadata.placementOffsetXPx;
-    const offsetY = metadata.placementOffsetYPx;
+    const {
+        matchScaleX,
+        matchScaleY,
+        effectivePlacementOffsetXPx,
+        effectivePlacementOffsetYPx,
+    } = resolveScanCleanupMatchedCanvasPlacement(metadata);
     const sourceToCanvas = {
         a: matrix[0]![0]! * inputScaleX * matchScaleX,
         b: matrix[0]![1]! * inputScaleY * matchScaleX,
-        c: matrix[0]![2]! * matchScaleX + offsetX,
+        c: matrix[0]![2]! * matchScaleX + effectivePlacementOffsetXPx,
         d: matrix[1]![0]! * inputScaleX * matchScaleY,
         e: matrix[1]![1]! * inputScaleY * matchScaleY,
-        f: matrix[1]![2]! * matchScaleY + offsetY,
+        f: matrix[1]![2]! * matchScaleY + effectivePlacementOffsetYPx,
     };
     const pointScaleX = pageWidthPoints / metadata.canvasWidthPx;
     const pointScaleY = pageHeightPoints / metadata.canvasHeightPx;

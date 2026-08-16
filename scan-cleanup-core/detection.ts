@@ -1,4 +1,3 @@
-import {constants as fsConstants} from 'node:fs';
 import {
     open,
     readFile,
@@ -36,7 +35,6 @@ import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@scan-cleanup-core/policy/effectiveOptions';
 import {
-    logRasterHandoff,
     readAvailableScratchBytes,
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
@@ -45,10 +43,10 @@ import {
     scanCleanupDocumentCanvasSignature,
 } from '@scan-cleanup-core/policy/documentCanvas';
 
-export const PREVIEW_DPI = 150;
+export const DETECTION_DPI = 150;
+export const PREVIEW_DPI = DETECTION_DPI;
 // Native mode selection, preview, and final rendering share this canonical
 // analysis grid. The separate working raster remains free to follow source DPI.
-export const DETECTION_DPI = 150;
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
 const PREVIEW_MAX_IMAGE_PIXELS = 45_000_000;
 
@@ -359,130 +357,6 @@ async function mapDetectionPages<T>(
     return results;
 }
 
-type TScanCleanupFileHandle = Awaited<ReturnType<typeof open>>;
-
-function waitForAbort<T>(operation: Promise<T>, signal: AbortSignal) {
-    if (signal.aborted) {
-        return Promise.reject(signal.reason);
-    }
-    return new Promise<T>((resolve, reject) => {
-        const cleanup = () => signal.removeEventListener('abort', onAbort);
-        const onAbort = () => {
-            cleanup();
-            reject(signal.reason);
-        };
-        signal.addEventListener('abort', onAbort, {once: true});
-        void operation.then(value => {
-            cleanup();
-            resolve(value);
-        }, error => {
-            cleanup();
-            reject(error);
-        });
-        if (signal.aborted) onAbort();
-    });
-}
-
-async function openRasterPipeForWriting(pipePath: string, signal: AbortSignal) {
-    signal.throwIfAborted();
-    const opening = open(pipePath, 'w');
-    return new Promise<TScanCleanupFileHandle>((resolve, reject) => {
-        let aborted = false;
-        const cleanup = () => signal.removeEventListener('abort', onAbort);
-        const onOpened = (handle: TScanCleanupFileHandle) => {
-            // The abort handler owns the late handle and closes it after the
-            // rescue reader has released the blocked open.
-            if (aborted) {
-                return;
-            }
-            cleanup();
-            resolve(handle);
-        };
-        const onOpenFailed = (error: unknown) => {
-            if (aborted) {
-                return;
-            }
-            cleanup();
-            reject(error);
-        };
-        const onAbort = () => {
-            if (aborted) {
-                return;
-            }
-            aborted = true;
-            cleanup();
-            void (async () => {
-                let rescueReader: TScanCleanupFileHandle | null = null;
-                try {
-                    // POSIX does not make a blocking fs.open() interruptible by
-                    // AbortSignal. A non-blocking rescue reader wakes the
-                    // writer open; scratch cleanup removes the FIFO and the
-                    // remaining stream artifacts.
-                    rescueReader = await open(
-                        pipePath,
-                        fsConstants.O_RDONLY | fsConstants.O_NONBLOCK,
-                    );
-                } catch {
-                    // If the FIFO was already torn down, the blocked open will
-                    // fail on its own.
-                }
-                try {
-                    const handle = await opening;
-                    await handle.close().catch(() => undefined);
-                } catch {
-                    // The original open may fail as the scratch directory is
-                    // torn down during cancellation.
-                }
-                await rescueReader?.close().catch(() => undefined);
-                reject(signal.reason);
-            })();
-        };
-        signal.addEventListener('abort', onAbort, {once: true});
-        void opening.then(onOpened, onOpenFailed);
-        if (signal.aborted) onAbort();
-    });
-}
-
-async function copyRasterToPipe(
-    sourcePath: string,
-    pipePath: string,
-    signal: AbortSignal,
-) {
-    signal.throwIfAborted();
-    const source = await open(sourcePath, 'r');
-    let pipe: TScanCleanupFileHandle | null = null;
-    const closePipeOnAbort = () => {
-        void pipe?.close().catch(() => undefined);
-    };
-    signal.addEventListener('abort', closePipeOnAbort, {once: true});
-    try {
-        pipe = await openRasterPipeForWriting(pipePath, signal);
-        signal.throwIfAborted();
-        const buffer = Buffer.allocUnsafe(1024 * 1024);
-        for (;;) {
-            signal.throwIfAborted();
-            const {bytesRead} = await source.read(buffer, 0, buffer.byteLength, null);
-            if (bytesRead === 0) break;
-            let offset = 0;
-            while (offset < bytesRead) {
-                signal.throwIfAborted();
-                const {bytesWritten} = await pipe.write(
-                    buffer,
-                    offset,
-                    bytesRead - offset,
-                    null,
-                );
-                if (bytesWritten < 1) throw new Error('Scan cleanup FIFO writer made no progress');
-                offset += bytesWritten;
-            }
-        }
-    } finally {
-        signal.removeEventListener('abort', closePipeOnAbort);
-        if (pipe !== null) await pipe.close().catch(() => undefined);
-        await source.close().catch(() => undefined);
-    }
-}
-
 function normalizeDetectionContentBox(
     output: INativeScanCleanupAnalysisOutputV3,
     rotationDegrees: IScanCleanupPagePlanEvidence['rotationDegrees'],
@@ -659,65 +533,30 @@ export async function runScanCleanupDetection<TDocument>(
         };
         let analyzedPages = 0;
         const completedPages = new Set<number>();
-        // Detection and final rendering use the same canonical 150-DPI
-        // analysis plane. On POSIX, feed raw PPM through FIFOs so native starts
-        // classifying the first page while Poppler produces the rest.
-        let streamRasters = process.platform !== 'win32'
-            && dependencies.createRasterPipes !== undefined;
-        if (streamRasters && pageNumbers.length > 0) {
-            const handoff = await resolveRasterHandoff(
-                pageNumbers.map(pageNumber => {
-                    const dpi = detectionDpiForPage(pageNumber);
-                    const limits = resolveRasterRenderLimits(pageSizeByNumber.get(pageNumber), dpi);
-                    return {
-                        renderDpi: dpi,
-                        renderCopies: 2,
-                        raster: {
-                            dpi,
-                            width: limits.expectedWidthPx,
-                            height: limits.expectedHeightPx,
-                        },
-                    };
-                }),
-                scratch,
-                dependencies.getAvailableScratchBytes ?? readAvailableScratchBytes,
-                policy.rasterConcurrency,
-            );
-            logRasterHandoff(log, 'detection stream', handoff);
-            // The fallback already has a bounded retained-PNG path. Use it
-            // when producer PPMs plus native materializations do not fit the
-            // simultaneous scratch allowance.
-            streamRasters = handoff.format === 'ppm';
-        }
         const retained = new Map<number, IScanCleanupRetainedRaster>();
-        if (!streamRasters) {
-            const pagesByDpi = new Map<number, number[]>();
-            for (const pageNumber of pageNumbers) {
-                const dpi = detectionDpiForPage(pageNumber);
-                const group = pagesByDpi.get(dpi) ?? [];
-                group.push(pageNumber);
-                pagesByDpi.set(dpi, group);
-            }
+        const pagesByDpi = new Map<number, number[]>();
+        for (const pageNumber of pageNumbers) {
+            const dpi = detectionDpiForPage(pageNumber);
+            const group = pagesByDpi.get(dpi) ?? [];
+            group.push(pageNumber);
+            pagesByDpi.set(dpi, group);
+        }
+        for (const [
+            dpi,
+            pages,
+        ] of pagesByDpi) {
             for (const [
-                dpi,
-                pages,
-            ] of pagesByDpi) {
-                for (const [
-                    pageNumber,
-                    raster,
-                ] of await retention.retainedPaths(document, pages, dpi)) {
-                    retained.set(pageNumber, raster);
-                }
+                pageNumber,
+                raster,
+            ] of await retention.retainedPaths(document, pages, dpi)) {
+                retained.set(pageNumber, raster);
             }
         }
         const rasterScope = pageNumbers.filter(pageNumber => !retained.has(pageNumber));
-        if (!streamRasters && pageNumbers.length > 0) {
-            // The non-FIFO path retains every missing page before the sidecar
-            // starts. Do not let a large Windows document bypass the cache's
-            // whole-manifest scratch limit merely because each producer is
-            // concurrency-bounded. Existing retained PNGs count at their exact
-            // file size; resolveRasterHandoff adds a conservative PNG overhead
-            // allowance to the raw RGB estimate for each cache miss.
+        if (pageNumbers.length > 0) {
+            // Detection always stages replayable PNGs before native starts. The
+            // complete manifest must fit the same scratch budget as retained
+            // cache entries; no FIFO transport can bypass this admission check.
             const handoff = await resolveRasterHandoff(
                 rasterScope.map(pageNumber => {
                     const pageSize = pageSizeByNumber.get(pageNumber)!;
@@ -764,68 +603,8 @@ export async function runScanCleanupDetection<TDocument>(
         }, documentCanvasSignature());
         publishRasterizing();
         const renderedPaths = new Map<number, string>();
-        const rasterScratchPaths = new Map<number, string>();
-        const rasterCompletionPromises = new Map<number, Promise<number>>();
-        const rasterCompletionResolvers = new Map<number, (sizeBytes: number) => unknown>();
-        const rasterCompletionRejectors = new Map<number, (reason?: unknown) => unknown>();
-        const rasterDeliveryPromises = new Map<number, Promise<undefined>>();
-        const rasterDeliveryResolvers = new Map<number, () => unknown>();
-        let liveRasterScratchBytes = 0;
-        let peakRasterScratchBytes = 0;
-        if (streamRasters) {
-            for (const pageNumber of rasterScope) {
-                renderedPaths.set(pageNumber, join(scratch, `detect-${pageNumber}.ppm`));
-                rasterScratchPaths.set(pageNumber, join(scratch, `detect-${pageNumber}.raster.ppm`));
-                const completion = Promise.withResolvers<number>();
-                rasterCompletionPromises.set(pageNumber, completion.promise);
-                rasterCompletionResolvers.set(pageNumber, sizeBytes => completion.resolve(sizeBytes));
-                rasterCompletionRejectors.set(pageNumber, reason => completion.reject(reason));
-                void completion.promise.catch(() => undefined);
-                const delivery = Promise.withResolvers<undefined>();
-                rasterDeliveryPromises.set(pageNumber, delivery.promise);
-                rasterDeliveryResolvers.set(pageNumber, () => delivery.resolve(undefined));
-            }
-            await dependencies.createRasterPipes!(
-                [...renderedPaths.values()],
-                signal,
-                log,
-            );
-        }
         const rasterize = async (operationSignal: AbortSignal) => {
             await mapDetectionPages(rasterScope, async pageNumber => {
-                if (streamRasters) {
-                    try {
-                        operationSignal.throwIfAborted();
-                        await dependencies.renderPagePpm(
-                            {pdftoppmBinary: dependencies.getPdftoppmBinary()},
-                            log,
-                            pageNumber,
-                            request.sourcePdfPath,
-                            rasterScratchPaths.get(pageNumber)!,
-                            detectionDpiForPage(pageNumber),
-                            undefined,
-                            operationSignal,
-                            undefined,
-                            resolveRasterRenderLimits(
-                                pageSizeByNumber.get(pageNumber),
-                                detectionDpiForPage(pageNumber),
-                            ),
-                        );
-                        const sizeBytes = (await stat(rasterScratchPaths.get(pageNumber)!)).size;
-                        liveRasterScratchBytes += sizeBytes;
-                        peakRasterScratchBytes = Math.max(peakRasterScratchBytes, liveRasterScratchBytes);
-                        rasterCompletionResolvers.get(pageNumber)!(sizeBytes);
-                        // A producer owns its concurrency slot until the staged
-                        // PPM has crossed the FIFO and been unlinked. Slow
-                        // native consumption therefore cannot accumulate more
-                        // complete scratch rasters than rasterConcurrency.
-                        await waitForAbort(rasterDeliveryPromises.get(pageNumber)!, operationSignal);
-                    } catch (error) {
-                        rasterCompletionRejectors.get(pageNumber)!(error);
-                        throw error;
-                    }
-                    return;
-                }
                 operationSignal.throwIfAborted();
                 const pageDpi = detectionDpiForPage(pageNumber);
                 const scratchPath = await retention.rasterScratchPath(document, pageNumber, pageDpi);
@@ -859,32 +638,7 @@ export async function runScanCleanupDetection<TDocument>(
                 if (results.size === 0) publishRasterizing();
             }, policy.rasterConcurrency);
         };
-        const pumpRasters = async (operationSignal: AbortSignal) => {
-            for (const pageNumber of rasterScope) {
-                const sizeBytes = await waitForAbort(
-                    rasterCompletionPromises.get(pageNumber)!,
-                    operationSignal,
-                );
-                operationSignal.throwIfAborted();
-                try {
-                    await copyRasterToPipe(
-                        rasterScratchPaths.get(pageNumber)!,
-                        renderedPaths.get(pageNumber)!,
-                        operationSignal,
-                    );
-                } finally {
-                    await rm(rasterScratchPaths.get(pageNumber)!, {force: true});
-                    liveRasterScratchBytes = Math.max(0, liveRasterScratchBytes - sizeBytes);
-                    rasterDeliveryResolvers.get(pageNumber)!();
-                }
-            }
-            log(
-                'debug',
-                'Scan cleanup detection peak producer-staged raster bytes '
-                + `(excluding native materialized copies): ${String(peakRasterScratchBytes)}`,
-            );
-        };
-        if (!streamRasters) await rasterize(signal);
+        await rasterize(signal);
         const manifestPages = pageNumbers.map(pageNumber => {
             const sourceBackgroundDpi = sourceRasterStructure.backgroundDpiByPage?.get(pageNumber);
             return {
@@ -900,9 +654,8 @@ export async function runScanCleanupDetection<TDocument>(
             };
         });
         signal.throwIfAborted();
-        // Every page stays in one manifest because final reconciliation clusters
-        // the document's independent verdicts. The FIFO handoff only lets native
-        // publish provisional verdicts while later pages are rasterized.
+        // Every page stays in one replayable manifest because final
+        // reconciliation clusters the document's independent verdicts.
         const manifestPath = join(scratch, 'classify-manifest.json');
         await writeFile(manifestPath, JSON.stringify(buildNativeScanCleanupManifest({
             operation: 'analyze',
@@ -910,7 +663,6 @@ export async function runScanCleanupDetection<TDocument>(
             renderMode: 'preview',
             canvasScope: 'page',
             qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
-            ...(streamRasters ? {rasterWindow: policy.rasterConcurrency} : {}),
             options: request.options,
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,
@@ -1005,38 +757,7 @@ export async function runScanCleanupDetection<TDocument>(
             },
             {priority: 'background'},
         );
-        if (streamRasters) {
-            const streamAbort = new AbortController();
-            const streamSignal = AbortSignal.any([
-                signal,
-                streamAbort.signal,
-            ]);
-            const runStreamingOperation = (operation: (operationSignal: AbortSignal) => Promise<void>) =>
-                operation(streamSignal).catch((error: unknown) => {
-                    streamAbort.abort(error);
-                    throw error;
-                });
-            const analysis = runStreamingOperation(runAnalysis);
-            const rasterization = runStreamingOperation(rasterize);
-            const pumping = runStreamingOperation(pumpRasters);
-            try {
-                await Promise.all([
-                    rasterization,
-                    pumping,
-                    analysis,
-                ]);
-            } catch (error) {
-                streamAbort.abort(error);
-                await Promise.allSettled([
-                    rasterization,
-                    pumping,
-                    analysis,
-                ]);
-                throw error;
-            }
-        } else {
-            await runAnalysis(signal);
-        }
+        await runAnalysis(signal);
         for (const page of manifestPages) {
             const result = results.get(page.pageNumber);
             if (!result) continue;
