@@ -153,6 +153,15 @@ mod tests {
                         .outputs
                         .iter()
                         .map(|output| {
+                            let source_region = output.metadata.source_region;
+                            let canonical_x = |value: f64| {
+                                (value * entry.image.width() as f64 / working.width() as f64)
+                                    .round() as usize
+                            };
+                            let canonical_y = |value: f64| {
+                                (value * entry.image.height() as f64 / working.height() as f64)
+                                    .round() as usize
+                            };
                             (
                                 output.metadata.half,
                                 output.metadata.binarization_mode,
@@ -161,6 +170,16 @@ mod tests {
                                     .binarization_diagnostics
                                     .and_then(|diagnostics| diagnostics.spread_plan)
                                     .map(|plan| plan.decision),
+                                (
+                                    canonical_x(source_region.x),
+                                    canonical_y(source_region.y),
+                                    canonical_x(source_region.width),
+                                    canonical_y(source_region.height),
+                                ),
+                                (
+                                    canonical_x(output.metadata.output_width as f64),
+                                    canonical_y(output.metadata.output_height as f64),
+                                ),
                             )
                         })
                         .collect::<Vec<_>>(),

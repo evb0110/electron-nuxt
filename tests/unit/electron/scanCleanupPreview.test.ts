@@ -13,6 +13,7 @@ import {tmpdir} from 'os';
 import {promisify} from 'util';
 import {
     join,
+    normalize,
     sep,
 } from 'path';
 import {
@@ -3811,6 +3812,31 @@ describe('scan cleanup preview', () => {
             sourceDpi: number
             hasSeparateCanonicalInput: boolean;
         }>();
+        const hasSeparateCanonicalInput = (page: {
+            inputPath: string;
+            analysisInputPath?: string;
+            analysisDpi?: number;
+        }): boolean => page.analysisInputPath !== undefined
+            && page.analysisDpi !== undefined
+            && normalize(page.analysisInputPath) !== normalize(page.inputPath);
+        expect(hasSeparateCanonicalInput({
+            inputPath: '/tmp/source.png',
+            analysisInputPath: '/tmp/analysis.png',
+            analysisDpi: 150,
+        })).toBe(true);
+        expect(hasSeparateCanonicalInput({
+            inputPath: '/tmp/source.png',
+            analysisInputPath: '/tmp/./source.png',
+            analysisDpi: 150,
+        })).toBe(false);
+        expect(hasSeparateCanonicalInput({
+            inputPath: '/tmp/source.png',
+            analysisInputPath: '/tmp/analysis.png',
+        })).toBe(false);
+        expect(hasSeparateCanonicalInput({
+            inputPath: '/tmp/source.png',
+            analysisDpi: 150,
+        })).toBe(false);
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
                 options: {
@@ -3827,8 +3853,7 @@ describe('scan cleanup preview', () => {
                 {
                     dpi: page.options.dpi,
                     sourceDpi: page.options.sourceDpi,
-                    hasSeparateCanonicalInput:
-                        page.analysisInputPath !== undefined || page.analysisDpi !== undefined,
+                    hasSeparateCanonicalInput: hasSeparateCanonicalInput(page),
                 },
             ]));
             await writeDetectionMetadata(manifestPath);

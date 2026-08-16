@@ -1148,6 +1148,7 @@ struct PreparedPage<'a> {
     canonical_routing_source: Arc<GrayImage>,
     canonical_routing_dpi: f64,
     canonical_regions: Vec<(Rect, PageHalf)>,
+    has_canonical_analysis: bool,
     analysis_scale_x: f64,
     analysis_scale_y: f64,
     calibration: PageCalibration,
@@ -2679,6 +2680,7 @@ fn clean_page_with_color_and_calibration_config(
         canonical_routing_source,
         canonical_routing_dpi,
         canonical_regions,
+        has_canonical_analysis,
         analysis_scale_x,
         analysis_scale_y,
         calibration,
@@ -2701,7 +2703,7 @@ fn clean_page_with_color_and_calibration_config(
         use_soft_alpha_foreground,
         resolved_output_mode: _,
     } = prepared;
-    let regions = output_regions(
+    let working_regions = output_regions(
         normalized.width(),
         normalized.height(),
         &split,
@@ -2709,8 +2711,34 @@ fn clean_page_with_color_and_calibration_config(
     );
     debug_assert!(canonical_regions
         .iter()
-        .zip(&regions)
+        .zip(&working_regions)
         .all(|((_, canonical_half), (_, working_half))| canonical_half == working_half));
+    let canonical_width = canonical_routing_source.width().max(1) as f64;
+    let canonical_height = canonical_routing_source.height().max(1) as f64;
+    let working_width = normalized.width();
+    let working_height = normalized.height();
+    let regions = if has_canonical_analysis {
+        canonical_regions
+            .iter()
+            .map(|(region, half)| {
+                let left = (region.x * working_width as f64 / canonical_width)
+                    .round()
+                    .clamp(0.0, working_width.saturating_sub(1) as f64);
+                let top = (region.y * working_height as f64 / canonical_height)
+                    .round()
+                    .clamp(0.0, working_height.saturating_sub(1) as f64);
+                let right = (region.right() * working_width as f64 / canonical_width)
+                    .round()
+                    .clamp(left + 1.0, working_width as f64);
+                let bottom = (region.bottom() * working_height as f64 / canonical_height)
+                    .round()
+                    .clamp(top + 1.0, working_height as f64);
+                (Rect::new(left, top, right - left, bottom - top), *half)
+            })
+            .collect::<Vec<_>>()
+    } else {
+        working_regions
+    };
     let canonical_regions = canonical_regions
         .into_iter()
         .map(|(region, _)| region)
@@ -2859,6 +2887,7 @@ fn prepare_page<'a>(
     render_policy: PageRenderPolicy,
     timings: &mut PageStageTimings,
 ) -> PreparedPage<'a> {
+    let has_canonical_analysis = canonical_analysis.is_some();
     let (analysis_source, analysis_color_source, analysis_dpi) = canonical_analysis
         .as_ref()
         .map_or((source, color_source, options.dpi), |plane| {
@@ -3131,6 +3160,7 @@ fn prepare_page<'a>(
         canonical_routing_source,
         canonical_routing_dpi,
         canonical_regions,
+        has_canonical_analysis,
         analysis_scale_x: scale_x,
         analysis_scale_y: scale_y,
         calibration,
