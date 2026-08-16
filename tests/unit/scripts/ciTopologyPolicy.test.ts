@@ -434,10 +434,12 @@ describe('CI topology policy', () => {
         expect(packagedScanCleanupVerifier).toContain('name: Resolve required packaged scan-cleanup fixture');
         expect(packagedScanCleanupVerifier).toContain('getPackagedScanCleanupFixture');
         expect(packagedScanCleanupVerifier).toContain('name: Download macOS arm64 package');
-        expect(packagedScanCleanupVerifier).toContain('--expected-pages "${{ steps.fixture.outputs.expected_pages }}"');
+        expect(packagedScanCleanupVerifier).toContain('PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES: ${{ steps.fixture.outputs.expected_pages }}');
+        expect(packagedScanCleanupVerifier).toContain('--expected-pages "$PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES"');
         expect(packagedScanCleanupVerifier).toContain('--scale-only');
         expect(packagedScanCleanupVerifier).toContain('name: Upload packaged scan-cleanup verifier evidence');
-        expect(publish).toContain('verify_packaged_scan_cleanup');
+        const publishNeeds = /\n {4}needs:\n((?: {6}- .+\n)+)/u.exec(publish)?.[1] ?? '';
+        expect(publishNeeds).toContain('- verify_packaged_scan_cleanup');
     });
 
     it('keeps release quality gates from requiring pre-bundle host Linux resources', async () => {

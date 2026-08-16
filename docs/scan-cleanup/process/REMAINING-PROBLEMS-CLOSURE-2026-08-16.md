@@ -131,4 +131,5 @@ Retained local visual evidence (not source-controlled bulk artifacts):
   checks pass.
 
 The pull request and merge SHA are recorded in the next ledger row after the
-CodeRabbit and required-check sweeps finish.
+last commit is reviewed, `reviewThreads` is freshly enumerated with zero
+unresolved or unanswered findings, and every required check finishes green.

@@ -52,6 +52,27 @@ describe('packaged scan-cleanup release fixture', () => {
         expect(fixture.sourcePath).toBe(path.resolve(projectRoot, DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE));
     });
 
+    it.each([
+        '4.5',
+        '4pages',
+        '0',
+    ])('rejects a non-integer expected page count: %s', expectedPages => {
+        expect(() => getPackagedScanCleanupFixture({
+            cwd: projectRoot,
+            env: {
+                EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES: expectedPages,
+                EVB_RELEASE_SCAN_CLEANUP_FIXTURE: DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE,
+            },
+        })).toThrow('must be a positive integer');
+    });
+
+    it('requires a page count with an explicit fixture override', () => {
+        expect(() => getPackagedScanCleanupFixture({
+            cwd: projectRoot,
+            env: {EVB_RELEASE_SCAN_CLEANUP_FIXTURE: DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE},
+        })).toThrow('EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES is required');
+    });
+
     it('fails when the default source is absent instead of silently skipping verification', () => {
         const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), 'evb-release-fixture-'));
         try {

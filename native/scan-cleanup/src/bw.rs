@@ -5324,7 +5324,7 @@ mod tests {
     }
 
     #[test]
-    fn stroke_width_diagnostic_is_scale_invariant_in_routing_sample_units() {
+    fn stroke_width_diagnostic_matches_for_exact_integer_upscale() {
         let mut canonical = GrayImage::new(256, 192, 242);
         for y in 18..174 {
             for x in (16..240).step_by(14) {
@@ -5353,6 +5353,42 @@ mod tests {
             canonical_diagnostics.dark_border_coverage,
             full_resolution_diagnostics.dark_border_coverage
         );
+    }
+
+    #[test]
+    fn wide_strokes_reject_sauvola_at_bounded_and_large_scale() {
+        let mut bounded = GrayImage::new(256, 192, 220);
+        for y in 0..bounded.height() {
+            let paper = 160 + (y * 64 / bounded.height()) as u8;
+            for x in 0..bounded.width() {
+                bounded.set(x, y, paper);
+            }
+            for x in (16..bounded.width().saturating_sub(16)).step_by(28) {
+                for stroke_x in x..(x + 12).min(bounded.width()) {
+                    bounded.set(stroke_x, y, 42);
+                }
+            }
+        }
+        let mut large = GrayImage::new(1_024, 768, 255);
+        for y in 0..large.height() {
+            for x in 0..large.width() {
+                large.set(x, y, bounded.get(x / 4, y / 4));
+            }
+        }
+        let options = CleanupOptions::default();
+
+        for source in [&bounded, &large] {
+            let diagnostics = resolve_binarization_diagnostics(source, &options);
+            assert!(
+                diagnostics.illumination_deviation > 12.0,
+                "fixture must reach the uneven-light routing arm: {diagnostics:?}"
+            );
+            assert!(
+                diagnostics.estimated_stroke_width_px > 8.0,
+                "fixture must exercise the Sauvola stroke-width rejection: {diagnostics:?}"
+            );
+            assert_eq!(diagnostics.route, BinarizationMode::Wolf, "{diagnostics:?}");
+        }
     }
 
     #[test]

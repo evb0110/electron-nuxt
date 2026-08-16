@@ -8,11 +8,11 @@ export const DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE = 'tests/fixtures/release/sca
 export const DEFAULT_PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES = 4;
 
 function positivePageCount(value, label) {
-    const pageCount = Number.parseInt(String(value), 10);
-    if (!Number.isInteger(pageCount) || pageCount < 1) {
+    const normalized = String(value).trim();
+    if (!/^[1-9]\d*$/u.test(normalized)) {
         throw new Error(`${label} must be a positive integer`);
     }
-    return pageCount;
+    return Number(normalized);
 }
 
 function parseFixtureConfig(configPath) {
@@ -37,6 +37,12 @@ export function getPackagedScanCleanupFixture({
     env = process.env,
 } = {}) {
     const fixtureOverride = env.EVB_RELEASE_SCAN_CLEANUP_FIXTURE?.trim();
+    const expectedPagesOverride = env.EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES?.trim();
+    if (fixtureOverride && !expectedPagesOverride) {
+        throw new Error(
+            'EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES is required when EVB_RELEASE_SCAN_CLEANUP_FIXTURE is set',
+        );
+    }
     const configuredPath = env.EVB_RELEASE_SCAN_CLEANUP_FIXTURE_CONFIG?.trim()
         || path.join(cwd, '.devkit/scan-cleanup-release-fixture.json');
     const hasExplicitConfig = Boolean(env.EVB_RELEASE_SCAN_CLEANUP_FIXTURE_CONFIG?.trim());
@@ -49,8 +55,8 @@ export function getPackagedScanCleanupFixture({
     const source = fixtureOverride
         || config?.source
         || DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE;
-    const expectedPages = env.EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES?.trim()
-        ? positivePageCount(env.EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES, 'EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES')
+    const expectedPages = expectedPagesOverride
+        ? positivePageCount(expectedPagesOverride, 'EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES')
         : config?.expectedPages ?? DEFAULT_PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES;
     const sourcePath = path.resolve(cwd, source);
     if (!existsSync(sourcePath)) {

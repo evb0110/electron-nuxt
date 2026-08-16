@@ -181,15 +181,16 @@ jobs:
 
     steps:
       - name: Checkout target
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ needs.prepare.outputs.target_sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -210,12 +211,16 @@ jobs:
           const fixture = getPackagedScanCleanupFixture();
           console.log(`Using packaged scan-cleanup fixture: ${fixture.sourcePath}`);
           console.log(`Expected packaged scan-cleanup pages: ${fixture.expectedPages}`);
-          appendFileSync(process.env.GITHUB_OUTPUT, `fixture=${fixture.sourcePath}\n`);
+          const delimiter = `evb_fixture_${crypto.randomUUID()}`;
+          appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `fixture<<${delimiter}\n${fixture.sourcePath}\n${delimiter}\n`,
+          );
           appendFileSync(process.env.GITHUB_OUTPUT, `expected_pages=${fixture.expectedPages}\n`);
           NODE
 
       - name: Download macOS arm64 package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist-mac-arm64
           path: artifacts
@@ -242,18 +247,22 @@ jobs:
 
       - name: Run packaged scan-cleanup scale verifier
         shell: bash
+        env:
+          PACKAGED_APP_EXECUTABLE: ${{ steps.packaged_app.outputs.executable }}
+          PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES: ${{ steps.fixture.outputs.expected_pages }}
+          PACKAGED_SCAN_CLEANUP_FIXTURE: ${{ steps.fixture.outputs.fixture }}
         run: |
           set -euo pipefail
           pnpm exec tsx scripts/release/verifyPackagedScanCleanup.ts \
-            --executable "${{ steps.packaged_app.outputs.executable }}" \
-            --source "${{ steps.fixture.outputs.fixture }}" \
-            --expected-pages "${{ steps.fixture.outputs.expected_pages }}" \
+            --executable "$PACKAGED_APP_EXECUTABLE" \
+            --source "$PACKAGED_SCAN_CLEANUP_FIXTURE" \
+            --expected-pages "$PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES" \
             --scale-only \
             --artifact-dir "$RUNNER_TEMP/evb-release-packaged-scan-cleanup"
 
       - name: Upload packaged scan-cleanup verifier evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: packaged-scan-cleanup-${{ github.run_attempt }}
           path: ${{ runner.temp }}/evb-release-packaged-scan-cleanup/**

@@ -270,6 +270,13 @@ def measure_mask(
     page_p95_p50_ratio = (page_p95 or 0.0) / max(page_p50 or 0.0, 1e-9)
     measured_line_population = sum(
         len(line) >= minimum_line_components
+        and any(
+            sum(
+                abs(neighbor['centerX'] - item['centerX']) <= window_px
+                for neighbor in line
+            ) >= min_local
+            for item in line
+        )
         for line in lines
     )
     page_fallback_trusted = (

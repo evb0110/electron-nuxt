@@ -205,4 +205,45 @@ describe('stroke weight oracle CLI', () => {
             expect(sparseLine.referenceP95P50Ratio).toBe(expandedLine.referenceP95P50Ratio);
         },
     );
+
+    it.skipIf(!measurementDependenciesInstalled)(
+        'does not trust page fallback when populated lines have no measurable local window',
+        async () => {
+            const directory = await mkdtemp(join(tmpdir(), 'evb-stroke-weight-dispersed-'));
+            temporaryDirectories.push(directory);
+            const imagePath = join(directory, 'dispersed-lines.png');
+            const reportPath = join(directory, 'report.json');
+            const createImage = spawnSync(python, [
+                '-c',
+                [
+                    'from PIL import Image, ImageDraw',
+                    'import sys',
+                    'image = Image.new("L", (18000, 180), 255)',
+                    'draw = ImageDraw.Draw(image)',
+                    'for y in (25, 105):',
+                    '    for i in range(40):',
+                    '        x = 20 + i * 430',
+                    '        draw.rectangle((x, y, x + 7, y + 28), fill=0)',
+                    'image.save(sys.argv[1])',
+                ].join('\n'),
+                imagePath,
+            ], {encoding: 'utf8'});
+            expect(createImage.status).toBe(0);
+
+            const result = runOracle([
+                '--image',
+                imagePath,
+                '--dpi',
+                '300',
+                '--out',
+                reportPath,
+            ]);
+            expect(result.status).toBe(0);
+            const report = JSON.parse(await readFile(reportPath, 'utf8'));
+            expect(report.pages[0]).toMatchObject({
+                pageFallbackMeasuredLineCount: 0,
+                pageFallbackTrusted: false,
+            });
+        },
+    );
 });
