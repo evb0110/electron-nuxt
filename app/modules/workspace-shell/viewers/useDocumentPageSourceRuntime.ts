@@ -1,7 +1,4 @@
-import {
-    useEventListener,
-    useResizeObserver,
-} from '@vueuse/core';
+import { useResizeObserver } from '@vueuse/core';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import type {
     IDocumentPageMetrics,
@@ -38,6 +35,7 @@ import {
     createDocumentWheelZoomHandler,
     type IDocumentWheelInteraction,
 } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import { useDocumentWheelZoomSessionBoundaries } from '@app/utils/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 import {
@@ -127,15 +125,11 @@ export const useDocumentPageSourceRuntime = (options: {
             readSessionKey: () => transitions.loadGeneration.value,
         },
     );
-    const cancelWheelInteraction = () => {
-        if (props.value.isActive) {
-            handleWheelZoom.reset();
-            layoutLifecycle.cancelPendingRestore();
-        }
-    };
+    const cancelWheelInteraction = useDocumentWheelZoomSessionBoundaries({
+        isInteractionActive: computed(() => props.value.isInteractionActive),
+        reset: () => { handleWheelZoom.reset(); layoutLifecycle.cancelPendingRestore(); },
+    });
     const pageHeights = computed(() => pageDisplayLayouts.value.map(layout => layout.height));
-    useEventListener(import.meta.client ? document : null, 'pointerdown', cancelWheelInteraction, {capture: true});
-    useEventListener(import.meta.client ? document : null, 'keydown', cancelWheelInteraction, {capture: true});
     const pageTops = computed(() => {
         let top = DOCUMENT_PAGE_GUTTER_PX;
         return pageHeights.value.map((height) => {

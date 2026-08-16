@@ -176,6 +176,7 @@ export interface IDocumentPageSourceFeaturePackProps {
     continuousScroll?: boolean;
     documentRevisionToken?: TDocumentRevisionToken | null;
     isActive?: boolean;
+    isInteractionActive?: boolean;
     isResizing?: boolean;
     currentPage?: number;
     searchResults?: readonly IDocumentSearchMatch[];
@@ -183,7 +184,7 @@ export interface IDocumentPageSourceFeaturePackProps {
 }
 export type TDocumentPageSourceRuntimeProps = Required<Pick<
     IDocumentPageSourceFeaturePackProps,
-    'continuousScroll' | 'currentPage' | 'isActive' | 'isResizing' | 'viewMode' | 'zoom' | 'zoomMode'
+    'continuousScroll' | 'currentPage' | 'isActive' | 'isInteractionActive' | 'isResizing' | 'viewMode' | 'zoom' | 'zoomMode'
 >> & Pick<IDocumentPageSourceFeaturePackProps, 'documentRevisionToken' | 'src'>;
 export interface IDocumentPageSourceFeaturePackEmit {
     (event: 'update:zoom', value: number): void;

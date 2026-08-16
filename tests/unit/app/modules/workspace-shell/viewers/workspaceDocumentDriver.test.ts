@@ -78,6 +78,7 @@ function createBindingHarness() {
     const pdfViewerRef = ref<unknown>(null);
     const nativePdfViewerRef = ref<unknown>(null);
     const djvuViewerRef = ref<unknown>(null);
+    const isInteractionActive = ref(false);
     const isRenderActive = ref(false);
     const isWorkspaceLayoutResizing = ref(false);
     const onPageSourceUpdate = vi.fn();
@@ -87,6 +88,7 @@ function createBindingHarness() {
     const options = new Proxy({
         activeDocumentDriver: computed(() => activeDocumentDriver.value),
         djvuViewerRef,
+        isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
         nativePdfViewerRef,
@@ -114,6 +116,7 @@ function createBindingHarness() {
         binding: useWorkspaceDocumentDriverBinding(options),
         createDriver,
         djvuViewerRef,
+        isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
         nativePdfViewerRef,
@@ -268,6 +271,9 @@ describe('WorkspaceDocumentDriver', () => {
         harness.binding.bindActiveViewerRef(pdfViewer);
         expect(harness.pdfViewerRef.value).toBe(pdfViewer);
         harness.activeDocumentDriver.value = harness.createDriver('djvu');
+        expect(harness.binding.activeViewerProps.value.isInteractionActive).toBe(false);
+        harness.isInteractionActive.value = true;
+        expect(harness.binding.activeViewerProps.value.isInteractionActive).toBe(true);
         const djvuViewer = markRaw({});
         harness.binding.bindActiveViewerRef(djvuViewer);
         expect(harness.pdfViewerRef.value).toBeNull();

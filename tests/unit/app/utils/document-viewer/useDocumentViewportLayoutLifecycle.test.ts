@@ -625,4 +625,80 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         expect(viewport.scrollTop).toBe(1_284);
         scope.stop();
     });
+
+    it('retains pointer authorship when the gesture timer expires before the restore frame', async () => {
+        vi.useFakeTimers();
+        const frames: FrameRequestCallback[] = [];
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(600);
+        viewport.scrollLeft = 500;
+        viewport.getBoundingClientRect = () => ({
+            bottom: 500,
+            height: 400,
+            left: 50,
+            right: 550,
+            top: 100,
+            width: 500,
+            x: 50,
+            y: 100,
+            toJSON: () => ({}),
+        });
+        Object.defineProperties(viewport, {
+            clientHeight: {value: 400},
+            clientWidth: {value: 500},
+        });
+        const pageLayouts = ref([{
+            left: 300,
+            top: 16,
+            width: 400,
+            height: 1_000,
+        }]);
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts,
+            captureRestoreEpoch: () => 1,
+            canRestore: () => true,
+            applyRestoredScroll: restored => {
+                viewport.scrollLeft = restored.left;
+                viewport.scrollTop = restored.top;
+                return true;
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+
+        lifecycle.capturePointerAnchor({
+            clientX: 150,
+            clientY: 200,
+        }, 100);
+        pageLayouts.value = [{
+            left: 600,
+            top: 16,
+            width: 800,
+            height: 2_000,
+        }];
+        await nextTick();
+        await nextTick();
+        expect(frames).toHaveLength(1);
+
+        vi.advanceTimersByTime(180);
+        pageLayouts.value = [{
+            left: 900,
+            top: 16,
+            width: 1_200,
+            height: 3_000,
+        }];
+        await nextTick();
+        viewport.scrollLeft = 0;
+        viewport.scrollTop = 0;
+        expect(lifecycle.hasPendingPointerRestore()).toBe(true);
+        frames.splice(0).forEach(callback => callback(0));
+
+        expect(viewport.scrollLeft).toBe(1_700);
+        expect(viewport.scrollTop).toBe(1_968);
+        scope.stop();
+    });
 });

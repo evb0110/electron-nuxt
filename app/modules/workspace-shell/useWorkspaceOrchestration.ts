@@ -77,6 +77,7 @@ type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 interface IWorkspaceDocumentViewBindingOptions {
     documentSourceCurrentResultIndex: TReadableRef<number>;
     documentSourceSearchResults: TReadableRef<readonly IDocumentSearchMatch[]>;
+    isInteractionActive: TReadableRef<boolean>;
     isRenderActive: TReadableRef<boolean>;
     isWorkspaceLayoutResizing: TReadableRef<boolean>;
     navigationFeedbackPage: Ref<number | null>;
@@ -997,6 +998,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             dragMode,
             fitMode,
             isAnySaving,
+            isInteractionActive: options.isInteractionActive,
             isRenderActive: options.isRenderActive,
             isWorkspaceLayoutResizing: options.isWorkspaceLayoutResizing,
             pageMatches: viewerSearchPageMatches,

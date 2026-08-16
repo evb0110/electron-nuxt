@@ -529,12 +529,14 @@ describe('NativePdfViewer revision lifecycle', () => {
         });
         const zoom = ref<number | undefined>();
         const zoomMode = ref<'custom' | 'fit-height' | 'fit-width'>('fit-width');
+        const isInteractionActive = ref(true);
         const currentPageUpdates: number[] = [];
         const Root = defineComponent({setup() {
             provide(documentViewerChassisAuthorityKey, authority);
             return () => h(NativePdfViewer, {
                 src: documentPath,
                 isActive: true,
+                isInteractionActive: isInteractionActive.value,
                 currentPage: 1,
                 zoom: zoom.value,
                 zoomMode: zoomMode.value,
@@ -667,6 +669,72 @@ describe('NativePdfViewer revision lifecycle', () => {
         vi.advanceTimersToNextFrame();
         await nextTick();
         expect(viewport.scrollTop).toBe(3_400);
+
+        authority.dispatchViewportWheel({
+            deltaPx: -120,
+            event: {
+                cancelable: true,
+                clientX: 400,
+                clientY: 300,
+                defaultPrevented: false,
+                deltaX: 0,
+                deltaY: -120,
+                timeStamp: 180,
+                preventDefault: vi.fn(),
+            },
+            intent: 'zoom',
+        });
+        await nextTick();
+        for (const listener of vueUseMocks.listeners.get('keydown') ?? []) {
+            listener(new KeyboardEvent('keydown', {key: 'Control'}));
+            listener(new KeyboardEvent('keydown', {
+                key: 'Control',
+                repeat: true,
+            }));
+        }
+        viewport.scrollTop = 3_200;
+        vi.advanceTimersToNextFrame();
+        await nextTick();
+        expect(viewport.scrollTop).not.toBe(3_200);
+
+        isInteractionActive.value = false;
+        await nextTick();
+        const viewportRectReads = vi.spyOn(viewport, 'getBoundingClientRect');
+        authority.dispatchViewportWheel({
+            deltaPx: -120,
+            event: {
+                cancelable: true,
+                clientX: 400,
+                clientY: 300,
+                defaultPrevented: false,
+                deltaX: 0,
+                deltaY: -120,
+                timeStamp: 220,
+                preventDefault: vi.fn(),
+            },
+            intent: 'zoom',
+        });
+        await nextTick();
+        for (const listener of vueUseMocks.listeners.get('pointerdown') ?? []) {
+            listener(new Event('pointerdown'));
+        }
+        const readsAfterFirstPacket = viewportRectReads.mock.calls.length;
+        authority.dispatchViewportWheel({
+            deltaPx: -120,
+            event: {
+                cancelable: true,
+                clientX: 400,
+                clientY: 300,
+                defaultPrevented: false,
+                deltaX: 0,
+                deltaY: -120,
+                timeStamp: 240,
+                preventDefault: vi.fn(),
+            },
+            intent: 'zoom',
+        });
+        await nextTick();
+        expect(viewportRectReads).toHaveBeenCalledTimes(readsAfterFirstPacket);
     });
 
     it('invalidates a budget-evicted current visual until its replacement paint settles', async () => {
