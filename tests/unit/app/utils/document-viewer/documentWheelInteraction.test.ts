@@ -10,9 +10,11 @@ import { ZOOM } from '@app/constants/pdfLayout';
 import {
     consumeDocumentWheelZoomInteraction,
     createDocumentWheelZoomHandler,
+    isDocumentWheelZoomSessionBoundaryKey,
     resolveDocumentWheelInteraction,
     resolveDocumentWheelIntent,
     resolveDocumentWheelZoomTarget,
+    shouldResetDocumentWheelZoomSession,
     type IDocumentWheelInteraction,
 } from '@app/utils/document-viewer/input/documentWheelInteraction';
 
@@ -34,6 +36,72 @@ const viewport = {clientHeight: 800} as HTMLElement;
 describe('document wheel interaction policy', () => {
     afterEach(() => {
         vi.restoreAllMocks();
+    });
+
+    it.each([
+        {
+            expected: false,
+            key: 'Control',
+            repeat: false,
+        },
+        {
+            expected: false,
+            key: 'Meta',
+            repeat: false,
+        },
+        {
+            expected: false,
+            key: 'Shift',
+            repeat: false,
+        },
+        {
+            expected: false,
+            key: 'Alt',
+            repeat: false,
+        },
+        {
+            expected: false,
+            key: 'ArrowDown',
+            repeat: true,
+        },
+        {
+            expected: true,
+            key: 'ArrowDown',
+            repeat: false,
+        },
+        {
+            expected: true,
+            key: 'Escape',
+            repeat: false,
+        },
+    ])('classifies $key repeat=$repeat as a wheel-session boundary: $expected', ({
+        expected,
+        key,
+        repeat,
+    }) => {
+        expect(isDocumentWheelZoomSessionBoundaryKey({
+            key,
+            repeat,
+        })).toBe(expected);
+    });
+
+    it('allows only the interaction-active viewer to reset a wheel session', () => {
+        const pointerdown = {type: 'pointerdown'};
+        const modifierKeydown = {
+            key: 'Meta',
+            repeat: false,
+            type: 'keydown',
+        };
+        const navigationKeydown = {
+            key: 'PageDown',
+            repeat: false,
+            type: 'keydown',
+        };
+
+        expect(shouldResetDocumentWheelZoomSession(false, pointerdown)).toBe(false);
+        expect(shouldResetDocumentWheelZoomSession(true, modifierKeydown)).toBe(false);
+        expect(shouldResetDocumentWheelZoomSession(true, navigationKeydown)).toBe(true);
+        expect(shouldResetDocumentWheelZoomSession(true, pointerdown)).toBe(true);
     });
 
     it('keeps physical modifier and depth-axis signals behind the shared resolver', () => {

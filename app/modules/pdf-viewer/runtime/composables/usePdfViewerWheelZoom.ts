@@ -145,7 +145,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         const activeSession = getActiveWheelZoomSession(nowMs);
         const isContinuationPacket = Boolean(
             activeSession
-            && nowMs - activeSession.lastPacketAtMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
+            && nowMs - activeSession.lastPacketAtMs < DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
         );
         const hasModifierZoomSignal = interaction.intent === 'zoom';
 
@@ -240,7 +240,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             ? nowMs - lastModifierWheelZoomAtMs
             : null;
         const isWithinModifierZoomGraceWindow = modifierZoomAgeMs !== null
-            && modifierZoomAgeMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS;
+            && modifierZoomAgeMs < DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS;
 
         return {
             nowMs,

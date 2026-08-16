@@ -465,6 +465,7 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     dragMode: Ref<boolean>;
     fitMode: Ref<TFitMode>;
     isAnySaving: Ref<boolean>;
+    isInteractionActive: TReadableRef<boolean>;
     isRenderActive: TReadableRef<boolean>;
     isWorkspaceLayoutResizing: TReadableRef<boolean>;
     pageMatches: TReadableRef<unknown>;
@@ -529,6 +530,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             dragMode: options.dragMode.value,
             documentRevisionToken: options.documentRevisionToken.value,
             isActive: options.isRenderActive.value,
+            isInteractionActive: options.isInteractionActive.value,
         };
     }
 
