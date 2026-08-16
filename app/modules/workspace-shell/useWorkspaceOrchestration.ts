@@ -502,6 +502,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const bookmarkNavigationIntentVersion = ref(0);
     const {
         begin: beginProgrammaticPageNavigation,
+        clampTo: clampProgrammaticPageNavigationTarget,
         clear: clearProgrammaticPageNavigationTarget,
         shouldAcceptPage: shouldAcceptViewerCurrentPageUpdate,
         targetPage: programmaticPageNavigationTarget,
@@ -511,20 +512,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
 
     watch(totalPages, (pageCount) => {
-        const requestedPage = programmaticPageNavigationTarget.value;
-        if (requestedPage === null || pageCount <= 0) {
-            return;
-        }
-        const clampedPage = clamp(Math.trunc(requestedPage), 1, Math.trunc(pageCount));
-        if (clampedPage === requestedPage) {
-            return;
-        }
-        logPdfRenderTrace('workspace-programmatic-page-navigation-metadata-clamp', {
-            requestedPage,
-            clampedPage,
-            pageCount,
-        });
-        programmaticPageNavigationTarget.value = clampedPage;
+        clampProgrammaticPageNavigationTarget(pageCount);
     }, {flush: 'sync'});
 
     function invalidateBookmarkNavigationRequests() {

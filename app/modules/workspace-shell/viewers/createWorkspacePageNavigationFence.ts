@@ -39,6 +39,7 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
     function settle(page: number) {
         logPdfRenderTrace('workspace-programmatic-page-navigation-settle', {
             page,
+            targetPage: targetPage.value,
             currentPage: options.currentPage.value,
         });
         if (targetPage.value === page) {
@@ -91,10 +92,31 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
         return true;
     }
 
+    function clampTo(availablePages: number) {
+        const requestedPage = targetPage.value;
+        if (requestedPage === null || availablePages <= 0) {
+            return;
+        }
+        const clampedPage = Math.min(
+            Math.max(1, Math.trunc(requestedPage)),
+            Math.trunc(availablePages),
+        );
+        if (clampedPage === requestedPage) {
+            return;
+        }
+        logPdfRenderTrace('workspace-programmatic-page-navigation-metadata-clamp', {
+            requestedPage,
+            clampedPage,
+            pageCount: availablePages,
+        });
+        targetPage.value = clampedPage;
+    }
+
     return {
         begin,
+        clampTo,
         clear,
         shouldAcceptPage,
-        targetPage,
+        targetPage: readonly(targetPage),
     };
 }

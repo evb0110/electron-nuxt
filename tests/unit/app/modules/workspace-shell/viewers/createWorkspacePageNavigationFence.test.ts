@@ -1,15 +1,33 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
 } from 'vitest';
 import { ref } from 'vue';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
-import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import {
+    createDocumentOpenSurfaceSession,
+    type IDocumentOpenSurfaceSession,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 describe('createWorkspacePageNavigationFence', () => {
-    it('does not arm a fence for an already-authoritative ready page', () => {
+    const openSurfaces: IDocumentOpenSurfaceSession[] = [];
+
+    function createTrackedOpenSurface() {
         const openSurface = createDocumentOpenSurfaceSession();
+        openSurfaces.push(openSurface);
+        return openSurface;
+    }
+
+    afterEach(() => {
+        for (const openSurface of openSurfaces.splice(0)) {
+            openSurface.reset();
+        }
+    });
+
+    it('does not arm a fence for an already-authoritative ready page', () => {
+        const openSurface = createTrackedOpenSurface();
         const generation = openSurface.begin({
             documentId: 'document',
             documentRevision: 'revision',
@@ -52,7 +70,7 @@ describe('createWorkspacePageNavigationFence', () => {
     });
 
     it('releases a genuine target after the surface records physical-input supersession', () => {
-        const openSurface = createDocumentOpenSurfaceSession();
+        const openSurface = createTrackedOpenSurface();
         const generation = openSurface.begin({
             documentId: 'document',
             documentRevision: 'revision',
@@ -96,7 +114,7 @@ describe('createWorkspacePageNavigationFence', () => {
     });
 
     it('releases a replay target when a ready surface later moves away from it', () => {
-        const openSurface = createDocumentOpenSurfaceSession();
+        const openSurface = createTrackedOpenSurface();
         const generation = openSurface.begin({
             documentId: 'document',
             documentRevision: 'revision',
@@ -133,8 +151,10 @@ describe('createWorkspacePageNavigationFence', () => {
 
         navigationFence.begin(5);
         openSurface.requestNavigation(5);
+        expect(navigationFence.targetPage.value).toBe(5);
         navigationFence.begin(5);
         openSurface.requestNavigation(5);
+        expect(navigationFence.targetPage.value).toBe(5);
         const settledFence = openSurface.createRenderFence({
             documentRevision: 'revision',
             generation,
@@ -172,6 +192,18 @@ describe('createWorkspacePageNavigationFence', () => {
         expect(navigationFence.shouldAcceptPage(4)).toBe(false);
         expect(navigationFence.targetPage.value).toBe(5);
         expect(navigationFence.shouldAcceptPage(5)).toBe(true);
+        expect(navigationFence.targetPage.value).toBeNull();
+    });
+
+    it('owns metadata clamping of an active target', () => {
+        const navigationFence = createWorkspacePageNavigationFence({currentPage: ref(1)});
+        navigationFence.begin(12);
+
+        navigationFence.clampTo(10);
+
+        expect(navigationFence.targetPage.value).toBe(10);
+        expect(navigationFence.shouldAcceptPage(12)).toBe(false);
+        expect(navigationFence.shouldAcceptPage(10)).toBe(true);
         expect(navigationFence.targetPage.value).toBeNull();
     });
 });

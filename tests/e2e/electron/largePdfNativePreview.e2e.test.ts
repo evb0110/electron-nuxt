@@ -408,6 +408,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         const targetPage = Math.min(5, totalPages - 1);
         expect(targetPage).toBeGreaterThan(1);
         const physicalWheelMinimumPage = Math.min(targetPage + 3, totalPages);
+        expect(physicalWheelMinimumPage).toBeGreaterThan(targetPage);
 
         const command = await callWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
         expect(command.called).toBe(true);
