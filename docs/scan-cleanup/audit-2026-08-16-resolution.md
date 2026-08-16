@@ -107,3 +107,9 @@ both preview paths, and replaced the final raw localization-key fallback. The
 post-review full matrix then exposed stale OCR expectations and a lost shared
 renderer bound; direct PNG output now retains header-only limits for OCR and all
 other renderer consumers as well.
+
+The complete unit matrix also showed that the unchanged PDF range-preload
+oracle could complete correctly in isolation yet exceed its 15-second timeout
+under bounded project concurrency. Its behavior and assertions remain
+unchanged; only the test budget was raised to 30 seconds so host load is not an
+implicit correctness condition.
