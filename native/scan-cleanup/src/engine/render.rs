@@ -2709,10 +2709,14 @@ fn clean_page_with_color_and_calibration_config(
         &split,
         options.layout,
     );
-    debug_assert!(canonical_regions
-        .iter()
-        .zip(&working_regions)
-        .all(|((_, canonical_half), (_, working_half))| canonical_half == working_half));
+    debug_assert!(regions_match_in_common_coordinates(
+        &canonical_regions,
+        &working_regions,
+        canonical_routing_source.width(),
+        canonical_routing_source.height(),
+        normalized.width(),
+        normalized.height(),
+    ));
     let canonical_width = canonical_routing_source.width().max(1) as f64;
     let canonical_height = canonical_routing_source.height().max(1) as f64;
     let working_width = normalized.width();
@@ -2934,33 +2938,24 @@ fn prepare_page<'a>(
     // onto the working raster. Mapping rounded working rectangles back into
     // canonical pixels can move a crop edge by one sample at nearby DPIs and
     // reopen the very route instability the fixed plane is meant to remove.
-    // The split is in analysis-full coordinates here, so the regions must be
-    // computed against the full dimensions: the analysis-normalized raster is
-    // DPI-capped below full resolution whenever no canonical plane is supplied,
-    // and clamping a full-space cutter into normalized bounds degenerates the
-    // right leaf to a sliver.
-    let canonical_scale_x = prepared_analysis.canonical_routing_source.width() as f64
-        / prepared_analysis.full_width.max(1) as f64;
-    let canonical_scale_y = prepared_analysis.canonical_routing_source.height() as f64
-        / prepared_analysis.full_height.max(1) as f64;
+    // The split is in the fixed canonical routing plane. The analysis-normalized
+    // raster is DPI-capped below that plane whenever no canonical plane is
+    // supplied, so clamping a full-space cutter into normalized bounds would
+    // degenerate the right leaf to a sliver.
+    let canonical_width = prepared_analysis.canonical_routing_source.width();
+    let canonical_height = prepared_analysis.canonical_routing_source.height();
+    debug_assert_eq!(
+        (canonical_width, canonical_height),
+        (prepared_analysis.full_width, prepared_analysis.full_height),
+        "canonical routing and split dimensions must share one coordinate plane",
+    );
     let canonical_regions = output_regions(
-        prepared_analysis.full_width,
-        prepared_analysis.full_height,
+        canonical_width,
+        canonical_height,
         &prepared_analysis.split,
         options.layout,
     )
     .into_iter()
-    .map(|(region, half)| {
-        (
-            Rect::new(
-                region.x * canonical_scale_x,
-                region.y * canonical_scale_y,
-                region.width * canonical_scale_x,
-                region.height * canonical_scale_y,
-            ),
-            half,
-        )
-    })
     .collect();
     if canonical_analysis.is_some() {
         let canonical_to_working_x =
@@ -4176,6 +4171,56 @@ fn gutter_band_needs_raw_remeasurement(split: &SplitResult) -> bool {
         && split
             .cutter_x
             .is_some_and(|cutter| split.diagnostics.fold_band.needs_raw_remeasurement(cutter))
+}
+
+/// Compare canonical and working region geometry after placing both planes in
+/// the same unit square. Each output region is rounded independently on its
+/// raster, so permit one sample from each plane at every edge while still
+/// rejecting a same-half rectangle that materially moved or changed size.
+fn regions_match_in_common_coordinates(
+    canonical_regions: &[(Rect, PageHalf)],
+    working_regions: &[(Rect, PageHalf)],
+    canonical_width: usize,
+    canonical_height: usize,
+    working_width: usize,
+    working_height: usize,
+) -> bool {
+    if canonical_regions.len() != working_regions.len() {
+        return false;
+    }
+    let canonical_width = canonical_width.max(1) as f64;
+    let canonical_height = canonical_height.max(1) as f64;
+    let working_width = working_width.max(1) as f64;
+    let working_height = working_height.max(1) as f64;
+    let tolerance_x = 1.0 / canonical_width + 1.0 / working_width + f64::EPSILON;
+    let tolerance_y = 1.0 / canonical_height + 1.0 / working_height + f64::EPSILON;
+    canonical_regions.iter().zip(working_regions).all(
+        |((canonical, canonical_half), (working, working_half))| {
+            if canonical_half != working_half {
+                return false;
+            }
+            let canonical_edges = [
+                canonical.x / canonical_width,
+                canonical.y / canonical_height,
+                canonical.right() / canonical_width,
+                canonical.bottom() / canonical_height,
+            ];
+            let working_edges = [
+                working.x / working_width,
+                working.y / working_height,
+                working.right() / working_width,
+                working.bottom() / working_height,
+            ];
+            canonical_edges[..]
+                .iter()
+                .zip(working_edges)
+                .all(|(left, right)| {
+                    left.is_finite()
+                        && right.is_finite()
+                        && (left - right).abs() <= tolerance_x.max(tolerance_y)
+                })
+        },
+    )
 }
 
 fn scale_split_result(
@@ -5713,20 +5758,10 @@ fn clean_region(
     // only pixel-resolution picture geometry may form a boundary in the
     // rendered raster.
     let mut rendered_tone_alpha = tone_preservation_alpha.map(|alpha| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            alpha.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            alpha.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(alpha.width(), alpha.height(), normalized);
         render_gray_field(alpha, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
         })
     });
     if let Some(diagnostics) = text_tone_diagnostics {
@@ -5745,77 +5780,35 @@ fn clean_region(
         };
     let mask_rasterization_started = Instant::now();
     let mut rendered_picture_mask = source_picture_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
         render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
         })
     });
     let rendered_halftone_zone_mask = halftone_zone_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
         render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
         })
     });
     let rendered_spatial_tone_mask = (options.output_mode == OutputMode::Mixed)
         .then(|| {
             spatial_tone_mask.map(|mask| {
-                let mask_scale_x = if normalized.width() <= 1 {
-                    0.0
-                } else {
-                    mask.width().saturating_sub(1) as f64
-                        / normalized.width().saturating_sub(1) as f64
-                };
-                let mask_scale_y = if normalized.height() <= 1 {
-                    0.0
-                } else {
-                    mask.height().saturating_sub(1) as f64
-                        / normalized.height().saturating_sub(1) as f64
-                };
+                let (mask_scale_x, mask_scale_y) =
+                    auxiliary_mask_scales(mask.width(), mask.height(), normalized);
                 render_binary_mask(mask, rendered_width, rendered_height, |point| {
-                    render_plan
-                        .output_to_source(point)
-                        .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+                    map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
                 })
             })
         })
         .flatten();
     let rendered_chroma_picture_mask = chroma_picture_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
         render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
         })
     });
     // Keep calibrated tone zones as geometry in render space. The alpha field
@@ -5824,78 +5817,36 @@ fn clean_region(
     // midtone region. Fresh Mixed composition must still own that region from
     // the cleaned raster rather than whitening it as unclassified paper.
     let rendered_tone_picture_mask = tone_picture_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
         render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
         })
     });
     let rendered_text_vicinity_mask = text_vicinity_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
         render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
         })
     });
     let rendered_text_mask = text_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
         render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            render_plan
-                .output_to_source(point)
-                .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
         })
     });
     let rendered_trusted_foreground_mask = trusted_foreground_mask.map(|mask| {
-        let mask_scale_x = if normalized.width() <= 1 {
-            0.0
-        } else {
-            mask.width().saturating_sub(1) as f64 / normalized.width().saturating_sub(1) as f64
-        };
-        let mask_scale_y = if normalized.height() <= 1 {
-            0.0
-        } else {
-            mask.height().saturating_sub(1) as f64 / normalized.height().saturating_sub(1) as f64
-        };
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
         render_binary_mask_preserve_ink(
             mask,
             rendered_width,
             rendered_height,
             mask_scale_x,
             mask_scale_y,
-            |point| {
-                render_plan
-                    .output_to_source(point)
-                    .map(|source| Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
-            },
+            |point| map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point),
         )
     });
     if options.output_mode == OutputMode::Mixed {
@@ -6681,6 +6632,34 @@ fn render_binary_mask(
             && source_y < source.height() as isize
             && source.get(source_x as usize, source_y as usize)
     })
+}
+
+fn auxiliary_mask_scales(
+    mask_width: usize,
+    mask_height: usize,
+    normalized: &GrayImage,
+) -> (f64, f64) {
+    let scale = |mask_extent: usize, normalized_extent: usize| {
+        if normalized_extent <= 1 {
+            0.0
+        } else {
+            mask_extent.saturating_sub(1) as f64 / normalized_extent.saturating_sub(1) as f64
+        }
+    };
+    (
+        scale(mask_width, normalized.width()),
+        scale(mask_height, normalized.height()),
+    )
+}
+
+fn map_auxiliary_mask_point(
+    render_plan: &ComposedRenderPlan,
+    mask_scale_x: f64,
+    mask_scale_y: f64,
+    point: Point,
+) -> Option<Point> {
+    let source = render_plan.output_to_source(point)?;
+    Some(Point::new(source.x * mask_scale_x, source.y * mask_scale_y))
 }
 
 fn render_binary_mask_preserve_ink(
