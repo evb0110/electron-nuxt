@@ -767,3 +767,49 @@ R20 2026-08-15 (S4 complete; fold fix landed; batch item 3 closed;
       rebaseline for subprocess CLIs that Vitest cannot instrument.
    6. Stay-fixed: all R20 items enter the seven-day re-report window
       from 2026-08-15.
+
+R21 2026-08-16 (Batch closed: crop-box and stroke-weight landed;
+   stay-fixed: pending):
+   1. Crop-box (R10 family) CLOSED: PR #29 merged+attested (main
+      dfb176a6b lineage): perpendicular locality on structured-edge/rail
+      association; page-1 left metadata slack 24.55mm→0.00; exports
+      byte-identical (30/30 leaves); overlay needed no change
+      (`metadata.contentBox` is the shipped box); CodeRabbit added a
+      shipped-CLI locality regression pin.
+   2. Stroke-weight (R11/R13, batch item 4) CLOSED: PR #33
+      squash-merged+attested (main 7ed16f2d9): canonical fixed-render
+      routing basis (routing/leaf-resolution/reconciliation DPI-independent
+      by construction; cross-DPI identity 0/316 at 150/299/300) + flat-lit
+      Otsu band 0.099-0.11025 near the dark-border cliff. Root cause:
+      299-vs-300-DPI working-raster classifier flips (bisected
+      deterministically, R8 step of the diagnosis). Whole-book oracle
+      1,367→1,212 (−155); user Vorwort 45→0; five chronic Wolf-victim
+      pages rescued (25R 29→1, 132R 16→0, 48R 30→1, 33R 32→7,
+      34R 31→4). Two forensically adjudicated exceptions: impressum
+      raw-14 (13 sparse-line median artifacts + one +0.394px
+      source-supported), 80R +4 (4 source-supported widenings ≤2px on a
+      globally-thinner page; accepted because no deterministic basis can
+      match the DPI-accident baseline leaf-for-leaf and the alternative was
+      Wolf-13). Design history: six iterations, five falsified by
+      pre-registered checks (integer shear; binary source-support;
+      coverage-weight budget — landed separately as PR #28's complement
+      but parked from this branch; 0.1pp quantizer; downscale-canonical),
+      each falsification tracked in the branch HANDOFF and review files.
+   3. Iteration-5 evidence chain integrated: the line-budget fix (PR #28)
+      remains landed and complementary (whole-book 6,028→1,367 baseline
+      this row measures from).
+   4. BATCH STATUS: ALL FIVE original evening items + both follow-up
+      reports (page-1 crop, page-2 boldness on
+      003319_luther_syr_chronik_josua_styllites.pdf) landed and attested.
+      Stay-fixed 7-day window opens 2026-08-16 for R21 items.
+   5. PROCESS DECISIONS: squash-merge is the default landing method
+      (GitHub-signed/Verified; rebase merges land unsigned — user-decided);
+      mechanical dispatches route to luna-max, decision-heavy to sol/opus
+      (user-decided); the `coderabbit-review` skill was updated with squash
+      default, gate-baseline re-validation rule, bounded rate-limit retries,
+      and the post-push incremental sweep.
+   6. REMAINING QUEUE (unchanged priorities): S6 deletions under R19
+      constraints; S7 tail (lossless placement unification + retro eyeball
+      pack, release verify wiring, .devkit prune); S8 supported-class
+      declaration; Sauvola unit fix (sequenced, oracle now exists); VPS
+      oracle port follow-ups.
