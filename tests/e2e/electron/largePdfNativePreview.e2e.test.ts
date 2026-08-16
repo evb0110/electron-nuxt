@@ -599,4 +599,214 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         expect(settled.skeletonCount, JSON.stringify(settled)).toBe(0);
         expect(settled.errorTexts, JSON.stringify(settled)).toHaveLength(0);
     }, LARGE_PDF_TIMEOUT_MS);
+
+    it('keeps the native PDF point beneath the pointer fixed during wheel zoom', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Large-PDF Electron E2E session failed to start');
+        }
+        if (!largePdfFixture.path) {
+            throw new Error(`Large-PDF fixture unavailable: ${largePdfFixture.reason}`);
+        }
+
+        await openNativePdfPreviewInApp(session.page, largePdfFixture.path, LARGE_PDF_TIMEOUT_MS);
+        const totalPages = (await readNativePdfPreviewState(session.page)).toolbar?.totalPages ?? 0;
+        expect(totalPages).toBeGreaterThanOrEqual(3);
+        const pageNumber = 3;
+        const navigation = await callWorkspaceCommand(session.page, 'handleGoToPage', [pageNumber]);
+        expect(navigation.called).toBe(true);
+        const zoom = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [3.76]);
+        expect(zoom.called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                currentPage: pageNumber,
+                minEffectiveZoom: 3.75,
+                zoomMode: 'custom',
+            },
+            {timeoutMs: 30_000},
+        );
+        await waitForNativePdfPreviewLoaded(session.page, LARGE_PDF_TIMEOUT_MS);
+
+        const anchor = await session.page.evaluate((targetPage) => {
+            const host = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const viewport = host?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+            const shell = host?.querySelector<HTMLElement>(
+                `.native-pdf-page-shell[data-page-number="${String(targetPage)}"]`,
+            ) ?? null;
+            const viewportRect = viewport?.getBoundingClientRect() ?? null;
+            const shellRect = shell?.getBoundingClientRect() ?? null;
+            if (!viewport || !viewportRect || !shellRect) {
+                return null;
+            }
+            const visibleLeft = Math.max(viewportRect.left, shellRect.left);
+            const visibleRight = Math.min(viewportRect.right, shellRect.right);
+            const visibleTop = Math.max(viewportRect.top, shellRect.top);
+            const visibleBottom = Math.min(viewportRect.bottom, shellRect.bottom);
+            if (visibleRight - visibleLeft < 40 || visibleBottom - visibleTop < 40) {
+                return null;
+            }
+            const x = visibleLeft + (visibleRight - visibleLeft) * 0.3;
+            const y = visibleTop + (visibleBottom - visibleTop) * 0.4;
+            return {
+                pageNumber: targetPage,
+                pageXRatio: (x - shellRect.left) / shellRect.width,
+                pageYRatio: (y - shellRect.top) / shellRect.height,
+                x,
+                y,
+                zoom: window.__evbTestApi?.getActiveToolbarSnapshot()?.effectiveZoom ?? null,
+            };
+        }, pageNumber);
+        expect(anchor).not.toBeNull();
+        if (!anchor) {
+            return;
+        }
+
+        const readAnchorState = () => session.page.evaluate(({
+            pageNumber: targetPage,
+            pageXRatio,
+            pageYRatio,
+            x,
+            y,
+        }) => {
+            const host = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const shell = host?.querySelector<HTMLElement>(
+                `.native-pdf-page-shell[data-page-number="${String(targetPage)}"]`,
+            ) ?? null;
+            const rect = shell?.getBoundingClientRect() ?? null;
+            return {
+                anchorErrorX: rect ? rect.left + rect.width * pageXRatio - x : null,
+                anchorErrorY: rect ? rect.top + rect.height * pageYRatio - y : null,
+                targetPageSkeletonCount: shell?.querySelectorAll('.document-page-skeleton').length ?? 0,
+                zoom: window.__evbTestApi?.getActiveToolbarSnapshot()?.effectiveZoom ?? null,
+            };
+        }, anchor);
+        type TAnchorState = Awaited<ReturnType<typeof readAnchorState>>;
+        const waitForConvergedAnchorState = async (previousZoom: number, direction: 'in' | 'out') => {
+            await waitForFunctionInPage(session.page, ({
+                direction: zoomDirection,
+                pageNumber: targetPage,
+                pageXRatio,
+                pageYRatio,
+                previousZoom: priorZoom,
+                x,
+                y,
+            }) => {
+                const host = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+                ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const shell = host?.querySelector<HTMLElement>(
+                    `.native-pdf-page-shell[data-page-number="${String(targetPage)}"]`,
+                ) ?? null;
+                const rect = shell?.getBoundingClientRect() ?? null;
+                const zoom = window.__evbTestApi?.getActiveToolbarSnapshot()?.effectiveZoom ?? null;
+                return rect !== null
+                    && zoom !== null
+                    && (zoomDirection === 'in' ? zoom > priorZoom : zoom < priorZoom)
+                    && Math.abs(rect.left + rect.width * pageXRatio - x) <= 2
+                    && Math.abs(rect.top + rect.height * pageYRatio - y) <= 2;
+            }, {
+                polling: 'raf',
+                timeout: 150,
+            }, {
+                ...anchor,
+                direction,
+                previousZoom,
+            });
+            return readAnchorState();
+        };
+
+        const isMac = await session.page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform));
+        await session.page.mouse.move(anchor.x, anchor.y);
+        const modifierKey = isMac ? 'Meta' : 'Control';
+        const zoomInSamples: TAnchorState[] = [];
+        await session.page.keyboard.down(modifierKey);
+        try {
+            let previousZoom = anchor.zoom ?? 0;
+            for (let index = 0; index < 5; index += 1) {
+                await session.page.mouse.wheel({deltaY: -24});
+                const sample = await waitForConvergedAnchorState(previousZoom, 'in');
+                zoomInSamples.push(sample);
+                previousZoom = sample.zoom ?? previousZoom;
+            }
+        } finally {
+            await session.page.keyboard.up(modifierKey);
+        }
+        zoomInSamples.forEach((sample, index) => {
+            expect(Math.abs(sample.anchorErrorX ?? Number.POSITIVE_INFINITY), JSON.stringify({
+                index,
+                zoomInSamples,
+            })).toBeLessThanOrEqual(2);
+            expect(Math.abs(sample.anchorErrorY ?? Number.POSITIVE_INFINITY), JSON.stringify({
+                index,
+                zoomInSamples,
+            })).toBeLessThanOrEqual(2);
+            if (index > 0) {
+                expect(sample.zoom ?? 0, JSON.stringify(zoomInSamples)).toBeGreaterThan(zoomInSamples[index - 1]?.zoom ?? Number.POSITIVE_INFINITY);
+            }
+        });
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {minEffectiveZoom: (anchor.zoom ?? 0) + 0.5},
+            {timeoutMs: 10_000},
+        );
+        await waitForFunctionInPage(session.page, ({
+            pageNumber: targetPage,
+            pageXRatio,
+            pageYRatio,
+            x,
+            y,
+        }) => {
+            const host = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const shell = host?.querySelector<HTMLElement>(
+                `.native-pdf-page-shell[data-page-number="${String(targetPage)}"]`,
+            ) ?? null;
+            const rect = shell?.getBoundingClientRect() ?? null;
+            return rect !== null
+                && shell?.querySelector('.document-page-visual--committed') !== null
+                && shell?.querySelector('.document-page-skeleton') === null
+                && Math.abs(rect.left + rect.width * pageXRatio - x) <= 2
+                && Math.abs(rect.top + rect.height * pageYRatio - y) <= 2;
+        }, {timeout: 10_000}, anchor);
+
+        const settled = await readAnchorState();
+        expect(Math.abs(settled.anchorErrorX ?? Number.POSITIVE_INFINITY), JSON.stringify(settled)).toBeLessThanOrEqual(2);
+        expect(Math.abs(settled.anchorErrorY ?? Number.POSITIVE_INFINITY), JSON.stringify(settled)).toBeLessThanOrEqual(2);
+        expect(settled.targetPageSkeletonCount, JSON.stringify(settled)).toBe(0);
+        expect(settled.zoom, JSON.stringify(settled)).toBeGreaterThan(anchor.zoom ?? 0);
+
+        const zoomOutSamples: TAnchorState[] = [];
+        await session.page.keyboard.down(modifierKey);
+        try {
+            let previousZoom = settled.zoom ?? Number.POSITIVE_INFINITY;
+            for (let index = 0; index < 5; index += 1) {
+                await session.page.mouse.wheel({deltaY: 24});
+                const sample = await waitForConvergedAnchorState(previousZoom, 'out');
+                zoomOutSamples.push(sample);
+                previousZoom = sample.zoom ?? previousZoom;
+            }
+        } finally {
+            await session.page.keyboard.up(modifierKey);
+        }
+        zoomOutSamples.forEach((sample, index) => {
+            expect(Math.abs(sample.anchorErrorX ?? Number.POSITIVE_INFINITY), JSON.stringify({
+                index,
+                zoomOutSamples,
+            })).toBeLessThanOrEqual(2);
+            expect(Math.abs(sample.anchorErrorY ?? Number.POSITIVE_INFINITY), JSON.stringify({
+                index,
+                zoomOutSamples,
+            })).toBeLessThanOrEqual(2);
+            if (index > 0) {
+                expect(sample.zoom ?? Number.POSITIVE_INFINITY, JSON.stringify(zoomOutSamples)).toBeLessThan(zoomOutSamples[index - 1]?.zoom ?? 0);
+            }
+        });
+        expect(Math.abs((zoomOutSamples.at(-1)?.zoom ?? 0) - (anchor.zoom ?? 0)), JSON.stringify(zoomOutSamples)).toBeLessThan(0.02);
+    }, LARGE_PDF_TIMEOUT_MS);
 });

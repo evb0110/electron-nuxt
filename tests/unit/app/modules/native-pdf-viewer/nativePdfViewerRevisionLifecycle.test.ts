@@ -572,6 +572,10 @@ describe('NativePdfViewer revision lifecycle', () => {
         viewport.scrollTop = 1_700;
         authority.dispatchViewportEvent('scroll', new Event('scroll'));
         await nextTick();
+        expect(authority.openSurface.viewportSession.value.observedPage).toBeNull();
+
+        authority.dispatchViewportEvent('scroll', {isTrusted: true} as Event);
+        await nextTick();
 
         expect(authority.openSurface.viewportSession.value).toMatchObject({
             requestedPage: 1,

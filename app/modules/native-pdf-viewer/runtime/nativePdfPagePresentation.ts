@@ -6,6 +6,14 @@ interface INativePdfPageShellLayout {
     width: number;
 }
 
+export function resolveNativePdfPageShellLeft(options: {
+    gutterPx: number;
+    pageWidth: number;
+    surfaceWidth: number;
+}) {
+    return Math.max(options.gutterPx, Math.round((options.surfaceWidth - options.pageWidth) / 2));
+}
+
 export function createIdleNativePdfPageState(): IDocumentPreviewPageState {
     return {
         failedRenderPx: 0,
@@ -42,7 +50,11 @@ export function resolveNativePdfPageShellStyle(options: {
         return {};
     }
     return {
-        left: `${Math.max(options.gutterPx, Math.round((options.surfaceWidth - options.layout.width) / 2))}px`,
+        left: `${resolveNativePdfPageShellLeft({
+            gutterPx: options.gutterPx,
+            pageWidth: options.layout.width,
+            surfaceWidth: options.surfaceWidth,
+        })}px`,
         top: `${options.layout.top}px`,
         width: `${options.layout.width}px`,
         height: `${options.layout.height}px`,
