@@ -3916,6 +3916,40 @@ mod tests {
     }
 
     #[test]
+    fn quantization_floor_boundary_abstains_until_the_margin_exceeds_the_step() {
+        let boundary_median =
+            RIDGE_WIDTH_QUANTIZATION_STEP_PX / (STROKE_BUDGET_TOLERANCE_RATIO - 1.0);
+        let line_with_median = |median_width_px: f64| StrokeBudgetLine {
+            center_y: 24.0,
+            intervention_enabled: true,
+            components: (0..STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS)
+                .map(|index| StrokeBudgetComponent {
+                    center_x: index as f64 * 10.0,
+                    center_y: 24.0,
+                    ridge_width_px: median_width_px,
+                })
+                .collect(),
+        };
+
+        // At the boundary the rounded margin equals the step exactly, and the
+        // strict inequality must treat equality as unmeasurable.
+        assert_eq!(
+            boundary_median * (STROKE_BUDGET_TOLERANCE_RATIO - 1.0),
+            RIDGE_WIDTH_QUANTIZATION_STEP_PX
+        );
+        for median_width_px in [boundary_median.next_down(), boundary_median] {
+            assert!(
+                local_stroke_budget(&line_with_median(median_width_px), 0.0, 300.0).is_none(),
+                "median {median_width_px} must abstain",
+            );
+        }
+
+        let engaged = local_stroke_budget(&line_with_median(boundary_median.next_up()), 0.0, 300.0)
+            .expect("one ULP above the boundary must engage budgeting");
+        assert!(engaged.maximum_width_px > boundary_median);
+    }
+
+    #[test]
     fn smoothing_guard_suppresses_only_the_delta_that_crosses_the_shared_budget() {
         let base = solid_component_line(&[4, 4, 4, 4, 4, 4, 4, 6]);
         let (budget, offenders) = LineStrokeBudget::from_binary(&base, 300.0).unwrap();
