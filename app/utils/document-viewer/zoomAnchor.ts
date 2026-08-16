@@ -7,7 +7,9 @@ export interface IDocumentZoomPageLayout {
 
 export interface IDocumentZoomAnchor {
     pageIndex: number;
+    viewportX?: number;
     viewportXRatio?: number;
+    viewportY?: number;
     viewportYRatio?: number;
     xRatio: number;
     yRatio: number;
@@ -63,6 +65,10 @@ export function captureDocumentZoomAnchor(
     const left = resolveLayoutLeft(container, layout);
     return {
         pageIndex,
+        ...(viewportPoint ? {
+            viewportX: pointX,
+            viewportY: pointY,
+        } : {}),
         viewportXRatio: pointX / Math.max(1, container.clientWidth),
         viewportYRatio: pointY / Math.max(1, container.clientHeight),
         xRatio: (viewportX - left) / Math.max(1, layout.width),
@@ -83,8 +89,12 @@ export function resolveDocumentZoomAnchorScroll(
         return null;
     }
     const left = resolveLayoutLeft(container, layout);
-    const viewportX = container.clientWidth * (anchor.viewportXRatio ?? 0.5);
-    const viewportY = container.clientHeight * (anchor.viewportYRatio ?? 0.5);
+    const viewportX = anchor.viewportX === undefined
+        ? container.clientWidth * (anchor.viewportXRatio ?? 0.5)
+        : Math.min(container.clientWidth, Math.max(0, anchor.viewportX));
+    const viewportY = anchor.viewportY === undefined
+        ? container.clientHeight * (anchor.viewportYRatio ?? 0.5)
+        : Math.min(container.clientHeight, Math.max(0, anchor.viewportY));
     return {
         left: Math.max(0, left + layout.width * anchor.xRatio - viewportX),
         top: Math.max(0, layout.top + layout.height * anchor.yRatio - viewportY),

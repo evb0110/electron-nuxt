@@ -1,4 +1,7 @@
-import { useResizeObserver } from '@vueuse/core';
+import {
+    useEventListener,
+    useResizeObserver,
+} from '@vueuse/core';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import type {
     IDocumentPageMetrics,
@@ -114,9 +117,25 @@ export const useDocumentPageSourceRuntime = (options: {
         effectiveZoom,
         computed(() => props.value.zoomMode),
         emit,
-        {beforeZoom: interaction => layoutLifecycle.capturePointerAnchor(interaction.event)},
+        {
+            beforeZoom: (interaction, packetAt, startsNewSession) => layoutLifecycle.capturePointerAnchor(
+                interaction.event,
+                packetAt,
+                startsNewSession,
+            ),
+            onNonZoom: () => layoutLifecycle.cancelPendingRestore(),
+            readSessionKey: () => transitions.loadGeneration.value,
+        },
     );
+    const cancelWheelInteraction = () => {
+        if (props.value.isActive) {
+            handleWheelZoom.reset();
+            layoutLifecycle.cancelPendingRestore();
+        }
+    };
     const pageHeights = computed(() => pageDisplayLayouts.value.map(layout => layout.height));
+    useEventListener(import.meta.client ? document : null, 'pointerdown', cancelWheelInteraction, {capture: true});
+    useEventListener(import.meta.client ? document : null, 'keydown', cancelWheelInteraction, {capture: true});
     const pageTops = computed(() => {
         let top = DOCUMENT_PAGE_GUTTER_PX;
         return pageHeights.value.map((height) => {
@@ -382,6 +401,7 @@ export const useDocumentPageSourceRuntime = (options: {
         await Promise.all(renderQueue.pagesToRender.map(renderPage));
     }
     const scheduleRender = createRafCoalescedCallback(() => void renderMountedPages());
+    const captureLayoutRestoreEpoch = () => `${String(chassisAuthority?.openSurface.snapshot.value.generation ?? null)}:${String(viewportWritePort.getInteractionEpoch())}`;
     const layoutLifecycle = useDocumentViewportLayoutLifecycle({
         viewerContainer,
         pageLayouts: zoomAnchorPageLayouts,
@@ -389,15 +409,15 @@ export const useDocumentPageSourceRuntime = (options: {
             ? null
             : Math.max(0, props.value.currentPage - 1),
         isResizing: computed(() => props.value.isResizing),
-        captureRestoreEpoch: () => chassisAuthority?.openSurface.snapshot.value.generation ?? null,
-        canRestore: epoch => !chassisAuthority || (
-            props.value.isActive
-            && chassisAuthority.openSurface.snapshot.value.generation === epoch
-            && shouldProjectDocumentViewportScroll(
-                chassisAuthority.openSurface.snapshot.value,
-                chassisAuthority.openSurface.viewportSession.value,
-            )
-        ),
+        captureRestoreEpoch: captureLayoutRestoreEpoch,
+        canRestore: epoch => epoch === captureLayoutRestoreEpoch()
+            && (!chassisAuthority || (
+                props.value.isActive
+                && shouldProjectDocumentViewportScroll(
+                    chassisAuthority.openSurface.snapshot.value,
+                    chassisAuthority.openSurface.viewportSession.value,
+                )
+            )),
         applyRestoredScroll: (restored) => {
             const container = viewerContainer.value;
             return container !== null && viewportWritePort.apply(container, {
@@ -421,7 +441,7 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         viewportScrollTop.value = nextScrollTop;
         scheduleRender.schedule();
-        if (chassisAuthority?.viewportWritePort.consumeAuthorityScroll(viewerContainer.value)) {
+        if (viewportWritePort.consumeAuthorityScroll(viewerContainer.value)) {
             layoutLifecycle.refreshLayoutTransactionAnchor();
             syncCurrentPageFromViewport(false);
             return;
@@ -433,7 +453,7 @@ export const useDocumentPageSourceRuntime = (options: {
             return;
         }
         layoutLifecycle.cancelPendingRestore();
-        chassisAuthority?.viewportWritePort.observeUserScroll(viewerContainer.value);
+        viewportWritePort.observeUserScroll(viewerContainer.value);
         layoutLifecycle.refreshLayoutTransactionAnchor();
         syncCurrentPageFromViewport(true);
     }
@@ -458,7 +478,7 @@ export const useDocumentPageSourceRuntime = (options: {
         }
     }
     function handleWheel(interaction: IDocumentWheelInteraction) {
-        if (interaction.intent === 'platform-scroll' || handleWheelZoom(interaction)) {
+        if (handleWheelZoom(interaction) || interaction.intent === 'platform-scroll') {
             return;
         }
         const target = pagedWheelNavigation.handle(interaction.event, {
@@ -716,7 +736,10 @@ export const useDocumentPageSourceRuntime = (options: {
         releaseViewportFeature = chassisAuthority?.bindViewportFeature({
             getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar',
             getStyle: () => ({}),
-            events: {scroll: event => handleScroll(event)},
+            events: {
+                mousedown: cancelWheelInteraction,
+                scroll: event => handleScroll(event),
+            },
             wheel: handleWheel,
         }) ?? null;
     });

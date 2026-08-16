@@ -99,11 +99,14 @@ describe('document zoom anchor', () => {
 
         expect(anchor).toMatchObject({
             pageIndex: 0,
+            viewportX: 100,
             viewportXRatio: 0.2,
+            viewportY: 100,
             viewportYRatio: 0.25,
             xRatio: 0.75,
             yRatio: 0.684,
         });
+        viewport.clientHeight = 388;
         expect(resolveDocumentZoomAnchorScroll(viewport, [{
             left: 600,
             top: 16,
@@ -112,6 +115,36 @@ describe('document zoom anchor', () => {
         }], anchor)).toEqual({
             left: 1_100,
             top: 1_284,
+        });
+    });
+
+    it('clamps a retained pointer position when the viewport shrinks around it', () => {
+        const viewport = {
+            clientHeight: 400,
+            clientWidth: 500,
+            scrollLeft: 500,
+            scrollTop: 600,
+        };
+        const anchor = captureDocumentZoomAnchor(viewport, [{
+            left: 300,
+            top: 16,
+            width: 400,
+            height: 1_000,
+        }], {
+            x: 480,
+            y: 390,
+        });
+        viewport.clientWidth = 300;
+        viewport.clientHeight = 200;
+
+        expect(resolveDocumentZoomAnchorScroll(viewport, [{
+            left: 600,
+            top: 16,
+            width: 800,
+            height: 2_000,
+        }], anchor)).toEqual({
+            left: 1_660,
+            top: 1_764,
         });
     });
 

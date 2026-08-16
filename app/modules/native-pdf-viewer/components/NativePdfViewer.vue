@@ -47,6 +47,7 @@
 <script setup lang="ts">
 import {
     useDevicePixelRatio,
+    useEventListener,
     useResizeObserver,
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
@@ -183,7 +184,10 @@ onMounted(() => {
             },
         ],
         getStyle: () => ({}),
-        events: {scroll: event => handleViewerScroll(event)},
+        events: {
+            mousedown: cancelWheelInteraction,
+            scroll: handleViewerScroll,
+        },
         wheel: handleWheel,
     }) ?? null;
 });
@@ -266,17 +270,15 @@ const zoomAnchorPageLayouts = computed(() => pageLayouts.value.map(layout => ({
         surfaceWidth: continuousSurfaceWidth.value,
     }),
 })));
-const handleWheel = createDocumentWheelZoomHandler(
-    effectiveZoom,
-    zoomMode,
-    emit,
-    {beforeZoom: interaction => viewportLayoutLifecycle.capturePointerAnchor(interaction.event)},
-);
-const continuousDocumentHeight = computed(() => Math.max(
-    containerHeight.value,
-    continuousGeometry.value.totalHeight,
-    1,
-));
+const handleWheel = createDocumentWheelZoomHandler(effectiveZoom, zoomMode, emit, {
+    beforeZoom: (interaction, packetAt, startsNewSession) => viewportLayoutLifecycle.capturePointerAnchor(interaction.event, packetAt, startsNewSession),
+    onNonZoom: () => viewportLayoutLifecycle.cancelPendingRestore(),
+    readSessionKey: () => loadGeneration,
+});
+function cancelWheelInteraction() { if (isActive.value) { handleWheel.reset(); viewportLayoutLifecycle.cancelPendingRestore(); } }
+useEventListener(import.meta.client ? document : null, 'pointerdown', cancelWheelInteraction, {capture: true});
+useEventListener(import.meta.client ? document : null, 'keydown', cancelWheelInteraction, {capture: true});
+const continuousDocumentHeight = computed(() => Math.max(containerHeight.value, continuousGeometry.value.totalHeight, 1));
 const renderedPageNumbers = computed(() => {
     if (totalPages.value <= 0) {
         return [] as number[];
@@ -673,7 +675,6 @@ function finishInitialLoadIfSettled() {
         }
         return;
     }
-
     if (initialPageState?.status === 'error') {
         markInitialVisualFailed(
             loadGeneration,
@@ -1267,7 +1268,6 @@ watch([
     if (!import.meta.client || !isActive.value || totalPages.value <= 0) {
         return;
     }
-
     await nextTick();
     syncLoadedPages();
 }, { flush: 'post' });

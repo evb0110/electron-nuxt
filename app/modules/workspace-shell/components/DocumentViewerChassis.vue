@@ -284,6 +284,7 @@ function handleViewportWheel(interaction: IDocumentWheelInteraction) {
 
 function handleViewportInteraction(type: 'mousedown', event: Event) {
     releaseResizeAnchorForViewportInteraction();
+    chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined);
     chassisAuthority.dispatchViewportEvent(type, event);
 }
 function readNumericAttr(name: string, fallback: number) {

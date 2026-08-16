@@ -28,7 +28,10 @@ import {
 } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 
 const nativePdfMocks = vi.hoisted(() => ({createSource: vi.fn()}));
-const vueUseMocks = vi.hoisted(() => ({pixelRatio: undefined as ReturnType<typeof ref<number>> | undefined}));
+const vueUseMocks = vi.hoisted(() => ({
+    listeners: new Map<string, EventListener[]>(),
+    pixelRatio: undefined as ReturnType<typeof ref<number>> | undefined,
+}));
 
 vi.mock('@app/platform/browser-api/public', () => ({createNativePdfPreviewSourceFromPath: nativePdfMocks.createSource}));
 
@@ -36,6 +39,15 @@ vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () =
 
 vi.mock('@vueuse/core', () => ({
     useDevicePixelRatio: () => ({pixelRatio: vueUseMocks.pixelRatio ??= ref(1)}),
+    useEventListener: vi.fn((_target: unknown, type: string, listener: EventListener) => {
+        const listeners = vueUseMocks.listeners.get(type) ?? [];
+        listeners.push(listener);
+        vueUseMocks.listeners.set(type, listeners);
+        return () => {
+            const index = listeners.indexOf(listener);
+            if (index >= 0) listeners.splice(index, 1);
+        };
+    }),
     useResizeObserver: vi.fn(),
 }));
 
@@ -177,6 +189,7 @@ afterEach(() => {
     for (const unmount of activeUnmounts) unmount();
     activeUnmounts.clear();
     vi.clearAllMocks();
+    vueUseMocks.listeners.clear();
     vi.unstubAllGlobals();
     vi.useRealTimers();
     if (vueUseMocks.pixelRatio) vueUseMocks.pixelRatio.value = 1;
@@ -514,6 +527,8 @@ describe('NativePdfViewer revision lifecycle', () => {
             documentId: documentPath,
             documentRevision: 'drt1:test:mouse-scroll',
         });
+        const zoom = ref<number | undefined>();
+        const zoomMode = ref<'custom' | 'fit-height' | 'fit-width'>('fit-width');
         const currentPageUpdates: number[] = [];
         const Root = defineComponent({setup() {
             provide(documentViewerChassisAuthorityKey, authority);
@@ -521,6 +536,14 @@ describe('NativePdfViewer revision lifecycle', () => {
                 src: documentPath,
                 isActive: true,
                 currentPage: 1,
+                zoom: zoom.value,
+                zoomMode: zoomMode.value,
+                'onUpdate:zoom': (value: number) => {
+                    zoom.value = value;
+                },
+                'onUpdate:zoomMode': (value: 'custom' | 'fit-height' | 'fit-width') => {
+                    zoomMode.value = value;
+                },
                 'onUpdate:currentPage': (pageNumber: number) => currentPageUpdates.push(pageNumber),
             });
         }});
@@ -592,6 +615,58 @@ describe('NativePdfViewer revision lifecycle', () => {
         await settleImagePaint(pageTwoImage);
         expect(host.querySelector('[data-page-number="2"] .document-page-visual--committed')).not.toBeNull();
         expect(host.querySelector('[data-page-number="2"] .document-page-skeleton')).toBeNull();
+
+        authority.dispatchViewportWheel({
+            deltaPx: -120,
+            event: {
+                cancelable: true,
+                clientX: 400,
+                clientY: 300,
+                defaultPrevented: false,
+                deltaX: 0,
+                deltaY: -120,
+                timeStamp: 100,
+                preventDefault: vi.fn(),
+            },
+            intent: 'zoom',
+        });
+        await nextTick();
+        for (const listener of vueUseMocks.listeners.get('pointerdown') ?? []) {
+            listener(new Event('pointerdown'));
+        }
+        authority.viewportWritePort.observeUserScroll(viewport);
+        viewport.scrollTop = 3_600;
+        authority.dispatchViewportEvent('scroll', {isTrusted: true} as Event);
+        await nextTick();
+
+        expect(authority.currentPage.value).toBe(3);
+        expect(currentPageUpdates.at(-1)).toBe(3);
+        vi.advanceTimersToNextFrame();
+        await nextTick();
+        expect(viewport.scrollTop).toBe(3_600);
+
+        authority.dispatchViewportWheel({
+            deltaPx: -120,
+            event: {
+                cancelable: true,
+                clientX: 400,
+                clientY: 300,
+                defaultPrevented: false,
+                deltaX: 0,
+                deltaY: -120,
+                timeStamp: 140,
+                preventDefault: vi.fn(),
+            },
+            intent: 'zoom',
+        });
+        await nextTick();
+        for (const listener of vueUseMocks.listeners.get('keydown') ?? []) {
+            listener(new Event('keydown'));
+        }
+        viewport.scrollTop = 3_400;
+        vi.advanceTimersToNextFrame();
+        await nextTick();
+        expect(viewport.scrollTop).toBe(3_400);
     });
 
     it('invalidates a budget-evicted current visual until its replacement paint settles', async () => {
