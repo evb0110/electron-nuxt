@@ -285,6 +285,14 @@ describe('document open surface session', () => {
             pageNumber: 7,
         });
         commitReadySurface(session, pageSevenFence);
+        session.requestNavigation(8, 0);
+        expect(session.observeViewportPage(7, {supersedeNavigation: true})).toBe(7);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 7,
+            committedPage: 7,
+            viewportIntent: null,
+        });
 
         expect(() => session.metadataReady(3)).not.toThrow();
         expect(session.viewportSession.value).toMatchObject({
@@ -298,11 +306,26 @@ describe('document open surface session', () => {
             stagedViewportFence: null,
             committedRenderFence: null,
             committedViewportFence: null,
+            viewportIntent: {pageNumber: 3},
             visual: {
                 kind: 'page',
                 pageNumber: 3,
                 presentation: 'skeleton',
             },
+        });
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'geometry-committed',
+            presentation: 'idle',
+            committedRender: null,
+            committedViewport: null,
+        });
+        expect(session.commitCanvas(pageSevenFence)).toBe(false);
+        expect(session.commitViewport(createViewportCommit(pageSevenFence))).toBe(false);
+        expect(session.markReady(pageSevenFence)).toBe(false);
+        expect(session.viewportSession.value.visual).toMatchObject({
+            kind: 'page',
+            pageNumber: 3,
+            presentation: 'skeleton',
         });
         expect(session.snapshot.value).toMatchObject({
             phase: 'geometry-committed',

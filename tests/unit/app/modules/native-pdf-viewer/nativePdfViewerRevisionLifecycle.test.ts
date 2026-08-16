@@ -455,7 +455,7 @@ describe('NativePdfViewer revision lifecycle', () => {
 
         await settlePendingWork();
         expect(source.renderPageObjectUrl).toHaveBeenCalledTimes(2);
-        expect(source.revokeObjectURL).toHaveBeenCalledWith('blob:preload-eviction:render-1');
+        expect(source.revokeObjectURL).not.toHaveBeenCalledWith('blob:preload-eviction:render-1');
         expect(host.querySelector('[data-testid="native-pdf-viewer-error"]')).toBeNull();
         const replacementImage = requireElement<HTMLImageElement>(
             host,

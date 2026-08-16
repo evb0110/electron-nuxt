@@ -26,7 +26,7 @@ export interface INativePdfOpeningFrame {
 }
 
 export async function installNativePdfOpeningSampler(page: Page) {
-    await evaluateInPage(page, () => {
+    await evaluateInPage(page, (rasterWidthCeilingPx: number) => {
         const testWindow = window as typeof window & {
             __nativePdfOpeningAnimationFrame?: number;
             __nativePdfOpeningFrames?: INativePdfOpeningFrame[];
@@ -80,9 +80,8 @@ export async function installNativePdfOpeningSampler(page: Page) {
                 && image.complete
                 && image.naturalWidth > 0
             ));
-            const outputScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
             const rasterIsHighResolution = (image: HTMLImageElement) => image.naturalWidth
-                >= Math.ceil(image.getBoundingClientRect().width * outputScale);
+                >= globalThis.__evbE2E.getRequiredRasterWidth(image, rasterWidthCeilingPx);
             testWindow.__nativePdfOpeningFrames!.push({
                 capturedAtMs: performance.now(),
                 claimed: viewportHost?.dataset.openSurfacePhase !== undefined
@@ -120,7 +119,7 @@ export async function installNativePdfOpeningSampler(page: Page) {
             testWindow.__nativePdfOpeningAnimationFrame = requestAnimationFrame(capture);
         };
         capture();
-    });
+    }, PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX);
 }
 
 export async function stopNativePdfOpeningSampler(page: Page): Promise<INativePdfOpeningFrame[]> {

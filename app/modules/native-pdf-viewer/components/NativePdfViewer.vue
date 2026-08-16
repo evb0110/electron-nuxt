@@ -725,6 +725,11 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
     let pendingObjectUrl: string | null = null;
     let committedObjectUrl = false;
     let pendingInvalidationCleanup: (() => void) | null = null;
+    const releasePendingObjectUrl = () => {
+        const objectUrl = pendingObjectUrl;
+        pendingObjectUrl = null;
+        if (objectUrl !== null && !committedObjectUrl) source.revokeObjectURL(objectUrl);
+    };
 
     try {
         const {
@@ -738,6 +743,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
         if (onInvalidated) {
             pendingInvalidationCleanup = onInvalidated(() => {
                 rasterInvalidated = true;
+                pendingObjectUrl = null;
                 const invalidatedState = pageStates.value[pageNumber - 1];
                 if (
                     source !== activeSource
@@ -776,8 +782,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
         ) {
             pendingInvalidationCleanup?.();
             pendingInvalidationCleanup = null;
-            source.revokeObjectURL(objectUrl);
-            pendingObjectUrl = null;
+            releasePendingObjectUrl();
             if (
                 isCurrentLoadGeneration(generation)
                 && source === activeSource
@@ -808,8 +813,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
         ) {
             pendingInvalidationCleanup?.();
             pendingInvalidationCleanup = null;
-            source.revokeObjectURL(objectUrl);
-            pendingObjectUrl = null;
+            releasePendingObjectUrl();
             if (
                 isCurrentLoadGeneration(generation)
                 && source === activeSource
@@ -841,9 +845,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
         finishInitialLoadIfSettled();
     } catch (error) {
         pendingInvalidationCleanup?.();
-        if (pendingObjectUrl && !committedObjectUrl) {
-            source.revokeObjectURL(pendingObjectUrl);
-        }
+        releasePendingObjectUrl();
         const currentState = pageStates.value[pageNumber - 1];
         if (
             !isCurrentLoadGeneration(generation)
@@ -1212,6 +1214,7 @@ watch(
 watch(isActive, async (active) => {
     if (!active) {
         loadGeneration += 1;
+        viewportLayoutLifecycle.cancelPendingRestore();
         stopSource();
         return;
     }

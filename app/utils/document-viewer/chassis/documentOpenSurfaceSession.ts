@@ -1069,7 +1069,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             const invalidatesCommittedVisual = current.lifecycle === 'ready'
                 && current.committedPage !== null
                 && current.committedPage > pageCount;
-            return dispatchViewport({
+            const accepted = dispatchViewport({
                 type: 'metadata-ready',
                 generation: sessionState.value.viewport.generation,
                 pageCount,
@@ -1081,6 +1081,18 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     committedViewportPosition: null,
                 })
                 : undefined);
+            if (!accepted) {
+                return false;
+            }
+            const updated = sessionState.value.viewport;
+            if (
+                invalidatesCommittedVisual
+                && updated.lifecycle === 'transitioning'
+                && updated.viewportIntent === null
+            ) {
+                return dispatchNavigation(updated.requestedPage, 0);
+            }
+            return true;
         },
         invalidateResidentVisual(pageNumber) {
             const normalized = Math.max(1, Math.trunc(pageNumber));

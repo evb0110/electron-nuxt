@@ -125,8 +125,11 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
 
     it('opens an oversized path-backed PDF through native preview without PDF.js allocation failure', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !largePdfFixture.path) {
-            return;
+        if (!session) {
+            throw new Error('Large-PDF Electron E2E session failed to start');
+        }
+        if (!largePdfFixture.path) {
+            throw new Error(`Large-PDF fixture unavailable: ${largePdfFixture.reason}`);
         }
 
         const consoleFailures: string[] = [];
@@ -166,8 +169,11 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
 
     it('keeps one coherent pending surface until the first native preview image is visible', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !largePdfFixture.path) {
-            return;
+        if (!session) {
+            throw new Error('Large-PDF Electron E2E session failed to start');
+        }
+        if (!largePdfFixture.path) {
+            throw new Error(`Large-PDF fixture unavailable: ${largePdfFixture.reason}`);
         }
 
         const priorPdfPath = await createMultiPageTextFixturePdf(
@@ -386,8 +392,11 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
 
     it('joins physical mouse-wheel scrolling to the native raster and viewport authority', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !largePdfFixture.path) {
-            return;
+        if (!session) {
+            throw new Error('Large-PDF Electron E2E session failed to start');
+        }
+        if (!largePdfFixture.path) {
+            throw new Error(`Large-PDF fixture unavailable: ${largePdfFixture.reason}`);
         }
 
         let initial = await readNativePdfPreviewState(session.page);
