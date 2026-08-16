@@ -22,8 +22,13 @@ export function preloadNativePdfPageObjectUrl(objectUrl: string) {
     }
     return new Promise<void>((resolve, reject) => {
         const image = new Image();
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error('Failed to decode PDF page preview'));
+        const settle = (complete: () => void) => {
+            image.onload = null;
+            image.onerror = null;
+            complete();
+        };
+        image.onload = () => settle(resolve);
+        image.onerror = () => settle(() => reject(new Error('Failed to decode PDF page preview')));
         image.src = objectUrl;
     });
 }

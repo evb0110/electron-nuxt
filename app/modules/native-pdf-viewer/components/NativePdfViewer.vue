@@ -77,6 +77,7 @@ import {
     preloadNativePdfPageObjectUrl,
     resolveNativePdfPageShellStyle,
 } from '@app/modules/native-pdf-viewer/runtime/nativePdfPagePresentation';
+import { revokeNativePdfPageObjectUrl } from '@app/modules/native-pdf-viewer/runtime/revokeNativePdfPageObjectUrl';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
@@ -481,17 +482,11 @@ function isPageVisualCommitted(pageNumber: number) {
 }
 function revokeObjectUrl(pageNumber: number, objectUrl: string) {
     if (!activeSource) {
+        // stopSource terminates the source only after cleanupRenderedPages, and
+        // source termination releases any remaining source-owned leases.
         return;
     }
-
-    try {
-        activeSource.revokeObjectURL(objectUrl);
-    } catch (error) {
-        BrowserLogger.warn('native-pdf-viewer', 'Failed to revoke PDF page URL', {
-            pageNumber,
-            error,
-        });
-    }
+    revokeNativePdfPageObjectUrl(activeSource, pageNumber, objectUrl);
 }
 function revokePageUrl(pageNumber: number) {
     const pageState = pageStates.value[pageNumber - 1];
@@ -728,7 +723,9 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
     const releasePendingObjectUrl = () => {
         const objectUrl = pendingObjectUrl;
         pendingObjectUrl = null;
-        if (objectUrl !== null && !committedObjectUrl) source.revokeObjectURL(objectUrl);
+        if (objectUrl !== null && !committedObjectUrl) {
+            revokeNativePdfPageObjectUrl(source, pageNumber, objectUrl);
+        }
     };
 
     try {
@@ -881,7 +878,6 @@ function syncLoadedPages() {
     if (!isActive.value || !activeSource || totalPages.value <= 0) {
         return;
     }
-
     const activePages = getActivePageSet();
     invalidateNonCanonicalRasters(activePages);
     releaseInactivePages(activePages);
@@ -904,6 +900,12 @@ function syncLoadedPages() {
             .finally(() => {
                 activeRenderPageNumbers.delete(pageNumber);
                 syncLoadedPages();
+            })
+            .catch((error: unknown) => {
+                BrowserLogger.warn('native-pdf-viewer', 'Unexpected PDF page render rejection', {
+                    pageNumber,
+                    error,
+                });
             });
     }
     finishInitialLoadIfSettled();
@@ -915,14 +917,12 @@ async function loadSource(nextSrc: TDocumentRef, generation: number) {
         source.terminate();
         return;
     }
-
     activeSource = source;
     const sizes = await source.getPageSizes();
     if (!isCurrentLoadGeneration(generation) || source !== activeSource) {
         source.terminate();
         return;
     }
-
     pageSizes.value = sizes;
     pageStates.value = sizes.map(createIdleNativePdfPageState);
     if (sizes.length > 0) {

@@ -1076,7 +1076,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }, invalidatesCommittedVisual
                 ? visual => ({
                     ...visual,
-                    presentation: 'idle',
+                    presentation: 'page-shell',
                     openingPageFrame: null,
                     committedViewportPosition: null,
                 })
@@ -1088,7 +1088,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             if (
                 invalidatesCommittedVisual
                 && updated.lifecycle === 'transitioning'
-                && updated.viewportIntent === null
             ) {
                 return dispatchNavigation(updated.requestedPage, 0);
             }

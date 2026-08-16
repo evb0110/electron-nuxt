@@ -315,7 +315,7 @@ describe('document open surface session', () => {
         });
         expect(session.snapshot.value).toMatchObject({
             phase: 'geometry-committed',
-            presentation: 'idle',
+            presentation: 'page-shell',
             committedRender: null,
             committedViewport: null,
         });
@@ -329,7 +329,7 @@ describe('document open surface session', () => {
         });
         expect(session.snapshot.value).toMatchObject({
             phase: 'geometry-committed',
-            presentation: 'idle',
+            presentation: 'page-shell',
             committedRender: null,
             committedViewport: null,
         });
@@ -346,6 +346,38 @@ describe('document open surface session', () => {
             committedPage: 3,
             pageCount: 3,
         });
+    });
+
+    it('mints a new navigation edge when metadata shrink invalidates an active intent', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'edited.pdf', 'pdfjs:1');
+        session.metadataReady(12);
+        commitDefaultGeometry(session, generation);
+        const openingFence = createRenderFence(session, generation, 'pdfjs:1');
+        commitReadySurface(session, openingFence);
+        session.requestNavigation(7, 0);
+        const pageSevenFence = createRenderFence(session, generation, 'pdfjs:1', {
+            renderVersion: 1,
+            requestId: 2,
+            pageNumber: 7,
+        });
+        commitReadySurface(session, pageSevenFence);
+        const priorIntentId = session.viewportSession.value.viewportIntent?.id;
+        expect(priorIntentId).toBeTruthy();
+
+        expect(session.metadataReady(3)).toBe(true);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'transitioning',
+            requestedPage: 3,
+            committedPage: null,
+            viewportIntent: {pageNumber: 3},
+        });
+        expect(session.viewportSession.value.viewportIntent?.id).not.toBe(priorIntentId);
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'geometry-committed',
+            presentation: 'page-shell',
+        });
+        expect(shouldPresentDocumentOpenEmptyPlaceholder(session.snapshot.value)).toBe(false);
     });
 
     it('dispatches an explicit command back to the stale requested page after free scrolling', () => {
