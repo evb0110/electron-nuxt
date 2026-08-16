@@ -839,5 +839,11 @@ R22 2026-08-16 (consolidated remaining-problems implementation;
       stay-fixed rerun, including the 80R observation constraint.
    6. Full dispositions and evidence are in
       `docs/scan-cleanup/process/REMAINING-PROBLEMS-CLOSURE-2026-08-16.md`.
-      PR number, merge SHA, and live settings attestation are appended after
-      the CodeRabbit-reviewed landing.
+   7. LANDING ATTESTATION: PR #38 was squash-merged as
+      `0b92c17b81580579b4eaf5a0e32c8fc9d7d97f66` after CodeRabbit reviewed the
+      final head, all nine review threads were answered and resolved, and
+      `gates_ok` plus every constituent check passed. The live `main`
+      protection readback is strict `Commit Attribution Policy` + exact
+      `gates_ok`, required conversation resolution, and force pushes disabled;
+      the admin exemption remains intentionally available for D2's
+      governance-only direct attestations.
