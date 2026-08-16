@@ -83,15 +83,24 @@ fn oversized_manifest_is_rejected_from_metadata_without_reading_it() {
 
 #[test]
 fn raster_decode_errors_use_public_error_classifications() {
+    struct RemoveDirOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveDirOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
+    let root_path = std::env::temp_dir().join(format!(
         "evb-scan-cleanup-raster-errors-{}-{nonce}",
         std::process::id()
     ));
-    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&root_path).unwrap();
+    let root = RemoveDirOnDrop(root_path);
 
     for (name, bytes, expected_code) in [
         (
@@ -105,9 +114,9 @@ fn raster_decode_errors_use_public_error_classifications() {
             "invalid-request",
         ),
     ] {
-        let input = root.join(name);
-        let output_path = root.join(format!("{name}.output.png"));
-        let metadata_path = root.join(format!("{name}.metadata.json"));
+        let input = root.0.join(name);
+        let output_path = root.0.join(format!("{name}.output.png"));
+        let metadata_path = root.0.join(format!("{name}.metadata.json"));
         fs::write(&input, bytes).unwrap();
 
         let output = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
@@ -126,6 +135,4 @@ fn raster_decode_errors_use_public_error_classifications() {
             .contains("Unable to read scan-cleanup raster"));
         assert!(output.stdout.is_empty(), "input: {name}");
     }
-
-    fs::remove_dir_all(root).unwrap();
 }
