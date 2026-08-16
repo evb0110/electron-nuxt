@@ -99,11 +99,14 @@ describe('document zoom anchor', () => {
 
         expect(anchor).toMatchObject({
             pageIndex: 0,
+            viewportX: 100,
             viewportXRatio: 0.2,
+            viewportY: 100,
             viewportYRatio: 0.25,
             xRatio: 0.75,
             yRatio: 0.684,
         });
+        viewport.clientHeight = 388;
         expect(resolveDocumentZoomAnchorScroll(viewport, [{
             left: 600,
             top: 16,

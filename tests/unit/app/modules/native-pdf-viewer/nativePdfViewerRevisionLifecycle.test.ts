@@ -36,6 +36,7 @@ vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () =
 
 vi.mock('@vueuse/core', () => ({
     useDevicePixelRatio: () => ({pixelRatio: vueUseMocks.pixelRatio ??= ref(1)}),
+    useEventListener: vi.fn(),
     useResizeObserver: vi.fn(),
 }));
 
@@ -514,6 +515,8 @@ describe('NativePdfViewer revision lifecycle', () => {
             documentId: documentPath,
             documentRevision: 'drt1:test:mouse-scroll',
         });
+        const zoom = ref<number | undefined>();
+        const zoomMode = ref<'custom' | 'fit-height' | 'fit-width'>('fit-width');
         const currentPageUpdates: number[] = [];
         const Root = defineComponent({setup() {
             provide(documentViewerChassisAuthorityKey, authority);
@@ -521,6 +524,14 @@ describe('NativePdfViewer revision lifecycle', () => {
                 src: documentPath,
                 isActive: true,
                 currentPage: 1,
+                zoom: zoom.value,
+                zoomMode: zoomMode.value,
+                'onUpdate:zoom': (value: number) => {
+                    zoom.value = value;
+                },
+                'onUpdate:zoomMode': (value: 'custom' | 'fit-height' | 'fit-width') => {
+                    zoomMode.value = value;
+                },
                 'onUpdate:currentPage': (pageNumber: number) => currentPageUpdates.push(pageNumber),
             });
         }});
@@ -592,6 +603,46 @@ describe('NativePdfViewer revision lifecycle', () => {
         await settleImagePaint(pageTwoImage);
         expect(host.querySelector('[data-page-number="2"] .document-page-visual--committed')).not.toBeNull();
         expect(host.querySelector('[data-page-number="2"] .document-page-skeleton')).toBeNull();
+
+        authority.dispatchViewportWheel({
+            deltaPx: -120,
+            event: {
+                cancelable: true,
+                clientX: 400,
+                clientY: 300,
+                defaultPrevented: false,
+                deltaX: 0,
+                deltaY: -120,
+                timeStamp: 100,
+                preventDefault: vi.fn(),
+            },
+            intent: 'zoom',
+        });
+        await nextTick();
+        authority.dispatchViewportWheel({
+            deltaPx: 120,
+            event: {
+                cancelable: true,
+                clientX: 400,
+                clientY: 300,
+                defaultPrevented: false,
+                deltaX: 0,
+                deltaY: 120,
+                timeStamp: 120,
+                preventDefault: vi.fn(),
+            },
+            intent: 'scroll',
+        });
+        authority.viewportWritePort.observeUserScroll(viewport);
+        viewport.scrollTop = 3_600;
+        authority.dispatchViewportEvent('scroll', {isTrusted: true} as Event);
+        await nextTick();
+
+        expect(authority.currentPage.value).toBe(3);
+        expect(currentPageUpdates.at(-1)).toBe(3);
+        vi.advanceTimersToNextFrame();
+        await nextTick();
+        expect(viewport.scrollTop).toBe(3_600);
     });
 
     it('invalidates a budget-evicted current visual until its replacement paint settles', async () => {

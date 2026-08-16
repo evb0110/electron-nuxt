@@ -34,6 +34,7 @@ export interface IDocumentWheelInteraction {
 }
 
 interface IDocumentWheelZoomTarget {
+    clamped: boolean;
     cumulativeDelta: number;
     nextEffectiveZoom: number;
     nextZoom: number;
@@ -62,7 +63,14 @@ interface IDocumentWheelZoomEmit {
     (event: 'update:zoomMode', value: TZoomMode): void;
 }
 
-interface IDocumentWheelZoomHandlerOptions {beforeZoom?: (interaction: IDocumentWheelInteraction) => void;}
+interface IDocumentWheelZoomHandlerOptions {beforeZoom?: (interaction: IDocumentWheelInteraction, packetAt: number, startsNewSession: boolean) => void;}
+
+interface IDocumentWheelZoomAccumulator {
+    cumulativeDelta: number;
+    startZoom: number;
+}
+
+interface IDocumentWheelZoomConsumeOptions extends IDocumentWheelZoomHandlerOptions {accumulator?: IDocumentWheelZoomAccumulator;}
 
 function normalizeWheelDelta(value: number, deltaMode: number, viewport: HTMLElement) {
     if (deltaMode === WHEEL_DELTA_LINE_MODE) {
@@ -151,6 +159,7 @@ export function resolveDocumentWheelZoomTarget(
     const nextEffectiveZoom = limits.minimumZoom === undefined && limits.maximumZoom === undefined
         ? clampDocumentManualZoom(rawNextEffectiveZoom)
         : Math.min(maximumZoom, Math.max(minimumZoom, rawNextEffectiveZoom));
+    const clamped = Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) > Number.EPSILON;
     if (Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) >= 0.001) {
         const clampedCumulativeDelta = resolveDocumentWheelCumulativeDelta(startZoom, nextEffectiveZoom);
         if (clampedCumulativeDelta !== null) {
@@ -160,6 +169,7 @@ export function resolveDocumentWheelZoomTarget(
     }
 
     return {
+        clamped,
         cumulativeDelta: nextCumulativeDelta,
         nextEffectiveZoom,
         nextZoom: nextEffectiveZoom,
@@ -171,21 +181,42 @@ export function resolveDocumentWheelZoomTarget(
 export function consumeDocumentWheelZoomInteraction(
     interaction: IDocumentWheelInteraction,
     sink: IDocumentWheelZoomSink,
-    options: IDocumentWheelZoomHandlerOptions = {},
+    options: IDocumentWheelZoomConsumeOptions & {
+        packetAt?: number;
+        startsNewSession?: boolean;
+    } = {},
 ) {
     if (interaction.intent !== 'zoom') {
         return false;
     }
 
     interaction.event.preventDefault();
-    const target = resolveDocumentWheelZoomTarget(sink.effectiveZoom, 0, interaction.deltaPx);
+    const target = resolveDocumentWheelZoomTarget(
+        options.accumulator?.startZoom ?? sink.effectiveZoom,
+        options.accumulator?.cumulativeDelta ?? 0,
+        interaction.deltaPx,
+    );
+    if (options.accumulator) {
+        options.accumulator.cumulativeDelta = target.cumulativeDelta;
+    }
     if (!target.valid) {
         return true;
     }
     if (Math.abs(target.nextEffectiveZoom - sink.effectiveZoom) < 0.001) {
+        if (!target.clamped && Math.abs(target.cumulativeDelta) > Number.EPSILON) {
+            options.beforeZoom?.(
+                interaction,
+                options.packetAt ?? performance.now(),
+                options.startsNewSession ?? true,
+            );
+        }
         return true;
     }
-    options.beforeZoom?.(interaction);
+    options.beforeZoom?.(
+        interaction,
+        options.packetAt ?? performance.now(),
+        options.startsNewSession ?? true,
+    );
     if (sink.zoomMode !== 'custom') {
         sink.emitZoomMode('custom');
     }
@@ -197,12 +228,96 @@ export function createDocumentWheelZoomHandler(
     effectiveZoom: IReadonlyValue<number>,
     zoomMode: IReadonlyValue<TZoomMode>,
     emit: IDocumentWheelZoomEmit,
-    options: IDocumentWheelZoomHandlerOptions = {},
+    options: IDocumentWheelZoomHandlerOptions & {
+        readSessionKey?: () => unknown;
+        onNonZoom?: () => void;
+    } = {},
 ) {
-    return (interaction: IDocumentWheelInteraction) => consumeDocumentWheelZoomInteraction(interaction, {
-        effectiveZoom: effectiveZoom.value,
-        zoomMode: zoomMode.value,
-        emitZoomMode: mode => emit('update:zoomMode', mode),
-        emitZoom: value => emit('update:zoom', value),
-    }, options);
+    let session: (IDocumentWheelZoomAccumulator & {
+        effectiveZoom: number;
+        lastObservedEffectiveZoom: number;
+        lastObservedZoomMode: TZoomMode;
+        lastPacketAt: number;
+        pendingEffectiveZooms: number[];
+        pendingZoomModes: TZoomMode[];
+        sessionKey: unknown;
+    }) | null = null;
+    const reset = () => {
+        session = null;
+    };
+    const handleInteraction = (interaction: IDocumentWheelInteraction) => {
+        if (interaction.intent !== 'zoom') {
+            reset();
+            options.onNonZoom?.();
+            return false;
+        }
+        const packetAt = performance.now();
+        let activeSession = session;
+        if (activeSession !== null && activeSession.sessionKey !== options.readSessionKey?.()) {
+            activeSession = null;
+        }
+        if (activeSession !== null) {
+            const observedZoom = effectiveZoom.value;
+            if (Math.abs(observedZoom - activeSession.lastObservedEffectiveZoom) >= 0.001) {
+                const acknowledgedIndex = activeSession.pendingEffectiveZooms.findLastIndex(
+                    value => Math.abs(value - observedZoom) < 0.001,
+                );
+                if (acknowledgedIndex < 0) {
+                    activeSession = null;
+                } else {
+                    activeSession.lastObservedEffectiveZoom = observedZoom;
+                    activeSession.pendingEffectiveZooms.splice(0, acknowledgedIndex + 1);
+                }
+            }
+        }
+        if (activeSession !== null && zoomMode.value !== activeSession.lastObservedZoomMode) {
+            const acknowledgedIndex = activeSession.pendingZoomModes.lastIndexOf(zoomMode.value);
+            if (acknowledgedIndex < 0) {
+                activeSession = null;
+            } else {
+                activeSession.lastObservedZoomMode = zoomMode.value;
+                activeSession.pendingZoomModes.splice(0, acknowledgedIndex + 1);
+            }
+        }
+        let startsNewSession = false;
+        if (
+            activeSession === null
+            || packetAt < activeSession.lastPacketAt
+            || packetAt - activeSession.lastPacketAt >= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS
+        ) {
+            startsNewSession = true;
+            activeSession = {
+                cumulativeDelta: 0,
+                effectiveZoom: effectiveZoom.value,
+                lastObservedEffectiveZoom: effectiveZoom.value,
+                lastObservedZoomMode: zoomMode.value,
+                lastPacketAt: packetAt,
+                pendingEffectiveZooms: [],
+                pendingZoomModes: [],
+                sessionKey: options.readSessionKey?.(),
+                startZoom: effectiveZoom.value,
+            };
+            session = activeSession;
+        }
+        activeSession.lastPacketAt = packetAt;
+        return consumeDocumentWheelZoomInteraction(interaction, {
+            effectiveZoom: activeSession.effectiveZoom,
+            zoomMode: zoomMode.value,
+            emitZoomMode: (mode) => {
+                activeSession.pendingZoomModes.push(mode);
+                emit('update:zoomMode', mode);
+            },
+            emitZoom: (value) => {
+                activeSession.effectiveZoom = value;
+                activeSession.pendingEffectiveZooms.push(value);
+                emit('update:zoom', value);
+            },
+        }, {
+            accumulator: activeSession,
+            packetAt,
+            startsNewSession,
+            ...(options.beforeZoom ? {beforeZoom: options.beforeZoom} : {}),
+        });
+    };
+    return Object.assign(handleInteraction, {reset});
 }
