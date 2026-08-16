@@ -124,6 +124,7 @@ mod tests {
         BinarizationMode,
     };
     #[test]
+    #[ignore = "the complete 51-page corpus across three render DPIs is release-only"]
     fn tracked_corpus_routes_reconciliation_and_leaf_resolution_are_dpi_identical() {
         for entry in corpus::build_corpus().unwrap() {
             let mut identities = Vec::new();
