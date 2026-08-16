@@ -2407,6 +2407,138 @@ fn fallback_spread_analysis_matches_canonical_leaf_ink_and_content() {
     }
 }
 
+/// The same fallback/canonical parity must hold when the source crosses the
+/// analysis edge ceiling. This keeps the fixed-plane split invariant covered
+/// on the path that actually downsamples to `MAX_ANALYSIS_EDGE`, not only on a
+/// source that is merely below the ceiling.
+#[test]
+fn over_analysis_edge_spread_analysis_matches_canonical_leaf_ink_and_content() {
+    let scratch = Scratch::new("fallback-spread-over-analysis-edge");
+    let (width, height) = (2504, 1600);
+    let mut spread = GrayImage::new(width, height, 255);
+    for y in 80..height - 80 {
+        for x in 80..width - 80 {
+            spread.set(x, y, 225);
+        }
+    }
+    for row in 0..18 {
+        let top = 180 + row * 65;
+        for word in 0..13 {
+            for y in top..top + 8 {
+                for x in 120 + word * 80..168 + word * 80 {
+                    spread.set(x, y, 20);
+                }
+                for x in 1400 + word * 80..1448 + word * 80 {
+                    spread.set(x, y, 20);
+                }
+            }
+        }
+    }
+    let canonical = spread.resample_to_dimensions(1252, 800);
+    let spread_path = scratch.path("spread.png");
+    let canonical_path = scratch.path("canonical.png");
+    fs::write(&spread_path, encode_gray(&spread).unwrap()).unwrap();
+    fs::write(&canonical_path, encode_gray(&canonical).unwrap()).unwrap();
+
+    let run = |label: &str, with_canonical: bool| {
+        let mut page = serde_json::json!({
+            "inputPath": spread_path,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": scratch.path(&format!("{label}-page.json")),
+            "options": {
+                "dpi": 300,
+                "layout": "force-two-page",
+                "normalizeIllumination": false,
+                "cropContent": true,
+                "matchPageSize": false,
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+            },
+            "outputs": [
+                {
+                    "outputPath": scratch.path(&format!("{label}-left.png")),
+                    "metadataPath": scratch.path(&format!("{label}-left.json"))
+                },
+                {
+                    "outputPath": scratch.path(&format!("{label}-right.png")),
+                    "metadataPath": scratch.path(&format!("{label}-right.json"))
+                }
+            ]
+        });
+        if with_canonical {
+            page["analysisInputPath"] = serde_json::json!(canonical_path);
+            page["analysisDpi"] = serde_json::json!(150);
+        }
+        let manifest = scratch.path(&format!("{label}-manifest.json"));
+        fs::write(
+            &manifest,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 3,
+                "operation": "render",
+                "renderMode": "final",
+                "canvasScope": "document",
+                "pages": [page],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{label}: stdout={}\nstderr={}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr),
+        );
+        ["left", "right"].map(|half| {
+            let output = decode_gray(
+                &fs::read(scratch.path(&format!("{label}-{half}.png"))).unwrap(),
+                4_000_000,
+                2000,
+            )
+            .unwrap();
+            let ink = output.data().iter().filter(|&&value| value < 128).count() as f64
+                / (output.width() * output.height()) as f64;
+            let metadata: Value = serde_json::from_slice(
+                &fs::read(scratch.path(&format!("{label}-{half}.json"))).unwrap(),
+            )
+            .unwrap();
+            (ink, metadata)
+        })
+    };
+
+    let fallback = run("fallback", false);
+    let reference = run("canonical", true);
+    for (half, ((fallback_ink, fallback_metadata), (reference_ink, reference_metadata))) in
+        ["left", "right"]
+            .into_iter()
+            .zip(fallback.into_iter().zip(reference))
+    {
+        assert!(
+            fallback_ink > 0.005 && fallback_ink < 0.5,
+            "{half} fallback leaf crossed the analysis edge with implausible ink: {fallback_ink}",
+        );
+        let ink_ratio = fallback_ink / reference_ink.max(f64::EPSILON);
+        assert!(
+            (0.85..=1.15).contains(&ink_ratio),
+            "{half} over-edge fallback leaf diverged from canonical reference: \
+             fallback={fallback_ink} canonical={reference_ink} ratio={ink_ratio}",
+        );
+        for dimension in ["widthPx", "heightPx"] {
+            let fallback_extent = fallback_metadata["contentBox"][dimension].as_f64().unwrap();
+            let reference_extent = reference_metadata["contentBox"][dimension]
+                .as_f64()
+                .unwrap();
+            assert!(
+                (fallback_extent - reference_extent).abs() <= reference_extent * 0.05,
+                "{half} over-edge fallback content box {dimension} diverged: \
+                 fallback={fallback_extent} canonical={reference_extent}",
+            );
+        }
+    }
+}
+
 #[test]
 fn auto_small_picture_uses_mixed_but_explicit_bw_stays_bilevel() {
     let scratch = Scratch::new("auto-small-picture");
