@@ -55,7 +55,8 @@ weighting has been hidden to make the raw count green.
 
 ## Route falsifier
 
-The final full-book inventory is identical at 150, 299, and 300 working DPI:
+Before the bounded near-boundary band, the final full-book inventory was
+identical at 150, 299, and 300 working DPI:
 
 - routes: 281 Otsu, 34 Wolf, 1 unresolved;
 - reconciliation: 226 shared joint, 34 faint-ink drift, 2 anchor drift,
@@ -69,6 +70,83 @@ p133l2. Side-by-side crops are in
 found intact text on p2/p3/p45/p46/p80/p133 and intact, more legible plate
 structure on p120/p124, with no crop loss or blanked content.
 
+The bounded band below changes exactly seven further leaves from Wolf to Otsu,
+so the landed inventory is 288 Otsu, 27 Wolf, and 1 unresolved. Fresh full-leaf
+captures at 150, 299, and 300 working DPI report identical canonical coverage,
+route, and reconciliation for all seven leaves, with 0 disagreements.
+
+## Near-boundary flat-lit Otsu band
+
+Canonical measurement found a bounded classifier gap immediately above the old
+8% dark-border cliff. `FLAT_LIT_OTSU_DARK_BORDER_COVERAGE_BAND` is therefore
+fixed at **0.099 through 0.11025 inclusive**, and it may select Otsu only when
+the independent flat-lit contrast, illumination, edge, and agreement evidence
+also passes. The captured set is exactly seven leaves; no tracked Wolf fixture
+is captured, and the nearest of the nine fixtures remains below the floor at
+9.868637110%.
+
+| leaf | canonical dark-border coverage | route | route-focused oracle, base Wolf -> band Otsu | crop |
+| --- | ---: | --- | ---: | --- |
+| 46R | 9.945561139% | Wolf -> Otsu | 22 -> 2 | `.devkit/analysis/near-boundary-route/landing/crops/46R-base-wolf-band-otsu.png` |
+| 25R | 10.222502099% | Wolf -> Otsu | 21 -> 1 | `.devkit/analysis/near-boundary-route/landing/crops/25R-base-wolf-band-otsu.png` |
+| 132R | 10.631313131% | Wolf -> Otsu | 19 -> 1 | `.devkit/analysis/near-boundary-route/landing/crops/132R-base-wolf-band-otsu.png` |
+| 48R | 10.678391960% | Wolf -> Otsu | 29 -> 3 | `.devkit/analysis/near-boundary-route/landing/crops/48R-base-wolf-band-otsu.png` |
+| 33R | 10.812500000% | Wolf -> Otsu | 37 -> 11 | `.devkit/analysis/near-boundary-route/landing/crops/33R-base-wolf-band-otsu.png` |
+| 34R | 10.816498316% | Wolf -> Otsu | 33 -> 9 | `.devkit/analysis/near-boundary-route/landing/crops/34R-base-wolf-band-otsu.png` |
+| 80R | 11.024096386% | Wolf -> Otsu | 11 -> 6 | `.devkit/analysis/near-boundary-route/80r-adjudication/80R-source-base-band-2x.png` |
+
+The five chronically bold leaves 25R, 132R, 48R, 33R, and 34R account for well
+over 100 removed offenders in the measured base-Wolf comparison. The 46R crop
+is recorded separately in the same crop directory. The threshold baseline was
+regenerated from source and increases honestly from 180 to 181 named floating
+constants.
+
+The comparable native-parity whole-book sweep measures 1,212 offenders, down
+155 from the origin/main base of 1,367 and down 160 from the pre-band candidate
+of 1,372. Exactly the seven rows below change relative to pre-band; all seven
+improve, so there is no new per-leaf regression. Relative to origin/main, 80R is
+the sole band leaf that increases and is the adjudicated +4 exception.
+
+| leaf | origin/main base | pre-band candidate | landed band | band vs base | band vs pre-band |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 25R | 29 | 28 | 1 | -28 | -27 |
+| 33R | 32 | 35 | 7 | -25 | -28 |
+| 34R | 31 | 34 | 4 | -27 | -30 |
+| 46R | 5 | 22 | 2 | -3 | -20 |
+| 48R | 30 | 29 | 1 | -29 | -28 |
+| 80R | 2 | 13 | 6 | **+4** | -7 |
+| 132R | 16 | 20 | 0 | -16 | -20 |
+
+The candidate PDF has 316 outputs, passes `qpdf --check`, and records the native
+parity assembler plus the patched scan-cleanup binary SHA-256. Artifacts are in
+`.devkit/analysis/near-boundary-route/landing/wholebook-parity/`; the exact
+three-way page ledger is `delta-audit.json`.
+
+### 80R bounded regression adjudication
+
+The comparable production record routes 80R through band Otsu and reports six
+offenders against two at base, a bounded **+4** exception. Alignment on the
+shared 2196x3241 book canvas shows that the band page is globally thinner by
+10,446 ink pixels (815,298 -> 804,852). All six band offenders are supported by
+the source. Four genuinely widen, by no more than 2.0 px; the other two retain
+or reduce their ridge width and are local-median/population artifacts.
+
+| # | class | base line: ridge/local median (px) | band line: ridge/local median (px) | source verdict |
+| ---: | :---: | --- | --- | --- |
+| 1 | a | L2: 7.000/4.394 | L2: 8.000/4.394 | supported |
+| 2 | a | L6: 6.394/4.394 | L6: 7.197/4.394 | supported |
+| 3 | b | L6: 8.000/6.000 | L6: 8.000/4.800 | supported |
+| 4 | a | L11: 6.794/4.695 | L11: 7.597/4.394 | supported |
+| 5 | b | L11: 8.000/4.997 | L11: 7.194/4.394 | supported |
+| 6 | a | L42: 6.000/4.000 | L42: 8.000/4.394 | supported |
+
+This exception is accepted because no deterministic canonical routing basis can
+match the old DPI-accident baseline leaf-for-leaf; the same bounded band removes
+the chronic boldness from the five leaves above and preserves the canonical
+basis that fixes the user's pages. Omitting the band leaves 80R at Wolf with 13
+production offenders, which is strictly worse. The machine-readable record is
+`.devkit/analysis/near-boundary-route/80r-adjudication/forensics.json`.
+
 ## Validation evidence
 
 - Production native render at 299 DPI: Vorwort Otsu, 0 offenders; impressum
@@ -79,7 +157,10 @@ structure on p120/p124, with no crop loss or blanked content.
 - Preview harness: placement identity true; word-loss 0.
 - Native harness: 0 catastrophes across 51 fixtures; niqqud and punctuation
   goldens pass.
-- Fold exemplars: p3 right 1965 px and p125 right 2008 px, both 0-px drift.
+- All nine Wolf fixtures retain their Wolf route and are byte-identical to the
+  packed-mask baseline; the nearest remains below the band at 9.868637110%.
+- Fold exemplars: p3 right 1965 px and p125 right 2008 px, both 0-px / 0.00-mm
+  drift.
 - Focused Electron suites: 184/184 pass.
 - Rust format, Clippy with warnings denied, the full release workspace suite,
   threshold baseline, and diff checks pass.

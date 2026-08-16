@@ -39,6 +39,12 @@ const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
 const MIN_QUALIFYING_PAPER_TILES: usize = 4;
 const UNIFORM_PAPER_MAXIMUM_RANGE: u8 = 8;
 const FALLBACK_X_HEIGHT_AT_300_DPI_PX: f64 = 17.0;
+// Canonical book calibration leaves the nearest corroborated true-Wolf fixture
+// at 9.868637% coverage and the next dark book leaf after the two observed
+// Otsu victims at 11.055276%. Inside this gap the border statistic alone cannot
+// distinguish a scanner rail from otherwise flat-lit text, so preserve Otsu
+// only when the rest of the clean-uniform evidence independently agrees.
+const FLAT_LIT_OTSU_DARK_BORDER_COVERAGE_BAND: (f64, f64) = (0.099, 0.110_25);
 
 // A rule is preserved only when the source itself contains a long, thin run
 // of dark pixels. The geometry is intentionally shared with the render-side
@@ -2276,11 +2282,12 @@ fn choose_mode(
     } else {
         0.975
     };
-    let clean_uniform = illumination_deviation <= 8.0
-        && dark_border_coverage <= 0.08
+    let flat_lit_text = illumination_deviation <= 8.0
         && otsu_adaptive_agreement >= agreement_floor
         && (robust_contrast >= 64.0 || edge_density <= 0.18);
-    if clean_uniform {
+    let near_boundary_otsu = dark_border_coverage >= FLAT_LIT_OTSU_DARK_BORDER_COVERAGE_BAND.0
+        && dark_border_coverage <= FLAT_LIT_OTSU_DARK_BORDER_COVERAGE_BAND.1;
+    if flat_lit_text && (dark_border_coverage <= 0.08 || near_boundary_otsu) {
         return BinarizationMode::Otsu;
     }
     let uneven_text = illumination_deviation > 12.0
@@ -5415,6 +5422,27 @@ mod tests {
             }
             assert_eq!(rendered_routes, [expected, expected], "cells={cells}");
         }
+    }
+
+    #[test]
+    fn router_limits_flat_lit_otsu_override_to_the_calibrated_border_band() {
+        for coverage in [0.099_455_611_390_284_76, 0.110_240_963_855_421_69] {
+            assert_eq!(
+                choose_mode(127.0, 1.0, 0.48, 19.0, coverage, 0.98),
+                BinarizationMode::Otsu,
+                "flat-lit canonical victim at {coverage:.6} must retain Otsu"
+            );
+        }
+        assert_eq!(
+            choose_mode(39.0, 0.0, 0.077, 4.69, 0.098_686_371_100_164_2, 0.9833),
+            BinarizationMode::Wolf,
+            "the nearest tracked true-Wolf fixture must remain below the band"
+        );
+        assert_eq!(
+            choose_mode(131.0, 1.05, 0.468, 12.7, 0.110_552_763_819_095_48, 0.982),
+            BinarizationMode::Wolf,
+            "the next dark book leaf must remain above the band"
+        );
     }
 
     #[test]
