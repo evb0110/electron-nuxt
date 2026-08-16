@@ -2358,21 +2358,21 @@ fn fallback_spread_analysis_matches_canonical_leaf_ink_and_content() {
             String::from_utf8_lossy(&result.stdout),
             String::from_utf8_lossy(&result.stderr),
         );
-        ["left", "right"]
-            .map(|half| {
-                let output = decode_gray(
-                    &fs::read(scratch.path(&format!("{label}-{half}.png"))).unwrap(),
-                    4_000_000,
-                    2000,
-                )
-                .unwrap();
-                let ink = output.data().iter().filter(|&&value| value < 128).count() as f64
-                    / (output.width() * output.height()) as f64;
-                let metadata: Value =
-                    serde_json::from_slice(&fs::read(scratch.path(&format!("{label}-{half}.json"))).unwrap())
-                        .unwrap();
-                (ink, metadata)
-            })
+        ["left", "right"].map(|half| {
+            let output = decode_gray(
+                &fs::read(scratch.path(&format!("{label}-{half}.png"))).unwrap(),
+                4_000_000,
+                2000,
+            )
+            .unwrap();
+            let ink = output.data().iter().filter(|&&value| value < 128).count() as f64
+                / (output.width() * output.height()) as f64;
+            let metadata: Value = serde_json::from_slice(
+                &fs::read(scratch.path(&format!("{label}-{half}.json"))).unwrap(),
+            )
+            .unwrap();
+            (ink, metadata)
+        })
     };
 
     let fallback = run("fallback", false);
@@ -2395,7 +2395,9 @@ fn fallback_spread_analysis_matches_canonical_leaf_ink_and_content() {
         );
         for dimension in ["widthPx", "heightPx"] {
             let fallback_extent = fallback_metadata["contentBox"][dimension].as_f64().unwrap();
-            let reference_extent = reference_metadata["contentBox"][dimension].as_f64().unwrap();
+            let reference_extent = reference_metadata["contentBox"][dimension]
+                .as_f64()
+                .unwrap();
             assert!(
                 (fallback_extent - reference_extent).abs() <= reference_extent * 0.05,
                 "{half} fallback content box {dimension} diverged: \
