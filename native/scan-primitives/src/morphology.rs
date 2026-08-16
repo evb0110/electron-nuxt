@@ -91,7 +91,7 @@ fn transpose_gray(source: &GrayImage) -> GrayImage {
         .enumerate()
         .for_each(|(source_x, output_row)| {
             for (source_y, target) in output_row.iter_mut().enumerate() {
-                *target = source.data()[source_y * source.width() + source_x];
+                *target = source.row(source_y)[source_x];
             }
         });
     output
@@ -524,10 +524,11 @@ mod tests {
         for y in 0..source.height() {
             for x in 0..source.width() {
                 let mut value = if maximum { 0 } else { 255 };
-                for sample_y in y.saturating_sub(radius_y)..=(y + radius_y).min(source.height() - 1)
+                for sample_y in
+                    y.saturating_sub(radius_y)..=y.saturating_add(radius_y).min(source.height() - 1)
                 {
-                    for sample_x in
-                        x.saturating_sub(radius_x)..=(x + radius_x).min(source.width() - 1)
+                    for sample_x in x.saturating_sub(radius_x)
+                        ..=x.saturating_add(radius_x).min(source.width() - 1)
                     {
                         value = if maximum {
                             value.max(source.get(sample_x, sample_y))
@@ -723,7 +724,10 @@ mod tests {
     #[test]
     fn parallel_grayscale_morphology_is_bit_exact() {
         let mut state = 0x5047_5241_595f_4d4f;
-        let mut image = GrayImage::new(257, 257, 0);
+        let width = 257;
+        let height = 263;
+        let stride = width + 5;
+        let mut image = GrayImage::with_stride(width, height, stride, 0);
         for value in image.data_mut() {
             *value = next_random(&mut state) as u8;
         }
@@ -734,6 +738,46 @@ mod tests {
                     reference_rectangular_gray(&image, radius_x, radius_y, maximum),
                     "radius=({radius_x},{radius_y}) maximum={maximum}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn grayscale_morphology_preserves_zero_and_one_dimensions() {
+        for (width, height) in [(0, 0), (0, 1), (1, 0), (1, 1), (1, 17), (17, 1)] {
+            let mut image = GrayImage::with_stride(width, height, width + 3, 200);
+            for y in 0..height {
+                for x in 0..width {
+                    image.set(x, y, (x * 17 + y * 29) as u8);
+                }
+            }
+            for (radius_x, radius_y) in [(0, 0), (1, 3), (usize::MAX, usize::MAX)] {
+                let expected_erode = reference_rectangular_gray(&image, radius_x, radius_y, true);
+                let actual_erode = erode_gray(&image, radius_x, radius_y);
+                let expected_dilate = reference_rectangular_gray(&image, radius_x, radius_y, false);
+                let actual_dilate = dilate_gray(&image, radius_x, radius_y);
+                assert_eq!(
+                    (actual_erode.width(), actual_erode.height()),
+                    (width, height)
+                );
+                assert_eq!(
+                    (actual_dilate.width(), actual_dilate.height()),
+                    (width, height)
+                );
+                for y in 0..height {
+                    for x in 0..width {
+                        assert_eq!(
+                            actual_erode.get(x, y),
+                            expected_erode.get(x, y),
+                            "erode {width}x{height}, radius=({radius_x},{radius_y}), pixel=({x},{y})"
+                        );
+                        assert_eq!(
+                            actual_dilate.get(x, y),
+                            expected_dilate.get(x, y),
+                            "dilate {width}x{height}, radius=({radius_x},{radius_y}), pixel=({x},{y})"
+                        );
+                    }
+                }
             }
         }
     }
