@@ -41,7 +41,9 @@ export const useDocumentViewportLayoutLifecycle = (
     let pendingRestore: {
         anchor: IDocumentZoomAnchor | null;
         epoch: unknown;
+        generation: number;
     } | null = null;
+    let restoreGeneration = 0;
     let restoreScheduled = false;
     let disposed = false;
     let transitionFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -58,9 +60,14 @@ export const useDocumentViewportLayoutLifecycle = (
         anchor: IDocumentZoomAnchor | null,
         epoch: unknown,
         layouts = options.pageLayouts.value,
+        generation = restoreGeneration,
     ) => {
         const container = options.viewerContainer.value;
-        if (!container || !options.canRestore(epoch)) {
+        if (
+            generation !== restoreGeneration
+            || !container
+            || !options.canRestore(epoch)
+        ) {
             return false;
         }
         const restored = resolveDocumentZoomAnchorScroll(container, layouts, anchor);
@@ -78,6 +85,7 @@ export const useDocumentViewportLayoutLifecycle = (
         pendingRestore = {
             anchor,
             epoch,
+            generation: restoreGeneration,
         };
         if (restoreScheduled) {
             return;
@@ -88,7 +96,11 @@ export const useDocumentViewportLayoutLifecycle = (
                 restoreScheduled = false;
                 const pending = pendingRestore;
                 pendingRestore = null;
-                if (disposed || !pending) {
+                if (
+                    disposed
+                    || !pending
+                    || pending.generation !== restoreGeneration
+                ) {
                     return;
                 }
                 applyAnchor(layoutTransactionAnchor ?? pending.anchor, pending.epoch);
@@ -99,6 +111,15 @@ export const useDocumentViewportLayoutLifecycle = (
                 }
             });
         });
+    };
+
+    const cancelPendingRestore = () => {
+        restoreGeneration += 1;
+        pendingRestore = null;
+        activeLayoutTransaction = null;
+        layoutTransactionAnchor = null;
+        dragAnchor = null;
+        retainedAnchor = null;
     };
 
     /**
@@ -144,10 +165,13 @@ export const useDocumentViewportLayoutLifecycle = (
             return;
         }
         const epoch = options.captureRestoreEpoch();
+        const generation = restoreGeneration;
         await nextTick();
-        applyAnchor(anchor, epoch);
+        applyAnchor(anchor, epoch, options.pageLayouts.value, generation);
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        applyAnchor(anchor, epoch);
+        if (!applyAnchor(anchor, epoch, options.pageLayouts.value, generation)) {
+            return;
+        }
         retainedAnchor = anchor;
     };
 
@@ -211,6 +235,7 @@ export const useDocumentViewportLayoutLifecycle = (
 
     return {
         beginLayoutTransaction,
+        cancelPendingRestore,
         endLayoutTransaction,
         isResizeTransitionActive,
         preserveLayoutMutation,

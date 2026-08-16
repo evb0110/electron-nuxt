@@ -29,10 +29,8 @@ function normalizeGitSha(value: string | undefined) {
     return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(sha) ? sha : null;
 }
 
-export function formatDevelopmentApplicationVersion(commitSha: string | null) {
+function formatDevelopmentApplicationVersion(commitSha: string | null) {
     return commitSha === null
         ? bundledApplicationVersion
         : `${bundledApplicationVersion}+${commitSha}`;
 }
-
-export const developmentApplicationVersion = formatDevelopmentApplicationVersion(embeddedBuildGitSha);

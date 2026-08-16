@@ -1,3 +1,5 @@
+import type { TDocumentWheelIntent } from '@app/utils/document-viewer/input/documentWheelInteraction';
+
 export interface IDocumentViewportIntentFence {
     readonly intentId: string;
     readonly documentRevision: number;
@@ -16,8 +18,9 @@ export interface IDocumentViewportWritePort {
     beginIntent(intentId: string): IDocumentViewportIntentFence;
     apply(container: HTMLElement, write: IDocumentViewportWrite): boolean;
     advanceDocumentRevision(): number;
-    assertNoRogueWrite(container: HTMLElement): void;
     consumeAuthorityScroll(container: HTMLElement): boolean;
+    getInteractionEpoch(): number;
+    observeUserInteraction(container?: HTMLElement): void;
     observeUserScroll(container: HTMLElement): void;
 }
 
@@ -30,19 +33,18 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
     let interactionEpoch = 0;
     let sequence = 0;
     let activeIntent: IDocumentViewportIntentFence | null = null;
-    const committed = new WeakMap<HTMLElement, {
-        left: number;
-        top: number;
-    }>();
     const authorityWrites = new WeakMap<HTMLElement, {
         intentId: string;
         left: number;
         top: number;
     }>();
-    const record = (container: HTMLElement) => committed.set(container, {
-        left: container.scrollLeft,
-        top: container.scrollTop,
-    });
+    const observeUserInteraction = (container?: HTMLElement) => {
+        interactionEpoch += 1;
+        activeIntent = null;
+        if (container) {
+            authorityWrites.delete(container);
+        }
+    };
 
     return {
         beginIntent(intentId) {
@@ -72,19 +74,12 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
                 left: container.scrollLeft,
                 top: container.scrollTop,
             });
-            record(container);
             return true;
         },
         advanceDocumentRevision() {
             documentRevision += 1;
             activeIntent = null;
             return documentRevision;
-        },
-        assertNoRogueWrite(container) {
-            const expected = committed.get(container);
-            if (expected && (expected.left !== container.scrollLeft || expected.top !== container.scrollTop)) {
-                throw new Error('Rogue document viewport write detected outside ViewportAuthority');
-            }
         },
         consumeAuthorityScroll(container) {
             const authored = authorityWrites.get(container);
@@ -99,14 +94,22 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             // events. Keep the origin fence while the browser remains at the
             // exact authored coordinates; a real user scroll diverges from
             // them and is rejected by the branch above.
-            record(container);
             return true;
         },
+        getInteractionEpoch: () => interactionEpoch,
+        observeUserInteraction,
         observeUserScroll(container) {
-            interactionEpoch += 1;
-            activeIntent = null;
-            authorityWrites.delete(container);
-            record(container);
+            observeUserInteraction(container);
         },
     };
+}
+
+export function observeDocumentViewportWheelInteraction(
+    port: IDocumentViewportWritePort,
+    intent: TDocumentWheelIntent,
+    container?: HTMLElement,
+) {
+    if (intent !== 'zoom') {
+        port.observeUserInteraction(container);
+    }
 }

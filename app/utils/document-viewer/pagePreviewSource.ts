@@ -28,6 +28,10 @@ export interface IPagePreviewRenderedObjectUrl {
     objectUrl: string;
     renderedPx: number;
     rasterWidthCeilingPx?: number;
+    /**
+     * Signals that the source has reclaimed and revoked this object URL.
+     * Consumers must drop visual ownership without revoking it a second time.
+     */
     onInvalidated?: (listener: () => void) => () => void;
     promotePriority?: (priority: number) => void;
 }

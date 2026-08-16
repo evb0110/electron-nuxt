@@ -1,4 +1,4 @@
-import type { TDocumentViewportVisualOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX } from '@contracts/electronApiDocuments';
 
 export interface INativePdfRasterIdentity {
     generation: number;
@@ -18,6 +18,16 @@ export function createNativePdfRasterIdentity(options: INativePdfRasterIdentity)
     };
 }
 
+export function withNativePdfRasterTargetWidth(
+    identity: INativePdfRasterIdentity,
+    targetWidthPx: number,
+) {
+    return createNativePdfRasterIdentity({
+        ...identity,
+        targetWidthPx,
+    });
+}
+
 export function resolveNativePdfRasterTargetWidth(
     neededWidthPx: number,
     rasterWidthCeilingPx: number | null | undefined,
@@ -34,18 +44,33 @@ export function resolveNativePdfRasterTargetWidth(
     return Math.min(normalizedNeededWidth, Math.max(1, Math.trunc(rasterWidthCeilingPx)));
 }
 
-export function nativePdfRasterIdentityMatches(
-    left: INativePdfRasterIdentity | null | undefined,
-    right: INativePdfRasterIdentity | null | undefined,
+export function nativePdfRasterOutputCoversRequest(
+    renderedPx: number,
+    requestedPx: number,
+    rasterWidthCeilingPx: number | null | undefined,
+) {
+    const expectedPx = resolveNativePdfRasterTargetWidth(requestedPx, rasterWidthCeilingPx);
+    return isTrustedNativePdfRasterWidthCeiling(rasterWidthCeilingPx)
+        && Number.isFinite(renderedPx)
+        && renderedPx >= expectedPx;
+}
+
+export function isTrustedNativePdfRasterWidthCeiling(value: number | null | undefined) {
+    return value === undefined || value === PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX;
+}
+
+export function nativePdfRasterIdentityCovers(
+    available: INativePdfRasterIdentity | null | undefined,
+    required: INativePdfRasterIdentity | null | undefined,
 ) {
     return Boolean(
-        left
-        && right
-        && left.generation === right.generation
-        && left.pageNumber === right.pageNumber
-        && left.pageWidth === right.pageWidth
-        && left.pageHeight === right.pageHeight
-        && left.targetWidthPx === right.targetWidthPx,
+        available
+        && required
+        && available.generation === required.generation
+        && available.pageNumber === required.pageNumber
+        && available.pageWidth === required.pageWidth
+        && available.pageHeight === required.pageHeight
+        && available.targetWidthPx >= required.targetWidthPx,
     );
 }
 
@@ -58,25 +83,21 @@ export function shouldInvalidateNativePdfRaster(options: {
 }) {
     return (
         options.status === 'loading'
-        && !nativePdfRasterIdentityMatches(options.requestedIdentity, options.targetIdentity)
+        && !nativePdfRasterIdentityCovers(options.requestedIdentity, options.targetIdentity)
     ) || (
         options.hasObjectUrl
-        && !nativePdfRasterIdentityMatches(options.committedIdentity, options.targetIdentity)
+        && !nativePdfRasterIdentityCovers(options.committedIdentity, options.targetIdentity)
     );
 }
 
 export function shouldPresentNativePdfPageSkeleton(options: {
+    openingSurfaceVisible?: boolean;
     residentVisualInvalidated?: boolean;
-    visual: TDocumentViewportVisualOwner | null | undefined;
-    pageNumber: number;
     surfaceReady: boolean;
     visualCommitted: boolean;
 }) {
-    return !options.visualCommitted && (
+    return options.openingSurfaceVisible !== true && !options.visualCommitted && (
         options.residentVisualInvalidated === true
         || options.surfaceReady
-            && options.visual?.kind === 'page'
-            && options.visual.pageNumber === options.pageNumber
-            && options.visual.presentation === 'skeleton'
     );
 }

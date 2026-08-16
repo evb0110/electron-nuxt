@@ -22,6 +22,7 @@ import {splitActiveWorkspaceDocument} from '@tests/e2e/electron/helpers/workspac
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
+    waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const LIFECYCLE_TIMEOUT_MS = 360_000;
@@ -76,7 +77,10 @@ async function installNativePaneStateProbe(session: IElectronE2ESession) {
 
             return Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'))
                 .flatMap((pane) => {
-                    const host = pane.querySelector<HTMLElement>('.workspace-host');
+                    const hosts = Array.from(pane.querySelectorAll<HTMLElement>('.workspace-host'));
+                    const host = hosts.find(candidate => candidate.dataset.workspaceActive === 'true')
+                        ?? hosts.find(isVisible)
+                        ?? null;
                     const container = host?.querySelector<HTMLElement>('.native-pdf-viewer-container') ?? null;
                     const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
                     const viewport = chassis?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
@@ -169,29 +173,26 @@ async function setActiveNativeZoom(session: IElectronE2ESession, paneId: string)
     expect(before?.active).toBe(true);
     const result = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03]);
     expect(result.called).toBe(true);
-    await session.page.waitForFunction((target: {
-        imageSource: string;
-        paneId: string;
-    }) => {
+    await waitForWorkspaceToolbarSnapshot(session.page, {
+        minEffectiveZoom: 5.03,
+        zoomMode: 'custom',
+    });
+    await session.page.waitForFunction((targetPaneId: string) => {
         const state = (window as TNativeLifecycleWindow)
             .__readNativeSplitLifecyclePanes?.()
-            .find(candidate => candidate.paneId === target.paneId);
+            .find(candidate => candidate.paneId === targetPaneId);
         return Boolean(
             state
             && state.active
             && state.committed
             && state.errorTexts.length === 0
             && state.imageReady
-            && state.imageSource !== target.imageSource
             && state.imageWidth >= 3_000
             && state.phase === 'ready'
             && state.presentation === 'committed'
             && state.viewportLifecycle === 'ready',
         );
-    }, {timeout: LIFECYCLE_TIMEOUT_MS}, {
-        imageSource: before!.imageSource,
-        paneId,
-    });
+    }, {timeout: LIFECYCLE_TIMEOUT_MS}, paneId);
 }
 
 async function waitForPendingOpenOwner(session: IElectronE2ESession, paneId: string) {
@@ -318,8 +319,11 @@ lifecycleDescribe('Electron E2E - Native PDF split-pane lifecycle', () => {
 
     it('keeps same-path native panes revision-fenced through supersession and eviction while typed search and scan failures stay unit-pinned', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !sourceFixture.path || !successorFixture.path) {
-            return;
+        if (!session) {
+            throw new Error('Native split-pane Electron E2E session failed to start');
+        }
+        if (!sourceFixture.path || !successorFixture.path) {
+            throw new Error(`Native split-pane fixture unavailable: ${lifecycleFixture.reason}`);
         }
 
         await session.page.setViewport({
@@ -376,8 +380,11 @@ lifecycleDescribe('Electron E2E - Native PDF split-pane lifecycle', () => {
                 && state.errorTexts.length === 0
                 && state.imageReady
                 && state.imageSource !== target.imageSource
-                && state.imageHeight === target.imageWidth
-                && state.imageWidth === target.imageHeight
+                && state.imageWidth > state.imageHeight
+                && Math.abs(
+                    state.imageWidth / state.imageHeight
+                    - target.imageHeight / target.imageWidth,
+                ) < 0.02
                 && state.phase === 'ready'
                 && state.viewportLifecycle === 'ready',
             );

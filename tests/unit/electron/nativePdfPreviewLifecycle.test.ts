@@ -689,6 +689,7 @@ describe('native PDF preview lifecycle', () => {
         }, '/tmp/input.pdf', 1, {targetWidthPx: 8_000})).resolves.toMatchObject({
             width: 640,
             height: 480,
+            rasterWidthCeilingPx: 4_096,
         });
 
         const args = mocks.runNativeToolCommand.mock.calls[0]?.[1] as string[] | undefined;
@@ -703,7 +704,7 @@ describe('native PDF preview lifecycle', () => {
         expect(mocks.readFile).toHaveBeenCalledWith('/tmp/native-preview/page.jpg');
     });
 
-    it('renders a searchable full-page scan at the requested width without an unsafe raster ceiling', async () => {
+    it('renders a searchable full-page scan at requested widths and reports the process ceiling', async () => {
         const sender = new FakeSender();
         const fullPageRasterListing = [
             'page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio',
@@ -742,8 +743,8 @@ describe('native PDF preview lifecycle', () => {
 
         const callsByCommand = (command: string) => mocks.runNativeToolCommand.mock.calls
             .filter(([calledCommand]) => calledCommand === command);
-        expect(firstPreview.rasterWidthCeilingPx).toBeUndefined();
-        expect(secondPreview.rasterWidthCeilingPx).toBeUndefined();
+        expect(firstPreview.rasterWidthCeilingPx).toBe(4_096);
+        expect(secondPreview.rasterWidthCeilingPx).toBe(4_096);
         expect(callsByCommand('/mock/pdfinfo')).toHaveLength(0);
         expect(callsByCommand('/mock/pdfimages')).toHaveLength(0);
         expect(callsByCommand('/mock/pdftotext')).toHaveLength(0);

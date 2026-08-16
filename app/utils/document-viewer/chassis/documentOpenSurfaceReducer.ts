@@ -477,6 +477,8 @@ function metadataReady(
         return reject(state);
     }
     const requestedPage = clampPage(state.requestedPage, event.pageCount);
+    const committedPageInvalidated = state.committedPage !== null
+        && state.committedPage > event.pageCount;
     const viewportIntent = state.viewportIntent && {
         ...state.viewportIntent,
         pageNumber: requestedPage,
@@ -492,15 +494,36 @@ function metadataReady(
             pageNumber: requestedPage,
         };
     }
+    if (committedPageInvalidated && state.lifecycle === 'ready') {
+        visual = {
+            kind: 'page',
+            generation: state.generation,
+            pageNumber: requestedPage,
+            presentation: 'skeleton',
+            frameKey: null,
+            error: null,
+        };
+    }
     const next: IDocumentViewportSessionState = {
         ...state,
+        lifecycle: committedPageInvalidated && state.lifecycle === 'ready'
+            ? 'transitioning'
+            : state.lifecycle,
         requestedPage,
-        observedPage: state.observedPage === null
+        observedPage: committedPageInvalidated
             ? null
-            : clampPage(state.observedPage, event.pageCount),
+            : state.observedPage === null
+                ? null
+                : clampPage(state.observedPage, event.pageCount),
         pageCount: event.pageCount,
         visual,
         viewportIntent,
+        renderFence: committedPageInvalidated ? null : state.renderFence,
+        stagedRenderFence: committedPageInvalidated ? null : state.stagedRenderFence,
+        stagedViewportFence: committedPageInvalidated ? null : state.stagedViewportFence,
+        committedPage: committedPageInvalidated ? null : state.committedPage,
+        committedRenderFence: committedPageInvalidated ? null : state.committedRenderFence,
+        committedViewportFence: committedPageInvalidated ? null : state.committedViewportFence,
         skeletonDelay,
     };
     return accept(next);

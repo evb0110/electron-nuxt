@@ -62,6 +62,7 @@ import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pageP
 const props = defineProps<{
     pageNumber: number;
     pageState: IDocumentPreviewPageState | undefined;
+    skeletonContentHeight?: number | null;
     showSkeleton?: boolean;
     visualCommitted?: boolean;
 }>();
@@ -80,7 +81,7 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
-const skeletonContentHeight = 760;
+const skeletonContentHeight = computed(() => props.skeletonContentHeight ?? 760);
 const showPageNumber = computed(() => (
     props.visualCommitted === true
     || props.pageState?.status === 'error'

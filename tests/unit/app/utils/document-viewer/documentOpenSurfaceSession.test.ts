@@ -238,6 +238,13 @@ describe('document open surface session', () => {
             committedPage: 1,
             observedPage: 6,
         });
+        expect(session.invalidateResidentVisual(1)).toBe(false);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 6,
+        });
 
         session.requestNavigation(12);
         expect(session.viewportSession.value.lifecycle).toBe('transitioning');
@@ -262,6 +269,115 @@ describe('document open surface session', () => {
             phase: 'ready',
             presentation: 'committed',
         });
+    });
+
+    it('invalidates an out-of-range committed page when refreshed metadata shrinks', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'edited.pdf', 'pdfjs:1');
+        session.metadataReady(12);
+        commitDefaultGeometry(session, generation);
+        const openingFence = createRenderFence(session, generation, 'pdfjs:1');
+        commitReadySurface(session, openingFence);
+        session.requestNavigation(7, 0);
+        const pageSevenFence = createRenderFence(session, generation, 'pdfjs:1', {
+            renderVersion: 1,
+            requestId: 2,
+            pageNumber: 7,
+        });
+        commitReadySurface(session, pageSevenFence);
+        session.requestNavigation(8, 0);
+        expect(session.observeViewportPage(7, {supersedeNavigation: true})).toBe(7);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 7,
+            committedPage: 7,
+            viewportIntent: null,
+        });
+
+        expect(() => session.metadataReady(3)).not.toThrow();
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'transitioning',
+            requestedPage: 3,
+            committedPage: null,
+            observedPage: null,
+            pageCount: 3,
+            renderFence: null,
+            stagedRenderFence: null,
+            stagedViewportFence: null,
+            committedRenderFence: null,
+            committedViewportFence: null,
+            viewportIntent: {pageNumber: 3},
+            visual: {
+                kind: 'page',
+                pageNumber: 3,
+                presentation: 'skeleton',
+            },
+        });
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'geometry-committed',
+            presentation: 'page-shell',
+            committedRender: null,
+            committedViewport: null,
+        });
+        expect(session.commitCanvas(pageSevenFence)).toBe(false);
+        expect(session.commitViewport(createViewportCommit(pageSevenFence))).toBe(false);
+        expect(session.markReady(pageSevenFence)).toBe(false);
+        expect(session.viewportSession.value.visual).toMatchObject({
+            kind: 'page',
+            pageNumber: 3,
+            presentation: 'skeleton',
+        });
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'geometry-committed',
+            presentation: 'page-shell',
+            committedRender: null,
+            committedViewport: null,
+        });
+
+        const pageThreeFence = createRenderFence(session, generation, 'pdfjs:1', {
+            renderVersion: 1,
+            requestId: 3,
+            pageNumber: 3,
+        });
+        commitReadySurface(session, pageThreeFence);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 3,
+            committedPage: 3,
+            pageCount: 3,
+        });
+    });
+
+    it('mints a new navigation edge when metadata shrink invalidates an active intent', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'edited.pdf', 'pdfjs:1');
+        session.metadataReady(12);
+        commitDefaultGeometry(session, generation);
+        const openingFence = createRenderFence(session, generation, 'pdfjs:1');
+        commitReadySurface(session, openingFence);
+        session.requestNavigation(7, 0);
+        const pageSevenFence = createRenderFence(session, generation, 'pdfjs:1', {
+            renderVersion: 1,
+            requestId: 2,
+            pageNumber: 7,
+        });
+        commitReadySurface(session, pageSevenFence);
+        const priorIntentId = session.viewportSession.value.viewportIntent?.id;
+        expect(priorIntentId).toBeTruthy();
+
+        expect(session.metadataReady(3)).toBe(true);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'transitioning',
+            requestedPage: 3,
+            committedPage: null,
+            viewportIntent: {pageNumber: 3},
+        });
+        expect(session.viewportSession.value.viewportIntent?.id).not.toBe(priorIntentId);
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'geometry-committed',
+            presentation: 'page-shell',
+        });
+        expect(shouldPresentDocumentOpenEmptyPlaceholder(session.snapshot.value)).toBe(false);
     });
 
     it('dispatches an explicit command back to the stale requested page after free scrolling', () => {
@@ -434,7 +550,7 @@ describe('document open surface session', () => {
         vi.useRealTimers();
     });
 
-    it('invalidates source-page geometry when empty-surface navigation targets another page', () => {
+    it('retargets empty-surface ownership without resizing its measured opening shell', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = session.beginPrepared({
             documentId: 'scan.pdf',
@@ -466,8 +582,18 @@ describe('document open surface session', () => {
         expect(session.snapshot.value).toMatchObject({
             generation,
             presentation: 'page-shell',
-            openingPageGeometry: null,
-            openingPageFrame: null,
+            openingPageGeometry: {
+                pageNumber: 7,
+                width: 612,
+                height: 792,
+            },
+            openingPageFrame: {
+                pageNumber: 7,
+                style: {
+                    width: '612px',
+                    height: '792px',
+                },
+            },
         });
         expect(session.viewportSession.value.requestedPage).toBe(7);
         expect(session.viewportSession.value).toMatchObject({
@@ -502,10 +628,20 @@ describe('document open surface session', () => {
         }))).toBe(true);
 
         const previousIntent = session.viewportSession.value.viewportIntent?.id;
+        const previousGeometry = session.snapshot.value.geometry;
+        const previousFrameStyle = session.snapshot.value.openingPageFrame?.style;
         expect(session.requestNavigation(18)).toBe(18);
         expect(session.viewportSession.value.viewportIntent?.id).not.toBe(previousIntent);
-        expect(session.snapshot.value.openingPageGeometry).toBeNull();
-        expect(session.snapshot.value.openingPageFrame).toBeNull();
+        expect(session.snapshot.value.geometry).toEqual(previousGeometry);
+        expect(session.snapshot.value.openingPageGeometry).toMatchObject({
+            pageNumber: 18,
+            width: 600,
+            height: 800,
+        });
+        expect(session.snapshot.value.openingPageFrame).toMatchObject({
+            pageNumber: 18,
+            style: previousFrameStyle,
+        });
         expect(session.viewportSession.value).toMatchObject({
             requestedPage: 18,
             visual: {
@@ -1660,7 +1796,7 @@ describe('document open surface session', () => {
         const generation = beginSurface(session, 'a.pdf', 'rev-a');
         expect(resolveDocumentOpenSurfaceViewportPolicy(session.snapshot.value)).toEqual({
             overflow: 'hidden',
-            scrollbarGutter: 'auto',
+            scrollbarGutter: 'stable',
             committedMargin: null,
         });
         session.commitGeometry(generation, {
@@ -1677,7 +1813,7 @@ describe('document open surface session', () => {
 
         expect(resolveDocumentOpenSurfaceViewportPolicy(session.snapshot.value)).toEqual({
             overflow: 'auto',
-            scrollbarGutter: 'auto',
+            scrollbarGutter: 'stable',
             committedMargin: 20,
         });
     });

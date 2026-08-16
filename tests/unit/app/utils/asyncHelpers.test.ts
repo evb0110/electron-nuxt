@@ -36,15 +36,33 @@ describe('waitForVisualFrames', () => {
         vi.stubGlobal('document', {hidden: true});
 
         const waitPromise = waitForVisualFrames({ hiddenFallbackMs: 25 });
-        await vi.advanceTimersByTimeAsync(24);
-
         let settled = false;
         void waitPromise.then(() => {
             settled = true;
         });
+        await vi.advanceTimersByTimeAsync(24);
         expect(settled).toBe(false);
 
         await vi.advanceTimersByTimeAsync(1);
         await expect(waitPromise).resolves.toBeUndefined();
+    });
+
+    it('uses the watchdog when a visible animation frame never fires', async () => {
+        const requestAnimationFrame = vi.fn(() => 1);
+        vi.stubGlobal('window', { requestAnimationFrame });
+        vi.stubGlobal('document', {hidden: false});
+
+        const waitPromise = waitForVisualFrames({ timeoutMs: 64 });
+        let settled = false;
+        void waitPromise.then(() => {
+            settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(63);
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(waitPromise).resolves.toBeUndefined();
+        expect(requestAnimationFrame).toHaveBeenCalledOnce();
     });
 });

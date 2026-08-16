@@ -740,7 +740,7 @@ describe('Electron E2E - Recent Files', () => {
         expect(
             initialOpenSurfaceFrame?.skeletonVisible,
             JSON.stringify(immediateOpen),
-        ).toBe(initialOpenSurfaceFrame?.viewportVisualPresentation === 'skeleton');
+        ).toBe(initialOpenSurfaceFrame?.viewportVisualPresentation !== 'canvas');
         expect([
             'pending',
             'geometry-committed',

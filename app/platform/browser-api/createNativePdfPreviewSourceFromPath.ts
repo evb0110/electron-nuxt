@@ -7,14 +7,7 @@ import {
     requireWorkspaceSurfaceBudgetPort,
     type IWorkspaceSurfaceBudgetLeasePort,
 } from '@app/utils/document-viewer/workspaceSurfaceBudgetPort';
-
-interface INativePdfRenderedPageObjectUrl {
-    objectUrl: string;
-    renderedPx: number;
-    rasterWidthCeilingPx?: number;
-    onInvalidated?: (listener: () => void) => () => void;
-    promotePriority?: (priority: number) => void;
-}
+import type { IPagePreviewRenderedObjectUrl } from '@app/utils/document-viewer/pagePreviewSource';
 
 function createJpegObjectUrl(bytes: Uint8Array) {
     return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
@@ -81,7 +74,7 @@ export function createNativePdfPreviewSourceFromPath(
         async renderPageObjectUrl(
             pageNumber: number,
             options?: IPdfNativePagePreviewOptions,
-        ): Promise<INativePdfRenderedPageObjectUrl> {
+        ): Promise<IPagePreviewRenderedObjectUrl> {
             if (terminated) {
                 throw new Error('Native PDF preview canceled');
             }

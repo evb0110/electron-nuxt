@@ -315,6 +315,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
 
         expect(onInvalidated).toHaveBeenCalledOnce();
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pressure-preview');
+        expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
         workspaceSurfaceBudgetController.setPressureLevel('healthy');
         source.terminate();
     });

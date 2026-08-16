@@ -12,6 +12,15 @@ import {
     type TDocumentViewportSessionEffect,
     type TDocumentViewportSessionEvent,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
+import {
+    retargetDocumentOpeningShell,
+    type IDocumentOpenSurfaceGeometry,
+    type IDocumentOpenSurfacePageFrame,
+    type IDocumentOpenSurfacePageGeometry,
+    type IDocumentOpenSurfaceVisualState,
+    type TDocumentOpenSurfacePresentation,
+    type TDocumentOpenSurfaceVisualPresentation,
+} from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
 
 export type {
     IDocumentViewportCommitFence,
@@ -35,26 +44,18 @@ export {
     reduceDocumentViewportSession,
     resolveDocumentViewportCurrentPage,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
+export type {
+    IDocumentOpenSurfaceGeometry,
+    IDocumentOpenSurfacePageFrame,
+    IDocumentOpenSurfacePageGeometry,
+    TDocumentOpenSurfacePresentation,
+} from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
 
 export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
     | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';
-export type TDocumentOpenSurfacePresentation = 'idle' | 'page-shell'
-    | 'committed' | 'failed';
 export interface IDocumentOpenSurfaceIdentity {
     readonly documentId: string;
     readonly documentRevision: string;
-}
-export interface IDocumentOpenSurfaceGeometry {
-    readonly width: number;
-    readonly height: number;
-    readonly margin: number;
-}
-export interface IDocumentOpenSurfacePageFrame {
-    readonly generation: number;
-    readonly ownerId: string;
-    readonly pageNumber: number;
-    readonly intentKey: string;
-    readonly style: Readonly<Record<string, string>>;
 }
 export interface IDocumentOpenSurfacePreparedPageFrame {
     readonly documentId: string;
@@ -66,16 +67,6 @@ export interface IDocumentOpenSurfacePreparedPageFrame {
     readonly sourceRevisionKey: string | null;
     readonly style: Readonly<Record<string, string>>;
     readonly geometry: IDocumentOpenSurfacePageGeometry;
-}
-export interface IDocumentOpenSurfacePageGeometry {
-    readonly documentId: string;
-    readonly pageNumber: number;
-    readonly pageCount: number;
-    readonly width: number;
-    readonly height: number;
-    readonly rotation: number;
-    readonly size?: number;
-    readonly modifiedAt?: number;
 }
 export interface IDocumentOpenSurfacePageGeometrySeed extends IDocumentOpenSurfacePageGeometry {
     readonly size: number;
@@ -176,7 +167,7 @@ export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpen
         || snapshot.phase === 'viewport-committed';
     return {
         overflow: isTransitioning ? 'hidden' : 'auto',
-        scrollbarGutter: 'auto',
+        scrollbarGutter: 'stable',
         committedMargin: snapshot.geometry?.margin ?? null,
     } as const;
 }
@@ -247,20 +238,6 @@ export function commitDocumentOpenSurfaceViewport(
         left: commit.left,
         top: commit.top,
     });
-}
-
-type TDocumentOpenSurfaceVisualPresentation = Exclude<TDocumentOpenSurfacePresentation, 'failed'>;
-
-interface IDocumentOpenSurfaceVisualState {
-    presentation: TDocumentOpenSurfaceVisualPresentation;
-    geometry: IDocumentOpenSurfaceGeometry | null;
-    openingPageGeometry: IDocumentOpenSurfacePageGeometry | null;
-    openingPageFrame: IDocumentOpenSurfacePageFrame | null;
-    committedViewportPosition: {
-        readonly viewportIntentId: string;
-        readonly left: number;
-        readonly top: number;
-    } | null;
 }
 
 const idleVisualState = (): IDocumentOpenSurfaceVisualState => ({
@@ -1088,11 +1065,33 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }
         },
         metadataReady(pageCount) {
-            return dispatchViewport({
+            const current = sessionState.value.viewport;
+            const invalidatesCommittedVisual = current.lifecycle === 'ready'
+                && current.committedPage !== null
+                && current.committedPage > pageCount;
+            const accepted = dispatchViewport({
                 type: 'metadata-ready',
                 generation: sessionState.value.viewport.generation,
                 pageCount,
-            });
+            }, invalidatesCommittedVisual
+                ? visual => ({
+                    ...visual,
+                    presentation: 'page-shell',
+                    openingPageFrame: null,
+                    committedViewportPosition: null,
+                })
+                : undefined);
+            if (!accepted) {
+                return false;
+            }
+            const updated = sessionState.value.viewport;
+            if (
+                invalidatesCommittedVisual
+                && updated.lifecycle === 'transitioning'
+            ) {
+                return dispatchNavigation(updated.requestedPage, 0);
+            }
+            return true;
         },
         invalidateResidentVisual(pageNumber) {
             const normalized = Math.max(1, Math.trunc(pageNumber));
@@ -1102,6 +1101,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 || viewport.lifecycle !== 'ready'
                 || viewport.requestedPage !== normalized
                 || viewport.committedPage !== normalized
+                || viewport.observedPage !== null && viewport.observedPage !== normalized
                 || viewport.visual.kind !== 'page'
                 || viewport.visual.pageNumber !== normalized
                 || viewport.visual.presentation !== 'canvas'
@@ -1151,14 +1151,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 return current.requestedPage;
             }
             dispatchNavigation(normalized, skeletonDelayMs, retargetOpeningShell
-                ? visual => ({
-                    ...visual,
-                    presentation: 'page-shell',
-                    geometry: null,
-                    openingPageGeometry: null,
-                    openingPageFrame: null,
-                    committedViewportPosition: null,
-                })
+                ? visual => {
+                    // A saved-page restore can arrive after preflight already
+                    // measured page 1. Retarget semantic ownership without
+                    // replacing the visible shell: changing to provisional
+                    // geometry here would create a third, resizing loading
+                    // stage before the destination raster commits.
+                    return retargetDocumentOpeningShell(visual, normalized);
+                }
                 : undefined);
             logPdfRenderTrace('viewport-session-navigation-dispatched', {
                 pageNumber: normalized,
