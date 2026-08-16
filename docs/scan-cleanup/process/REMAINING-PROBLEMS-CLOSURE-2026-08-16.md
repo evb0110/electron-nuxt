@@ -130,6 +130,7 @@ Retained local visual evidence (not source-controlled bulk artifacts):
   Windows ARM64 policy, dependency audit, cargo-deny, and duplicate ratchet
   checks pass.
 
-The pull request and merge SHA are recorded in the next ledger row after the
-last commit is reviewed, `reviewThreads` is freshly enumerated with zero
-unresolved or unanswered findings, and every required check finishes green.
+The pull request and merge SHA are recorded in the next ledger row only after
+CodeRabbit reviews the final commit and the binding pre-merge check freshly
+enumerates every `reviewThread` with zero unaddressed findings or unresolved
+threads, and every required check finishes green.
