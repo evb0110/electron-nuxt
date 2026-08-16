@@ -79,8 +79,11 @@ reports live in ./reviews/.
   (4) sub-word weight artifacts — CLOSED by PR #33;
   (5) run-meter ETA — LANDED and attested in PR #16 (76a4cc976).
   Transport determinism (the FIFO raster handoff / prior-seeded
-  reclassification rerun) is a separate OPEN follow-up queued in R22;
-  it is not claimed closed by this batch.
+  reclassification rerun) was a separate follow-up queued in R22. The
+  2026-08-16 audit remediation resolves it by staging replayable Analyze
+  rasters, rejecting non-replayable Analyze inputs at native execution
+  admission, and making the prior-seeded rerun unconditional. Its pull-request
+  attestation is recorded separately from this historical batch.
 - Scope guard: build the scan-cleanup feature, not a civilization.
   Appendix items (hash chains, digest archives, classifiers, full
   oracle formalism, VPS residency tiers, E1b, cadence caps) need a
@@ -796,10 +799,11 @@ R22 2026-08-16 (consolidated remaining-problems implementation;
       intentional unresolved-leaf adjudication, S6 deletions, supported-class
       declaration, and parked-design drop decisions are complete. The accepted
       book remains 288 Otsu / 27 Wolf / 0 Sauvola / 1 intentional unresolved;
-      whole-book weight remains 1,212. Transport determinism remains OPEN:
-      the FIFO raster handoff must retain or re-derive the analysis raster for
-      the prior-seeded reclassification rerun, or refuse streaming when that
-      rerun is requested (audit finding 1 / SYNTHESIS item 7).
+      whole-book weight remains 1,212. Transport determinism is RESOLVED by the
+      2026-08-16 audit remediation: Analyze uses retained replayable rasters,
+      native execution rejects missing or non-regular Analyze inputs, and the
+      prior-seeded reclassification rerun no longer depends on transport
+      (audit finding 1 / SYNTHESIS item 7).
    2. CI/release queue: dependency advisories and genuinely new fallow findings
       are fixed; moved duplicate identities are remeasured; quarantine canvas
       assertions match the documented provisional/settled contract; native

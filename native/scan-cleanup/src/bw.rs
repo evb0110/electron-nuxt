@@ -2140,7 +2140,13 @@ fn faint_ink_fraction(image: &GrayImage) -> f64 {
     let threshold = paper.saturating_sub(24);
     let total = image.width().saturating_mul(image.height()).max(1);
     (0..image.height())
-        .map(|y| image.row(y).iter().filter(|&&value| value < threshold).count())
+        .map(|y| {
+            image
+                .row(y)
+                .iter()
+                .filter(|&&value| value < threshold)
+                .count()
+        })
         .sum::<usize>() as f64
         / total as f64
 }
