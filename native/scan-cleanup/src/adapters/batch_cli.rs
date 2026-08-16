@@ -42,6 +42,7 @@ use std::{
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
+    sync::mpsc::channel,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::sync_channel,
@@ -847,7 +848,7 @@ where
     let worker_threads = page_worker_threads(manifest)?;
     let results: Vec<Result<T, NativeError>> = if worker_threads > 1 {
         let processing_threads = std::thread::available_parallelism().map_or(2, usize::from);
-        rayon::ThreadPoolBuilder::new()
+        let pool = rayon::ThreadPoolBuilder::new()
             // `worker_threads` is a memory-derived limit on pages in flight,
             // not the size of the processing pool. Each page contains nested
             // Rayon stages (thresholding, morphology, composition, and
@@ -857,23 +858,100 @@ where
             .num_threads(processing_threads)
             .thread_name(|index| format!("scan-cleanup-processing-{index}"))
             .build()
-            .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?
-            .install(|| {
-                manifest
-                    .pages
-                    .chunks(worker_threads)
-                    .enumerate()
-                    .flat_map(|(chunk_index, chunk)| {
-                        chunk
-                            .par_iter()
-                            .enumerate()
-                            .map(|(page_index, page)| {
-                                task((chunk_index * worker_threads + page_index, page))
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .collect()
-            })
+            .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?;
+        let (sender, receiver) = channel();
+        let mut results = (0..manifest.pages.len())
+            .map(|_| None)
+            .collect::<Vec<Option<Result<T, NativeError>>>>();
+        let mut panics = (0..manifest.pages.len())
+            .map(|_| None)
+            .collect::<Vec<Option<Box<dyn std::any::Any + Send>>>>();
+        let mut next_page = 0;
+        let mut in_flight = 0;
+        let mut failure_observed = false;
+
+        // The caller is the dispatcher. It owns the bounded submission window
+        // and waits for completions outside the Rayon pool, so a page never
+        // blocks a Rayon worker while waiting for a memory permit. Completed
+        // pages replenish the window immediately, allowing later pages to
+        // overlap with long-running earlier pages without a chunk barrier.
+        let task = &task;
+        let (results, mut panics, failure_observed) = pool.scope(move |scope| {
+            while next_page < manifest.pages.len() && in_flight < worker_threads {
+                let index = next_page;
+                let page = &manifest.pages[index];
+                let sender = sender.clone();
+                scope.spawn(move |_| {
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        task((index, page))
+                    }));
+                    let _ = sender.send((index, outcome));
+                });
+                next_page += 1;
+                in_flight += 1;
+            }
+
+            while in_flight > 0 {
+                let (index, outcome) = receiver.recv().map_err(|_| {
+                    invalid("Scan-cleanup page dispatcher lost its completion channel")
+                })?;
+                in_flight -= 1;
+                match outcome {
+                    Ok(result) => {
+                        failure_observed |= result.is_err();
+                        results[index] = Some(result);
+                    }
+                    Err(panic) => {
+                        failure_observed = true;
+                        panics[index] = Some(panic);
+                    }
+                }
+
+                // Once a page fails, do not admit more work. Existing jobs
+                // still settle through the scope, which keeps their captures
+                // and any native resources well-defined before the error is
+                // returned to the transaction boundary.
+                if !failure_observed
+                    && next_page < manifest.pages.len()
+                    && in_flight < worker_threads
+                {
+                    let index = next_page;
+                    let page = &manifest.pages[index];
+                    let sender = sender.clone();
+                    scope.spawn(move |_| {
+                        let outcome =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                task((index, page))
+                            }));
+                        let _ = sender.send((index, outcome));
+                    });
+                    next_page += 1;
+                    in_flight += 1;
+                }
+            }
+            Ok::<_, NativeError>((results, panics, failure_observed))
+        })?;
+
+        if failure_observed {
+            // The cancellation decision is made as soon as any page fails,
+            // but retain the old ordered-result contract when multiple active
+            // pages fail at different times. Panics are captured only long
+            // enough to guarantee every submitted page reports completion;
+            // the earliest submitted panic is then resumed.
+            for (result, panic) in results.into_iter().zip(panics.iter_mut()) {
+                if let Some(panic) = panic.take() {
+                    std::panic::resume_unwind(panic);
+                }
+                if let Some(Err(error)) = result {
+                    return Err(error.into());
+                }
+            }
+            unreachable!("page dispatcher observed a failure without recording it");
+        }
+        results
+            .into_iter()
+            .map(|result| result.expect("page dispatcher completed every submitted page"))
+            .collect()
     } else {
         manifest.pages.iter().enumerate().map(task).collect()
     };
@@ -4645,7 +4723,7 @@ mod tests {
         plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim,
         plan_canvas_placement_with_shared_fit, preflight_manifest_paths,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
-        robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs,
+        robust_quantile_dimension, run_manifest_transaction, run_page_jobs, run_stream_page_jobs,
         write_gray_layer_background, CanvasPlacement, CleanupRaster,
         DeferredSpreadVerticalPlacement, FoldSideTrim, HorizontalEdge, NearPaperEdgeRuns,
         PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, SharedSpreadOverflowPlan,
@@ -4667,7 +4745,12 @@ mod tests {
         collections::HashMap,
         fs,
         path::{Path, PathBuf},
-        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc, Mutex,
+        },
+        thread,
+        time::Duration,
     };
 
     fn cli_args(args: &[&str]) -> Vec<String> {
@@ -6276,6 +6359,175 @@ mod tests {
         assert_eq!(contexts.len(), 12);
         assert!(contexts.iter().all(Option::is_some));
         assert_eq!(contexts[0], contexts[11]);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    fn scheduler_test_manifest(dir: &Path, page_count: usize) -> ManifestV3 {
+        let input = dir.join("scheduler-input.png");
+        fs::write(
+            &input,
+            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+        )
+        .unwrap();
+        ManifestV3 {
+            version: VERSION,
+            operation: Operation::Render,
+            analysis_purpose: AnalysisPurpose::PagePlan,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            // For a 100x50 bilevel page this leaves exactly two page slots in
+            // the memory-derived bound, independent of host CPU count.
+            host_memory_bytes: Some(1_400_000),
+            raster_window: 1,
+            pages: (0..page_count)
+                .map(|index| Page {
+                    input_path: input.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("scheduler-page-{index}.json")),
+                    options: CleanupOptions {
+                        output_mode: OutputMode::Bw,
+                        ..CleanupOptions::default()
+                    },
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn page_dispatcher_maintains_a_sliding_bound_and_ordered_results() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-page-dispatcher-window-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = scheduler_test_manifest(&dir, 4);
+        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
+
+        let live = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let later_page_started_while_first_was_live = Arc::new(AtomicBool::new(false));
+        let run = run_page_jobs(&manifest, {
+            let live = Arc::clone(&live);
+            let peak = Arc::clone(&peak);
+            let later_page_started_while_first_was_live =
+                Arc::clone(&later_page_started_while_first_was_live);
+            move |(index, _)| {
+                let current = live.fetch_add(1, Ordering::AcqRel) + 1;
+                peak.fetch_max(current, Ordering::AcqRel);
+                if index == 0 {
+                    // Keep the first slot occupied while page one completes;
+                    // a sliding dispatcher must admit page two in that gap.
+                    thread::sleep(Duration::from_millis(100));
+                } else if index == 2 && current >= 2 {
+                    later_page_started_while_first_was_live.store(true, Ordering::Release);
+                }
+                live.fetch_sub(1, Ordering::AcqRel);
+                Ok::<_, NativeError>(index)
+            }
+        })
+        .unwrap();
+
+        assert_eq!(run, vec![0, 1, 2, 3]);
+        assert!(later_page_started_while_first_was_live.load(Ordering::Acquire));
+        assert!(peak.load(Ordering::Acquire) <= 2);
+        assert_eq!(live.load(Ordering::Acquire), 0);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn page_dispatcher_cancels_admission_and_settles_active_failures_in_order() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-page-dispatcher-failure-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = scheduler_test_manifest(&dir, 5);
+        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
+
+        let live = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Mutex::new(Vec::new()));
+        let error = run_page_jobs(&manifest, {
+            let live = Arc::clone(&live);
+            let started = Arc::clone(&started);
+            move |(index, _)| {
+                live.fetch_add(1, Ordering::AcqRel);
+                started.lock().unwrap().push(index);
+                if index == 0 {
+                    // Page one fails first in wall-clock time, while page zero
+                    // remains an earlier submitted failure. The dispatcher
+                    // must cancel page admission immediately, drain both
+                    // active jobs, and retain the ordered error contract.
+                    thread::sleep(Duration::from_millis(100));
+                    live.fetch_sub(1, Ordering::AcqRel);
+                    return Err(NativeError::new(
+                        NativeErrorCode::NativeFailure,
+                        "page 0 failed",
+                    ));
+                }
+                if index == 1 {
+                    live.fetch_sub(1, Ordering::AcqRel);
+                    return Err(NativeError::new(
+                        NativeErrorCode::NativeFailure,
+                        "page 1 failed",
+                    ));
+                }
+                live.fetch_sub(1, Ordering::AcqRel);
+                Ok(index)
+            }
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("page 0 failed"));
+        assert!(started.lock().unwrap().iter().all(|&index| index < 2));
+        assert_eq!(live.load(Ordering::Acquire), 0);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn page_dispatcher_settles_active_jobs_before_resuming_a_panic() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-page-dispatcher-panic-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = scheduler_test_manifest(&dir, 5);
+        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
+
+        let live = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Mutex::new(Vec::new()));
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe({
+            let live = Arc::clone(&live);
+            let started = Arc::clone(&started);
+            move || {
+                let _ = run_page_jobs(&manifest, move |(index, _)| {
+                    live.fetch_add(1, Ordering::AcqRel);
+                    started.lock().unwrap().push(index);
+                    if index == 0 {
+                        live.fetch_sub(1, Ordering::AcqRel);
+                        panic!("page 0 panicked");
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                    live.fetch_sub(1, Ordering::AcqRel);
+                    Ok::<_, NativeError>(index)
+                });
+            }
+        }));
+
+        let payload = panic.expect_err("dispatcher swallowed a page panic");
+        assert_eq!(payload.downcast_ref::<&str>(), Some(&"page 0 panicked"));
+        assert!(started.lock().unwrap().iter().all(|&index| index < 2));
+        assert_eq!(live.load(Ordering::Acquire), 0);
         let _ = fs::remove_dir_all(dir);
     }
 
