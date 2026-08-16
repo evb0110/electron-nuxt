@@ -407,6 +407,12 @@ export default {
             'failed': 'Paginadetectie mislukt.',
             'evidenceMissing': 'Opschonen vereist een voltooide uniforme pagina-analyse. Voer de detectie opnieuw uit.',
         },
+        'errors': {
+            'alreadyRunning': 'Scanopruiming wordt al uitgevoerd.',
+            'detectionSubscriptionFailed': 'Paginadetectie kon niet worden gevolgd nadat het abonnement was mislukt.',
+            'runSubscriptionFailed': 'Scanopruiming kon niet worden gevolgd nadat het abonnement was mislukt.',
+            'runRecoveryFailed': 'Scanopruiming kon niet worden hersteld nadat de renderersessie was hersteld.',
+        },
         'cancelingDetection': 'Achtergrondanalyse stoppen…',
         'startingCleanup': 'Opschoning starten…',
         'documentChangedBeforeRun': 'Het document is gewijzigd terwijl de detectie werd gestopt. Controleer het en start de opschoning opnieuw.',

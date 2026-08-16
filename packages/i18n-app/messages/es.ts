@@ -407,6 +407,12 @@ export default {
             'failed': 'Error en la detección de página.',
             'evidenceMissing': 'La limpieza requiere un análisis uniforme de páginas completado. Vuelve a ejecutar la detección.',
         },
+        'errors': {
+            'alreadyRunning': 'La limpieza del escaneo ya está en curso.',
+            'detectionSubscriptionFailed': 'No se pudo observar la detección de páginas después de que fallara la suscripción.',
+            'runSubscriptionFailed': 'No se pudo observar la limpieza del escaneo después de que fallara la suscripción.',
+            'runRecoveryFailed': 'No se pudo recuperar la limpieza del escaneo después de restaurar la sesión del proceso de renderizado.',
+        },
         'cancelingDetection': 'Deteniendo el análisis en segundo plano…',
         'startingCleanup': 'Iniciando la limpieza…',
         'documentChangedBeforeRun': 'El documento cambió mientras se detenía la detección. Revísalo e inicia la limpieza de nuevo.',

@@ -763,6 +763,12 @@ export default {
             'failed': 'Page detection failed.',
             'evidenceMissing': 'Cleanup requires a completed uniform page analysis. Run detection again.',
         },
+        'errors': {
+            'alreadyRunning': 'Scan cleanup is already running.',
+            'detectionSubscriptionFailed': 'Page detection could not be observed after the subscription failed.',
+            'runSubscriptionFailed': 'Scan cleanup could not be observed after the subscription failed.',
+            'runRecoveryFailed': 'Scan cleanup could not be recovered after the renderer session was restored.',
+        },
         'cancelingDetection': 'Stopping background analysis…',
         'startingCleanup': 'Starting cleanup…',
         'documentChangedBeforeRun': 'The document changed while waiting for detection. Review it and start cleanup again.',

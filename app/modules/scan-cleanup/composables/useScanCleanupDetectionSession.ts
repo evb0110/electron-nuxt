@@ -32,6 +32,7 @@ import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/p
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {useScanCleanupPageEta} from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
+import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
@@ -479,7 +480,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             softAlphaForegroundRecommendationByPage,
         );
         if (accumulatedState.status === 'failed') {
-            error.value = accumulatedState.error;
+            error.value = formatScanCleanupErrorMessage(
+                t('scanCleanup.detectAll.failed'),
+                accumulatedState.error,
+            );
             errorCode.value = accumulatedState.errorCode;
         } else if (accumulatedState.status === 'completed') {
             error.value = '';
@@ -546,7 +550,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (isStale()) {
                 scheduleAutoDetect();
             } else {
-                error.value = caught instanceof Error ? caught.message : t('scanCleanup.detectAll.failed');
+                error.value = formatScanCleanupErrorMessage(
+                    t('scanCleanup.detectAll.failed'),
+                    caught,
+                );
                 errorCode.value = 'internal';
             }
             return;
@@ -564,7 +571,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         if (!result.started) {
-            error.value = result.error ?? t('scanCleanup.detectAll.failed');
+            error.value = result.errorCode === 'tools-unavailable'
+                ? t('scanCleanup.runDisabled.unavailable')
+                : formatScanCleanupErrorMessage(t('scanCleanup.detectAll.failed'), result.error);
             errorCode.value = result.errorCode;
             return;
         }
@@ -625,9 +634,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 jobId = null;
                 jobState.value = null;
                 documentCanvasSignature.value = '';
-                error.value = caught instanceof Error && caught.message
-                    ? `Scan cleanup detection could not be observed after subscription failed (${caught.message})`
-                    : 'Scan cleanup detection could not be observed after subscription failed';
+                error.value = formatScanCleanupErrorMessage(
+                    t('scanCleanup.errors.detectionSubscriptionFailed'),
+                    caught,
+                );
                 errorCode.value = 'internal';
             }
             return;
