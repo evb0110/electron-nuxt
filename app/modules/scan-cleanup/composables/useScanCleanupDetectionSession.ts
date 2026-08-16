@@ -946,11 +946,19 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 options.sourceSha256.value,
                 options.documentRevision.value,
             );
-        if (options.sourcePath.value && options.sourcePath.value !== rememberedSourcePath && !promoted) {
+        const sourceChanged = Boolean(
+            options.sourcePath.value
+            && options.sourcePath.value !== rememberedSourcePath
+            && !promoted,
+        );
+        if (sourceChanged) {
             documentAliases.clear();
         }
         rememberedSourcePath = options.sourcePath.value;
-        rememberDocumentAliases(previousKey);
+        // A promotion owns both spellings of one document. On a real source
+        // switch, retaining the previous document here would let closing the
+        // new document evict an unrelated recent restore entry.
+        if (!sourceChanged) rememberDocumentAliases(previousKey);
         rememberDocumentAliases(key);
         if (promoted) {
             promoteScanCleanupDetectionState({

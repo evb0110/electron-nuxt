@@ -1925,6 +1925,50 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
+    it('does not discard a previous document cache when the replacement document closes', async () => {
+        const harness = capabilityHarness();
+        const firstHash = '2'.repeat(64);
+        const secondHash = '3'.repeat(64);
+        const sourcePath = ref<string | null>('/docs/cache-alias-first.pdf');
+        const documentKey = ref<string | null>(sourcePath.value);
+        const sourceSha256 = ref<string | null>(firstHash);
+        capability.value = harness.value;
+        const mounted = mountSession('cache-alias-switch', {
+            documentKey: () => documentKey.value,
+            documentRevision: () => 'stable-revision',
+            sourcePath: () => sourcePath.value,
+            sourceSha256: () => sourceSha256.value,
+        });
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        harness.emitDetection(detectionState('detect-1', 'completed'));
+        await vi.waitFor(() => expect(scanCleanupDetectionSessionCache.has(
+            `${firstHash}\u0000stable-revision`,
+        )).toBe(true));
+
+        sourcePath.value = '/docs/cache-alias-second.pdf';
+        documentKey.value = sourcePath.value;
+        sourceSha256.value = secondHash;
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        harness.emitDetection(detectionState('detect-2', 'completed'));
+        await vi.waitFor(() => expect(scanCleanupDetectionSessionCache.has(
+            `${secondHash}\u0000stable-revision`,
+        )).toBe(true));
+
+        sourcePath.value = null;
+        documentKey.value = null;
+        sourceSha256.value = null;
+        await nextTick();
+
+        expect(scanCleanupDetectionSessionCache.has(
+            `${firstHash}\u0000stable-revision`,
+        )).toBe(true);
+        expect(scanCleanupDetectionSessionCache.has(
+            `${secondHash}\u0000stable-revision`,
+        )).toBe(false);
+        mounted.unmount();
+    });
+
     it('rejects a stale completed status synchronously when Run follows a document switch', async () => {
         const harness = capabilityHarness();
         const sourcePath = ref('/docs/immediate-run-first.pdf');
