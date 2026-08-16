@@ -128,8 +128,10 @@ export const useDocumentPageSourceRuntime = (options: {
         },
     );
     const cancelWheelInteraction = () => {
-        handleWheelZoom.reset();
-        layoutLifecycle.cancelPendingRestore();
+        if (props.value.isActive) {
+            handleWheelZoom.reset();
+            layoutLifecycle.cancelPendingRestore();
+        }
     };
     const pageHeights = computed(() => pageDisplayLayouts.value.map(layout => layout.height));
     useEventListener(import.meta.client ? document : null, 'pointerdown', cancelWheelInteraction, {capture: true});

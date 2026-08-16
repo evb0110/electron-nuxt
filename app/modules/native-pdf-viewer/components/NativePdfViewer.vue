@@ -275,7 +275,7 @@ const handleWheel = createDocumentWheelZoomHandler(effectiveZoom, zoomMode, emit
     onNonZoom: () => viewportLayoutLifecycle.cancelPendingRestore(),
     readSessionKey: () => loadGeneration,
 });
-function cancelWheelInteraction() { handleWheel.reset(); viewportLayoutLifecycle.cancelPendingRestore(); }
+function cancelWheelInteraction() { if (isActive.value) { handleWheel.reset(); viewportLayoutLifecycle.cancelPendingRestore(); } }
 useEventListener(import.meta.client ? document : null, 'pointerdown', cancelWheelInteraction, {capture: true});
 useEventListener(import.meta.client ? document : null, 'keydown', cancelWheelInteraction, {capture: true});
 const continuousDocumentHeight = computed(() => Math.max(containerHeight.value, continuousGeometry.value.totalHeight, 1));

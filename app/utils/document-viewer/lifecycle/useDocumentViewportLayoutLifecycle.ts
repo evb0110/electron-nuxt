@@ -302,6 +302,5 @@ export const useDocumentViewportLayoutLifecycle = (
         isResizeTransitionActive,
         preserveLayoutMutation,
         refreshLayoutTransactionAnchor,
-        releasePointerAnchor,
     };
 };

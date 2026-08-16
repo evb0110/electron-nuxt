@@ -118,6 +118,36 @@ describe('document zoom anchor', () => {
         });
     });
 
+    it('clamps a retained pointer position when the viewport shrinks around it', () => {
+        const viewport = {
+            clientHeight: 400,
+            clientWidth: 500,
+            scrollLeft: 500,
+            scrollTop: 600,
+        };
+        const anchor = captureDocumentZoomAnchor(viewport, [{
+            left: 300,
+            top: 16,
+            width: 400,
+            height: 1_000,
+        }], {
+            x: 480,
+            y: 390,
+        });
+        viewport.clientWidth = 300;
+        viewport.clientHeight = 200;
+
+        expect(resolveDocumentZoomAnchorScroll(viewport, [{
+            left: 600,
+            top: 16,
+            width: 800,
+            height: 2_000,
+        }], anchor)).toEqual({
+            left: 1_660,
+            top: 1_764,
+        });
+    });
+
     it('anchors the visible page explicitly when single-page layouts overlap', () => {
         const viewport = {
             clientHeight: 400,
