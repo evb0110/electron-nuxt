@@ -309,30 +309,30 @@ where
     let mut page_count = 0usize;
     let mut processed = 0usize;
     let output = write_pdf_to_writer(output, options.provenance_stamp_hex.as_deref(), |pdf| {
-        let mut symbol_chunk = Vec::with_capacity(JBIG2_SYMBOL_CHUNK_PAGES);
+        let mut symbol_chunk = options
+            .enable_shared_symbol_encoding
+            .then(|| Vec::with_capacity(JBIG2_SYMBOL_CHUNK_PAGES));
         loop {
             let batch = page_specs
                 .by_ref()
                 .take(batch_size)
                 .collect::<Vec<PdfPageSpec<'a>>>();
             if batch.is_empty() {
-                write_symbol_chunk(
-                    pdf,
-                    &mut symbol_chunk,
-                    options.enable_shared_symbol_encoding,
-                )?;
+                if let Some(symbol_chunk) = symbol_chunk.as_mut() {
+                    write_symbol_chunk(pdf, symbol_chunk)?;
+                }
                 return Ok(());
             }
             for prepared in encoders.prepare(batch, options) {
                 for page in prepared? {
                     page_count = next_page_count_with_limit(page_count, options.max_pages)?;
-                    symbol_chunk.push(page);
-                    if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
-                        write_symbol_chunk(
-                            pdf,
-                            &mut symbol_chunk,
-                            options.enable_shared_symbol_encoding,
-                        )?;
+                    if let Some(symbol_chunk) = symbol_chunk.as_mut() {
+                        symbol_chunk.push(page);
+                        if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
+                            write_symbol_chunk(pdf, symbol_chunk)?;
+                        }
+                    } else {
+                        write_prepared_page(pdf, page)?;
                     }
                 }
                 processed += 1;
@@ -353,15 +353,12 @@ where
 fn write_symbol_chunk<W: Write>(
     pdf: &mut PdfWriter<W>,
     pages: &mut Vec<PreparedPage>,
-    enable_shared_symbol_encoding: bool,
 ) -> Result<()> {
-    if enable_shared_symbol_encoding {
-        let mut masks = pages
-            .iter_mut()
-            .filter_map(PreparedPage::generated_bilevel_stream_mut)
-            .collect::<Vec<_>>();
-        apply_shared_symbol_encoding(&mut masks);
-    }
+    let mut masks = pages
+        .iter_mut()
+        .filter_map(PreparedPage::generated_bilevel_stream_mut)
+        .collect::<Vec<_>>();
+    apply_shared_symbol_encoding(&mut masks);
     for page in pages.drain(..) {
         write_prepared_page(pdf, page)?;
     }
@@ -1528,6 +1525,33 @@ mod tests {
     }
 
     #[test]
+    fn default_path_writes_a_page_before_reporting_later_pages_processed() {
+        let processed = Rc::new(RefCell::new(0usize));
+        let error = write_pdf(
+            FailOnPageObjectSink,
+            (0..JBIG2_SYMBOL_CHUNK_PAGES)
+                .map(|_| image_page("page.pgm", b"P5\n1 1\n255\n\x00", None, FramePolicy::All)),
+            &PdfBuildOptions {
+                worker_threads: 1,
+                ..PdfBuildOptions::default()
+            },
+            {
+                let processed = Rc::clone(&processed);
+                move |_| *processed.borrow_mut() += 1
+            },
+        )
+        .err()
+        .expect("the first page object should be rejected");
+
+        assert_eq!(error.to_string(), "page object write blocked");
+        assert_eq!(
+            *processed.borrow(),
+            0,
+            "the default path must not report pages that are still buffered"
+        );
+    }
+
+    #[test]
     fn page_ceiling_and_counter_overflow_return_typed_too_large_errors() {
         for error in [
             next_page_count_with_limit(1, 1).unwrap_err(),
@@ -1708,6 +1732,24 @@ mod tests {
     struct CountingSink {
         state: Rc<RefCell<SinkState>>,
         fail_after: Option<usize>,
+    }
+
+    struct FailOnPageObjectSink;
+
+    impl Write for FailOnPageObjectSink {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            if buffer
+                .windows(b"/Type /Page".len())
+                .any(|window| window == b"/Type /Page")
+            {
+                return Err(IoError::other("page object write blocked"));
+            }
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
 
     impl Write for CountingSink {
