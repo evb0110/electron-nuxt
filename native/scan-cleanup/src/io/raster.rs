@@ -12,10 +12,25 @@ use std::{
     io::{Cursor, ErrorKind, Read, Write},
     path::Path,
 };
+use thiserror::Error;
 
 pub use evb_raster_io::DecodedRaster;
 
-pub fn read_gray(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
+#[derive(Debug, Error)]
+pub enum RasterReadError {
+    #[error("{0}")]
+    Invalid(String),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    TooLarge(String),
+}
+
+pub fn read_gray(
+    path: &Path,
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<GrayImage, RasterReadError> {
     let (file, is_ppm) = open_sniffed(path)?;
     let limits = decode_limits(max_pixels, max_dimension);
     if is_ppm {
@@ -23,14 +38,14 @@ pub fn read_gray(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<Gra
     } else {
         decode_png_gray(file, limits)
     }
-    .map_err(|error| error.to_string())
+    .map_err(map_decoder_error)
 }
 
 pub fn read_foreground_selection(
     path: &Path,
     max_pixels: u64,
     max_dimension: u32,
-) -> Result<GrayImage, String> {
+) -> Result<GrayImage, RasterReadError> {
     read_foreground_selection_with_limit(path, max_pixels, max_dimension, MAX_COMPRESSED_BYTES)
 }
 
@@ -39,20 +54,19 @@ fn read_foreground_selection_with_limit(
     max_pixels: u64,
     max_dimension: u32,
     max_compressed_bytes: usize,
-) -> Result<GrayImage, String> {
+) -> Result<GrayImage, RasterReadError> {
     if path
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("jb2e"))
     {
-        let bytes =
-            read_file_bounded(path, max_compressed_bytes).map_err(|error| error.to_string())?;
+        let bytes = read_file_bounded(path, max_compressed_bytes).map_err(map_bounded_io_error)?;
         let decoded = decode_pdf_generic_source(&bytes, DecodeLimits::new(max_pixels))
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| RasterReadError::Invalid(error.to_string()))?;
         if decoded.width > max_dimension || decoded.height > max_dimension {
-            return Err(format!(
+            return Err(RasterReadError::TooLarge(format!(
                 "decoded JBIG2 dimensions {}x{} exceed the limit of {}",
                 decoded.width, decoded.height, max_dimension,
-            ));
+            )));
         }
         let width = decoded.width as usize;
         let height = decoded.height as usize;
@@ -66,8 +80,9 @@ fn read_foreground_selection_with_limit(
                 samples.push(if bit == 0 { 255 } else { 0 });
             }
         }
-        return GrayImage::from_vec(width, height, width, samples)
-            .ok_or_else(|| "decoded JBIG2 selection has invalid dimensions".to_string());
+        return GrayImage::from_vec(width, height, width, samples).ok_or_else(|| {
+            RasterReadError::Invalid("decoded JBIG2 selection has invalid dimensions".to_string())
+        });
     }
     read_gray(path, max_pixels, max_dimension)
 }
@@ -76,7 +91,7 @@ pub fn read_image(
     path: &Path,
     max_pixels: u64,
     max_dimension: u32,
-) -> Result<DecodedRaster, String> {
+) -> Result<DecodedRaster, RasterReadError> {
     let (file, is_ppm) = open_sniffed(path)?;
     let limits = decode_limits(max_pixels, max_dimension);
     if is_ppm {
@@ -84,14 +99,14 @@ pub fn read_image(
     } else {
         decode_png(file, limits)
     }
-    .map_err(|error| error.to_string())
+    .map_err(map_decoder_error)
 }
 
 pub fn read_dimensions(
     path: &Path,
     max_pixels: u64,
     max_dimension: u32,
-) -> Result<(usize, usize), String> {
+) -> Result<(usize, usize), RasterReadError> {
     let (file, is_ppm) = open_sniffed(path)?;
     let limits = decode_limits(max_pixels, max_dimension);
     if is_ppm {
@@ -99,7 +114,7 @@ pub fn read_dimensions(
     } else {
         read_png_dimensions(file, limits)
     }
-    .map_err(|error| error.to_string())
+    .map_err(map_decoder_error)
 }
 
 pub fn write_rgb_ppm_atomic(path: &Path, image: &RgbImage) -> Result<(), String> {
@@ -137,8 +152,8 @@ pub fn write_gray_pgm_atomic(path: &Path, image: &GrayImage) -> Result<(), Strin
 
 // Inputs may be FIFOs (streamed pages), so the consumed magic bytes are
 // chained back in front of the stream instead of seeking.
-fn open_sniffed(path: &Path) -> Result<(impl Read, bool), String> {
-    let mut file = File::open(path).map_err(|error| error.to_string())?;
+fn open_sniffed(path: &Path) -> Result<(impl Read, bool), RasterReadError> {
+    let mut file = File::open(path)?;
     let mut magic = [0u8; 2];
     let mut filled = 0;
     while filled < magic.len() {
@@ -146,11 +161,35 @@ fn open_sniffed(path: &Path) -> Result<(impl Read, bool), String> {
             Ok(0) => break,
             Ok(count) => filled += count,
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error.to_string()),
+            Err(error) => return Err(error.into()),
         }
     }
     let is_ppm = &magic[..filled] == b"P6";
     Ok((Cursor::new(magic).take(filled as u64).chain(file), is_ppm))
+}
+
+fn map_decoder_error(error: evb_raster_io::RasterError) -> RasterReadError {
+    match error {
+        evb_raster_io::RasterError::Invalid(message)
+            if message.contains("dimensions exceed") && message.contains("guardrails") =>
+        {
+            RasterReadError::TooLarge(message)
+        }
+        evb_raster_io::RasterError::Invalid(message) => RasterReadError::Invalid(message),
+        evb_raster_io::RasterError::Io(error) => RasterReadError::Io(error),
+    }
+}
+
+fn map_bounded_io_error(error: super::BoundedIoError) -> RasterReadError {
+    match error {
+        super::BoundedIoError::Canceled => {
+            RasterReadError::Invalid("input copy was canceled".to_string())
+        }
+        super::BoundedIoError::Io(error) => RasterReadError::Io(error),
+        super::BoundedIoError::TooLarge { limit } => {
+            RasterReadError::TooLarge(format!("input exceeds guardrails ({limit}-byte limit)"))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -246,7 +285,10 @@ mod tests {
 
         let error = read_foreground_selection_with_limit(&path, 64, 64, 9).unwrap_err();
 
-        assert!(error.contains("9-byte limit"), "unexpected error: {error}");
+        assert!(
+            error.to_string().contains("9-byte limit"),
+            "unexpected error: {error}"
+        );
         fs::remove_file(path).unwrap();
     }
 
@@ -255,7 +297,11 @@ mod tests {
         let ppm_path = temp_path("oversized.ppm");
         fs::write(&ppm_path, b"P6\n4 4\n255\n").unwrap();
         let error = read_dimensions(&ppm_path, 8, 16).unwrap_err();
-        assert!(error.contains("guardrails"), "unexpected error: {error}");
+        assert!(matches!(&error, RasterReadError::TooLarge(_)));
+        assert!(
+            error.to_string().contains("guardrails"),
+            "unexpected error: {error}"
+        );
         fs::remove_file(&ppm_path).unwrap();
     }
 
