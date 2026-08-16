@@ -67,7 +67,8 @@ fn main() {
 fn run() -> Result<(), String> {
     let (options, paths) = parse_args()?;
     for path in paths {
-        let source = read_gray(&path, DEFAULT_MAX_PIXELS, DEFAULT_MAX_DIMENSION)?;
+        let source = read_gray(&path, DEFAULT_MAX_PIXELS, DEFAULT_MAX_DIMENSION)
+            .map_err(|error| error.to_string())?;
         let level = build_analysis_level(&source, options.dpi, 150.0);
         let normalized = normalize_illumination(&level.image, level.effective_dpi);
         let rotations: &[u16] = if options.synthetic_rotations {

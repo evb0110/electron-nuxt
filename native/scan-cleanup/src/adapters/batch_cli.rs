@@ -28,7 +28,7 @@ use crate::{
         result::ResultEnvelope,
     },
     split::LayoutClassification,
-    CleanupOptions, OrthogonalRotation, OutputMode, PROTOCOL_VERSION,
+    CleanupOptions, OrthogonalRotation, OutputMode,
 };
 use evb_native_support::{
     bounded_io::deserialize_json_file_bounded, NativeError, NativeErrorCode, NativeErrorEnvelope,
@@ -266,7 +266,7 @@ fn manifest_cache(host_memory_bytes: Option<u64>) -> Arc<Mutex<ByteLru>> {
 
 fn page_cache_for(page: &Page, shared: &Arc<Mutex<ByteLru>>) -> Result<PageCache, NativeError> {
     let source = SourceFingerprint::from_path(&page.input_path, page.source_page_index)
-        .map_err(map_image_error)?;
+        .map_err(|error| map_page_io_error(error, &page.input_path, page.source_page_index))?;
     Ok(PageCache::new(Arc::clone(shared), source))
 }
 
@@ -281,8 +281,6 @@ enum ScanCleanupCliInvocation {
         experimental_auto_dewarp: bool,
     },
     Manifest(PathBuf),
-    ProtocolVersion,
-    Version,
 }
 
 fn cli_value<'a>(
@@ -307,8 +305,6 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
     let mut options = None;
     let mut ocr_mode = false;
     let mut experimental_auto_dewarp = false;
-    let mut protocol_version = false;
-    let mut version = false;
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -335,33 +331,10 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
                 experimental_auto_dewarp = true;
                 index += 1;
             }
-            "--protocol-version" => {
-                protocol_version = true;
-                index += 1;
-            }
-            "--version" => {
-                version = true;
-                index += 1;
-            }
             _ => return Err(invalid(format!("Unknown argument {flag}"))),
         }
     }
 
-    if protocol_version || version {
-        if args.len() != 1 {
-            let flag = if protocol_version {
-                "--protocol-version"
-            } else {
-                "--version"
-            };
-            return Err(invalid(format!("{flag} must be used alone")));
-        }
-        return Ok(if protocol_version {
-            ScanCleanupCliInvocation::ProtocolVersion
-        } else {
-            ScanCleanupCliInvocation::Version
-        });
-    }
     if let Some(path) = manifest {
         if input.is_some()
             || output.is_some()
@@ -407,14 +380,6 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
                 experimental_auto_dewarp,
             ),
             ScanCleanupCliInvocation::Manifest(path) => return run_manifest(&path),
-            ScanCleanupCliInvocation::ProtocolVersion => {
-                println!("{PROTOCOL_VERSION}");
-                return Ok(());
-            }
-            ScanCleanupCliInvocation::Version => {
-                println!("evb-scan-cleanup {}", env!("CARGO_PKG_VERSION"));
-                return Ok(());
-            }
         };
     let mut options = options
         .as_deref()
@@ -1640,7 +1605,7 @@ fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> 
                 options.max_pixels,
                 options.max_dimension,
             )
-            .map_err(map_image_error)?;
+            .map_err(|error| map_raster_error(error, &page.input_path, page.source_page_index))?;
             Ok(estimate_peak_page_bytes(
                 width,
                 height,
@@ -1745,7 +1710,9 @@ fn run_page(
         } else {
             let decoded = Arc::new(
                 raster::read_image(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?,
+                    .map_err(|error| {
+                        map_raster_error(error, &page.input_path, page.source_page_index)
+                    })?,
             );
             let bytes = decoded
                 .gray
@@ -1772,7 +1739,9 @@ fn run_page(
         } else {
             let decoded = Arc::new(
                 raster::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?,
+                    .map_err(|error| {
+                        map_raster_error(error, &page.input_path, page.source_page_index)
+                    })?,
             );
             let bytes = decoded.data().len();
             if let Ok(mut shared) = cache.shared.lock() {
@@ -1794,7 +1763,7 @@ fn run_page(
         .as_ref()
         .map(|path| {
             raster::read_image(path, options.max_pixels, options.max_dimension)
-                .map_err(map_image_error)
+                .map_err(|error| map_raster_error(error, path, page.source_page_index))
         })
         .transpose()?;
     if let Some(canonical) = canonical_analysis_input.as_ref() {
@@ -1828,7 +1797,7 @@ fn run_page(
         .map(|path| {
             let selection =
                 raster::read_foreground_selection(path, options.max_pixels, options.max_dimension)
-                .map_err(map_image_error)?;
+                .map_err(|error| map_raster_error(error, path, page.source_page_index))?;
             let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
             let mask_aspect = selection.width() as f64 / selection.height().max(1) as f64;
             if (input_aspect / mask_aspect - 1.0).abs() > 0.02 {
@@ -1857,7 +1826,7 @@ fn run_page(
         .map(|path| {
             let background =
                 raster::read_gray(path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?;
+                    .map_err(|error| map_raster_error(error, path, page.source_page_index))?;
             let (background_width, background_height) =
                 (background.width(), background.height());
             let input_aspect = input_gray.width() as f64 / input_gray.height().max(1) as f64;
@@ -1924,13 +1893,24 @@ fn run_page(
             options.max_pixels,
             options.max_dimension,
         )
-        .map_err(map_image_error)?;
+        .map_err(|error| {
+            map_raster_error(error, &detail_plan.base_raster_path, page.source_page_index)
+        })?;
         let base_cleaned = detail_plan
             .base_cleaned_raster_path
             .as_ref()
             .map(|path| raster::read_image(path, options.max_pixels, options.max_dimension))
             .transpose()
-            .map_err(map_image_error)?;
+            .map_err(|error| {
+                map_raster_error(
+                    error,
+                    detail_plan
+                        .base_cleaned_raster_path
+                        .as_deref()
+                        .expect("base cleaned path exists when decoding succeeds"),
+                    page.source_page_index,
+                )
+            })?;
         clean_detail_page_with_color(
             DetailRenderSources {
                 source_crop: input_gray,
@@ -2491,10 +2471,16 @@ fn write_layer_background(path: &Path, image: &RgbImage) -> Result<(), String> {
 }
 
 fn write_gray_layer_background(path: &Path, image: &GrayImage) -> Result<(), String> {
-    if path.extension().is_some_and(|extension| {
-        extension.eq_ignore_ascii_case("ppm") || extension.eq_ignore_ascii_case("pgm")
-    }) {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
+    {
         raster::write_gray_ppm_atomic(path, image)
+    } else if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pgm"))
+    {
+        raster::write_gray_pgm_atomic(path, image)
     } else {
         png::write_gray_atomic(path, image)
     }
@@ -2527,7 +2513,9 @@ fn run_classification(
         } else {
             let decoded = Arc::new(
                 raster::read_image(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?,
+                    .map_err(|error| {
+                        map_raster_error(error, &page.input_path, page.source_page_index)
+                    })?,
             );
             let bytes = decoded
                 .gray
@@ -2554,7 +2542,9 @@ fn run_classification(
         } else {
             let decoded = Arc::new(
                 raster::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?,
+                    .map_err(|error| {
+                        map_raster_error(error, &page.input_path, page.source_page_index)
+                    })?,
             );
             let bytes = decoded.data().len();
             if let Ok(mut shared) = cache.shared.lock() {
@@ -4618,6 +4608,34 @@ fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(), Box<dyn 
     let bytes = serde_json::to_vec_pretty(value)?;
     crate::io::write_atomic(path, &bytes).map_err(|error| std::io::Error::other(error).into())
 }
+
+fn map_page_io_error(error: std::io::Error, path: &Path, page_index: usize) -> NativeError {
+    NativeError::new(
+        NativeErrorCode::Io,
+        format!(
+            "Unable to read scan-cleanup input for page {} ({}): {error}",
+            page_index + 1,
+            path.display(),
+        ),
+    )
+}
+
+fn map_raster_error(error: raster::RasterReadError, path: &Path, page_index: usize) -> NativeError {
+    let code = match error {
+        raster::RasterReadError::Io(_) => NativeErrorCode::Io,
+        raster::RasterReadError::Invalid(_) => NativeErrorCode::InvalidRequest,
+        raster::RasterReadError::TooLarge(_) => NativeErrorCode::TooLarge,
+    };
+    NativeError::new(
+        code,
+        format!(
+            "Unable to read scan-cleanup raster for page {} ({}): {error}",
+            page_index + 1,
+            path.display(),
+        ),
+    )
+}
+
 fn map_image_error(message: String) -> NativeError {
     let code = if message.contains("guardrails") {
         NativeErrorCode::TooLarge
@@ -4633,21 +4651,23 @@ mod tests {
         align_spread_vertical_placements, background_canvas_dimensions,
         background_dimensions_to_publish, canvas_fit_for, edge_near_paper_run_in_gray,
         estimate_peak_page_bytes, fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache,
-        manifest_worker_threads, map_image_error, matched_output_paper_dimensions_for,
-        materialize_gray_primary_on_canvas, materialize_stream_page,
-        normalize_trusted_foreground_selection, optical_binary_bounds_x, optical_content_bounds_x,
-        optical_content_center_x, page_worker_threads, parse_cli_args, place_on_white_canvas,
-        place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
+        manifest_worker_threads, map_image_error, map_page_io_error, map_raster_error,
+        matched_output_paper_dimensions_for, materialize_gray_primary_on_canvas,
+        materialize_stream_page, normalize_trusted_foreground_selection, optical_binary_bounds_x,
+        optical_content_bounds_x, optical_content_center_x, page_worker_threads, parse_cli_args,
+        place_on_white_canvas, place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
         plan_canvas_placement_for_with_optical_center,
         plan_canvas_placement_for_with_optical_center_and_fit,
         plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim,
         plan_canvas_placement_with_shared_fit, preflight_manifest_paths,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
-        robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs, CanvasPlacement,
-        CleanupRaster, DeferredSpreadVerticalPlacement, FoldSideTrim, HorizontalEdge,
-        NearPaperEdgeRuns, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
-        SharedSpreadOverflowPlan, Tier1Provenance, WrittenOutput, FALLBACK_SYSTEM_MEMORY_BYTES,
+        robust_quantile_dimension, run_manifest_transaction, run_stream_page_jobs,
+        write_gray_layer_background, CanvasPlacement, CleanupRaster,
+        DeferredSpreadVerticalPlacement, FoldSideTrim, HorizontalEdge, NearPaperEdgeRuns,
+        PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, SharedSpreadOverflowPlan,
+        Tier1Provenance, WrittenOutput, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
+    use crate::io::raster::RasterReadError;
     use crate::{
         protocol::manifest_v3::{
             AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, PageOutput,
@@ -4677,14 +4697,6 @@ mod tests {
         assert_eq!(
             parse_cli_args(&cli_args(&["--manifest", "/tmp/manifest.json"])).unwrap(),
             ScanCleanupCliInvocation::Manifest(PathBuf::from("/tmp/manifest.json")),
-        );
-        assert_eq!(
-            parse_cli_args(&cli_args(&["--protocol-version"])).unwrap(),
-            ScanCleanupCliInvocation::ProtocolVersion,
-        );
-        assert_eq!(
-            parse_cli_args(&cli_args(&["--version"])).unwrap(),
-            ScanCleanupCliInvocation::Version,
         );
         assert_eq!(
             parse_cli_args(&cli_args(&[
@@ -4759,7 +4771,8 @@ mod tests {
                 "Unexpected positional argument true",
             ),
             (&["--input=page.ppm"], "Unknown argument --input=page.ppm"),
-            (&["--version", "--ocr-mode"], "--version must be used alone"),
+            (&["--version"], "Unknown argument --version"),
+            (&["-V"], "Unexpected positional argument -V"),
             (&["unflagged"], "Unexpected positional argument unflagged"),
         ];
 
@@ -4876,6 +4889,60 @@ mod tests {
             map_image_error("Derived content geometry must be finite".into()).code,
             NativeErrorCode::InvalidRequest,
         );
+    }
+
+    #[test]
+    fn raster_io_errors_keep_their_code_and_page_context() {
+        let path = Path::new("/tmp/missing-scan-cleanup-input.png");
+        let metadata_error = map_page_io_error(
+            std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory"),
+            path,
+            2,
+        );
+        assert_eq!(metadata_error.code, NativeErrorCode::Io);
+        assert!(metadata_error.message.contains("page 3"));
+        assert!(metadata_error.message.contains(path.to_str().unwrap()));
+
+        let io_error = map_raster_error(
+            RasterReadError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No such file or directory",
+            )),
+            path,
+            2,
+        );
+        assert_eq!(io_error.code, NativeErrorCode::Io);
+        assert!(io_error.message.contains("page 3"));
+        assert!(io_error.message.contains(path.to_str().unwrap()));
+
+        let invalid_error = map_raster_error(
+            RasterReadError::Invalid("invalid PNG signature".to_string()),
+            path,
+            2,
+        );
+        assert_eq!(invalid_error.code, NativeErrorCode::InvalidRequest);
+
+        let too_large_error = map_raster_error(
+            RasterReadError::TooLarge("input exceeds guardrails".to_string()),
+            path,
+            2,
+        );
+        assert_eq!(too_large_error.code, NativeErrorCode::TooLarge);
+    }
+
+    #[test]
+    fn gray_background_uses_pgm_encoding_for_pgm_paths() {
+        let path = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-gray-background-{}.pgm",
+            std::process::id()
+        ));
+        let image = GrayImage::new(2, 1, 127);
+        write_gray_layer_background(&path, &image).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let header = b"P5\n2 1\n255\n";
+        assert!(bytes.starts_with(header));
+        assert_eq!(&bytes[header.len()..], &[127, 127]);
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

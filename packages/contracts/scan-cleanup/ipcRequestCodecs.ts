@@ -865,88 +865,10 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                 item: evidence,
                 key,
                 pageNumber,
-            }) => {
-                if (
-                    !isRecord(evidence)
-                    || evidence.pageNumber !== pageNumber
-                    || ![
-                        0,
-                        90,
-                        180,
-                        270,
-                    ].includes(Number(evidence.rotationDegrees))
-                    || !isLayoutClassification(evidence.layoutClassification)
-                    || !isRecord(evidence.outputs)
-                ) {
-                    throw new Error('invalid scan-cleanup page-plan evidence map');
-                }
-                const rotationDegrees = evidence.rotationDegrees as IScanCleanupPagePlanEvidence['rotationDegrees'];
-                const automaticSplit = evidence.automaticSplit === undefined
-                    ? undefined
-                    : (() => {
-                        if (!isRecord(evidence.automaticSplit)) {
-                            throw new Error('invalid scan-cleanup automatic split');
-                        }
-                        const xNormalized = decodeNormalizedValue(
-                            evidence.automaticSplit.xNormalized,
-                            'automatic split x',
-                        );
-                        if (xNormalized <= 0 || xNormalized >= 1) {
-                            throw new Error('invalid scan-cleanup automatic split');
-                        }
-                        return {
-                            xNormalized,
-                            rotationDegrees: decodeGeometryRotation(
-                                evidence.automaticSplit.rotationDegrees,
-                                rotationDegrees,
-                                'automatic split',
-                            ),
-                        };
-                    })();
-                const outputs = decodeOutputMap(evidence.outputs, (output, label) => {
-                    if (!isRecord(output)) {
-                        throw new Error(`invalid scan-cleanup ${label}`);
-                    }
-                    const detectedSkewDegrees = output.detectedSkewDegrees === undefined
-                        ? undefined
-                        : decodeFiniteNumber(output.detectedSkewDegrees, `${label} skew`);
-                    if (
-                        detectedSkewDegrees !== undefined
-                        && (detectedSkewDegrees < SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES
-                            || detectedSkewDegrees > SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES)
-                    ) {
-                        throw new Error(`invalid scan-cleanup ${label} skew`);
-                    }
-                    const contentBox = output.contentBox === undefined
-                        ? undefined
-                        : decodeNormalizedRect(output.contentBox, `${label} content box`, rotationDegrees);
-                    const textToneDiagnostics = output.textToneDiagnostics === undefined
-                        ? undefined
-                        : decodeTextToneEvidence(output.textToneDiagnostics, `${label} text tone`);
-                    if (
-                        contentBox === undefined
-                        && detectedSkewDegrees === undefined
-                        && textToneDiagnostics === undefined
-                    ) {
-                        throw new Error(`invalid scan-cleanup ${label}`);
-                    }
-                    return {
-                        ...(contentBox === undefined ? {} : {contentBox}),
-                        ...(detectedSkewDegrees === undefined ? {} : {detectedSkewDegrees}),
-                        ...(textToneDiagnostics === undefined ? {} : {textToneDiagnostics}),
-                    };
-                }, 'automatic page-plan output');
-                return [
-                    key,
-                    {
-                        pageNumber,
-                        rotationDegrees,
-                        layoutClassification: evidence.layoutClassification,
-                        ...(automaticSplit === undefined ? {} : {automaticSplit}),
-                        outputs,
-                    } satisfies IScanCleanupPagePlanEvidence,
-                ];
-            }));
+            }) => [
+                key,
+                decodeScanCleanupPagePlanEvidence(evidence, pageNumber),
+            ]));
         })();
     return {
         sourcePdfPath,

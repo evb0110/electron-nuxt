@@ -10,11 +10,12 @@ import { join } from 'node:path';
 import { getCliErrorMessage } from './cli-error.mjs';
 
 // A packaged sidecar that is merely stale reports the same identity as a fresh
-// one: the batch manifest stays v3 and `--protocol-version` stays 6 across
-// schema-additive protocol changes, and the crate version is not bumped per
-// change. Version probes therefore cannot tell a current binary from one built
-// before the additive fields existed. This smoke runs the packaged binary on a
-// synthesized spread and reads the fields back out of the metadata it writes.
+// one: the batch manifest stays v3 across schema-additive protocol changes,
+// while the runtime `--protocol-version` advances as strict parser fields are
+// added, and the crate version is not bumped per change. A same-version stale
+// binary can therefore still evade version probes. This smoke runs the
+// packaged binary on a synthesized spread and reads the fields back out of the
+// metadata it writes.
 //
 // Marker: `foldClipRightPx` on the left leaf and `foldClipLeftPx` on the right.
 // They are the fold-edge source-window clip the final materialization applies,
