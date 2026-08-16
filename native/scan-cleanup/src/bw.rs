@@ -102,6 +102,10 @@ const STROKE_BUDGET_SYSTEMIC_OFFENDER_DENOMINATOR: usize = 4;
 const STROKE_BUDGET_LOCAL_WINDOW_MM: f64 = 32.0;
 const STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS: usize = 7;
 const STROKE_BUDGET_TOLERANCE_RATIO: f64 = 1.6;
+/// Fraction of a proposed rescue cluster allowed to touch already-captured
+/// ink before the cluster is judged halo accretion rather than missing
+/// stroke material.
+const RESCUE_ACCRETION_FRACTION_CAP: f64 = 0.55;
 
 // OpenCV DIST_L2 with maskSize=5 is the oracle's distance transform. These
 // documented chamfer weights reproduce it without introducing a second width
@@ -2639,6 +2643,8 @@ fn rescue_component_scoped_faint_strokes_budgeted(
             }
         }
     }
+    let rescued = drop_boundary_accretion_clusters(&rescued, &retained);
+    let source_supported_rescued = source_supported_rescued.and(&rescued);
     let candidate = retained.or(&rescued);
     cap_added_ink_to_stroke_budget(
         &retained,
@@ -2648,6 +2654,50 @@ fn rescue_component_scoped_faint_strokes_budgeted(
         StrokeBudgetAdditionStage::Rescue,
         interventions,
     )
+}
+
+/// Rescue exists to recover stroke material the threshold missed entirely:
+/// faded fragments and broken glyph parts that stand on their own. A cluster
+/// of proposed pixels that mostly hugs already-captured ink is not missing
+/// material — it is the gray halo around a complete stroke, and re-adding it
+/// thickens exactly the words whose halos are darkest, amplifying the page's
+/// existing weight contrast. Keep a cluster only when most of its pixels sit
+/// clear of captured ink; junction pixels of a kept fragment stay with it.
+fn drop_boundary_accretion_clusters(proposed: &BinaryImage, captured: &BinaryImage) -> BinaryImage {
+    if proposed.count_black() == 0 {
+        return proposed.clone();
+    }
+    let map = ComponentMap::from_binary(proposed);
+    let mut kept = proposed.clone();
+    for component in map.components() {
+        let mut hugging = 0usize;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if map.label_at(x, y) != component.label {
+                    continue;
+                }
+                let adjacent =
+                    (y.saturating_sub(1)..=(y + 1).min(captured.height() - 1)).any(|neighbor_y| {
+                        (x.saturating_sub(1)..=(x + 1).min(captured.width() - 1))
+                            .any(|neighbor_x| captured.get(neighbor_x, neighbor_y))
+                    });
+                if adjacent {
+                    hugging += 1;
+                }
+            }
+        }
+        if (hugging as f64) <= RESCUE_ACCRETION_FRACTION_CAP * component.area as f64 {
+            continue;
+        }
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if map.label_at(x, y) == component.label {
+                    kept.set(x, y, false);
+                }
+            }
+        }
+    }
+    kept
 }
 
 fn has_coherent_noncore_run(
