@@ -209,7 +209,10 @@ mod tests {
         ];
         let corpus = corpus::build_corpus().unwrap();
         for id in expected_wolf {
-            let entry = corpus.iter().find(|entry| entry.id == id).unwrap();
+            let entry = corpus
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("{id} missing from the tracked corpus"));
             let mut options = entry.options.clone();
             options.despeckle = false;
             let result = clean_black_and_white_with_calibration_config(
