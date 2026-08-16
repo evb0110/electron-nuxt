@@ -61,6 +61,11 @@ describe('document wheel interaction policy', () => {
         },
         {
             expected: false,
+            key: 'AltGraph',
+            repeat: false,
+        },
+        {
+            expected: false,
             key: 'ArrowDown',
             repeat: true,
         },

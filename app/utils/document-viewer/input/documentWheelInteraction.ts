@@ -13,6 +13,7 @@ export type TDocumentWheelIntent = 'scroll' | 'platform-scroll' | 'zoom';
 
 const DOCUMENT_WHEEL_ZOOM_MODIFIER_KEYS = new Set([
     'Alt',
+    'AltGraph',
     'Control',
     'Meta',
     'Shift',
