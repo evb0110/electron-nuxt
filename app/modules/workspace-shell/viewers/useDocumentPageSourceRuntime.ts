@@ -114,6 +114,7 @@ export const useDocumentPageSourceRuntime = (options: {
         effectiveZoom,
         computed(() => props.value.zoomMode),
         emit,
+        {beforeZoom: interaction => layoutLifecycle.capturePointerAnchor(interaction.event)},
     );
     const pageHeights = computed(() => pageDisplayLayouts.value.map(layout => layout.height));
     const pageTops = computed(() => {
@@ -200,6 +201,10 @@ export const useDocumentPageSourceRuntime = (options: {
         viewportHeight: containerHeight.value,
     }));
     const surfaceStyle = computed(() => ({height: props.value.continuousScroll ? `${Math.max(1, totalHeight.value)}px` : '100%'}));
+    const zoomAnchorPageLayouts = computed(() => pageLayouts.value.map(layout => ({
+        ...layout,
+        left: Math.max(DOCUMENT_PAGE_GUTTER_PX, (containerWidth.value - layout.width) / 2),
+    })));
     function getPageStyle(pageNumber: number) {
         const layout = pageLayouts.value[pageNumber - 1];
         if (!layout) {
@@ -376,7 +381,10 @@ export const useDocumentPageSourceRuntime = (options: {
     const scheduleRender = createRafCoalescedCallback(() => void renderMountedPages());
     const layoutLifecycle = useDocumentViewportLayoutLifecycle({
         viewerContainer,
-        pageLayouts,
+        pageLayouts: zoomAnchorPageLayouts,
+        capturePageIndex: () => props.value.continuousScroll
+            ? null
+            : Math.max(0, props.value.currentPage - 1),
         isResizing: computed(() => props.value.isResizing),
         captureRestoreEpoch: () => chassisAuthority?.openSurface.snapshot.value.generation ?? null,
         canRestore: epoch => !chassisAuthority || (
@@ -387,24 +395,20 @@ export const useDocumentPageSourceRuntime = (options: {
                 chassisAuthority.openSurface.viewportSession.value,
             )
         ),
-        applyRestoredScroll: restored => viewerContainer.value && viewportWritePort.apply(
-            viewerContainer.value,
-            {
+        applyRestoredScroll: (restored) => {
+            const container = viewerContainer.value;
+            return container !== null && viewportWritePort.apply(container, {
                 intent: viewportWritePort.beginIntent(
                     `page-source-zoom-anchor:${String(transitions.loadGeneration.value)}`,
                 ),
                 reason: 'zoom-anchor-restoration',
                 ...restored,
-            },
-        ),
+            });
+        },
         onResizeSettled: () => scheduleRender.schedule(),
     });
     function handleScroll(event?: Event) {
-        if (
-            !props.value.continuousScroll
-            || !viewerContainer.value
-            || layoutLifecycle.isResizeTransitionActive.value
-        ) {
+        if (!viewerContainer.value || props.value.isResizing) {
             return;
         }
         const nextScrollTop = viewerContainer.value.scrollTop;
@@ -416,25 +420,37 @@ export const useDocumentPageSourceRuntime = (options: {
         scheduleRender.schedule();
         if (chassisAuthority?.viewportWritePort.consumeAuthorityScroll(viewerContainer.value)) {
             layoutLifecycle.refreshLayoutTransactionAnchor();
+            syncCurrentPageFromViewport(false);
+            return;
+        }
+        if (layoutLifecycle.hasPendingPointerRestore()) {
             return;
         }
         if (chassisAuthority && event?.isTrusted !== true) {
             return;
         }
+        layoutLifecycle.cancelPendingRestore();
         chassisAuthority?.viewportWritePort.observeUserScroll(viewerContainer.value);
         layoutLifecycle.refreshLayoutTransactionAnchor();
+        syncCurrentPageFromViewport(true);
+    }
+    function syncCurrentPageFromViewport(supersedeNavigation: boolean) {
+        const container = viewerContainer.value;
+        if (!container || !props.value.continuousScroll) {
+            return;
+        }
         const nearestPage = resolveNearestDocumentPageToViewportCenter({
             geometry: {
                 pageHeights: pageHeights.value,
                 pageTops: pageTops.value,
                 totalHeight: totalHeight.value,
             },
-            scrollTop: viewerContainer.value.scrollTop,
+            scrollTop: container.scrollTop,
             totalPages: pageMetrics.value.length,
-            viewportHeight: viewerContainer.value.clientHeight,
+            viewportHeight: container.clientHeight,
         });
         if (nearestPage && nearestPage !== props.value.currentPage) {
-            const observedPage = chassisAuthority?.observePage(nearestPage, {supersedeNavigation: true}) ?? nearestPage;
+            const observedPage = chassisAuthority?.observePage(nearestPage, {supersedeNavigation}) ?? nearestPage;
             emit('update:currentPage', observedPage);
         }
     }

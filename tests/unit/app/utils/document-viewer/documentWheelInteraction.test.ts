@@ -194,4 +194,46 @@ describe('document wheel interaction policy', () => {
         })).toBe(false);
         expect(scrollEvent.preventDefault).not.toHaveBeenCalled();
     });
+
+    it('captures the pointer anchor before publishing a zoom mutation', () => {
+        const calls: string[] = [];
+        const zoomEvent = createWheelEvent({
+            metaKey: true,
+            deltaY: -120,
+        });
+        const zoomInteraction = resolveDocumentWheelInteraction(zoomEvent, viewport, true);
+
+        expect(consumeDocumentWheelZoomInteraction(zoomInteraction, {
+            effectiveZoom: 1,
+            zoomMode: 'custom',
+            emitZoom: () => calls.push('zoom'),
+            emitZoomMode: () => calls.push('mode'),
+        }, {beforeZoom: () => calls.push('anchor')})).toBe(true);
+        expect(calls).toEqual([
+            'anchor',
+            'zoom',
+        ]);
+    });
+
+    it('does not replace the active anchor for a clamped no-op packet', () => {
+        const beforeZoom = vi.fn();
+        const emitZoom = vi.fn();
+        const zoomEvent = createWheelEvent({
+            metaKey: true,
+            deltaY: -120,
+        });
+
+        expect(consumeDocumentWheelZoomInteraction(
+            resolveDocumentWheelInteraction(zoomEvent, viewport, true),
+            {
+                effectiveZoom: ZOOM.MAX,
+                zoomMode: 'custom',
+                emitZoom,
+                emitZoomMode: vi.fn(),
+            },
+            {beforeZoom},
+        )).toBe(true);
+        expect(beforeZoom).not.toHaveBeenCalled();
+        expect(emitZoom).not.toHaveBeenCalled();
+    });
 });

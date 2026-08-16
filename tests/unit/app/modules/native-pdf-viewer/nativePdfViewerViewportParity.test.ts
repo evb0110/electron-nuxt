@@ -134,6 +134,7 @@ function createPaneAnchorHarness(
         applyRestoredScroll: restored => {
             viewport.scrollLeft = restored.left;
             viewport.scrollTop = restored.top;
+            return true;
         },
     });
     return {
@@ -369,6 +370,7 @@ describe('Native PDF viewer viewport primitive parity', () => {
             applyRestoredScroll: restored => {
                 viewport.scrollLeft = restored.left;
                 viewport.scrollTop = restored.top;
+                return true;
             },
         }));
         if (!lifecycle) {

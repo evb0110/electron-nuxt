@@ -79,4 +79,100 @@ describe('document zoom anchor', () => {
         viewport.scrollHeight = 800;
         expect(resolveRetainedDocumentZoomAnchor(viewport, layouts, retained)).not.toBe(retained);
     });
+
+    it('preserves a pointer-relative point on a page with an explicit surface offset', () => {
+        const viewport = {
+            clientHeight: 400,
+            clientWidth: 500,
+            scrollLeft: 500,
+            scrollTop: 600,
+        };
+        const anchor = captureDocumentZoomAnchor(viewport, [{
+            left: 300,
+            top: 16,
+            width: 400,
+            height: 1_000,
+        }], {
+            x: 100,
+            y: 100,
+        });
+
+        expect(anchor).toMatchObject({
+            pageIndex: 0,
+            viewportXRatio: 0.2,
+            viewportYRatio: 0.25,
+            xRatio: 0.75,
+            yRatio: 0.684,
+        });
+        expect(resolveDocumentZoomAnchorScroll(viewport, [{
+            left: 600,
+            top: 16,
+            width: 800,
+            height: 2_000,
+        }], anchor)).toEqual({
+            left: 1_100,
+            top: 1_284,
+        });
+    });
+
+    it('anchors the visible page explicitly when single-page layouts overlap', () => {
+        const viewport = {
+            clientHeight: 400,
+            clientWidth: 500,
+            scrollLeft: 0,
+            scrollTop: 0,
+        };
+        const anchor = captureDocumentZoomAnchor(viewport, [
+            {
+                left: 50,
+                top: 16,
+                width: 400,
+                height: 1_000,
+            },
+            {
+                left: 20,
+                top: 16,
+                width: 800,
+                height: 2_000,
+            },
+        ], {
+            x: 100,
+            y: 100,
+        }, 1);
+
+        expect(anchor).toMatchObject({
+            pageIndex: 1,
+            xRatio: 0.1,
+            yRatio: 0.042,
+        });
+    });
+
+    it('does not snap a page edge to a pointer positioned in the margin', () => {
+        const viewport = {
+            clientHeight: 400,
+            clientWidth: 1_000,
+            scrollLeft: 0,
+            scrollTop: 0,
+        };
+        const anchor = captureDocumentZoomAnchor(viewport, [{
+            left: 300,
+            top: 16,
+            width: 400,
+            height: 1_000,
+        }], {
+            x: 100,
+            y: 100,
+        });
+
+        expect(anchor?.xRatio).toBe(-0.5);
+        expect(resolveDocumentZoomAnchorScroll(viewport, [{
+            left: 600,
+            top: 16,
+            width: 800,
+            height: 2_000,
+        }], anchor)).toEqual({
+            left: 100,
+            top: 84,
+        });
+    });
 });

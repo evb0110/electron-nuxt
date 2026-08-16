@@ -8,16 +8,18 @@ import {
     resolveDocumentZoomAnchorScroll,
     resolveRetainedDocumentZoomAnchor,
 } from '@app/utils/document-viewer/zoomAnchor';
+import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 interface IUseDocumentViewportLayoutLifecycleOptions {
     viewerContainer: Ref<HTMLElement | null>;
     pageLayouts: Ref<readonly IDocumentZoomPageLayout[]>;
+    capturePageIndex?: () => number | null;
     captureRestoreEpoch: () => unknown;
     canRestore: (epoch: unknown) => boolean;
     applyRestoredScroll: (restored: {
         left: number;
         top: number;
-    }) => void;
+    }) => boolean;
     isResizing?: Ref<boolean>;
     onResizeSettled?: () => void;
 }
@@ -35,6 +37,7 @@ export const useDocumentViewportLayoutLifecycle = (
     let retainedAnchor: IDocumentZoomAnchor | null = null;
     let dragAnchor: IDocumentZoomAnchor | null = null;
     let layoutTransactionAnchor: IDocumentZoomAnchor | null = null;
+    let activePointerAnchor: IDocumentZoomAnchor | null = null;
     let activeLayoutTransaction: number | null = null;
     let nextLayoutTransaction = 0;
     let transitionGeneration = 0;
@@ -47,12 +50,28 @@ export const useDocumentViewportLayoutLifecycle = (
     let restoreScheduled = false;
     let disposed = false;
     let transitionFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let pointerAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastPointerAnchorPacketAt = 0;
     const isResizeTransitionActive = ref(false);
+
+    const captureAnchor = (
+        container: HTMLElement,
+        layouts: readonly IDocumentZoomPageLayout[],
+        point?: {
+            x: number;
+            y: number
+        },
+    ) => captureDocumentZoomAnchor(
+        container,
+        layouts,
+        point,
+        options.capturePageIndex?.(),
+    );
 
     const captureCurrentAnchor = () => {
         const container = options.viewerContainer.value;
         return container
-            ? captureDocumentZoomAnchor(container, options.pageLayouts.value)
+            ? captureAnchor(container, options.pageLayouts.value)
             : null;
     };
 
@@ -74,8 +93,7 @@ export const useDocumentViewportLayoutLifecycle = (
         if (!restored) {
             return false;
         }
-        options.applyRestoredScroll(restored);
-        return true;
+        return options.applyRestoredScroll(restored);
     };
 
     const scheduleAnchorRestore = (
@@ -103,7 +121,7 @@ export const useDocumentViewportLayoutLifecycle = (
                 ) {
                     return;
                 }
-                applyAnchor(layoutTransactionAnchor ?? pending.anchor, pending.epoch);
+                applyAnchor(activePointerAnchor ?? layoutTransactionAnchor ?? pending.anchor, pending.epoch);
                 if (!options.isResizing?.value) {
                     isResizeTransitionActive.value = false;
                     if (transitionFallbackTimer !== null) clearTimeout(transitionFallbackTimer);
@@ -116,10 +134,49 @@ export const useDocumentViewportLayoutLifecycle = (
     const cancelPendingRestore = () => {
         restoreGeneration += 1;
         pendingRestore = null;
+        activePointerAnchor = null;
+        lastPointerAnchorPacketAt = 0;
+        if (pointerAnchorReleaseTimer !== null) clearTimeout(pointerAnchorReleaseTimer);
+        pointerAnchorReleaseTimer = null;
         activeLayoutTransaction = null;
         layoutTransactionAnchor = null;
         dragAnchor = null;
         retainedAnchor = null;
+    };
+
+    const capturePointerAnchor = (point: {
+        clientX: number;
+        clientY: number;
+        timeStamp?: number;
+    }) => {
+        const container = options.viewerContainer.value;
+        if (!container) {
+            activePointerAnchor = null;
+            return;
+        }
+        const packetAt = typeof point.timeStamp === 'number' && Number.isFinite(point.timeStamp)
+            ? point.timeStamp
+            : Date.now();
+        const startsNewGesture = !activePointerAnchor
+            || packetAt < lastPointerAnchorPacketAt
+            || packetAt - lastPointerAnchorPacketAt > DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS;
+        if (startsNewGesture) {
+            const rect = container.getBoundingClientRect();
+            activePointerAnchor = captureAnchor(container, options.pageLayouts.value, {
+                x: point.clientX - rect.left,
+                y: point.clientY - rect.top,
+            });
+            if (activeLayoutTransaction !== null) {
+                layoutTransactionAnchor = activePointerAnchor;
+            }
+        }
+        lastPointerAnchorPacketAt = packetAt;
+        if (pointerAnchorReleaseTimer !== null) clearTimeout(pointerAnchorReleaseTimer);
+        pointerAnchorReleaseTimer = setTimeout(() => {
+            activePointerAnchor = null;
+            lastPointerAnchorPacketAt = 0;
+            pointerAnchorReleaseTimer = null;
+        }, DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS);
     };
 
     /**
@@ -129,8 +186,8 @@ export const useDocumentViewportLayoutLifecycle = (
     const preserveLayoutMutation = (mutate: () => void) => {
         const container = options.viewerContainer.value;
         const epoch = options.captureRestoreEpoch();
-        const anchor = layoutTransactionAnchor ?? (
-            container ? captureDocumentZoomAnchor(container, options.pageLayouts.value) : null
+        const anchor = activePointerAnchor ?? layoutTransactionAnchor ?? (
+            container ? captureAnchor(container, options.pageLayouts.value) : null
         );
         mutate();
         applyAnchor(anchor, epoch);
@@ -187,6 +244,8 @@ export const useDocumentViewportLayoutLifecycle = (
                         container,
                         options.pageLayouts.value,
                         retainedAnchor,
+                        1,
+                        options.capturePageIndex?.(),
                     )
                     : null;
                 return;
@@ -220,23 +279,27 @@ export const useDocumentViewportLayoutLifecycle = (
         ) {
             return;
         }
-        const anchor = layoutTransactionAnchor
+        const anchor = activePointerAnchor
+            ?? layoutTransactionAnchor
             ?? dragAnchor
             ?? (isResizeTransitionActive.value ? retainedAnchor : null)
-            ?? captureDocumentZoomAnchor(container, previousLayouts);
+            ?? captureAnchor(container, previousLayouts);
         scheduleAnchorRestore(anchor, epoch);
-    }, {flush: 'post'});
+    }, {flush: 'pre'});
 
     onScopeDispose(() => {
         disposed = true;
         pendingRestore = null;
         if (transitionFallbackTimer !== null) clearTimeout(transitionFallbackTimer);
+        if (pointerAnchorReleaseTimer !== null) clearTimeout(pointerAnchorReleaseTimer);
     });
 
     return {
         beginLayoutTransaction,
         cancelPendingRestore,
+        capturePointerAnchor,
         endLayoutTransaction,
+        hasPendingPointerRestore: () => activePointerAnchor !== null && pendingRestore !== null,
         isResizeTransitionActive,
         preserveLayoutMutation,
         refreshLayoutTransactionAnchor,

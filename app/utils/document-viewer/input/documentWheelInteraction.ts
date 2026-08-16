@@ -62,6 +62,8 @@ interface IDocumentWheelZoomEmit {
     (event: 'update:zoomMode', value: TZoomMode): void;
 }
 
+interface IDocumentWheelZoomHandlerOptions {beforeZoom?: (interaction: IDocumentWheelInteraction) => void;}
+
 function normalizeWheelDelta(value: number, deltaMode: number, viewport: HTMLElement) {
     if (deltaMode === WHEEL_DELTA_LINE_MODE) {
         return value * WHEEL_LINE_DELTA_PX;
@@ -169,6 +171,7 @@ export function resolveDocumentWheelZoomTarget(
 export function consumeDocumentWheelZoomInteraction(
     interaction: IDocumentWheelInteraction,
     sink: IDocumentWheelZoomSink,
+    options: IDocumentWheelZoomHandlerOptions = {},
 ) {
     if (interaction.intent !== 'zoom') {
         return false;
@@ -179,6 +182,10 @@ export function consumeDocumentWheelZoomInteraction(
     if (!target.valid) {
         return true;
     }
+    if (Math.abs(target.nextEffectiveZoom - sink.effectiveZoom) < 0.001) {
+        return true;
+    }
+    options.beforeZoom?.(interaction);
     if (sink.zoomMode !== 'custom') {
         sink.emitZoomMode('custom');
     }
@@ -190,11 +197,12 @@ export function createDocumentWheelZoomHandler(
     effectiveZoom: IReadonlyValue<number>,
     zoomMode: IReadonlyValue<TZoomMode>,
     emit: IDocumentWheelZoomEmit,
+    options: IDocumentWheelZoomHandlerOptions = {},
 ) {
     return (interaction: IDocumentWheelInteraction) => consumeDocumentWheelZoomInteraction(interaction, {
         effectiveZoom: effectiveZoom.value,
         zoomMode: zoomMode.value,
         emitZoomMode: mode => emit('update:zoomMode', mode),
         emitZoom: value => emit('update:zoom', value),
-    });
+    }, options);
 }

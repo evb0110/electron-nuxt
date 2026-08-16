@@ -1,4 +1,5 @@
 export interface IDocumentZoomPageLayout {
+    left?: number;
     top: number;
     width: number;
     height: number;
@@ -6,37 +7,66 @@ export interface IDocumentZoomPageLayout {
 
 export interface IDocumentZoomAnchor {
     pageIndex: number;
+    viewportXRatio?: number;
+    viewportYRatio?: number;
     xRatio: number;
     yRatio: number;
+}
+
+export interface IDocumentZoomViewportPoint {
+    x: number;
+    y: number;
+}
+
+function resolveLayoutLeft(
+    container: Pick<HTMLElement, 'clientWidth'>,
+    layout: IDocumentZoomPageLayout,
+) {
+    return layout.left ?? Math.max(0, (container.clientWidth - layout.width) / 2);
 }
 
 export function captureDocumentZoomAnchor(
     container: Pick<HTMLElement, 'clientHeight' | 'clientWidth' | 'scrollLeft' | 'scrollTop'>,
     layouts: readonly IDocumentZoomPageLayout[],
+    viewportPoint?: IDocumentZoomViewportPoint,
+    preferredPageIndex?: number | null,
 ): IDocumentZoomAnchor | null {
     if (layouts.length === 0) {
         return null;
     }
-    const viewportX = container.scrollLeft + container.clientWidth / 2;
-    const viewportY = container.scrollTop + container.clientHeight / 2;
-    let pageIndex = 0;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    layouts.forEach((layout, index) => {
-        const bottom = layout.top + layout.height;
-        const distance = viewportY < layout.top
-            ? layout.top - viewportY
-            : viewportY > bottom ? viewportY - bottom : 0;
-        if (distance < nearestDistance) {
-            nearestDistance = distance;
-            pageIndex = index;
-        }
-    });
+    const pointX = Math.max(0, Math.min(container.clientWidth, viewportPoint?.x ?? container.clientWidth / 2));
+    const pointY = Math.max(0, Math.min(container.clientHeight, viewportPoint?.y ?? container.clientHeight / 2));
+    const viewportX = container.scrollLeft + pointX;
+    const viewportY = container.scrollTop + pointY;
+    const normalizedPreferredPageIndex = preferredPageIndex !== null
+        && preferredPageIndex !== undefined
+        && Number.isInteger(preferredPageIndex)
+        && preferredPageIndex >= 0
+        && preferredPageIndex < layouts.length
+        ? preferredPageIndex
+        : null;
+    let pageIndex = normalizedPreferredPageIndex ?? 0;
+    if (normalizedPreferredPageIndex === null) {
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        layouts.forEach((layout, index) => {
+            const bottom = layout.top + layout.height;
+            const distance = viewportY < layout.top
+                ? layout.top - viewportY
+                : viewportY > bottom ? viewportY - bottom : 0;
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                pageIndex = index;
+            }
+        });
+    }
     const layout = layouts[pageIndex]!;
-    const left = Math.max(0, (container.clientWidth - layout.width) / 2);
+    const left = resolveLayoutLeft(container, layout);
     return {
         pageIndex,
-        xRatio: Math.max(0, Math.min(1, (viewportX - left) / Math.max(1, layout.width))),
-        yRatio: Math.max(0, Math.min(1, (viewportY - layout.top) / Math.max(1, layout.height))),
+        viewportXRatio: pointX / Math.max(1, container.clientWidth),
+        viewportYRatio: pointY / Math.max(1, container.clientHeight),
+        xRatio: (viewportX - left) / Math.max(1, layout.width),
+        yRatio: (viewportY - layout.top) / Math.max(1, layout.height),
     };
 }
 
@@ -52,10 +82,12 @@ export function resolveDocumentZoomAnchorScroll(
     if (!layout) {
         return null;
     }
-    const left = Math.max(0, (container.clientWidth - layout.width) / 2);
+    const left = resolveLayoutLeft(container, layout);
+    const viewportX = container.clientWidth * (anchor.viewportXRatio ?? 0.5);
+    const viewportY = container.clientHeight * (anchor.viewportYRatio ?? 0.5);
     return {
-        left: Math.max(0, left + layout.width * anchor.xRatio - container.clientWidth / 2),
-        top: Math.max(0, layout.top + layout.height * anchor.yRatio - container.clientHeight / 2),
+        left: Math.max(0, left + layout.width * anchor.xRatio - viewportX),
+        top: Math.max(0, layout.top + layout.height * anchor.yRatio - viewportY),
     };
 }
 
@@ -65,6 +97,7 @@ export function resolveRetainedDocumentZoomAnchor(
     layouts: readonly IDocumentZoomPageLayout[],
     retainedAnchor: IDocumentZoomAnchor | null,
     tolerance = 1,
+    preferredPageIndex?: number | null,
 ) {
     if (retainedAnchor) {
         const projected = resolveDocumentZoomAnchorScroll(container, layouts, retainedAnchor);
@@ -85,5 +118,5 @@ export function resolveRetainedDocumentZoomAnchor(
             }
         }
     }
-    return captureDocumentZoomAnchor(container, layouts);
+    return captureDocumentZoomAnchor(container, layouts, undefined, preferredPageIndex);
 }

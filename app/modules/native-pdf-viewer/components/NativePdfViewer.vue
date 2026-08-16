@@ -15,11 +15,9 @@
                 </p>
             </div>
         </div>
-
         <PdfInitialSurfacePlaceholder
             v-if="showInitialSurfacePlaceholder && chassisAuthority === null"
         />
-
         <div
             class="native-pdf-continuous-surface mx-auto min-w-full"
             :style="renderedPagesSurfaceStyle"
@@ -75,6 +73,7 @@ import { resolveNativePdfRenderQueue } from '@app/modules/native-pdf-viewer/runt
 import {
     createIdleNativePdfPageState,
     preloadNativePdfPageObjectUrl,
+    resolveNativePdfPageShellLeft,
     resolveNativePdfPageShellStyle,
 } from '@app/modules/native-pdf-viewer/runtime/nativePdfPagePresentation';
 import { revokeNativePdfPageObjectUrl } from '@app/modules/native-pdf-viewer/runtime/revokeNativePdfPageObjectUrl';
@@ -232,7 +231,6 @@ const effectiveZoom = computed(() => {
     const pageSize = pageSizes.value[activePage.value - 1] ?? pageSizes.value[0] ?? null;
     return resolvePageDisplayScale(pageSize);
 });
-const handleWheel = createDocumentWheelZoomHandler(effectiveZoom, zoomMode, emit);
 const pageLayouts = computed<IPageLayout[]>(() => {
     const dimensions = documentPageDisplayLayout.resolveDocumentPageDisplayLayouts({
         availableHeight: fitHeightAvailable(),
@@ -260,14 +258,29 @@ const continuousSurfaceWidth = computed(() => {
     const maxPageWidth = pageLayouts.value.reduce((maxWidth, layout) => Math.max(maxWidth, layout.width), 0);
     return Math.max(containerWidth.value, maxPageWidth + DOCUMENT_PAGE_GUTTER_PX * 2, 1);
 });
-const continuousDocumentHeight = computed(() => {
-    return Math.max(containerHeight.value, continuousGeometry.value.totalHeight, 1);
-});
+const zoomAnchorPageLayouts = computed(() => pageLayouts.value.map(layout => ({
+    ...layout,
+    left: resolveNativePdfPageShellLeft({
+        gutterPx: DOCUMENT_PAGE_GUTTER_PX,
+        pageWidth: layout.width,
+        surfaceWidth: continuousSurfaceWidth.value,
+    }),
+})));
+const handleWheel = createDocumentWheelZoomHandler(
+    effectiveZoom,
+    zoomMode,
+    emit,
+    {beforeZoom: interaction => viewportLayoutLifecycle.capturePointerAnchor(interaction.event)},
+);
+const continuousDocumentHeight = computed(() => Math.max(
+    containerHeight.value,
+    continuousGeometry.value.totalHeight,
+    1,
+));
 const renderedPageNumbers = computed(() => {
     if (totalPages.value <= 0) {
         return [] as number[];
     }
-
     const pages = resolveDocumentViewportPageNumbers({
         geometry: continuousGeometry.value,
         pageGapPx: DOCUMENT_PAGE_GUTTER_PX,
@@ -286,7 +299,6 @@ function emitLoading(nextLoading: boolean, options: { force?: boolean } = {}) {
     if (!options.force && isLoading.value === nextLoading) {
         return;
     }
-
     isLoading.value = nextLoading;
     emit('loading', nextLoading);
 }
@@ -300,7 +312,6 @@ function ensureInitialVisualSettlePromise() {
     initialVisualSettlePromise ??= new Promise<void>((resolve) => {
         resolveInitialVisualSettlePromise = resolve;
     });
-
     return initialVisualSettlePromise;
 }
 function beginInitialVisualWait(generation: number) {
@@ -393,7 +404,6 @@ function markInitialVisualFailed(generation: number, error: unknown) {
     ) {
         return;
     }
-
     const normalizedError = error instanceof Error
         ? error
         : new Error('Failed to render the initial PDF preview');
@@ -417,7 +427,6 @@ function waitForViewerLoadSettled() {
     ) {
         return Promise.resolve();
     }
-
     return ensureInitialVisualSettlePromise();
 }
 function getPageShellStyle(pageNumber: number) {
@@ -432,7 +441,6 @@ function measureContainer() {
     if (!element) {
         return;
     }
-
     containerWidth.value = Math.max(0, element.clientWidth);
     containerHeight.value = Math.max(0, element.clientHeight);
     scrollTop.value = Math.max(0, element.scrollTop);
@@ -495,11 +503,9 @@ function revokePageUrl(pageNumber: number) {
     paintedPageObjectUrls.delete(pageNumber);
     committedRasterIdentities.delete(pageNumber);
     pageRenderGenerations.delete(pageNumber);
-
     if (!pageState?.objectUrl) {
         return;
     }
-
     revokeObjectUrl(pageNumber, pageState.objectUrl);
     pageState.objectUrl = null;
     pageState.failedRenderPx = 0;
@@ -510,7 +516,6 @@ function resetPageState(pageNumber: number) {
     if (!pageState) {
         return;
     }
-
     activeSource?.cancelPagePreview?.(pageNumber);
     pageState.token += 1;
     revokePageUrl(pageNumber);
@@ -570,7 +575,6 @@ function getVisiblePageNumber() {
     if (!container || pageLayouts.value.length === 0) {
         return activePage.value;
     }
-
     return resolveDocumentContinuousScrollWindow({
         currentPage: activePage.value,
         geometry: continuousGeometry.value,
@@ -627,12 +631,10 @@ function releaseInactivePages(activePages: Set<number>) {
         retainedPageNumbers.add(pageNumber);
     }
 }
-
 function shouldRenderPage(pageNumber: number) {
     const pageState = pageStates.value[pageNumber - 1];
     return pageState?.status === 'idle';
 }
-
 function invalidateNonCanonicalRasters(activePages: Set<number>) {
     for (const pageNumber of activePages) {
         const targetIdentity = getPageRasterIdentity(pageNumber);
@@ -660,7 +662,6 @@ function finishInitialLoadIfSettled() {
     if (!isActive.value || !isLoading.value) {
         return;
     }
-
     const initialPageNumber = activePage.value;
     const initialPageState = pageStates.value[initialPageNumber - 1];
     if (
@@ -940,7 +941,6 @@ async function loadSource(nextSrc: TDocumentRef, generation: number) {
     });
     chassisAuthority?.bindSource(boundPageSource);
 }
-
 function clearFailedLoadSource(generation: number) {
     if (!isCurrentLoadGeneration(generation)) {
         return;
@@ -950,7 +950,6 @@ function clearFailedLoadSource(generation: number) {
     pageStates.value = [];
     emit('update:totalPages', 0);
 }
-
 function handleViewerScroll() {
     const container = viewerContainer.value;
     if (!container) {
@@ -962,13 +961,17 @@ function handleViewerScroll() {
         syncLoadedPages();
         return;
     }
+    if (viewportLayoutLifecycle.hasPendingPointerRestore()) {
+        scrollTop.value = Math.max(0, container.scrollTop);
+        syncLoadedPages();
+        return;
+    }
     viewportLayoutLifecycle.cancelPendingRestore();
     viewportWritePort.observeUserScroll(container);
     scrollTop.value = Math.max(0, container.scrollTop);
     syncCurrentPageFromViewport({supersedeNavigation: true});
     syncLoadedPages();
 }
-
 function handleContainerResize() {
     if (!isActive.value) {
         return;
@@ -977,13 +980,11 @@ function handleContainerResize() {
     invalidateNonCanonicalRasters(getActivePageSet());
     syncLoadedPages();
 }
-
 function retryPage(pageNumber: number) {
     pageVisualErrorAttempts.delete(pageNumber);
     resetPageState(pageNumber);
     syncLoadedPages();
 }
-
 function handlePageVisualReady(payload: {
     pageNumber: number;
     objectUrl: string;
@@ -1000,7 +1001,6 @@ function handlePageVisualReady(payload: {
     ) {
         return;
     }
-
     paintedPageObjectUrls.set(payload.pageNumber, payload.objectUrl);
     invalidatedPageVisuals.delete(payload.pageNumber);
     pageVisualErrorAttempts.delete(payload.pageNumber);
@@ -1102,7 +1102,7 @@ watch(effectiveZoom, (value) => {
 }, { immediate: true });
 const viewportLayoutLifecycle = useDocumentViewportLayoutLifecycle({
     viewerContainer,
-    pageLayouts,
+    pageLayouts: zoomAnchorPageLayouts,
     captureRestoreEpoch: () => nativePdfViewportRestore.createNativePdfRestoreEpoch(loadGeneration, viewportWritePort.getInteractionEpoch()),
     canRestore: epoch => nativePdfViewportRestore.canRestoreNativePdfViewportLayout(epoch, {
         currentInteractionEpoch: viewportWritePort.getInteractionEpoch(),
@@ -1115,14 +1115,15 @@ const viewportLayoutLifecycle = useDocumentViewportLayoutLifecycle({
     applyRestoredScroll: restored => {
         const container = viewerContainer.value;
         if (!container) {
-            return;
+            return false;
         }
-        viewportWritePort.apply(container, {
+        const applied = viewportWritePort.apply(container, {
             intent: viewportWritePort.beginIntent(`native-preview-zoom-anchor:${String(loadGeneration)}`),
             reason: 'zoom-anchor-restoration',
             ...restored,
         });
         scrollTop.value = Math.max(0, container.scrollTop);
+        return applied;
     },
 });
 watch(pageLayouts, () => {
