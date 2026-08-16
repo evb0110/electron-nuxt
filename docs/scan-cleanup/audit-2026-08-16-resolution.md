@@ -55,8 +55,12 @@ refuted or intentional behavior as an implementation success.
   their job lifecycle, and scratch ownership uses an unambiguous prefix.
 - Provenance hashing streams the source file. PDF combine writes prepared pages
   immediately unless shared-symbol JBIG2 is explicitly enabled.
-- The page scheduler uses a bounded in-flight dispatcher rather than fixed
-  chunk barriers; finding 44 is the same scheduling defect as finding 25.
+- The page scheduler uses bounded scoped page workers rather than fixed chunk
+  barriers. Waiting happens outside the Rayon processing pool, including when
+  the host exposes only one CPU; explicit one- and two-thread tests pin that
+  invariant. Page panics settle admitted siblings, roll back the publication
+  transaction, and only then resume unwinding. Finding 44 is the same
+  scheduling defect as finding 25.
 
 ## Contracts, tests, and user-visible behavior
 
@@ -88,3 +92,13 @@ refuted or intentional behavior as an implementation success.
   not fail the harness.
 - The existing run-global ETA floor is unchanged.
 - Shared-symbol JBIG2 remains opt-in and may still use chunked preparation.
+
+## Independent final review
+
+An Opus 5 read-only review rejected the first bounded-dispatch implementation:
+Rayon executed the `ThreadPool::scope` dispatcher on a pool worker, which could
+deadlock a one-thread pool, and a resumed page panic bypassed transaction
+rollback. Both findings were accepted and fixed before publication. The same
+pass made trusted-ink prepass failures observable, skipped that prepass when no
+eligible trusted inputs exist, enforced PNG `IHDR` and post-render bounds in
+both preview paths, and replaced the final raw localization-key fallback.

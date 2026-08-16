@@ -581,7 +581,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
                         reportScanCleanupRunError(
                             ownerId,
                             dependencies?.t('scanCleanup.errors.runRecoveryFailed')
-                                ?? 'scanCleanup.errors.runRecoveryFailed',
+                                ?? 'Scan cleanup could not be recovered after the renderer session was restored.',
                             sourceDocumentRef,
                             'internal',
                         );

@@ -42,7 +42,6 @@ use std::{
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
-    sync::mpsc::channel,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::sync_channel,
@@ -591,15 +590,23 @@ fn run_manifest_transaction(
             format!("Unable to prepare scan-cleanup output transaction: {error}"),
         )
     })?;
-    match operation() {
-        Ok(()) => transaction.commit().map_err(|error| {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)) {
+        Err(panic) => {
+            if let Err(rollback_error) = transaction.rollback() {
+                std::panic::resume_unwind(Box::new(format!(
+                    "Scan-cleanup batch panicked; rollback was incomplete: {rollback_error}"
+                )));
+            }
+            std::panic::resume_unwind(panic);
+        }
+        Ok(Ok(())) => transaction.commit().map_err(|error| {
             NativeError::new(
                 NativeErrorCode::Io,
                 format!("Unable to finalize scan-cleanup output transaction: {error}"),
             )
             .into()
         }),
-        Err(operation_error) => match transaction.rollback() {
+        Ok(Err(operation_error)) => match transaction.rollback() {
             Ok(()) => Err(operation_error),
             Err(rollback_error) => Err(NativeError::new(
                 NativeErrorCode::NativeFailure,
@@ -616,37 +623,59 @@ fn trusted_selection_is_incomplete(selection_width: usize, background_width: usi
     background_width.saturating_mul(2) > selection_width
 }
 
-fn derive_page_ink_sample(page: &Page) -> Option<DocumentInkSample> {
+fn derive_page_ink_sample(page: &Page) -> Result<Option<DocumentInkSample>, NativeError> {
     if page.options.output_mode != OutputMode::Bw
         || !page.options.source_has_bilevel_layer
         || page.options.thickness != 0
     {
-        return None;
+        return Ok(None);
     }
+    let Some(selection_path) = page.trusted_foreground_mask_path.as_ref() else {
+        return Ok(None);
+    };
+    let Some(background_path) = page.trusted_mrc_background_path.as_ref() else {
+        return Ok(None);
+    };
     let selection = raster::read_foreground_selection(
-        page.trusted_foreground_mask_path.as_ref()?,
+        selection_path,
         page.options.max_pixels,
         page.options.max_dimension,
     )
-    .ok()?;
+    .map_err(|error| map_raster_error(error, selection_path, page.source_page_index))?;
     let (background_width, _) = raster::read_dimensions(
-        page.trusted_mrc_background_path.as_ref()?,
+        background_path,
         page.options.max_pixels,
         page.options.max_dimension,
     )
-    .ok()?;
+    .map_err(|error| map_raster_error(error, background_path, page.source_page_index))?;
     if trusted_selection_is_incomplete(selection.width(), background_width) {
-        return None;
+        return Ok(None);
     }
-    let ink = minority_selection_mask(&selection)?;
-    Some(DocumentInkSample {
-        metrics: stroke_mass_metrics(&ink)?,
+    let Some(ink) = minority_selection_mask(&selection) else {
+        return Ok(None);
+    };
+    let Some(metrics) = stroke_mass_metrics(&ink) else {
+        return Ok(None);
+    };
+    Ok(Some(DocumentInkSample {
+        metrics,
         width: ink.width(),
         height: ink.height(),
-    })
+    }))
 }
 
-fn derive_page_ink_contexts(manifest: &ManifestV3) -> Vec<Option<PageInkConsistencyContext>> {
+fn derive_page_ink_contexts(
+    manifest: &ManifestV3,
+) -> Result<Vec<Option<PageInkConsistencyContext>>, Box<dyn Error>> {
+    if !manifest.pages.iter().any(|page| {
+        page.trusted_foreground_mask_path.is_some()
+            && page.trusted_mrc_background_path.is_some()
+            && page.options.output_mode == OutputMode::Bw
+            && page.options.source_has_bilevel_layer
+            && page.options.thickness == 0
+    }) {
+        return Ok(vec![None; manifest.pages.len()]);
+    }
     // Trusted MRC masks are separate, replayable inputs. Use the same
     // memory-derived page bound as the real work for regular manifests, but
     // never hand a streamed input to `run_page_jobs`: doing so would consume a
@@ -657,23 +686,14 @@ fn derive_page_ink_contexts(manifest: &ManifestV3) -> Vec<Option<PageInkConsiste
             .pages
             .iter()
             .map(derive_page_ink_sample)
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, _>>()?
     } else {
-        run_page_jobs(manifest, |(_, page)| {
-            Ok::<_, NativeError>(derive_page_ink_sample(page))
-        })
-        .unwrap_or_else(|_| {
-            manifest
-                .pages
-                .iter()
-                .map(derive_page_ink_sample)
-                .collect::<Vec<_>>()
-        })
+        run_page_jobs(manifest, |(_, page)| derive_page_ink_sample(page))?
     };
     let Some(prior) = DocumentInkPrior::from_page_samples(samples.iter().flatten().copied()) else {
-        return vec![None; samples.len()];
+        return Ok(vec![None; samples.len()]);
     };
-    samples
+    Ok(samples
         .into_iter()
         .map(|source_sample| {
             source_sample.map(|source_sample| PageInkConsistencyContext {
@@ -681,7 +701,7 @@ fn derive_page_ink_contexts(manifest: &ManifestV3) -> Vec<Option<PageInkConsiste
                 source_sample,
             })
         })
-        .collect()
+        .collect())
 }
 
 fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
@@ -742,7 +762,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     let page_ink_contexts = if analyzing {
         vec![None; manifest.pages.len()]
     } else {
-        derive_page_ink_contexts(manifest)
+        derive_page_ink_contexts(manifest)?
     };
     let plan_content = manifest.analysis_purpose == AnalysisPurpose::PagePlan;
     let run_analysis = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
@@ -842,12 +862,22 @@ where
     if manifest_has_stream_inputs(manifest) {
         return run_stream_page_jobs(manifest, task);
     }
-    // One pool per manifest, and the process runs one manifest: since the
-    // discarded classification pass was removed this is built at most once,
-    // and only when it will actually carry more than one page.
     let worker_threads = page_worker_threads(manifest)?;
+    let processing_threads = std::thread::available_parallelism().map_or(1, usize::from);
+    run_regular_page_jobs(manifest, task, worker_threads, processing_threads)
+}
+
+fn run_regular_page_jobs<T, F>(
+    manifest: &ManifestV3,
+    task: F,
+    worker_threads: usize,
+    processing_threads: usize,
+) -> Result<Vec<T>, Box<dyn Error>>
+where
+    T: Send,
+    F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
+{
     let results: Vec<Result<T, NativeError>> = if worker_threads > 1 {
-        let processing_threads = std::thread::available_parallelism().map_or(2, usize::from);
         let pool = rayon::ThreadPoolBuilder::new()
             // `worker_threads` is a memory-derived limit on pages in flight,
             // not the size of the processing pool. Each page contains nested
@@ -859,78 +889,58 @@ where
             .thread_name(|index| format!("scan-cleanup-processing-{index}"))
             .build()
             .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?;
-        let (sender, receiver) = channel();
-        let mut results = (0..manifest.pages.len())
-            .map(|_| None)
-            .collect::<Vec<Option<Result<T, NativeError>>>>();
-        let mut panics = (0..manifest.pages.len())
-            .map(|_| None)
-            .collect::<Vec<Option<Box<dyn std::any::Any + Send>>>>();
-        let mut next_page = 0;
-        let mut in_flight = 0;
-        let mut failure_observed = false;
+        type PageOutcome<T> = Result<Result<T, NativeError>, Box<dyn std::any::Any + Send>>;
+        struct DispatchState<T> {
+            next_page: usize,
+            failure_observed: bool,
+            outcomes: Vec<Option<PageOutcome<T>>>,
+        }
+        let state = Mutex::new(DispatchState {
+            next_page: 0,
+            failure_observed: false,
+            outcomes: (0..manifest.pages.len()).map(|_| None).collect(),
+        });
 
-        // The caller is the dispatcher. It owns the bounded submission window
-        // and waits for completions outside the Rayon pool, so a page never
-        // blocks a Rayon worker while waiting for a memory permit. Completed
-        // pages replenish the window immediately, allowing later pages to
-        // overlap with long-running earlier pages without a chunk barrier.
-        let task = &task;
-        let (results, mut panics, failure_observed) = pool.scope(move |scope| {
-            while next_page < manifest.pages.len() && in_flight < worker_threads {
-                let index = next_page;
-                let page = &manifest.pages[index];
-                let sender = sender.clone();
-                scope.spawn(move |_| {
-                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        task((index, page))
-                    }));
-                    let _ = sender.send((index, outcome));
-                });
-                next_page += 1;
-                in_flight += 1;
-            }
-
-            while in_flight > 0 {
-                let (index, outcome) = receiver.recv().map_err(|_| {
-                    invalid("Scan-cleanup page dispatcher lost its completion channel")
-                })?;
-                in_flight -= 1;
-                match outcome {
-                    Ok(result) => {
-                        failure_observed |= result.is_err();
-                        results[index] = Some(result);
-                    }
-                    Err(panic) => {
-                        failure_observed = true;
-                        panics[index] = Some(panic);
-                    }
-                }
-
-                // Once a page fails, do not admit more work. Existing jobs
-                // still settle through the scope, which keeps their captures
-                // and any native resources well-defined before the error is
-                // returned to the transaction boundary.
-                if !failure_observed
-                    && next_page < manifest.pages.len()
-                    && in_flight < worker_threads
-                {
-                    let index = next_page;
+        // The bounded page workers are ordinary scoped OS threads. They wait
+        // outside Rayon, while each admitted page enters the processing pool
+        // through `install`; even a one-thread pool therefore always has a
+        // worker available to execute the page and its nested Rayon stages.
+        thread::scope(|scope| {
+            for _ in 0..worker_threads.min(manifest.pages.len()) {
+                let state = &state;
+                let pool = &pool;
+                let task = &task;
+                scope.spawn(move || loop {
+                    let index = {
+                        let mut state = state
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if state.failure_observed || state.next_page >= manifest.pages.len() {
+                            return;
+                        }
+                        let index = state.next_page;
+                        state.next_page += 1;
+                        index
+                    };
                     let page = &manifest.pages[index];
-                    let sender = sender.clone();
-                    scope.spawn(move |_| {
-                        let outcome =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                task((index, page))
-                            }));
-                        let _ = sender.send((index, outcome));
-                    });
-                    next_page += 1;
-                    in_flight += 1;
-                }
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        pool.install(|| task((index, page)))
+                    }));
+                    let mut state = state
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    state.failure_observed |= outcome.as_ref().map_or(true, Result::is_err);
+                    state.outcomes[index] = Some(outcome);
+                });
             }
-            Ok::<_, NativeError>((results, panics, failure_observed))
-        })?;
+        });
+        let DispatchState {
+            outcomes,
+            failure_observed,
+            ..
+        } = state
+            .into_inner()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         if failure_observed {
             // The cancellation decision is made as soon as any page fails,
@@ -938,19 +948,22 @@ where
             // pages fail at different times. Panics are captured only long
             // enough to guarantee every submitted page reports completion;
             // the earliest submitted panic is then resumed.
-            for (result, panic) in results.into_iter().zip(panics.iter_mut()) {
-                if let Some(panic) = panic.take() {
-                    std::panic::resume_unwind(panic);
-                }
-                if let Some(Err(error)) = result {
-                    return Err(error.into());
+            for outcome in outcomes.into_iter().flatten() {
+                match outcome {
+                    Err(panic) => std::panic::resume_unwind(panic),
+                    Ok(Err(error)) => return Err(error.into()),
+                    Ok(Ok(_)) => {}
                 }
             }
             unreachable!("page dispatcher observed a failure without recording it");
         }
-        results
+        outcomes
             .into_iter()
-            .map(|result| result.expect("page dispatcher completed every submitted page"))
+            .map(|outcome| {
+                outcome
+                    .expect("page dispatcher completed every submitted page")
+                    .expect("successful page dispatcher cannot retain a panic")
+            })
             .collect()
     } else {
         manifest.pages.iter().enumerate().map(task).collect()
@@ -4723,8 +4736,8 @@ mod tests {
         plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim,
         plan_canvas_placement_with_shared_fit, preflight_manifest_paths,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
-        robust_quantile_dimension, run_manifest_transaction, run_page_jobs, run_stream_page_jobs,
-        write_gray_layer_background, CanvasPlacement, CleanupRaster,
+        robust_quantile_dimension, run_manifest_transaction, run_regular_page_jobs,
+        run_stream_page_jobs, write_gray_layer_background, CanvasPlacement, CleanupRaster,
         DeferredSpreadVerticalPlacement, FoldSideTrim, HorizontalEdge, NearPaperEdgeRuns,
         PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, SharedSpreadOverflowPlan,
         Tier1Provenance, WrittenOutput, FALLBACK_SYSTEM_MEMORY_BYTES,
@@ -4940,8 +4953,32 @@ mod tests {
 
         assert!(error.to_string().contains("page two failed"));
         assert_eq!(fs::read(&input).unwrap(), b"input must survive rollback");
-        for path in destinations {
+        for path in &destinations {
             assert!(!path.exists(), "rollback left {}", path.display());
+        }
+
+        for (index, path) in destinations.iter().enumerate() {
+            fs::write(path, format!("previous destination {index}").as_bytes()).unwrap();
+        }
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = run_manifest_transaction(&manifest, || {
+                for path in &destinations[..4] {
+                    fs::write(path, b"partial replacement")?;
+                }
+                panic!("page worker panicked");
+            });
+        }));
+        assert_eq!(
+            panic
+                .expect_err("transaction swallowed the page panic")
+                .downcast_ref::<&str>(),
+            Some(&"page worker panicked")
+        );
+        for (index, path) in destinations.iter().enumerate() {
+            assert_eq!(
+                fs::read(path).unwrap(),
+                format!("previous destination {index}").as_bytes()
+            );
         }
         fs::remove_dir_all(dir).unwrap();
     }
@@ -6355,7 +6392,7 @@ mod tests {
         };
 
         assert!(manifest_worker_threads(&manifest).unwrap() > 1);
-        let contexts = derive_page_ink_contexts(&manifest);
+        let contexts = derive_page_ink_contexts(&manifest).unwrap();
         assert_eq!(contexts.len(), 12);
         assert!(contexts.iter().all(Option::is_some));
         assert_eq!(contexts[0], contexts[11]);
@@ -6415,31 +6452,53 @@ mod tests {
         let live = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let later_page_started_while_first_was_live = Arc::new(AtomicBool::new(false));
-        let run = run_page_jobs(&manifest, {
-            let live = Arc::clone(&live);
-            let peak = Arc::clone(&peak);
-            let later_page_started_while_first_was_live =
-                Arc::clone(&later_page_started_while_first_was_live);
-            move |(index, _)| {
-                let current = live.fetch_add(1, Ordering::AcqRel) + 1;
-                peak.fetch_max(current, Ordering::AcqRel);
-                if index == 0 {
-                    // Keep the first slot occupied while page one completes;
-                    // a sliding dispatcher must admit page two in that gap.
-                    thread::sleep(Duration::from_millis(100));
-                } else if index == 2 && current >= 2 {
-                    later_page_started_while_first_was_live.store(true, Ordering::Release);
+        let run = run_regular_page_jobs(
+            &manifest,
+            {
+                let live = Arc::clone(&live);
+                let peak = Arc::clone(&peak);
+                let later_page_started_while_first_was_live =
+                    Arc::clone(&later_page_started_while_first_was_live);
+                move |(index, _)| {
+                    let current = live.fetch_add(1, Ordering::AcqRel) + 1;
+                    peak.fetch_max(current, Ordering::AcqRel);
+                    if index == 0 {
+                        // Keep the first slot occupied while page one completes;
+                        // a sliding dispatcher must admit page two in that gap.
+                        thread::sleep(Duration::from_millis(100));
+                    } else if index == 2 && current >= 2 {
+                        later_page_started_while_first_was_live.store(true, Ordering::Release);
+                    }
+                    live.fetch_sub(1, Ordering::AcqRel);
+                    Ok::<_, NativeError>(index)
                 }
-                live.fetch_sub(1, Ordering::AcqRel);
-                Ok::<_, NativeError>(index)
-            }
-        })
+            },
+            2,
+            2,
+        )
         .unwrap();
 
         assert_eq!(run, vec![0, 1, 2, 3]);
         assert!(later_page_started_while_first_was_live.load(Ordering::Acquire));
         assert!(peak.load(Ordering::Acquire) <= 2);
         assert_eq!(live.load(Ordering::Acquire), 0);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn page_dispatcher_completes_with_one_processing_thread() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-page-dispatcher-single-cpu-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = scheduler_test_manifest(&dir, 4);
+
+        let run = run_regular_page_jobs(&manifest, |(index, _)| Ok::<_, NativeError>(index), 2, 1)
+            .unwrap();
+
+        assert_eq!(run, vec![0, 1, 2, 3]);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -6456,35 +6515,40 @@ mod tests {
 
         let live = Arc::new(AtomicUsize::new(0));
         let started = Arc::new(Mutex::new(Vec::new()));
-        let error = run_page_jobs(&manifest, {
-            let live = Arc::clone(&live);
-            let started = Arc::clone(&started);
-            move |(index, _)| {
-                live.fetch_add(1, Ordering::AcqRel);
-                started.lock().unwrap().push(index);
-                if index == 0 {
-                    // Page one fails first in wall-clock time, while page zero
-                    // remains an earlier submitted failure. The dispatcher
-                    // must cancel page admission immediately, drain both
-                    // active jobs, and retain the ordered error contract.
-                    thread::sleep(Duration::from_millis(100));
+        let error = run_regular_page_jobs(
+            &manifest,
+            {
+                let live = Arc::clone(&live);
+                let started = Arc::clone(&started);
+                move |(index, _)| {
+                    live.fetch_add(1, Ordering::AcqRel);
+                    started.lock().unwrap().push(index);
+                    if index == 0 {
+                        // Page one fails first in wall-clock time, while page zero
+                        // remains an earlier submitted failure. The dispatcher
+                        // must cancel page admission immediately, drain both
+                        // active jobs, and retain the ordered error contract.
+                        thread::sleep(Duration::from_millis(100));
+                        live.fetch_sub(1, Ordering::AcqRel);
+                        return Err(NativeError::new(
+                            NativeErrorCode::NativeFailure,
+                            "page 0 failed",
+                        ));
+                    }
+                    if index == 1 {
+                        live.fetch_sub(1, Ordering::AcqRel);
+                        return Err(NativeError::new(
+                            NativeErrorCode::NativeFailure,
+                            "page 1 failed",
+                        ));
+                    }
                     live.fetch_sub(1, Ordering::AcqRel);
-                    return Err(NativeError::new(
-                        NativeErrorCode::NativeFailure,
-                        "page 0 failed",
-                    ));
+                    Ok(index)
                 }
-                if index == 1 {
-                    live.fetch_sub(1, Ordering::AcqRel);
-                    return Err(NativeError::new(
-                        NativeErrorCode::NativeFailure,
-                        "page 1 failed",
-                    ));
-                }
-                live.fetch_sub(1, Ordering::AcqRel);
-                Ok(index)
-            }
-        })
+            },
+            2,
+            2,
+        )
         .unwrap_err();
 
         assert!(error.to_string().contains("page 0 failed"));
@@ -6510,17 +6574,22 @@ mod tests {
             let live = Arc::clone(&live);
             let started = Arc::clone(&started);
             move || {
-                let _ = run_page_jobs(&manifest, move |(index, _)| {
-                    live.fetch_add(1, Ordering::AcqRel);
-                    started.lock().unwrap().push(index);
-                    if index == 0 {
+                let _ = run_regular_page_jobs(
+                    &manifest,
+                    move |(index, _)| {
+                        live.fetch_add(1, Ordering::AcqRel);
+                        started.lock().unwrap().push(index);
+                        if index == 0 {
+                            live.fetch_sub(1, Ordering::AcqRel);
+                            panic!("page 0 panicked");
+                        }
+                        thread::sleep(Duration::from_millis(50));
                         live.fetch_sub(1, Ordering::AcqRel);
-                        panic!("page 0 panicked");
-                    }
-                    thread::sleep(Duration::from_millis(50));
-                    live.fetch_sub(1, Ordering::AcqRel);
-                    Ok::<_, NativeError>(index)
-                });
+                        Ok::<_, NativeError>(index)
+                    },
+                    2,
+                    2,
+                );
             }
         }));
 

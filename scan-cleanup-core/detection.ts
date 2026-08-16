@@ -256,7 +256,11 @@ function readPngDimensions(bytes: Uint8Array, maxPixels = PREVIEW_MAX_IMAGE_PIXE
         0x1a,
         0x0a,
     ];
-    if (bytes.byteLength < 24 || !signature.every((value, index) => bytes[index] === value)) {
+    const hasIhdr = bytes[12] === 0x49
+        && bytes[13] === 0x48
+        && bytes[14] === 0x44
+        && bytes[15] === 0x52;
+    if (bytes.byteLength < 24 || !signature.every((value, index) => bytes[index] === value) || !hasIhdr) {
         throw new Error('Scan cleanup detection produced an invalid PNG');
     }
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -327,7 +331,19 @@ async function renderRasterToDisk(
         if (bytesRead !== header.byteLength) {
             throw new Error('Scan cleanup detection raster produced a truncated PNG');
         }
-        return readPngDimensions(header, maxPixels);
+        const dimensions = readPngDimensions(
+            header,
+            Math.min(maxPixels ?? PREVIEW_MAX_IMAGE_PIXELS, limits?.maxPixels ?? PREVIEW_MAX_IMAGE_PIXELS),
+        );
+        if (limits !== undefined && (
+            dimensions.width > limits.maxDimensionPx
+            || dimensions.height > limits.maxDimensionPx
+        )) {
+            throw new Error(
+                `Scan cleanup detection raster dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
+            );
+        }
+        return dimensions;
     } finally {
         await handle.close();
     }
