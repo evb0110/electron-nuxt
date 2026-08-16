@@ -2934,13 +2934,18 @@ fn prepare_page<'a>(
     // onto the working raster. Mapping rounded working rectangles back into
     // canonical pixels can move a crop edge by one sample at nearby DPIs and
     // reopen the very route instability the fixed plane is meant to remove.
+    // The split is in analysis-full coordinates here, so the regions must be
+    // computed against the full dimensions: the analysis-normalized raster is
+    // DPI-capped below full resolution whenever no canonical plane is supplied,
+    // and clamping a full-space cutter into normalized bounds degenerates the
+    // right leaf to a sliver.
     let canonical_scale_x = prepared_analysis.canonical_routing_source.width() as f64
-        / prepared_analysis.normalized.width().max(1) as f64;
+        / prepared_analysis.full_width.max(1) as f64;
     let canonical_scale_y = prepared_analysis.canonical_routing_source.height() as f64
-        / prepared_analysis.normalized.height().max(1) as f64;
+        / prepared_analysis.full_height.max(1) as f64;
     let canonical_regions = output_regions(
-        prepared_analysis.normalized.width(),
-        prepared_analysis.normalized.height(),
+        prepared_analysis.full_width,
+        prepared_analysis.full_height,
         &prepared_analysis.split,
         options.layout,
     )
