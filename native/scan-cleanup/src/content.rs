@@ -239,27 +239,38 @@ fn detect_content_at_analysis_scale(
     if let Some(qualification) = early_picture_qualification.as_ref() {
         artifact_free_binary = artifact_free_binary.or(&qualification.structured_text);
     }
+    let despeckled = despeckle_connected_calibrated(
+        &artifact_free_binary,
+        calibration.content_despeckle_dpi(),
+        calibration,
+    );
     let cleaned = match purpose {
-        ContentAnalysisPurpose::Semantic => despeckle_connected_calibrated(
-            &artifact_free_binary,
-            calibration.content_despeckle_dpi(),
-            calibration,
-        ),
-        ContentAnalysisPurpose::Crop { .. } => rescue_component_scoped_faint_strokes(
-            &despeckle_connected_calibrated(
-                &artifact_free_binary,
+        ContentAnalysisPurpose::Semantic => despeckled,
+        ContentAnalysisPurpose::Crop { .. } => {
+            let rescued = rescue_component_scoped_faint_strokes(
+                &despeckled,
+                working,
+                picture_mask,
+                None,
+                Some(crop_artifacts.as_ref().unwrap_or(&borders)),
+                BinarizationMode::Wolf,
+                BinarizationMode::Wolf,
+                calibration.content_despeckle_dpi(),
+                false,
+            );
+            // Rescue restores small print that despeckling dropped, but it also
+            // proposes marks the binarizer never selected at all — a faint smudge
+            // is enough local contrast to qualify. Ink with no thresholded origin
+            // may only set a crop extent if it survives despeckling on its own,
+            // so a speck cannot, while a restored glyph or stroke can. Ink the
+            // binarizer did select keeps rescue's verdict either way.
+            despeckle_connected_calibrated(
+                &rescued,
                 calibration.content_despeckle_dpi(),
                 calibration,
-            ),
-            working,
-            picture_mask,
-            None,
-            Some(crop_artifacts.as_ref().unwrap_or(&borders)),
-            BinarizationMode::Wolf,
-            BinarizationMode::Wolf,
-            calibration.content_despeckle_dpi(),
-            false,
-        ),
+            )
+            .or(&rescued.and(&artifact_free_binary))
+        }
     };
     let cleaned = if let Some(qualification) = early_picture_qualification.as_ref() {
         cleaned.or(&qualification.structured_text)
@@ -3462,6 +3473,99 @@ mod tests {
                 result.content
             );
         }
+    }
+
+    /// Paper whose local contrast is high enough to feed the faint-stroke
+    /// rescue's row-support profile, as a real scan's grain does.
+    fn textured_paper(width: usize, height: usize) -> GrayImage {
+        let mut image = GrayImage::new(width, height, 246);
+        for y in 0..height {
+            for x in 0..width {
+                if (x * 29 + y * 17) % 11 == 0 {
+                    image.set(x, y, 226);
+                }
+            }
+        }
+        image
+    }
+
+    fn draw_body_text(image: &mut GrayImage, top: usize, bottom: usize) {
+        let mut y = top;
+        while y + 14 <= bottom {
+            let mut x = 60;
+            while x + 4 <= 300 {
+                for stroke_y in y..y + 14 {
+                    for stroke_x in x..x + 4 {
+                        image.set(stroke_x, stroke_y, 40);
+                    }
+                }
+                x += 12;
+            }
+            y += 24;
+        }
+    }
+
+    /// Faint marks are only ever rescued through their local contrast, so a
+    /// synthetic stroke needs the grain a scan has for the rescue to restore
+    /// more than its rim.
+    fn draw_faint_marks(
+        image: &mut GrayImage,
+        left: usize,
+        top: usize,
+        width: usize,
+        height: usize,
+        advance: usize,
+        columns: usize,
+    ) {
+        for column in 0..columns {
+            let start = left + column * advance;
+            for y in top..top + height {
+                for x in start..start + width {
+                    image.set(x, y, if (x + y) % 2 == 0 { 205 } else { 170 });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_faint_speck_near_the_text_cannot_raise_the_content_box() {
+        let mut image = textured_paper(360, 520);
+        draw_body_text(&mut image, 240, 430);
+        // Close enough to the body block to qualify as supported marginalia,
+        // which is what let this mark set the crop before it was required to
+        // survive despeckling.
+        for y in 150..153 {
+            for x in 200..202 {
+                image.set(x, y, 212);
+            }
+        }
+
+        let content = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]))
+            .content
+            .expect("body text must produce a content box");
+
+        assert!(
+            content.y >= 240.0,
+            "a speck the page cleanup discards raised the box top to {}",
+            content.y
+        );
+    }
+
+    #[test]
+    fn faint_marks_above_the_text_still_set_the_content_box() {
+        let mut image = textured_paper(360, 520);
+        draw_body_text(&mut image, 240, 430);
+        draw_faint_marks(&mut image, 100, 40, 4, 14, 10, 14);
+
+        let content = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]))
+            .content
+            .expect("body text must produce a content box");
+
+        assert!(
+            content.y <= 40.0,
+            "a faint heading the binarizer missed was excluded from the box top: {}",
+            content.y
+        );
     }
 
     #[test]

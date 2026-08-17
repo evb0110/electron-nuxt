@@ -2262,6 +2262,79 @@ fn spread_preview_cli_pins_the_small_print_stroke_budget_outcome() {
     }
 }
 
+#[test]
+fn page_plan_cli_keeps_a_discardable_speck_out_of_the_content_box() {
+    let scratch = Scratch::new("content-box-speck");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/content-box/luther-p1-right-leaf-speck-top.png");
+    let page_metadata = scratch.path("speck-page.json");
+    let manifest = scratch.path("speck-manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "analyze",
+            "analysisPurpose": "page-plan",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": fixture,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": page_metadata,
+                "options": {
+                    "dpi": 150,
+                    "sourceDpi": 300,
+                    "requestedRenderDpi": 150,
+                    "binarization": "auto",
+                    "thickness": 0,
+                    "normalizeIllumination": true,
+                    "despeckle": true,
+                    "outputMode": "auto",
+                    "layout": "force-single",
+                    "cropContent": true,
+                    "matchPageSize": true,
+                    "pageAlignment": "top-center",
+                    "margins": {"leftMm": 5, "topMm": 5, "rightMm": 5, "bottomMm": 5},
+                },
+                "outputs": [],
+                "documentPrior": {
+                    "dominantLayout": "two-page-spread",
+                    "cutterRatioMedian": 0.5406264185201998,
+                    "clusterDims": {"widthPx": 2203, "heightPx": 1586.5},
+                    "agreementStrength": 0.826631599246961,
+                    "strokeWidthMedianPx": 4.47213595499958,
+                    "xHeightMedianPx": 14,
+                },
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let metadata: Value = serde_json::from_slice(&fs::read(&page_metadata).unwrap()).unwrap();
+    let content = &metadata["outputs"][0]["contentBox"];
+    assert_eq!(
+        (
+            content["xPx"].as_f64().expect("content left"),
+            content["yPx"].as_f64().expect("content top"),
+            content["widthPx"].as_f64().expect("content width"),
+            content["heightPx"].as_f64().expect("content height"),
+        ),
+        (202.5, 114.0, 565.0, 286.0),
+        "the faint smudge at rows 21..23 must not set the crop top: {content}",
+    );
+}
+
 /// Mean horizontal ink-run length inside a word box: the stroke-thickness
 /// proxy the weight adjudications measure. Ink is the mid-gray crossing so
 /// the same rule reads the grayscale source and the bilevel render.

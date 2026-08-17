@@ -204,9 +204,9 @@
     },
     "content": {
       "evaluated": 14,
-      "meanIou": 0.896781,
+      "meanIou": 0.885796,
       "minimumIou": 0.350847,
-      "lostInkPixels": 1,
+      "lostInkPixels": 10,
       "contentLostOutsideCrop": 0,
       "samples": [
         {
@@ -218,10 +218,10 @@
         },
         {
           "id": "real-glyph-bedjan-p2-speckles",
-          "iou": 0.934614,
+          "iou": 0.779014,
           "truthInkPixels": 51328,
-          "lostInkPixels": 1,
-          "lostInkFraction": 0.000019
+          "lostInkPixels": 10,
+          "lostInkFraction": 0.000195
         },
         {
           "id": "real-glyph-hebrew-bhs-p126-niqqud",
@@ -288,7 +288,7 @@
         },
         {
           "id": "synthetic-skew-plus-2",
-          "iou": 0.918349,
+          "iou": 0.920163,
           "truthInkPixels": 10692,
           "lostInkPixels": 0,
           "lostInkFraction": 0
