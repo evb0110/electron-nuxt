@@ -174,6 +174,13 @@ const ETA_EMA_ALPHA = 0.25;
  * renders, and a profile fixed at the first report would leave the meter frozen
  * through the longest stage of the run it actually performed. The percentage
  * only ever moves forward, so the switch can hold it but never rewind it.
+ *
+ * `etaSeconds` covers the reporting stage alone. The stage weights calibrate how
+ * the bar is laid out, not how long a stage takes, so pricing the stages still
+ * ahead at the current stage's rate invented most of the number the meter showed
+ * — and the caller already replaces that number with a finishing caption the
+ * moment those stages begin. An estimate the meter discards once it becomes
+ * checkable is worse than no estimate, so only measured work is reported.
  */
 export function createScanCleanupProgressReporter(
     callback: (progress: TScanCleanupProgress) => void,
@@ -219,6 +226,11 @@ export function createScanCleanupProgressReporter(
             lastSampleAt = reportedAt;
             lastCompletedUnits = completedUnits;
             smoothedMsPerUnit = null;
+            // The floor exists to stop a displayed countdown from ticking
+            // upward, which only holds within one stage's own units. Carried
+            // across a stage boundary it would clamp the next stage's first
+            // honest estimate down to the last few seconds of the previous one.
+            lastEtaSeconds = undefined;
         } else if (completedUnits > lastCompletedUnits) {
             const sampleMsPerUnit = (reportedAt - lastSampleAt) / (completedUnits - lastCompletedUnits);
             if (Number.isFinite(sampleMsPerUnit) && sampleMsPerUnit >= 0) {
@@ -236,12 +248,9 @@ export function createScanCleanupProgressReporter(
             && completedUnits >= ETA_MIN_COMPLETED_UNITS
             && reportedAt - stageStartedAt >= ETA_MIN_STAGE_ELAPSED_MS
             && totalUnits > 0
-            && band.span > 0
         ) {
             const remainingStageMs = Math.max(0, totalUnits - completedUnits) * smoothedMsPerUnit;
-            const futurePercent = Math.max(0, 100 - band.start - band.span);
-            const futureMs = totalUnits * smoothedMsPerUnit / band.span * futurePercent;
-            const estimatedSeconds = Math.max(0, Math.ceil((remainingStageMs + futureMs) / 1000));
+            const estimatedSeconds = Math.max(0, Math.ceil(remainingStageMs / 1000));
             etaSeconds = lastEtaSeconds === undefined
                 ? estimatedSeconds
                 : Math.min(lastEtaSeconds, estimatedSeconds);

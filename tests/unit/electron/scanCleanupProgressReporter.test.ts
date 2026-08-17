@@ -64,7 +64,7 @@ describe('scan cleanup progress reporter', () => {
         ]);
     });
 
-    it('withholds ETA until sampled and estimates the weighted work still ahead', () => {
+    it('withholds ETA until sampled and then estimates only the reporting stage', () => {
         const reports: TScanCleanupProgress[] = [];
         let now = 0;
         const emit = createScanCleanupProgressReporter(
@@ -83,10 +83,37 @@ describe('scan cleanup progress reporter', () => {
         }
 
         expect(reports.at(-2)?.etaSeconds).toBeUndefined();
-        // Five pages at two seconds each leaves 774 seconds in this stage. The
-        // remaining 12 weighted percent contributes about 121 more seconds.
-        expect(reports.at(-1)?.etaSeconds).toBeGreaterThanOrEqual(890);
-        expect(reports.at(-1)?.etaSeconds).toBeLessThanOrEqual(900);
+        // Five pages at two seconds each leaves 387 pages in this stage, and the
+        // stages behind it are not priced into a page rate that cannot measure
+        // them: 387 pages at two seconds is 774 seconds and nothing more.
+        expect(reports.at(-1)?.etaSeconds).toBe(774);
+    });
+
+    it('does not carry one stage ETA floor into the next stage', () => {
+        const reports: TScanCleanupProgress[] = [];
+        let now = 0;
+        const emit = createScanCleanupProgressReporter(
+            progress => reports.push(progress),
+            () => false,
+            {
+                isRasterStreaming: () => true,
+                now: () => now,
+            },
+        );
+
+        // Finish rendering fast enough that its closing ETA is a few seconds.
+        emit('rendering', 0, 10);
+        now = 10_000;
+        emit('rendering', 9, 10);
+        expect(reports.at(-1)?.etaSeconds).toBe(2);
+
+        // A slower stage that follows must be free to report its own larger
+        // estimate rather than inheriting the previous stage's floor.
+        now = 20_000;
+        emit('assembling', 0, 10);
+        now = 40_000;
+        emit('assembling', 5, 10);
+        expect(reports.at(-1)?.etaSeconds).toBe(20);
     });
 
     it('never raises a displayed ETA when a slower sample changes the rate estimate', () => {
