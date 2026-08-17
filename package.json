@@ -190,6 +190,7 @@
     "@typescript-eslint/parser": "8.60.1",
     "@vitejs/plugin-vue": "6.0.7",
     "@vitest/coverage-v8": "4.1.8",
+    "app-builder-bin": "4.2.0",
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.0",

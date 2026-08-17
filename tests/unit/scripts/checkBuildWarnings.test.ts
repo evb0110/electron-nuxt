@@ -39,6 +39,15 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('allows the same cache-driver warning when Nitro emits an mjs path', async () => {
+        const result = await runWarningCheck([
+            '[warn] "file:///D:/a/evb-viewer/evb-viewer/node_modules/.pnpm/@nuxt+nitro-server@4.5.2_hash/node_modules/@nuxt/nitro-server/dist/runtime/utils/cache-driver.mjs" is imported by "virtual:#nitro-internal-virtual/storage", but could not be resolved \u2013 treating it as an external dependency.',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
     it('keeps Nuxt build log records out of one-line warning blocks', async () => {
         const result = await runWarningCheck([
             '[warn] "file:///D:/a/evb-viewer/evb-viewer/node_modules/.pnpm/@nuxt+nitro-server@4.4.2_820334768e79cbb19f979b888702c608/node_modules/@nuxt/nitro-server/dist/runtime/utils/cache-driver.js" is imported by "virtual:#nitro-internal-virtual/storage", but could not be resolved \u2013 treating it as an external dependency.',
