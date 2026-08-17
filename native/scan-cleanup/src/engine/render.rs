@@ -4449,12 +4449,20 @@ fn unowned_text_recall(text_mask: &BinaryImage, binary: &BinaryImage) -> BinaryI
         (binary.width(), binary.height()),
     );
     let components = ComponentMap::from_binary(text_mask);
-    components.retain(|component| {
-        !(component.top..=component.bottom).any(|y| {
-            (component.left..=component.right)
-                .any(|x| components.label_at(x, y) == component.label && binary.get(x, y))
-        })
-    })
+    // Contact is collected in one pass over the stencil. Testing each
+    // component against its own bounding box instead would re-read the pixels
+    // that overlapping bounds share, which on a mask of many long components
+    // costs more than the raster itself. Labels are numbered from one, so
+    // index zero absorbs the background and is never consulted.
+    let mut contacted = vec![false; components.components().len() + 1];
+    for y in 0..binary.height() {
+        for x in 0..binary.width() {
+            if binary.get(x, y) {
+                contacted[components.label_at(x, y) as usize] = true;
+            }
+        }
+    }
+    components.retain(|component| !contacted[component.label as usize])
 }
 
 fn filter_soft_shallow_bleed_components(
@@ -6352,15 +6360,17 @@ fn clean_region(
                     // look text-like; OR-ing the raw text mask here painted
                     // them into the black stencil and then whitened them out
                     // of the continuous-tone background.
-                    let mut binary =
-                        rendered_text_mask
-                            .as_ref()
-                            .map_or(binary.clone(), |text_mask| {
-                                binary.or(&unowned_text_recall(
-                                    &text_mask.subtract(picture_mask),
-                                    &binary,
-                                ))
-                            });
+                    // One recall mask serves both representations. The stencil
+                    // unions it below; soft-alpha composition takes its text
+                    // ownership and per-pixel trust from the same mask. Handing
+                    // the raw evidence to either one puts the coarse-grid halo
+                    // back on the page by a different route.
+                    let text_recall = rendered_text_mask.as_ref().map(|text_mask| {
+                        unowned_text_recall(&text_mask.subtract(picture_mask), &binary)
+                    });
+                    let mut binary = text_recall
+                        .as_ref()
+                        .map_or(binary.clone(), |recall| binary.or(recall));
                     if matches!(
                         options.binarization,
                         crate::BinarizationMode::Auto | crate::BinarizationMode::Otsu
@@ -6461,7 +6471,7 @@ fn clean_region(
                         picture_mask,
                         rendered_chroma_picture_mask.as_ref(),
                         removed_edge_bands.as_ref(),
-                        rendered_text_mask.as_ref(),
+                        text_recall.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                         preserve_confirmed_photo_tones,
