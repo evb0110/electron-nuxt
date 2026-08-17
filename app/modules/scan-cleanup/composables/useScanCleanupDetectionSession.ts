@@ -304,7 +304,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             runKey: state.jobId,
             totalUnits: preAnalysisProgress.value.totalUnits,
         };
-    }));
+    }), computed(() => t('scanCleanup.detectAll.reconciling')));
     // The same sentence at its widest counter, so the status line can reserve
     // its box and the cancel button beside it never moves as the count grows.
     const progressWidestText = computed(() => formatScanCleanupPreAnalysisProgress({

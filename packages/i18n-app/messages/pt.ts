@@ -400,6 +400,7 @@ export default {
             'action': 'Detetar o esquema de todas as páginas',
             'redetect': 'Detetar novamente',
             'preAnalyzing': 'A pré-analisar páginas',
+            'reconciling': 'A concluir a análise…',
             'progressAria': 'Deteção do esquema: {detected} de {total} páginas',
             'cancelDetection': 'Parar a deteção de páginas — as páginas já detetadas mantêm o resultado',
             'canceling': 'A cancelar…',

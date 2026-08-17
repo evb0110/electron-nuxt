@@ -400,6 +400,7 @@ export default {
             'action': 'Layout aller Seiten erkennen',
             'redetect': 'Erneut erkennen',
             'preAnalyzing': 'Seiten werden voranalysiert',
+            'reconciling': 'Analyse wird abgeschlossen…',
             'progressAria': 'Layout wird erkannt: {detected} von {total} Seiten',
             'cancelDetection': 'Seitenerkennung stoppen – bereits erkannte Seiten behalten ihr Ergebnis',
             'canceling': 'Wird abgebrochen…',

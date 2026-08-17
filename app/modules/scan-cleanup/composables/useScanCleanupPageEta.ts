@@ -89,8 +89,15 @@ export function createScanCleanupPageEtaEstimator(
     };
 }
 
+/**
+ * `finishingText` names the tail of a phase whose unit counter has already
+ * reached its total while the phase itself is still running. No page rate
+ * remains to extrapolate there, so without it the caption falls back to the
+ * pending sentence and claims to be estimating a time that already elapsed.
+ */
 export const useScanCleanupPageEta = (
     progress: ComputedRef<IScanCleanupPageEtaProgress | null>,
+    finishingText: ComputedRef<string>,
 ) => {
     const {t} = useTypedI18n();
     const estimator = createScanCleanupPageEtaEstimator();
@@ -118,7 +125,16 @@ export const useScanCleanupPageEta = (
     });
 
     const progressEtaPendingText = computed(() => t('scanCleanup.etaPending'));
+    const countersAreComplete = computed(() => {
+        const current = progress.value;
+        return current !== null
+            && current.totalUnits > 0
+            && current.completedUnits >= current.totalUnits;
+    });
     const progressEtaText = computed(() => {
+        if (countersAreComplete.value) {
+            return finishingText.value;
+        }
         const remainingMs = estimatedRemainingMs.value;
         if (remainingMs === null) {
             return progressEtaPendingText.value;
@@ -130,6 +146,7 @@ export const useScanCleanupPageEta = (
     });
     const progressEtaWidestText = computed(() => [
         progressEtaPendingText.value,
+        finishingText.value,
         t('scanCleanup.etaMinutes', {minutes: 999}),
         t('scanCleanup.etaSeconds', {seconds: 999}),
     ].reduce((widest, candidate) => candidate.length > widest.length ? candidate : widest));

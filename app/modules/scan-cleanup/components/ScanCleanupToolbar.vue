@@ -362,7 +362,12 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-run-meter-head {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+
+    /* The phase names the work and is the only variable-width text here; every
+       box on the right already reserves its widest string. Sizing the left
+       column to its content and letting the track absorb the remainder keeps
+       the step counter readable instead of ellipsizing it at a fixed third. */
+    grid-template-columns: auto minmax(0, 1fr);
     gap: var(--app-space-3xl);
     font-size: var(--app-text-size-body-sm);
     white-space: nowrap;

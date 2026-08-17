@@ -400,6 +400,7 @@ export default {
             'action': 'Indeling van alle pagina\'s detecteren',
             'redetect': 'Opnieuw detecteren',
             'preAnalyzing': 'Pagina\'s vooraf analyseren',
+            'reconciling': 'Analyse afronden…',
             'progressAria': 'Indeling detecteren: {detected} van {total} pagina\'s',
             'cancelDetection': 'Paginadetectie stoppen — al gedetecteerde pagina’s behouden hun resultaat',
             'canceling': 'Annuleren…',

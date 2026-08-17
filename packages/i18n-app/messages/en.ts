@@ -756,6 +756,7 @@ export default {
             'action': 'Detect layout for all pages',
             'redetect': 'Re-detect',
             'preAnalyzing': 'Pre-analyzing pages',
+            'reconciling': 'Finishing analysis…',
             'progressAria': 'Detecting layout: {detected} of {total} pages',
             'cancelDetection': 'Stop detecting pages — pages already detected keep their results',
             'canceling': 'Canceling…',

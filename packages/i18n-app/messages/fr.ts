@@ -400,6 +400,7 @@ export default {
             'action': 'Détecter la mise en page pour toutes les pages',
             'redetect': 'Re-détecter',
             'preAnalyzing': 'Pré-analyse des pages',
+            'reconciling': 'Finalisation de l’analyse…',
             'progressAria': 'Détection de la mise en page : {detected} pages sur {total}',
             'cancelDetection': 'Arrêter la détection des pages — les pages déjà détectées conservent leur résultat',
             'canceling': 'Annulation…',
