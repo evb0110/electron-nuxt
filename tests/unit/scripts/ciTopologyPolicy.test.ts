@@ -407,8 +407,30 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable release/linux-unpacked/evb-viewer');
         expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/win-unpacked/EVB Viewer.exe"');
         expect(workflow).toContain('os: windows-11-arm\n            platform: win\n            arch: arm64');
+        expect(workflow).toContain(
+            'uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
+        );
+        expect(workflow).toContain('msystem: CLANGARM64');
+        expect(workflow).toContain('msys2_root="$(cygpath -u "$MSYS2_LOCATION")"');
         expect(workflow).toContain('name: Verify Windows ARM64 MSYS2 toolchain');
-        expect(workflow).toContain('/c/msys64/usr/bin/pacman.exe --version');
+        expect(workflow).toContain('"$MSYS2_ROOT/usr/bin/pacman.exe" --version');
+        expect(workflow).toContain('"$MSYS2_ROOT/usr/bin/zstd.exe" --version');
+        expect(workflow).toContain('"$MSYS2_ROOT/usr/bin/tar.exe" --version');
+        const msys2SetupIndex = workflow.indexOf(
+            'uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
+        );
+        const msys2ExportIndex = workflow.indexOf('name: Export MSYS2 root for Windows ARM64 bundling');
+        const msys2VerifyIndex = workflow.indexOf('name: Verify Windows ARM64 MSYS2 toolchain');
+        const windowsBundleIndex = workflow.indexOf('name: Bundle native tools (Windows)');
+        expect(msys2SetupIndex).toBeGreaterThanOrEqual(0);
+        expect(msys2ExportIndex).toBeGreaterThanOrEqual(0);
+        expect(msys2VerifyIndex).toBeGreaterThanOrEqual(0);
+        expect(windowsBundleIndex).toBeGreaterThanOrEqual(0);
+        expect(msys2SetupIndex).toBeLessThan(msys2ExportIndex);
+        expect(msys2ExportIndex).toBeLessThan(msys2VerifyIndex);
+        expect(msys2VerifyIndex).toBeLessThan(
+            windowsBundleIndex,
+        );
         expect(workflow).toContain('run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"');
         expect(workflow).toContain('name: Verify packaged app contents');
         expect(workflow).toContain('unpacked_dir="win-arm64-unpacked"');

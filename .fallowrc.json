@@ -80,6 +80,7 @@
         "iron-webcrypto",
         "@napi-rs/canvas",
         "@playwright/test",
+        "app-builder-bin",
         "node-mock-http",
         "nuxt",
         "pdfjs-dist-codex-preview",
