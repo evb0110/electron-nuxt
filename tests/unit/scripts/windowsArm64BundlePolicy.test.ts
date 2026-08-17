@@ -21,6 +21,16 @@ describe('Windows ARM64 native bundle policy', () => {
         expect(bundlerSource).toContain('[clangarm64]');
         expect(bundlerSource).toContain('-Sp --noconfirm "${packages[@]}"');
         expect(bundlerSource).toContain('MSYS2 ARM64 bundle tool not found');
+        expect(bundlerSource).toContain('staging_for_msys2="$(cygpath -w "$staging")"');
+        expect(bundlerSource).toContain('"$tar" -xf - -C "$staging_for_msys2"');
+        expect(bundlerSource).not.toContain('"$tar" -xf - -C "$staging"');
+        const conversionIndex = bundlerSource.indexOf(
+            'staging_for_msys2="$(cygpath -w "$staging")"',
+        );
+        const extractionIndex = bundlerSource.indexOf(
+            '"$tar" -xf - -C "$staging_for_msys2"',
+        );
+        expect(extractionIndex).toBeGreaterThan(conversionIndex);
 
         for (const destination of [
             '$TESSERACT_DIR/bin',

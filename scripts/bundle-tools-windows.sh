@@ -279,6 +279,7 @@ bundle_arm64_via_msys2() {
   local tar="$msys2_root/usr/bin/tar.exe"
   local iso_root="$CACHE_DIR/msys2-arm64"
   local staging="$TEMP_DIR/msys2-staging"
+  local staging_for_msys2
 
   for required_tool in "$pacman" "$zstd" "$tar"; do
     if [ ! -x "$required_tool" ]; then
@@ -289,6 +290,15 @@ bundle_arm64_via_msys2() {
 
   mkdir -p "$iso_root/var/lib/pacman" "$iso_root/var/cache/pacman/pkg" "$iso_root/etc"
   mkdir -p "$staging"
+
+  # Git Bash and the provisioned MSYS2 installation have different POSIX
+  # roots. Pass the staging directory to MSYS2's native tar.exe as a Windows
+  # path so it does not resolve Git Bash's /tmp inside the MSYS2 root.
+  if ! command -v cygpath >/dev/null 2>&1; then
+    echo "Error: cygpath is required to pass the Git Bash staging path to MSYS2 tar"
+    exit 1
+  fi
+  staging_for_msys2="$(cygpath -w "$staging")"
 
   cat > "$iso_root/etc/pacman.conf" <<'PACMAN_CONF'
 [options]
@@ -323,7 +333,7 @@ PACMAN_CONF
   echo "  Extracting packages..."
   for pkg in "$iso_root/var/cache/pacman/pkg"/mingw-w64-clang-aarch64-*.pkg.tar.zst; do
     [ -f "$pkg" ] || continue
-    "$zstd" -dq "$pkg" --stdout | "$tar" -xf - -C "$staging"
+    "$zstd" -dq "$pkg" --stdout | "$tar" -xf - -C "$staging_for_msys2"
   done
 
   local arm64_bin="$staging/clangarm64/bin"
