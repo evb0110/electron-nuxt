@@ -5978,3 +5978,107 @@ fn batch_prior_stabilizes_a_cropped_thin_complete_source_mask_without_removing_i
         .count();
     assert!(output_ink > source_ink);
 }
+
+#[test]
+fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
+    let scratch = Scratch::new("toc-spread-fold-ownership");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/gutter/luther-p3-toc-spread.png");
+    let page_metadata = scratch.path("toc-page.json");
+    let manifest = scratch.path("toc-spread-manifest.json");
+    let outputs = [
+        (scratch.path("toc-left.png"), scratch.path("toc-left.json")),
+        (
+            scratch.path("toc-right.png"),
+            scratch.path("toc-right.json"),
+        ),
+    ];
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": fixture,
+            "sourcePageIndex": 2,
+            "pageMetadataPath": page_metadata,
+            "options": {
+                "dpi": 150,
+                "sourceDpi": 150,
+                "requestedRenderDpi": 150,
+                "binarization": "auto",
+                "thickness": 0,
+                "normalizeIllumination": true,
+                "despeckle": true,
+                "outputMode": "auto",
+                "layout": "auto",
+                "cropContent": true,
+                "matchPageSize": false,
+                "pageAlignment": "top-center",
+            },
+            "outputs": [
+                {"outputPath": outputs[0].0, "metadataPath": outputs[0].1},
+                {"outputPath": outputs[1].0, "metadataPath": outputs[1].1},
+            ],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr),
+    );
+
+    let page: Value = serde_json::from_slice(&fs::read(&page_metadata).unwrap()).unwrap();
+    // The only non-text component on this spread is the foot of the binding
+    // shadow. Owning it costs the reader twice: Auto promotes the page to
+    // Mixed, which publishes materially heavier glyphs than the bilevel text
+    // route, and the crop planner follows the owned pixels back across the
+    // fold and ships the shadow.
+    assert_eq!(
+        page["outputModeDiagnostics"]["pictureFraction"]
+            .as_f64()
+            .unwrap(),
+        0.0,
+        "a binding fold must not be a picture owner: {page}",
+    );
+    assert_eq!(
+        page["recommendedOutputMode"], "bw",
+        "a text spread with no illustration must stay on the bilevel route: {page}",
+    );
+
+    // The recto raster begins at the cutter, so its x=0 *is* the fold edge and
+    // a crop starting there still ships the shadow. Assert the shipped result
+    // rather than the coordinate: the shadow is a near-solid column, so if any
+    // of it survived, some column in the inner margin would be almost entirely
+    // ink. The fold fragment this fixture reproduces covers 16% of the page
+    // height; the densest inner-margin text column measures 1%, so 5% cleanly
+    // separates a surviving shadow from ordinary text.
+    let recto: Value = serde_json::from_slice(&fs::read(&outputs[1].1).unwrap()).unwrap();
+    assert!(
+        recto["cropRect"]["xPx"].as_f64().unwrap() > 0.0,
+        "the recto crop must start inside the leaf, not on the fold edge: {recto}",
+    );
+    let shipped = decode_gray(&fs::read(&outputs[1].0).unwrap(), 8_000_000, 4_000).unwrap();
+    let inner_margin = (shipped.width() / 20).max(1);
+    let densest_inner_column = (0..inner_margin)
+        .map(|x| {
+            (0..shipped.height())
+                .filter(|&y| shipped.get(x, y) < 128)
+                .count()
+        })
+        .max()
+        .unwrap_or(0);
+    assert!(
+        densest_inner_column * 20 < shipped.height(),
+        "a fold-shadow column survived into the recto: {densest_inner_column} of \
+         {} rows inked within {inner_margin}px of the fold",
+        shipped.height(),
+    );
+}

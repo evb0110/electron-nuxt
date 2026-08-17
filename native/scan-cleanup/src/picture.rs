@@ -1045,7 +1045,7 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
     }
 
     let border_artifacts = crate::content::border_artifact_mask(source);
-    let gutter_shadow = has_gutter_shadow(source);
+    let measured_gutter = gutter_shadow(source);
     let picture_map = ComponentMap::from_binary(candidate);
     let mut owner = candidate.clone();
     for component in picture_map.components() {
@@ -1092,7 +1092,9 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
         }
         let touches_vertical_edge = component.top < vertical_edge_zone
             || component.bottom.saturating_add(vertical_edge_zone) >= page_height;
-        let center = page_width / 2;
+        // Anchor on the column the fold evidence measured; fall back to the
+        // geometric centre only when nothing measured one.
+        let center = measured_gutter.map_or(page_width / 2, GutterShadow::center);
         let crosses_gutter = component.left <= center.saturating_add(horizontal_edge_zone)
             && component.right.saturating_add(horizontal_edge_zone) >= center;
         let page_filling = width.saturating_mul(5) >= page_width.saturating_mul(4)
@@ -1107,7 +1109,7 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
             && border_overlap.saturating_mul(100) >= component.area
             && !dense_large_component;
         let sparse_midtones = midtones.saturating_mul(100) <= component.area.saturating_mul(8);
-        let gutter_artifact = gutter_shadow
+        let gutter_artifact = measured_gutter.is_some()
             && touches_vertical_edge
             && crosses_gutter
             && !page_filling
@@ -1115,20 +1117,38 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
             && !dense_large_component;
         // A fold can disappear at the crop boundary before ownership is
         // qualified, so requiring contact with the top/bottom edge is not
-        // sufficient. A narrow, long component centered on the gutter is
+        // sufficient. A narrow, long component sitting on the gutter is
         // scanner geometry rather than a photographic plate; real plates need
         // a materially wider enclosure before they can own tone.
-        let near_central_gutter = component.left.saturating_mul(100) <= page_width * 62
-            && component.right.saturating_mul(100) >= page_width * 40;
-        let central_narrow_shadow = near_central_gutter
+        //
+        // "On the gutter" is the measured column, not a band of page-width
+        // fractions around the centre. A spread whose leaves differ in width
+        // puts its fold outside the 40%-62% band while remaining a fold, and
+        // that is precisely the page whose shadow is worst.
+        let overlaps_measured_gutter = measured_gutter.is_some_and(|gutter| {
+            component.left <= gutter.right.saturating_add(horizontal_edge_zone)
+                && component.right.saturating_add(horizontal_edge_zone) >= gutter.left
+        });
+        // A fold shadow only clears the binarization threshold where it is
+        // darkest, so the component that reaches qualification is frequently a
+        // fragment of the column rather than the column. The height rule below
+        // was written for the column and abstains on the fragment. Positional
+        // evidence replaces it: a narrow, taller-than-wide component whose own
+        // centre sits on the measured fold is scanner geometry at any height,
+        // because nothing a book prints is centred on its own binding.
+        let component_center_x = component.left + width / 2;
+        let fragment_on_measured_gutter = measured_gutter
+            .is_some_and(|gutter| gutter.contains_within(component_center_x, horizontal_edge_zone))
+            && height >= width;
+        // A central narrow shape on a single portrait leaf is not enough to
+        // identify a fold, and `overlaps_measured_gutter` already carries the
+        // source-level gutter context: pages without a measured fold remain
+        // eligible for narrow inset illustrations and portraits. A real gutter
+        // shadow may itself be a solid dark column, so this rule deliberately
+        // does not require sparse midtones.
+        let central_narrow_shadow = overlaps_measured_gutter
             && width.saturating_mul(12) <= page_width
-            && height.saturating_mul(5) >= page_height
-            // A central narrow shape on a single portrait leaf is not enough
-            // to identify a fold. Require the source-level gutter context;
-            // pages without that context remain eligible for narrow inset
-            // illustrations and portraits. A real gutter shadow may itself
-            // be a solid dark column, so do not require sparse midtones here.
-            && gutter_shadow
+            && (height.saturating_mul(5) >= page_height || fragment_on_measured_gutter)
             && !dense_large_component;
         if component.area < PICTURE_OWNER_MIN_COMPONENT_PIXELS
             || vertical_shadow
@@ -1149,9 +1169,45 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
     owner
 }
 
-fn has_gutter_shadow(source: &GrayImage) -> bool {
+/// Where the binding-fold evidence actually found the shadow, in analysis
+/// pixels.
+///
+/// Ownership vetoes used to compare a component against `page_width / 2`,
+/// which only coincides with the fold when a scanner produced two leaves of
+/// identical width. Scanned spreads routinely place the fold several percent
+/// off centre, and a centre-relative test then stops vetoing exactly the
+/// pages whose fold is worst.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct GutterShadow {
+    left: usize,
+    right: usize,
+}
+
+impl GutterShadow {
+    fn center(self) -> usize {
+        self.left + (self.right - self.left) / 2
+    }
+
+    /// The measurement window is deliberately narrow so it locks onto the
+    /// darkest core of the fold. The shadow itself is wider than its core, so
+    /// membership tests admit the same edge zone the surrounding artifact
+    /// rules use.
+    fn contains_within(self, x: usize, tolerance: usize) -> bool {
+        x.saturating_add(tolerance) >= self.left && x <= self.right.saturating_add(tolerance)
+    }
+}
+
+/// Locates a binding-fold shadow on a spread, or reports its absence.
+///
+/// Two independent evidence paths qualify a fold, and both are retained. The
+/// dark-density profile answers whether a fold exists but localizes poorly:
+/// its window can win on a dense text column rather than on the shadow. The
+/// tone profile measures the physical thing — a luminance depression that
+/// persists down the page — so it owns the reported position whenever it
+/// qualifies.
+fn gutter_shadow(source: &GrayImage) -> Option<GutterShadow> {
     if source.width() <= source.height() || source.width() < 100 {
-        return false;
+        return None;
     }
     let window_width = source.width().div_ceil(100).max(1);
     let column_ink = (0..source.width())
@@ -1165,20 +1221,20 @@ fn has_gutter_shadow(source: &GrayImage) -> bool {
     let central_right = source.width() * 7 / 10;
     let mut windows = (central_left..central_right.saturating_sub(window_width))
         .map(|left| {
-            column_ink[left..left + window_width].iter().sum::<usize>() as f64
-                / window_width.saturating_mul(source.height()).max(1) as f64
+            (
+                column_ink[left..left + window_width].iter().sum::<usize>() as f64
+                    / window_width.saturating_mul(source.height()).max(1) as f64,
+                left,
+            )
         })
         .collect::<Vec<_>>();
     if windows.is_empty() {
-        return false;
+        return None;
     }
-    windows.sort_unstable_by(f64::total_cmp);
-    let median = windows[windows.len() / 2];
-    let maximum = windows[windows.len() - 1];
+    windows.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+    let median = windows[windows.len() / 2].0;
+    let (maximum, darkest_left) = windows[windows.len() - 1];
     let dark_profile = maximum >= 0.12 && maximum >= (median + 0.01) * 4.0;
-    if dark_profile {
-        return true;
-    }
 
     // Book folds are often pale at the analysis scale: the shadow is a broad
     // luminance depression, not enough <=160 ink to satisfy the dark-density
@@ -1208,25 +1264,36 @@ fn has_gutter_shadow(source: &GrayImage) -> bool {
             (mean, left)
         })
         .collect::<Vec<_>>();
-    if tone_windows.is_empty() {
-        return false;
-    }
-    tone_windows.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
-    let (minimum_tone, minimum_left) = tone_windows[0];
-    let median_tone = tone_windows[tone_windows.len() / 2].0;
-    if minimum_tone > 245.0 || median_tone - minimum_tone < 8.0 {
-        return false;
-    }
-    let low_tone_rows = (0..source.height())
-        .filter(|&y| {
-            let row_sum = (minimum_left..minimum_left + tone_window_width)
-                .map(|x| f64::from(source.get(x, y)))
-                .sum::<f64>();
-            let row_mean = row_sum / tone_window_width as f64;
-            median_tone - row_mean >= 8.0
+    let tone_profile = (!tone_windows.is_empty())
+        .then(|| {
+            tone_windows.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+            let (minimum_tone, minimum_left) = tone_windows[0];
+            let median_tone = tone_windows[tone_windows.len() / 2].0;
+            if minimum_tone > 245.0 || median_tone - minimum_tone < 8.0 {
+                return None;
+            }
+            let low_tone_rows = (0..source.height())
+                .filter(|&y| {
+                    let row_sum = (minimum_left..minimum_left + tone_window_width)
+                        .map(|x| f64::from(source.get(x, y)))
+                        .sum::<f64>();
+                    let row_mean = row_sum / tone_window_width as f64;
+                    median_tone - row_mean >= 8.0
+                })
+                .count();
+            (low_tone_rows.saturating_mul(100) >= source.height().saturating_mul(35)).then_some(
+                GutterShadow {
+                    left: minimum_left,
+                    right: minimum_left + tone_window_width - 1,
+                },
+            )
         })
-        .count();
-    low_tone_rows.saturating_mul(100) >= source.height().saturating_mul(35)
+        .flatten();
+
+    tone_profile.or(dark_profile.then(|| GutterShadow {
+        left: darkest_left,
+        right: darkest_left + window_width - 1,
+    }))
 }
 
 /// Expands an already-corroborated, irregular photo owner to the rectangular
@@ -1925,6 +1992,102 @@ mod tests {
             owner.count_black(),
             0,
             "a pale, vertically persistent spread fold must not become a photo owner"
+        );
+    }
+
+    /// Paints a landscape spread whose binding shadow sits at `fold_center_x`
+    /// instead of on the geometric centre, with a soft full-height tone
+    /// depression that only reaches candidate darkness near the foot.
+    fn off_center_fold_spread(fold_center_x: usize) -> (GrayImage, BinaryImage) {
+        let mut page = GrayImage::new(800, 600, 250);
+        let mut candidate = BinaryImage::new(page.width(), page.height());
+        for y in 0..page.height() {
+            for offset in 0..21 {
+                let x = fold_center_x - 10 + offset;
+                let depth = 10 + (10 - (offset as i32 - 10).abs()) * 4;
+                page.set(x, y, (250 - depth) as u8);
+            }
+        }
+        // Only the darkest foot of the shadow clears binarization, so the
+        // component that reaches qualification is 13% of the page height.
+        for y in 520..page.height() {
+            for x in fold_center_x - 10..fold_center_x + 11 {
+                page.set(x, y, 96);
+                candidate.set(x, y, true);
+            }
+        }
+        (page, candidate)
+    }
+
+    #[test]
+    fn off_center_fold_fragment_is_rejected_without_full_column_height() {
+        // 540 sits outside the old 40%-62% page-width band (320..496) and
+        // beyond the old page-centre tolerance, so both legacy gutter vetoes
+        // abstained and the fragment became a "picture".
+        for fold_center_x in [400, 500, 540, 300] {
+            let (page, candidate) = off_center_fold_spread(fold_center_x);
+            let component_height = 600 - 520;
+            assert!(
+                component_height * 5 < page.height(),
+                "fixture must stay under the full-column height rule"
+            );
+            assert!(
+                candidate.count_black() >= PICTURE_OWNER_MIN_COMPONENT_PIXELS,
+                "fixture must be large enough to reach the shadow vetoes"
+            );
+
+            let owner = qualify_picture_owner(&page, &candidate);
+            assert_eq!(
+                owner.count_black(),
+                0,
+                "a fold fragment at x={fold_center_x} must not own tone",
+            );
+        }
+    }
+
+    #[test]
+    fn gutter_shadow_reports_the_measured_column_not_the_page_centre() {
+        let (page, _) = off_center_fold_spread(540);
+        let measured = gutter_shadow(&page).expect("a full-height tone depression is a fold");
+        assert!(
+            measured.center().abs_diff(540) <= 12,
+            "measured fold centre {} must track the painted fold, not {}",
+            measured.center(),
+            page.width() / 2,
+        );
+    }
+
+    #[test]
+    fn narrow_inset_illustration_clear_of_the_fold_keeps_its_ownership() {
+        let (mut page, mut candidate) = off_center_fold_spread(540);
+        // A narrow portrait plate in the outer margin of the left leaf: same
+        // shape class as the fold fragment, but nowhere near the measured
+        // fold column.
+        for y in 120..430 {
+            for x in 90..150 {
+                page.set(x, y, 40 + ((x * 13 + y * 7) % 150) as u8);
+                candidate.set(x, y, true);
+            }
+        }
+
+        let owner = qualify_picture_owner(&page, &candidate);
+        let surviving = ComponentMap::from_binary(&owner);
+        let plate = surviving
+            .components()
+            .iter()
+            .find(|component| component.left >= 80 && component.right <= 160)
+            .expect("the inset plate must keep its ownership");
+        assert!(
+            plate.area >= 15_000,
+            "the whole plate must survive, not a remnant: {}",
+            plate.area,
+        );
+        assert!(
+            surviving
+                .components()
+                .iter()
+                .all(|component| component.left < 200),
+            "the fold fragment must still be rejected",
         );
     }
 
