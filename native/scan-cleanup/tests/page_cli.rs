@@ -6082,3 +6082,99 @@ fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
         shipped.height(),
     );
 }
+
+/// The crop planner's tone union is the only thing that keeps a flat-shaded
+/// plate inside the shipped page when picture detection is empty, which is the
+/// case for artwork printed as a fine line screen. The unit tests pin the
+/// planner; this pins the published CLI result, so a future narrowing of the
+/// union cannot trim authored artwork off the page while the crate tests stay
+/// green.
+#[test]
+fn cli_crop_keeps_a_flat_shaded_plate_no_picture_detector_claims() {
+    let scratch = Scratch::new("flat-shaded-plate-crop");
+    let mut source = GrayImage::new(900, 1200, 244);
+    for y in 0..source.height() {
+        for x in 0..source.width() {
+            source.set(x, y, 242 + ((x * 5 + y * 3) % 5) as u8);
+        }
+    }
+    // A flat wash with a two-tone screen: tonal enough to be coherent tone,
+    // too uniform to seed the picture detector.
+    for y in 120..620 {
+        for x in 180..720 {
+            source.set(x, y, 170 + ((x + y) % 2) as u8 * 18);
+        }
+    }
+    // Body text well below the plate, so the crop has an unambiguous reason to
+    // stop short of it if the plate is not owned.
+    for row in 0..20 {
+        let top = 700 + row * 23;
+        for glyph in 0..9 {
+            let left = 300 + glyph * 19;
+            for y in top..top + 14 {
+                for x in left..left + 14 {
+                    if x < left + 3 || x + 3 >= left + 14 || y < top + 3 || y + 3 >= top + 14 {
+                        source.set(x, y, 24);
+                    }
+                }
+            }
+        }
+    }
+
+    let input = scratch.path("flat-shaded-plate.png");
+    fs::write(&input, encode_gray(&source).unwrap()).unwrap();
+    let output = scratch.path("flat-shaded-plate-clean.png");
+    let metadata_path = scratch.path("flat-shaded-plate-clean.json");
+    let page_metadata = scratch.path("flat-shaded-plate-page.json");
+    let manifest = scratch.path("flat-shaded-plate-manifest.json");
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": {
+                "dpi": 150,
+                "sourceDpi": 150,
+                "requestedRenderDpi": 150,
+                "binarization": "auto",
+                "thickness": 0,
+                "normalizeIllumination": true,
+                "despeckle": true,
+                "outputMode": "auto",
+                "layout": "force-single",
+                "cropContent": true,
+                "matchPageSize": false,
+                "pageAlignment": "top-center",
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata_path}],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr),
+    );
+
+    let metadata: Value = serde_json::from_slice(&fs::read(&metadata_path).unwrap()).unwrap();
+    let crop = &metadata["cropRect"];
+    let (x, y, width) = (
+        crop["xPx"].as_f64().unwrap(),
+        crop["yPx"].as_f64().unwrap(),
+        crop["widthPx"].as_f64().unwrap(),
+    );
+    assert!(
+        y <= 130.0 && x <= 190.0 && x + width >= 700.0,
+        "the shipped crop trimmed the flat-shaded plate: {metadata}",
+    );
+}

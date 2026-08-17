@@ -1297,8 +1297,8 @@ mod tests {
         source
     }
 
-    fn crop_planner_content_box(source: &GrayImage) -> Rect {
-        clean_page(
+    fn crop_planner_boxes(source: &GrayImage) -> (Rect, Rect) {
+        let metadata = clean_page(
             source,
             &CleanupOptions {
                 dpi: 150.0,
@@ -1315,26 +1315,41 @@ mod tests {
         .unwrap()
         .outputs
         .remove(0)
-        .metadata
-        .content_box
-        .expect("body text must produce a content box")
+        .metadata;
+        // The shipped rectangle is what the reader receives, so both tests
+        // assert on that. `content_box` is the planner's intermediate finding
+        // and can agree with a crop that was later clamped or widened.
+        (
+            metadata
+                .content_box
+                .expect("body text must produce a content box"),
+            metadata.crop_rect,
+        )
     }
 
     #[test]
     fn coherent_tone_cannot_hand_the_crop_a_shadow_the_owner_gate_rejects() {
-        let content = crop_planner_content_box(&bottom_edge_shadow_band_fixture());
+        let (content, crop) = crop_planner_boxes(&bottom_edge_shadow_band_fixture());
         assert!(
             (870.0..=950.0).contains(&content.bottom()),
-            "the crop must end with the body text, not on the scanner shadow: {content:?}"
+            "the content box must end with the body text, not on the scanner shadow: {content:?}"
+        );
+        assert!(
+            (870.0..=950.0).contains(&crop.bottom()),
+            "the shipped crop must end with the body text, not on the scanner shadow: {crop:?}"
         );
     }
 
     #[test]
     fn coherent_tone_still_gives_the_crop_a_flat_shaded_plate() {
-        let content = crop_planner_content_box(&flat_shaded_plate_fixture());
+        let (content, crop) = crop_planner_boxes(&flat_shaded_plate_fixture());
         assert!(
             content.y <= 130.0 && content.x <= 190.0 && content.right() >= 700.0,
-            "the flat-shaded plate was trimmed out of the crop: {content:?}"
+            "the flat-shaded plate was trimmed out of the content box: {content:?}"
+        );
+        assert!(
+            crop.y <= 130.0 && crop.x <= 190.0 && crop.right() >= 700.0,
+            "the flat-shaded plate was trimmed out of the shipped crop: {crop:?}"
         );
     }
 
