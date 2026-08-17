@@ -104,6 +104,15 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('allows the known Nuxt Nitro unused H3 imports with a Windows drive URL', async () => {
+        const result = await runWarningCheck([
+            'WARN "H3Error" and "H3Event" are imported from external module "file://D:/a/evb-viewer/evb-viewer/node_modules/.pnpm/h3@1.15.11/node_modules/h3/dist/index.mjs" but never used in "node_modules/.pnpm/@nuxt+nitro-server@4.5.2_hash/node_modules/@nuxt/nitro-server/dist/h3.mjs".',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
     it('rejects unlisted warnings', async () => {
         await expect(runWarningCheck([
             '[warn] unexpected production build warning',
