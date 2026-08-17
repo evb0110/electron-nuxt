@@ -1244,6 +1244,115 @@ mod tests {
         }
     }
 
+    /// Paper with just enough grain to be a scan and far too little local
+    /// spread to read as tone itself.
+    fn grained_paper() -> GrayImage {
+        let mut source = GrayImage::new(900, 1200, 244);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source.set(x, y, 242 + ((x * 5 + y * 3) % 5) as u8);
+            }
+        }
+        source
+    }
+
+    /// A lifted leaf corner whose shadow sweeps in from the outer edge across
+    /// most of the page foot, far deeper than the 1/40 border zone and than
+    /// the crop planner's own 1/8 frame corridor, with ordinary body text well
+    /// above it. The band is coherent midtone, so the page's outside-text tone
+    /// evidence claims it; it is also textbook `horizontal_shadow` geometry
+    /// for the ownership gate.
+    fn bottom_edge_shadow_band_fixture() -> GrayImage {
+        let mut source = grained_paper();
+        for y in 1000..1160 {
+            for x in 0..700 {
+                source.set(x, y, 150 + ((x * 7 + y * 13) % 46) as u8);
+            }
+        }
+        for row in 0..30 {
+            let top = 200 + row * 23;
+            draw_display_glyphs(&mut source, 150, top, 9, 10, 14, 5);
+            draw_display_glyphs(&mut source, 460, top, 9, 10, 14, 5);
+        }
+        source
+    }
+
+    /// A flat-shaded plate printed as a fine line screen, with a caption
+    /// below it. The screen is too regular for the picture detector, which
+    /// leaves the plate with no picture owner at all, so the page's coherent
+    /// outside-text tone is the only evidence of its extent. This is the case
+    /// the crop planner's tone union exists for: without it the crop keeps
+    /// the caption and trims the plate off the page.
+    fn flat_shaded_plate_fixture() -> GrayImage {
+        let mut source = grained_paper();
+        for y in 120..620 {
+            for x in 180..720 {
+                source.set(x, y, 170 + ((x + y) % 2) as u8 * 18);
+            }
+        }
+        for row in 0..20 {
+            let top = 700 + row * 23;
+            draw_display_glyphs(&mut source, 300, top, 9, 10, 14, 5);
+        }
+        source
+    }
+
+    fn crop_planner_boxes(source: &GrayImage) -> (Rect, Rect) {
+        let metadata = clean_page(
+            source,
+            &CleanupOptions {
+                dpi: 150.0,
+                output_mode: OutputMode::Auto,
+                crop_content: true,
+                normalize_illumination: true,
+                layout: crate::LayoutMode::Single,
+                margins_mm: None,
+                margins_pixels: Some([0.0; 4]),
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0)
+        .metadata;
+        // The shipped rectangle is what the reader receives, so both tests
+        // assert on that. `content_box` is the planner's intermediate finding
+        // and can agree with a crop that was later clamped or widened.
+        (
+            metadata
+                .content_box
+                .expect("body text must produce a content box"),
+            metadata.crop_rect,
+        )
+    }
+
+    #[test]
+    fn coherent_tone_cannot_hand_the_crop_a_shadow_the_owner_gate_rejects() {
+        let (content, crop) = crop_planner_boxes(&bottom_edge_shadow_band_fixture());
+        assert!(
+            (870.0..=950.0).contains(&content.bottom()),
+            "the content box must end with the body text, not on the scanner shadow: {content:?}"
+        );
+        assert!(
+            (870.0..=950.0).contains(&crop.bottom()),
+            "the shipped crop must end with the body text, not on the scanner shadow: {crop:?}"
+        );
+    }
+
+    #[test]
+    fn coherent_tone_still_gives_the_crop_a_flat_shaded_plate() {
+        let (content, crop) = crop_planner_boxes(&flat_shaded_plate_fixture());
+        assert!(
+            content.y <= 130.0 && content.x <= 190.0 && content.right() >= 700.0,
+            "the flat-shaded plate was trimmed out of the content box: {content:?}"
+        );
+        assert!(
+            crop.y <= 130.0 && crop.x <= 190.0 && crop.right() >= 700.0,
+            "the flat-shaded plate was trimmed out of the shipped crop: {crop:?}"
+        );
+    }
+
     #[test]
     fn normalized_bw_crop_keeps_faint_top_furniture_but_rejects_scanner_band() {
         let (source, trusted_foreground) = faint_top_furniture_fixture();

@@ -3536,8 +3536,19 @@ fn prepare_analysis_page(
             // flat-shaded line art; without this union, cleanup preserves the
             // tones but trims the outer frame or labels that establish their
             // true page extent.
+            //
+            // "Coherent tone" alone is not that geometry. It is also what a
+            // rail, a binding fold, and a soft edge shadow look like to the
+            // tile detector, and the crop box is shipped page geometry, so the
+            // union carries only tone that clears the same artifact gate every
+            // other automatic owner crosses. A flat-shaded plate is a dense,
+            // page-interior component and clears it unchanged.
+            let qualified_tone_mask = structural_tone_mask.as_deref().and_then(|tone| {
+                let qualified = qualify_picture_owner(&rotated, tone);
+                (qualified.count_black() > 0).then(|| Arc::new(qualified))
+            });
             content_picture_mask =
-                union_optional_masks(content_picture_mask.as_ref(), structural_tone_mask.as_ref());
+                union_optional_masks(content_picture_mask.as_ref(), qualified_tone_mask.as_ref());
         }
         let continuous_tone_mask =
             continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
