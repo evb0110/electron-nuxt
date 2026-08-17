@@ -407,6 +407,12 @@ export default {
             'failed': 'La détection de la page a échoué.',
             'evidenceMissing': 'Le nettoyage nécessite une analyse uniforme complète des pages. Relancez la détection.',
         },
+        'errors': {
+            'alreadyRunning': 'Le nettoyage du scan est déjà en cours.',
+            'detectionSubscriptionFailed': 'La détection des pages n’a pas pu être observée après l’échec de l’abonnement.',
+            'runSubscriptionFailed': 'Le nettoyage du scan n’a pas pu être observé après l’échec de l’abonnement.',
+            'runRecoveryFailed': 'Le nettoyage du scan n’a pas pu être récupéré après la restauration de la session du moteur de rendu.',
+        },
         'cancelingDetection': 'Arrêt de l’analyse en arrière-plan…',
         'startingCleanup': 'Démarrage du nettoyage…',
         'documentChangedBeforeRun': 'Le document a changé pendant l’arrêt de la détection. Vérifiez-le et relancez le nettoyage.',

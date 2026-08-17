@@ -437,8 +437,6 @@ pub struct CleanupOptions {
     pub requested_render_dpi: Option<f64>,
     /// Optional preview tile in normalized final intrinsic-output space.
     pub render_crop: Option<NormalizedRect>,
-    #[serde(skip)]
-    pub classify_only: Option<bool>,
     pub binarization: BinarizationMode,
     pub thickness: i8,
     pub normalize_illumination: bool,
@@ -496,7 +494,6 @@ impl Default for CleanupOptions {
             page_ink_consistency: None,
             requested_render_dpi: None,
             render_crop: None,
-            classify_only: None,
             binarization: BinarizationMode::Auto,
             thickness: 0,
             normalize_illumination: true,

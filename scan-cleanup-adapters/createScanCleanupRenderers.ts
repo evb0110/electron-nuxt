@@ -1,15 +1,11 @@
-import {
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import {encode as encodePng} from 'fast-png';
+import {rm} from 'node:fs/promises';
 import type {
     IScanCleanupRasterRenderLimits,
     TScanCleanupLog,
     TScanCleanupRenderPage,
     TScanCleanupRunCommand,
 } from '@scan-cleanup-core/types';
-import {readPpmRaster} from '@scan-cleanup-core/rasterLayerDimensions';
+import {readPngDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
@@ -120,30 +116,6 @@ async function renderPage(
     });
 }
 
-async function convertPpmToPng(
-    ppmPath: string,
-    outputPngPath: string,
-    limits: IScanCleanupRasterRenderLimits | undefined,
-    fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'>,
-    signal?: AbortSignal,
-) {
-    const ppm = await readPpmRaster(ppmPath, {
-        maxDimensionPx: limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx,
-        maxPixels: limits?.maxPixels ?? fallbackLimits.maxPixels,
-        ...(signal === undefined ? {} : {signal}),
-    });
-    signal?.throwIfAborted();
-    const png = encodePng({
-        channels: 3,
-        data: ppm.pixels,
-        depth: 8,
-        height: ppm.height,
-        width: ppm.width,
-    });
-    signal?.throwIfAborted();
-    await writeFile(outputPngPath, png);
-}
-
 export function createScanCleanupRenderers(
     runCommand: TScanCleanupRunCommand,
     fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
@@ -160,25 +132,40 @@ export function createScanCleanupRenderers(
         crop,
         limits,
     ) => {
-        const ppmPath = `${outputPngPath}.source.ppm`;
         try {
             await renderPage(
                 runCommand,
-                'ppm',
+                'png',
                 paths,
                 log,
                 pageNumber,
                 sourcePdfPath,
-                ppmPath,
+                outputPngPath,
                 dpi,
                 popplerEnv,
                 signal,
                 crop,
                 limits,
             );
-            await convertPpmToPng(ppmPath, outputPngPath, limits, fallbackLimits, signal);
-        } finally {
-            await rm(ppmPath, {force: true});
+            signal?.throwIfAborted();
+            const dimensions = await readPngDimensions(outputPngPath);
+            const maxDimensionPx = limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx;
+            const maxPixels = limits?.maxPixels ?? fallbackLimits.maxPixels;
+            if (
+                dimensions.width > maxDimensionPx
+                || dimensions.height > maxDimensionPx
+                || dimensions.width * dimensions.height > maxPixels
+            ) {
+                throw new RangeError(
+                    `PNG raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
+                );
+            }
+            signal?.throwIfAborted();
+        } catch (error) {
+            // The renderer error is the useful failure. A best-effort cleanup
+            // must not replace it when the output path cannot be removed.
+            await rm(outputPngPath, {force: true}).catch(() => undefined);
+            throw error;
         }
     };
     const renderPageToPpm: TScanCleanupRenderPage = (

@@ -407,6 +407,12 @@ export default {
             'failed': 'Die Seitenerkennung ist fehlgeschlagen.',
             'evidenceMissing': 'Für die Bereinigung ist eine abgeschlossene einheitliche Seitenanalyse erforderlich. Führen Sie die Erkennung erneut aus.',
         },
+        'errors': {
+            'alreadyRunning': 'Die Scanbereinigung wird bereits ausgeführt.',
+            'detectionSubscriptionFailed': 'Die Seitenerkennung konnte nach dem Fehlschlagen der Abonnementverbindung nicht beobachtet werden.',
+            'runSubscriptionFailed': 'Die Scanbereinigung konnte nach dem Fehlschlagen der Abonnementverbindung nicht beobachtet werden.',
+            'runRecoveryFailed': 'Die Scanbereinigung konnte nach der Wiederherstellung der Renderersitzung nicht wiederhergestellt werden.',
+        },
         'cancelingDetection': 'Hintergrundanalyse wird beendet…',
         'startingCleanup': 'Bereinigung wird gestartet…',
         'documentChangedBeforeRun': 'Das Dokument wurde geändert, während die Erkennung beendet wurde. Prüfen Sie es und starten Sie die Bereinigung erneut.',

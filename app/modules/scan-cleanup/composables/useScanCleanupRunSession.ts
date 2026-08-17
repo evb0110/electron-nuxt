@@ -29,8 +29,10 @@ import {
     setScanCleanupWorkspaceOwnerOpen,
     setScanCleanupRunError,
     startScanCleanup,
+    type TScanCleanupRendererStartResult,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
+import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {formatEtaDuration} from '@app/utils/progressFormatting';
@@ -67,6 +69,28 @@ interface IUseScanCleanupRunSessionOptions {
 
 export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptions) => {
     const {t} = useTypedI18n();
+
+    function formatStartFailure(
+        result: Extract<TScanCleanupRendererStartResult, {started: false}>,
+    ) {
+        if (result.fallback === 'already-running') {
+            return t('scanCleanup.errors.alreadyRunning');
+        }
+        if (result.fallback === 'unavailable' || result.errorCode === 'tools-unavailable') {
+            return t('scanCleanup.runDisabled.unavailable');
+        }
+        return formatScanCleanupErrorMessage(t('scanCleanup.failed'), result.error);
+    }
+
+    function formatReconciliationFailure(error: ScanCleanupRunReconciliationError) {
+        return formatScanCleanupErrorMessage(
+            t(error.failure === 'recovery'
+                ? 'scanCleanup.errors.runRecoveryFailed'
+                : 'scanCleanup.errors.runSubscriptionFailed'),
+            error.technicalDetail,
+        );
+    }
+
     const transition = ref<
         'idle' | 'waiting-for-detection' | 'starting-cleanup'
     >('idle');
@@ -343,7 +367,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (!result.started) {
                 reportScanCleanupRunError(
                     options.ownerId,
-                    result.error ?? t('scanCleanup.failed'),
+                    formatStartFailure(result),
                     requestSourcePdfPath,
                     result.errorCode,
                     requestDocumentRevision,
@@ -352,7 +376,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         } catch (caught) {
             reportScanCleanupRunError(
                 options.ownerId,
-                caught instanceof Error && caught.message ? caught.message : t('scanCleanup.failed'),
+                caught instanceof ScanCleanupRunReconciliationError
+                    ? formatReconciliationFailure(caught)
+                    : formatScanCleanupErrorMessage(t('scanCleanup.failed'), caught),
                 requestSourcePdfPath,
                 caught instanceof ScanCleanupRunReconciliationError
                     ? caught.errorCode

@@ -14,20 +14,18 @@ import {
 import type { IWorkerPaths } from '@electron/ocr/worker/types';
 
 const mocks = vi.hoisted(() => ({
-    readPpmRaster: vi.fn(),
+    readPngDimensions: vi.fn(),
     rm: vi.fn(),
     runOcrCommand: vi.fn(),
     stat: vi.fn(),
-    writeFile: vi.fn(),
 }));
 
 vi.mock('@electron/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
-vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPpmRaster: mocks.readPpmRaster}));
+vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
 
 vi.mock('node:fs/promises', () => ({
     rm: mocks.rm,
     stat: mocks.stat,
-    writeFile: mocks.writeFile,
 }));
 
 const workerPaths: IWorkerPaths = {
@@ -91,18 +89,12 @@ describe('preparePdfForPoppler', () => {
 describe('renderPdfPageToPng', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.readPpmRaster.mockResolvedValue({
+        mocks.readPngDimensions.mockResolvedValue({
             width: 1,
             height: 1,
             isColor: true,
-            pixels: Buffer.from([
-                0x12,
-                0x34,
-                0x56,
-            ]),
         });
         mocks.rm.mockResolvedValue(undefined);
-        mocks.writeFile.mockResolvedValue(undefined);
     });
 
     it('renders OCR rasters against the PDF CropBox contract', async () => {
@@ -120,6 +112,7 @@ describe('renderPdfPageToPng', () => {
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
             [
+                '-png',
                 '-cropbox',
                 '-r',
                 '300',
@@ -129,24 +122,19 @@ describe('renderPdfPageToPng', () => {
                 '3',
                 '-singlefile',
                 '/tmp/source.pdf',
-                '/tmp/page-3.png.source',
+                '/tmp/page-3',
             ],
             expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
         );
-        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/page-3.png', expect.any(Uint8Array));
-        expect(mocks.readPpmRaster).toHaveBeenCalledWith(
-            '/tmp/page-3.png.source.ppm',
-            {
-                maxDimensionPx: 40_000,
-                maxPixels: 45_000_000,
-            },
-        );
+        expect(mocks.readPngDimensions).toHaveBeenCalledWith('/tmp/page-3.png');
     });
 
-    it('rejects an oversized PPM header before reading its payload into memory', async () => {
-        mocks.readPpmRaster.mockRejectedValueOnce(
-            new RangeError('PPM raster 10000x10000 exceeds limits'),
-        );
+    it('rejects an oversized PNG from its header without reading its payload into memory', async () => {
+        mocks.readPngDimensions.mockResolvedValueOnce({
+            width: 10_000,
+            height: 10_000,
+            isColor: true,
+        });
 
         await expect(renderPdfPageToPng(
             workerPaths,
@@ -164,16 +152,9 @@ describe('renderPdfPageToPng', () => {
                 maxPixels: 45_000_000,
                 maxDimensionPx: 40_000,
             },
-        )).rejects.toThrow('PPM raster 10000x10000 exceeds limits');
-        expect(mocks.readPpmRaster).toHaveBeenCalledWith(
-            '/tmp/page-1.png.source.ppm',
-            {
-                maxDimensionPx: 40_000,
-                maxPixels: 45_000_000,
-            },
-        );
-        expect(mocks.writeFile).not.toHaveBeenCalled();
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-1.png.source.ppm', {force: true});
+        )).rejects.toThrow('PNG raster 10000x10000 exceeds limits');
+        expect(mocks.readPngDimensions).toHaveBeenCalledWith('/tmp/page-1.png');
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-1.png', {force: true});
     });
 
     it('rejects over-budget trusted geometry before spawning pdftoppm', async () => {
@@ -250,6 +231,7 @@ describe('renderPdfPageToPng', () => {
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
             [
+                '-png',
                 '-cropbox',
                 '-r',
                 '300',
@@ -267,7 +249,7 @@ describe('renderPdfPageToPng', () => {
                 '-H',
                 '444',
                 '/tmp/source.pdf',
-                '/tmp/page-3.png.source',
+                '/tmp/page-3',
             ],
             expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
         );

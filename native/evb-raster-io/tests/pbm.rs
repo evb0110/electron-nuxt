@@ -1,4 +1,4 @@
-use evb_raster_io::{decode_p4, encode_p4, encode_p4_bilevel};
+use evb_raster_io::{decode_p4, encode_p4, encode_p4_bilevel, RasterError};
 use scan_primitives::{BinaryImage, GrayImage};
 
 fn widen(binary: &BinaryImage) -> GrayImage {
@@ -56,4 +56,13 @@ fn packed_encoding_round_trips_through_the_decoder() {
 fn packed_encoding_rejects_empty_dimensions() {
     assert!(encode_p4_bilevel(&BinaryImage::new(0, 4)).is_err());
     assert!(encode_p4_bilevel(&BinaryImage::new(4, 0)).is_err());
+}
+
+#[test]
+fn decoder_reports_guardrail_violations_as_typed_oversize_errors() {
+    let error = decode_p4(b"P4\n4 4\n", 8, 16).unwrap_err();
+    assert!(matches!(
+        error,
+        RasterError::TooLarge(message) if message.contains("PBM P4 dimensions exceed guardrails")
+    ));
 }

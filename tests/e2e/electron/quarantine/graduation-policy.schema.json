@@ -7,6 +7,7 @@
     "$schema",
     "version",
     "lane",
+    "operatorDiagnostics",
     "tests"
   ],
   "properties": {
@@ -14,7 +15,7 @@
       "const": "./graduation-policy.schema.json"
     },
     "version": {
-      "const": 1
+      "const": 2
     },
     "lane": {
       "type": "object",
@@ -22,8 +23,9 @@
       "required": [
         "events",
         "blocking",
-        "retryCount",
-        "minimumConsecutiveGreenScheduledRuns"
+        "infraRetryCount",
+        "reviewAfterScheduledRuns",
+        "graduationEvidence"
       ],
       "properties": {
         "events": {
@@ -35,11 +37,35 @@
         "blocking": {
           "const": false
         },
-        "retryCount": {
+        "infraRetryCount": {
           "const": 2
         },
-        "minimumConsecutiveGreenScheduledRuns": {
+        "reviewAfterScheduledRuns": {
           "const": 30
+        },
+        "graduationEvidence": {
+          "const": "github-actions-scheduled-history-and-manual-review"
+        }
+      }
+    },
+    "operatorDiagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "reason"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^tests/e2e/electron/quarantine/.+\\.e2e\\.test\\.ts$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -50,8 +76,7 @@
         "additionalProperties": false,
         "required": [
           "path",
-          "targetProject",
-          "consecutiveGreenScheduledRuns"
+          "targetProject"
         ],
         "properties": {
           "path": {
@@ -63,11 +88,6 @@
               "e2e-regression",
               "e2e-blocking-smoke"
             ]
-          },
-          "consecutiveGreenScheduledRuns": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 29
           }
         }
       }

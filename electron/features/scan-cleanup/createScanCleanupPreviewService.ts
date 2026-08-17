@@ -52,6 +52,7 @@ import {
 import {
     DETECTION_DPI,
     PREVIEW_DPI,
+    createScanCleanupDocumentRasterPages,
     resolvePagePreviewDpi,
     resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
@@ -93,7 +94,11 @@ import {
     readAvailableScratchBytes,
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
-import {readPpmDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
+import {
+    readScanCleanupPngDimensions as readPngDimensions,
+    renderScanCleanupRasterToDisk as renderRasterToDisk,
+    resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
+} from '@scan-cleanup-core/rasterValidation';
 import {
     SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
     classifyScanCleanupError,
@@ -117,10 +122,7 @@ import {
     resolveScanCleanupPipelineMaxPixels,
     resolveScanCleanupRequestedRenderDpi,
 } from '@scan-cleanup-core/policy/effectiveOptions';
-import type {
-    IPdfMrcLayers,
-    IScanCleanupRasterRenderLimits,
-} from '@scan-cleanup-core/types';
+import type {IPdfMrcLayers} from '@scan-cleanup-core/types';
 import {shouldExtractTrustedMrcForeground} from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
 import {
     createMainJobRegistry,
@@ -150,38 +152,6 @@ const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
 const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
 const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
 const logger = createLogger('scan-cleanup-preview');
-
-function resolveRasterRenderLimits(
-    pageSize: IPdfPageSize | undefined,
-    dpi: number,
-    maxPixels: number,
-    crop?: {
-        width: number;
-        height: number;
-    },
-): IScanCleanupRasterRenderLimits {
-    if (pageSize === undefined) {
-        const scaleToFitPx = Math.max(1, Math.floor(Math.sqrt(maxPixels)));
-        return {
-            expectedWidthPx: scaleToFitPx,
-            expectedHeightPx: scaleToFitPx,
-            maxPixels,
-            maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
-            scaleToFitPx,
-        };
-    }
-    const swapsAxes = Math.abs(Math.round(pageSize.rotation / 90)) % 2 === 1;
-    return {
-        expectedWidthPx: crop?.width ?? Math.max(1, Math.ceil(
-            (swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) * dpi / 72,
-        )),
-        expectedHeightPx: crop?.height ?? Math.max(1, Math.ceil(
-            (swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) * dpi / 72,
-        )),
-        maxPixels,
-        maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
-    };
-}
 
 
 interface IRetainedDocument {
@@ -370,46 +340,10 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
             pageNumbers,
         );
-        return {
-            detected: paths.pdfimages !== undefined,
-            pages: new Set(result.pageRasterByNumber.keys()),
-            sourceDpiByPage: new Map(
-                [...result.pageRasterByNumber].map(([
-                    pageNumber,
-                    raster,
-                ]) => [
-                    pageNumber,
-                    raster.dpi,
-                ] as const),
-            ),
-            bilevelLayerPages: new Set(
-                [...result.pageRasterByNumber]
-                    .filter(([
-                        , raster,
-                    ]) => raster.hasBilevelLayer)
-                    .map(([pageNumber]) => pageNumber),
-            ),
-            dominantBilevelLayerPages: new Set(
-                [...result.pageRasterByNumber]
-                    .filter(([
-                        , raster,
-                    ]) => raster.hasDominantBilevelLayer)
-                    .map(([pageNumber]) => pageNumber),
-            ),
-            backgroundDpiByPage: new Map(
-                [...result.pageRasterByNumber].flatMap(([
-                    pageNumber,
-                    raster,
-                ]) =>
-                    raster.backgroundDpi === undefined
-                        ? []
-                        : [[
-                            pageNumber,
-                            raster.backgroundDpi,
-                        ] as const],
-                ),
-            ),
-        };
+        return createScanCleanupDocumentRasterPages(
+            paths.pdfimages !== undefined,
+            result.pageRasterByNumber,
+        );
     },
     extractMrcLayers: async (
         sourcePdfPath,
@@ -951,6 +885,31 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
                 return null;
             }
         },
+        async readPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
+            const key = rasterKey(document, pageNumber, dpi);
+            const raster = rasters.get(key);
+            if (!raster) {
+                return null;
+            }
+            rasters.delete(key);
+            try {
+                const metadata = await readPreviewMetadata(raster.path);
+                const refreshed: IRetainedRawRaster = {
+                    ...raster,
+                    ...metadata,
+                };
+                retainedBytes += refreshed.sizeBytes - raster.sizeBytes;
+                rasters.set(key, refreshed);
+                return refreshed;
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                    rasters.set(key, raster);
+                    throw error;
+                }
+                retainedBytes -= raster.sizeBytes;
+                return null;
+            }
+        },
         // Publishes a rendered scratch raster onto the page's stable path. The
         // previous file at that path is replaced, never unlinked, so a manifest
         // another request is still feeding to a sidecar stays readable.
@@ -1018,6 +977,37 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
 
 type TRawRasterRetention = ReturnType<typeof createRawRasterRetention>;
 
+async function renderUnretainedRawRaster(
+    document: IRetainedDocument,
+    pageNumber: number,
+    signal: AbortSignal,
+    retention: TRawRasterRetention,
+    dependencies: IScanCleanupPreviewDependencies,
+    knownTotalPages: number | undefined,
+    dpi: number,
+    pageSize: IPdfPageSize | undefined,
+) {
+    const totalPages = knownTotalPages ?? await retention.pageCount(document, signal);
+    if (pageNumber > totalPages) throw new Error('Scan cleanup preview page is out of range');
+    const scratchPath = await retention.rasterScratchPath(document, pageNumber, dpi);
+    await dependencies.renderPage(
+        {pdftoppmBinary: dependencies.getPdftoppmBinary()},
+        (level, message) => logger[level](message),
+        pageNumber,
+        document.sourcePdfPath,
+        scratchPath,
+        dpi,
+        undefined,
+        signal,
+        undefined,
+        resolveRasterRenderLimits(pageSize, dpi),
+    );
+    return {
+        scratchPath,
+        totalPages,
+    };
+}
+
 async function materializeRawRaster(
     document: IRetainedDocument,
     pageNumber: number,
@@ -1036,20 +1026,18 @@ async function materializeRawRaster(
             totalPages: knownTotalPages ?? await retention.pageCount(document, signal),
         };
     }
-    const totalPages = knownTotalPages ?? await retention.pageCount(document, signal);
-    if (pageNumber > totalPages) throw new Error('Scan cleanup preview page is out of range');
-    const scratchPath = await retention.rasterScratchPath(document, pageNumber, dpi);
-    await dependencies.renderPage(
-        {pdftoppmBinary: dependencies.getPdftoppmBinary()},
-        (level, message) => logger[level](message),
-        pageNumber,
-        document.sourcePdfPath,
+    const {
         scratchPath,
-        dpi,
-        undefined,
+        totalPages,
+    } = await renderUnretainedRawRaster(
+        document,
+        pageNumber,
         signal,
-        undefined,
-        resolveRasterRenderLimits(pageSize, dpi, 45_000_000),
+        retention,
+        dependencies,
+        knownTotalPages,
+        dpi,
+        pageSize,
     );
     const bytes = await readPreviewBytes(scratchPath);
     if (signal.aborted) {
@@ -1059,7 +1047,7 @@ async function materializeRawRaster(
     const raster = await retention.retain({
         document,
         dpi,
-        ...readPngDimensions(bytes),
+        ...readPngDimensions(bytes, undefined, 'preview'),
         pageNumber,
         scratchPath,
         sizeBytes: bytes.byteLength,
@@ -1069,6 +1057,48 @@ async function materializeRawRaster(
         bytes,
         totalPages,
     };
+}
+
+// Native analysis only needs a stable path. Validate the PNG header and file
+// size without allocating its compressed payload; the displayed base raster
+// still goes through materializeRawRaster so its bytes remain available to the
+// renderer.
+async function materializeRawRasterPath(
+    document: IRetainedDocument,
+    pageNumber: number,
+    signal: AbortSignal,
+    retention: TRawRasterRetention,
+    dependencies: IScanCleanupPreviewDependencies,
+    knownTotalPages?: number,
+    dpi = PREVIEW_DPI,
+    pageSize?: IPdfPageSize,
+): Promise<IRetainedRawRaster> {
+    const retained = await retention.readPath(document, pageNumber, dpi);
+    if (retained) {
+        return retained;
+    }
+    const {scratchPath} = await renderUnretainedRawRaster(
+        document,
+        pageNumber,
+        signal,
+        retention,
+        dependencies,
+        knownTotalPages,
+        dpi,
+        pageSize,
+    );
+    const metadata = await readPreviewMetadata(scratchPath);
+    if (signal.aborted) {
+        retention.remove(scratchPath);
+        throw signal.reason;
+    }
+    return retention.retain({
+        document,
+        dpi,
+        ...metadata,
+        pageNumber,
+        scratchPath,
+    });
 }
 
 /**
@@ -1433,93 +1463,22 @@ function resolveDetailSourceCrop(
     };
 }
 
-function readPngDimensions(bytes: Uint8Array, maxPixels = 45_000_000) {
-    const signature = [
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
-    ];
-    if (bytes.byteLength < 24 || !signature.every((value, index) => bytes[index] === value)) {
-        throw new Error('Scan cleanup preview produced an invalid PNG');
+async function readPreviewMetadata(path: string) {
+    const file = await stat(path);
+    if (file.size < 1 || file.size > PREVIEW_MAX_IMAGE_BYTES) {
+        throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
     }
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const width = view.getUint32(16);
-    const height = view.getUint32(20);
-    if (width < 1 || height < 1 || width * height > maxPixels) {
-        throw new Error(`Scan cleanup preview PNG dimensions ${width}x${height} exceed limits`);
-    }
-    return {
-        width,
-        height,
-    };
-}
-
-async function renderRasterToDisk(
-    sourcePdfPath: string,
-    pageNumber: number,
-    outputPath: string,
-    signal: AbortSignal,
-    dependencies: IScanCleanupPreviewDependencies,
-    renderDpi: number,
-    maxPixels?: number,
-    crop?: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    },
-    // PNG is the format of a raster something displays. A raster only the
-    // sidecar reads is handed over raw, so nothing spends a second per page in
-    // deflate for a pipe on this machine. Detection's rasters are retained as
-    // the base preview's displayed original and stay PNG until that payload
-    // stops being an <img> source; the tile crop is read by native only.
-    format: 'png' | 'ppm' = 'png',
-    limits?: IScanCleanupRasterRenderLimits,
-) {
-    await (format === 'ppm' ? dependencies.renderPagePpm : dependencies.renderPage)(
-        {pdftoppmBinary: dependencies.getPdftoppmBinary()},
-        (level, message) => logger[level](message),
-        pageNumber,
-        sourcePdfPath,
-        outputPath,
-        renderDpi,
-        undefined,
-        signal,
-        crop,
-        limits,
-    );
-    if (format === 'ppm') {
-        const dimensions = await readPpmDimensions(outputPath);
-        if (
-            (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels)
-            || (
-                limits !== undefined
-                && (
-                    dimensions.width > limits.maxDimensionPx
-                    || dimensions.height > limits.maxDimensionPx
-                    || dimensions.width * dimensions.height > limits.maxPixels
-                )
-            )
-        ) {
-            throw new Error(
-                `Scan cleanup raster dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
-            );
-        }
-        return dimensions;
-    }
-    const handle = await open(outputPath, 'r');
+    const handle = await open(path, 'r');
     try {
         const header = Buffer.alloc(24);
         const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
         if (bytesRead !== header.byteLength) {
             throw new Error('Scan cleanup raster produced a truncated PNG');
         }
-        return readPngDimensions(header, maxPixels);
+        return {
+            ...readPngDimensions(header, undefined, 'preview'),
+            sizeBytes: file.size,
+        };
     } finally {
         await handle.close();
     }
@@ -1531,7 +1490,7 @@ async function readPreviewBytes(path: string) {
         throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
     }
     const bytes = new Uint8Array(await readFile(path));
-    readPngDimensions(bytes);
+    readPngDimensions(bytes, undefined, 'preview');
     return bytes;
 }
 
@@ -1664,6 +1623,7 @@ async function runDetailPreview(
             inputPath,
             signal,
             dependencies,
+            (level, message) => logger[level](message),
             renderDpi,
             maxSourcePixels,
             sourceCrop,
@@ -1674,6 +1634,8 @@ async function runDetailPreview(
                 maxPixels: maxSourcePixels,
                 maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
             },
+            'raster',
+            'preview',
         );
         // Poppler clips -W/-H at the physical page edge. The 150-DPI base
         // dimensions can round up by a few scaled pixels, so trust the actual
@@ -1955,7 +1917,7 @@ async function runPreview(
                 ? requestedPreviewProcessingDpi
                 : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(processingDocumentCanvas)));
             if (previewProcessingDpi !== basePreviewDpi) {
-                ({path: inputPath} = await materializeRawRaster(
+                ({path: inputPath} = await materializeRawRasterPath(
                     document,
                     request.pageNumber,
                     signal,
@@ -1995,7 +1957,7 @@ async function runPreview(
                 );
             }
             if (analysis.baseRenderDpi !== baseRaw.dpi) {
-                ({path: inputPath} = await materializeRawRaster(
+                ({path: inputPath} = await materializeRawRasterPath(
                     document,
                     request.pageNumber,
                     signal,
@@ -2040,7 +2002,7 @@ async function runPreview(
                 documentCanvas,
             ));
             if (renderDpi !== baseRaw.dpi) {
-                ({path: inputPath} = await materializeRawRaster(
+                ({path: inputPath} = await materializeRawRasterPath(
                     document,
                     request.pageNumber,
                     signal,
@@ -2057,7 +2019,7 @@ async function runPreview(
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
         const canonicalRaw = baseRaw.dpi === DETECTION_DPI
             ? baseRaw
-            : await materializeRawRaster(
+            : await materializeRawRasterPath(
                 document,
                 request.pageNumber,
                 signal,
@@ -3176,6 +3138,11 @@ export function createScanCleanupPreviewService(
             };
             activeDetectionJobsByBrokerOwner.set(ownerId, activeEntry);
             void handle.settled.finally(() => {
+                // A destroyed sender makes the progress pump drop the
+                // terminal frame before the delivery callback can clear its
+                // per-job result cursor. Release it at job settlement as the
+                // lifecycle owner, while keeping terminal delivery idempotent.
+                deliveredDetectionResults.delete(detectionDeliveryKey(sender.id, jobId));
                 if (activeDetectionJobsByBrokerOwner.get(ownerId) === activeEntry) {
                     activeDetectionJobsByBrokerOwner.delete(ownerId);
                 }

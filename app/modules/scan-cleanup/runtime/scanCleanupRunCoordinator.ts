@@ -1,11 +1,12 @@
 import type {
     IScanCleanupStartRequest,
-    TScanCleanupStartResult,
+    TScanCleanupStartResult as TBridgeScanCleanupStartResult,
     TScanCleanupJobState,
     TScanCleanupErrorCode,
 } from '@contracts/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {dismissScanCleanupFirstRunGuidanceInStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
@@ -16,12 +17,24 @@ const ACTIVE_JOB_OWNER_KEY = 'evb.scanCleanup.activeOwnerId';
 const ACTIVE_JOB_REVISION_KEY = 'evb.scanCleanup.activeDocumentRevision';
 const RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
 
+export type TScanCleanupRunReconciliationFailure = 'subscription' | 'recovery';
+
+export type TScanCleanupStartFallback = 'already-running' | 'unavailable';
+
+export type TScanCleanupRendererStartResult =
+    | Extract<TBridgeScanCleanupStartResult, {started: true}>
+    | (Extract<TBridgeScanCleanupStartResult, {started: false}> & {fallback?: TScanCleanupStartFallback});
+
 export class ScanCleanupRunReconciliationError extends Error {
     readonly errorCode: TScanCleanupErrorCode = 'internal';
+    readonly failure: TScanCleanupRunReconciliationFailure;
+    readonly technicalDetail: string;
 
-    constructor(message: string) {
-        super(message);
+    constructor(failure: TScanCleanupRunReconciliationFailure, technicalDetail = '') {
+        super(technicalDetail);
         this.name = 'ScanCleanupRunReconciliationError';
+        this.failure = failure;
+        this.technicalDetail = technicalDetail;
     }
 }
 /**
@@ -203,8 +216,8 @@ let installed = false;
 let unsubscribe: (() => void) | null = null;
 let dependencies: IScanCleanupCoordinatorDependencies | null = null;
 let pendingStart: Pick<IScanCleanupStartRequest, 'documentRevision' | 'ownerId' | 'sourcePdfPath'> | null = null;
-let startRequestPromise: Promise<TScanCleanupStartResult> | null = null;
-let activeStartResult: Extract<TScanCleanupStartResult, {started: true}> | null = null;
+let startRequestPromise: Promise<TScanCleanupRendererStartResult> | null = null;
+let activeStartResult: Extract<TBridgeScanCleanupStartResult, {started: true}> | null = null;
 
 function clearRunGuard() {
     scanCleanupRun.inFlight = false;
@@ -333,10 +346,14 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     persistActiveJob(null);
 
     if (state.status === 'failed') {
+        const error = formatScanCleanupErrorMessage(
+            terminalDependencies.t('scanCleanup.failed'),
+            state.error,
+        );
         if (scanCleanupRun.ownerId) {
             reportScanCleanupRunError(
                 scanCleanupRun.ownerId,
-                state.error,
+                error,
                 scanCleanupRun.ownerDocumentRef,
                 state.errorCode,
             );
@@ -344,7 +361,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
             terminalDependencies.toast.add({
                 color: 'error',
                 title: terminalDependencies.t('scanCleanup.failed'),
-                description: state.error,
+                description: error,
                 actions: [{
                     label: terminalDependencies.t('scanCleanup.details'),
                     color: 'neutral',
@@ -397,8 +414,8 @@ function requestOwningScanCleanupWorkspace() {
 async function startScanCleanupRequest(
     capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
     request: IScanCleanupStartRequest,
-): Promise<TScanCleanupStartResult> {
-    let result: TScanCleanupStartResult;
+): Promise<TScanCleanupRendererStartResult> {
+    let result: TBridgeScanCleanupStartResult;
     try {
         result = await capability.start(toBridgeSafeScanCleanupPayload({
             ...request,
@@ -444,11 +461,9 @@ async function startScanCleanupRequest(
         }
         const reset = await abandonUnobservedScanCleanupRun(capability, result.jobId, owner);
         if (reset) {
-            const detail = caught instanceof Error && caught.message
-                ? ` (${caught.message})`
-                : '';
             throw new ScanCleanupRunReconciliationError(
-                `Scan cleanup job could not be observed after subscription failed${detail}`,
+                'subscription',
+                caught instanceof Error ? caught.message : '',
             );
         }
         return result;
@@ -468,7 +483,7 @@ export function beginScanCleanupAttempt() {
     if (!scanCleanupRun.activeJobId) scanCleanupRun.jobState = null;
 }
 
-export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TScanCleanupStartResult> {
+export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TScanCleanupRendererStartResult> {
     if (scanCleanupRun.inFlight) {
         if (startRequestPromise) {
             return startRequestPromise;
@@ -479,8 +494,9 @@ export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TSc
         return Promise.resolve({
             started: false,
             jobId: scanCleanupRun.activeJobId ?? '',
-            error: 'Scan cleanup is already running',
+            error: '',
             errorCode: 'internal',
+            fallback: 'already-running',
         });
     }
     const capability = getScanCleanupCapability();
@@ -488,8 +504,9 @@ export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TSc
         return Promise.resolve({
             started: false,
             jobId: '',
-            error: 'Scan cleanup is unavailable',
+            error: '',
             errorCode: 'tools-unavailable',
+            fallback: 'unavailable',
         });
     }
     scanCleanupRun.lastError = null;
@@ -563,7 +580,8 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
                     if (reset && ownerId) {
                         reportScanCleanupRunError(
                             ownerId,
-                            'Scan cleanup job could not be recovered after the renderer session was restored',
+                            dependencies?.t('scanCleanup.errors.runRecoveryFailed')
+                                ?? 'Scan cleanup could not be recovered after the renderer session was restored.',
                             sourceDocumentRef,
                             'internal',
                         );

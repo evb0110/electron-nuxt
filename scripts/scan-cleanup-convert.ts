@@ -686,6 +686,7 @@ async function runPageOpsFallback(
 }
 
 function createCliRetention(
+    temporaryRoot: string,
     sourcePdfPath: string,
     revision: string,
     getPageCount: (path: string, signal: AbortSignal) => Promise<number>,
@@ -699,7 +700,10 @@ function createCliRetention(
     return {
         async openDocument() {
             return {
-                directory: await mkdtemp(join(tmpdir(), 'scan-cleanup-cli-document-')),
+                // Analyze manifests are confined to the run's temporary root.
+                // Retained replayable rasters must live below that same root,
+                // not in a sibling directory created directly under os.tmpdir.
+                directory: await mkdtemp(join(temporaryRoot, 'document-')),
                 sourcePdfPath,
             };
         },
@@ -913,6 +917,7 @@ async function main() {
             tempDir: temporaryRoot,
         });
     const retention = createCliRetention(
+        temporaryRoot,
         argumentsValue.sourcePdfPath,
         `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`,
         (pdfPath, signal) => getPageCount(pdfPath, {signal}),

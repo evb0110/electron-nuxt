@@ -1,6 +1,7 @@
 import type {IScanCleanupTextLayerInstruction} from '@scan-cleanup-core/compactManifest';
 import type {IRenderedCleanupOutputPage} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
 import type {IPdfPageSize} from '@scan-cleanup-core/types';
+import {resolveScanCleanupMatchedCanvasPlacement} from '@scan-cleanup-core/policy/documentCanvas';
 
 export interface IScanCleanupTextLayerPlan {
     pages: IScanCleanupTextLayerInstruction[];
@@ -110,14 +111,16 @@ export function resolveScanCleanupTextLayerInstruction(
         ?? metadata.canvasWidthPx / output.dpi * 72;
     const pageHeightPoints = metadata.matchedCanvasTargetHeightPoints
         ?? metadata.canvasHeightPx / output.dpi * 72;
-    const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
-    const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const intrinsicRasterWidthPx = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
-    const intrinsicRasterHeightPx = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
-    const effectivePlacementOffsetXPx = metadata.placementOffsetXPx
-        - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0);
-    const effectivePlacementOffsetYPx = metadata.placementOffsetYPx
-        - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0);
+    const {
+        contentWidthPx,
+        contentHeightPx,
+        intrinsicRasterWidthPx,
+        intrinsicRasterHeightPx,
+        matchScaleX,
+        matchScaleY,
+        effectivePlacementOffsetXPx,
+        effectivePlacementOffsetYPx,
+    } = resolveScanCleanupMatchedCanvasPlacement(metadata);
     if (
         !finitePositive(pageWidthPoints)
         || !finitePositive(pageHeightPoints)
@@ -162,8 +165,6 @@ export function resolveScanCleanupTextLayerInstruction(
     const pixelYFromPdfY = sourceY.y - sourceOrigin.y;
 
     // intrinsic output -> matched canvas -> output PDF
-    const matchX = contentWidthPx / intrinsicRasterWidthPx;
-    const matchY = contentHeightPx / intrinsicRasterHeightPx;
     const pdfXFromCanvas = pageWidthPoints / metadata.canvasWidthPx;
     const pdfYFromCanvas = -pageHeightPoints / metadata.canvasHeightPx;
     const f00 = forward[0]![0]!;
@@ -173,24 +174,24 @@ export function resolveScanCleanupTextLayerInstruction(
     const f11 = forward[1]![1]!;
     const f12 = forward[1]![2]!;
 
-    const xFromPdfX = pdfXFromCanvas * matchX * (
+    const xFromPdfX = pdfXFromCanvas * matchScaleX * (
         f00 * pixelXFromPdfX + f01 * pixelYFromPdfX
     );
-    const xFromPdfY = pdfXFromCanvas * matchX * (
+    const xFromPdfY = pdfXFromCanvas * matchScaleX * (
         f00 * pixelXFromPdfY + f01 * pixelYFromPdfY
     );
     const xOffset = pdfXFromCanvas * (
-        matchX * (f00 * sourceOrigin.x + f01 * sourceOrigin.y + f02)
+        matchScaleX * (f00 * sourceOrigin.x + f01 * sourceOrigin.y + f02)
         + effectivePlacementOffsetXPx
     );
-    const yFromPdfX = pdfYFromCanvas * matchY * (
+    const yFromPdfX = pdfYFromCanvas * matchScaleY * (
         f10 * pixelXFromPdfX + f11 * pixelYFromPdfX
     );
-    const yFromPdfY = pdfYFromCanvas * matchY * (
+    const yFromPdfY = pdfYFromCanvas * matchScaleY * (
         f10 * pixelXFromPdfY + f11 * pixelYFromPdfY
     );
     const yOffset = pageHeightPoints + pdfYFromCanvas * (
-        matchY * (f10 * sourceOrigin.x + f11 * sourceOrigin.y + f12)
+        matchScaleY * (f10 * sourceOrigin.x + f11 * sourceOrigin.y + f12)
         + effectivePlacementOffsetYPx
     );
     const matrix = [

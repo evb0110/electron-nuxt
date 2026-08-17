@@ -1,4 +1,4 @@
-use evb_raster_io::{decode_ppm, read_ppm_dimensions, DecodeLimits};
+use evb_raster_io::{decode_ppm, read_ppm_dimensions, DecodeLimits, RasterError};
 
 const DECODE: DecodeLimits = DecodeLimits {
     max_pixels: 1_000_000,
@@ -68,13 +68,18 @@ fn rejects_dimension_and_pixel_guardrail_violations() {
         max_dimension: 3,
         max_compressed_bytes: 1024,
     };
-    for header in ["P6\n4 1\n255\n", "P6\n3 2\n255\n", "P6\n0 1\n255\n"] {
+    for header in ["P6\n4 1\n255\n", "P6\n3 2\n255\n"] {
         let error = read_ppm_dimensions(p6(header, &[]).as_slice(), tight).unwrap_err();
+        assert!(matches!(&error, RasterError::TooLarge(_)));
         assert!(
             error.to_string().contains("guardrails"),
             "unexpected error for {header:?}: {error}"
         );
     }
+
+    let error = read_ppm_dimensions(p6("P6\n0 1\n255\n", &[]).as_slice(), tight).unwrap_err();
+    assert!(matches!(&error, RasterError::Invalid(_)));
+    assert!(error.to_string().contains("Invalid PPM P6 dimensions"));
 }
 
 #[test]

@@ -18,6 +18,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    SCAN_CLEANUP_PID_ROOT_PREFIX,
     SCAN_CLEANUP_SCRATCH_PREFIX,
     sweepStaleScanCleanupScratchDirs,
 } from '@scan-cleanup-core/scratchCleanup';
@@ -112,8 +113,8 @@ describe('scan-cleanup durability', () => {
     it('never removes a pid-suffixed root whose owner is still running', async () => {
         const parentPath = await createTemporaryDirectory();
         const now = Date.now();
-        const livePath = join(parentPath, `${SCAN_CLEANUP_SCRATCH_PREFIX}rasters-4242`);
-        const deadPath = join(parentPath, `${SCAN_CLEANUP_SCRATCH_PREFIX}rasters-4243`);
+        const livePath = join(parentPath, `${SCAN_CLEANUP_PID_ROOT_PREFIX}4242`);
+        const deadPath = join(parentPath, `${SCAN_CLEANUP_PID_ROOT_PREFIX}4243`);
         await mkdir(livePath);
         await mkdir(deadPath);
         const staleTime = new Date(now - 120_000);
@@ -128,5 +129,26 @@ describe('scan-cleanup durability', () => {
 
         await expect(access(livePath)).resolves.toBeUndefined();
         await expect(access(deadPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('does not treat random scratch suffixes as pid ownership markers', async () => {
+        const parentPath = await createTemporaryDirectory();
+        const now = Date.now();
+        const conversionPath = join(parentPath, `${SCAN_CLEANUP_SCRATCH_PREFIX}482913`);
+        const detectionPath = join(parentPath, `${SCAN_CLEANUP_SCRATCH_PREFIX}detect-482913`);
+        await mkdir(conversionPath);
+        await mkdir(detectionPath);
+        const staleTime = new Date(now - 120_000);
+        await utimes(conversionPath, staleTime, staleTime);
+        await utimes(detectionPath, staleTime, staleTime);
+
+        await expect(sweepStaleScanCleanupScratchDirs(parentPath, {
+            isProcessAlive: pid => pid === 482913,
+            maxAgeMs: 60_000,
+            now: () => now,
+        })).resolves.toBe(2);
+
+        await expect(access(conversionPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(detectionPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 });

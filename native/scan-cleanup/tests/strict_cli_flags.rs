@@ -80,3 +80,59 @@ fn oversized_manifest_is_rejected_from_metadata_without_reading_it() {
         .contains("admission ceiling"));
     fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn raster_decode_errors_use_public_error_classifications() {
+    struct RemoveDirOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveDirOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root_path = std::env::temp_dir().join(format!(
+        "evb-scan-cleanup-raster-errors-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root_path).unwrap();
+    let root = RemoveDirOnDrop(root_path);
+
+    for (name, bytes, expected_code) in [
+        (
+            "oversized.ppm",
+            b"P6\n40001 1\n255\n".as_slice(),
+            "too-large",
+        ),
+        (
+            "malformed.png",
+            b"not a raster".as_slice(),
+            "invalid-request",
+        ),
+    ] {
+        let input = root.0.join(name);
+        let output_path = root.0.join(format!("{name}.output.png"));
+        let metadata_path = root.0.join(format!("{name}.metadata.json"));
+        fs::write(&input, bytes).unwrap();
+
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--input", input.to_str().unwrap()])
+            .args(["--output", output_path.to_str().unwrap()])
+            .args(["--metadata", metadata_path.to_str().unwrap()])
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(1), "input: {name}");
+        let envelope: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(envelope["code"], expected_code, "input: {name}");
+        assert!(envelope["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unable to read scan-cleanup raster"));
+        assert!(output.stdout.is_empty(), "input: {name}");
+    }
+}

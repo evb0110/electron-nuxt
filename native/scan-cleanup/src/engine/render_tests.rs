@@ -7375,4 +7375,49 @@ mod tests {
         assert!(identities.windows(2).all(|pair| pair[0] == pair[1]));
         assert_eq!(identities[0], (Some(expected), 0, 1));
     }
+
+    #[test]
+    fn canonical_region_assertion_checks_geometry_in_common_coordinates() {
+        let canonical = vec![
+            (Rect::new(0.0, 0.0, 40.0, 100.0), PageHalf::Left),
+            (Rect::new(60.0, 0.0, 40.0, 100.0), PageHalf::Right),
+        ];
+        let working = vec![
+            (Rect::new(0.0, 0.0, 80.0, 200.0), PageHalf::Left),
+            (Rect::new(120.0, 0.0, 80.0, 200.0), PageHalf::Right),
+        ];
+        assert!(regions_match_in_common_coordinates(
+            &canonical, &working, 100, 100, 200, 200,
+        ));
+
+        let moved_right_edge = vec![
+            (Rect::new(0.0, 0.0, 70.0, 200.0), PageHalf::Left),
+            (Rect::new(120.0, 0.0, 80.0, 200.0), PageHalf::Right),
+        ];
+        assert!(!regions_match_in_common_coordinates(
+            &canonical,
+            &moved_right_edge,
+            100,
+            100,
+            200,
+            200,
+        ));
+
+        let anisotropic_canonical = vec![
+            (Rect::new(0.0, 0.0, 400.0, 100.0), PageHalf::Left),
+            (Rect::new(600.0, 0.0, 400.0, 100.0), PageHalf::Right),
+        ];
+        let anisotropic_working = vec![
+            (Rect::new(0.0, 0.0, 820.0, 200.0), PageHalf::Left),
+            (Rect::new(1200.0, 0.0, 800.0, 200.0), PageHalf::Right),
+        ];
+        assert!(!regions_match_in_common_coordinates(
+            &anisotropic_canonical,
+            &anisotropic_working,
+            1_000,
+            100,
+            2_000,
+            200,
+        ));
+    }
 }

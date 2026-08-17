@@ -1728,8 +1728,10 @@ fn luminance_histogram_percentile(histogram: &[u64; 256], total: u64, percentile
 
 fn grayscale_percentile(image: &GrayImage, percentile: f64) -> u8 {
     let mut histogram = [0usize; 256];
-    for &value in image.data() {
-        histogram[value as usize] += 1;
+    for y in 0..image.height() {
+        for &value in image.row(y) {
+            histogram[value as usize] += 1;
+        }
     }
     let rank = (image.width().saturating_mul(image.height()) as f64 * percentile).floor() as usize;
     histogram_percentile(&histogram, rank)
@@ -1756,6 +1758,18 @@ mod tests {
         picture::detect_picture_mask,
     };
     use std::path::PathBuf;
+
+    #[test]
+    fn grayscale_percentile_ignores_stride_padding() {
+        let image = GrayImage::from_vec(
+            3,
+            2,
+            6,
+            vec![10, 20, 30, 255, 255, 255, 40, 50, 60, 255, 255, 255],
+        )
+        .unwrap();
+        assert_eq!(grayscale_percentile(&image, 0.5), 40);
+    }
 
     #[test]
     fn bilevel_fidelity_veto_tracks_sampling_and_soft_edges_not_paper_shade() {

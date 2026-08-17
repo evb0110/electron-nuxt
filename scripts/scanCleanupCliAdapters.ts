@@ -23,7 +23,6 @@ import {
     constants as osConstants,
     setPriority,
 } from 'node:os';
-import {createInterface} from 'node:readline';
 import {decode as decodePng} from 'fast-png';
 import {
     isNativeErrorEnvelope,
@@ -33,6 +32,7 @@ import {NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/nativ
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
 import {parseScanCleanupCompactManifest} from '@scan-cleanup-core/compactManifest';
+import {createScanCleanupSidecarProtocolHandler} from '@scan-cleanup-core/createScanCleanupSidecarProtocolHandler';
 import type {
     TScanCleanupLog,
     IScanCleanupProcessResult,
@@ -670,7 +670,6 @@ export async function runCliScanCleanupSidecar(
             log('debug', `Could not lower scan cleanup detection priority: ${String(error)}`);
         }
     }
-    let stderr = '';
     let terminalStatus: 'success' | 'failure' | null = null;
     const nativeFailure: {value: {
         code: TNativeErrorCode;
@@ -678,25 +677,16 @@ export async function runCliScanCleanupSidecar(
     } | null} = {value: null};
     let protocolError: Error | null = null;
     const completedPageNumbers = new Set<number>();
-    child.stderr?.setEncoding('utf8');
-    child.stderr?.on('data', (chunk: string) => {
-        stderr = `${stderr}${chunk}`.slice(-64 * 1024);
+    const protocol = createScanCleanupSidecarProtocolHandler({
+        stdout: child.stdout,
+        stderr: child.stderr,
+        onProtocolError: error => {
+            protocolError = error;
+            terminateCliChild(child);
+        },
+        log,
     });
-    const lines = createInterface({input: child.stdout});
-    const failProtocol = (error: unknown, line: string) => {
-        if (protocolError !== null) {
-            return;
-        }
-        protocolError = error instanceof Error ? error : new Error(String(error));
-        try {
-            lines.close();
-        } catch {
-            // Termination and the original protocol failure still take precedence.
-        }
-        terminateCliChild(child);
-        log('warn', `Rejected malformed evb-scan-cleanup NDJSON: ${line.slice(0, 200)}`);
-    };
-    lines.on('line', line => {
+    protocol.lines.on('line', line => {
         if (protocolError !== null || terminalStatus !== null) {
             return;
         }
@@ -724,7 +714,7 @@ export async function runCliScanCleanupSidecar(
             terminalStatus = envelope.result.status;
             if (envelope.result.status === 'failure') nativeFailure.value = envelope.result;
         } catch (error) {
-            failProtocol(error, line);
+            protocol.failProtocol(error, line);
         }
     });
     let aborting = false;
@@ -757,7 +747,7 @@ export async function runCliScanCleanupSidecar(
             throw new Error(`${failure.code}: ${failure.message}`);
         }
         if (result.code !== 0) {
-            const error = parseNativeError(stderr);
+            const error = parseNativeError(protocol.stderr);
             throw new Error(error === null
                 ? `evb-scan-cleanup exited unsuccessfully (code=${String(result.code)}, signal=${String(result.signal)})`
                 : `${error.code}: ${error.message}`);
@@ -767,7 +757,7 @@ export async function runCliScanCleanupSidecar(
         }
     } finally {
         signal.removeEventListener('abort', onAbort);
-        lines.close();
+        protocol.lines.close();
         log('debug', `evb-scan-cleanup completed ${basename(manifestPath)}`);
     }
 }

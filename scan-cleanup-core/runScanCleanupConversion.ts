@@ -115,6 +115,7 @@ import {
 } from '@scan-cleanup-core/resolveRasterHandoff';
 import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCleanupJsonEvidence';
 import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup';
+import {DETECTION_DPI} from '@scan-cleanup-core/detection';
 import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 import {
     assembleWithCompactSourcePages,
@@ -165,6 +166,18 @@ function isAbortError(error: unknown) {
             ('name' in error && error.name === 'AbortError')
             || ('code' in error && error.code === 'ABORT_ERR')
         );
+}
+
+export async function observeScanCleanupAnalysisReleasePromises(
+    promises: ReadonlyArray<Promise<void>>,
+    log: TScanCleanupLog,
+) {
+    const results = await Promise.allSettled(promises);
+    for (const result of results) {
+        if (result.status === 'rejected') {
+            log('warn', `Failed to release scan cleanup analysis raster: ${getErrorMessage(result.reason)}`);
+        }
+    }
 }
 
 async function requirePublishedRasterFile(path: string | undefined, pageNumber: number, role: string) {
@@ -357,6 +370,7 @@ export async function runScanCleanupConversion(
         && dependencies.createRasterPipes !== undefined;
     let rasterStreamingRun = supportsRasterStreaming;
     let preserveScratchForDiagnostics = false;
+    const analysisReleasePromises: Array<Promise<void>> = [];
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
     const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun, {isRasterStreaming: () => rasterStreamingRun});
     try {
@@ -773,7 +787,7 @@ export async function runScanCleanupConversion(
                 };
             }),
         }));
-        const canonicalAnalysisDpi = 150;
+        const canonicalAnalysisDpi = DETECTION_DPI;
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,
             raster: plan.guardrail,
@@ -1084,7 +1098,6 @@ export async function runScanCleanupConversion(
         };
         const renderedPageNumbers = new Set<number>();
         const releasedAnalysisPages = new Set<number>();
-        const analysisReleasePromises: Array<Promise<void>> = [];
         const sourcePageNumberByManifestIndex = new Map(pages.map((page, index) => [
             index + 1,
             page.sourcePageIndex + 1,
@@ -1109,7 +1122,13 @@ export async function runScanCleanupConversion(
                     const analysisPath = pageInputs.find(page => page.pageNumber === sourcePageNumber)
                         ?.analysisInputPath;
                     if (analysisPath !== undefined) {
-                        analysisReleasePromises.push(rm(analysisPath, {force: true}));
+                        const release = rm(analysisPath, {force: true});
+                        // Attach a handler immediately so a sidecar failure
+                        // cannot turn a best-effort scratch release into an
+                        // unhandled rejection before the outer finally block
+                        // has a chance to observe it.
+                        void release.catch(() => undefined);
+                        analysisReleasePromises.push(release);
                     }
                 }
             }
@@ -1137,7 +1156,10 @@ export async function runScanCleanupConversion(
                 }
             },
         });
-        await Promise.all(analysisReleasePromises);
+        // Rejections are observed and reported by the outer finally block;
+        // this barrier only ensures every scratch release has settled before
+        // collection begins.
+        await Promise.allSettled(analysisReleasePromises);
         emitProgress('collecting', 0, pages.length, []);
         const outputPages: IRenderedCleanupOutputPage[] = [];
         const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
@@ -1864,6 +1886,7 @@ export async function runScanCleanupConversion(
         }
         throw error;
     } finally {
+        await observeScanCleanupAnalysisReleasePromises(analysisReleasePromises, log);
         await rm(publishTempPath, {force: true}).catch(() => undefined);
         await preserveScanCleanupJsonEvidence(scratch, log).catch(error => {
             log('warn', `Failed to preserve scan cleanup JSON evidence: ${getErrorMessage(error)}`);

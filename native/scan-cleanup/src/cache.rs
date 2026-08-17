@@ -20,9 +20,9 @@ pub(crate) struct SourceFingerprint {
 }
 
 impl SourceFingerprint {
-    pub(crate) fn from_path(path: &Path, page_index: usize) -> Result<Self, String> {
-        let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
-        let modified = metadata.modified().map_err(|error| error.to_string())?;
+    pub(crate) fn from_path(path: &Path, page_index: usize) -> Result<Self, std::io::Error> {
+        let metadata = fs::metadata(path)?;
+        let modified = metadata.modified()?;
         let modified_nanos = match modified.duration_since(UNIX_EPOCH) {
             Ok(duration) => duration.as_nanos().min(i128::MAX as u128) as i128,
             Err(error) => -(error.duration().as_nanos().min(i128::MAX as u128) as i128),

@@ -68,21 +68,22 @@ reports live in ./reviews/.
   reporting anything as fixed or asking the user to check the live
   app. Evidence packs still deliver non-blocking as work completes,
   but no per-item "please verify" requests; one consolidated
-  ready-for-your-eyes report per batch. Current batch remains formally
-  OPEN until every item meets the closure bar:
-  (1) stuck-conversion IPC drop — LANDED in PR #14 (f4f63d98b), but
-  not independently closed while the batch is open;
-  (2) pinned-provisional display / phase edge — LANDED in PR #15
-  (86480ad44); its PR body cites the page-1 preview-harness sequence,
-  a forced-red presentation-movement probe, and the full unit suite —
-  not export-granularity RED->GREEN evidence — so it is landing
-  evidence rather than closure evidence;
-  (3) fold-side box overhang + gutter residue — STILL OPEN, work only
-  on frozen branch fix/rescue-caps-fold-mask;
-  (4) sub-word weight artifacts — STILL OPEN, work only on frozen
-  branch fix/rescue-caps-fold-mask;
-  (5) run-meter ETA — LANDED in PR #16 (76a4cc976), but not
-  independently closed while the batch is open.
+  ready-for-your-eyes report per batch. The current five-item batch is
+  CLOSED by R21/R22 after every item met the closure bar:
+  (1) stuck-conversion IPC drop — LANDED and attested in PR #14
+  (f4f63d98b);
+  (2) pinned-provisional display / phase edge — LANDED and attested in
+  PR #15 (86480ad44), with its page-1 preview-harness sequence,
+  forced-red presentation-movement probe, and full unit suite;
+  (3) fold-side box overhang + gutter residue — CLOSED by PR #27;
+  (4) sub-word weight artifacts — CLOSED by PR #33;
+  (5) run-meter ETA — LANDED and attested in PR #16 (76a4cc976).
+  Transport determinism (the FIFO raster handoff / prior-seeded
+  reclassification rerun) was a separate follow-up queued in R22. The
+  2026-08-16 audit remediation resolves it by staging replayable Analyze
+  rasters, rejecting non-replayable Analyze inputs at native execution
+  admission, and making the prior-seeded rerun unconditional. Its pull-request
+  attestation is recorded separately from this historical batch.
 - Scope guard: build the scan-cleanup feature, not a civilization.
   Appendix items (hash chains, digest archives, classifiers, full
   oracle formalism, VPS residency tiers, E1b, cadence caps) need a
@@ -173,42 +174,19 @@ remainder off the orchestrator's critical path.
       gate contract — release-mode workspace tests incl. integration
       targets, and moving build:strict off the required PR path per
       G1(e) — folded into S4's wiring step.
-- [~] S2 Feature fixes — word-weight REOPENED by R11/R13; closure bar
-      invalidated — see R16 step 3 (superseded by R18 S5). Settle-jump
-      landed as PR #10
-      (edef1b3e9): explicit transition semantics, one coalesced settle
-      in a 2s arrival-anchored window, presentation pinned afterward
-      (zoom/pan/clicks never move ink), run-gate reveal prevents
-      confirming a stale preview; acceptance 3.16%->0.00% ink shift,
-      20/20 leaves raster-identical post-window. The preview harness is
-      `manual` (invocable, no executing caller), so these measurements
-      do not gate presentation stability. ~~Word-weight amplification
-      was resolved by 1,691 matched words and zero >20% source-adjusted
-      results.~~ R11/R13 invalidated that word-mean/source-relative
-      closure. Re-close only with a pre-fix specimen RED and the fixed
-      build GREEN at defect granularity ON THE EXPORT.
-- [~] S3 Ground-truth re-adjudication + defect fixes — verdicts require
-      reconciliation against the current corpus
-      (VPS measurement: ALL five tolerated entries invalid + new
-      blank-flood regression; .devkit/analysis/s3-readjudication/);
-      native fixes landed in PR #11 at 2026-08-14T09:42:28Z; the stale
-      baseline still records tolerated failures, so "real zeros on all
-      six" is not an admissible closure claim. Remaining work: regenerate
-      the baseline against the current corpus, add a fixture-count /
-      denominator assertion, and wire the ratchet to an executing CI
-      caller. If regenerated counters are nonzero, S3 remains explicitly
-      open. PR #11's native fixes were hardened after a NOT-SOUND
-      first review round whose executed
-      probes (faint-print erasure, false-offcut amputation, dust-box
-      cropping, thickness-bias flood return) are now permanent
-      fixtures.
-- [~] S4 partially landed: regress-net deletion + O6 computed tripwire
-      (tamper-proof, count 168) + diag scripts as PR #7; stamp schema
-      v2 with build identity as PR #8. REMAINING: ratchet baseline
-      regeneration from PR #11's corrected ground truth + test:rust
-      hook (still open: regenerate the baseline, add the denominator
-      assertion, and wire the ratchet); native-lane alignment (deferred
-      item).
+- [x] S2 Feature fixes — CLOSED by R20/R21: settle-jump landed as PR #10
+      (edef1b3e9), fold/gutter behavior landed as PR #27, and the
+      sub-word weight closure landed as PR #33. The seven-day stay-fixed
+      window is tracked separately by issue #37.
+- [x] S3 Ground-truth re-adjudication + defect fixes — CLOSED by the
+      attested PR #11 and PR #24 oracle wiring, with the current-corpus
+      evidence and accepted unresolved leaf recorded in R20-R22. The
+      remaining transport-determinism question is queued below, not
+      silently treated as part of this closure.
+- [x] S4 Native ownership and gate wiring — CLOSED in R20/R22: the
+      side-authority/fold work, tracked oracle, ratchet wiring, and native
+      lane alignment landed and were attested. Historical pre-R20 partial
+      status is retained in the rows below as provenance only.
 - [~] S5 triage DONE (.devkit/analysis/s5-triage-20260814: 187
       failures classified; 4 causes) + #1 deterministic blocker fixed
       as PR #9 (assertion/profile drift; render-layer >=1x floor
@@ -821,7 +799,11 @@ R22 2026-08-16 (consolidated remaining-problems implementation;
       intentional unresolved-leaf adjudication, S6 deletions, supported-class
       declaration, and parked-design drop decisions are complete. The accepted
       book remains 288 Otsu / 27 Wolf / 0 Sauvola / 1 intentional unresolved;
-      whole-book weight remains 1,212.
+      whole-book weight remains 1,212. Transport determinism is RESOLVED by the
+      2026-08-16 audit remediation: Analyze uses retained replayable rasters,
+      native execution rejects missing or non-regular Analyze inputs, and the
+      prior-seeded reclassification rerun no longer depends on transport
+      (audit finding 1 / SYNTHESIS item 7).
    2. CI/release queue: dependency advisories and genuinely new fallow findings
       are fixed; moved duplicate identities are remeasured; quarantine canvas
       assertions match the documented provisional/settled contract; native

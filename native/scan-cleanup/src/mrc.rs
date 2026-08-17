@@ -1,7 +1,7 @@
 use scan_primitives::{
     morphology::{close, dilate, dilate_gray, erode_gray, open, reconstruct_binary},
     threshold::{threshold_local, LocalThreshold},
-    BinaryImage, ComponentMap, GrayImage,
+    BinaryImage, Component, ComponentMap, GrayImage,
 };
 use std::collections::VecDeque;
 
@@ -280,13 +280,11 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
     // the cascade only as isolated pellets, which the smoothness-free
     // 2 mm density test cannot turn into fields, and whose tight tonal
     // concentration the spread verdict rejects.
-    // Both radii are physical, not pixel, quantities: at 150 dpi they
-    // resolve to the calibrated 1 px blur / 3 px texture window, and at a
-    // 360 dpi final render they grow with the raster instead of clamping
-    // to a sub-stroke window. The old 3 px ceiling made bold glyph
-    // interiors read as flat-and-deep at final scale, so zones seeded on
-    // text that the detection pass had correctly excluded, and the two
-    // scales disagreed about every zone boundary near a caption.
+    // Both radii are physical, not pixel, quantities. The classifier runs on
+    // the bounded analysis raster (currently at most 150 dpi), so the clamps
+    // keep the calibrated 1 px blur / 3 px texture windows stable at that
+    // ceiling and on lower-DPI inputs. The final render is not a second
+    // halftone-classification scale.
     let texture_radius = (dpi * 0.45 / 25.4).round().clamp(1.0, 8.0) as usize;
     let blur_radius = (dpi * 0.12 / 25.4).round().clamp(1.0, 4.0) as usize;
     // Edge statistics run on a lightly blurred plane: halftone dots are
@@ -347,25 +345,23 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
     let mut candidates = BinaryImage::new(gray.width(), gray.height());
     for cluster_index in 0..cluster_count {
         let cluster = &clusters.components()[cluster_index];
-        let label = cluster.label;
         let span_x = cluster.right - cluster.left + 1;
         let span_y = cluster.bottom - cluster.top + 1;
         if span_x < minimum_span || span_y < minimum_span {
             continue;
         }
-        let cluster_seed = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
-            seed.get(x, y) && clusters.label_at(x, y) == label
-        });
-        let growth_zone = dilate(&cluster_seed, growth_radius, growth_radius);
-        // Seed pixels are direct tone evidence and belong in the recovery
-        // substrate: a low-contrast photograph barely registers under Wolf,
-        // so reconstructing only through the binarized plane would shrink
-        // its region to the few strokes Wolf happened to mark.
-        let clipped_mask = BinaryImage::from_fn_parallel(gray.width(), gray.height(), |x, y| {
-            (closed.get(x, y) || seed.get(x, y)) && growth_zone.get(x, y)
-        });
-        let region = reconstruct_binary(&cluster_seed, &clipped_mask);
-        candidates = candidates.or(&region);
+        let Some((left, top, region)) =
+            reconstruct_cluster_region(&seed, &closed, &clusters, cluster, growth_radius)
+        else {
+            continue;
+        };
+        for y in 0..region.height() {
+            for x in 0..region.width() {
+                if region.get(x, y) {
+                    candidates.set(left + x, top + y, true);
+                }
+            }
+        }
     }
     let sized = ComponentMap::from_binary(&candidates).retain(|component| {
         let width = component.right - component.left + 1;
@@ -512,7 +508,9 @@ fn box_mean_gray(image: &GrayImage, radius: usize) -> GrayImage {
             integral[(y + 1) * (width + 1) + x + 1] = integral[y * (width + 1) + x + 1] + row_sum;
         }
     }
-    let mut output = image.clone();
+    // Every visible output sample is overwritten below. Avoid copying the
+    // complete source raster (and any hidden stride padding) before doing so.
+    let mut output = GrayImage::new(width, height, 0);
     for y in 0..height {
         for x in 0..width {
             let left = x.saturating_sub(radius);
@@ -527,6 +525,54 @@ fn box_mean_gray(image: &GrayImage, radius: usize) -> GrayImage {
         }
     }
     output
+}
+
+/// Reconstruct one seed component inside the only area where its growth can
+/// reach. `clusters` is the component map of a dilated seed, so every seed
+/// pixel carrying `cluster.label` lies inside the component bounds. Expanding
+/// those bounds by the growth radius is therefore sufficient to reproduce the
+/// full-page dilation and reconstruction, including clipping at page edges.
+fn reconstruct_cluster_region(
+    seed: &BinaryImage,
+    closed: &BinaryImage,
+    clusters: &ComponentMap,
+    cluster: &Component,
+    growth_radius: usize,
+) -> Option<(usize, usize, BinaryImage)> {
+    let left = cluster.left.saturating_sub(growth_radius);
+    let top = cluster.top.saturating_sub(growth_radius);
+    let right = cluster
+        .right
+        .saturating_add(growth_radius)
+        .saturating_add(1)
+        .min(seed.width());
+    let bottom = cluster
+        .bottom
+        .saturating_add(growth_radius)
+        .saturating_add(1)
+        .min(seed.height());
+    let width = right.saturating_sub(left);
+    let height = bottom.saturating_sub(top);
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    let cluster_seed = BinaryImage::from_fn_parallel(width, height, |x, y| {
+        let source_x = left + x;
+        let source_y = top + y;
+        seed.get(source_x, source_y) && clusters.label_at(source_x, source_y) == cluster.label
+    });
+    let growth_zone = dilate(&cluster_seed, growth_radius, growth_radius);
+    // Seed pixels are direct tone evidence and belong in the recovery
+    // substrate: a low-contrast photograph barely registers under Wolf, so
+    // reconstructing only through the binarized plane would shrink its region
+    // to the few strokes Wolf happened to mark.
+    let clipped_mask = BinaryImage::from_fn_parallel(width, height, |x, y| {
+        let source_x = left + x;
+        let source_y = top + y;
+        (closed.get(source_x, source_y) || seed.get(source_x, source_y)) && growth_zone.get(x, y)
+    });
+    Some((left, top, reconstruct_binary(&cluster_seed, &clipped_mask)))
 }
 
 /// Keeps mask pixels whose 2-D neighborhood is at least a third occupied by
@@ -698,6 +744,93 @@ mod tests {
         let zones = derive_halftone_zones(&image, 150.0);
         assert!(zones.get(160, 160));
         assert!(!zones.get(20, 20));
+    }
+
+    #[test]
+    fn cluster_local_reconstruction_matches_full_page_reference_at_edges() {
+        let width = 96;
+        let height = 72;
+        let growth_radius = 7;
+        let cluster_radius = 2;
+        let mut seed = BinaryImage::new(width, height);
+        for y in 2..14 {
+            for x in 3..18 {
+                seed.set(x, y, (x + y) % 4 != 0);
+            }
+        }
+        for y in 50..66 {
+            for x in 76..94 {
+                seed.set(x, y, (x * 3 + y) % 5 != 0);
+            }
+        }
+        let clusters = ComponentMap::from_binary(&dilate(&seed, cluster_radius, cluster_radius));
+        let mut closed = BinaryImage::new(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                let near_first = x < 26 && y < 22;
+                let near_second = x > 68 && y > 42;
+                closed.set(x, y, near_first || near_second || (x + y) % 29 == 0);
+            }
+        }
+
+        let mut expected = BinaryImage::new(width, height);
+        let mut actual = BinaryImage::new(width, height);
+        for cluster in clusters.components() {
+            let label = cluster.label;
+            let full_seed = BinaryImage::from_fn_parallel(width, height, |x, y| {
+                seed.get(x, y) && clusters.label_at(x, y) == label
+            });
+            let full_growth = dilate(&full_seed, growth_radius, growth_radius);
+            let full_mask = BinaryImage::from_fn_parallel(width, height, |x, y| {
+                (closed.get(x, y) || seed.get(x, y)) && full_growth.get(x, y)
+            });
+            let full_region = reconstruct_binary(&full_seed, &full_mask);
+            expected = expected.or(&full_region);
+
+            let Some((left, top, local_region)) =
+                reconstruct_cluster_region(&seed, &closed, &clusters, cluster, growth_radius)
+            else {
+                panic!("non-empty cluster produced no local region");
+            };
+            for y in 0..local_region.height() {
+                for x in 0..local_region.width() {
+                    if local_region.get(x, y) {
+                        actual.set(left + x, top + y, true);
+                    }
+                }
+            }
+        }
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn box_mean_gray_writes_a_tight_visible_output_for_padded_input() {
+        let width = 9;
+        let height = 7;
+        let mut image = GrayImage::with_stride(width, height, width + 5, 3);
+        for y in 0..height {
+            for x in 0..width {
+                image.set(x, y, (x * 11 + y * 17) as u8);
+            }
+        }
+        let output = box_mean_gray(&image, 1);
+        assert_eq!(output.stride(), width);
+        for y in 0..height {
+            for x in 0..width {
+                let left = x.saturating_sub(1);
+                let top = y.saturating_sub(1);
+                let right = (x + 2).min(width);
+                let bottom = (y + 2).min(height);
+                let mut sum = 0u64;
+                for sample_y in top..bottom {
+                    for sample_x in left..right {
+                        sum += u64::from(image.get(sample_x, sample_y));
+                    }
+                }
+                let count = ((right - left) * (bottom - top)) as u64;
+                assert_eq!(output.get(x, y), (sum / count) as u8);
+            }
+        }
     }
 
     /// Developer diagnostic: run the halftone classifier on an external image.

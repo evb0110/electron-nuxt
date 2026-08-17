@@ -8,9 +8,7 @@ import type {
     INativeScanCleanupPageMetadataV3,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
-import {
-    getScanCleanupPageOverride,
-} from '@contracts/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import type {
     IDetectedPageRaster,
     IPdfMrcLayers,
@@ -25,6 +23,7 @@ import {
     type IScanCleanupRect,
     mapLosslessAnalysisRectToPdf,
 } from '@scan-cleanup-core/policy/documentCanvas';
+import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@scan-cleanup-core/buildScanCleanupSourceMrcForegroundPdfMatrix';
 import {
     buildScanCleanupPageOpsInstructions,
     serializeLegacyScanCleanupPageOpsInstructions,
@@ -91,37 +90,12 @@ export function sourceMrcForegroundPdfMatrix(
             + 'because its cleanup geometry is not affine in the source orientation',
         );
     }
-    const inputScaleX = metadata.inputWidthPx / layers.foregroundWidth;
-    const inputScaleY = metadata.inputHeightPx / layers.foregroundHeight;
-    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
-    const contentHeight = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const intrinsicWidth = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
-    const intrinsicHeight = metadata.intrinsicRasterHeightPx ?? metadata.outputHeightPx;
-    const matchScaleX = contentWidth / intrinsicWidth;
-    const matchScaleY = contentHeight / intrinsicHeight;
-    const offsetX = metadata.placementOffsetXPx;
-    const offsetY = metadata.placementOffsetYPx;
-    const sourceToCanvas = {
-        a: matrix[0]![0]! * inputScaleX * matchScaleX,
-        b: matrix[0]![1]! * inputScaleY * matchScaleX,
-        c: matrix[0]![2]! * matchScaleX + offsetX,
-        d: matrix[1]![0]! * inputScaleX * matchScaleY,
-        e: matrix[1]![1]! * inputScaleY * matchScaleY,
-        f: matrix[1]![2]! * matchScaleY + offsetY,
-    };
-    const pointScaleX = pageWidthPoints / metadata.canvasWidthPx;
-    const pointScaleY = pageHeightPoints / metadata.canvasHeightPx;
-    const sourceWidth = layers.foregroundWidth;
-    const sourceHeight = layers.foregroundHeight;
-    const pdfMatrix = [
-        pointScaleX * sourceToCanvas.a * sourceWidth,
-        -pointScaleY * sourceToCanvas.d * sourceWidth,
-        -pointScaleX * sourceToCanvas.b * sourceHeight,
-        pointScaleY * sourceToCanvas.e * sourceHeight,
-        pointScaleX * (sourceToCanvas.b * sourceHeight + sourceToCanvas.c),
-        pageHeightPoints
-        - pointScaleY * (sourceToCanvas.e * sourceHeight + sourceToCanvas.f),
-    ];
+    const pdfMatrix = buildScanCleanupSourceMrcForegroundPdfMatrix(
+        metadata,
+        layers,
+        pageWidthPoints,
+        pageHeightPoints,
+    );
     if (!pdfMatrix.every(Number.isFinite)) {
         throw new Error(
             `Page ${String(output.sourcePageNumber)} produced a non-finite source MRC transform`,

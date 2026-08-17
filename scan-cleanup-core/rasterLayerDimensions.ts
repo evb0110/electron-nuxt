@@ -52,7 +52,7 @@ async function readExactly(
     return offset;
 }
 
-export async function readPngDimensions(path: string) {
+async function inspectPngHeader(path: string, invalidHeaderMessage: string) {
     const handle = await open(path, 'r');
     try {
         const header = Buffer.alloc(26);
@@ -70,32 +70,55 @@ export async function readPngDimensions(path: string) {
                 0x0a,
             ])) !== 0
         ) {
-            throw new Error(`Unable to inspect raster dimensions for ${path}`);
+            throw new Error(invalidHeaderMessage);
         }
         const width = header.readUInt32BE(16);
         const height = header.readUInt32BE(20);
         const colorType = header[25]!;
-        if (
-            width === 0
-            || height === 0
-            || ![
-                0,
-                2,
-                3,
-                4,
-                6,
-            ].includes(colorType)
-        ) {
-            throw new Error(`Invalid PNG header for ${path}`);
-        }
         return {
             width,
             height,
             isColor: colorType === 2 || colorType === 3 || colorType === 6,
+            colorType,
         };
     } finally {
         await handle.close();
     }
+}
+
+export function readPngHeader(path: string) {
+    return inspectPngHeader(path, `Invalid PNG header: ${path}`).then((header) => {
+        return {
+            height: header.height,
+            isColor: header.isColor,
+            width: header.width,
+        };
+    });
+}
+
+export async function readPngDimensions(path: string) {
+    const {
+        colorType,
+        width,
+        height,
+    } = await inspectPngHeader(path, `Unable to inspect raster dimensions for ${path}`);
+    if (
+        width === 0
+        || height === 0
+        || ![
+            0,
+            2,
+            3,
+            4,
+            6,
+        ].includes(colorType)
+    ) {
+        throw new Error(`Invalid PNG header for ${path}`);
+    }
+    return {
+        width,
+        height,
+    };
 }
 
 async function inspectNetpbm(

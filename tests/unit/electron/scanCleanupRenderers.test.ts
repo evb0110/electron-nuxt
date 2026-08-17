@@ -5,38 +5,35 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as FsPromises from 'node:fs/promises';
 import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
 
 const mocks = vi.hoisted(() => ({
-    readPpmRaster: vi.fn(),
+    readPngDimensions: vi.fn(),
     rm: vi.fn(),
-    writeFile: vi.fn(),
 }));
 
-vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPpmRaster: mocks.readPpmRaster}));
-vi.mock('node:fs/promises', () => ({
-    rm: mocks.rm,
-    writeFile: mocks.writeFile,
-}));
+vi.mock('@scan-cleanup-core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
+vi.mock('node:fs/promises', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
+    return {
+        ...actual,
+        rm: mocks.rm,
+    };
+});
 
 describe('createScanCleanupRenderers', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.readPpmRaster.mockResolvedValue({
+        mocks.rm.mockResolvedValue(undefined);
+        mocks.readPngDimensions.mockResolvedValue({
             width: 1,
             height: 1,
             isColor: true,
-            pixels: Buffer.from([
-                0x12,
-                0x34,
-                0x56,
-            ]),
         });
-        mocks.rm.mockResolvedValue(undefined);
-        mocks.writeFile.mockResolvedValue(undefined);
     });
 
-    it('materializes a bounded exact PPM payload and always cleans its scratch file', async () => {
+    it('asks pdftoppm for PNG output without a main-process conversion pass', async () => {
         const runCommand = vi.fn().mockResolvedValue(undefined);
         const {renderPage} = createScanCleanupRenderers(runCommand);
         const controller = new AbortController();
@@ -59,22 +56,32 @@ describe('createScanCleanupRenderers', () => {
             },
         );
 
-        expect(mocks.readPpmRaster).toHaveBeenCalledWith(
-            '/tmp/page.png.source.ppm',
-            {
-                maxDimensionPx: 100,
-                maxPixels: 100,
-                signal: controller.signal,
-            },
+        expect(runCommand).toHaveBeenCalledWith(
+            '/bin/pdftoppm',
+            [
+                '-png',
+                '-cropbox',
+                '-r',
+                '300',
+                '-f',
+                '1',
+                '-l',
+                '1',
+                '-singlefile',
+                '/tmp/source.pdf',
+                '/tmp/page',
+            ],
+            expect.objectContaining({signal: controller.signal}),
         );
-        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/page.png', expect.any(Uint8Array));
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png.source.ppm', {force: true});
+        expect(mocks.readPngDimensions).toHaveBeenCalledWith('/tmp/page.png');
     });
 
-    it('does not publish and still cleans scratch when exact PPM validation fails', async () => {
+    it('preserves the renderer error when failed cleanup cannot remove the output', async () => {
         const runCommand = vi.fn().mockResolvedValue(undefined);
+        const rendererError = new Error('renderer produced an invalid PNG');
+        mocks.readPngDimensions.mockRejectedValue(rendererError);
+        mocks.rm.mockRejectedValue(new Error('cleanup failed'));
         const {renderPage} = createScanCleanupRenderers(runCommand);
-        mocks.readPpmRaster.mockRejectedValueOnce(new Error('Surplus PPM payload'));
 
         await expect(renderPage(
             {pdftoppmBinary: '/bin/pdftoppm'},
@@ -83,9 +90,55 @@ describe('createScanCleanupRenderers', () => {
             '/tmp/source.pdf',
             '/tmp/page.png',
             300,
-        )).rejects.toThrow('Surplus PPM payload');
+        )).rejects.toBe(rendererError);
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
+    });
 
-        expect(mocks.writeFile).not.toHaveBeenCalled();
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png.source.ppm', {force: true});
+    it('removes a partial PNG without masking a command failure', async () => {
+        const rendererError = new Error('pdftoppm failed after opening the output');
+        const runCommand = vi.fn().mockRejectedValue(rendererError);
+        mocks.rm.mockRejectedValue(new Error('cleanup failed'));
+        const {renderPage} = createScanCleanupRenderers(runCommand);
+
+        await expect(renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/source.pdf',
+            '/tmp/page.png',
+            300,
+        )).rejects.toBe(rendererError);
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
+    });
+
+    it('keeps the PPM route available for sidecar-only handoffs', async () => {
+        const runCommand = vi.fn().mockResolvedValue(undefined);
+        const {renderPagePpm} = createScanCleanupRenderers(runCommand);
+
+        await renderPagePpm(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/source.pdf',
+            '/tmp/page.ppm',
+            300,
+        );
+
+        expect(runCommand).toHaveBeenCalledWith(
+            '/bin/pdftoppm',
+            [
+                '-cropbox',
+                '-r',
+                '300',
+                '-f',
+                '1',
+                '-l',
+                '1',
+                '-singlefile',
+                '/tmp/source.pdf',
+                '/tmp/page',
+            ],
+            expect.any(Object),
+        );
     });
 });

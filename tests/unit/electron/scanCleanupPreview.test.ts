@@ -7,10 +7,9 @@ import {
     truncate,
     writeFile,
 } from 'fs/promises';
+import type * as FsPromises from 'fs/promises';
 import {EventEmitter} from 'node:events';
-import {execFile} from 'child_process';
 import {tmpdir} from 'os';
-import {promisify} from 'util';
 import {
     join,
     normalize,
@@ -55,8 +54,6 @@ import {
     mainJobBroker,
 } from '@electron/resources/jobBroker';
 
-const execFileAsync = promisify(execFile);
-
 configureMainJobBroker({
     logicalCpus: 11,
     totalRamBytes: 32 * 1024 ** 3,
@@ -64,6 +61,17 @@ configureMainJobBroker({
     detectedTier: 'high',
     performanceMode: 'auto',
     tier: 'high',
+});
+
+const fsMocks = vi.hoisted(() => ({readFile: vi.fn()}));
+
+vi.mock('fs/promises', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('fs/promises');
+    fsMocks.readFile.mockImplementation(actual.readFile);
+    return {
+        ...actual,
+        readFile: fsMocks.readFile,
+    };
 });
 
 const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
@@ -1272,6 +1280,145 @@ describe('scan cleanup preview', () => {
         expect(manifestDpi).toBe(300);
         expect(manifestAnalysisDpi).toBe(150);
         expect(routingUsesCanonicalInput).toBe(true);
+    });
+
+    it('does not read the full retained PNG when a processing raster is path-only', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([1]),
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+        let processingPath: string | undefined;
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
+            const manifest = JSON.parse(await readFile(args[1], 'utf8')) as {pages: Array<{inputPath: string}>};
+            processingPath = manifest.pages[0]?.inputPath;
+            await originalSidecar(...args);
+        });
+        fsMocks.readFile.mockClear();
+        try {
+            const service = createScanCleanupPreviewService(deps);
+            await previewOf(service, sender(), {
+                ...request,
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                layoutDetectionComplete: true,
+            });
+            const retainedProcessingPath = processingPath;
+            expect(retainedProcessingPath).toMatch(/page-1-300\.png$/u);
+            await rm(retainedProcessingPath!);
+
+            const rerendered = await previewOf(service, sender(), {
+                ...request,
+                requestId: 'path-only-repeat',
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                layoutDetectionComplete: true,
+            });
+
+            expect(rerendered).toMatchObject({
+                pageNumber: 1,
+                outputs: [{metadata: expect.any(Object)}],
+            });
+            expect(vi.mocked(deps.renderPage).mock.calls.map(call => call[5])).toEqual([
+                150,
+                300,
+                300,
+            ]);
+            expect(processingPath).toBe(retainedProcessingPath);
+            await expect(stat(retainedProcessingPath!)).resolves.toMatchObject({size: PNG.byteLength});
+            expect(fsMocks.readFile.mock.calls.filter(([path]) => path === processingPath)).toHaveLength(0);
+        } finally {
+            fsMocks.readFile.mockClear();
+        }
+    });
+
+    it('surfaces a corrupt retained path-only raster without silently rerendering it', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([1]),
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+        let processingPath: string | undefined;
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
+            const manifest = JSON.parse(await readFile(args[1], 'utf8')) as {pages: Array<{inputPath: string}>};
+            processingPath = manifest.pages[0]?.inputPath;
+            await originalSidecar(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        await previewOf(service, sender(), {
+            ...request,
+            layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+            layoutDetectionComplete: true,
+        });
+        expect(processingPath).toMatch(/page-1-300\.png$/u);
+        await truncate(processingPath!, 8);
+        const renderCallsBeforeRetry = vi.mocked(deps.renderPage).mock.calls.length;
+
+        fsMocks.readFile.mockClear();
+        try {
+            await expect(previewOf(service, sender(), {
+                ...request,
+                requestId: 'path-only-corrupt-repeat',
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                layoutDetectionComplete: true,
+            })).rejects.toThrow();
+
+            expect(deps.renderPage).toHaveBeenCalledTimes(renderCallsBeforeRetry);
+            expect(fsMocks.readFile.mock.calls.filter(([path]) => path === processingPath)).toHaveLength(0);
+        } finally {
+            fsMocks.readFile.mockClear();
+        }
+    });
+
+    it('removes a path-only raster canceled after rendering and before retention', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([1]),
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+        const previewSender = sender();
+        let canceled = false;
+        let canceledScratchPath: string | undefined;
+        const originalRenderPage = deps.renderPage;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            args[1]('debug', 'path-only render completed');
+            await originalRenderPage(...args);
+            if (args[5] === 300) {
+                canceledScratchPath = args[4];
+                canceled = service.cancel(previewSender, {
+                    ...request,
+                    invalidateRawCache: false,
+                });
+            }
+        });
+        const service: IScanCleanupPreviewService = createScanCleanupPreviewService(deps);
+
+        await expect(service.preview(previewSender, {
+            ...request,
+            layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+            layoutDetectionComplete: true,
+        })).resolves.toEqual({canceled: true});
+
+        expect(canceled).toBe(true);
+        expect(canceledScratchPath).toBeDefined();
+        await vi.waitFor(async () => {
+            await expect(stat(canceledScratchPath!)).rejects.toMatchObject({code: 'ENOENT'});
+        });
     });
 
     it('renders only the requested zoom region at true output DPI within the tile budget', async () => {
@@ -3462,32 +3609,28 @@ describe('scan cleanup preview', () => {
         expect(streamedPageOneRevisions).toContain(0.9);
     });
 
-    it.runIf(process.platform !== 'win32')('starts detection before the remaining document rasters finish', async () => {
+    it('stages every replayable detection raster before native analysis begins', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const firstRasterStarted = Promise.withResolvers<undefined>();
         const remainingRasters = Promise.withResolvers<undefined>();
-        const fifoPaths: string[] = [];
         const rasterOutputPaths = new Map<number, string>();
         const deliveredPageNumbers: number[] = [];
         let activeRasterizers = 0;
         let peakActiveRasterizers = 0;
-        deps.createRasterPipes = vi.fn(async (paths: readonly string[]) => {
-            fifoPaths.push(...paths);
-            await Promise.all(paths.map(path => writeFile(path, Buffer.alloc(0))));
-        });
-        deps.renderPagePpm = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
+        deps.createRasterPipes = vi.fn();
+        deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
             activeRasterizers += 1;
             peakActiveRasterizers = Math.max(peakActiveRasterizers, activeRasterizers);
             rasterOutputPaths.set(pageNumber, outputPath);
             try {
                 if (pageNumber === 1) {
-                    await writeFile(outputPath, Buffer.from([pageNumber]));
+                    await writeFile(outputPath, pngWithDimensions(1, 1));
                     firstRasterStarted.resolve(undefined);
                     return;
                 }
                 await remainingRasters.promise;
-                await writeFile(outputPath, Buffer.from([pageNumber]));
+                await writeFile(outputPath, pngWithDimensions(1, 1));
             } finally {
                 activeRasterizers -= 1;
             }
@@ -3510,8 +3653,7 @@ describe('scan cleanup preview', () => {
                     const bytes = await readFile(page.inputPath);
                     expect(bytes.byteLength).toBeGreaterThan(0);
                 });
-                const bytes = await readFile(page.inputPath);
-                deliveredPageNumbers.push(bytes[0]!);
+                deliveredPageNumbers.push(page.sourcePageIndex + 1);
             };
             await waitForDelivery(manifest.pages[0]!);
             onProgress({
@@ -3576,39 +3718,31 @@ describe('scan cleanup preview', () => {
         const owner = sender();
         const started = await service.detectAll(owner, detectionRequest);
 
-        await vi.waitFor(() => expect(service.getDetectionJobState(
-            owner,
-            started.jobId,
-            detectionRequest,
-        )?.results).toEqual([expect.objectContaining({pageNumber: 1})]));
-        expect(deps.createRasterPipes).toHaveBeenCalledOnce();
-        expect(peakActiveRasterizers).toBeGreaterThan(1);
-        expect(deps.renderPage).not.toHaveBeenCalled();
-
         remainingRasters.resolve(undefined);
         await vi.waitFor(() => expect(service.getDetectionJobState(
             owner,
             started.jobId,
             detectionRequest,
         )?.status).toBe('completed'));
+        expect(deps.createRasterPipes).not.toHaveBeenCalled();
+        expect(peakActiveRasterizers).toBeGreaterThan(1);
+        expect(deps.renderPage).toHaveBeenCalledTimes(3);
         expect(deliveredPageNumbers).toEqual([
             1,
             2,
             3,
         ]);
-        expect([...rasterOutputPaths.values()]).not.toEqual(fifoPaths);
+        expect(rasterOutputPaths.size).toBe(3);
     });
 
-    it.runIf(process.platform !== 'win32')('removes staged detection rasters when the FIFO consumer fails', async () => {
+    it('removes temporary detection raster paths when native analysis fails', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const stagedPaths: string[] = [];
-        deps.createRasterPipes = vi.fn(async (paths: readonly string[]) => {
-            await execFileAsync('mkfifo', [...paths]);
-        });
-        deps.renderPagePpm = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+        deps.createRasterPipes = vi.fn();
+        deps.renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
             stagedPaths.push(outputPath);
-            await writeFile(outputPath, ppmWithDimensions(1, 1));
+            await writeFile(outputPath, pngWithDimensions(1, 1));
         });
         deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
         deps.runSidecar = vi.fn(async () => {
@@ -3629,16 +3763,14 @@ describe('scan cleanup preview', () => {
         }));
     });
 
-    it.runIf(process.platform !== 'win32')('does not hang when detection aborts during FIFO delivery', async () => {
+    it('does not hang when detection aborts during native analysis', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const sidecarEntered = Promise.withResolvers<undefined>();
         const rasterFinished = Promise.withResolvers<undefined>();
-        deps.createRasterPipes = vi.fn(async (paths: readonly string[]) => {
-            await execFileAsync('mkfifo', [...paths]);
-        });
-        deps.renderPagePpm = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
-            await writeFile(outputPath, ppmWithDimensions(1, 1));
+        deps.createRasterPipes = vi.fn();
+        deps.renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+            await writeFile(outputPath, pngWithDimensions(1, 1));
             rasterFinished.resolve(undefined);
         });
         deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
@@ -3666,7 +3798,7 @@ describe('scan cleanup preview', () => {
             started.jobId,
             detectionRequest,
         )?.status).toBe('canceled'));
-        const stagedPath = vi.mocked(deps.renderPagePpm).mock.calls[0]?.[4];
+        const stagedPath = vi.mocked(deps.renderPage).mock.calls[0]?.[4];
         expect(stagedPath).toBeDefined();
         await expect(stat(stagedPath!)).rejects.toMatchObject({code: 'ENOENT'});
     });
@@ -5882,6 +6014,52 @@ describe('scan cleanup preview', () => {
             started.jobId,
             detectionRequest,
         )?.status).toBe('canceled'));
+    });
+
+    it('does not deliver terminal detection state after a renderer is destroyed', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = Promise.withResolvers<undefined>();
+        deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal, _log, onProgress) => {
+            onProgress({
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            }, {
+                stage: 'page-complete',
+                completedPages: 1,
+                totalPages: 3,
+                pageNumber: 1,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+            });
+            entered.resolve(undefined);
+            await new Promise<void>((_resolve, reject) => {
+                if (signal.aborted) {
+                    reject(signal.reason);
+                    return;
+                }
+                signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+            });
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = lifecycleSender();
+        const started = await service.detectAll(owner, detectionRequest);
+        await entered.promise;
+
+        const sendsBeforeDestroy = owner.send.mock.calls.length;
+        owner.destroyed = true;
+        owner.emit('destroyed');
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('canceled'));
+        expect(owner.send.mock.calls.length).toBe(sendsBeforeDestroy);
+        await service.dispose();
     });
 
     it.each([

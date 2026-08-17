@@ -363,101 +363,83 @@ fn manifest_v3_emits_typed_progress_and_terminal_result() {
     assert!(page_metadata.exists());
 }
 
-#[cfg(unix)]
 #[test]
-fn gated_multi_page_analysis_reports_progress_before_reconciliation_completes() {
-    let scratch = Scratch::new("gated");
-    let input = scratch.path("analysis-progress-input.png");
-    let gated_input = scratch.path("analysis-progress-gate.fifo");
+fn multi_page_analysis_reports_progress_before_reconciliation_completes() {
+    let scratch = Scratch::new("progress-order");
+    let inputs = [
+        scratch.path("analysis-progress-input-1.png"),
+        scratch.path("analysis-progress-input-2.png"),
+    ];
     let manifest = scratch.path("analysis-progress-manifest.json");
     let metadata_paths = [
         scratch.path("analysis-progress-page-1.json"),
         scratch.path("analysis-progress-page-2.json"),
     ];
     let encoded = encode_gray(&GrayImage::new(320, 240, 245)).unwrap();
-    fs::write(&input, &encoded).unwrap();
-    assert!(Command::new("mkfifo")
-        .arg(&gated_input)
-        .status()
-        .unwrap()
-        .success());
+    for input in &inputs {
+        fs::write(input, &encoded).unwrap();
+    }
     let payload = serde_json::json!({
         "version": 3,
         "operation": "analyze",
         "renderMode": "preview",
         "canvasScope": "page",
-        "pages": [
-            {
+        "pages": inputs
+            .iter()
+            .enumerate()
+            .map(|(index, input)| serde_json::json!({
                 "inputPath": input,
-                "sourcePageIndex": 0,
-                "pageMetadataPath": metadata_paths[0],
+                "sourcePageIndex": index,
+                "pageMetadataPath": metadata_paths[index],
                 "options": CleanupOptions::default(),
                 "outputs": [],
-            },
-            {
-                "inputPath": gated_input,
-                "sourcePageIndex": 1,
-                "pageMetadataPath": metadata_paths[1],
-                "options": CleanupOptions::default(),
-                "outputs": [],
-            },
-        ],
+            }))
+            .collect::<Vec<_>>(),
     });
     fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
         .args(["--manifest", manifest.to_str().unwrap()])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
+        .output()
         .unwrap();
-    let stdout = child.stdout.take().unwrap();
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let reader = std::thread::spawn(move || {
-        let mut events = Vec::new();
-        for line in BufReader::new(stdout).lines() {
-            let event = serde_json::from_str::<Value>(&line.unwrap()).unwrap();
-            sender.send(event.clone()).unwrap();
-            events.push(event);
-        }
-        events
-    });
-
-    let first_analyzed = loop {
-        match receiver.recv_timeout(Duration::from_secs(60)) {
-            Ok(event) if event["progress"]["stage"] == "page-analyzed" => break event,
-            Ok(event) => assert_ne!(event["progress"]["stage"], "page-complete"),
-            Err(error) => {
-                let _ = child.kill();
-                panic!("analysis progress did not arrive while the second page was gated: {error}");
-            }
-        }
-    };
-    assert_eq!(first_analyzed["progress"]["completedPages"], 1);
-    assert_eq!(first_analyzed["progress"]["pageNumber"], 1);
-    assert_eq!(
-        first_analyzed["progress"]["classification"],
-        "single-uncut-page"
-    );
-    assert!(first_analyzed["progress"]["confidence"].is_number());
     assert!(
-        child.try_wait().unwrap().is_none(),
-        "the gated second page should keep batch reconciliation pending"
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
     );
-
-    fs::write(&gated_input, encoded).unwrap();
-    let status = child.wait().unwrap();
-    let events = reader.join().unwrap();
-    assert!(status.success());
-    let first_analysis_index = events
+    let events = String::from_utf8(result.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let analyzed_indices = events
         .iter()
-        .position(|event| event["progress"]["stage"] == "page-analyzed")
-        .unwrap();
-    let last_page_index = events
+        .enumerate()
+        .filter_map(|(index, event)| {
+            (event["progress"]["stage"] == "page-analyzed").then_some(index)
+        })
+        .collect::<Vec<_>>();
+    let complete_indices = events
         .iter()
-        .rposition(|event| event["progress"]["stage"] == "page-complete")
-        .unwrap();
-    assert!(first_analysis_index < last_page_index);
+        .enumerate()
+        .filter_map(|(index, event)| {
+            (event["progress"]["stage"] == "page-complete").then_some(index)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(analyzed_indices.len(), inputs.len());
+    assert_eq!(complete_indices.len(), inputs.len());
+    assert!(
+        analyzed_indices
+            .iter()
+            .all(|index| *index < complete_indices[0]),
+        "all provisional analysis events must precede reconciliation: {events:?}"
+    );
+    let first_analyzed = &events[analyzed_indices[0]]["progress"];
+    assert_eq!(first_analyzed["completedPages"], 1);
+    assert_eq!(first_analyzed["pageNumber"], 1);
+    assert_eq!(first_analyzed["classification"], "single-uncut-page");
+    assert!(first_analyzed["confidence"].is_number());
 }
 
 #[test]
@@ -2687,6 +2669,138 @@ fn fallback_spread_analysis_matches_canonical_leaf_ink_and_content() {
             assert!(
                 (fallback_extent - reference_extent).abs() <= reference_extent * 0.05,
                 "{half} fallback content box {dimension} diverged: \
+                 fallback={fallback_extent} canonical={reference_extent}",
+            );
+        }
+    }
+}
+
+/// The same fallback/canonical parity must hold when the source crosses the
+/// analysis edge ceiling. This keeps the fixed-plane split invariant covered
+/// on the path that actually downsamples to `MAX_ANALYSIS_EDGE`, not only on a
+/// source that is merely below the ceiling.
+#[test]
+fn over_analysis_edge_spread_analysis_matches_canonical_leaf_ink_and_content() {
+    let scratch = Scratch::new("fallback-spread-over-analysis-edge");
+    let (width, height) = (2504, 1600);
+    let mut spread = GrayImage::new(width, height, 255);
+    for y in 80..height - 80 {
+        for x in 80..width - 80 {
+            spread.set(x, y, 225);
+        }
+    }
+    for row in 0..18 {
+        let top = 180 + row * 65;
+        for word in 0..13 {
+            for y in top..top + 8 {
+                for x in 120 + word * 80..168 + word * 80 {
+                    spread.set(x, y, 20);
+                }
+                for x in 1400 + word * 80..1448 + word * 80 {
+                    spread.set(x, y, 20);
+                }
+            }
+        }
+    }
+    let canonical = spread.resample_to_dimensions(1252, 800);
+    let spread_path = scratch.path("spread.png");
+    let canonical_path = scratch.path("canonical.png");
+    fs::write(&spread_path, encode_gray(&spread).unwrap()).unwrap();
+    fs::write(&canonical_path, encode_gray(&canonical).unwrap()).unwrap();
+
+    let run = |label: &str, with_canonical: bool| {
+        let mut page = serde_json::json!({
+            "inputPath": spread_path,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": scratch.path(&format!("{label}-page.json")),
+            "options": {
+                "dpi": 300,
+                "layout": "force-two-page",
+                "normalizeIllumination": false,
+                "cropContent": true,
+                "matchPageSize": false,
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+            },
+            "outputs": [
+                {
+                    "outputPath": scratch.path(&format!("{label}-left.png")),
+                    "metadataPath": scratch.path(&format!("{label}-left.json"))
+                },
+                {
+                    "outputPath": scratch.path(&format!("{label}-right.png")),
+                    "metadataPath": scratch.path(&format!("{label}-right.json"))
+                }
+            ]
+        });
+        if with_canonical {
+            page["analysisInputPath"] = serde_json::json!(canonical_path);
+            page["analysisDpi"] = serde_json::json!(150);
+        }
+        let manifest = scratch.path(&format!("{label}-manifest.json"));
+        fs::write(
+            &manifest,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 3,
+                "operation": "render",
+                "renderMode": "final",
+                "canvasScope": "document",
+                "pages": [page],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{label}: stdout={}\nstderr={}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr),
+        );
+        ["left", "right"].map(|half| {
+            let output = decode_gray(
+                &fs::read(scratch.path(&format!("{label}-{half}.png"))).unwrap(),
+                4_000_000,
+                2000,
+            )
+            .unwrap();
+            let ink = output.data().iter().filter(|&&value| value < 128).count() as f64
+                / (output.width() * output.height()) as f64;
+            let metadata: Value = serde_json::from_slice(
+                &fs::read(scratch.path(&format!("{label}-{half}.json"))).unwrap(),
+            )
+            .unwrap();
+            (ink, metadata)
+        })
+    };
+
+    let fallback = run("fallback", false);
+    let reference = run("canonical", true);
+    for (half, ((fallback_ink, fallback_metadata), (reference_ink, reference_metadata))) in
+        ["left", "right"]
+            .into_iter()
+            .zip(fallback.into_iter().zip(reference))
+    {
+        assert!(
+            fallback_ink > 0.005 && fallback_ink < 0.5,
+            "{half} fallback leaf crossed the analysis edge with implausible ink: {fallback_ink}",
+        );
+        let ink_ratio = fallback_ink / reference_ink.max(f64::EPSILON);
+        assert!(
+            (0.85..=1.15).contains(&ink_ratio),
+            "{half} over-edge fallback leaf diverged from canonical reference: \
+             fallback={fallback_ink} canonical={reference_ink} ratio={ink_ratio}",
+        );
+        for dimension in ["widthPx", "heightPx"] {
+            let fallback_extent = fallback_metadata["contentBox"][dimension].as_f64().unwrap();
+            let reference_extent = reference_metadata["contentBox"][dimension]
+                .as_f64()
+                .unwrap();
+            assert!(
+                (fallback_extent - reference_extent).abs() <= reference_extent * 0.05,
+                "{half} over-edge fallback content box {dimension} diverged: \
                  fallback={fallback_extent} canonical={reference_extent}",
             );
         }

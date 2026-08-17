@@ -21,6 +21,10 @@ const CONFIDENT_SKEW_THRESHOLD: f64 = 2.0;
 const WRONG_SKEW_ERROR_DEGREES: f64 = 1.0;
 const CONTENT_LOSS_FRACTION: f64 = 0.01;
 const BLANK_FLOOD_DENSITY: f64 = 0.05;
+// Comparable metrics are rounded to six decimal places before they reach the
+// report. Keep the comparison tolerant of that representation while still
+// failing on a real directional regression.
+const METRIC_COMPARISON_EPSILON: f64 = 1e-6;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -410,13 +414,13 @@ pub fn compare_catastrophes(
             current.corpus, baseline.corpus
         ));
     }
+    let mut regressions = compare_load_bearing_metrics(&current.metrics, &baseline.metrics);
     let categories = current
         .catastrophes
         .keys()
         .chain(baseline.catastrophes.keys())
         .cloned()
         .collect::<BTreeSet<_>>();
-    let mut regressions = Vec::new();
     for category in categories {
         let current_counters = current.catastrophes.get(&category);
         let baseline_counters = baseline.catastrophes.get(&category);
@@ -447,6 +451,207 @@ pub fn compare_catastrophes(
         }
     }
     Ok(regressions)
+}
+
+fn compare_load_bearing_metrics(current: &MetricReport, baseline: &MetricReport) -> Vec<String> {
+    let mut regressions = Vec::new();
+
+    // These counts describe how much independent fixture truth was actually
+    // evaluated. A lower count would make the other metrics look healthier by
+    // silently dropping cases, so coverage must remain identical for the same
+    // corpus inventory.
+    compare_metric_count(
+        &mut regressions,
+        "metrics.split.evaluated",
+        current.split.evaluated,
+        baseline.split.evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.split.offcutEvaluated",
+        current.split.offcut_evaluated,
+        baseline.split.offcut_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.split.cutterEvaluated",
+        current.split.cutter_evaluated,
+        baseline.split.cutter_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.deskew.evaluated",
+        current.deskew.evaluated,
+        baseline.deskew.evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.content.evaluated",
+        current.content.evaluated,
+        baseline.content.evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.despeckle.pagesEvaluated",
+        current.despeckle.pages_evaluated,
+        baseline.despeckle.pages_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.binarization.pagesEvaluated",
+        current.binarization.pages_evaluated,
+        baseline.binarization.pages_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.binarization.componentPagesEvaluated",
+        current.binarization.component_pages_evaluated,
+        baseline.binarization.component_pages_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.dewarp.curledEvaluated",
+        current.dewarp.curled_evaluated,
+        baseline.dewarp.curled_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.dewarp.flatGuardEvaluated",
+        current.dewarp.flat_guard_evaluated,
+        baseline.dewarp.flat_guard_evaluated,
+    );
+    compare_metric_count(
+        &mut regressions,
+        "metrics.dewarp.photoSparseGuardEvaluated",
+        current.dewarp.photo_sparse_guard_evaluated,
+        baseline.dewarp.photo_sparse_guard_evaluated,
+    );
+
+    // These metrics have independent fixture truth and a clear direction:
+    // error must not increase, overlap/retention must not decrease. Route
+    // counts and other descriptive snapshots remain report-only because an
+    // intentional algorithm routing change is not inherently a regression.
+    compare_metric_upper_bound(
+        &mut regressions,
+        "metrics.split.meanCutterErrorPx",
+        current.split.mean_cutter_error_px,
+        baseline.split.mean_cutter_error_px,
+    );
+    compare_metric_upper_bound(
+        &mut regressions,
+        "metrics.split.maxCutterErrorPx",
+        current.split.max_cutter_error_px,
+        baseline.split.max_cutter_error_px,
+    );
+    compare_metric_upper_bound(
+        &mut regressions,
+        "metrics.deskew.meanAngleErrorDegrees",
+        current.deskew.mean_angle_error_degrees,
+        baseline.deskew.mean_angle_error_degrees,
+    );
+    compare_metric_upper_bound(
+        &mut regressions,
+        "metrics.deskew.maxAngleErrorDegrees",
+        current.deskew.max_angle_error_degrees,
+        baseline.deskew.max_angle_error_degrees,
+    );
+    compare_metric_lower_bound(
+        &mut regressions,
+        "metrics.split.accuracy",
+        current.split.accuracy,
+        baseline.split.accuracy,
+    );
+    compare_metric_lower_bound(
+        &mut regressions,
+        "metrics.content.meanIou",
+        current.content.mean_iou,
+        baseline.content.mean_iou,
+    );
+    compare_metric_lower_bound(
+        &mut regressions,
+        "metrics.content.minimumIou",
+        current.content.minimum_iou,
+        baseline.content.minimum_iou,
+    );
+    compare_metric_upper_bound(
+        &mut regressions,
+        "metrics.content.lostInkPixels",
+        current.content.lost_ink_pixels as f64,
+        baseline.content.lost_ink_pixels as f64,
+    );
+    compare_metric_lower_bound(
+        &mut regressions,
+        "metrics.despeckle.retainedPunctuationRate",
+        current.despeckle.retained_punctuation_rate,
+        baseline.despeckle.retained_punctuation_rate,
+    );
+    compare_metric_upper_bound(
+        &mut regressions,
+        "metrics.binarization.brokenStrokeDelta",
+        current.binarization.broken_stroke_delta as f64,
+        baseline.binarization.broken_stroke_delta as f64,
+    );
+    compare_metric_upper_bound(
+        &mut regressions,
+        "metrics.binarization.pepperDensity",
+        current.binarization.pepper_density,
+        baseline.binarization.pepper_density,
+    );
+    compare_metric_upper_bound(
+        &mut regressions,
+        "metrics.dewarp.dewarpedMeanResidualPx",
+        current.dewarp.dewarped_mean_residual_px,
+        baseline.dewarp.dewarped_mean_residual_px,
+    );
+    compare_metric_lower_bound(
+        &mut regressions,
+        "metrics.dewarp.residualImprovementFraction",
+        current.dewarp.residual_improvement_fraction,
+        baseline.dewarp.residual_improvement_fraction,
+    );
+
+    regressions
+}
+
+fn compare_metric_count(
+    regressions: &mut Vec<String>,
+    name: &str,
+    current: usize,
+    baseline: usize,
+) {
+    if current != baseline {
+        regressions.push(format!("{name}: {current} != baseline {baseline}"));
+    }
+}
+
+fn compare_metric_upper_bound(
+    regressions: &mut Vec<String>,
+    name: &str,
+    current: f64,
+    baseline: f64,
+) {
+    if !current.is_finite() {
+        regressions.push(format!("{name}: current metric is non-finite"));
+        return;
+    }
+    if current > baseline + METRIC_COMPARISON_EPSILON {
+        regressions.push(format!("{name}: {current:.6} > baseline {baseline:.6}"));
+    }
+}
+
+fn compare_metric_lower_bound(
+    regressions: &mut Vec<String>,
+    name: &str,
+    current: f64,
+    baseline: f64,
+) {
+    if !current.is_finite() {
+        regressions.push(format!("{name}: current metric is non-finite"));
+        return;
+    }
+    if current + METRIC_COMPARISON_EPSILON < baseline {
+        regressions.push(format!("{name}: {current:.6} < baseline {baseline:.6}"));
+    }
 }
 
 fn evaluate_split(
@@ -1079,6 +1284,52 @@ mod tests {
         assert!(compare_catastrophes(&swapped, &baseline)
             .unwrap_err()
             .starts_with("corpus inventory differs from baseline:"));
+    }
+
+    #[test]
+    fn load_bearing_metrics_reject_directional_regressions_but_not_route_changes() {
+        let baseline_json = include_str!("../../../harness-baseline.json");
+        let baseline: ComparableReport = serde_json::from_str(baseline_json).unwrap();
+
+        let mut regressed: ComparableReport = serde_json::from_str(baseline_json).unwrap();
+        regressed.metrics.content.minimum_iou -= 0.1;
+        regressed.metrics.split.max_cutter_error_px += 1.0;
+        regressed.metrics.split.offcut_evaluated += 1;
+        let regressions = compare_catastrophes(&regressed, &baseline).unwrap();
+        assert!(regressions
+            .iter()
+            .any(|regression| { regression.starts_with("metrics.content.minimumIou:") }));
+        assert!(regressions
+            .iter()
+            .any(|regression| { regression.starts_with("metrics.split.maxCutterErrorPx:") }));
+        assert!(regressions
+            .iter()
+            .any(|regression| { regression.starts_with("metrics.split.offcutEvaluated:") }));
+
+        let mut route_change: ComparableReport = serde_json::from_str(baseline_json).unwrap();
+        route_change
+            .metrics
+            .binarization
+            .route_counts
+            .insert("otsu".into(), 1);
+        route_change
+            .metrics
+            .binarization
+            .route_counts
+            .insert("wolf".into(), 50);
+        assert!(compare_catastrophes(&route_change, &baseline)
+            .unwrap()
+            .iter()
+            .all(|regression| !regression.contains("routeCounts")));
+
+        let mut non_finite: ComparableReport = serde_json::from_str(baseline_json).unwrap();
+        non_finite.metrics.content.minimum_iou = f64::NAN;
+        assert!(
+            compare_load_bearing_metrics(&non_finite.metrics, &baseline.metrics)
+                .iter()
+                .any(|regression| regression
+                    == "metrics.content.minimumIou: current metric is non-finite")
+        );
     }
 
     #[test]

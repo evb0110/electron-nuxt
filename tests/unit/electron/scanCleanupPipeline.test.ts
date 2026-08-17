@@ -39,6 +39,7 @@ import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
+import {observeScanCleanupAnalysisReleasePromises} from '@scan-cleanup-core/runScanCleanupConversion';
 import {
     resolveReusablePagePlan,
     resolveReusablePagePlanResult,
@@ -504,6 +505,15 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it('observes analysis-release failures after the sidecar has failed', async () => {
+        const log = vi.fn();
+        await expect(observeScanCleanupAnalysisReleasePromises([Promise.reject(new Error('analysis raster release failed'))], log)).resolves.toBeUndefined();
+        expect(log).toHaveBeenCalledWith(
+            'warn',
+            'Failed to release scan cleanup analysis raster: analysis raster release failed',
+        );
+    });
+
     it.each([
         [
             'Auto without a page override',
@@ -865,6 +875,7 @@ describe('scan cleanup pipeline', () => {
             },
         };
         let analyzedOptions: Record<string, unknown> | null = null;
+        const progress = vi.fn();
         let splitInstructions: {pages: Array<{
             sourcePageIndex: number;
             rotationQuarterTurns: number;
@@ -876,7 +887,7 @@ describe('scan cleanup pipeline', () => {
             }}>
         }>} | null = null;
         let losslessUsesCanonicalPair = false;
-        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
                 inputPath: string;
                 analysisInputPath?: string;
@@ -943,6 +954,38 @@ describe('scan cleanup pipeline', () => {
                 outputCount: 0,
                 outputs: [],
             }));
+            for (const [index] of manifest.pages.entries()) {
+                onProgress({
+                    stage: 'classifying',
+                    completedUnits: index + 1,
+                    totalUnits: manifest.pages.length,
+                    percent: (index + 1) / manifest.pages.length * 100,
+                    completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
+                }, {
+                    stage: 'page-analyzed',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: index + 1,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+            for (const [index] of manifest.pages.entries()) {
+                onProgress({
+                    stage: 'classifying',
+                    completedUnits: index + 1,
+                    totalUnits: manifest.pages.length,
+                    percent: (index + 1) / manifest.pages.length * 100,
+                    completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: index + 1,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
@@ -989,7 +1032,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options: losslessOptions,
-        }, pipelinePaths(fixture.dir, true), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir, true), new AbortController().signal, progress, highTierPolicy, undefined, pipelineDependencies);
 
         expect(analyzedOptions).toMatchObject({
             dpi: 150,
@@ -1000,6 +1043,15 @@ describe('scan cleanup pipeline', () => {
             experimental: {autoDewarp: false},
         });
         expect(losslessUsesCanonicalPair).toBe(true);
+        expect(progress.mock.calls
+            .map(([report]) => report as TScanCleanupProgress)
+            .filter(report => report.stage === 'classifying')
+            .map(report => report.completedUnits))
+            .toEqual([
+                0,
+                1,
+                2,
+            ]);
         expect(splitInstructions).toEqual({pages: [{
             sourcePageIndex: 0,
             rotationQuarterTurns: 1,

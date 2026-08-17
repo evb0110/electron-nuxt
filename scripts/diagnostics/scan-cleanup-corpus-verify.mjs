@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 /* eslint-disable max-lines -- The corpus ledger intentionally keeps its end-to-end assertions in one auditable CLI transaction. */
-import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     access,
     mkdir,
-    open,
     readFile,
     readdir,
     rename,
@@ -33,6 +31,7 @@ import {
     resolveFixturePages,
     reusablePagePlan,
 } from './scan-cleanup-corpus-plan.mjs';
+import {runDiagnosticCommand} from './scan-cleanup-command.mjs';
 export {resolveFixturePages} from './scan-cleanup-corpus-plan.mjs';
 
 const CORPUS_BINARIZATION_METHODS = new Set([
@@ -170,10 +169,19 @@ const {
     buildNativeScanCleanupManifest,
     buildScanCleanupCompactManifest,
     buildScanCleanupPageOpsInstructions,
+    DETECTION_DPI,
     resolveScanCleanupRequestedRenderDpi,
     serializeLegacyScanCleanupCompactManifest,
     serializeLegacyScanCleanupPageOpsInstructions,
 } = await tsImport('../../scan-cleanup-core/index.ts', import.meta.url);
+const {buildScanCleanupSourceMrcForegroundPdfMatrix} = await tsImport(
+    '../../scan-cleanup-core/buildScanCleanupSourceMrcForegroundPdfMatrix.ts',
+    import.meta.url,
+);
+const {readPngHeader} = await tsImport(
+    '../../scan-cleanup-core/rasterLayerDimensions.ts',
+    import.meta.url,
+);
 
 function corpusPagePlan(analysis, previewOutputs, analysisDimensions) {
     const plan = reusablePagePlan(analysis, previewOutputs, analysisDimensions);
@@ -261,9 +269,9 @@ const corpusOptions = {
     skipBlankPages: false,
     pageOverrides: {},
 };
-// The production preview service makes the durable Auto decision at 150 DPI.
-// Verify that decision on the same grid, then replay it on final-quality input.
-const DETECTION_DPI = 150;
+// The production preview service makes the durable Auto decision on the
+// canonical detection grid. Verify that decision on the same grid, then replay
+// it on final-quality input.
 // A physical 0.05 mm tolerance is about 0.7 pixels on the current 360-DPI
 // dominant-bilevel grid. It covers coordinate rounding without coupling this
 // exact source-component ledger to whichever render grid policy is active.
@@ -427,45 +435,13 @@ Options:
 }
 
 async function run(command, args, options = {}) {
-    return new Promise((resolveRun, reject) => {
-        const child = spawn(command, args, {
-            cwd: projectRoot,
-            env: {
-                ...process.env,
-                ...options.env,
-            },
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-        });
-        let stdout = '';
-        let stderr = '';
-        child.stdout.setEncoding('utf8');
-        child.stderr.setEncoding('utf8');
-        child.stdout.on('data', chunk => {
-            stdout += chunk;
-        });
-        child.stderr.on('data', chunk => {
-            stderr += chunk;
-        });
-        child.once('error', reject);
-        child.once('exit', code => {
-            if (code !== 0 && !options.allowFailure) {
-                reject(new Error([
-                    `${command} ${args.join(' ')} exited with ${String(code)}`,
-                    stderr.trim(),
-                    stdout.trim(),
-                ].filter(Boolean).join('\n')));
-                return;
-            }
-            resolveRun({
-                code,
-                stderr,
-                stdout,
-            });
-        });
+    return runDiagnosticCommand(command, args, {
+        allowFailure: options.allowFailure,
+        cwd: projectRoot,
+        env: {
+            ...process.env,
+            ...options.env,
+        },
     });
 }
 
@@ -845,13 +821,24 @@ function sourceMrcForegroundPdfMatrix(page, pageWidthPoints, pageHeightPoints) {
         metadata,
         trustedMrcLayers,
     } = page;
+    const positiveFinite = value => typeof value === 'number'
+        && Number.isFinite(value)
+        && value > 0;
     const matrix = metadata.forwardTransform?.matrix;
     if (
         trustedMrcLayers === null
         || trustedMrcLayers === undefined
         || matrix === undefined
-        || metadata.inputWidthPx === undefined
-        || metadata.inputHeightPx === undefined
+        || !positiveFinite(metadata.inputWidthPx)
+        || !positiveFinite(metadata.inputHeightPx)
+        || !positiveFinite(metadata.outputWidthPx)
+        || !positiveFinite(metadata.outputHeightPx)
+        || (metadata.intrinsicRasterWidthPx !== undefined
+            && metadata.intrinsicRasterWidthPx !== null
+            && !positiveFinite(metadata.intrinsicRasterWidthPx))
+        || (metadata.intrinsicRasterHeightPx !== undefined
+            && metadata.intrinsicRasterHeightPx !== null
+            && !positiveFinite(metadata.intrinsicRasterHeightPx))
         || metadata.rotationDegrees !== 0
         || metadata.dewarpMapping != null
     ) {
@@ -859,33 +846,12 @@ function sourceMrcForegroundPdfMatrix(page, pageWidthPoints, pageHeightPoints) {
             `Page ${page.sourcePageNumber} cannot preserve source MRC foreground geometry`,
         );
     }
-    const inputScaleX = metadata.inputWidthPx / trustedMrcLayers.foregroundWidth;
-    const inputScaleY = metadata.inputHeightPx / trustedMrcLayers.foregroundHeight;
-    const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
-    const contentHeight = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
-    const matchScaleX = contentWidth / metadata.outputWidthPx;
-    const matchScaleY = contentHeight / metadata.outputHeightPx;
-    const sourceToCanvas = {
-        a: matrix[0][0] * inputScaleX * matchScaleX,
-        b: matrix[0][1] * inputScaleY * matchScaleX,
-        c: matrix[0][2] * matchScaleX + metadata.placementOffsetXPx,
-        d: matrix[1][0] * inputScaleX * matchScaleY,
-        e: matrix[1][1] * inputScaleY * matchScaleY,
-        f: matrix[1][2] * matchScaleY + metadata.placementOffsetYPx,
-    };
-    const pointScaleX = pageWidthPoints / metadata.canvasWidthPx;
-    const pointScaleY = pageHeightPoints / metadata.canvasHeightPx;
-    const sourceWidth = trustedMrcLayers.foregroundWidth;
-    const sourceHeight = trustedMrcLayers.foregroundHeight;
-    return [
-        pointScaleX * sourceToCanvas.a * sourceWidth,
-        -pointScaleY * sourceToCanvas.d * sourceWidth,
-        -pointScaleX * sourceToCanvas.b * sourceHeight,
-        pointScaleY * sourceToCanvas.e * sourceHeight,
-        pointScaleX * (sourceToCanvas.b * sourceHeight + sourceToCanvas.c),
-        pageHeightPoints
-        - pointScaleY * (sourceToCanvas.e * sourceHeight + sourceToCanvas.f),
-    ];
+    return buildScanCleanupSourceMrcForegroundPdfMatrix(
+        metadata,
+        trustedMrcLayers,
+        pageWidthPoints,
+        pageHeightPoints,
+    );
 }
 
 function compactSourceInstruction(page, pageBox) {
@@ -983,37 +949,6 @@ async function rasterize(pdfPath, pageNumber, dpi, outputPrefix) {
     return outputPath;
 }
 
-async function readPngHeader(path) {
-    const handle = await open(path, 'r');
-    try {
-        const header = Buffer.alloc(26);
-        const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
-        if (
-            bytesRead !== header.byteLength
-            || header.subarray(0, 8).compare(Buffer.from([
-                0x89,
-                0x50,
-                0x4e,
-                0x47,
-                0x0d,
-                0x0a,
-                0x1a,
-                0x0a,
-            ])) !== 0
-        ) {
-            throw new Error(`Invalid PNG header: ${path}`);
-        }
-        const colorType = header[25];
-        return {
-            height: header.readUInt32BE(20),
-            isColor: colorType === 2 || colorType === 3 || colorType === 6,
-            width: header.readUInt32BE(16),
-        };
-    } finally {
-        await handle.close();
-    }
-}
-
 function resolveSafeRenderDpi(requestedRenderDpi, maxPixels, sourceDpi, dimensions) {
     const maxDimensionDpi = sourceDpi * Math.min(
         MAX_DIMENSION_PX / dimensions.width,
@@ -1059,6 +994,62 @@ async function readableFile(path) {
     } catch {
         return false;
     }
+}
+
+function buildRenderManifestPage(page, fixtureDir, renderMode) {
+    const isPreview = renderMode === 'preview';
+    const pagePrefix = isPreview ? 'preview' : 'clean';
+    const pageNumber = page.pageNumber;
+    const pageDpi = isPreview ? page.detectionDpi : page.renderDpi;
+    const renderPlan = isPreview
+        ? {
+            // The UI preview is rendered in intrinsic output space. Matched
+            // document canvases are a final-PDF assembly concern and require a
+            // documentCanvas plan that is not available until all sheets exist.
+            matchPageSize: false,
+            ...corpusPagePlan(page.analysis, [], page.detectionDimensions),
+        }
+        : {...corpusPagePlan(page.analysis, page.previewOutputs, page.detectionDimensions)};
+    return {
+        inputPath: isPreview ? page.detectionRaster : page.renderRaster,
+        ...(page.trustedMrcLayers === null
+            ? {}
+            : {
+                trustedForegroundMaskPath: page.trustedMrcLayers.selectionMaskPath,
+                trustedMrcBackgroundPath: page.trustedMrcLayers.backgroundPath,
+            }),
+        pageNumber,
+        dpi: pageDpi,
+        sourceDpi: page.sourceDpi,
+        ...(page.sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
+        ...(page.sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
+        requestedRenderDpi: isPreview ? page.detectionDpi : page.requestedRenderDpi,
+        pageMetadataPath: join(fixtureDir, `${pagePrefix}-${pageNumber}-page.json`),
+        resolvedOutputMode: page.analysis.recommendedOutputMode,
+        ...(page.analysis.softAlphaForegroundRecommendation === undefined
+            ? {}
+            : {preferSoftAlphaForeground: page.analysis.softAlphaForegroundRecommendation}),
+        resolvedOptions: renderPlan,
+        outputs: [
+            0,
+            1,
+        ].map(index => {
+            const outputPrefix = `${pagePrefix}-${pageNumber}-${index}`;
+            const tonePreservationOutput = isPreview
+                ? {}
+                : {tonePreservationAlphaOutputPath: join(fixtureDir, `${outputPrefix}-tone-preservation-alpha.png`)};
+            return {
+                outputPath: join(fixtureDir, `${outputPrefix}.png`),
+                metadataPath: join(fixtureDir, `${outputPrefix}.json`),
+                bilevelOutputPath: join(fixtureDir, `${outputPrefix}.pbm`),
+                backgroundOutputPath: join(fixtureDir, `${outputPrefix}-background.png`),
+                foregroundMaskOutputPath: join(fixtureDir, `${outputPrefix}-mask.pbm`),
+                foregroundAlphaOutputPath: join(fixtureDir, `${outputPrefix}-alpha.pgm`),
+                pictureMaskOutputPath: join(fixtureDir, `${outputPrefix}-picture-mask.pbm`),
+                ...tonePreservationOutput,
+            };
+        }),
+    };
 }
 
 export function parsePdfImages(output) {
@@ -1447,45 +1438,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         ),
     })));
 
-    const previewPages = pageRuns.map(page => ({
-        inputPath: page.detectionRaster,
-        ...(page.trustedMrcLayers === null
-            ? {}
-            : {
-                trustedForegroundMaskPath: page.trustedMrcLayers.selectionMaskPath,
-                trustedMrcBackgroundPath: page.trustedMrcLayers.backgroundPath,
-            }),
-        pageNumber: page.pageNumber,
-        dpi: page.detectionDpi,
-        sourceDpi: page.sourceDpi,
-        ...(page.sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
-        ...(page.sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
-        requestedRenderDpi: page.detectionDpi,
-        pageMetadataPath: join(fixtureDir, `preview-${page.pageNumber}-page.json`),
-        resolvedOutputMode: page.analysis.recommendedOutputMode,
-        ...(page.analysis.softAlphaForegroundRecommendation === undefined
-            ? {}
-            : {preferSoftAlphaForeground: page.analysis.softAlphaForegroundRecommendation}),
-        resolvedOptions: {
-            // The UI preview is rendered in intrinsic output space. Matched
-            // document canvases are a final-PDF assembly concern and require a
-            // documentCanvas plan that is not available until all sheets exist.
-            matchPageSize: false,
-            ...corpusPagePlan(page.analysis, [], page.detectionDimensions),
-        },
-        outputs: [
-            0,
-            1,
-        ].map(index => ({
-            outputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}.png`),
-            metadataPath: join(fixtureDir, `preview-${page.pageNumber}-${index}.json`),
-            bilevelOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}.pbm`),
-            backgroundOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}-background.png`),
-            foregroundMaskOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}-mask.pbm`),
-            foregroundAlphaOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}-alpha.pgm`),
-            pictureMaskOutputPath: join(fixtureDir, `preview-${page.pageNumber}-${index}-picture-mask.pbm`),
-        })),
-    }));
+    const previewPages = pageRuns.map(page => buildRenderManifestPage(page, fixtureDir, 'preview'));
     const previewManifestPath = join(fixtureDir, 'preview-render-manifest.json');
     const previewManifest = buildNativeScanCleanupManifest({
         operation: 'render',
@@ -1513,43 +1466,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         };
     }));
 
-    const renderPages = previewRuns.map(page => ({
-        inputPath: page.renderRaster,
-        ...(page.trustedMrcLayers === null
-            ? {}
-            : {
-                trustedForegroundMaskPath: page.trustedMrcLayers.selectionMaskPath,
-                trustedMrcBackgroundPath: page.trustedMrcLayers.backgroundPath,
-            }),
-        pageNumber: page.pageNumber,
-        dpi: page.renderDpi,
-        sourceDpi: page.sourceDpi,
-        ...(page.sourceHasBilevelLayer ? {sourceHasBilevelLayer: true} : {}),
-        ...(page.sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
-        requestedRenderDpi: page.requestedRenderDpi,
-        pageMetadataPath: join(fixtureDir, `clean-${page.pageNumber}-page.json`),
-        resolvedOutputMode: page.analysis.recommendedOutputMode,
-        ...(page.analysis.softAlphaForegroundRecommendation === undefined
-            ? {}
-            : {preferSoftAlphaForeground: page.analysis.softAlphaForegroundRecommendation}),
-        resolvedOptions: {...corpusPagePlan(page.analysis, page.previewOutputs, page.detectionDimensions)},
-        outputs: [
-            0,
-            1,
-        ].map(index => ({
-            outputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}.png`),
-            metadataPath: join(fixtureDir, `clean-${page.pageNumber}-${index}.json`),
-            bilevelOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}.pbm`),
-            backgroundOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-background.png`),
-            foregroundMaskOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-mask.pbm`),
-            foregroundAlphaOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-alpha.pgm`),
-            pictureMaskOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-picture-mask.pbm`),
-            tonePreservationAlphaOutputPath: join(
-                fixtureDir,
-                `clean-${page.pageNumber}-${index}-tone-preservation-alpha.png`,
-            ),
-        })),
-    }));
+    const renderPages = previewRuns.map(page => buildRenderManifestPage(page, fixtureDir, 'final'));
     const sourceSheets = previewRuns.flatMap(page => page.previewOutputs.map(output => ({
         heightPoints: output.sourceRegion.heightPx / page.detectionDpi * 72,
         widthPoints: output.sourceRegion.widthPx / page.detectionDpi * 72,

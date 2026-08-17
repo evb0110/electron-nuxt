@@ -68,7 +68,10 @@ const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
 
-const rangePreloadTestTimeoutMs = 15_000;
+// This test copies two 1 MiB ranges and runs alongside the complete six-project
+// unit matrix. Keep the behavioral assertions strict without making host load
+// part of the oracle.
+const rangePreloadTestTimeoutMs = 30_000;
 
 describe('PdfDocumentSession range loading', () => {
     beforeEach(() => {

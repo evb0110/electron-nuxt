@@ -65,11 +65,15 @@ function estimateRawRasterBytes(
             return null;
         }
         const rasterBytesAtDpi = (dpi: number) => {
-            if (!Number.isFinite(dpi) || dpi <= 0) return null;
+            if (!Number.isFinite(dpi) || dpi <= 0) {
+                return null;
+            }
             const width = Math.max(1, Math.ceil(raster.width * dpi / raster.dpi));
             const height = Math.max(1, Math.ceil(raster.height * dpi / raster.dpi));
             const pixelBytes = width * height * 3;
-            if (!Number.isSafeInteger(pixelBytes)) return null;
+            if (!Number.isSafeInteger(pixelBytes)) {
+                return null;
+            }
             const fileOverheadBytes = Math.max(
                 RAW_RASTER_FILE_OVERHEAD_FLOOR_BYTES,
                 Math.ceil(pixelBytes * RAW_RASTER_FILE_OVERHEAD_SHARE),
@@ -89,7 +93,9 @@ function estimateRawRasterBytes(
         let pageBytes = primaryBytes * renderCopies;
         for (const dpi of plan.additionalRenderDpis ?? []) {
             const additionalBytes = rasterBytesAtDpi(dpi);
-            if (additionalBytes === null) return null;
+            if (additionalBytes === null) {
+                return null;
+            }
             pageBytes += additionalBytes;
         }
         if (!Number.isSafeInteger(pageBytes)) {
@@ -215,7 +221,9 @@ export async function mapScanCleanupRasterPages<T, R>(
             results[index] = await task(values[index]!, index);
         }
     });
-    await Promise.all(workers);
+    const settled = await Promise.allSettled(workers);
+    const rejected = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (rejected) throw rejected.reason;
     return results;
 }
 
