@@ -15,6 +15,8 @@ const hostIsPackaged = [
     'linux-x64',
     'win32-x64',
 ].includes(hostResourceDirectory);
+const nativeToolCommandTimeoutMs = 15_000;
+const nativeToolContractTestTimeoutMs = nativeToolCommandTimeoutMs + 5_000;
 
 function nativeToolPath(tool: 'ddjvu' | 'djvused' | 'pdftotext' | 'qpdf') {
     const packageName = tool === 'qpdf'
@@ -38,7 +40,10 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
         const {stdout} = await execFileAsync(nativeToolPath('qpdf'), [
             '--json',
             fixture,
-        ], {maxBuffer: 8 * 1024 * 1024});
+        ], {
+            maxBuffer: 8 * 1024 * 1024,
+            timeout: nativeToolCommandTimeoutMs,
+        });
         const result = JSON.parse(stdout) as {
             pages?: unknown[];
             qpdf?: unknown;
@@ -48,19 +53,19 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
         expect(result.version).toBe(2);
         expect(result.pages).toHaveLength(1);
         expect(result.qpdf).toBeTruthy();
-    });
+    }, nativeToolContractTestTimeoutMs);
 
     it('keeps pdftotext output compatible with the JavaScript text contract', async () => {
         const fixture = resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
         const {stdout} = await execFileAsync(nativeToolPath('pdftotext'), [
             fixture,
             '-',
-        ]);
+        ], {timeout: nativeToolCommandTimeoutMs});
 
         expect(stdout).toContain('Hello Arabic world');
         expect(stdout).toContain('First');
         expect(stdout).toContain('Second text box');
-    });
+    }, nativeToolContractTestTimeoutMs);
 
     it('runs the shipped DjVuLibre command-line pair', async () => {
         const captureStderr = (error: unknown) => ({stderr: error && typeof error === 'object' && 'stderr' in error
@@ -70,13 +75,13 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
             ddjvuHelpResult,
             djvusedVersionResult,
         ] = await Promise.all([
-            execFileAsync(nativeToolPath('ddjvu'), ['--help']).catch((error: unknown) => ({stderr: error && typeof error === 'object' && 'stderr' in error
+            execFileAsync(nativeToolPath('ddjvu'), ['--help'], {timeout: nativeToolCommandTimeoutMs}).catch((error: unknown) => ({stderr: error && typeof error === 'object' && 'stderr' in error
                 ? String(error.stderr)
                 : String(error)})),
-            execFileAsync(nativeToolPath('djvused'), ['--version']).catch(captureStderr),
+            execFileAsync(nativeToolPath('djvused'), ['--version'], {timeout: nativeToolCommandTimeoutMs}).catch(captureStderr),
         ]);
 
         expect(ddjvuHelpResult.stderr).toContain('Usage: ddjvu');
         expect(djvusedVersionResult.stderr).toContain('DjVuLibre-');
-    });
+    }, nativeToolContractTestTimeoutMs);
 });
