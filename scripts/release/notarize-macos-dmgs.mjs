@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+    chmodSync,
     existsSync,
     readFileSync,
     readdirSync,
@@ -15,6 +16,7 @@ import path, {
     resolve,
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import appBuilderBin from 'app-builder-bin';
 
 const DMG_EXTENSION = '.dmg';
 const MAC_METADATA_PATTERN = /^latest-mac.*\.yml$/u;
@@ -366,7 +368,7 @@ function resolveDmgSigningIdentity(artifactsDir, env) {
     return identityMatch?.[1] ?? null;
 }
 
-function findAppBuilderExecutable(projectRoot, {
+export function findAppBuilderExecutable(projectRoot, {
     arch = process.arch,
     env = process.env,
     platform = process.platform,
@@ -398,11 +400,17 @@ function findAppBuilderExecutable(projectRoot, {
         : platform === 'win32'
             ? [join(packageRoot, platformPart, arch, 'app-builder.exe')]
             : [join(packageRoot, platformPart, arch, 'app-builder')];
+    if (platform === process.platform && arch === process.arch) {
+        candidates.unshift(appBuilderBin.appBuilderPath);
+    }
 
     const executable = candidates.find(candidate => existsSync(candidate));
     if (!executable) {
         throw new Error(`No app-builder executable found for ${platform}-${arch}`);
     }
+    // npm packages can lose the executable bit when installed through pnpm;
+    // make the checked-in release tool dependency runnable before spawning it.
+    chmodSync(executable, 0o755);
     return executable;
 }
 

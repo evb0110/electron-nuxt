@@ -239,6 +239,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.1.8
         version: 4.1.8(vitest@4.1.8)
+      app-builder-bin:
+        specifier: 4.2.0
+        version: 4.2.0
       electron:
         specifier: ^43.3.0
         version: 43.3.0
@@ -3969,6 +3972,9 @@ packages:
 
   anynum@1.0.1:
     resolution: {integrity: sha512-N6//FLET/tXYNM/F6ABca1oH6fWB+KlTt909Le28WMDBk8oaT4vY17DCrwg2MvmuqUKt3Ni4N5dGJ/EoBgcO6A==}
+
+  app-builder-bin@4.2.0:
+    resolution: {integrity: sha512-PGXlkukQnroTgAaDZnnppdLzsRJmab6Rh/rJ5fKyYaYhd+FfaORH59/ArkB5dr2cAeYQU5lCeHFEwURaoBO8BA==}
 
   app-builder-lib@26.15.3:
     resolution: {integrity: sha512-2VnyWkqsP5v5XbBhL3tD5Syx8iNPBYsoU7kY4S2fz7wg8Rj/nztWKCUzGKaFRTv0Xwf3/H058CR1Kvtd/3lRow==}
@@ -13738,6 +13744,8 @@ snapshots:
       picomatch: 2.3.2
 
   anynum@1.0.1: {}
+
+  app-builder-bin@4.2.0: {}
 
   app-builder-lib@26.15.3(dmg-builder@26.15.3)(electron-builder-squirrel-windows@26.15.3):
     dependencies:

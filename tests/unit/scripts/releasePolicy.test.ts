@@ -4,7 +4,9 @@ import {
     it,
 } from 'vitest';
 import {
+    accessSync,
     chmodSync,
+    constants,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -189,6 +191,12 @@ interface IMacDmgNotarizationModule {
         readMetadataText: (fileName: string) => string;
     }) => boolean;
     computeArtifactFileInfo: (filePath: string) => IMacUpdaterFileInfo;
+    findAppBuilderExecutable: (projectRoot: string, options?: {
+        arch?: string;
+        env?: TReleaseEnv;
+        platform?: NodeJS.Platform;
+        projectRoot?: string;
+    }) => string;
     notarizeMacDmgArtifacts: (options?: {
         arch?: string;
         artifactsDir?: string;
@@ -327,6 +335,7 @@ const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(
 const {
     assertMacUpdaterMetadataHashes,
     computeArtifactFileInfo,
+    findAppBuilderExecutable,
     notarizeMacDmgArtifacts,
     parseMacUpdaterFileEntries,
     updateMacUpdaterMetadataArtifactInfo,
@@ -421,6 +430,16 @@ function createFakeDmgNotaryTools(binDir: string): string {
 }
 
 describe('release policy', () => {
+    it('resolves a runnable app-builder binary from the pinned release dependency', () => {
+        const executable = findAppBuilderExecutable(resolve(process.cwd()), {
+            arch: 'arm64',
+            platform: 'darwin',
+        });
+
+        expect(existsSync(executable)).toBe(true);
+        expect(() => accessSync(executable, constants.X_OK)).not.toThrow();
+    });
+
     it('derives local release targets from host platform and arch', () => {
         expect(getLocalReleaseTargets({
             arch: 'arm64',

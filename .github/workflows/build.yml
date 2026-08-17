@@ -111,10 +111,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for tool in /c/msys64/usr/bin/pacman.exe /c/msys64/usr/bin/zstd.exe /c/msys64/usr/bin/tar.exe; do
-            test -x "$tool"
+          # Git Bash does not reliably expose the executable bit for native
+          # Windows .exe files. Presence plus an actual invocation is the
+          # portable fail-closed check for the preinstalled MSYS2 tools.
+          for tool in pacman.exe zstd.exe tar.exe; do
+            tool_path="/c/msys64/usr/bin/$tool"
+            if [ ! -f "$tool_path" ]; then
+              echo "::error::MSYS2 ARM64 bundle tool not found at $tool_path"
+              exit 1
+            fi
           done
           /c/msys64/usr/bin/pacman.exe --version
+          /c/msys64/usr/bin/zstd.exe --version
+          /c/msys64/usr/bin/tar.exe --version
 
       # Windows: x64 downloads pre-built release ZIPs; arm64 uses MSYS2 clangarm64
       # on the native ARM64 runner, allowing the packaged sidecar smoke to execute.
