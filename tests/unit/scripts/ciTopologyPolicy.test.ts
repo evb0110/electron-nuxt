@@ -480,6 +480,7 @@ describe('CI topology policy', () => {
         expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
         const publishJob = workflowJob(releaseWorkflow, 'publish');
+        expect(publishJob).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
         expect(publishJob).toContain('gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"');
         expect(publishJob).toContain('gh release download "$RELEASE_TAG" --dir downloaded-assets');
         expect(publishJob).toContain('sha256sum "$source"');
