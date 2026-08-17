@@ -6017,8 +6017,8 @@ mod tests {
             );
             (prepared, timings)
         };
-        let (complete, complete_timings) = prepare(PageRenderPolicy::COMPLETE);
-        let (tile, tile_timings) = prepare(PageRenderPolicy::DETAIL_TILE);
+        let (complete, _) = prepare(PageRenderPolicy::COMPLETE);
+        let (tile, _) = prepare(PageRenderPolicy::DETAIL_TILE);
 
         assert!(
             complete
@@ -6060,10 +6060,13 @@ mod tests {
             complete.calibration.x_height_px
         );
         assert_eq!(tile.calibration.valid, complete.calibration.valid);
-        assert!(
-            tile_timings.normalization_ms < complete_timings.normalization_ms,
-            "skipping the layout stack must cost less, not more: {tile_timings:?} vs {complete_timings:?}",
-        );
+        // The skipped work is pinned above by what the tile policy does not
+        // produce: no picture mask, no text axis, no mode recommendation, an
+        // uncut split. A wall-clock comparison of the two runs added nothing to
+        // that and made the outcome depend on machine load, so it failed under
+        // a parallel test run or a busy CI host while the behaviour was
+        // correct. Stage timers cannot replace it either: they bracket the
+        // skip check itself, so they stay non-zero when the work is skipped.
     }
 
     #[test]
