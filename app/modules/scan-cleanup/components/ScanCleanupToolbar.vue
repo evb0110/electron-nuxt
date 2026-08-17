@@ -365,9 +365,13 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
     /* The phase names the work and is the only variable-width text here; every
        box on the right already reserves its widest string. Sizing the left
-       column to its content and letting the track absorb the remainder keeps
-       the step counter readable instead of ellipsizing it at a fixed third. */
-    grid-template-columns: auto minmax(0, 1fr);
+       column to its content keeps the step counter readable instead of
+       ellipsizing it at a fixed third. The right column floors at its own
+       reserved width because grid maximizes the auto track before the flexible
+       one expands: without that floor a long phase label in any locale would
+       push the track, percentage and caption out of the meter rather than
+       ellipsizing itself. */
+    grid-template-columns: auto minmax(min-content, 1fr);
     gap: var(--app-space-3xl);
     font-size: var(--app-text-size-body-sm);
     white-space: nowrap;
