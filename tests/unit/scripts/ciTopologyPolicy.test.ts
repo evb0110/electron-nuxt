@@ -407,8 +407,14 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable release/linux-unpacked/evb-viewer');
         expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/win-unpacked/EVB Viewer.exe"');
         expect(workflow).toContain('os: windows-11-arm\n            platform: win\n            arch: arm64');
+        expect(workflow).toContain('uses: msys2/setup-msys2@v2');
+        expect(workflow).toContain('msystem: CLANGARM64');
+        expect(workflow).toContain('msys2_root="$(cygpath -u "$MSYS2_LOCATION")"');
         expect(workflow).toContain('name: Verify Windows ARM64 MSYS2 toolchain');
-        expect(workflow).toContain('/c/msys64/usr/bin/pacman.exe --version');
+        expect(workflow).toContain('"$MSYS2_ROOT/usr/bin/pacman.exe" --version');
+        expect(workflow.indexOf('uses: msys2/setup-msys2@v2')).toBeLessThan(
+            workflow.indexOf('name: Verify Windows ARM64 MSYS2 toolchain'),
+        );
         expect(workflow).toContain('run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"');
         expect(workflow).toContain('name: Verify packaged app contents');
         expect(workflow).toContain('unpacked_dir="win-arm64-unpacked"');

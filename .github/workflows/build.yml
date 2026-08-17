@@ -87,6 +87,29 @@ jobs:
       - name: Verify Electron install
         run: pnpm run check:electron:install
 
+      # Windows ARM64 images do not consistently include MSYS2. Install the
+      # toolchain explicitly and publish its actual path for the Git Bash
+      # bundler instead of depending on runner-image contents.
+      - name: Setup MSYS2 for Windows ARM64 bundling
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        id: setup-msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          update: false
+          cache: true
+
+      - name: Export MSYS2 root for Windows ARM64 bundling
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        shell: bash
+        env:
+          MSYS2_LOCATION: ${{ steps.setup-msys2.outputs.msys2-location }}
+        run: |
+          set -euo pipefail
+          msys2_root="$(cygpath -u "$MSYS2_LOCATION")"
+          echo "MSYS2_ROOT=$msys2_root" >> "$GITHUB_ENV"
+          echo "Using MSYS2 root: $msys2_root"
+
       # macOS: install Homebrew tools and run all macOS bundle scripts
       - name: Bundle native tools (macOS)
         if: runner.os == 'macOS'
@@ -113,17 +136,17 @@ jobs:
           set -euo pipefail
           # Git Bash does not reliably expose the executable bit for native
           # Windows .exe files. Presence plus an actual invocation is the
-          # portable fail-closed check for the preinstalled MSYS2 tools.
+          # portable fail-closed check for the installed MSYS2 tools.
           for tool in pacman.exe zstd.exe tar.exe; do
-            tool_path="/c/msys64/usr/bin/$tool"
+            tool_path="$MSYS2_ROOT/usr/bin/$tool"
             if [ ! -f "$tool_path" ]; then
               echo "::error::MSYS2 ARM64 bundle tool not found at $tool_path"
               exit 1
             fi
           done
-          /c/msys64/usr/bin/pacman.exe --version
-          /c/msys64/usr/bin/zstd.exe --version
-          /c/msys64/usr/bin/tar.exe --version
+          "$MSYS2_ROOT/usr/bin/pacman.exe" --version
+          "$MSYS2_ROOT/usr/bin/zstd.exe" --version
+          "$MSYS2_ROOT/usr/bin/tar.exe" --version
 
       # Windows: x64 downloads pre-built release ZIPs; arm64 uses MSYS2 clangarm64
       # on the native ARM64 runner, allowing the packaged sidecar smoke to execute.
