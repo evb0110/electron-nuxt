@@ -6053,9 +6053,32 @@ fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
         "a text spread with no illustration must stay on the bilevel route: {page}",
     );
 
+    // The recto raster begins at the cutter, so its x=0 *is* the fold edge and
+    // a crop starting there still ships the shadow. Assert the shipped result
+    // rather than the coordinate: the shadow is a near-solid column, so if any
+    // of it survived, some column in the inner margin would be almost entirely
+    // ink. The fold fragment this fixture reproduces covers 16% of the page
+    // height; the densest inner-margin text column measures 1%, so 5% cleanly
+    // separates a surviving shadow from ordinary text.
     let recto: Value = serde_json::from_slice(&fs::read(&outputs[1].1).unwrap()).unwrap();
     assert!(
-        recto["cropRect"]["xPx"].as_f64().unwrap() >= 0.0,
-        "the recto crop must not reach back across the fold: {recto}",
+        recto["cropRect"]["xPx"].as_f64().unwrap() > 0.0,
+        "the recto crop must start inside the leaf, not on the fold edge: {recto}",
+    );
+    let shipped = decode_gray(&fs::read(&outputs[1].0).unwrap(), 8_000_000, 4_000).unwrap();
+    let inner_margin = (shipped.width() / 20).max(1);
+    let densest_inner_column = (0..inner_margin)
+        .map(|x| {
+            (0..shipped.height())
+                .filter(|&y| shipped.get(x, y) < 128)
+                .count()
+        })
+        .max()
+        .unwrap_or(0);
+    assert!(
+        densest_inner_column * 20 < shipped.height(),
+        "a fold-shadow column survived into the recto: {densest_inner_column} of \
+         {} rows inked within {inner_margin}px of the fold",
+        shipped.height(),
     );
 }
