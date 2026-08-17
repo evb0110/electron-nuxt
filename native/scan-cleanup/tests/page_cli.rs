@@ -5978,3 +5978,84 @@ fn batch_prior_stabilizes_a_cropped_thin_complete_source_mask_without_removing_i
         .count();
     assert!(output_ink > source_ink);
 }
+
+#[test]
+fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
+    let scratch = Scratch::new("toc-spread-fold-ownership");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/gutter/luther-p3-toc-spread.png");
+    let page_metadata = scratch.path("toc-page.json");
+    let manifest = scratch.path("toc-spread-manifest.json");
+    let outputs = [
+        (scratch.path("toc-left.png"), scratch.path("toc-left.json")),
+        (
+            scratch.path("toc-right.png"),
+            scratch.path("toc-right.json"),
+        ),
+    ];
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": fixture,
+            "sourcePageIndex": 2,
+            "pageMetadataPath": page_metadata,
+            "options": {
+                "dpi": 150,
+                "sourceDpi": 150,
+                "requestedRenderDpi": 150,
+                "binarization": "auto",
+                "thickness": 0,
+                "normalizeIllumination": true,
+                "despeckle": true,
+                "outputMode": "auto",
+                "layout": "auto",
+                "cropContent": true,
+                "matchPageSize": false,
+                "pageAlignment": "top-center",
+            },
+            "outputs": [
+                {"outputPath": outputs[0].0, "metadataPath": outputs[0].1},
+                {"outputPath": outputs[1].0, "metadataPath": outputs[1].1},
+            ],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr),
+    );
+
+    let page: Value = serde_json::from_slice(&fs::read(&page_metadata).unwrap()).unwrap();
+    // The only non-text component on this spread is the foot of the binding
+    // shadow. Owning it costs the reader twice: Auto promotes the page to
+    // Mixed, which publishes materially heavier glyphs than the bilevel text
+    // route, and the crop planner follows the owned pixels back across the
+    // fold and ships the shadow.
+    assert_eq!(
+        page["outputModeDiagnostics"]["pictureFraction"]
+            .as_f64()
+            .unwrap(),
+        0.0,
+        "a binding fold must not be a picture owner: {page}",
+    );
+    assert_eq!(
+        page["recommendedOutputMode"], "bw",
+        "a text spread with no illustration must stay on the bilevel route: {page}",
+    );
+
+    let recto: Value = serde_json::from_slice(&fs::read(&outputs[1].1).unwrap()).unwrap();
+    assert!(
+        recto["cropRect"]["xPx"].as_f64().unwrap() >= 0.0,
+        "the recto crop must not reach back across the fold: {recto}",
+    );
+}
