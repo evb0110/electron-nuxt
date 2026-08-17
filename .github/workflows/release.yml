@@ -150,6 +150,9 @@ jobs:
       - name: Install PDF text test tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
 
+      - name: Install scan-cleanup audit tools
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
