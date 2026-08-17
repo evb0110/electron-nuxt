@@ -203,7 +203,11 @@ describe('app source-shape architecture policy', () => {
 
         expect(toolbarSource).toContain('minmax(0, 1fr)');
         expect(toolbarSource).toContain('minmax(0, var(--app-scan-toolbar-meter-width))');
-        expect(toolbarSource).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 2fr)');
+        // The meter head sizes its phase column to the phase text so the step
+        // counter is never ellipsized, but the readouts opposite it keep their
+        // reserved width, so an over-long phase label ellipsizes itself rather
+        // than pushing the track, percentage and caption out of the meter.
+        expect(toolbarSource).toContain('grid-template-columns: auto minmax(min-content, 1fr)');
         expect(toolbarSource).toContain('width: 100%;');
         expect(toolbarSource).not.toContain('minmax(var(--app-scan-toolbar-right-zone-width), auto)');
         expect(previewShellStyleSource).toMatch(

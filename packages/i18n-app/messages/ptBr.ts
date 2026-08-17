@@ -400,6 +400,7 @@ export default {
             'action': 'Detectar o layout de todas as páginas',
             'redetect': 'Detectar novamente',
             'preAnalyzing': 'Pré-analisando páginas',
+            'reconciling': 'Concluindo a análise…',
             'progressAria': 'Detectando o layout: {detected} de {total} páginas',
             'cancelDetection': 'Parar a detecção de páginas — as páginas já detectadas mantêm o resultado',
             'canceling': 'Cancelando…',

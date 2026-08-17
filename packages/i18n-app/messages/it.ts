@@ -400,6 +400,7 @@ export default {
             'action': 'Rileva il layout per tutte le pagine',
             'redetect': 'Rileva nuovamente',
             'preAnalyzing': 'Pre-analisi delle pagine',
+            'reconciling': 'Completamento dell’analisi…',
             'progressAria': 'Rilevamento del layout: {detected} pagine su {total}',
             'cancelDetection': 'Interrompi il rilevamento delle pagine: le pagine già rilevate mantengono il risultato',
             'canceling': 'Annullamento…',

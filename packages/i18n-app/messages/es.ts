@@ -400,6 +400,7 @@ export default {
             'action': 'Detectar el diseño de todas las páginas',
             'redetect': 'Volver a detectar',
             'preAnalyzing': 'Preanalizando páginas',
+            'reconciling': 'Finalizando el análisis…',
             'progressAria': 'Detección del diseño: {detected} de {total} páginas',
             'cancelDetection': 'Detener la detección de páginas: las páginas ya detectadas conservan su resultado',
             'canceling': 'Cancelando…',
