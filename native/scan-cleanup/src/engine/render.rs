@@ -4408,6 +4408,63 @@ fn trusted_mixed_foreground(
     trusted_foreground.map(|trusted| trusted.subtract(picture_mask))
 }
 
+/// Keeps only the semantic-text components the stencil does not already own.
+///
+/// Text evidence is segmented on the coarser canonical analysis plane and is
+/// nearest-neighbour resampled onto the render grid, so its contours are
+/// quantized to the analysis grid rather than to the rendered scan. Unioning
+/// that evidence pixel by pixel redrew every glyph the binarizer had already
+/// found at the coarser grid's resolution, which published systematically
+/// heavier text than the same page's B&W route. Recalling glyphs the
+/// picture-excluding binarizer dropped outright is what this evidence is for,
+/// and that survives here.
+///
+/// The gate is deliberately "the stencil found nothing of this component", not
+/// the fractional accretion test [`drop_boundary_accretion_clusters`] applies to
+/// faint-ink rescue, for three reasons that were measured rather than argued.
+///
+/// Ownership: stroke geometry belongs to the render-resolution binarizer, and
+/// recall of dark source ink it missed already belongs to
+/// [`rescue_isolated_raw_ink`], which reads the render-resolution source raster
+/// on the very next line. A partially found glyph is a found glyph, so the only
+/// question this coarse evidence can still answer is whether the stencil found
+/// anything at all.
+///
+/// Calibration: the rescue cap is tuned for proposals generated at render
+/// resolution, whose accretion is a one-pixel halo that is almost entirely
+/// adjacent to captured ink. This evidence arrives through a 2x upsample, so its
+/// accretion band is two to three pixels thick and only its inner layer is
+/// adjacent. Applying that cap to the additions here kept 73k pixels on source
+/// spread 5 of the reference scan and 81k on spread 90, of which 99.8% lay
+/// within three pixels of ink the stencil had already captured: the same
+/// outline redraw, retained.
+///
+/// Cost: on the faintest pages of that scan, nothing this gate drops carries
+/// source ink. Of 151,504 pixels dropped on spread 5 and 174,161 on spread 15,
+/// none had a source sample below 128; their median source tone was 241-243
+/// against paper at 253-254 and captured ink at 8-10.
+fn unowned_text_recall(text_mask: &BinaryImage, binary: &BinaryImage) -> BinaryImage {
+    debug_assert_eq!(
+        (text_mask.width(), text_mask.height()),
+        (binary.width(), binary.height()),
+    );
+    let components = ComponentMap::from_binary(text_mask);
+    // Contact is collected in one pass over the stencil. Testing each
+    // component against its own bounding box instead would re-read the pixels
+    // that overlapping bounds share, which on a mask of many long components
+    // costs more than the raster itself. Labels are numbered from one, so
+    // index zero absorbs the background and is never consulted.
+    let mut contacted = vec![false; components.components().len() + 1];
+    for y in 0..binary.height() {
+        for x in 0..binary.width() {
+            if binary.get(x, y) {
+                contacted[components.label_at(x, y) as usize] = true;
+            }
+        }
+    }
+    components.retain(|component| !contacted[component.label as usize])
+}
+
 fn filter_soft_shallow_bleed_components(
     binary: &BinaryImage,
     raw: &GrayImage,
@@ -6303,11 +6360,17 @@ fn clean_region(
                     // look text-like; OR-ing the raw text mask here painted
                     // them into the black stencil and then whitened them out
                     // of the continuous-tone background.
-                    let mut binary = rendered_text_mask
+                    // One recall mask serves both representations. The stencil
+                    // unions it below; soft-alpha composition takes its text
+                    // ownership and per-pixel trust from the same mask. Handing
+                    // the raw evidence to either one puts the coarse-grid halo
+                    // back on the page by a different route.
+                    let text_recall = rendered_text_mask.as_ref().map(|text_mask| {
+                        unowned_text_recall(&text_mask.subtract(picture_mask), &binary)
+                    });
+                    let mut binary = text_recall
                         .as_ref()
-                        .map_or(binary.clone(), |text_mask| {
-                            binary.or(&text_mask.subtract(picture_mask))
-                        });
+                        .map_or(binary.clone(), |recall| binary.or(recall));
                     if matches!(
                         options.binarization,
                         crate::BinarizationMode::Auto | crate::BinarizationMode::Otsu
@@ -6408,7 +6471,7 @@ fn clean_region(
                         picture_mask,
                         rendered_chroma_picture_mask.as_ref(),
                         removed_edge_bands.as_ref(),
-                        rendered_text_mask.as_ref(),
+                        text_recall.as_ref(),
                         rendered_text_vicinity_mask.as_ref(),
                         options.dpi,
                         preserve_confirmed_photo_tones,
