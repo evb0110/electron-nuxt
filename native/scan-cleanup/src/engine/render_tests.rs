@@ -3308,6 +3308,161 @@ mod tests {
         }
     }
 
+    /// Working raster of a text page whose right column carries a tonal plate,
+    /// plus the half-resolution plane that owns every routing decision for it.
+    /// Production always analyses at a fixed 150 DPI while rendering the leaf at
+    /// its own higher DPI, so evidence masks reach the render grid through a
+    /// nearest-neighbour upsample.
+    fn text_page_beside_a_plate_fixture() -> (GrayImage, GrayImage) {
+        let mut working = GrayImage::new(480, 640, 248);
+        for line in 0..14 {
+            let top = 40 + line * 40;
+            for x in (30..260).step_by(11) {
+                for glyph_x in x..x + 3 {
+                    for glyph_y in top..top + 15 {
+                        working.set(glyph_x, glyph_y, 38);
+                    }
+                }
+            }
+        }
+        for y in 60..580 {
+            for x in 300..460 {
+                let value = 40 + ((x * 5 + y * 3) % 170) as u8;
+                working.set(x, y, value);
+            }
+        }
+        let canonical = working.downscale_to_dimensions(240, 320);
+        (working, canonical)
+    }
+
+    fn ink_and_median_run(mask: &BinaryImage, left: usize, right: usize) -> (usize, usize) {
+        let mut ink = 0usize;
+        let mut runs = Vec::new();
+        for y in 0..mask.height() {
+            let mut run = 0usize;
+            for x in left..right {
+                if mask.get(x, y) {
+                    ink += 1;
+                    run += 1;
+                } else if run > 0 {
+                    runs.push(run);
+                    run = 0;
+                }
+            }
+            if run > 0 {
+                runs.push(run);
+            }
+        }
+        runs.sort_unstable();
+        (ink, runs.get(runs.len() / 2).copied().unwrap_or(0))
+    }
+
+    #[test]
+    fn text_recall_completes_missed_components_and_never_redraws_found_ones() {
+        let mut text_mask = BinaryImage::new(40, 20);
+        // A glyph the stencil found nothing of, and the same glyph one row
+        // lower with a single captured pixel: the coarse evidence outlines both
+        // identically, so only stencil contact may separate them.
+        for shape_x in 4..10 {
+            for shape_y in 4..10 {
+                text_mask.set(shape_x, shape_y, true);
+                text_mask.set(shape_x + 20, shape_y, true);
+            }
+        }
+        let mut binary = BinaryImage::new(40, 20);
+        binary.set(26, 6, true);
+
+        let recalled = unowned_text_recall(&text_mask, &binary);
+        assert_eq!(
+            recalled.count_black(),
+            36,
+            "a component the stencil found nothing of must be recalled whole",
+        );
+        assert!(recalled.get(6, 6), "the missed component was not recalled");
+        assert!(
+            !recalled.get(24, 6),
+            "a component the stencil already owns must not be redrawn from coarse evidence",
+        );
+        assert_eq!(
+            recalled.and(&binary).count_black(),
+            0,
+            "recall may not restate pixels the stencil already published",
+        );
+    }
+
+    #[test]
+    fn mixed_keeps_bw_stroke_weight_for_text_beside_a_picture() {
+        let (working, canonical) = text_page_beside_a_plate_fixture();
+        let base = CleanupOptions {
+            dpi: 300.0,
+            crop_content: false,
+            match_page_size: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let render = |options: &CleanupOptions| {
+            let mut timings = PageStageTimings::default();
+            clean_page_with_color_and_calibration_config(
+                &working,
+                None,
+                Some(CanonicalAnalysisPlane {
+                    gray: &canonical,
+                    color: None,
+                    dpi: 150.0,
+                }),
+                None,
+                None,
+                options,
+                0,
+                CalibrationConfig::default(),
+                None,
+                None,
+                PageRenderPolicy::COMPLETE,
+                &mut timings,
+            )
+            .unwrap()
+            .outputs
+            .remove(0)
+        };
+        let bw = render(&base);
+        let CleanupRaster::Bilevel(bw_binary) = &bw.image else {
+            panic!("a black-and-white render keeps the binarizer's packed bits");
+        };
+        let mixed = render(&CleanupOptions {
+            output_mode: OutputMode::Mixed,
+            manual_zones: crate::ManualZones {
+                picture: vec![crate::PictureZone {
+                    polygon: normalized_box_polygon(0.6, 0.05, 0.99, 0.95),
+                    layer: crate::PictureZoneLayer::Painter2,
+                }],
+                fill: vec![],
+            },
+            ..base
+        });
+        let stencil = &mixed
+            .mixed_layers
+            .as_ref()
+            .expect("a Mixed page with picture ownership publishes separable layers")
+            .foreground_mask;
+
+        // Only the text column, clear of the picture zone and its protection
+        // ring, so this measures glyph weight rather than layer ownership.
+        let (bw_ink, bw_run) = ink_and_median_run(bw_binary, 0, 270);
+        let (mixed_ink, mixed_run) = ink_and_median_run(stencil, 0, 270);
+        assert!(bw_ink > 5_000, "the fixture published no B&W text ink");
+        assert!(bw_run > 0, "the fixture published no measurable strokes");
+        assert_eq!(
+            mixed_run, bw_run,
+            "Mixed changed the published stroke width of text that no picture owns \
+             (B&W {bw_run} px, Mixed {mixed_run} px)",
+        );
+        assert!(
+            mixed_ink * 100 <= bw_ink * 110,
+            "Mixed published materially heavier text ink than B&W for the same page \
+             (B&W {bw_ink} px, Mixed {mixed_ink} px)",
+        );
+    }
+
     #[test]
     fn mixed_text_only_output_is_pixel_identical_to_bw() {
         let (source, _) = thin_stroke_fixture();
