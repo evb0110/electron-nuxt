@@ -93,7 +93,7 @@ jobs:
       - name: Setup MSYS2 for Windows ARM64 bundling
         if: runner.os == 'Windows' && matrix.arch == 'arm64'
         id: setup-msys2
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
         with:
           msystem: CLANGARM64
           update: false
