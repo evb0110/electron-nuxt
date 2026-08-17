@@ -1,6 +1,8 @@
 import {PDFDocument} from 'pdf-lib';
 import {
+    copyFileSync,
     existsSync,
+    mkdirSync,
     mkdtempSync,
     readFileSync,
     rmSync,
@@ -23,20 +25,32 @@ const projectRoot = process.cwd();
 
 describe('packaged scan-cleanup release fixture', () => {
     it('keeps a checked-in four-page grayscale source as the fail-closed default', async () => {
-        const fixture = getPackagedScanCleanupFixture({
-            cwd: projectRoot,
-            env: {},
-        });
-        const pdfBytes = readFileSync(fixture.sourcePath);
-        const pdf = await PDFDocument.load(pdfBytes);
-        const pdfSource = pdfBytes.toString('latin1');
+        const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), 'evb-release-fixture-default-'));
+        try {
+            const defaultFixturePath = path.resolve(temporaryRoot, DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE);
+            mkdirSync(path.dirname(defaultFixturePath), {recursive: true});
+            copyFileSync(path.resolve(projectRoot, DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE), defaultFixturePath);
 
-        expect(fixture.sourcePath).toBe(path.resolve(projectRoot, DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE));
-        expect(fixture.expectedPages).toBe(DEFAULT_PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES);
-        expect(existsSync(fixture.sourcePath)).toBe(true);
-        expect(pdf.getPageCount()).toBe(DEFAULT_PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES);
-        expect(pdfSource).toContain('/ColorSpace/DeviceGray');
-        expect(pdfSource).not.toContain('/ColorSpace/DeviceRGB');
+            const fixture = getPackagedScanCleanupFixture({
+                cwd: temporaryRoot,
+                env: {},
+            });
+            const pdfBytes = readFileSync(fixture.sourcePath);
+            const pdf = await PDFDocument.load(pdfBytes);
+            const pdfSource = pdfBytes.toString('latin1');
+
+            expect(fixture.sourcePath).toBe(defaultFixturePath);
+            expect(fixture.expectedPages).toBe(DEFAULT_PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES);
+            expect(existsSync(fixture.sourcePath)).toBe(true);
+            expect(pdf.getPageCount()).toBe(DEFAULT_PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES);
+            expect(pdfSource).toContain('/ColorSpace/DeviceGray');
+            expect(pdfSource).not.toContain('/ColorSpace/DeviceRGB');
+        } finally {
+            rmSync(temporaryRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('supports an explicit fixture and page-count override', () => {
