@@ -18,6 +18,7 @@ import {
     createDefaultScanCleanupSettingsFile,
     decodeScanCleanupSettingsUpdateRequest,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS,
+    SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
 } from '@contracts/scanCleanupSettings';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 
@@ -93,6 +94,49 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(await readFile(filePath, 'utf8')).toBe(futureRaw);
         expect(await readdir(join(filePath, '..'))).toEqual(['scan-cleanup-settings.json']);
         expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('rewrites a pre-ink settings file at the current schema with ink as its alignment', async () => {
+        const filePath = await createStoreFile();
+        const base = createDefaultScanCleanupSettingsFile();
+        await writeFile(filePath, `${JSON.stringify({
+            ...base,
+            schemaVersion: 1,
+            settings: {
+                ...base.settings,
+                pageAlignment: 'top-center',
+                readingOrder: 'rtl',
+            },
+        })}\n`, 'utf8');
+        const store = createScanCleanupSettingsStore({filePath});
+
+        const loaded = await store.get();
+        expect(loaded.settings).toMatchObject({
+            pageAlignment: 'ink',
+            readingOrder: 'rtl',
+        });
+        expect(JSON.parse(await readFile(filePath, 'utf8'))).toMatchObject({
+            schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+            settings: {pageAlignment: 'ink'},
+        });
+    });
+
+    it('treats a legacy renderer export as pre-ink when seeding the settings file', async () => {
+        const filePath = await createStoreFile();
+        const store = createScanCleanupSettingsStore({filePath});
+
+        const seeded = await store.get({legacyStorage: {
+            settingsRaw: JSON.stringify({
+                pageAlignment: 'top-center',
+                readingOrder: 'rtl',
+            }),
+            documentOverridesRaw: '{}',
+            exportedAtMs: 10,
+        }});
+        expect(seeded.settings).toMatchObject({
+            pageAlignment: 'ink',
+            readingOrder: 'rtl',
+        });
     });
 
     it('merges the legacy export into a SHA-256 key with newest-wins semantics', async () => {

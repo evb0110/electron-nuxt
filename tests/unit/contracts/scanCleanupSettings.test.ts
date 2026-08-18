@@ -6,8 +6,10 @@ import {
 import {SCAN_CLEANUP_INPUT_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
     createDefaultScanCleanupSettingsFile,
+    decodeScanCleanupGlobalPreferences,
     decodeScanCleanupSettingsFile,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
+    SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
 } from '@contracts/scanCleanupSettings';
 
 const pageOverride = {
@@ -29,6 +31,40 @@ function pageOverrides(count: number) {
 }
 
 describe('scan-cleanup settings file decoder', () => {
+    it('defaults new preferences to ink placement', () => {
+        expect(createDefaultScanCleanupSettingsFile().settings.pageAlignment).toBe('ink');
+        expect(decodeScanCleanupGlobalPreferences({}).pageAlignment).toBe('ink');
+        expect(decodeScanCleanupGlobalPreferences({pageAlignment: 'top-center'}).pageAlignment)
+            .toBe('top-center');
+    });
+
+    it('migrates the pre-ink schema: its un-chosen top-center becomes ink, explicit choices survive', () => {
+        const base = createDefaultScanCleanupSettingsFile();
+        const preInk = (pageAlignment: string) => ({
+            ...base,
+            schemaVersion: 1,
+            settings: {
+                ...base.settings,
+                pageAlignment,
+            },
+        });
+        expect(decodeScanCleanupSettingsFile(preInk('top-center'))).toMatchObject({
+            schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+            settings: {pageAlignment: 'ink'},
+        });
+        expect(decodeScanCleanupSettingsFile(preInk('bottom-right')).settings.pageAlignment)
+            .toBe('bottom-right');
+        // Schema 2 already knows `ink`, so a stored top-center is a real choice.
+        expect(decodeScanCleanupSettingsFile({
+            ...preInk('top-center'),
+            schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+        }).settings.pageAlignment).toBe('top-center');
+        expect(() => decodeScanCleanupSettingsFile({
+            ...base,
+            schemaVersion: 0,
+        })).toThrow('Unsupported scan-cleanup settings schema version: 0');
+    });
+
     it('drops one corrupt document entry while preserving valid siblings', () => {
         const validOverrides = {'1': pageOverride};
         const firstValidHash = 'a'.repeat(64);

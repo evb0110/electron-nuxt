@@ -23,7 +23,11 @@ import {
 } from '@contracts/scan-cleanup/inputLimits';
 import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
 
-export const SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION = 1 as const;
+export const SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION = 2 as const;
+// Schema 1 predates the `ink` alignment: a stored `top-center` was the
+// un-chosen default of that era, so it migrates to the current default.
+const PRE_INK_SETTINGS_SCHEMA_VERSION = 1;
+const PRE_INK_DEFAULT_ALIGNMENT = 'top-center';
 export const SCAN_CLEANUP_SETTINGS_FILE_NAME = 'scan-cleanup-settings.json';
 export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES = 50;
@@ -49,7 +53,7 @@ export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPrefer
     thickness: 0,
     crop: true,
     matchPageSize: true,
-    pageAlignment: 'top-center',
+    pageAlignment: 'ink',
     marginsMm: Object.freeze({
         leftMm: 5,
         topMm: 5,
@@ -263,7 +267,13 @@ export function decodeScanCleanupMarginsMm(
     };
 }
 
-export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanupGlobalPreferences {
+/** `preInkAlignment`: the stored value predates the `ink` alignment (schema 1 or legacy renderer storage). */
+export interface IScanCleanupPreferenceDecodeOptions {preInkAlignment?: boolean}
+
+export function decodeScanCleanupGlobalPreferences(
+    value: unknown,
+    {preInkAlignment = false}: IScanCleanupPreferenceDecodeOptions = {},
+): IScanCleanupGlobalPreferences {
     const stored = scanCleanupPreferenceRecord(value);
     const defaults = DEFAULT_SCAN_CLEANUP_PREFERENCES;
     if (!stored) {
@@ -310,6 +320,7 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
         matchPageSize: typeof stored.matchPageSize === 'boolean' ? stored.matchPageSize : defaults.matchPageSize,
         pageAlignment: typeof stored.pageAlignment === 'string'
         && (SCAN_CLEANUP_ALIGNMENTS as readonly string[]).includes(stored.pageAlignment)
+        && !(preInkAlignment && stored.pageAlignment === PRE_INK_DEFAULT_ALIGNMENT)
             ? stored.pageAlignment as IScanCleanupGlobalPreferences['pageAlignment']
             : defaults.pageAlignment,
         marginsMm: decodeScanCleanupMarginsMm(stored.marginsMm, legacyMargins),
@@ -393,8 +404,13 @@ export function isScanCleanupSourceSha256(value: unknown): value is string {
 
 export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSettingsFile {
     const stored = scanCleanupPreferenceRecord(value);
-    if (stored?.schemaVersion !== SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION) {
-        throw new Error(`Unsupported scan-cleanup settings schema version: ${String(stored?.schemaVersion ?? 'missing')}`);
+    const schemaVersion = stored?.schemaVersion;
+    if (
+        !stored
+        || (schemaVersion !== SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION
+            && schemaVersion !== PRE_INK_SETTINGS_SCHEMA_VERSION)
+    ) {
+        throw new Error(`Unsupported scan-cleanup settings schema version: ${String(schemaVersion ?? 'missing')}`);
     }
     const storedOverrides = scanCleanupPreferenceRecord(stored.documentOverrides);
     if (!storedOverrides) {
@@ -423,7 +439,10 @@ export function decodeScanCleanupSettingsFile(value: unknown): IScanCleanupSetti
     }
     return {
         schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
-        settings: decodeScanCleanupGlobalPreferences(stored.settings),
+        settings: decodeScanCleanupGlobalPreferences(
+            stored.settings,
+            {preInkAlignment: schemaVersion === PRE_INK_SETTINGS_SCHEMA_VERSION},
+        ),
         documentOverrides,
     };
 }
