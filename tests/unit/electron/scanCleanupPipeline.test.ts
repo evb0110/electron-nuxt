@@ -801,6 +801,58 @@ describe('scan cleanup pipeline', () => {
         );
     });
 
+    it('overlays resolved ink anchors on the pinned plan without touching its evidence', () => {
+        const contentBox = {
+            xNormalized: 0.1,
+            yNormalized: 0.2,
+            widthNormalized: 0.7,
+            heightNormalized: 0.6,
+            rotationDegrees: 0 as const,
+        };
+        const evidence = {'1': {
+            pageNumber: 1,
+            rotationDegrees: 0 as const,
+            layoutClassification: 'single-uncut-page' as const,
+            outputs: {full: {
+                contentBox,
+                detectedSkewDegrees: -0.2,
+            }},
+        }};
+        const pinnedPlan = {
+            automaticContentBoxes: {full: contentBox},
+            automaticSkewDegrees: {full: -0.2},
+        };
+        const anchors = {full: {
+            xNormalized: 0.45,
+            yNormalized: 0.2,
+        }};
+        const layoutByPage = {'1': 'single-uncut-page' as const};
+        const log = vi.fn();
+
+        expect(createPagePlanResolver({
+            options,
+            layoutByPage,
+            pagePlanEvidenceByPage: evidence,
+        }, log, 'final').resolve(1)).toEqual(pinnedPlan);
+        expect(createPagePlanResolver({
+            options,
+            layoutByPage,
+            pagePlanEvidenceByPage: evidence,
+            placementAnchorsByPage: {'1': {}},
+        }, log, 'final').resolve(1)).toEqual(pinnedPlan);
+        const resolver = createPagePlanResolver({
+            options,
+            layoutByPage,
+            pagePlanEvidenceByPage: evidence,
+            placementAnchorsByPage: {'1': anchors},
+        }, log, 'final');
+        expect(resolver.resolve(1)).toEqual({
+            ...pinnedPlan,
+            placementAnchors: anchors,
+        });
+        expect(resolver.resolve(2)).toEqual({});
+    });
+
     it('demand-materializes lazy-original input before scan-cleanup apply', async () => {
         const fixture = await setup();
         const workingCopyPath = join(fixture.dir, 'working.pdf');

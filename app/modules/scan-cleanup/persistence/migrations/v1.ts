@@ -8,6 +8,7 @@ import type {
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
 import {
+    SCAN_CLEANUP_ALIGNMENTS,
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
 } from '@contracts/electronApiScanCleanup';
@@ -51,17 +52,7 @@ function decodePlacementOverrides(value: unknown): IScanCleanupPageOverride['pla
     if (!values) {
         return undefined;
     }
-    const alignments = new Set<IScanCleanupOptions['pageAlignment']>([
-        'top-left',
-        'top-center',
-        'top-right',
-        'center-left',
-        'center',
-        'center-right',
-        'bottom-left',
-        'bottom-center',
-        'bottom-right',
-    ]);
+    const alignments = new Set<IScanCleanupOptions['pageAlignment']>(SCAN_CLEANUP_ALIGNMENTS);
     return Object.fromEntries(OUTPUT_HALVES.flatMap(half => alignments.has(values[half] as IScanCleanupOptions['pageAlignment'])
         ? [[
             half,

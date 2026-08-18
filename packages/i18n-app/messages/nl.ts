@@ -84,6 +84,7 @@ export default {
             'selectionAlignment': 'Plaatsing van inhoud voor geselecteerde pagina\'s',
             'contentPlacement': 'Plaatsing van inhoud',
             'enableMatchPageSize': 'Schakel \'Overeenkomen met paginaformaat\' in Documentinstellingen in om plaatsing te gebruiken.',
+            'inkNeedsContentBoxes': 'Automatisch rechttrekken vervangt de gedetecteerde inhoud, dus de inktplaatsing valt terug op “boven, gecentreerd”.',
             'resetScope': {
                 'all': 'Alle overschrijvingen resetten…',
                 'page': 'Deze pagina opnieuw instellen…',
@@ -320,6 +321,7 @@ export default {
         'pageSize': {
             'match': 'Paginaformaat gelijkmaken aan andere pagina\'s',
             'matchLosslessNote': 'Pagina\'s met een andere resolutie dan het document worden opnieuw gerenderd, zodat elke uitvoerpagina hetzelfde raster deelt.',
+            'ink': 'Houd waar de inkt staat',
             'topLeft': 'Linksboven plaatsen',
             'topCenter': 'Plaats dichtbij de bovenkant, gecentreerd',
             'topRight': 'Rechtsboven plaatsen',

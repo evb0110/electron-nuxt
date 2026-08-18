@@ -1711,6 +1711,87 @@ fn matched_canvas_places_an_automatic_crop_by_content_alignment() {
 }
 
 #[test]
+fn matched_canvas_places_a_crop_where_the_callers_ink_anchor_says_it_sat() {
+    let scratch = Scratch::new("matched-ink-anchor");
+    let input = scratch.path("matched-ink-anchor-input.png");
+    let output = scratch.path("matched-ink-anchor-output.png");
+    let metadata = scratch.path("matched-ink-anchor-output.json");
+    let page_metadata = scratch.path("matched-ink-anchor-page.json");
+    let manifest = scratch.path("matched-ink-anchor-manifest.json");
+    let mut image = GrayImage::new(100, 100, 255);
+    for y in 20..70 {
+        for x in 30..70 {
+            if y % 9 < 3 {
+                image.set(x, y, 20);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 72.0,
+            "heightPoints": 72.0,
+            "widthPx": 100,
+            "heightPx": 100
+        },
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": {
+                "dpi": 100.0,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                "cropContent": true,
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0},
+                "outputMode": "grayscale",
+                "matchPageSize": true,
+                "pageAlignment": "ink",
+                "placementAnchors": {
+                    "full": {"xNormalized": 0.35, "yNormalized": 0.2}
+                },
+                "automaticContentBoxes": {
+                    "full": {
+                        "xNormalized": 0.2,
+                        "yNormalized": 0.1,
+                        "widthNormalized": 0.6,
+                        "heightNormalized": 0.7,
+                        "rotationDegrees": 0
+                    }
+                }
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata}]
+        }]
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let metadata: Value = serde_json::from_slice(&fs::read(metadata).unwrap()).unwrap();
+    assert_eq!(metadata["matchedCanvasContentWidthPx"], 60);
+    assert_eq!(metadata["matchedCanvasContentHeightPx"], 70);
+    // The anchor is the leaf's own ink geometry: its top lands a fifth of the
+    // way down the margin box, and its horizontal centre on the anchored
+    // column, both without shrinking the requested margins.
+    assert_eq!(metadata["placementOffsetYPx"], 20);
+    assert_eq!(metadata["placementOffsetXPx"], 5);
+    assert_native_canvas_owns_image(&metadata);
+}
+
+#[test]
 fn failed_bilevel_publication_falls_back_to_the_composite() {
     let scratch = Scratch::new("failed-bilevel");
     let input = scratch.path("failed-bilevel-input.png");

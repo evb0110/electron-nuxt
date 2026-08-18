@@ -84,6 +84,7 @@ export default {
             'selectionAlignment': 'Posicionamento de conteúdos para páginas selecionadas',
             'contentPlacement': 'Posicionamento de conteúdos',
             'enableMatchPageSize': 'Ative “Corresponder ao tamanho da página” nas definições do documento para utilizar o posicionamento.',
+            'inkNeedsContentBoxes': 'O endireitamento automático substitui o conteúdo detetado, por isso a colocação pela tinta passa a «Em cima ao centro».',
             'resetScope': {
                 'all': 'Repor todas as substituições…',
                 'page': 'Repor esta página…',
@@ -320,6 +321,7 @@ export default {
         'pageSize': {
             'match': 'Igualar o tamanho da página ao das outras páginas',
             'matchLosslessNote': 'As páginas cuja resolução difere do documento são reprocessadas, para que todas as páginas partilhem a mesma grelha.',
+            'ink': 'Manter onde está a tinta',
             'topLeft': 'Coloque no canto superior esquerdo',
             'topCenter': 'Coloque junto ao topo, centralizado',
             'topRight': 'Coloque no canto superior direito',

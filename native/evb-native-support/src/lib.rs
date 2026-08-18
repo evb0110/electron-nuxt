@@ -183,7 +183,7 @@ mod tests {
             (PDF_IMAGE_COMBINE, 4),
             (PDF_PAGE_OPS, 1),
             (PDF_SEARCH, 1),
-            (SCAN_CLEANUP, 7),
+            (SCAN_CLEANUP, 8),
         ];
         assert_eq!(
             ALL_NATIVE_TOOL_DESCRIPTORS,

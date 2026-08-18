@@ -84,6 +84,7 @@ export default {
             'selectionAlignment': 'Posicionamento de conteúdo para páginas selecionadas',
             'contentPlacement': 'Posicionamento de conteúdo',
             'enableMatchPageSize': 'Ative “Corresponder ao tamanho da página” nas configurações do documento para usar o posicionamento.',
+            'inkNeedsContentBoxes': 'A correção automática da curvatura substitui as caixas de conteúdo detectadas, por isso o posicionamento pela tinta passa a «Coloque próximo ao topo, centralizado».',
             'resetScope': {
                 'all': 'Redefinir todas as substituições…',
                 'page': 'Redefinir esta página…',
@@ -320,6 +321,7 @@ export default {
         'pageSize': {
             'match': 'Igualar o tamanho da página ao das outras páginas',
             'matchLosslessNote': 'As páginas cuja resolução difere do documento são reprocessadas, para que todas as páginas compartilhem a mesma grade.',
+            'ink': 'Manter onde está a tinta',
             'topLeft': 'Coloque no canto superior esquerdo',
             'topCenter': 'Coloque próximo ao topo, centralizado',
             'topRight': 'Coloque no canto superior direito',

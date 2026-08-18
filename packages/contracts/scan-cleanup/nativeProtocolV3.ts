@@ -35,6 +35,16 @@ export type TNativeScanCleanupOperation = 'analyze' | 'render';
 export type TNativeScanCleanupRenderMode = 'preview' | 'final';
 export type TNativeScanCleanupAnalysisPurpose = 'classification' | 'page-plan';
 
+/**
+ * A resolved `ink` placement position for one output, in the output leaf's own
+ * normalized frame: the fraction of the free space inside the requested margins
+ * the content's top edge sits at, and where its horizontal centre lands.
+ */
+export interface IScanCleanupPlacementAnchor {
+    xNormalized: number;
+    yNormalized: number;
+}
+
 export interface INativeScanCleanupExperimentalOptionsV3 {
     autoDewarp: boolean;
     autoDewarpDepth?: number;
@@ -79,6 +89,13 @@ export interface INativeScanCleanupOptionsV3 {
      */
     automaticSkewDegrees?: Partial<Record<TScanCleanupOutputHalf, number>>;
     automaticContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
+    /**
+     * Where `ink` alignment puts this output's content inside the matched
+     * canvas, as a fraction of the placement's free space. Resolved by the
+     * renderer across the whole document so pages that agree share one
+     * position; an output without an anchor falls back to top-center.
+     */
+    placementAnchors?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>;
     manualZones?: IScanCleanupManualZones;
     cropContent: boolean;
     matchPageSize: boolean;

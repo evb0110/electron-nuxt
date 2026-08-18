@@ -1119,6 +1119,7 @@ function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>)
         outputModeRecommendation: request.outputModeRecommendation ?? null,
         softAlphaForegroundRecommendation: request.softAlphaForegroundRecommendation ?? null,
         pagePlanEvidence: request.pagePlanEvidence ?? null,
+        placementAnchors: request.placementAnchors ?? null,
         layoutDetectionComplete: request.options.matchPageSize
             ? request.layoutDetectionComplete === true
             : false,
@@ -2163,6 +2164,9 @@ async function runPreview(
                     ? {}
                     : {observedLayout: request.layoutByPage[String(request.pageNumber)]}),
                 ...reusablePagePlan,
+                ...(request.placementAnchors === undefined
+                    ? {}
+                    : {placementAnchors: request.placementAnchors}),
                 pageMetadataPath,
                 outputs,
                 ...(request.documentPrior === undefined ? {} : {documentPrior: request.documentPrior}),
@@ -2346,10 +2350,18 @@ async function runPreview(
                         Math.max(1, Math.round(outputHeightPx * contentScale)),
                     );
                     const canvasOverflow = contentScale < paperScale * (1 - CANVAS_CONTENT_SCALE_EPSILON);
+                    const placementAnchor = request.placementAnchors?.[output.half];
                     const placement = resolveScanCleanupPlacementOffset(
                         innerCanvasWidth - contentWidthPx,
                         innerCanvasHeight - contentHeightPx,
                         pageOverride.placementOverrides?.[output.half] ?? request.options.pageAlignment,
+                        placementAnchor === undefined
+                            ? undefined
+                            : {
+                                anchor: placementAnchor,
+                                contentWidth: contentWidthPx,
+                                contentHeight: contentHeightPx,
+                            },
                     );
                     return {
                         imageData: baseRaw.bytes,

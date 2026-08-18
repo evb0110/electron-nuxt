@@ -138,6 +138,7 @@ export interface IResolveEffectiveScanCleanupOptionsInput {
     automaticSplit?: INativeScanCleanupOptionsV3['automaticSplit'];
     automaticContentBoxes?: INativeScanCleanupOptionsV3['automaticContentBoxes'];
     automaticSkewDegrees?: INativeScanCleanupOptionsV3['automaticSkewDegrees'];
+    placementAnchors?: INativeScanCleanupOptionsV3['placementAnchors'];
     qualityPath: TScanCleanupQualityPath;
     experimental?: IScanCleanupExperimentalOptions;
 }
@@ -364,6 +365,7 @@ export function resolveEffectiveScanCleanupOptions({
     automaticSplit,
     automaticContentBoxes,
     automaticSkewDegrees,
+    placementAnchors,
     qualityPath,
     experimental = DEFAULT_SCAN_CLEANUP_EXPERIMENTAL_OPTIONS,
 }: IResolveEffectiveScanCleanupOptionsInput): IEffectiveNativeScanCleanupOptionsV3 {
@@ -439,6 +441,7 @@ export function resolveEffectiveScanCleanupOptions({
         matchPageSize: options.matchPageSize,
         pageAlignment: options.pageAlignment,
         placementOverrides: pageOverride.placementOverrides ?? {},
+        ...(placementAnchors === undefined ? {} : {placementAnchors}),
         margins: {...resolveScanCleanupMarginsMm(options.marginsMm, pageOverride)},
         experimental: {
             autoDewarp: dewarpRequested,

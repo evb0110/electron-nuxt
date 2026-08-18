@@ -329,6 +329,7 @@ function mountPreviewSession(
             lifecycleDocumentKey: computed(() => lifecycleKey?.value ?? 'reference.pdf'),
             ownerId: 'owner-1',
             pagePlanEvidenceByPage: new Map(),
+            placementAnchorsByPage: computed(() => new Map()),
             previewPage,
             recommendedOutputModeByPage: new Map(),
             softAlphaForegroundRecommendationByPage: new Map(),

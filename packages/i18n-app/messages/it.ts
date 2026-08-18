@@ -84,6 +84,7 @@ export default {
             'selectionAlignment': 'Posizionamento dei contenuti per le pagine selezionate',
             'contentPlacement': 'Posizionamento dei contenuti',
             'enableMatchPageSize': 'Abilita "Adatta alle dimensioni della pagina" nelle impostazioni del documento per utilizzare il posizionamento.',
+            'inkNeedsContentBoxes': 'Il raddrizzamento automatico sostituisce il contenuto rilevato, quindi la posizione dell’inchiostro passa a «In alto al centro».',
             'resetScope': {
                 'all': 'Ripristina tutte le impostazioni specifiche…',
                 'page': 'Reimposta questa pagina…',
@@ -320,6 +321,7 @@ export default {
         'pageSize': {
             'match': 'Abbina le dimensioni della pagina a quelle delle altre pagine',
             'matchLosslessNote': 'Le pagine con una risoluzione diversa da quella del documento vengono rigenerate, così ogni pagina condivide la stessa griglia.',
+            'ink': 'Mantieni dov’è l’inchiostro',
             'topLeft': 'Posiziona in alto a sinistra',
             'topCenter': 'Posiziona vicino alla parte superiore, al centro',
             'topRight': 'Posiziona in alto a destra',

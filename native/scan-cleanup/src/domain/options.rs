@@ -131,17 +131,22 @@ pub enum PageAlignment {
     BottomLeft,
     BottomCenter,
     BottomRight,
+    /// Content lands where the source ink sat, using the caller's per-half
+    /// normalized anchor. Without an anchor this is exactly `TopCenter`: the
+    /// anchor is the whole difference, and a page the caller could not measure
+    /// must not move relative to the pages it is bound with.
+    Ink,
 }
 
 impl PageAlignment {
     pub fn offset(self, available_width: usize, available_height: usize) -> (usize, usize) {
         let x = match self {
             Self::TopLeft | Self::CenterLeft | Self::BottomLeft => 0,
-            Self::TopCenter | Self::Center | Self::BottomCenter => available_width / 2,
+            Self::TopCenter | Self::Center | Self::BottomCenter | Self::Ink => available_width / 2,
             Self::TopRight | Self::CenterRight | Self::BottomRight => available_width,
         };
         let y = match self {
-            Self::TopLeft | Self::TopCenter | Self::TopRight => 0,
+            Self::TopLeft | Self::TopCenter | Self::TopRight | Self::Ink => 0,
             Self::CenterLeft | Self::Center | Self::CenterRight => available_height / 2,
             Self::BottomLeft | Self::BottomCenter | Self::BottomRight => available_height,
         };
@@ -222,6 +227,10 @@ const MANUAL_ZONE_MAX: usize = 256;
 const POLYGON_POINT_MAX: usize = 2_048;
 const MANUAL_ZONE_POINT_MAX: usize = 8_192;
 const POLYGON_EPSILON: f64 = 1e-9;
+/// Complements computed as `1 - x` in a different f64 rounding order can
+/// overshoot 1.0 by ~1e-16; a sub-nanometer tolerance rejects real geometry
+/// errors while accepting float noise.
+const BOUNDS_EPSILON: f64 = 1e-9;
 const POLYGON_AREA_EPSILON: f64 = 1e-12;
 
 fn polygon_cross(a: NormalizedZonePoint, b: NormalizedZonePoint, c: NormalizedZonePoint) -> f64 {
@@ -343,6 +352,31 @@ pub struct PlacementOverrides {
     pub full: Option<PageAlignment>,
     pub left: Option<PageAlignment>,
     pub right: Option<PageAlignment>,
+}
+
+/// Where this leaf's ink sat on the paper it was cut from, normalized against
+/// that leaf's own paper box: `y_normalized` is the ink box's top edge and
+/// `x_normalized` its horizontal centre. The caller owns the measurement and
+/// any document-wide clustering behind it; native only places what it is told.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlacementAnchor {
+    pub x_normalized: f64,
+    pub y_normalized: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlacementAnchors {
+    pub full: Option<PlacementAnchor>,
+    pub left: Option<PlacementAnchor>,
+    pub right: Option<PlacementAnchor>,
+}
+
+impl PlacementAnchors {
+    fn is_empty(&self) -> bool {
+        self.full.is_none() && self.left.is_none() && self.right.is_none()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -467,6 +501,8 @@ pub struct CleanupOptions {
     pub match_page_size: bool,
     pub page_alignment: PageAlignment,
     pub placement_overrides: PlacementOverrides,
+    #[serde(skip_serializing_if = "PlacementAnchors::is_empty")]
+    pub placement_anchors: PlacementAnchors,
     #[serde(rename = "margins")]
     pub margins_mm: Option<MarginsMm>,
     #[serde(skip)]
@@ -515,6 +551,7 @@ impl Default for CleanupOptions {
             match_page_size: true,
             page_alignment: PageAlignment::TopCenter,
             placement_overrides: PlacementOverrides::default(),
+            placement_anchors: PlacementAnchors::default(),
             margins_mm: Some(MarginsMm::default()),
             margins_pixels: None,
             dewarp: None,
@@ -663,10 +700,6 @@ impl CleanupOptions {
         .into_iter()
         .filter_map(|(label, rect)| rect.map(|rect| (label, rect)))
         {
-            // Complements computed as `1 - x` in a different f64 rounding
-            // order can overshoot 1.0 by ~1e-16; a sub-nanometer tolerance
-            // rejects real geometry errors while accepting float noise.
-            const BOUNDS_EPSILON: f64 = 1e-9;
             if ![rect.x, rect.y, rect.width, rect.height]
                 .into_iter()
                 .all(f64::is_finite)
@@ -682,6 +715,27 @@ impl CleanupOptions {
                     "{label} must be positive, bounded, and authored under the page rotation \
                      (x={}, y={}, width={}, height={}, rotation={:?}, page rotation={:?})",
                     rect.x, rect.y, rect.width, rect.height, rect.rotation, self.rotation,
+                ));
+            }
+        }
+        for (label, anchor) in [
+            ("full", self.placement_anchors.full),
+            ("left", self.placement_anchors.left),
+            ("right", self.placement_anchors.right),
+        ]
+        .into_iter()
+        .filter_map(|(label, anchor)| anchor.map(|anchor| (label, anchor)))
+        {
+            if ![anchor.x_normalized, anchor.y_normalized]
+                .into_iter()
+                .all(|value| {
+                    value.is_finite() && (-BOUNDS_EPSILON..=1.0 + BOUNDS_EPSILON).contains(&value)
+                })
+            {
+                return Err(format!(
+                    "{label} placement anchor must be finite and normalized \
+                     (xNormalized={}, yNormalized={})",
+                    anchor.x_normalized, anchor.y_normalized,
                 ));
             }
         }
@@ -795,6 +849,14 @@ impl CleanupOptions {
             PageHalf::Right => self.placement_overrides.right,
         };
         override_value.unwrap_or(self.page_alignment)
+    }
+
+    pub fn placement_anchor_for(&self, half: PageHalf) -> Option<PlacementAnchor> {
+        match half {
+            PageHalf::Full => self.placement_anchors.full,
+            PageHalf::Left => self.placement_anchors.left,
+            PageHalf::Right => self.placement_anchors.right,
+        }
     }
 
     pub fn resolved_split_x(&self, analysis_width: usize) -> Option<f64> {

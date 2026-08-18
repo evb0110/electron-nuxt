@@ -12,6 +12,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
 import {
     getScanCleanupPageOverride,
     toScanCleanupLayoutByPage,
@@ -54,6 +55,7 @@ interface IUseScanCleanupRunSessionOptions {
     documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
     onCompleted: () => void;
     ownerId: string;
+    placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
     previewTotalPages: () => number;
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
     resolvePagePlanEvidence: (pageNumbers: readonly number[]) => ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
@@ -241,6 +243,18 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             : [...options.sourcePageNumbers.value];
         const buildRequest = () => {
             const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
+            // Clustered over the whole document, then narrowed to the pages
+            // this run produces: a partial run has to place its pages where a
+            // full run would have.
+            const placementAnchors = requestedPageNumbers.flatMap(pageNumber => {
+                const anchors = options.placementAnchorsByPage.value.get(pageNumber);
+                return anchors === undefined || Object.keys(anchors).length === 0
+                    ? []
+                    : [[
+                        String(pageNumber),
+                        anchors,
+                    ] as const];
+            });
             return {
                 sourcePdfPath: requestSourcePdfPath,
                 ownerId: options.ownerId,
@@ -267,6 +281,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ...(pagePlanEvidence.size === 0
                     ? {}
                     : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidence)}),
+                ...(placementAnchors.length === 0
+                    ? {}
+                    : {placementAnchorsByPage: Object.fromEntries(placementAnchors)}),
             };
         };
         stopRequested.value = false;

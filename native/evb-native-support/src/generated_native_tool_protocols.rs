@@ -9,7 +9,7 @@ pub const PDF_PAGE_OPS: NativeToolDescriptor = NativeToolDescriptor::new("evb-pd
 
 pub const PDF_SEARCH: NativeToolDescriptor = NativeToolDescriptor::new("evb-pdf-search", 1);
 
-pub const SCAN_CLEANUP: NativeToolDescriptor = NativeToolDescriptor::new("evb-scan-cleanup", 7);
+pub const SCAN_CLEANUP: NativeToolDescriptor = NativeToolDescriptor::new("evb-scan-cleanup", 8);
 
 pub const ALL_NATIVE_TOOL_DESCRIPTORS: &[NativeToolDescriptor] =
     &[PDF_IMAGE_COMBINE, PDF_PAGE_OPS, PDF_SEARCH, SCAN_CLEANUP];

@@ -338,6 +338,7 @@
                     <UButton
                         v-for="item in alignmentItems"
                         :key="item.value"
+                        :class="item.value === 'ink' ? 'scan-cleanup-alignment-ink' : undefined"
                         :aria-label="item.label"
                         :aria-checked="!placementAlignment.mixed && placementAlignment.value === item.value"
                         :color="!placementAlignment.mixed && placementAlignment.value === item.value ? 'primary' : 'neutral'"
@@ -346,11 +347,12 @@
                         role="radio"
                         size="sm"
                         :icon="item.icon"
+                        v-bind="item.value === 'ink' ? {label: item.label} : {}"
                         @click="$emit('update-placement', item.value)"
                     />
                 </div>
                 <p class="scan-cleanup-selection-hint is-reserved is-two-lines">
-                    {{ settings.matchPageSize ? '' : t('scanCleanup.settings.enableMatchPageSize') }}&nbsp;
+                    {{ placementHint }}&nbsp;
                 </p>
             </div>
 
@@ -714,6 +716,20 @@ const emit = defineEmits<{
     'update:scope': [value: TScanCleanupSettingsScope];
 }>();
 const {t} = useTypedI18n();
+// Automatic dewarping replaces the detected content boxes with a reshaped
+// page, so `ink` has nothing to anchor to and every output falls back to the
+// top-centre position. Say so where the choice is made rather than letting the
+// preview quietly disagree with the setting.
+const placementHint = computed(() => {
+    if (!props.settings.matchPageSize) {
+        return t('scanCleanup.settings.enableMatchPageSize');
+    }
+    return !props.placementAlignment.mixed
+        && props.placementAlignment.value === 'ink'
+        && props.settings.autoDewarp === true
+        ? t('scanCleanup.settings.inkNeedsContentBoxes')
+        : '';
+});
 const resetOpen = ref(false);
 const advancedOpen = ref(false);
 const applyPageHintId = 'scan-cleanup-apply-page-hint';

@@ -440,6 +440,7 @@ export default {
             'selectionAlignment': 'Content placement for selected pages',
             'contentPlacement': 'Content placement',
             'enableMatchPageSize': 'Enable “Match page size” in Document settings to use placement.',
+            'inkNeedsContentBoxes': 'Automatic dewarping replaces the detected content, so ink placement falls back to top center.',
             'resetScope': {
                 'all': 'Reset all overrides…',
                 'page': 'Reset this page…',
@@ -676,6 +677,7 @@ export default {
         'pageSize': {
             'match': 'Match page size with other pages',
             'matchLosslessNote': 'Pages whose resolution differs from the document are re-rendered, so every output page shares one grid.',
+            'ink': 'Keep where the ink is',
             'topLeft': 'Place at top left',
             'topCenter': 'Place near top, centered',
             'topRight': 'Place at top right',
