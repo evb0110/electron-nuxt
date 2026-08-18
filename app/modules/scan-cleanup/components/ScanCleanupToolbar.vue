@@ -23,13 +23,27 @@
             <div
                 v-if="isRunning"
                 class="scan-cleanup-run-meter"
-                role="progressbar"
-                :aria-label="t('scanCleanup.runStatusLabel')"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                :aria-valuenow="transitionText ? undefined : normalizedPercent"
-                :aria-valuetext="transitionText || progressText"
             >
+                <ol
+                    class="scan-cleanup-run-phases"
+                    :aria-label="t('scanCleanup.progressPhases.label')"
+                >
+                    <li
+                        v-for="phase in progressPhases"
+                        :key="phase.id"
+                        class="scan-cleanup-run-phase"
+                        :class="{
+                            'scan-cleanup-run-phase--complete': phase.index < activeProgressPhaseIndex,
+                            'scan-cleanup-run-phase--current': phase.id === progressPhase,
+                        }"
+                        :aria-current="phase.id === progressPhase ? 'step' : undefined"
+                    >
+                        <span class="scan-cleanup-run-phase-marker" aria-hidden="true">
+                            {{ phase.index < activeProgressPhaseIndex ? '✓' : phase.index }}
+                        </span>
+                        <span class="scan-cleanup-run-phase-label">{{ phase.label }}</span>
+                    </li>
+                </ol>
                 <div class="scan-cleanup-run-meter-head">
                     <div class="scan-cleanup-run-meter-left">
                         <span
@@ -48,17 +62,21 @@
                         />
                     </div>
                     <div class="scan-cleanup-run-meter-right">
-                        <span class="scan-cleanup-run-meter-track">
+                        <span
+                            class="scan-cleanup-run-meter-track"
+                            role="progressbar"
+                            :aria-label="t('scanCleanup.runStatusLabel')"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            :aria-valuenow="transitionText ? undefined : normalizedPercent ?? undefined"
+                            :aria-valuetext="transitionText || progressText"
+                        >
                             <span
                                 class="scan-cleanup-run-meter-fill"
-                                :style="{width: `${normalizedPercent}%`}"
+                                :class="{'scan-cleanup-run-meter-fill--indeterminate': normalizedPercent === null}"
+                                :style="normalizedPercent === null ? undefined : {width: `${normalizedPercent}%`}"
                             />
                         </span>
-                        <ScanCleanupStableWidthText
-                            class="scan-cleanup-run-meter-percent"
-                            :text="transitionText ? '' : progressPercentText"
-                            :widest="transitionText ? '' : resolvedProgressPercentWidestText"
-                        />
                         <ScanCleanupStableWidthText
                             class="scan-cleanup-run-meter-eta"
                             :text="resolvedProgressEtaText"
@@ -232,12 +250,11 @@ const {
     isRunning,
     outputEstimate,
     percent,
+    progressPhase = 'clean',
     progressCountText,
     progressCountWidestText = '',
     progressEtaText = '',
     progressEtaWidestText = '',
-    progressPercentText,
-    progressPercentWidestText = '',
     progressPhaseText,
     progressText,
     runError = '',
@@ -257,13 +274,12 @@ const {
     isDetecting: boolean;
     isRunning: boolean;
     outputEstimate: string;
-    percent: number;
+    percent: number | null;
+    progressPhase?: 'analyze' | 'clean' | 'finish';
     progressCountText: string;
     progressCountWidestText?: string;
     progressEtaText?: string;
     progressEtaWidestText?: string;
-    progressPercentText: string;
-    progressPercentWidestText?: string;
     progressPhaseText: string;
     progressText: string;
     runError?: string;
@@ -288,10 +304,28 @@ const emit = defineEmits<{
     'update:zoneEditing': [value: boolean];
 }>();
 const {t} = useTypedI18n();
-const normalizedPercent = computed(() => Math.min(100, Math.max(0, Math.round(percent))));
-const resolvedProgressPercentWidestText = computed(() =>
-    progressPercentWidestText || progressPercentText,
-);
+const normalizedPercent = computed(() => percent === null
+    ? null
+    : Math.min(100, Math.max(0, Math.round(percent))));
+const progressPhases = computed(() => ([
+    {
+        id: 'analyze' as const,
+        index: 1,
+        label: t('scanCleanup.progressPhases.analyze'),
+    },
+    {
+        id: 'clean' as const,
+        index: 2,
+        label: t('scanCleanup.progressPhases.clean'),
+    },
+    {
+        id: 'finish' as const,
+        index: 3,
+        label: t('scanCleanup.progressPhases.finish'),
+    },
+]));
+const activeProgressPhaseIndex = computed(() => progressPhases.value
+    .find(phase => phase.id === progressPhase)?.index ?? 2);
 const resolvedProgressEtaText = computed(() => progressEtaText === ''
     ? t('scanCleanup.etaPending')
     : progressEtaText);
@@ -358,6 +392,52 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     display: flex;
     width: 100%;
     flex-direction: column;
+    gap: var(--app-space-xs);
+}
+
+.scan-cleanup-run-phases {
+    display: grid;
+    padding: 0;
+    margin: 0;
+    color: var(--ui-text-dimmed);
+    font-size: var(--app-text-size-kicker);
+    gap: var(--app-space-lg);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    list-style: none;
+}
+
+.scan-cleanup-run-phase {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--app-space-xs);
+}
+
+.scan-cleanup-run-phase--complete {
+    color: var(--ui-text-muted);
+}
+
+.scan-cleanup-run-phase--current {
+    color: var(--ui-primary);
+    font-weight: var(--app-font-weight-heading);
+}
+
+.scan-cleanup-run-phase-marker {
+    display: inline-flex;
+    width: var(--app-space-12xl);
+    height: var(--app-space-12xl);
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border: var(--app-divider-width) solid currentcolor;
+    border-radius: var(--app-radius-full);
+    font-variant-numeric: tabular-nums;
+}
+
+.scan-cleanup-run-phase-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .scan-cleanup-run-meter-head {
@@ -426,11 +506,6 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     font-variant-numeric: tabular-nums;
 }
 
-.scan-cleanup-run-meter-percent {
-    color: var(--ui-text-muted);
-    font-variant-numeric: tabular-nums;
-}
-
 .scan-cleanup-run-meter-track {
     display: block;
     min-width: var(--app-scan-toolbar-progress-min-width);
@@ -447,6 +522,29 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     height: 100%;
     background: var(--ui-primary);
     transition: width var(--app-transition-standard);
+}
+
+.scan-cleanup-run-meter-fill--indeterminate {
+    width: 40%;
+    animation: scan-cleanup-progress-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes scan-cleanup-progress-indeterminate {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(350%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .scan-cleanup-run-meter-fill--indeterminate {
+        width: 100%;
+        animation: none;
+        opacity: var(--app-scan-toolbar-indeterminate-opacity);
+    }
 }
 
 .scan-cleanup-toolbar-redetect {

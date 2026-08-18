@@ -71,19 +71,16 @@ vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
         return 'Pre-analyzing pages';
     }
     if (key === 'scanCleanup.runCount') {
-        return `${String(values?.completed)} / ${String(values?.total)}`;
+        return `${String(values?.completed)} of ${String(values?.total)} pages`;
     }
     if (key === 'scanCleanup.runStatus') {
         return `${String(values?.phase)} — ${String(values?.counter)}`;
     }
     if (key === 'scanCleanup.etaMinutes') {
-        return `About ${String(values?.minutes)} min left`;
+        return `Current task: about ${String(values?.minutes)} min`;
     }
     if (key === 'scanCleanup.etaSeconds') {
-        return `About ${String(values?.seconds)} sec left`;
-    }
-    if (key === 'emptyState.preparingBatchEta') {
-        return `Estimated time left: ${String(values?.eta)}`;
+        return `Current task: about ${String(values?.seconds)} sec`;
     }
     if (key === 'scanCleanup.runProgress.assembling') {
         return 'Building PDF';
@@ -307,7 +304,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession('settled-pages');
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
         const settled = mounted.session.detection.settledPages;
-        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 0 / 3');
+        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 0 of 3 pages');
 
         // Reading the source reports pages one by one and carries no results at
         // all; without this signal every thumbnail spun for the whole stage.
@@ -333,7 +330,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         ]);
         // Source rasters are only inputs. Reporting them as analyzed pages made
         // the visible counter change meaning when native results started.
-        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 0 / 3');
+        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 0 of 3 pages');
 
         // The analysis stage reports a different set; neither replaces the other.
         harness.emitDetection({
@@ -364,8 +361,8 @@ describe('scan cleanup workspace session detection guidance', () => {
             2,
             3,
         ]);
-        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 1 / 3');
-        expect(mounted.session.detection.progressWidestText.value).toBe('Pre-analyzing pages — 3 / 3');
+        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 1 of 3 pages');
+        expect(mounted.session.detection.progressWidestText.value).toBe('Pre-analyzing pages — 3 of 3 pages');
 
         mounted.unmount();
     });
@@ -1053,12 +1050,12 @@ describe('scan cleanup workspace session detection guidance', () => {
         }
         await nextTick();
 
-        expect(mounted.session.detection.progressEtaText.value).toBe('About 3 sec left');
+        expect(mounted.session.detection.progressEtaText.value).toBe('Current task: about 3 sec');
 
         mounted.unmount();
     });
 
-    it('uses the worker ETA across the raster run and switches to terminal labels', async () => {
+    it('shows a scoped ETA only for page work and switches to stable finishing labels', async () => {
         capability.value = capabilityHarness().value;
         const documentKey = `run-eta-${Date.now()}`;
         const mounted = mountSession(documentKey, {totalPages: () => 6});
@@ -1133,14 +1130,14 @@ describe('scan cleanup workspace session detection guidance', () => {
         ];
         const expectedEtaTexts = [
             'scanCleanup.etaPending',
-            'Estimated time left: 2:05',
-            'Estimated time left: 2:00',
-            'Estimated time left: 1:50',
-            'Estimated time left: 1:35',
-            'Building PDF',
-            'Building PDF',
-            'Building PDF',
-            'Opening result',
+            'scanCleanup.etaPending',
+            'scanCleanup.etaPending',
+            'Current task: about 2 min',
+            'Current task: about 2 min',
+            'scanCleanup.finishingPhase',
+            'scanCleanup.almostDone',
+            'scanCleanup.almostDone',
+            'scanCleanup.almostDone',
         ];
 
         for (const [
@@ -1155,8 +1152,16 @@ describe('scan cleanup workspace session detection guidance', () => {
             };
             await nextTick();
             expect(mounted.session.run.progressEtaText.value).toBe(expectedEtaTexts[index]);
-            if (index >= 1) {
+            if (index >= 3) {
                 expect(mounted.session.run.progressEtaText.value).not.toBe('scanCleanup.etaPending');
+            }
+            if (index === 3) {
+                expect(mounted.session.run.progressPhaseText.value).toBe('scanCleanup.runProgress.rasterizing');
+                expect(mounted.session.run.progressPhaseText.value).not.toContain('Step');
+            }
+            if (index === 4) {
+                expect(mounted.session.run.progressPhaseText.value).toBe('scanCleanup.runProgress.rendering');
+                expect(mounted.session.run.progressPhaseText.value).not.toContain('Step');
             }
         }
 
@@ -1468,7 +1473,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             updatedAtMs: partialResultAt,
         });
         await vi.waitFor(() => expect(mounted.session.detection.progressText.value)
-            .toBe('Pre-analyzing pages — 1 / 3'));
+            .toBe('Pre-analyzing pages — 1 of 3 pages'));
         expect(mounted.session.run.canRun.value).toBe(true);
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
@@ -1535,7 +1540,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             updatedAtMs: Date.now() + 1_000,
         });
         await vi.waitFor(() => expect(mounted.session.detection.progressText.value)
-            .toBe('Pre-analyzing pages — 1 / 3'));
+            .toBe('Pre-analyzing pages — 1 of 3 pages'));
 
         const run = mounted.session.run.run();
         await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
