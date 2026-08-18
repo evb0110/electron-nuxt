@@ -15,6 +15,7 @@ import {
     scanCleanupPreferenceRecord,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
+    SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
     type IScanCleanupDocumentOverrideEntry,
     type IScanCleanupLegacyStorageExport,
     type IScanCleanupSettingsFile,
@@ -205,7 +206,7 @@ function readLegacyCandidates(
             );
         } else {
             try {
-                settings = decodeScanCleanupGlobalPreferences(settingsValue);
+                settings = decodeScanCleanupGlobalPreferences(settingsValue, {preInkAlignment: true});
             } catch (error) {
                 recordLegacyMigrationFailure(diagnostics, 'invalidGlobals', error);
             }
@@ -328,6 +329,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                 return {
                     state: createDefaultScanCleanupSettingsFile(),
                     exists: false,
+                    schemaUpgraded: false,
                 };
             }
             throw error;
@@ -346,11 +348,13 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             return {
                 state,
                 exists: true,
+                schemaUpgraded: false,
             };
         }
         return {
             state: decodeScanCleanupSettingsFile(parsed),
             exists: true,
+            schemaUpgraded: scanCleanupPreferenceRecord(parsed)?.schemaVersion !== SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
         };
     }
 
@@ -428,7 +432,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
         const timestamp = now();
         let changed = pruneDocumentOverrides(state, timestamp);
         changed ||= mergeLegacyStorage(state, request, !loaded.exists, timestamp);
-        if (!loaded.exists || changed) {
+        if (!loaded.exists || loaded.schemaUpgraded || changed) {
             await writeState(state);
         }
         return state;
