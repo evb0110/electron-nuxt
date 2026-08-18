@@ -112,7 +112,6 @@ export function placeScanCleanupCanvasBox(
             ? undefined
             : {
                 anchor,
-                contentWidth: content.width,
                 contentHeight: content.height,
             },
     );

@@ -54,14 +54,11 @@ function assertAnchor(
     if (anchor === undefined) {
         return;
     }
-    const values = [
-        anchor.xNormalized,
-        anchor.yNormalized,
-    ];
-    if (!values.every(Number.isFinite) || values.some(value => value < 0 || value > 1)) {
+    const value = anchor.yNormalized;
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
         throw new Error(
             `Scan cleanup page ${String(pageNumber)} has invalid ${half} placement anchor `
-            + `(x=${String(anchor.xNormalized)}, y=${String(anchor.yNormalized)})`,
+            + `(y=${String(value)})`,
         );
     }
 }

@@ -354,14 +354,14 @@ pub struct PlacementOverrides {
     pub right: Option<PageAlignment>,
 }
 
-/// Where this leaf's ink sat on the paper it was cut from, normalized against
-/// that leaf's own paper box: `y_normalized` is the ink box's top edge and
-/// `x_normalized` its horizontal centre. The caller owns the measurement and
-/// any document-wide clustering behind it; native only places what it is told.
+/// How far down the margin box this leaf's ink top goes, as a fraction of the
+/// box's height. `ink` moves content vertically only — horizontally it is
+/// centred exactly like `top-center` — so the anchor carries one axis. The
+/// caller owns the measurement and any document-wide clustering behind it;
+/// native only places what it is told.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlacementAnchor {
-    pub x_normalized: f64,
     pub y_normalized: f64,
 }
 
@@ -726,16 +726,10 @@ impl CleanupOptions {
         .into_iter()
         .filter_map(|(label, anchor)| anchor.map(|anchor| (label, anchor)))
         {
-            if ![anchor.x_normalized, anchor.y_normalized]
-                .into_iter()
-                .all(|value| {
-                    value.is_finite() && (-BOUNDS_EPSILON..=1.0 + BOUNDS_EPSILON).contains(&value)
-                })
-            {
+            let value = anchor.y_normalized;
+            if !value.is_finite() || !(-BOUNDS_EPSILON..=1.0 + BOUNDS_EPSILON).contains(&value) {
                 return Err(format!(
-                    "{label} placement anchor must be finite and normalized \
-                     (xNormalized={}, yNormalized={})",
-                    anchor.x_normalized, anchor.y_normalized,
+                    "{label} placement anchor must be finite and normalized (yNormalized={value})",
                 ));
             }
         }

@@ -10,9 +10,8 @@ import type {
     TScanCleanupPlacementAnchorsByPage,
 } from '@contracts/scanCleanupPageOverrides';
 import {
-    clusterScanCleanupPlacementAnchors,
     getScanCleanupPageOverride,
-    resolveScanCleanupInkAnchor,
+    resolveScanCleanupPlacementAnchors,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
 } from '@contracts/scanCleanupPageOverrides';
 import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
@@ -40,17 +39,16 @@ function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
 }
 
 /**
- * Anchors are normalized against each output leaf, so a millimetre tolerance
- * only becomes a comparable number once it is divided by the largest leaf the
- * document produces — the rectangle the matched canvas settles on. Paper that
- * cannot be measured leaves the tolerance at zero, which still keeps every
- * output on its own ink and only stops pages from snapping together.
+ * Anchors are normalized against the source sheet's height, so a millimetre
+ * tolerance only becomes a comparable number once it is divided by the tallest
+ * sheet the document produces — the rectangle the matched canvas settles on.
+ * Paper that cannot be measured leaves the tolerance at zero, which still keeps
+ * every output on its own ink and only stops pages from snapping together.
  */
 function resolveScanCleanupInkAnchorTolerance(
     samples: readonly IScanCleanupPlacementAnchorSample[],
     metadataByPage: ReadonlyMap<number, IScanCleanupSourcePageMetadata>,
 ) {
-    let widthPoints = 0;
     let heightPoints = 0;
     for (const sample of samples) {
         const metadata = metadataByPage.get(sample.pageNumber);
@@ -58,21 +56,9 @@ function resolveScanCleanupInkAnchorTolerance(
             continue;
         }
         const swapsAxes = (((Math.round(metadata.rotation / 90) % 2) + 2) % 2) === 1;
-        const oriented = {
-            widthPoints: swapsAxes ? metadata.heightPoints : metadata.widthPoints,
-            heightPoints: swapsAxes ? metadata.widthPoints : metadata.heightPoints,
-        };
-        widthPoints = Math.max(
-            widthPoints,
-            oriented.widthPoints / (sample.half === 'full' ? 1 : 2),
-        );
-        heightPoints = Math.max(heightPoints, oriented.heightPoints);
+        heightPoints = Math.max(heightPoints, swapsAxes ? metadata.widthPoints : metadata.heightPoints);
     }
-    const tolerancePoints = SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM;
-    return {
-        x: widthPoints > 0 ? tolerancePoints / widthPoints : 0,
-        y: heightPoints > 0 ? tolerancePoints / heightPoints : 0,
-    };
+    return heightPoints > 0 ? SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM / heightPoints : 0;
 }
 
 interface IUseScanCleanupWorkspaceSessionOptions {
@@ -137,10 +123,11 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourcePath,
         totalPages,
     });
-    // `ink` keeps every output where its source ink was, and pages whose ink
-    // agrees share one position. That comparison is document-wide, so it is
-    // resolved once here rather than per request: the preview the user judges
-    // and the run they start must place a page identically.
+    // `ink` keeps every output at the height its source ink sat relative to
+    // the rest of the document, and pages whose ink agrees share one position.
+    // That comparison is document-wide, so it is resolved once here rather
+    // than per request: the preview the user judges and the run they start
+    // must place a page identically.
     const placementAnchorsByPage = computed<TScanCleanupPlacementAnchorsByPage>(() => {
         const cleanupOptions = resolvedOptions.value;
         if (!usesScanCleanupInkAlignment(cleanupOptions)) {
@@ -163,11 +150,11 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
                 samples.push({
                     pageNumber,
                     half,
-                    ...resolveScanCleanupInkAnchor(box, half),
+                    yNormalized: box.yNormalized,
                 });
             }
         }
-        return clusterScanCleanupPlacementAnchors(
+        return resolveScanCleanupPlacementAnchors(
             samples,
             resolveScanCleanupInkAnchorTolerance(samples, detection.sourcePageMetadataByPage.value),
         );

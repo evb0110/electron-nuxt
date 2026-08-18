@@ -1752,7 +1752,7 @@ fn matched_canvas_places_a_crop_where_the_callers_ink_anchor_says_it_sat() {
                 "matchPageSize": true,
                 "pageAlignment": "ink",
                 "placementAnchors": {
-                    "full": {"xNormalized": 0.35, "yNormalized": 0.2}
+                    "full": {"yNormalized": 0.2}
                 },
                 "automaticContentBoxes": {
                     "full": {
@@ -1783,11 +1783,11 @@ fn matched_canvas_places_a_crop_where_the_callers_ink_anchor_says_it_sat() {
     let metadata: Value = serde_json::from_slice(&fs::read(metadata).unwrap()).unwrap();
     assert_eq!(metadata["matchedCanvasContentWidthPx"], 60);
     assert_eq!(metadata["matchedCanvasContentHeightPx"], 70);
-    // The anchor is the leaf's own ink geometry: its top lands a fifth of the
-    // way down the margin box, and its horizontal centre on the anchored
-    // column, both without shrinking the requested margins.
+    // The anchor is vertical only: the crop's top lands a fifth of the way
+    // down the margin box, while horizontally the crop is centred exactly as
+    // top-center would place it, both without shrinking the requested margins.
     assert_eq!(metadata["placementOffsetYPx"], 20);
-    assert_eq!(metadata["placementOffsetXPx"], 5);
+    assert_eq!(metadata["placementOffsetXPx"], 20);
     assert_native_canvas_owns_image(&metadata);
 }
 

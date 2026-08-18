@@ -657,14 +657,8 @@ describe('native scan-cleanup manifest builder', () => {
                 dpi: 300,
                 pageMetadataPath: '/fixtures/output/page-1.json',
                 placementAnchors: {
-                    full: {
-                        xNormalized: 0.5,
-                        yNormalized: anchorY,
-                    },
-                    left: {
-                        xNormalized: 0.25,
-                        yNormalized: 0.1,
-                    },
+                    full: {yNormalized: anchorY},
+                    left: {yNormalized: 0.1},
                 },
                 outputs: [{
                     outputPath: '/fixtures/output/page-1.png',
@@ -675,14 +669,8 @@ describe('native scan-cleanup manifest builder', () => {
 
         const manifest = build(0.125);
         expect(manifest.pages[0]?.options.placementAnchors).toEqual({
-            full: {
-                xNormalized: 0.5,
-                yNormalized: 0.125,
-            },
-            left: {
-                xNormalized: 0.25,
-                yNormalized: 0.1,
-            },
+            full: {yNormalized: 0.125},
+            left: {yNormalized: 0.1},
         });
         expect(() => assertNativeScanCleanupManifestGeometry(manifest)).not.toThrow();
         expect(() => assertNativeScanCleanupManifestGeometry(build(1.5)))

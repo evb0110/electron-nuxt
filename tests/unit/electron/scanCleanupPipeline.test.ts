@@ -822,10 +822,7 @@ describe('scan cleanup pipeline', () => {
             automaticContentBoxes: {full: contentBox},
             automaticSkewDegrees: {full: -0.2},
         };
-        const anchors = {full: {
-            xNormalized: 0.45,
-            yNormalized: 0.2,
-        }};
+        const anchors = {full: {yNormalized: 0.2}};
         const layoutByPage = {'1': 'single-uncut-page' as const};
         const log = vi.fn();
 
