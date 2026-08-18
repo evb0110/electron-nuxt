@@ -146,23 +146,27 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             return new Map();
         }
         const metadataByPage = detection.sourcePageMetadataByPage.value;
+        const included = [...detection.pagePlanEvidenceByPage].filter(
+            ([pageNumber]) => !getScanCleanupPageOverride(cleanupOptions.pageOverrides, pageNumber).excluded,
+        );
         const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(
-            detection.pagePlanEvidenceByPage.keys(),
+            included.map(([pageNumber]) => pageNumber),
             metadataByPage,
         );
         const samples: IScanCleanupPlacementAnchorSample[] = [];
+        // A sheet that cannot be measured keeps its own-sheet fraction, which
+        // is not comparable with the others; snapping is only meaningful when
+        // every included output speaks the reference height's units.
+        let everySheetMeasured = referenceHeightPoints > 0;
         for (const [
             pageNumber,
             evidence,
-        ] of detection.pagePlanEvidenceByPage) {
+        ] of included) {
             const pageOverride = getScanCleanupPageOverride(cleanupOptions.pageOverrides, pageNumber);
-            if (pageOverride.excluded) {
-                continue;
-            }
             const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber));
-            const scale = referenceHeightPoints > 0 && sheetHeightPoints > 0
-                ? sheetHeightPoints / referenceHeightPoints
-                : 1;
+            const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
+            everySheetMeasured &&= measured;
+            const scale = measured ? sheetHeightPoints / referenceHeightPoints : 1;
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 const box = pageOverride.manualContentBoxes?.[half] ?? evidence.outputs[half]?.contentBox;
                 if (box === undefined) {
@@ -177,7 +181,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         }
         return resolveScanCleanupPlacementAnchors(
             samples,
-            referenceHeightPoints > 0
+            everySheetMeasured
                 ? SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM / referenceHeightPoints
                 : 0,
         );
