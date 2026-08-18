@@ -6100,6 +6100,110 @@ fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
     );
 }
 
+#[test]
+fn forced_bw_matched_canvas_routes_the_blank_verso_corner_rail_out_of_publication() {
+    let scratch = Scratch::new("toc-spread-forced-bw-corner-rail");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/gutter/luther-p3-toc-spread.png");
+    let page_metadata = scratch.path("toc-page.json");
+    let left_output = scratch.path("toc-left.png");
+    let left_metadata = scratch.path("toc-left.json");
+    let left_bilevel = scratch.path("toc-left.pbm");
+    let manifest = scratch.path("toc-spread-manifest.json");
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "documentCanvas": {
+            "widthPoints": 528.72,
+            "heightPoints": 780.48,
+            "widthPx": 2203,
+            "heightPx": 3252,
+        },
+        "pages": [{
+            "inputPath": fixture,
+            "sourcePageIndex": 2,
+            "pageMetadataPath": page_metadata,
+            "options": {
+                "dpi": 299,
+                "sourceDpi": 150,
+                "requestedRenderDpi": 300,
+                "binarization": "auto",
+                "thickness": 0,
+                "normalizeIllumination": true,
+                "despeckle": true,
+                "outputMode": "bw",
+                "layout": "force-two-page",
+                "automaticSplit": {
+                    "xNormalized": 0.5528824330458466,
+                    "rotationDegrees": 0,
+                },
+                "cropContent": true,
+                "matchPageSize": true,
+                "pageAlignment": "top-center",
+                "margins": {
+                    "leftMm": 5,
+                    "topMm": 5,
+                    "rightMm": 5,
+                    "bottomMm": 5,
+                },
+            },
+            "outputs": [
+                {
+                    "outputPath": left_output,
+                    "metadataPath": left_metadata,
+                    "bilevelOutputPath": left_bilevel,
+                },
+                {
+                    "outputPath": scratch.path("toc-right.png"),
+                    "metadataPath": scratch.path("toc-right.json"),
+                    "bilevelOutputPath": scratch.path("toc-right.pbm"),
+                },
+            ],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr),
+    );
+
+    let metadata: Value = serde_json::from_slice(&fs::read(&left_metadata).unwrap()).unwrap();
+    // The full book resolves Auto to B/W at spread scope. Once the top-corner
+    // rail is removed, the blank leaf correctly collapses and uses the
+    // conservative grayscale fallback instead of publishing the rail as its
+    // only JBIG2 content.
+    assert_eq!(
+        metadata["outputMode"], "grayscale",
+        "blank leaf did not use its conservative fallback: {metadata}"
+    );
+    assert_eq!(
+        metadata["bilevelWritten"],
+        Value::Null,
+        "blank leaf still published a B/W representation: {metadata}",
+    );
+    assert!(
+        !left_bilevel.exists(),
+        "blank leaf left a stale B/W publication behind"
+    );
+    let shipped = decode_gray(&fs::read(&left_output).unwrap(), 8_000_000, 4_000).unwrap();
+    let corner_width = (shipped.width() / 40).max(1);
+    let corner_height = (shipped.height() / 8).max(1);
+    assert!(
+        (shipped.width() - corner_width..shipped.width())
+            .all(|x| (0..corner_height).all(|y| shipped.get(x, y) >= 128)),
+        "a fold-side scanner rail survived in the published blank-leaf corner",
+    );
+}
+
 /// The crop planner's tone union is the only thing that keeps a flat-shaded
 /// plate inside the shipped page when picture detection is empty, which is the
 /// case for artwork printed as a fine line screen. The unit tests pin the

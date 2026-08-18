@@ -1645,14 +1645,16 @@ fn filter_fold_edge_fragments_with_removed(
             }
             false
         };
+    let touches_horizontal_page_edge = |component: &scan_primitives::Component| {
+        component.top == 0 || component.bottom + 1 == binary.height()
+    };
+    let touches_outer_leaf_edge = |component: &scan_primitives::Component| match half {
+        PageHalf::Left => component.left == 0,
+        PageHalf::Right => component.right + 1 == binary.width(),
+        PageHalf::Full => true,
+    };
     let touches_non_fold_edge = |component: &scan_primitives::Component| {
-        component.top == 0
-            || component.bottom + 1 == binary.height()
-            || match half {
-                PageHalf::Left => component.left == 0,
-                PageHalf::Right => component.right + 1 == binary.width(),
-                PageHalf::Full => true,
-            }
+        touches_horizontal_page_edge(component) || touches_outer_leaf_edge(component)
     };
     let fold_geometry = |component: &scan_primitives::Component| {
         let sample_rows = [
@@ -1744,7 +1746,13 @@ fn filter_fold_edge_fragments_with_removed(
                 let width = component.right - component.left + 1;
                 let height = component.bottom - component.top + 1;
                 let (near_boundary, inward_depth) = fold_geometry(component);
-                if touches_non_fold_edge(component)
+                // The visible end of a binding rail can enter from the top or
+                // bottom corner of an otherwise blank leaf. Admit that one
+                // geometry to the measured-rail classifier; an outer-edge
+                // contact, or the same contact on a nonblank leaf, remains an
+                // unconditional preservation boundary.
+                if touches_outer_leaf_edge(component)
+                    || (touches_horizontal_page_edge(component) && !blank_leaf)
                     || !near_boundary
                     || inward_depth > margin
                     || width > rail_max_width
@@ -1854,6 +1862,12 @@ fn filter_fold_edge_fragments_with_removed(
         // is intentionally checked on the rendered raster as well as against
         // the mapped fold line: a crop margin can move the fold away from the
         // payload boundary without changing which payload edge is outer.
+        // A corner rail is removable only after the stricter measured-gutter,
+        // blank-leaf, ownership, size, alignment, and raggedness gates above
+        // claimed it. Every other top/bottom/outer-edge component stays pinned.
+        if rail_labels[component.label as usize] {
+            return false;
+        }
         if touches_non_fold_edge(component) {
             return true;
         }
@@ -1876,9 +1890,6 @@ fn filter_fold_edge_fragments_with_removed(
         let content_ownership = component_has_content_ownership(component);
         if (picture_ownership && !blank_speck) || text_ownership || content_ownership {
             return true;
-        }
-        if rail_labels[component.label as usize] {
-            return false;
         }
         if !small_fragment && !blank_speck {
             return true;
