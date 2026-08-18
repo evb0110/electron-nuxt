@@ -36,14 +36,12 @@ export type TNativeScanCleanupRenderMode = 'preview' | 'final';
 export type TNativeScanCleanupAnalysisPurpose = 'classification' | 'page-plan';
 
 /**
- * A resolved `ink` placement position for one output, in the output leaf's own
- * normalized frame: the fraction of the free space inside the requested margins
- * the content's top edge sits at, and where its horizontal centre lands.
+ * A resolved `ink` placement position for one output: how far down the inner
+ * rect the requested margins leave the content's top edge sits, as a fraction
+ * of that rect's height. `ink` only moves content vertically — horizontally it
+ * is centred exactly like `top-center` — so the anchor carries one axis.
  */
-export interface IScanCleanupPlacementAnchor {
-    xNormalized: number;
-    yNormalized: number;
-}
+export interface IScanCleanupPlacementAnchor {yNormalized: number}
 
 export interface INativeScanCleanupExperimentalOptionsV3 {
     autoDewarp: boolean;

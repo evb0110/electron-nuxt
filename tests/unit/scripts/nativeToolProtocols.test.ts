@@ -92,7 +92,7 @@ describe('native tool protocol generator', () => {
             ],
             [
                 'evb-scan-cleanup',
-                8,
+                9,
             ],
         ]);
     });

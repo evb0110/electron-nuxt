@@ -36,7 +36,7 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
         // `version`: adding a field to a deny-unknown-fields Rust struct makes
         // an older executable incompatible even when the v3 wire shape remains
         // additive for current consumers.
-        protocolVersion: 8,
+        protocolVersion: 9,
         resourceFamilyId: 'scan-cleanup',
         stagingName: 'scan-cleanup',
     },

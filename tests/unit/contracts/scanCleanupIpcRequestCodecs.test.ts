@@ -157,14 +157,8 @@ describe('scan-cleanup IPC request codecs', () => {
 
     it('decodes resolved ink placement anchors on preview and start requests', () => {
         const placementAnchors = {
-            left: {
-                xNormalized: 0.42,
-                yNormalized: 0.08,
-            },
-            right: {
-                xNormalized: 0.58,
-                yNormalized: 0.08,
-            },
+            left: {yNormalized: 0.08},
+            right: {yNormalized: 0.12},
         };
         expect(decodePreviewArgs([{
             ...request,
@@ -185,24 +179,15 @@ describe('scan-cleanup IPC request codecs', () => {
     });
 
     it('rejects placement anchors that are unbounded, mistyped, or carry extra keys', () => {
-        const anchor = {
-            xNormalized: 0.5,
-            yNormalized: 0.5,
-        };
+        const anchor = {yNormalized: 0.5};
         for (const placementAnchors of [
+            {full: {yNormalized: 1.5}},
+            {full: {yNormalized: Number.NaN}},
             {full: {
                 ...anchor,
-                xNormalized: 1.5,
+                xNormalized: 0.5,
             }},
-            {full: {
-                ...anchor,
-                yNormalized: Number.NaN,
-            }},
-            {full: {
-                ...anchor,
-                widthNormalized: 0.5,
-            }},
-            {full: {xNormalized: 0.5}},
+            {full: {}},
             {middle: anchor},
             {full: 0.5},
             [anchor],

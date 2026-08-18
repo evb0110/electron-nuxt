@@ -940,9 +940,8 @@ function assertPlacementAnchorMap(value: unknown, label: string) {
             'right',
         ].includes(half)) fail(`${label} contains an invalid half`);
         if (!isRecord(anchor)
-            || !boundedNumberOrZero(anchor.xNormalized)
             || !boundedNumberOrZero(anchor.yNormalized)
-            || Object.keys(anchor).some(key => key !== 'xNormalized' && key !== 'yNormalized')) {
+            || Object.keys(anchor).some(key => key !== 'yNormalized')) {
             fail(`${label}.${half} is invalid`);
         }
     }

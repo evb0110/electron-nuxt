@@ -2359,7 +2359,6 @@ async function runPreview(
                             ? undefined
                             : {
                                 anchor: placementAnchor,
-                                contentWidth: contentWidthPx,
                                 contentHeight: contentHeightPx,
                             },
                     );

@@ -5,14 +5,13 @@ import {
 } from 'vitest';
 import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
 import {
-    clusterScanCleanupPlacementAnchors,
     createScanCleanupPageOverride,
     estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
-    resolveScanCleanupInkAnchor,
     resolveScanCleanupPageLayout,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
+    resolveScanCleanupPlacementAnchors,
     resolveScanCleanupPlacementOffset,
     setScanCleanupPageOverride,
     shouldShowScanCleanupOutputEstimate,
@@ -161,185 +160,225 @@ describe('scan cleanup page overrides', () => {
 });
 
 describe('scan cleanup ink placement', () => {
-    function sample(
-        pageNumber: number,
-        half: TScanCleanupOutputHalf,
-        xNormalized: number,
-        yNormalized: number,
-    ) {
+    function sample(pageNumber: number, half: TScanCleanupOutputHalf, yNormalized: number) {
         return {
             pageNumber,
             half,
-            xNormalized,
             yNormalized,
         };
     }
 
-    it('expresses a content box in its own output leaf frame', () => {
-        expect(resolveScanCleanupInkAnchor({
-            xNormalized: 0.1,
-            yNormalized: 0.2,
-            widthNormalized: 0.4,
-            heightNormalized: 0.5,
-            rotationDegrees: 0,
-        }, 'full')).toEqual({
-            xNormalized: expect.closeTo(0.3, 10),
-            yNormalized: 0.2,
-        });
-        // Both leaves of a spread carry page-normalized boxes, so the same
-        // margin on either side has to answer the same leaf-relative anchor.
-        expect(resolveScanCleanupInkAnchor({
-            xNormalized: 0.1,
-            yNormalized: 0.2,
-            widthNormalized: 0.2,
-            heightNormalized: 0.5,
-            rotationDegrees: 0,
-        }, 'left')).toEqual({
-            xNormalized: 0.4,
-            yNormalized: 0.2,
-        });
-        expect(resolveScanCleanupInkAnchor({
-            xNormalized: 0.6,
-            yNormalized: 0.2,
-            widthNormalized: 0.2,
-            heightNormalized: 0.5,
-            rotationDegrees: 0,
-        }, 'right')).toEqual({
-            xNormalized: expect.closeTo(0.4, 10),
-            yNormalized: 0.2,
-        });
+    function resolvedTops(samples: Array<ReturnType<typeof sample>>, tolerance: number) {
+        return [...resolveScanCleanupPlacementAnchors(samples, tolerance).entries()]
+            .sort(([left], [right]) => left - right)
+            .map(([
+                pageNumber,
+                anchors,
+            ]): [number, Record<string, number>] => [
+                pageNumber,
+                Object.fromEntries(Object.entries(anchors).map(([
+                    half,
+                    anchor,
+                ]) => [
+                    half,
+                    anchor.yNormalized,
+                ])),
+            ]);
+    }
+
+    it('answers nothing for a document without ink evidence', () => {
+        expect(resolveScanCleanupPlacementAnchors([], 0.02)).toEqual(new Map());
     });
 
-    it('keeps an unusable content box inside the normalized frame', () => {
-        expect(resolveScanCleanupInkAnchor({
-            xNormalized: -1,
-            yNormalized: 2,
-            widthNormalized: 0,
-            heightNormalized: 0,
-            rotationDegrees: 0,
-        }, 'full')).toEqual({
-            xNormalized: 0,
-            yNormalized: 1,
-        });
-        expect(resolveScanCleanupInkAnchor({
-            xNormalized: Number.NaN,
-            yNormalized: Number.NaN,
-            widthNormalized: 0,
-            heightNormalized: 0,
-            rotationDegrees: 0,
-        }, 'full')).toEqual({
-            xNormalized: 0,
-            yNormalized: 0,
-        });
+    it('prints a lone page at the top margin: there is nothing to keep it relative to', () => {
+        expect(resolveScanCleanupPlacementAnchors([sample(1, 'full', 0.11)], 0.02))
+            .toEqual(new Map([[
+                1,
+                {full: {yNormalized: 0}},
+            ]]));
     });
 
-    it('leaves a single page on its own measured position', () => {
-        expect(clusterScanCleanupPlacementAnchors([sample(1, 'full', 0.5, 0.11)], {
-            x: 0.02,
-            y: 0.02,
-        })).toEqual(new Map([[
-            1,
-            {full: {
-                xNormalized: 0.5,
-                yNormalized: 0.11,
-            }},
-        ]]));
+    it('keeps every output on its own ink when paper cannot be measured (tolerance 0)', () => {
+        expect(resolvedTops([
+            sample(1, 'full', 0.5),
+            sample(2, 'full', 0.5),
+            sample(3, 'full', 0.75),
+            sample(4, 'full', 0.625),
+        ], 0)).toEqual([
+            [
+                1,
+                {full: 0},
+            ],
+            [
+                2,
+                {full: 0},
+            ],
+            [
+                3,
+                {full: 0.25},
+            ],
+            [
+                4,
+                {full: 0.125},
+            ],
+        ]);
     });
 
     it('snaps pages that agree within the tolerance onto the cluster median', () => {
-        const anchors = clusterScanCleanupPlacementAnchors([
-            sample(1, 'full', 0.5, 0.1),
-            sample(2, 'full', 0.5, 0.12),
-            sample(3, 'full', 0.5, 0.13),
-        ], {
-            x: 0.02,
-            y: 0.05,
-        });
-        expect([...anchors.values()].map(entry => entry.full?.yNormalized)).toEqual([
-            0.12,
-            0.12,
-            0.12,
+        expect(resolvedTops([
+            sample(1, 'full', 0.1),
+            sample(2, 'full', 0.12),
+            sample(3, 'full', 0.13),
+            sample(4, 'full', 0.4),
+        ], 0.05)).toEqual([
+            [
+                1,
+                {full: 0},
+            ],
+            [
+                2,
+                {full: 0},
+            ],
+            [
+                3,
+                {full: 0},
+            ],
+            [
+                4,
+                {full: expect.closeTo(0.28, 10)},
+            ],
         ]);
     });
 
     it('splits a run that drifts past the tolerance instead of chaining', () => {
-        const anchors = clusterScanCleanupPlacementAnchors([
-            sample(1, 'full', 0.5, 0.1),
-            sample(2, 'full', 0.5, 0.14),
-            sample(3, 'full', 0.5, 0.18),
-        ], {
-            x: 0.02,
-            y: 0.05,
-        });
-        expect([...anchors.values()].map(entry => entry.full?.yNormalized)).toEqual([
-            0.1,
-            0.1,
-            0.18,
+        expect(resolvedTops([
+            sample(1, 'full', 0.1),
+            sample(2, 'full', 0.14),
+            sample(3, 'full', 0.18),
+            sample(4, 'full', 0.1),
+        ], 0.05)).toEqual([
+            [
+                1,
+                {full: 0},
+            ],
+            [
+                2,
+                {full: 0},
+            ],
+            [
+                3,
+                {full: expect.closeTo(0.08, 10)},
+            ],
+            [
+                4,
+                {full: 0},
+            ],
         ]);
     });
 
-    it('clusters each half and each axis independently', () => {
-        const anchors = clusterScanCleanupPlacementAnchors([
-            sample(1, 'left', 0.4, 0.1),
-            sample(1, 'right', 0.6, 0.1),
-            sample(2, 'left', 0.41, 0.3),
-            sample(2, 'right', 0.61, 0.11),
-        ], {
-            x: 0.02,
-            y: 0.02,
-        });
-        expect(anchors.get(1)).toEqual({
-            left: {
-                xNormalized: 0.4,
-                yNormalized: 0.1,
+    it('measures every output from the top edge enough of the document shares', () => {
+        // Two title-page outputs start higher than the running head every
+        // other page carries. They are real ink, but they are not the book's
+        // top edge: they print at the top margin and the running heads stay
+        // there too, instead of every text page dropping by the difference.
+        const runningHeads = Array.from({length: 40}, (_, index) => sample(
+            index + 3,
+            index % 2 === 0 ? 'left' : 'right',
+            0.06 + (index % 3) * 0.001,
+        ));
+        const tops = resolvedTops([
+            sample(1, 'left', 0.02),
+            sample(1, 'right', 0.021),
+            sample(2, 'left', 0.06),
+            sample(2, 'right', 0.3),
+            ...runningHeads,
+        ], 0.01);
+        expect(tops[0]).toEqual([
+            1,
+            {
+                left: 0,
+                right: 0,
             },
-            right: {
-                xNormalized: 0.6,
-                yNormalized: 0.1,
+        ]);
+        expect(tops[1]).toEqual([
+            2,
+            {
+                left: 0,
+                right: expect.closeTo(0.239, 10),
             },
-        });
-        expect(anchors.get(2)).toEqual({
-            left: {
-                // The verso keeps its own column: only the recto agreed.
-                xNormalized: 0.4,
-                yNormalized: 0.3,
-            },
-            right: {
-                xNormalized: 0.6,
-                yNormalized: 0.1,
-            },
-        });
+        ]);
+        expect(tops.slice(2).every(([
+            , anchors,
+        ]) => Object.values(anchors).every(top => top === 0))).toBe(true);
+    });
+
+    it('lets the highest position be the top edge when no position has enough support', () => {
+        expect(resolvedTops([
+            sample(1, 'full', 0.3),
+            sample(2, 'full', 0.1),
+            sample(3, 'full', 0.2),
+        ], 0.01)).toEqual([
+            [
+                1,
+                {full: expect.closeTo(0.2, 10)},
+            ],
+            [
+                2,
+                {full: 0},
+            ],
+            [
+                3,
+                {full: expect.closeTo(0.1, 10)},
+            ],
+        ]);
+    });
+
+    it('clusters versos and rectos together: a book has one top margin', () => {
+        expect(resolvedTops([
+            sample(1, 'left', 0.1),
+            sample(1, 'right', 0.11),
+            sample(2, 'left', 0.3),
+            sample(2, 'right', 0.11),
+        ], 0.02)).toEqual([
+            [
+                1,
+                {
+                    left: 0,
+                    right: 0,
+                },
+            ],
+            [
+                2,
+                {
+                // Measured from the shared median, 0.11, not from its own verso.
+                    left: expect.closeTo(0.19, 10),
+                    right: 0,
+                },
+            ],
+        ]);
     });
 
     it('resolves the same anchors whatever order the evidence arrived in', () => {
         const samples = [
-            sample(4, 'full', 0.5, 0.13),
-            sample(1, 'full', 0.5, 0.1),
-            sample(3, 'full', 0.52, 0.12),
-            sample(2, 'full', 0.49, 0.11),
+            sample(4, 'full', 0.13),
+            sample(1, 'full', 0.1),
+            sample(3, 'full', 0.32),
+            sample(2, 'full', 0.11),
         ];
-        const tolerance = {
-            x: 0.05,
-            y: 0.05,
-        };
-        const expected = clusterScanCleanupPlacementAnchors(samples, tolerance);
-        expect(clusterScanCleanupPlacementAnchors([...samples].reverse(), tolerance))
+        const expected = resolveScanCleanupPlacementAnchors(samples, 0.05);
+        expect(resolveScanCleanupPlacementAnchors([...samples].reverse(), 0.05))
             .toEqual(expected);
-        expect(clusterScanCleanupPlacementAnchors([
+        expect(resolveScanCleanupPlacementAnchors([
             samples[2]!,
             samples[0]!,
             samples[3]!,
             samples[1]!,
-        ], tolerance)).toEqual(expected);
+        ], 0.05)).toEqual(expected);
     });
 
-    it('places content at its anchor inside the free space', () => {
+    it('places content at its anchor inside the free space, centred horizontally', () => {
         expect(resolveScanCleanupPlacementOffset(100, 200, 'ink', {
-            anchor: {
-                xNormalized: 0.5,
-                yNormalized: 0.25,
-            },
-            contentWidth: 50,
+            anchor: {yNormalized: 0.25},
             contentHeight: 100,
         })).toEqual({
             x: 50,
@@ -349,25 +388,17 @@ describe('scan cleanup ink placement', () => {
 
     it('never lets an anchor push content past the requested margins', () => {
         expect(resolveScanCleanupPlacementOffset(100, 200, 'ink', {
-            anchor: {
-                xNormalized: 1,
-                yNormalized: 1,
-            },
-            contentWidth: 50,
+            anchor: {yNormalized: 1},
             contentHeight: 100,
         })).toEqual({
-            x: 100,
+            x: 50,
             y: 200,
         });
         expect(resolveScanCleanupPlacementOffset(100, 200, 'ink', {
-            anchor: {
-                xNormalized: 0,
-                yNormalized: 0,
-            },
-            contentWidth: 50,
+            anchor: {yNormalized: 0},
             contentHeight: 100,
         })).toEqual({
-            x: 0,
+            x: 50,
             y: 0,
         });
     });

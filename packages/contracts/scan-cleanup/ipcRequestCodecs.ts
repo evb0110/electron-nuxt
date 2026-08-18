@@ -202,16 +202,10 @@ export function decodeScanCleanupPlacementAnchors(
     label: string,
 ): Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> {
     return decodeOutputMap(value, (anchor, anchorLabel) => {
-        if (
-            !isRecord(anchor)
-            || Object.keys(anchor).some(key => key !== 'xNormalized' && key !== 'yNormalized')
-        ) {
+        if (!isRecord(anchor) || Object.keys(anchor).some(key => key !== 'yNormalized')) {
             throw new Error(`invalid scan-cleanup ${anchorLabel}`);
         }
-        return {
-            xNormalized: decodeNormalizedValue(anchor.xNormalized, `${anchorLabel} x`),
-            yNormalized: decodeNormalizedValue(anchor.yNormalized, `${anchorLabel} y`),
-        };
+        return {yNormalized: decodeNormalizedValue(anchor.yNormalized, `${anchorLabel} y`)};
     }, label);
 }
 

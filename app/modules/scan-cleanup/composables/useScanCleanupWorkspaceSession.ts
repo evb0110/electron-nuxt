@@ -10,9 +10,8 @@ import type {
     TScanCleanupPlacementAnchorsByPage,
 } from '@contracts/scanCleanupPageOverrides';
 import {
-    clusterScanCleanupPlacementAnchors,
     getScanCleanupPageOverride,
-    resolveScanCleanupInkAnchor,
+    resolveScanCleanupPlacementAnchors,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
 } from '@contracts/scanCleanupPageOverrides';
 import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
@@ -40,39 +39,38 @@ function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
 }
 
 /**
- * Anchors are normalized against each output leaf, so a millimetre tolerance
- * only becomes a comparable number once it is divided by the largest leaf the
- * document produces — the rectangle the matched canvas settles on. Paper that
+ * The rotated height of a source sheet, in points; 0 when the paper cannot be
+ * measured.
+ */
+function resolveScanCleanupSheetHeightPoints(metadata: IScanCleanupSourcePageMetadata | undefined) {
+    if (metadata === undefined) {
+        return 0;
+    }
+    const swapsAxes = (((Math.round(metadata.rotation / 90) % 2) + 2) % 2) === 1;
+    return swapsAxes ? metadata.widthPoints : metadata.heightPoints;
+}
+
+/**
+ * The height every ink sample and the snapping tolerance are measured against:
+ * the tallest sheet the document produces, which is the rectangle the matched
+ * canvas settles on. Content boxes come normalized against their own sheet, so
+ * a shorter sheet's box is rescaled onto this reference before it is compared,
+ * and a millimetre tolerance becomes comparable once divided by it. Paper that
  * cannot be measured leaves the tolerance at zero, which still keeps every
  * output on its own ink and only stops pages from snapping together.
  */
-function resolveScanCleanupInkAnchorTolerance(
-    samples: readonly IScanCleanupPlacementAnchorSample[],
+function resolveScanCleanupInkReferenceHeightPoints(
+    pageNumbers: Iterable<number>,
     metadataByPage: ReadonlyMap<number, IScanCleanupSourcePageMetadata>,
 ) {
-    let widthPoints = 0;
     let heightPoints = 0;
-    for (const sample of samples) {
-        const metadata = metadataByPage.get(sample.pageNumber);
-        if (metadata === undefined) {
-            continue;
-        }
-        const swapsAxes = (((Math.round(metadata.rotation / 90) % 2) + 2) % 2) === 1;
-        const oriented = {
-            widthPoints: swapsAxes ? metadata.heightPoints : metadata.widthPoints,
-            heightPoints: swapsAxes ? metadata.widthPoints : metadata.heightPoints,
-        };
-        widthPoints = Math.max(
-            widthPoints,
-            oriented.widthPoints / (sample.half === 'full' ? 1 : 2),
+    for (const pageNumber of pageNumbers) {
+        heightPoints = Math.max(
+            heightPoints,
+            resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber)),
         );
-        heightPoints = Math.max(heightPoints, oriented.heightPoints);
     }
-    const tolerancePoints = SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM;
-    return {
-        x: widthPoints > 0 ? tolerancePoints / widthPoints : 0,
-        y: heightPoints > 0 ? tolerancePoints / heightPoints : 0,
-    };
+    return heightPoints;
 }
 
 interface IUseScanCleanupWorkspaceSessionOptions {
@@ -137,24 +135,38 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourcePath,
         totalPages,
     });
-    // `ink` keeps every output where its source ink was, and pages whose ink
-    // agrees share one position. That comparison is document-wide, so it is
-    // resolved once here rather than per request: the preview the user judges
-    // and the run they start must place a page identically.
+    // `ink` keeps every output at the height its source ink sat relative to
+    // the rest of the document, and pages whose ink agrees share one position.
+    // That comparison is document-wide, so it is resolved once here rather
+    // than per request: the preview the user judges and the run they start
+    // must place a page identically.
     const placementAnchorsByPage = computed<TScanCleanupPlacementAnchorsByPage>(() => {
         const cleanupOptions = resolvedOptions.value;
         if (!usesScanCleanupInkAlignment(cleanupOptions)) {
             return new Map();
         }
+        const metadataByPage = detection.sourcePageMetadataByPage.value;
+        const included = [...detection.pagePlanEvidenceByPage].filter(
+            ([pageNumber]) => !getScanCleanupPageOverride(cleanupOptions.pageOverrides, pageNumber).excluded,
+        );
+        const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(
+            included.map(([pageNumber]) => pageNumber),
+            metadataByPage,
+        );
         const samples: IScanCleanupPlacementAnchorSample[] = [];
+        // A sheet that cannot be measured keeps its own-sheet fraction, which
+        // is not comparable with the others; snapping is only meaningful when
+        // every included output speaks the reference height's units.
+        let everySheetMeasured = referenceHeightPoints > 0;
         for (const [
             pageNumber,
             evidence,
-        ] of detection.pagePlanEvidenceByPage) {
+        ] of included) {
             const pageOverride = getScanCleanupPageOverride(cleanupOptions.pageOverrides, pageNumber);
-            if (pageOverride.excluded) {
-                continue;
-            }
+            const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber));
+            const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
+            everySheetMeasured &&= measured;
+            const scale = measured ? sheetHeightPoints / referenceHeightPoints : 1;
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 const box = pageOverride.manualContentBoxes?.[half] ?? evidence.outputs[half]?.contentBox;
                 if (box === undefined) {
@@ -163,13 +175,15 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
                 samples.push({
                     pageNumber,
                     half,
-                    ...resolveScanCleanupInkAnchor(box, half),
+                    yNormalized: box.yNormalized * scale,
                 });
             }
         }
-        return clusterScanCleanupPlacementAnchors(
+        return resolveScanCleanupPlacementAnchors(
             samples,
-            resolveScanCleanupInkAnchorTolerance(samples, detection.sourcePageMetadataByPage.value),
+            everySheetMeasured
+                ? SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM / referenceHeightPoints
+                : 0,
         );
     });
     previewResult = useScanCleanupPreviewSession({

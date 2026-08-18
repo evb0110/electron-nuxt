@@ -265,10 +265,7 @@ describe('scan-cleanup provenance stamp contract', () => {
                 pageOverride: createScanCleanupPageOverride(),
                 dpi: 300,
                 qualityPath: 'raster',
-                placementAnchors: {full: {
-                    xNormalized: 0.5,
-                    yNormalized: 0.125,
-                }},
+                placementAnchors: {full: {yNormalized: 0.125}},
             }),
             options: inkOptions,
             qualityPath: 'raster',
@@ -296,10 +293,7 @@ describe('scan-cleanup provenance stamp contract', () => {
 
         expect(decoded).toEqual(stamp);
         expect(decoded.effectiveOptions.perSourcePage[0]?.options.placementAnchors)
-            .toEqual({full: {
-                xNormalized: 0.5,
-                yNormalized: 0.125,
-            }});
+            .toEqual({full: {yNormalized: 0.125}});
         // A run that never resolved an anchor keeps the shape every earlier
         // stamp has, so already-stamped documents still verify.
         expect(buildSinglePageStamp().effectiveOptions.perSourcePage[0]?.options)

@@ -87,8 +87,8 @@ fn ink_alignment_and_placement_anchors_round_trip_and_stay_additive() {
         r#"{
             "pageAlignment":"ink",
             "placementAnchors":{
-                "left":{"xNormalized":0.42,"yNormalized":0.13},
-                "right":{"xNormalized":0.58,"yNormalized":0.13}
+                "left":{"yNormalized":0.13},
+                "right":{"yNormalized":0.21}
             }
         }"#,
     )
@@ -103,17 +103,13 @@ fn ink_alignment_and_placement_anchors_round_trip_and_stay_additive() {
     assert_eq!(options.placement_for(PageHalf::Left), PageAlignment::Ink);
     assert_eq!(
         options.placement_anchor_for(PageHalf::Left),
-        Some(PlacementAnchor {
-            x_normalized: 0.42,
-            y_normalized: 0.13,
-        })
+        Some(PlacementAnchor { y_normalized: 0.13 })
     );
     assert_eq!(options.placement_anchor_for(PageHalf::Full), None);
 
     let encoded = serde_json::to_value(options).unwrap();
     assert_eq!(encoded["pageAlignment"], "ink");
-    assert_eq!(encoded["placementAnchors"]["right"]["xNormalized"], 0.58);
-    assert_eq!(encoded["placementAnchors"]["right"]["yNormalized"], 0.13);
+    assert_eq!(encoded["placementAnchors"]["right"]["yNormalized"], 0.21);
 
     let defaults = CleanupOptions::default();
     assert_eq!(defaults.placement_anchor_for(PageHalf::Full), None);
@@ -125,28 +121,11 @@ fn ink_alignment_and_placement_anchors_round_trip_and_stay_additive() {
 
 #[test]
 fn placement_anchors_reject_unbounded_non_finite_and_unknown_geometry() {
-    for anchor in [
-        PlacementAnchor {
-            x_normalized: 1.5,
-            y_normalized: 0.2,
-        },
-        PlacementAnchor {
-            x_normalized: 0.2,
-            y_normalized: -0.01,
-        },
-        PlacementAnchor {
-            x_normalized: f64::NAN,
-            y_normalized: 0.2,
-        },
-        PlacementAnchor {
-            x_normalized: 0.2,
-            y_normalized: f64::INFINITY,
-        },
-    ] {
+    for y_normalized in [1.5, -0.01, f64::NAN, f64::INFINITY] {
         let error = CleanupOptions {
             page_alignment: PageAlignment::Ink,
             placement_anchors: PlacementAnchors {
-                right: Some(anchor),
+                right: Some(PlacementAnchor { y_normalized }),
                 ..PlacementAnchors::default()
             },
             ..CleanupOptions::default()
@@ -158,23 +137,21 @@ fn placement_anchors_reject_unbounded_non_finite_and_unknown_geometry() {
 
     // Float noise around the unit interval stays acceptable, exactly as the
     // normalized rectangles do.
-    CleanupOptions {
-        placement_anchors: PlacementAnchors {
-            full: Some(PlacementAnchor {
-                x_normalized: 1.0 + 1e-12,
-                y_normalized: -1e-12,
-            }),
-            ..PlacementAnchors::default()
-        },
-        ..CleanupOptions::default()
+    for y_normalized in [1.0 + 1e-12, -1e-12] {
+        CleanupOptions {
+            placement_anchors: PlacementAnchors {
+                full: Some(PlacementAnchor { y_normalized }),
+                ..PlacementAnchors::default()
+            },
+            ..CleanupOptions::default()
+        }
+        .validate()
+        .unwrap();
     }
-    .validate()
-    .unwrap();
     let error = CleanupOptions {
         placement_anchors: PlacementAnchors {
             full: Some(PlacementAnchor {
-                x_normalized: 1.0 + 1e-6,
-                y_normalized: 0.0,
+                y_normalized: 1.0 + 1e-6,
             }),
             ..PlacementAnchors::default()
         },
@@ -184,14 +161,12 @@ fn placement_anchors_reject_unbounded_non_finite_and_unknown_geometry() {
     .unwrap_err();
     assert!(error.contains("full placement anchor"), "{error}");
 
+    // The horizontal axis is not part of the contract: ink is centred there.
     assert!(serde_json::from_str::<CleanupOptions>(
-        r#"{"placementAnchors":{"full":{"xNormalized":0.5,"yNormalized":0.5,"zNormalized":0.5}}}"#,
+        r#"{"placementAnchors":{"full":{"xNormalized":0.5,"yNormalized":0.5}}}"#,
     )
     .is_err());
-    assert!(serde_json::from_str::<CleanupOptions>(
-        r#"{"placementAnchors":{"full":{"xNormalized":0.5}}}"#
-    )
-    .is_err());
+    assert!(serde_json::from_str::<CleanupOptions>(r#"{"placementAnchors":{"full":{}}}"#).is_err());
 }
 
 #[test]
