@@ -1371,6 +1371,45 @@ fn pale_bilevel_collapse(binary: &BinaryImage, pale_tonal_structure: bool) -> bo
     (binary.count_black() as f64) < area as f64 * ink_fraction
 }
 
+/// A pale, otherwise blank spread leaf can legitimately fall back to the raw
+/// grayscale rendition after its bilevel layer collapses. The fold filter has
+/// already proved which binary components are scanner/fold residue, but the
+/// raw fallback would put their continuous-tone halo back on the page. When
+/// that proof exists, neutralize only the narrow physical fold margin. The
+/// caller admits only a leaf with no material text or picture ownership, so a
+/// pale plate and a tight-rebind text page retain the conservative fallback.
+fn whiten_collapsed_blank_fold_margin(
+    mut grayscale: GrayImage,
+    removed_fold_edge: &BinaryImage,
+    half: PageHalf,
+    split: &SplitResult,
+    unowned_blank_leaf: bool,
+) -> GrayImage {
+    let measured_gutter_band = split
+        .cutter_x
+        .is_some_and(|cutter| split.diagnostics.fold_band.has_suppression(cutter));
+    if !unowned_blank_leaf
+        || !measured_gutter_band
+        || removed_fold_edge.count_black() == 0
+        || half == PageHalf::Full
+    {
+        return grayscale;
+    }
+
+    let margin = (grayscale.width() as f64 * FOLD_EDGE_FRAGMENT_MARGIN_FRACTION)
+        .ceil()
+        .max(1.0) as usize;
+    let (left, right) = match half {
+        PageHalf::Left => (grayscale.width().saturating_sub(margin), grayscale.width()),
+        PageHalf::Right => (0, margin.min(grayscale.width())),
+        PageHalf::Full => return grayscale,
+    };
+    for y in 0..grayscale.height() {
+        grayscale.row_mut(y)[left..right].fill(255);
+    }
+    grayscale
+}
+
 /// The physical fold margin is deliberately much narrower than an ordinary
 /// page margin. Only fragments that are both cut by the fold-side boundary and
 /// small enough to be a piece of a glyph may be removed here. Picture
@@ -5981,6 +6020,10 @@ fn clean_region(
         && rendered_text_mask
             .as_ref()
             .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
+    let unowned_fold_edge_blank_leaf = fold_edge_blank_leaf
+        && rendered_picture_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
     // Whole-page abstention guarded against the old destructive whitening.
     // Picture zones now preserve continuous tone exactly while everything
     // else is smoothly normalized toward white, so cleanup is always safe and
@@ -6032,13 +6075,32 @@ fn clean_region(
                         && pale_tonal_structure
                         && pale_bilevel_collapse(trusted_foreground, pale_tonal_structure)
                     {
+                        let (_, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
+                            trusted_foreground,
+                            rendered_picture_mask.as_ref(),
+                            rendered_text_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
+                            half,
+                            split,
+                            region,
+                            &render_plan,
+                            source_content_box,
+                            fold_edge_blank_leaf,
+                            options.dpi,
+                        );
                         conservation_warnings.push(format!(
                             "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
                             source_page_index + 1,
                             page_half_label(half)
                         ));
                         emitted_output_mode = OutputMode::Grayscale;
-                        let grayscale_fallback = rendered_source_gray;
+                        let grayscale_fallback = whiten_collapsed_blank_fold_margin(
+                            rendered_source_gray,
+                            &fold_removed_edge_bands,
+                            half,
+                            split,
+                            unowned_fold_edge_blank_leaf,
+                        );
                         let layers = create_mixed_layers.then(|| MixedLayers {
                             foreground_mask: BinaryImage::new(rendered_width, rendered_height),
                             foreground_alpha: None,
@@ -6170,7 +6232,7 @@ fn clean_region(
                         half,
                         &mut conservation_warnings,
                     );
-                    let binary = filter_fold_edge_fragments(
+                    let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
                         &binary,
                         rendered_picture_mask.as_ref(),
                         rendered_text_mask.as_ref(),
@@ -6195,6 +6257,13 @@ fn clean_region(
                         } else {
                             rendered_gray
                         };
+                        let grayscale_fallback = whiten_collapsed_blank_fold_margin(
+                            grayscale_fallback,
+                            &fold_removed_edge_bands,
+                            half,
+                            split,
+                            unowned_fold_edge_blank_leaf,
+                        );
                         let layers = create_mixed_layers.then(|| MixedLayers {
                             foreground_mask: BinaryImage::new(rendered_width, rendered_height),
                             foreground_alpha: None,
@@ -6285,7 +6354,7 @@ fn clean_region(
                         half,
                         &mut conservation_warnings,
                     );
-                    let binary = filter_fold_edge_fragments(
+                    let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
                         &binary,
                         rendered_picture_mask.as_ref(),
                         rendered_text_mask.as_ref(),
@@ -6310,6 +6379,13 @@ fn clean_region(
                         } else {
                             rendered_gray
                         };
+                        let grayscale_fallback = whiten_collapsed_blank_fold_margin(
+                            grayscale_fallback,
+                            &fold_removed_edge_bands,
+                            half,
+                            split,
+                            unowned_fold_edge_blank_leaf,
+                        );
                         let layers = create_mixed_layers.then(|| MixedLayers {
                             foreground_mask: BinaryImage::new(rendered_width, rendered_height),
                             foreground_alpha: None,
