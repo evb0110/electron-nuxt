@@ -2,7 +2,8 @@
     <section
         class="preview-pane"
         :aria-label="t('scanCleanup.preview.title')"
-        tabindex="0"
+        :aria-disabled="disabled || undefined"
+        :tabindex="disabled ? -1 : 0"
         @keydown="handlePaneKeydown"
     >
         <header class="preview-header">
@@ -41,7 +42,11 @@
                     role="group"
                     :aria-label="t('scanCleanup.preview.zoomControls')"
                 >
-                    <AppTooltip :text="t('scanCleanup.preview.zoomOut')" usefulness="always">
+                    <AppTooltip
+                        :disabled="disabled"
+                        :text="t('scanCleanup.preview.zoomOut')"
+                        usefulness="always"
+                    >
                         <button
                             type="button"
                             class="preview-zoom-button"
@@ -52,7 +57,11 @@
                             <UIcon name="i-ph-minus" class="preview-zoom-icon" />
                         </button>
                     </AppTooltip>
-                    <AppTooltip :text="t('scanCleanup.preview.toggleZoom', {zoom: previewZoomLabel})" usefulness="always">
+                    <AppTooltip
+                        :disabled="disabled"
+                        :text="t('scanCleanup.preview.toggleZoom', {zoom: previewZoomLabel})"
+                        usefulness="always"
+                    >
                         <button
                             type="button"
                             class="preview-zoom-value"
@@ -63,7 +72,11 @@
                             {{ previewZoomLabel }}
                         </button>
                     </AppTooltip>
-                    <AppTooltip :text="t('scanCleanup.preview.zoomIn')" usefulness="always">
+                    <AppTooltip
+                        :disabled="disabled"
+                        :text="t('scanCleanup.preview.zoomIn')"
+                        usefulness="always"
+                    >
                         <button
                             type="button"
                             class="preview-zoom-button"
@@ -74,7 +87,11 @@
                             <UIcon name="i-ph-plus" class="preview-zoom-icon" />
                         </button>
                     </AppTooltip>
-                    <AppTooltip :text="t('scanCleanup.preview.fitPage')" usefulness="always">
+                    <AppTooltip
+                        :disabled="disabled"
+                        :text="t('scanCleanup.preview.fitPage')"
+                        usefulness="always"
+                    >
                         <button
                             type="button"
                             class="preview-zoom-button is-fit-page"
@@ -89,6 +106,7 @@
                     </AppTooltip>
                 </div>
                 <AppTooltip
+                    :disabled="disabled"
                     usefulness="always"
                     :delay-duration="150"
                     class="preview-overlay-help"
@@ -102,6 +120,7 @@
                         square
                         icon="i-ph-info"
                         :aria-label="t('scanCleanup.preview.legend')"
+                        :disabled="disabled"
                         @click.stop.prevent
                     />
 
@@ -130,12 +149,14 @@
             ref="previewSurface"
             class="preview-surface"
             :class="{
+                'is-disabled': disabled,
                 'is-stale-page': staleContentVisible,
                 'can-pan-preview': canPanPreview,
                 'is-panning-preview': panGesture !== null,
             }"
             :data-preview-zoom-mode="previewZoomMode"
             :data-preview-zoom-percent="Math.round(previewEffectiveZoom * 100)"
+            :aria-disabled="disabled || undefined"
             aria-live="polite"
             @dblclick="handlePreviewDoubleClick"
             @pointercancel="finishPreviewPan"
@@ -257,6 +278,7 @@
                         variant="outline"
                         size="xs"
                         :label="t('scanCleanup.preview.retry')"
+                        :disabled="disabled"
                         @click="$emit('retry')"
                     />
                     <details class="preview-error-disclosure">
@@ -308,6 +330,7 @@
                         variant="outline"
                         size="sm"
                         :label="t('scanCleanup.preview.retry')"
+                        :disabled="disabled"
                         @click="$emit('retry')"
                     />
                     <details class="preview-error-disclosure">
@@ -383,6 +406,7 @@
                     color="primary"
                     size="sm"
                     :label="t('scanCleanup.firstRun.dismiss')"
+                    :disabled="disabled"
                     @click="$emit('dismiss-first-run-guidance')"
                 />
             </aside>
@@ -626,6 +650,7 @@ const {
     stepPreviewZoom,
     toggleFitAndActualSize,
 } = useScanCleanupPreviewZoom({
+    disabled: () => props.disabled === true,
     dragActive: dragTransaction.active,
     formatFitLabel: () => t('scanCleanup.preview.zoomFit'),
     formatZoomLabel: zoom => t('scanCleanup.preview.zoomValue', {zoom}),

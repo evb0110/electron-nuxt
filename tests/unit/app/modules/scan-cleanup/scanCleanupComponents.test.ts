@@ -867,6 +867,7 @@ function mountPreviewZoomHarness(options: {
     ) => void;
     rawResult?: IScanCleanupRawPreviewResult | null;
     result?: IScanCleanupPreviewResult | null;
+    disabled?: boolean;
     viewMode?: 'original' | 'cleaned';
     zoneEditing?: boolean;
 } = {}) {
@@ -885,6 +886,7 @@ function mountPreviewZoomHarness(options: {
         totalPages: 3,
         manualSplit: null,
         manualZones: options.manualZones,
+        disabled: options.disabled ?? false,
         readingOrder: 'ltr',
         zoneEditing: options.zoneEditing,
         detailResult: options.detailResult ?? null,
@@ -3189,6 +3191,38 @@ describe('Scan cleanup components', () => {
         harness.surface.dispatchEvent(zoomPastActualSize);
         await nextTick();
         expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(100);
+    });
+
+    it('removes preview hover and gesture affordances while cleanup is running', async () => {
+        const harness = mountPreviewZoomHarness({disabled: true});
+        const wheel = previewZoomWheel({
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+            deltaY: -240,
+            metaKey: true,
+        });
+        const doubleClick = new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        });
+
+        harness.surface.dispatchEvent(wheel);
+        harness.surface.dispatchEvent(doubleClick);
+        await nextTick();
+
+        expect(harness.surface.classList).toContain('is-disabled');
+        expect(harness.surface.classList).not.toContain('can-pan-preview');
+        expect(harness.surface.getAttribute('aria-disabled')).toBe('true');
+        expect(harness.surface.dataset.previewZoomMode).toBe('fit');
+        expect(wheel.defaultPrevented).toBe(false);
+        expect(doubleClick.defaultPrevented).toBe(false);
+        expect(harness.host.querySelector<HTMLElement>('.preview-pane')?.getAttribute('tabindex')).toBe('-1');
+        expect(Array.from(harness.host.querySelectorAll<HTMLButtonElement>('.preview-zoom-button, .preview-zoom-value'))
+            .every(button => button.disabled)).toBe(true);
     });
 
     it('keeps both step controls enabled at Fit and lets minus enter a smaller manual zoom', async () => {
