@@ -129,6 +129,23 @@ is intentional and was verified directly rather than accepted:
   had welded into one. The defect partly hid from measurement by fusing its own
   victims.
 
+## Gray with no adjacent core is out of scope, by design
+
+The strip removes a gray pixel only when it hugs a captured dark core. Gray that
+touches no core — the material between two fused letters — survives. That is the
+pass's remit, not an oversight: at this point such gray is indistinguishable from
+a genuine faint hairline, serif or ligature, and `has_coherent_noncore_run` exists
+precisely to protect those. A rule that deleted every non-core island would erase
+real ink.
+
+Measured on the five leaves this change touches, counting components of ≤4 px as
+the artifact proxy: p13-right **+0**, p5-right **+0**, p11-right +2, p14-right +2,
+p17-right +6, against baselines of 5–53. Every one of p17-right's six was
+inspected: all are serif tips that separated from words which had been a single
+fused blob (they split off base components of 1405–1825 px), and all are real ink
+present in the source. None is leftover inter-letter gray. Total component counts
+rise by 24–56 per leaf, which is the de-fusing itself.
+
 Non-goals: this does not change the additive rescue, the oracle's calibration, or
 any Otsu-route behaviour, and it does not claim to close the remaining
 0.0517→0.0441 gap to the source floor.

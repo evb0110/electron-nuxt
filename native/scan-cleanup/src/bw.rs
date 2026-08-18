@@ -4834,6 +4834,20 @@ mod tests {
                 "the gray halo right of the letter at x={stem} must not remain ink"
             );
         }
+
+        // The strip only removes gray that hugs a captured core, so the gray
+        // between two letters outlives the halo that surrounded them. That is
+        // this pass's remit, not an oversight: gray with no adjacent core is
+        // indistinguishable here from a genuine faint hairline or ligature, and
+        // deleting it would erase the thin strokes has_coherent_noncore_run
+        // exists to protect. On real pages the leftover is reabsorbed into the
+        // neighbouring glyphs rather than left standing alone.
+        for pair in stems.windows(2) {
+            assert!(
+                (pair[0] + HALO_WIDTH..pair[1]).all(|x| stripped.get(x, 40)),
+                "gray with no adjacent captured core is out of this pass's scope"
+            );
+        }
     }
 
     #[test]
