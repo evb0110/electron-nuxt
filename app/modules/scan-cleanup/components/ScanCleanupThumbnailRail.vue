@@ -44,12 +44,13 @@
             :current-page="leaderPosition"
             :selected-pages="selectedPositions"
             :item-metrics-key="leaderPosition"
+            :disabled="disabled"
             item-tag="div"
             role="listbox"
             aria-multiselectable="true"
             :aria-disabled="disabled"
             :aria-label="t('scanCleanup.pages.title')"
-            tabindex="0"
+            :tabindex="disabled ? -1 : 0"
             @go-to-page="handleRowClick"
             @keydown="handleKeydown"
         >
@@ -187,6 +188,7 @@
                             </template>
                         </UPopover>
                         <AppTooltip
+                            :disabled="disabled"
                             :text="includeLabel(naturalPage(position))"
                             usefulness="always"
                         >
@@ -456,6 +458,9 @@ function isCustomized(page: number) {
 }
 
 function updateOverride(page: number, patch: Partial<IScanCleanupPageOverride>) {
+    if (props.disabled) {
+        return;
+    }
     emit('update:override', page, createScanCleanupPageOverride({
         ...pageOverride(page),
         ...patch,
@@ -541,6 +546,9 @@ function outputModeLabel(mode: TScanCleanupOutputMode) {
 }
 
 function updateOutputModeOverride(page: number, value: unknown) {
+    if (props.disabled) {
+        return;
+    }
     if (value === 'auto') {
         const {
             outputModeOverride: _outputModeOverride,
@@ -566,6 +574,10 @@ function closeOptionsPopover(page: number) {
 }
 
 function updateOptionsPopover(page: number, open: boolean) {
+    if (props.disabled) {
+        optionsPopoverPage.value = null;
+        return;
+    }
     optionsPopoverPage.value = open ? page : null;
 }
 
@@ -988,6 +1000,12 @@ function handleKeydown(event: KeyboardEvent) {
     emit('select-page', orderedPages.value[boundedIndex]!, 'single', orderedPages.value);
 }
 
+watch(() => props.disabled, disabled => {
+    if (disabled) {
+        optionsPopoverPage.value = null;
+    }
+});
+
 </script>
 
 <style scoped>
@@ -1105,6 +1123,11 @@ function handleKeydown(event: KeyboardEvent) {
 .scan-thumbnail-options-toggle:focus-visible,
 .scan-thumbnail-exclude-toggle:focus-visible {
     opacity: 1;
+}
+
+.scan-thumbnail-list :deep([data-document-thumbnail-item].is-disabled:hover) .scan-thumbnail-options-toggle,
+.scan-thumbnail-list :deep([data-document-thumbnail-item].is-disabled:hover) .scan-thumbnail-exclude-toggle {
+    opacity: 0.55;
 }
 
 .scan-thumbnail-options-toggle.is-customized::after {

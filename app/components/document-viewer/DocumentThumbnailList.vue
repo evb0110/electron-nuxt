@@ -13,19 +13,23 @@
                 :key="item.pageNumber"
                 class="document-thumbnail-list__item"
                 :current="item.pageNumber === currentPage"
+                :aria-disabled="disabled || undefined"
                 :selected="selectedPages?.has(item.pageNumber)"
                 :tag="itemTag"
                 :role="selectedPages ? 'option' : undefined"
                 :aria-selected="selectedPages ? selectedPages.has(item.pageNumber) : undefined"
-                :tabindex="itemTag === 'div' ? (item.pageNumber === currentPage ? 0 : -1) : undefined"
+                :tabindex="itemTag === 'div'
+                    ? (disabled ? -1 : item.pageNumber === currentPage ? 0 : -1)
+                    : undefined"
                 frame-class="document-thumbnail-list__frame"
                 :frame-style="{aspectRatio: item.aspectRatio}"
                 :style="{height: `${String(item.height)}px`, transform: `translateY(${String(item.top)}px)`}"
                 :aria-label="t('documentSourceSidebar.goToPage', {page: item.pageNumber})"
                 :data-thumbnail-page="item.pageNumber"
                 :data-thumbnail-request-width="states.get(item.pageNumber)?.widthPx ?? ''"
+                :disabled="disabled"
                 data-pane-relocation-scroll-item
-                @click="emit('go-to-page', item.pageNumber, $event)"
+                @click="handleItemClick(item.pageNumber, $event)"
             >
                 <template #overlay>
                     <slot name="overlay" :page-number="item.pageNumber" />
@@ -65,6 +69,7 @@ const props = defineProps<{
     itemMetricsKey?: unknown;
     itemTag?: 'button' | 'div';
     selectedPages?: ReadonlySet<number>;
+    disabled?: boolean;
 }>();
 const emit = defineEmits<{'go-to-page': [pageNumber: number, event: MouseEvent];}>();
 const {t} = useTypedI18n();
@@ -102,6 +107,13 @@ function setCanvasHost(
     if (surface && typeof surface !== 'string' && host.firstChild !== surface) {
         host.replaceChildren(surface);
     }
+}
+
+function handleItemClick(pageNumber: number, event: MouseEvent) {
+    if (props.disabled) {
+        return;
+    }
+    emit('go-to-page', pageNumber, event);
 }
 </script>
 

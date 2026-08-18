@@ -785,6 +785,17 @@
     user-select: none;
 }
 
+.preview-surface.is-disabled {
+    cursor: default;
+    user-select: none;
+}
+
+.preview-surface.is-disabled > *,
+.preview-surface.is-disabled .preview-result-layer *,
+.preview-surface.is-disabled .preview-empty-layer * {
+    pointer-events: none;
+}
+
 .legend-swatch {
     display: inline-block;
     width: var(--app-space-9xl);
