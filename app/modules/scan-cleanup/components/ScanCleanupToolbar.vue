@@ -23,12 +23,6 @@
             <div
                 v-if="isRunning"
                 class="scan-cleanup-run-meter"
-                role="progressbar"
-                :aria-label="t('scanCleanup.runStatusLabel')"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                :aria-valuenow="transitionText ? undefined : normalizedPercent ?? undefined"
-                :aria-valuetext="transitionText || progressText"
             >
                 <ol
                     class="scan-cleanup-run-phases"
@@ -68,7 +62,15 @@
                         />
                     </div>
                     <div class="scan-cleanup-run-meter-right">
-                        <span class="scan-cleanup-run-meter-track">
+                        <span
+                            class="scan-cleanup-run-meter-track"
+                            role="progressbar"
+                            :aria-label="t('scanCleanup.runStatusLabel')"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            :aria-valuenow="transitionText ? undefined : normalizedPercent ?? undefined"
+                            :aria-valuetext="transitionText || progressText"
+                        >
                             <span
                                 class="scan-cleanup-run-meter-fill"
                                 :class="{'scan-cleanup-run-meter-fill--indeterminate': normalizedPercent === null}"

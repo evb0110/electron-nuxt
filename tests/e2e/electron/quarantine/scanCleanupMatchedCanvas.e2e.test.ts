@@ -415,7 +415,7 @@ const readRunState = (page: Page) => evaluateInPage(page, () => {
         ?.readActiveWorkspaceStateValues?.(['originalPath']);
     const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
     const meter = document.querySelector('.scan-cleanup-run-meter');
-    const ariaPercent = meter?.getAttribute('aria-valuenow');
+    const ariaPercent = meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow');
     return {
         actionDisabled: action?.disabled ?? true,
         actionLabel: action?.textContent?.trim() ?? '',

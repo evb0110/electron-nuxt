@@ -1824,10 +1824,12 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).not.toContain('42%');
         expect(meter?.textContent).toContain('Calculating time for current task…');
         expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Clean pages');
+        expect(meter?.querySelector('ol')?.closest('[role="progressbar"]')).toBeNull();
         expect(meter?.querySelector('.scan-cleanup-run-meter-eta .scan-cleanup-stable-width-sizer')?.textContent)
             .toBe('Current task: about 999 min');
-        expect(meter?.getAttribute('aria-valuenow')).toBe('42');
-        expect(meter?.getAttribute('aria-valuetext'))
+        const progressbar = meter?.querySelector('[role="progressbar"]');
+        expect(progressbar?.getAttribute('aria-valuenow')).toBe('42');
+        expect(progressbar?.getAttribute('aria-valuetext'))
             .toContain('Cleaning pages');
         expect(meter?.querySelector('.scan-cleanup-run-meter-count .scan-cleanup-stable-width-sizer')?.textContent)
             .toBe('120 / 120');
@@ -5369,8 +5371,8 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).toContain('Calculating time for current task…');
         expect(meter?.textContent).not.toContain('0 / 392');
         expect(meter?.textContent).not.toContain('0%');
-        expect(meter?.getAttribute('aria-valuenow')).toBeNull();
-        expect(meter?.getAttribute('aria-valuetext')).toBe(transitionText);
+        expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull();
+        expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(transitionText);
     });
 
     it('shows live pre-analysis progress in the run meter while a run waits for detection', () => {
@@ -5405,7 +5407,7 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).toContain('Calculating time for current task…');
         expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Analyze pages');
         expect(fill?.style.width).toBe('25%');
-        expect(meter?.getAttribute('aria-valuenow')).toBe('25');
+        expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('25');
     });
 
     it('finishes with a stable user phase instead of object counts or a false percentage', () => {
@@ -5437,7 +5439,7 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).toContain('Almost done');
         expect(meter?.textContent).not.toContain('316 / 316');
         expect(meter?.textContent).not.toMatch(/\b98%\b/);
-        expect(meter?.getAttribute('aria-valuenow')).toBeNull();
+        expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull();
         expect(meter?.querySelector('.scan-cleanup-run-meter-fill--indeterminate')).not.toBeNull();
     });
 
