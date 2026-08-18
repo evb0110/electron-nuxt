@@ -188,6 +188,7 @@
                             </template>
                         </UPopover>
                         <AppTooltip
+                            :disabled="disabled"
                             :text="includeLabel(naturalPage(position))"
                             usefulness="always"
                         >
@@ -545,6 +546,9 @@ function outputModeLabel(mode: TScanCleanupOutputMode) {
 }
 
 function updateOutputModeOverride(page: number, value: unknown) {
+    if (props.disabled) {
+        return;
+    }
     if (value === 'auto') {
         const {
             outputModeOverride: _outputModeOverride,

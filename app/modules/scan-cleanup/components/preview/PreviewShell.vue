@@ -1591,6 +1591,11 @@ watch(() => dragTransaction.active.value, active => {
         });
     }
 });
+watch(() => props.disabled, disabled => {
+    if (disabled) {
+        dragTransaction.cancel();
+    }
+});
 watch(previewTransformScale, () => {
     void nextTick(() => {
         updateOverlayGeometry();

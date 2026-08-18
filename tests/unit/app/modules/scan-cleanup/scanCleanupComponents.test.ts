@@ -450,6 +450,27 @@ const InputNumberStub = defineComponent({
     }),
 });
 const SlotStub = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});
+const TooltipStub = defineComponent({
+    inheritAttrs: false,
+    props: {
+        disabled: Boolean,
+        text: {
+            type: String,
+            default: '',
+        },
+    },
+    setup: (
+        props,
+        {
+            attrs,
+            slots,
+        },
+    ) => () => h('span', {
+        ...attrs,
+        'data-tooltip-disabled': String(props.disabled),
+        'data-tooltip-root': '',
+    }, slots.default?.()),
+});
 const BadgeStub = defineComponent({setup: (_props, {slots}) => () => h('span', {'data-ui-badge': ''}, slots.default?.())});
 const IconStub = defineComponent({setup: () => () => h('span', {'data-ui-icon': ''})});
 const SkeletonStub = defineComponent({setup: () => () => h('span', {'data-ui-skeleton': ''})});
@@ -705,7 +726,7 @@ function mount(component: Parameters<typeof createApp>[0]) {
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(component);
-    app.component('AppTooltip', SlotStub);
+    app.component('AppTooltip', TooltipStub);
     app.component('UBadge', BadgeStub);
     app.component('UButton', ButtonStub);
     app.component('UCheckbox', CheckboxStub);
@@ -872,6 +893,7 @@ function mountPreviewZoomHarness(options: {
     zoneEditing?: boolean;
 } = {}) {
     const viewMode = ref<'original' | 'cleaned'>(options.viewMode ?? 'original');
+    const disabled = ref(options.disabled ?? false);
     const splitUpdates: IScanCleanupNormalizedSplit[] = [];
     const previewResult = options.result === undefined ? spreadPreviewResult() : options.result;
     const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
@@ -886,7 +908,7 @@ function mountPreviewZoomHarness(options: {
         totalPages: 3,
         manualSplit: null,
         manualZones: options.manualZones,
-        disabled: options.disabled ?? false,
+        disabled: disabled.value,
         readingOrder: 'ltr',
         zoneEditing: options.zoneEditing,
         detailResult: options.detailResult ?? null,
@@ -942,11 +964,13 @@ function mountPreviewZoomHarness(options: {
             );
         });
     });
-    mockPointerCapture(surface);
+    const pointerCapture = mockPointerCapture(surface);
     return {
         ...harness,
+        pointerCapture,
         stage,
         splitUpdates,
+        disabled,
         surface,
         viewMode,
     };
@@ -3223,6 +3247,109 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector<HTMLElement>('.preview-pane')?.getAttribute('tabindex')).toBe('-1');
         expect(Array.from(harness.host.querySelectorAll<HTMLButtonElement>('.preview-zoom-button, .preview-zoom-value'))
             .every(button => button.disabled)).toBe(true);
+        const tooltipRoots = Array.from(harness.host.querySelectorAll<HTMLElement>('[data-tooltip-root]'));
+        expect(tooltipRoots.length).toBeGreaterThan(0);
+        expect(tooltipRoots.every(root => root.dataset.tooltipDisabled === 'true')).toBe(true);
+    });
+
+    it('cancels an active preview pan when cleanup becomes disabled', async () => {
+        const harness = mountPreviewZoomHarness();
+        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+        harness.surface.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 250,
+            clientY: 200,
+            pointerId: 61,
+        }));
+        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 300,
+            clientY: 225,
+            pointerId: 61,
+        }));
+        await nextTick();
+        expect(harness.surface.classList).toContain('is-panning-preview');
+
+        harness.disabled.value = true;
+        await nextTick();
+        const transformAfterDisable = harness.stage.style.transform;
+        expect(harness.pointerCapture.releasePointerCapture).toHaveBeenCalledWith(61);
+        expect(harness.surface.classList).not.toContain('is-panning-preview');
+
+        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 350,
+            clientY: 250,
+            pointerId: 61,
+        }));
+        expect(harness.stage.style.transform).toBe(transformAfterDisable);
+    });
+
+    it('cancels active cutter, content-box, and placement drags when cleanup becomes disabled', async () => {
+        const cutterHarness = mountPreviewZoomHarness();
+        const cutter = cutterHarness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
+        const cutterCapture = mockPointerCapture(cutter);
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 300,
+            clientY: 200,
+            pointerId: 62,
+        }));
+        cutterHarness.disabled.value = true;
+        await nextTick();
+        expect(cutterCapture.releasePointerCapture).toHaveBeenCalledWith(62);
+
+        const contentResult = spreadPreviewResult();
+        contentResult.outputs[0]!.metadata = {
+            ...contentResult.outputs[0]!.metadata,
+            contentBox: {
+                heightPx: 600,
+                widthPx: 350,
+                xPx: 50,
+                yPx: 100,
+            },
+        };
+        const contentHarness = mountPreviewZoomHarness({
+            result: contentResult,
+            viewMode: 'cleaned',
+        });
+        const contentHandle = contentHarness.host.querySelector<HTMLButtonElement>('.content-handle')!;
+        const contentCapture = mockPointerCapture(contentHandle);
+        contentHandle.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 200,
+            clientY: 200,
+            pointerId: 63,
+        }));
+        contentHarness.disabled.value = true;
+        await nextTick();
+        expect(contentCapture.releasePointerCapture).toHaveBeenCalledWith(63);
+
+        const placementHarness = mountPreviewZoomHarness({viewMode: 'cleaned'});
+        const placement = placementHarness.host.querySelector<HTMLElement>('.placement-control')!;
+        const placementCapture = mockPointerCapture(placement);
+        placement.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 100,
+            clientY: 100,
+            pointerId: 64,
+        }));
+        placementHarness.disabled.value = true;
+        await nextTick();
+        expect(placementCapture.releasePointerCapture).toHaveBeenCalledWith(64);
     });
 
     it('keeps both step controls enabled at Fit and lets minus enter a smaller manual zoom', async () => {
