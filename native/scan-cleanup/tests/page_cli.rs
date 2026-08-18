@@ -6053,6 +6053,23 @@ fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
         "a text spread with no illustration must stay on the bilevel route: {page}",
     );
 
+    // The blank verso's bilevel rendition correctly removes the fold, but its
+    // faint paper variation triggers the conservative grayscale fallback. The
+    // fallback must not reintroduce the fold halo along the retained leaf
+    // edge. This is the visible top-right remnant from the real page.
+    let verso: Value = serde_json::from_slice(&fs::read(&outputs[0].1).unwrap()).unwrap();
+    assert_eq!(
+        verso["outputMode"], "grayscale",
+        "the fixture must keep exercising the pale-structure fallback: {verso}",
+    );
+    let shipped_verso = decode_gray(&fs::read(&outputs[0].0).unwrap(), 8_000_000, 4_000).unwrap();
+    let fold_margin = (shipped_verso.width() / 100).max(1);
+    assert!(
+        (shipped_verso.width() - fold_margin..shipped_verso.width())
+            .all(|x| (0..shipped_verso.height()).all(|y| shipped_verso.get(x, y) == 255)),
+        "the grayscale fallback restored tone inside the verso fold margin",
+    );
+
     // The recto raster begins at the cutter, so its x=0 *is* the fold edge and
     // a crop starting there still ships the shadow. Assert the shipped result
     // rather than the coordinate: the shadow is a near-solid column, so if any

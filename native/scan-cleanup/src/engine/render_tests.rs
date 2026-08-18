@@ -7542,6 +7542,46 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_blank_fallback_whitens_only_the_proven_fold_margin() {
+        let mut split = fold_test_split(200, 120);
+        split.cutter_x = Some(100.0);
+        split.diagnostics.fold_band = FoldBand::measured(90.0, 110.0);
+        let mut removed = BinaryImage::new(100, 120);
+        removed.set(99, 12, true);
+
+        let left = whiten_collapsed_blank_fold_margin(
+            GrayImage::new(100, 120, 218),
+            &removed,
+            PageHalf::Left,
+            &split,
+            true,
+        );
+        assert_eq!(left.get(97, 60), 218, "leaf interior was whitened");
+        assert_eq!(left.get(98, 60), 255, "left fold margin survived");
+        assert_eq!(left.get(99, 60), 255, "left fold edge survived");
+
+        let right = whiten_collapsed_blank_fold_margin(
+            GrayImage::new(100, 120, 218),
+            &removed,
+            PageHalf::Right,
+            &split,
+            true,
+        );
+        assert_eq!(right.get(0, 60), 255, "right fold edge survived");
+        assert_eq!(right.get(1, 60), 255, "right fold margin survived");
+        assert_eq!(right.get(2, 60), 218, "right leaf interior was whitened");
+
+        let protected = whiten_collapsed_blank_fold_margin(
+            GrayImage::new(100, 120, 218),
+            &removed,
+            PageHalf::Left,
+            &split,
+            false,
+        );
+        assert_eq!(protected.get(99, 60), 218, "owned content was whitened");
+    }
+
+    #[test]
     fn either_collapsed_gutter_side_requests_raw_remeasurement() {
         let mut split = fold_test_split(800, 120);
         split.cutter_x = Some(400.0);
