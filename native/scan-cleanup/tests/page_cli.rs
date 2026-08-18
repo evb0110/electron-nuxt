@@ -2331,7 +2331,10 @@ fn spread_preview_cli_pins_the_small_print_stroke_budget_outcome() {
          (an erosion storm on the impressum leaf shows up here first)",
     );
 
-    let expected = [(1773usize, 2528usize, 187_731usize), (1803, 2451, 589_086)];
+    // The right leaf drops 7_394 px of Wolf halo that used to survive on
+    // multi-letter blobs the halo itself had fused; the strip only removes ink,
+    // so the left leaf and both leaf sizes are unchanged.
+    let expected = [(1773usize, 2528usize, 187_731usize), (1803, 2451, 581_692)];
     for ((output_path, _), (width, height, ink)) in outputs.iter().zip(expected) {
         let cleaned = decode_gray(&fs::read(output_path).unwrap(), 40_000_000, 40_000).unwrap();
         assert_eq!((cleaned.width(), cleaned.height()), (width, height));

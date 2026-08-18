@@ -2465,7 +2465,7 @@ fn rescue_component_scoped_faint_strokes_budgeted(
     if selected_mode == BinarizationMode::Wolf {
         let damaged_components = ComponentMap::from_binary(damaged);
         for component in damaged_components.components() {
-            if !is_text_like_rescue_component(component, dpi) {
+            if !is_text_like_rescue_component(component, dpi, RescueAdmission::HaloStrip) {
                 continue;
             }
             let mut captured_raw = Vec::with_capacity(component.area);
@@ -2557,7 +2557,7 @@ fn rescue_component_scoped_faint_strokes_budgeted(
     }
 
     for component in components.components() {
-        if !is_text_like_rescue_component(component, dpi) {
+        if !is_text_like_rescue_component(component, dpi, RescueAdmission::Additive) {
             continue;
         }
         let mut missing = 0usize;
@@ -2855,7 +2855,28 @@ fn raw_text_row_profile(
     banded
 }
 
-fn is_text_like_rescue_component(component: &scan_primitives::Component, dpi: f64) -> bool {
+/// Which of the two rescue passes is asking whether a component is text-like.
+///
+/// The passes need different extent bounds because they can do different damage.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RescueAdmission {
+    /// Additive faint-ink rescue. It can turn paper into ink, so a component
+    /// larger than a single glyph in any direction must never be admitted.
+    Additive,
+    /// Subtractive Wolf halo strip. It can only remove halo, never fabricate
+    /// ink, so the longest-side bound does not apply and is actively harmful:
+    /// the halo is what fuses adjacent letters into one multi-letter blob, so
+    /// an extent cap rejects exactly the components whose halo most needs
+    /// removing, leaving them at full Wolf weight beside de-haloed neighbours.
+    /// Height still confines admission to text-line-sized material.
+    HaloStrip,
+}
+
+fn is_text_like_rescue_component(
+    component: &scan_primitives::Component,
+    dpi: f64,
+    admission: RescueAdmission,
+) -> bool {
     let px_per_mm = dpi.max(1.0) / 25.4;
     let width = component.right - component.left + 1;
     let height = component.bottom - component.top + 1;
@@ -2868,11 +2889,16 @@ fn is_text_like_rescue_component(component: &scan_primitives::Component, dpi: f6
     let minimum_stroke = (px_per_mm * 0.08).max(0.75);
     let maximum_stroke = (px_per_mm * 2.5).max(2.0);
 
+    let extent_admitted = match admission {
+        RescueAdmission::Additive => {
+            major <= maximum_extent && aspect <= 10.0 && component.area <= maximum_area
+        }
+        RescueAdmission::HaloStrip => height <= maximum_extent,
+    };
+
     component.area >= 2
-        && major <= maximum_extent
+        && extent_admitted
         && minor >= 1
-        && aspect <= 10.0
-        && component.area <= maximum_area
         && average_stroke >= minimum_stroke
         && average_stroke <= maximum_stroke
 }
@@ -4735,6 +4761,79 @@ mod tests {
             !rescued.get(49, 40) && !rescued.get(56, 40),
             "Wolf's gray halo must not remain ink around a captured solid core"
         );
+    }
+
+    #[test]
+    fn wolf_halo_strip_de_halos_letters_the_halo_itself_fused_into_one_component() {
+        // The halo is what welds adjacent letters together, so a fused word is
+        // wider than any single glyph. Bounding the component's longest side
+        // would skip exactly these and leave them at full Wolf weight beside
+        // de-haloed neighbours, which is the stroke-weight unevenness this pass
+        // exists to prevent.
+        const STEM_PITCH: usize = 11;
+        const HALO_WIDTH: usize = 9;
+        let mut raw = GrayImage::new(220, 80, 232);
+        let mut damaged = BinaryImage::new(raw.width(), raw.height());
+        let mut text_vicinity = BinaryImage::new(raw.width(), raw.height());
+        let stems: Vec<usize> = (0..12).map(|i| 40 + i * STEM_PITCH).collect();
+        for &stem in &stems {
+            for y in 25..55 {
+                for x in stem..stem + HALO_WIDTH {
+                    raw.set(x, y, 170);
+                    damaged.set(x, y, true);
+                    text_vicinity.set(x, y, true);
+                }
+            }
+            for y in 26..54 {
+                for x in stem + 1..stem + HALO_WIDTH - 1 {
+                    raw.set(x, y, 40);
+                }
+            }
+        }
+        // Adjacent halos touch across the two-pixel gap, which is how the halo
+        // fuses letters on a real page.
+        for pair in stems.windows(2) {
+            for y in 38..42 {
+                for x in pair[0] + HALO_WIDTH..pair[1] {
+                    raw.set(x, y, 170);
+                    damaged.set(x, y, true);
+                    text_vicinity.set(x, y, true);
+                }
+            }
+        }
+
+        let component_extent = stems[stems.len() - 1] + HALO_WIDTH - stems[0];
+        assert!(
+            component_extent > (300.0f64 / 25.4 * 8.0).round() as usize,
+            "the fixture must exceed the additive pass's 8 mm extent cap"
+        );
+
+        let stripped = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            None,
+            BinarizationMode::Wolf,
+            BinarizationMode::Wolf,
+            300.0,
+            false,
+        );
+
+        for &stem in &stems {
+            assert!(
+                stripped.get(stem + 4, 40),
+                "the captured dark core of the letter at x={stem} must remain"
+            );
+            assert!(
+                !stripped.get(stem, 40),
+                "the gray halo left of the letter at x={stem} must not remain ink"
+            );
+            assert!(
+                !stripped.get(stem + HALO_WIDTH - 1, 40),
+                "the gray halo right of the letter at x={stem} must not remain ink"
+            );
+        }
     }
 
     #[test]
