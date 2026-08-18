@@ -1,7 +1,9 @@
 import type {
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
+    IScanCleanupPlacementAnchor,
     TScanCleanupLayoutByPage,
+    TScanCleanupOutputHalf,
 } from '@contracts/electronApiScanCleanup';
 import type {TScanCleanupLog} from '@scan-cleanup-core/types';
 import {resolveReusablePagePlanResult} from '@scan-cleanup-core/policy/effectiveOptions';
@@ -10,6 +12,10 @@ interface IPagePlanEvidenceInput {
     options: IScanCleanupOptions;
     layoutByPage?: TScanCleanupLayoutByPage;
     pagePlanEvidenceByPage?: Partial<Record<string, IScanCleanupPagePlanEvidence>>;
+    placementAnchorsByPage?: Partial<Record<
+        string,
+        Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
+    >>;
 }
 
 export function createPagePlanResolver(
@@ -37,7 +43,13 @@ export function createPagePlanResolver(
                     + ` ${result.status}`,
                 );
             }
-            return result.plan;
+            const placementAnchors = input.placementAnchorsByPage?.[String(pageNumber)];
+            return placementAnchors === undefined || Object.keys(placementAnchors).length === 0
+                ? result.plan
+                : {
+                    ...result.plan,
+                    placementAnchors,
+                };
         },
         report() {
             log(

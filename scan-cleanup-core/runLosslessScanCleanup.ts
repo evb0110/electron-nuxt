@@ -417,12 +417,16 @@ export async function runLosslessScanCleanup(
                 }
                 const alignment = page.pageOverride.placementOverrides?.[output.half]
                     ?? request.options.pageAlignment;
+                const placementAnchor = request.placementAnchorsByPage?.[
+                    String(page.sourcePageIndex + 1)
+                ]?.[output.half];
                 if (Math.abs(scale - 1) <= CANVAS_CONTENT_SCALE_EPSILON) {
                     const innerBox = placeScanCleanupCanvasBox(
                         output.cropRect,
                         innerWidth,
                         innerHeight,
                         alignment,
+                        placementAnchor,
                     );
                     output.cropRect = {
                         x: innerBox.x - marginLeft,
@@ -442,6 +446,7 @@ export async function runLosslessScanCleanup(
                     innerWidth,
                     innerHeight,
                     alignment,
+                    placementAnchor,
                 );
                 output.contentTransform = {
                     scale,

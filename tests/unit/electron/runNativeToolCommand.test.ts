@@ -239,7 +239,7 @@ describe('runNativeToolCommand', () => {
         expect(mismatch).toMatchObject({
             name: 'NativeToolProtocolVersionError',
             toolName: 'evb-scan-cleanup',
-            expectedVersion: 7,
+            expectedVersion: 8,
             actualVersion: '2',
         });
     });

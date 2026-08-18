@@ -2760,6 +2760,10 @@ struct CanvasPlacement {
     /// point of matching; below 1 the sheet is larger than the rectangle the
     /// document was measured onto, so this page alone lands below that scale.
     paper_scale: f64,
+    /// Placed against a caller-supplied ink anchor. The caller measured this
+    /// leaf's ink and owns the document-wide vertical answer, so the spread
+    /// equalizer must not re-anchor a pair containing such a leaf.
+    ink_aligned: bool,
     /// The paper is larger than the canvas by more than the grid's rounding:
     /// the sheet was cut into fewer pages than the rectangle was measured for,
     /// so this page is letterboxed below the document's scale while the grid
@@ -3507,10 +3511,27 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
     // final output follow the same Content placement contract as preview and
     // lossless output: align the raster inside the requested margin box.
     let alignment = options.placement_for(half);
-    let (aligned_x, aligned_y) = alignment.offset(
+    let (aligned_x, mut aligned_y) = alignment.offset(
         inner_width.saturating_sub(effective_content_width),
         inner_height.saturating_sub(content_height),
     );
+    // Ink placement puts this leaf's content where its ink sat on the paper it
+    // was cut from. Only the offset inside the margin box moves: the paper
+    // scale and the overflow fit above stay exactly as any other alignment
+    // planned them, so an anchored page is never resampled differently from
+    // the document it belongs to.
+    let ink_anchor = matches!(alignment, crate::PageAlignment::Ink)
+        .then(|| options.placement_anchor_for(half))
+        .flatten();
+    if let Some(anchor) = ink_anchor {
+        aligned_y = ((anchor.y_normalized * inner_height as f64).round().max(0.0) as usize)
+            .min(inner_height.saturating_sub(content_height));
+    }
+    let target_center_x = margin_left as f64
+        + match ink_anchor {
+            Some(anchor) => anchor.x_normalized * inner_width as f64,
+            None => inner_width as f64 / 2.0,
+        };
     // Keep the effective source origin signed. Optical centering may place a
     // retained white raster tail just outside the canvas; clamping that
     // origin to zero would leave the optical box visibly off-center and make
@@ -3519,7 +3540,7 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
     let mut effective_left = retained_left - fold_clip_left as isize;
     let mut optical_content_centered = false;
     let mut optical_content_fit_failed = false;
-    if let Some((optical_left, optical_right)) = optical_content_bounds_x.filter(|(left, right)| {
+    let centering_bounds = optical_content_bounds_x.filter(|(left, right)| {
         left.is_finite()
             && right.is_finite()
             && *left >= 0.0
@@ -3530,12 +3551,13 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
                 crate::PageAlignment::TopCenter
                     | crate::PageAlignment::Center
                     | crate::PageAlignment::BottomCenter
+                    | crate::PageAlignment::Ink
             )
-    }) {
+    });
+    if let Some((optical_left, optical_right)) = centering_bounds {
         let scale = content_width as f64 / width.max(1) as f64;
         let optical_center_x = (optical_left + optical_right) * 0.5;
         let scaled_optical_center = optical_center_x * scale;
-        let target_center = margin_left as f64 + inner_width as f64 / 2.0;
         // Constrain the optical box to the requested margins. A retained
         // white raster tail may overhang the canvas, but the optical box may
         // not; an impossible box is reported and keeps the ordinary raster
@@ -3543,7 +3565,7 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
         let minimum_left = (margin_left as f64 - optical_left * scale).ceil();
         let maximum_left =
             (canvas.width_px as f64 - margin_right as f64 - optical_right * scale).floor();
-        let desired_left = (target_center - scaled_optical_center).round() as isize;
+        let desired_left = (target_center_x - scaled_optical_center).round() as isize;
         if maximum_left >= minimum_left && maximum_left >= 0.0 {
             let minimum_left = minimum_left as isize;
             let maximum_left = maximum_left as isize;
@@ -3552,6 +3574,20 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
             effective_left = candidate;
         } else {
             optical_content_fit_failed = true;
+        }
+    } else if ink_anchor.is_some() {
+        // Without an optical box the retained raster is the only ink evidence
+        // there is, so the anchor centres that box on the same target the
+        // optical path would have used, under the same margin constraints.
+        let retained_box_left = fold_clip_left as f64;
+        let retained_box_right = (fold_clip_left + effective_content_width) as f64;
+        let minimum_left = (margin_left as f64 - retained_box_left).ceil();
+        let maximum_left =
+            (canvas.width_px as f64 - margin_right as f64 - retained_box_right).floor();
+        let desired_left =
+            (target_center_x - (retained_box_left + retained_box_right) * 0.5).round() as isize;
+        if maximum_left >= minimum_left && maximum_left >= 0.0 {
+            effective_left = desired_left.clamp(minimum_left as isize, maximum_left as isize);
         }
     }
     // Preserve a signed optical origin only when every overhung column is
@@ -3604,6 +3640,7 @@ fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
         margins_reduced,
         margins_unavailable,
         overflow,
+        ink_aligned: ink_anchor.is_some(),
         paper_scale,
         undersized_paper,
     }
@@ -4373,6 +4410,12 @@ fn align_spread_vertical_placements(
     let [Some((first, _)), Some((second, _))] = placements else {
         return;
     };
+    // A leaf placed against the caller's ink anchor already answers the spread
+    // question across the whole document. Re-anchoring the pair here would
+    // overwrite that answer with a two-page one.
+    if first.ink_aligned || second.ink_aligned {
+        return;
+    }
     let Some(first_content_top) = content_tops[0] else {
         return;
     };
@@ -5419,6 +5462,7 @@ mod tests {
             margins_reduced: false,
             margins_unavailable: false,
             overflow: false,
+            ink_aligned: false,
             paper_scale: 1.0,
             undersized_paper: false,
         };
@@ -5473,6 +5517,7 @@ mod tests {
             margins_reduced: false,
             margins_unavailable: false,
             overflow: false,
+            ink_aligned: false,
             paper_scale: 1.0,
             undersized_paper: false,
         };
@@ -5535,6 +5580,7 @@ mod tests {
             margins_reduced: false,
             margins_unavailable: false,
             overflow: false,
+            ink_aligned: false,
             paper_scale: 1.0,
             undersized_paper: false,
         };
@@ -6049,6 +6095,7 @@ mod tests {
             margins_reduced: false,
             margins_unavailable: false,
             overflow: false,
+            ink_aligned: false,
             paper_scale: 1.0,
             undersized_paper: false,
         };
@@ -6239,6 +6286,247 @@ mod tests {
         assert_eq!(placement.requested_margins, [6, 5, 3, 2]);
         assert_eq!((placement.content_width, placement.content_height), (1, 1));
         assert_eq!((placement.left, placement.top), (6, 5));
+    }
+
+    fn ink_anchor_canvas() -> DocumentCanvas {
+        DocumentCanvas {
+            width_points: 720.0,
+            height_points: 720.0,
+            width_px: 1_000,
+            height_px: 1_000,
+        }
+    }
+
+    fn ink_anchor_options(anchor: Option<crate::PlacementAnchor>) -> CleanupOptions {
+        CleanupOptions {
+            dpi: 100.0,
+            page_alignment: crate::PageAlignment::Ink,
+            margins_pixels: Some([20.0; 4]),
+            placement_anchors: crate::PlacementAnchors {
+                full: anchor,
+                ..crate::PlacementAnchors::default()
+            },
+            ..CleanupOptions::default()
+        }
+    }
+
+    fn ink_anchored_placement(
+        anchor: Option<crate::PlacementAnchor>,
+        height: usize,
+        optical_content_bounds_x: Option<(f64, f64)>,
+    ) -> CanvasPlacement {
+        let canvas = ink_anchor_canvas();
+        plan_canvas_placement_for_with_optical_center(
+            600,
+            height,
+            1_000.0,
+            1_000.0,
+            true,
+            &ink_anchor_options(anchor),
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+            optical_content_bounds_x,
+        )
+    }
+
+    #[test]
+    fn ink_anchor_places_the_leaf_vertically_where_its_source_ink_sat() {
+        let anchored = |y_normalized| {
+            ink_anchored_placement(
+                Some(crate::PlacementAnchor {
+                    x_normalized: 0.5,
+                    y_normalized,
+                }),
+                400,
+                None,
+            )
+        };
+
+        // Margins bound the inner box to 960 px; the anchor is a fraction of
+        // that box, measured from its top edge.
+        assert_eq!(anchored(0.0).top, 20);
+        assert_eq!(anchored(0.5).top, 500);
+        assert_eq!(anchored(1.0).top, 580);
+
+        // A page whose content is too tall to start where its ink sat keeps
+        // the requested bottom margin instead of overhanging it.
+        let tall = ink_anchored_placement(
+            Some(crate::PlacementAnchor {
+                x_normalized: 0.5,
+                y_normalized: 0.9,
+            }),
+            800,
+            None,
+        );
+        assert_eq!(tall.content_height, 800);
+        assert_eq!(tall.top, 180);
+        assert_eq!(tall.top + tall.content_height, 980);
+    }
+
+    #[test]
+    fn ink_anchor_centers_horizontally_on_the_anchor_within_requested_margins() {
+        let anchored = |x_normalized, optical| {
+            ink_anchored_placement(
+                Some(crate::PlacementAnchor {
+                    x_normalized,
+                    y_normalized: 0.0,
+                }),
+                400,
+                optical,
+            )
+        };
+
+        // Without optical bounds the retained raster is the box being placed.
+        let centered = anchored(0.5, None);
+        assert_eq!(centered.left, 200);
+        assert_eq!(centered.left + centered.content_width / 2, 500);
+        // Requested margins outrank the anchor at both extremes.
+        assert_eq!(anchored(0.0, None).left, 20);
+        let right = anchored(1.0, None);
+        assert_eq!(right.left, 380);
+        assert_eq!(right.left + right.content_width, 980);
+
+        // With optical bounds the ink box, not the raster, lands on the anchor.
+        let optical = anchored(0.25, Some((100.0, 200.0)));
+        assert!(optical.optical_content_centered);
+        assert_eq!(optical.left, 110);
+        assert_eq!(optical.left + 150, 260);
+        // An anchor at the paper's edge still cannot pull the ink box past the
+        // requested margin.
+        let optical_edge = anchored(0.0, Some((100.0, 200.0)));
+        assert!(optical_edge.left + 100 >= 20);
+        assert!(!optical_edge.optical_content_fit_failed);
+    }
+
+    #[test]
+    fn ink_alignment_without_an_anchor_places_exactly_like_top_center() {
+        let canvas = ink_anchor_canvas();
+        let placed = |page_alignment| {
+            let options = CleanupOptions {
+                page_alignment,
+                ..ink_anchor_options(None)
+            };
+            let placement = plan_canvas_placement_for(
+                600,
+                400,
+                1_000.0,
+                1_000.0,
+                true,
+                &options,
+                crate::pipeline::PageHalf::Full,
+                &canvas,
+            );
+            (
+                placement.left,
+                placement.top,
+                placement.content_width,
+                placement.content_height,
+                placement.ink_aligned,
+            )
+        };
+
+        assert_eq!(
+            placed(crate::PageAlignment::Ink),
+            placed(crate::PageAlignment::TopCenter)
+        );
+    }
+
+    #[test]
+    fn manual_placement_override_outranks_the_ink_anchor() {
+        let canvas = ink_anchor_canvas();
+        let options = CleanupOptions {
+            placement_overrides: crate::PlacementOverrides {
+                full: Some(crate::PageAlignment::BottomRight),
+                ..crate::PlacementOverrides::default()
+            },
+            ..ink_anchor_options(Some(crate::PlacementAnchor {
+                x_normalized: 0.1,
+                y_normalized: 0.1,
+            }))
+        };
+
+        let placement = plan_canvas_placement_for(
+            600,
+            400,
+            1_000.0,
+            1_000.0,
+            true,
+            &options,
+            crate::pipeline::PageHalf::Full,
+            &canvas,
+        );
+
+        assert!(!placement.ink_aligned);
+        assert_eq!((placement.left, placement.top), (380, 580));
+    }
+
+    #[test]
+    fn ink_anchored_spread_keeps_the_document_wide_vertical_answer() {
+        let canvas = ink_anchor_canvas();
+        let leaf = |y_normalized| {
+            ink_anchored_placement(
+                Some(crate::PlacementAnchor {
+                    x_normalized: 0.5,
+                    y_normalized,
+                }),
+                400,
+                None,
+            )
+        };
+        let first = leaf(0.1);
+        let second = leaf(0.3);
+        assert_eq!((first.top, second.top), (116, 308));
+
+        let mut placements = vec![Some((first, canvas)), Some((second, canvas))];
+        align_spread_vertical_placements(
+            &mut placements,
+            &[400, 400],
+            &[Some(20.0), Some(120.0)],
+            &canvas,
+        );
+        assert_eq!(placements[0].unwrap().0, first);
+        assert_eq!(placements[1].unwrap().0, second);
+
+        let mut deferred = vec![first, second];
+        align_deferred_spread_vertical_placements(
+            &mut deferred,
+            &[
+                DeferredSpreadVerticalPlacement {
+                    source_page_index: 4,
+                    half: crate::pipeline::PageHalf::Left,
+                    intrinsic_height: 400,
+                    content_top: Some(20.0),
+                },
+                DeferredSpreadVerticalPlacement {
+                    source_page_index: 4,
+                    half: crate::pipeline::PageHalf::Right,
+                    intrinsic_height: 400,
+                    content_top: Some(120.0),
+                },
+            ],
+            &HashMap::from([(4, 1.0)]),
+            &canvas,
+        );
+        assert_eq!(deferred, [first, second]);
+
+        // The same pair without ink alignment is still equalized, so the
+        // no-op above is the Ink contract and not an inert call.
+        let unanchored = |top| CanvasPlacement {
+            ink_aligned: false,
+            top,
+            ..first
+        };
+        let mut equalized = vec![
+            Some((unanchored(first.top), canvas)),
+            Some((unanchored(second.top), canvas)),
+        ];
+        align_spread_vertical_placements(
+            &mut equalized,
+            &[400, 400],
+            &[Some(20.0), Some(120.0)],
+            &canvas,
+        );
+        assert_ne!(equalized[0].unwrap().0.top, first.top);
     }
 
     #[test]

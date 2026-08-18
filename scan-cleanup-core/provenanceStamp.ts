@@ -9,6 +9,7 @@ import type {
     TScanCleanupPageRotation,
     TScanCleanupOutputModeSetting,
 } from '@contracts/electronApiScanCleanup';
+import {SCAN_CLEANUP_ALIGNMENTS} from '@contracts/electronApiScanCleanup';
 import {
     consumeScanCleanupVertices,
     consumeScanCleanupZones,
@@ -67,6 +68,12 @@ export interface IScanCleanupStampEffectiveOptions {
     manualContentBoxes: NonNullable<INativeScanCleanupOptionsV3['manualContentBoxes']>;
     automaticSkewDegrees: NonNullable<INativeScanCleanupOptionsV3['automaticSkewDegrees']>;
     automaticContentBoxes: NonNullable<INativeScanCleanupOptionsV3['automaticContentBoxes']>;
+    /**
+     * Recorded only by a run that resolved `ink` anchors. Every other run —
+     * and every run predating `ink` — writes the stamp it always wrote, so an
+     * already-stamped document keeps verifying byte-for-byte.
+     */
+    placementAnchors?: NonNullable<INativeScanCleanupOptionsV3['placementAnchors']>;
     manualZones: IScanCleanupManualZones;
     cropContent: boolean;
     matchPageSize: boolean;
@@ -214,6 +221,10 @@ export function materializeScanCleanupStampOptions({
         manualContentBoxes: nativeOptions.manualContentBoxes ?? {},
         automaticSkewDegrees: nativeOptions.automaticSkewDegrees ?? {},
         automaticContentBoxes: nativeOptions.automaticContentBoxes ?? {},
+        ...(nativeOptions.placementAnchors === undefined
+        || Object.keys(nativeOptions.placementAnchors).length === 0
+            ? {}
+            : {placementAnchors: nativeOptions.placementAnchors}),
         manualZones: nativeOptions.manualZones ?? {
             picture: [],
             fill: [],
@@ -680,7 +691,13 @@ function assertStampEffectiveOptions(
         'maxPixels',
         'maxDimensionPx',
     ];
-    assertExactKeys(value, keys);
+    // `placementAnchors` is written only by a run that resolved `ink` anchors,
+    // so requiring it would reject every stamp written before that choice
+    // existed.
+    assertExactKeys(value, 'placementAnchors' in value ? [
+        ...keys,
+        'placementAnchors',
+    ] : keys);
     for (const key of [
         'dpi',
         'sourceDpi',
@@ -753,17 +770,7 @@ function assertStampEffectiveOptions(
         && value.layout !== 'keep-left' && value.layout !== 'keep-right' && value.layout !== 'force-two-page') {
         fail('layout is invalid');
     }
-    if (![
-        'top-left',
-        'top-center',
-        'top-right',
-        'center-left',
-        'center',
-        'center-right',
-        'bottom-left',
-        'bottom-center',
-        'bottom-right',
-    ].includes(value.pageAlignment as string)) {
+    if (!(SCAN_CLEANUP_ALIGNMENTS as readonly string[]).includes(value.pageAlignment as string)) {
         fail('pageAlignment is invalid');
     }
     if (value.renderCrop !== null) assertNormalizedRect(value.renderCrop, 'renderCrop');
@@ -773,6 +780,9 @@ function assertStampEffectiveOptions(
     assertNormalizedRectMap(value.manualContentBoxes, 'manualContentBoxes');
     assertNumberMap(value.automaticSkewDegrees, 'automaticSkewDegrees');
     assertNormalizedRectMap(value.automaticContentBoxes, 'automaticContentBoxes');
+    if ('placementAnchors' in value) {
+        assertPlacementAnchorMap(value.placementAnchors, 'placementAnchors');
+    }
     assertTextToneDiagnostics(value.resolvedTextToneDiagnostics);
     assertManualZones(value.manualZones, inputBudget);
     assertMargins(value.margins);
@@ -915,6 +925,26 @@ function assertNormalizedRectMap(value: unknown, label: string) {
             'right',
         ].includes(half)) fail(`${label} contains an invalid half`);
         assertNormalizedRect(rect, `${label}.${half}`);
+    }
+}
+
+function assertPlacementAnchorMap(value: unknown, label: string) {
+    if (!isRecord(value)) fail(`${label} is invalid`);
+    for (const [
+        half,
+        anchor,
+    ] of Object.entries(value)) {
+        if (![
+            'full',
+            'left',
+            'right',
+        ].includes(half)) fail(`${label} contains an invalid half`);
+        if (!isRecord(anchor)
+            || !boundedNumberOrZero(anchor.xNormalized)
+            || !boundedNumberOrZero(anchor.yNormalized)
+            || Object.keys(anchor).some(key => key !== 'xNormalized' && key !== 'yNormalized')) {
+            fail(`${label}.${half} is invalid`);
+        }
     }
 }
 
@@ -1099,17 +1129,7 @@ function assertPlacementOverrides(value: unknown) {
             'left',
             'right',
         ].includes(half)
-            || ![
-                'top-left',
-                'top-center',
-                'top-right',
-                'center-left',
-                'center',
-                'center-right',
-                'bottom-left',
-                'bottom-center',
-                'bottom-right',
-            ].includes(alignment as string)) {
+            || !(SCAN_CLEANUP_ALIGNMENTS as readonly string[]).includes(alignment as string)) {
             fail('placementOverrides is invalid');
         }
     }

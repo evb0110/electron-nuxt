@@ -43,6 +43,10 @@ const alignmentIcons: Array<{
     icon: string;
 }> = [
     {
+        value: 'ink',
+        icon: 'i-ph-text-align-center',
+    },
+    {
         value: 'top-left',
         icon: 'i-ph-arrow-up-left',
     },
@@ -238,6 +242,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     const alignmentItems = computed(() => alignmentIcons.map(item => ({
         ...item,
         label: t(`scanCleanup.pageSize.${({
+            'ink': 'ink',
             'top-left': 'topLeft',
             'top-center': 'topCenter',
             'top-right': 'topRight',

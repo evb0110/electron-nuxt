@@ -254,6 +254,62 @@ describe('scan-cleanup provenance stamp contract', () => {
         ]);
     });
 
+    it('records resolved ink anchors only for the runs that produced them', () => {
+        const inkOptions: IScanCleanupOptions = {
+            ...options,
+            pageAlignment: 'ink',
+        };
+        const stampOptions = materializeScanCleanupStampOptions({
+            nativeOptions: resolveEffectiveScanCleanupOptions({
+                options: inkOptions,
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                qualityPath: 'raster',
+                placementAnchors: {full: {
+                    xNormalized: 0.5,
+                    yNormalized: 0.125,
+                }},
+            }),
+            options: inkOptions,
+            qualityPath: 'raster',
+        });
+        const stamp = buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: [{
+                sourcePage: 1,
+                options: stampOptions,
+            }],
+            outputMappings: [{
+                sourcePage: 1,
+                half: 'full',
+                outputOrdinal: 1,
+                rotationDegrees: 0,
+                excluded: false,
+                blank: false,
+            }],
+            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, stampOptions, {})],
+            buildIds: buildFixtureBuildIds(),
+        });
+        const decoded = decodeScanCleanupProvenanceStampHex(
+            encodeScanCleanupProvenanceStampHex(stamp),
+        );
+
+        expect(decoded).toEqual(stamp);
+        expect(decoded.effectiveOptions.perSourcePage[0]?.options.placementAnchors)
+            .toEqual({full: {
+                xNormalized: 0.5,
+                yNormalized: 0.125,
+            }});
+        // A run that never resolved an anchor keeps the shape every earlier
+        // stamp has, so already-stamped documents still verify.
+        expect(buildSinglePageStamp().effectiveOptions.perSourcePage[0]?.options)
+            .not.toHaveProperty('placementAnchors');
+        expect(() => assertScanCleanupProvenanceStamp(JSON.parse(JSON.stringify(stamp).replace(
+            '"yNormalized":0.125',
+            '"yNormalized":1.5',
+        )))).toThrow('placementAnchors');
+    });
+
     it('keeps the resolved plan digest identical with and without gitSha', () => {
         const v1Stamp = buildSinglePageStamp();
         const v2Stamp = buildSinglePageStamp('c'.repeat(40));

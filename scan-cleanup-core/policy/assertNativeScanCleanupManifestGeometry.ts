@@ -1,6 +1,7 @@
 import type {
     INativeScanCleanupManifestV3,
     IScanCleanupNormalizedRect,
+    IScanCleanupPlacementAnchor,
 } from '@contracts/electronApiScanCleanup';
 
 function describeRect(rect: IScanCleanupNormalizedRect) {
@@ -45,6 +46,26 @@ function assertRect(
     }
 }
 
+function assertAnchor(
+    pageNumber: number,
+    half: string,
+    anchor: IScanCleanupPlacementAnchor | undefined,
+) {
+    if (anchor === undefined) {
+        return;
+    }
+    const values = [
+        anchor.xNormalized,
+        anchor.yNormalized,
+    ];
+    if (!values.every(Number.isFinite) || values.some(value => value < 0 || value > 1)) {
+        throw new Error(
+            `Scan cleanup page ${String(pageNumber)} has invalid ${half} placement anchor `
+            + `(x=${String(anchor.xNormalized)}, y=${String(anchor.yNormalized)})`,
+        );
+    }
+}
+
 /**
  * Mirrors the native rectangle preconditions at the point where effective
  * per-page options first exist. This is deliberately cheap and runs before
@@ -64,5 +85,8 @@ export function assertNativeScanCleanupManifestGeometry(
         assertRect(pageNumber, 'automatic full content box', options.automaticContentBoxes?.full, rotation);
         assertRect(pageNumber, 'automatic left content box', options.automaticContentBoxes?.left, rotation);
         assertRect(pageNumber, 'automatic right content box', options.automaticContentBoxes?.right, rotation);
+        assertAnchor(pageNumber, 'full', options.placementAnchors?.full);
+        assertAnchor(pageNumber, 'left', options.placementAnchors?.left);
+        assertAnchor(pageNumber, 'right', options.placementAnchors?.right);
     }
 }

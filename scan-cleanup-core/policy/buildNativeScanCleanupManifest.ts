@@ -43,6 +43,7 @@ export interface IScanCleanupManifestPageInput {
     automaticSplit?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSplit'];
     automaticContentBoxes?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticContentBoxes'];
     automaticSkewDegrees?: INativeScanCleanupManifestV3['pages'][number]['options']['automaticSkewDegrees'];
+    placementAnchors?: INativeScanCleanupManifestV3['pages'][number]['options']['placementAnchors'];
     /** Trusted replay values supplied by a core consumer such as the corpus harness. */
     resolvedOptions?: Partial<IEffectiveNativeScanCleanupOptionsV3>;
     pageMetadataPath: string;
@@ -289,6 +290,9 @@ export function buildNativeScanCleanupManifest({
                     ...(page.automaticSkewDegrees === undefined
                         ? {}
                         : {automaticSkewDegrees: page.automaticSkewDegrees}),
+                    ...(page.placementAnchors === undefined
+                        ? {}
+                        : {placementAnchors: page.placementAnchors}),
                     qualityPath,
                     ...(experimental === undefined ? {} : {experimental}),
                 }),
@@ -305,7 +309,10 @@ export function buildNativeScanCleanupManifest({
                 inputPath: page.inputPath,
                 ...(page.analysisInputPath === undefined
                     ? {}
-                    : {analysisInputPath: page.analysisInputPath, analysisDpi: page.analysisDpi}),
+                    : {
+                        analysisInputPath: page.analysisInputPath,
+                        analysisDpi: page.analysisDpi,
+                    }),
                 ...(page.trustedForegroundMaskPath === undefined
                     ? {}
                     : {trustedForegroundMaskPath: page.trustedForegroundMaskPath}),

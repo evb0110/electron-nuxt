@@ -169,6 +169,7 @@ export function resolveCompactSourcePreservation(
         return undefined;
     }
     const alignment = pageOverride.placementOverrides?.full ?? request.options.pageAlignment;
+    const placementAnchor = request.placementAnchorsByPage?.[String(sourcePageNumber)]?.full;
     const placed = placeScanCleanupCanvasBox(
         {
             x: sourceCrop.x * scale,
@@ -179,6 +180,7 @@ export function resolveCompactSourcePreservation(
         targetWidth,
         targetHeight,
         alignment,
+        placementAnchor,
     );
     return {
         reason: preservesTrustedMrcTone

@@ -640,6 +640,57 @@ describe('native scan-cleanup manifest builder', () => {
         });
     });
 
+    it('ships resolved ink anchors per page and names the page whose anchor is unusable', () => {
+        const build = (anchorY: number) => buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options: {
+                ...options,
+                matchPageSize: true,
+                pageAlignment: 'ink',
+            },
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 4,
+                dpi: 300,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+                placementAnchors: {
+                    full: {
+                        xNormalized: 0.5,
+                        yNormalized: anchorY,
+                    },
+                    left: {
+                        xNormalized: 0.25,
+                        yNormalized: 0.1,
+                    },
+                },
+                outputs: [{
+                    outputPath: '/fixtures/output/page-1.png',
+                    metadataPath: '/fixtures/output/page-1-output.json',
+                }],
+            }],
+        });
+
+        const manifest = build(0.125);
+        expect(manifest.pages[0]?.options.placementAnchors).toEqual({
+            full: {
+                xNormalized: 0.5,
+                yNormalized: 0.125,
+            },
+            left: {
+                xNormalized: 0.25,
+                yNormalized: 0.1,
+            },
+        });
+        expect(() => assertNativeScanCleanupManifestGeometry(manifest)).not.toThrow();
+        expect(() => assertNativeScanCleanupManifestGeometry(build(1.5)))
+            .toThrow('Scan cleanup page 4 has invalid full placement anchor');
+        expect(() => assertNativeScanCleanupManifestGeometry(build(Number.NaN)))
+            .toThrow('Scan cleanup page 4 has invalid full placement anchor');
+    });
+
     it('reports the host memory the sidecar cannot read for itself, and omits it when unknown', () => {
         const build = (hostMemoryBytes?: number) => buildNativeScanCleanupManifest({
             operation: 'render',

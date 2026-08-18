@@ -1,5 +1,20 @@
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
+import type {
+    IScanCleanupOptions,
+    IScanCleanupSourcePageMetadata,
+    TScanCleanupOutputHalf,
+} from '@contracts/electronApiScanCleanup';
+import type {
+    IScanCleanupPlacementAnchorSample,
+    TScanCleanupPlacementAnchorsByPage,
+} from '@contracts/scanCleanupPageOverrides';
+import {
+    clusterScanCleanupPlacementAnchors,
+    getScanCleanupPageOverride,
+    resolveScanCleanupInkAnchor,
+    SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
+} from '@contracts/scanCleanupPageOverrides';
 import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
@@ -8,6 +23,57 @@ import {useScanCleanupDetectionSession} from '@app/modules/scan-cleanup/composab
 import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {useScanCleanupRunSession} from '@app/modules/scan-cleanup/composables/useScanCleanupRunSession';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+
+const SCAN_CLEANUP_OUTPUT_HALVES = [
+    'full',
+    'left',
+    'right',
+] as const satisfies readonly TScanCleanupOutputHalf[];
+const POINTS_PER_MM = 72 / 25.4;
+
+function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
+    return options.matchPageSize
+        && (options.pageAlignment === 'ink'
+            || Object.values(options.pageOverrides).some(override => Object
+                .values(override?.placementOverrides ?? {})
+                .some(alignment => alignment === 'ink')));
+}
+
+/**
+ * Anchors are normalized against each output leaf, so a millimetre tolerance
+ * only becomes a comparable number once it is divided by the largest leaf the
+ * document produces — the rectangle the matched canvas settles on. Paper that
+ * cannot be measured leaves the tolerance at zero, which still keeps every
+ * output on its own ink and only stops pages from snapping together.
+ */
+function resolveScanCleanupInkAnchorTolerance(
+    samples: readonly IScanCleanupPlacementAnchorSample[],
+    metadataByPage: ReadonlyMap<number, IScanCleanupSourcePageMetadata>,
+) {
+    let widthPoints = 0;
+    let heightPoints = 0;
+    for (const sample of samples) {
+        const metadata = metadataByPage.get(sample.pageNumber);
+        if (metadata === undefined) {
+            continue;
+        }
+        const swapsAxes = (((Math.round(metadata.rotation / 90) % 2) + 2) % 2) === 1;
+        const oriented = {
+            widthPoints: swapsAxes ? metadata.heightPoints : metadata.widthPoints,
+            heightPoints: swapsAxes ? metadata.widthPoints : metadata.heightPoints,
+        };
+        widthPoints = Math.max(
+            widthPoints,
+            oriented.widthPoints / (sample.half === 'full' ? 1 : 2),
+        );
+        heightPoints = Math.max(heightPoints, oriented.heightPoints);
+    }
+    const tolerancePoints = SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM;
+    return {
+        x: widthPoints > 0 ? tolerancePoints / widthPoints : 0,
+        y: heightPoints > 0 ? tolerancePoints / heightPoints : 0,
+    };
+}
 
 interface IUseScanCleanupWorkspaceSessionOptions {
     active: () => boolean;
@@ -71,6 +137,41 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourcePath,
         totalPages,
     });
+    // `ink` keeps every output where its source ink was, and pages whose ink
+    // agrees share one position. That comparison is document-wide, so it is
+    // resolved once here rather than per request: the preview the user judges
+    // and the run they start must place a page identically.
+    const placementAnchorsByPage = computed<TScanCleanupPlacementAnchorsByPage>(() => {
+        const cleanupOptions = resolvedOptions.value;
+        if (!usesScanCleanupInkAlignment(cleanupOptions)) {
+            return new Map();
+        }
+        const samples: IScanCleanupPlacementAnchorSample[] = [];
+        for (const [
+            pageNumber,
+            evidence,
+        ] of detection.pagePlanEvidenceByPage) {
+            const pageOverride = getScanCleanupPageOverride(cleanupOptions.pageOverrides, pageNumber);
+            if (pageOverride.excluded) {
+                continue;
+            }
+            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
+                const box = pageOverride.manualContentBoxes?.[half] ?? evidence.outputs[half]?.contentBox;
+                if (box === undefined) {
+                    continue;
+                }
+                samples.push({
+                    pageNumber,
+                    half,
+                    ...resolveScanCleanupInkAnchor(box, half),
+                });
+            }
+        }
+        return clusterScanCleanupPlacementAnchors(
+            samples,
+            resolveScanCleanupInkAnchorTolerance(samples, detection.sourcePageMetadataByPage.value),
+        );
+    });
     previewResult = useScanCleanupPreviewSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
@@ -82,6 +183,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         lifecycleDocumentKey,
         ownerId,
         pagePlanEvidenceByPage: detection.pagePlanEvidenceByPage,
+        placementAnchorsByPage,
         previewPage: selection.leader,
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
         resolvedOptions,
@@ -144,6 +246,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         documentRevision,
         onCompleted: settings.dismissFirstRunGuidance,
         ownerId,
+        placementAnchorsByPage,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
         resolvePagePlanEvidence,
         sourcePageNumbers: computed(() => {

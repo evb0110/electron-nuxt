@@ -1021,6 +1021,12 @@ watch(isRunning, running => {
     justify-content: center;
 }
 
+/* Not one of the nine anchors: it spans the row above them and carries its
+   own label, so the grid still reads as a 3x3 compass. */
+.scan-cleanup-alignment-ink {
+    grid-column: 1 / -1;
+}
+
 .scan-cleanup-selection-field {
     display: grid;
     gap: var(--app-space-sm);

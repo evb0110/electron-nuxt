@@ -24,6 +24,7 @@ const settingsBadgeLayoutValueKeys: Record<string, TTranslationKey> = {
     'force-two-page': 'scanCleanup.layout.twoPage',
 };
 const settingsBadgeAlignmentValueKeys: Record<string, TTranslationKey> = {
+    ink: 'scanCleanup.pageSize.ink',
     'top-left': 'scanCleanup.pageSize.topLeft',
     'top-center': 'scanCleanup.pageSize.topCenter',
     'top-right': 'scanCleanup.pageSize.topRight',

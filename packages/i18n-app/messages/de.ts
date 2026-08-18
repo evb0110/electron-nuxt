@@ -84,6 +84,7 @@ export default {
             'selectionAlignment': 'Inhaltsplatzierung für ausgewählte Seiten',
             'contentPlacement': 'Inhaltsplatzierung',
             'enableMatchPageSize': 'Aktivieren Sie „An Seitengröße anpassen“ in den Dokumenteinstellungen, um die Platzierung zu verwenden.',
+            'inkNeedsContentBoxes': 'Die automatische Entzerrung ersetzt den erkannten Inhalt, daher weicht die Tintenplatzierung auf „oben mittig“ aus.',
             'resetScope': {
                 'all': 'Alle Überschreibungen zurücksetzen…',
                 'page': 'Diese Seite zurücksetzen…',
@@ -320,6 +321,7 @@ export default {
         'pageSize': {
             'match': 'Passen Sie die Seitengröße an andere Seiten an',
             'matchLosslessNote': 'Seiten mit einer vom Dokument abweichenden Auflösung werden neu gerendert, damit alle Ausgabeseiten dasselbe Raster teilen.',
+            'ink': 'Dort belassen, wo die Tinte ist',
             'topLeft': 'Oben links platzieren',
             'topCenter': 'Platzieren Sie es oben und zentriert',
             'topRight': 'Oben rechts platzieren',

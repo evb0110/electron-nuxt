@@ -317,6 +317,7 @@ export default defineNuxtConfig({
             'ph:clock',
             'ph:scan',
             'ph:text-aa',
+            'ph:text-align-center',
             'ph:copy',
             'ph:stack-plus',
             'ph:crop',

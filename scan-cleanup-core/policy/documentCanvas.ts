@@ -2,6 +2,7 @@ import type {
     IScanCleanupDocumentCanvasPlan,
     IScanCleanupOptions,
     IScanCleanupPixelRect,
+    IScanCleanupPlacementAnchor,
     TScanCleanupLayoutByPage,
     TScanCleanupOutputHalf,
     TScanCleanupPageRotation,
@@ -99,6 +100,7 @@ export function placeScanCleanupCanvasBox(
     width: number,
     height: number,
     alignment: IScanCleanupOptions['pageAlignment'],
+    anchor?: IScanCleanupPlacementAnchor,
 ): IScanCleanupRect {
     const availableWidth = width - content.width;
     const availableHeight = height - content.height;
@@ -106,6 +108,13 @@ export function placeScanCleanupCanvasBox(
         availableWidth,
         availableHeight,
         alignment,
+        anchor === undefined
+            ? undefined
+            : {
+                anchor,
+                contentWidth: content.width,
+                contentHeight: content.height,
+            },
     );
     return {
         x: content.x - placement.x,

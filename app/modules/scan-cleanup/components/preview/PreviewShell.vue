@@ -1453,10 +1453,12 @@ function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput
     event.preventDefault();
     event.stopPropagation();
     const current = props.placementOverrides?.[output.metadata.half] ?? props.alignment;
+    // `ink` is not on the nine-way compass. A nudge steps off it from where an
+    // output without a resolved anchor already sits.
     const [
         vertical,
         horizontal = vertical,
-    ] = current.split('-');
+    ] = (current === 'ink' ? 'top-center' : current).split('-');
     const axes = [
         'left',
         'center',

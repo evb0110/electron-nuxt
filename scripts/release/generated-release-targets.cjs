@@ -301,7 +301,7 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolVersion": 7,
+            "protocolVersion": 8,
             "sourceRootSegments": [
                 ".tmp",
                 "scan-cleanup"

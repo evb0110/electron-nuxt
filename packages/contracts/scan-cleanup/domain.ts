@@ -21,10 +21,24 @@ export type TScanCleanupOutputModeSetting = 'auto' | TScanCleanupOutputMode;
 export type TScanCleanupDespeckleLevel = 'off' | 'cautious' | 'normal' | 'aggressive';
 export type TScanCleanupReadingOrder = 'ltr' | 'rtl';
 export type TScanCleanupPageLayoutOverride = 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right';
-export type TScanCleanupPageAlignment =
-    | 'top-left' | 'top-center' | 'top-right'
-    | 'center-left' | 'center' | 'center-right'
-    | 'bottom-left' | 'bottom-center' | 'bottom-right';
+/**
+ * The single source of truth every alignment validator, migration and picker
+ * reads. `ink` is not a nine-way anchor: it asks each output to keep its
+ * content where the source ink was, snapped across pages that agree.
+ */
+export const SCAN_CLEANUP_ALIGNMENTS = [
+    'ink',
+    'top-left',
+    'top-center',
+    'top-right',
+    'center-left',
+    'center',
+    'center-right',
+    'bottom-left',
+    'bottom-center',
+    'bottom-right',
+] as const;
+export type TScanCleanupPageAlignment = typeof SCAN_CLEANUP_ALIGNMENTS[number];
 export type TScanCleanupOutputHalf = 'full' | 'left' | 'right';
 export type TScanCleanupCanvasScope = 'page' | 'document';
 export type TScanCleanupLayoutClassification =

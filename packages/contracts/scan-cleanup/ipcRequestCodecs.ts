@@ -4,9 +4,12 @@ import type {
     IScanCleanupManualZones,
     IScanCleanupPageOverride,
     TScanCleanupLayoutByPage,
+    TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
 } from '@contracts/scan-cleanup/domain';
+import type {IScanCleanupPlacementAnchor} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
+    SCAN_CLEANUP_ALIGNMENTS,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
@@ -192,6 +195,24 @@ export function decodeScanCleanupPagePlanEvidence(
         ...(automaticSplit === undefined ? {} : {automaticSplit}),
         outputs,
     };
+}
+
+export function decodeScanCleanupPlacementAnchors(
+    value: unknown,
+    label: string,
+): Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> {
+    return decodeOutputMap(value, (anchor, anchorLabel) => {
+        if (
+            !isRecord(anchor)
+            || Object.keys(anchor).some(key => key !== 'xNormalized' && key !== 'yNormalized')
+        ) {
+            throw new Error(`invalid scan-cleanup ${anchorLabel}`);
+        }
+        return {
+            xNormalized: decodeNormalizedValue(anchor.xNormalized, `${anchorLabel} x`),
+            yNormalized: decodeNormalizedValue(anchor.yNormalized, `${anchorLabel} y`),
+        };
+    }, label);
 }
 
 function requireIpcArgumentCount(
@@ -532,17 +553,6 @@ const SCAN_CLEANUP_OUTPUT_HALVES = [
     'left',
     'right',
 ] as const;
-const SCAN_CLEANUP_ALIGNMENTS = [
-    'top-left',
-    'top-center',
-    'top-right',
-    'center-left',
-    'center',
-    'center-right',
-    'bottom-left',
-    'bottom-center',
-    'bottom-right',
-] as const;
 type TScanCleanupAlignmentValue = typeof SCAN_CLEANUP_ALIGNMENTS[number];
 
 function decodePageMapEntries(value: unknown, label: string) {
@@ -870,6 +880,18 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                 decodeScanCleanupPagePlanEvidence(evidence, pageNumber),
             ]));
         })();
+    const placementAnchorsByPage = value.placementAnchorsByPage === undefined
+        ? undefined
+        : Object.fromEntries(decodePageMapEntries(
+            value.placementAnchorsByPage,
+            'placement anchor map',
+        ).map(({
+            item: anchors,
+            key,
+        }) => [
+            key,
+            decodeScanCleanupPlacementAnchors(anchors, 'placement anchor'),
+        ]));
     return {
         sourcePdfPath,
         ...decodeOwnerContext(value),
@@ -883,6 +905,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
         ...(value.layoutByPage === undefined ? {} : {layoutByPage: decodeLayoutByPage(value.layoutByPage)}),
         ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
         ...(pagePlanEvidenceByPage === undefined ? {} : {pagePlanEvidenceByPage}),
+        ...(placementAnchorsByPage === undefined ? {} : {placementAnchorsByPage}),
     };
 }
 
@@ -974,6 +997,12 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         ...(value.pagePlanEvidence === undefined
             ? {}
             : {pagePlanEvidence: decodeScanCleanupPagePlanEvidence(value.pagePlanEvidence, pageNumber)}),
+        ...(value.placementAnchors === undefined
+            ? {}
+            : {placementAnchors: decodeScanCleanupPlacementAnchors(
+                value.placementAnchors,
+                'preview placement anchor',
+            )}),
         ...(detail === undefined ? {} : {detail}),
         ...(value.visible === undefined ? {} : {visible: value.visible}),
     };

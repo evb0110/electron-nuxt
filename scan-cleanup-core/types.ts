@@ -3,6 +3,7 @@ import type {
     IScanCleanupDocumentPrior,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
+    IScanCleanupPlacementAnchor,
     IScanCleanupSourcePageMetadata,
     TNativeScanCleanupProgressV3,
     TScanCleanupProgress,
@@ -299,6 +300,11 @@ export interface IRunScanCleanupPipelineRequest {
     /** Document-level calibration priors produced by the completed analysis pass. */
     documentPriorByPage?: Partial<Record<string, IScanCleanupDocumentPrior>>;
     pagePlanEvidenceByPage?: Partial<Record<string, IScanCleanupPagePlanEvidence>>;
+    /** Resolved `ink` placement positions for the outputs of each page. */
+    placementAnchorsByPage?: Partial<Record<
+        string,
+        Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
+    >>;
     assemblyBackend?: TScanCleanupAssemblerBackend;
     transportMode?: TScanCleanupTransportMode;
 }

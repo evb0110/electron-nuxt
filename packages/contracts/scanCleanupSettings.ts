@@ -8,6 +8,7 @@ import type {
     TScanCleanupPageOverrides,
 } from '@contracts/scan-cleanup/domain';
 import {
+    SCAN_CLEANUP_ALIGNMENTS,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
     SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
 } from '@contracts/scan-cleanup/domain';
@@ -307,17 +308,8 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
             : defaults.thickness,
         crop: typeof stored.crop === 'boolean' ? stored.crop : defaults.crop,
         matchPageSize: typeof stored.matchPageSize === 'boolean' ? stored.matchPageSize : defaults.matchPageSize,
-        pageAlignment: typeof stored.pageAlignment === 'string' && [
-            'top-left',
-            'top-center',
-            'top-right',
-            'center-left',
-            'center',
-            'center-right',
-            'bottom-left',
-            'bottom-center',
-            'bottom-right',
-        ].includes(stored.pageAlignment)
+        pageAlignment: typeof stored.pageAlignment === 'string'
+        && (SCAN_CLEANUP_ALIGNMENTS as readonly string[]).includes(stored.pageAlignment)
             ? stored.pageAlignment as IScanCleanupGlobalPreferences['pageAlignment']
             : defaults.pageAlignment,
         marginsMm: decodeScanCleanupMarginsMm(stored.marginsMm, legacyMargins),

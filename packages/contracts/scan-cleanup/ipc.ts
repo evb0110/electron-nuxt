@@ -30,6 +30,7 @@ import type {
     INativeScanCleanupOutputModeDiagnosticsV3,
     INativeScanCleanupSplitDiagnosticsV3,
     INativeScanCleanupTextToneDiagnosticsV3,
+    IScanCleanupPlacementAnchor,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
 import {
@@ -105,6 +106,12 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
      * preview, detail tiles, and export do not run competing page planners.
      */
     pagePlanEvidence?: IScanCleanupPagePlanEvidence;
+    /**
+     * Where `ink` alignment has resolved this page's outputs to sit, clustered
+     * across the whole document. Preview and the final run are handed the same
+     * anchors so the position the user approves is the position that ships.
+     */
+    placementAnchors?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>;
     detail?: {
         /** Renderer-visible regions keyed by final output half; drives crop rendering and tile identity. */
         viewports: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
@@ -483,6 +490,11 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     sourcePageMetadataByPage?: Partial<Record<string, IScanCleanupSourcePageMetadata>>;
     /** Valid base-preview geometry that lets final rendering skip duplicate page analysis. */
     pagePlanEvidenceByPage?: Partial<Record<string, IScanCleanupPagePlanEvidence>>;
+    /** Document-wide `ink` placement positions, resolved by the renderer the preview used. */
+    placementAnchorsByPage?: Partial<Record<
+        string,
+        Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
+    >>;
 }
 
 const s = runtimeSchema;

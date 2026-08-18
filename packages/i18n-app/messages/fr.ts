@@ -84,6 +84,7 @@ export default {
             'selectionAlignment': 'Placement du contenu pour les pages sélectionnées',
             'contentPlacement': 'Placement de contenu',
             'enableMatchPageSize': 'Activez « Faire correspondre la taille de la page » dans les paramètres du document pour utiliser le placement.',
+            'inkNeedsContentBoxes': 'Le redressement automatique remplace le contenu détecté : le placement selon l’encre bascule sur « en haut, centré ».',
             'resetScope': {
                 'all': 'Réinitialiser tous les réglages propres…',
                 'page': 'Réinitialiser cette page…',
@@ -320,6 +321,7 @@ export default {
         'pageSize': {
             'match': 'Faire correspondre la taille de la page avec d\'autres pages',
             'matchLosslessNote': 'Les pages dont la résolution diffère du document sont recalculées, afin que toutes les pages partagent une même grille.',
+            'ink': 'Conserver la position de l’encre',
             'topLeft': 'Placer en haut à gauche',
             'topCenter': 'Placer près du haut, centré',
             'topRight': 'Placer en haut à droite',

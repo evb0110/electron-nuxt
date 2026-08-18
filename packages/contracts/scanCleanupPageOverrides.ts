@@ -1,9 +1,12 @@
 import type {
     IScanCleanupMarginsMm,
+    IScanCleanupNormalizedRect,
     IScanCleanupOptions,
     IScanCleanupPageOverride,
+    IScanCleanupPlacementAnchor,
     IScanCleanupPreviewMetadata,
     TScanCleanupLayoutByPage,
+    TScanCleanupOutputHalf,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
@@ -117,11 +120,65 @@ export function resolveScanCleanupOutputPlacement(
     return override.placementOverrides?.[half] ?? documentDefault;
 }
 
+/**
+ * Two anchors closer than this on the finished page are the same position as
+ * far as a reader flipping pages is concerned, so `ink` snaps them together
+ * rather than reproducing the scanner's jitter.
+ */
+export const SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM = 4;
+
+export interface IScanCleanupPlacementAnchorSample extends IScanCleanupPlacementAnchor {
+    pageNumber: number;
+    half: TScanCleanupOutputHalf;
+}
+
+export type TScanCleanupPlacementAnchorsByPage = Map<
+    number,
+    Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
+>;
+
+/**
+ * The content dimensions `ink` placement needs on top of the free space every
+ * other alignment is resolved from: the anchor addresses the inner rect the
+ * margins leave, not the free space, so the content's own size has to come back
+ * in to convert between the two.
+ */
+export interface IScanCleanupInkPlacement {
+    anchor: IScanCleanupPlacementAnchor;
+    contentWidth: number;
+    contentHeight: number;
+}
+
+function clampScanCleanupOffset(value: number, available: number) {
+    return Math.min(Math.max(value, 0), Math.max(available, 0));
+}
+
 export function resolveScanCleanupPlacementOffset(
     availableWidth: number,
     availableHeight: number,
     alignment: IScanCleanupOptions['pageAlignment'],
+    ink?: IScanCleanupInkPlacement,
 ) {
+    if (alignment === 'ink') {
+        // Without a resolved anchor there is no ink position to keep, and the
+        // fallback has to match what native does for the same page.
+        if (!ink) {
+            return {
+                x: availableWidth / 2,
+                y: 0,
+            };
+        }
+        return {
+            x: clampScanCleanupOffset(
+                ink.anchor.xNormalized * (availableWidth + ink.contentWidth) - ink.contentWidth / 2,
+                availableWidth,
+            ),
+            y: clampScanCleanupOffset(
+                ink.anchor.yNormalized * (availableHeight + ink.contentHeight),
+                availableHeight,
+            ),
+        };
+    }
     const [
         vertical,
         horizontal = vertical,
@@ -133,6 +190,115 @@ export function resolveScanCleanupPlacementOffset(
         x: horizontal === 'left' ? 0 : horizontal === 'right' ? availableWidth : availableWidth / 2,
         y: vertical === 'top' ? 0 : vertical === 'bottom' ? availableHeight : availableHeight / 2,
     };
+}
+
+/**
+ * The ink position one output box asks for, in the output leaf's own frame.
+ *
+ * Content boxes — automatic and manual alike — are normalized against the whole
+ * rotated source sheet, while a split leaf is placed on a canvas measured as
+ * half that sheet (see `resolveScanCleanupOutputPaperPixels`). The horizontal
+ * centre is therefore rescaled onto its leaf, and the right leaf's origin moved
+ * to the sheet's midpoint, so both leaves speak the same [0,1] as a full page.
+ */
+export function resolveScanCleanupInkAnchor(
+    box: IScanCleanupNormalizedRect,
+    half: TScanCleanupOutputHalf,
+): IScanCleanupPlacementAnchor {
+    const shares = half === 'full' ? 1 : 2;
+    const centre = (box.xNormalized + box.widthNormalized / 2) * shares
+        - (half === 'right' ? 1 : 0);
+    return {
+        xNormalized: clampScanCleanupNormalized(centre),
+        yNormalized: clampScanCleanupNormalized(box.yNormalized),
+    };
+}
+
+function clampScanCleanupNormalized(value: number) {
+    return Number.isFinite(value) ? Math.min(Math.max(value, 0), 1) : 0;
+}
+
+/**
+ * The lower median. Every value between the two central members of an
+ * even-sized cluster minimizes the total distance moved equally, so taking a
+ * member rather than their mean keeps the snapped position one the document
+ * actually measured, and taking the lower one keeps the choice free of
+ * floating-point tie-breaks.
+ */
+function resolveScanCleanupAnchorClusterValue(sorted: readonly number[]) {
+    return sorted[(sorted.length - 1) >> 1]!;
+}
+
+function snapScanCleanupAnchorAxis(
+    samples: readonly IScanCleanupPlacementAnchorSample[],
+    axis: 'xNormalized' | 'yNormalized',
+    tolerance: number,
+) {
+    const ordered = samples
+        .map((sample, index) => ({
+            index,
+            sample,
+            value: sample[axis],
+        }))
+        .sort((left, right) => left.value - right.value
+            || left.sample.pageNumber - right.sample.pageNumber
+            || left.sample.half.localeCompare(right.sample.half));
+    const snapped = new Array<number>(samples.length);
+    for (let start = 0; start < ordered.length;) {
+        let end = start + 1;
+        while (end < ordered.length && ordered[end]!.value - ordered[start]!.value <= tolerance) {
+            end += 1;
+        }
+        const cluster = ordered.slice(start, end);
+        const value = resolveScanCleanupAnchorClusterValue(cluster.map(entry => entry.value));
+        for (const entry of cluster) {
+            snapped[entry.index] = value;
+        }
+        start = end;
+    }
+    return snapped;
+}
+
+/**
+ * Turns the per-output ink positions a document measured into the positions it
+ * will actually be printed at.
+ *
+ * Pages whose ink starts within a few millimetres of each other were meant to
+ * start in the same place, and a reader flipping through the finished book sees
+ * the difference as the text block jumping. Each half is clustered on its own —
+ * a verso and a recto have no reason to share a margin — and the two axes are
+ * clustered independently, so a page that agrees vertically but not
+ * horizontally still gains the shared top edge.
+ *
+ * Clusters are grown greedily over the sorted values while the run stays within
+ * the tolerance of its first member, so a slow drift across the document splits
+ * instead of chaining every page into one cluster. Every member is snapped to
+ * the cluster's median, the position that moves the fewest pages. Ordering and
+ * tie-breaks are fully determined by (value, page, half), so the same document
+ * resolves to the same anchors whatever order its evidence arrived in.
+ */
+export function clusterScanCleanupPlacementAnchors(
+    samples: readonly IScanCleanupPlacementAnchorSample[],
+    tolerance: {
+        x: number;
+        y: number;
+    },
+): TScanCleanupPlacementAnchorsByPage {
+    const anchorsByPage: TScanCleanupPlacementAnchorsByPage = new Map();
+    for (const half of new Set(samples.map(sample => sample.half))) {
+        const bucket = samples.filter(sample => sample.half === half);
+        const xs = snapScanCleanupAnchorAxis(bucket, 'xNormalized', tolerance.x);
+        const ys = snapScanCleanupAnchorAxis(bucket, 'yNormalized', tolerance.y);
+        bucket.forEach((sample, index) => {
+            const page = anchorsByPage.get(sample.pageNumber) ?? {};
+            page[half] = {
+                xNormalized: xs[index]!,
+                yNormalized: ys[index]!,
+            };
+            anchorsByPage.set(sample.pageNumber, page);
+        });
+    }
+    return anchorsByPage;
 }
 
 export function resolveScanCleanupPageLayout(
