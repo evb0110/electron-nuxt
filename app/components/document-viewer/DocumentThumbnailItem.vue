@@ -6,8 +6,10 @@
         data-document-thumbnail-item
         :class="{
             'is-current': current,
+            'is-disabled': disabled,
             'is-selected': selected,
         }"
+        :disabled="tag === 'button' ? disabled : undefined"
         :type="tag === 'button' ? 'button' : undefined"
         :aria-current="current ? 'page' : undefined"
     >
@@ -42,6 +44,7 @@ const {
     labelClass = undefined,
     selected = false,
     tag = 'button',
+    disabled = false,
 } = defineProps<{
     current?: boolean | undefined;
     frameStyle?: CSSProperties | undefined;
@@ -49,6 +52,7 @@ const {
     labelClass?: string | undefined;
     selected?: boolean | undefined;
     tag?: 'button' | 'div' | undefined;
+    disabled?: boolean | undefined;
 }>();
 </script>
 
@@ -72,6 +76,15 @@ const {
 }
 
 .document-thumbnail-item:hover { background: var(--app-sidebar-control-hover-bg); }
+
+.document-thumbnail-item.is-disabled {
+    cursor: default;
+    pointer-events: none;
+}
+
+.document-thumbnail-item.is-disabled:not(.is-selected):hover {
+    background: transparent;
+}
 
 .document-thumbnail-item.is-selected {
     background: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-primary) 12%);

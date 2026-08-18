@@ -40,6 +40,7 @@ vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', async () =>
                 type: Number,
                 required: true,
             },
+            disabled: Boolean,
             selectedPages: {
                 type: Object,
                 required: true,
@@ -61,9 +62,12 @@ vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', async () =>
             }, Array.from({length: (props.source as IDocumentPageSource | null)?.pageCount ?? 0}, (_, index) => {
                 const position = index + 1;
                 return vue.h('div', {
+                    class: {'is-disabled': props.disabled},
                     'data-position': position,
                     'data-current': position === props.currentPage ? 'true' : 'false',
                     'data-selected': (props.selectedPages as ReadonlySet<number>).has(position) ? 'true' : 'false',
+                    'aria-disabled': props.disabled ? 'true' : undefined,
+                    tabindex: props.disabled ? -1 : position === props.currentPage ? 0 : -1,
                     onClick: (event: MouseEvent) => emit('go-to-page', position, event),
                 }, [
                     slots.overlay?.({pageNumber: position}),
@@ -376,11 +380,13 @@ function mountRail(options: {
     leader?: number;
     selected?: ReadonlySet<number>;
     processed?: ReadonlySet<number>;
+    disabled?: boolean;
 } = {}) {
     const source = options.source === undefined ? createSource() : options.source;
     const leader = ref(options.leader ?? 1);
     const anchor = ref(options.leader ?? 1);
     const selected = ref<ReadonlySet<number>>(options.selected ?? new Set([leader.value]));
+    const disabled = ref(options.disabled ?? false);
     const overrideUpdates: Array<[number, IScanCleanupPageOverride]> = [];
     const host = document.createElement('div');
     document.body.append(host);
@@ -403,7 +409,7 @@ function mountRail(options: {
         diagnostics: options.diagnostics ?? new Map(),
         textAxes: options.textAxes ?? new Map(),
         processedPages: options.processed ?? new Set(),
-        disabled: false,
+        disabled: disabled.value,
         onSelectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) => {
             const next = resolveScanCleanupSelection({
                 anchor: anchor.value,
@@ -435,6 +441,7 @@ function mountRail(options: {
     mountedApps.add(unmount);
     return {
         host,
+        disabled,
         leader,
         overrideUpdates,
         selected,
@@ -534,6 +541,46 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(header?.textContent).toContain('Source pages');
         expect(header?.querySelector('.scan-thumbnail-sort')).not.toBeNull();
         expect(header?.querySelectorAll('button')).toHaveLength(0);
+    });
+
+    it('removes thumbnail interaction affordances while cleanup is running', async () => {
+        const harness = mountRail({overrides: {'2': {
+            excluded: false,
+            layoutOverride: 'auto',
+            manualSplit: null,
+            outputModeOverride: 'bw',
+            rotationDegrees: 0,
+        }}});
+        await openOptions(harness.host, 2);
+        expect(document.body.querySelector('[data-popover-content]')).not.toBeNull();
+
+        harness.disabled.value = true;
+        await nextTick();
+
+        const list = harness.host.querySelector<HTMLElement>('[data-thumbnail-list-stub]')!;
+        const row = pageRow(harness.host, 2);
+
+        expect(document.body.querySelector('[data-popover-content]')).toBeNull();
+        expect(list.getAttribute('aria-disabled')).toBe('true');
+        expect(list.getAttribute('tabindex')).toBe('-1');
+        expect(row.classList).toContain('is-disabled');
+        expect(row.getAttribute('tabindex')).toBe('-1');
+        expect(row.querySelector<HTMLButtonElement>('.scan-thumbnail-options-toggle')?.disabled).toBe(true);
+
+        const exclude = row.querySelector<HTMLButtonElement>('.scan-thumbnail-exclude-toggle')!;
+        exclude.dispatchEvent(new PointerEvent('pointerenter', {bubbles: true}));
+        await nextTick();
+        expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+
+        row.click();
+        list.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'End',
+        }));
+        await nextTick();
+
+        expect(harness.leader.value).toBe(1);
+        expect([...harness.selected.value]).toEqual([1]);
     });
 
     it('portals the override menu outside the virtual list and renders complete item labels', async () => {

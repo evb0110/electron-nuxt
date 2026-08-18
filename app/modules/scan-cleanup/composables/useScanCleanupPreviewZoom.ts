@@ -31,6 +31,7 @@ interface IPreviewWheelZoomSession {
 }
 
 interface IUseScanCleanupPreviewZoomOptions {
+    disabled: () => boolean;
     dragActive: Readonly<Ref<boolean>>;
     formatFitLabel: () => string;
     formatZoomLabel: (zoom: number) => string;
@@ -83,7 +84,8 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     const canZoomOut = computed(() => previewEffectiveZoom.value
         > previewMinimumZoom.value + PREVIEW_ZOOM_EPSILON);
     const canZoomIn = computed(() => previewEffectiveZoom.value < ZOOM.MAX - PREVIEW_ZOOM_EPSILON);
-    const canPanPreview = computed(() => previewTransformScale.value > 1 + PREVIEW_ZOOM_EPSILON);
+    const canPanPreview = computed(() => !options.disabled()
+        && previewTransformScale.value > 1 + PREVIEW_ZOOM_EPSILON);
 
     function previewPanBounds(scale = previewTransformScale.value) {
         return {
@@ -155,7 +157,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     }
 
     function handlePreviewWheel(event: WheelEvent) {
-        if (!options.result() || options.dragActive.value) {
+        if (options.disabled() || !options.result() || options.dragActive.value) {
             return;
         }
         const surface = options.surface.value;
@@ -219,7 +221,8 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
 
     function startPreviewPan(event: PointerEvent) {
         if (
-            !canPanPreview.value
+            options.disabled()
+            || !canPanPreview.value
             || event.button !== 0
             || event.defaultPrevented
             || options.dragActive.value
@@ -262,12 +265,28 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     }
 
     function handlePreviewDoubleClick(event: MouseEvent) {
-        if (!options.result() || pointerTargetIsInteractive(event.target)) {
+        if (options.disabled() || !options.result() || pointerTargetIsInteractive(event.target)) {
             return;
         }
         event.preventDefault();
         toggleFitAndActualSize(event);
     }
+
+    watch(options.disabled, disabled => {
+        if (!disabled) {
+            return;
+        }
+        wheelZoomSession = null;
+        const gesture = panGesture.value;
+        if (!gesture) {
+            return;
+        }
+        const surface = options.surface.value;
+        if (surface?.hasPointerCapture?.(gesture.pointerId)) {
+            surface.releasePointerCapture(gesture.pointerId);
+        }
+        panGesture.value = null;
+    });
 
     return {
         canPanPreview,
