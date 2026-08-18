@@ -414,14 +414,16 @@ const readRunState = (page: Page) => evaluateInPage(page, () => {
         .__evbTestApi
         ?.readActiveWorkspaceStateValues?.(['originalPath']);
     const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
+    const meter = document.querySelector('.scan-cleanup-run-meter');
+    const ariaPercent = meter?.getAttribute('aria-valuenow');
     return {
         actionDisabled: action?.disabled ?? true,
         actionLabel: action?.textContent?.trim() ?? '',
         originalPath: typeof active?.originalPath === 'string' ? active.originalPath : '',
         error: text('[role="alert"]'),
         phase: text('.scan-cleanup-run-meter-phase'),
-        percent: text('.scan-cleanup-run-meter-percent'),
-        running: document.querySelector('.scan-cleanup-run-meter') !== null,
+        phasePercent: ariaPercent === null || ariaPercent === undefined ? null : Number(ariaPercent),
+        running: meter !== null,
     };
 }) as Promise<{
     actionDisabled: boolean;
@@ -429,7 +431,7 @@ const readRunState = (page: Page) => evaluateInPage(page, () => {
     originalPath: string;
     error: string;
     phase: string;
-    percent: string;
+    phasePercent: number | null;
     running: boolean;
 }>;
 
@@ -518,7 +520,7 @@ async function waitForCleanedOutput(page: Page, sourcePath: string, timeoutMs: n
         atMs: number;
         latencyMs: number;
         phase: string;
-        percent: string;
+        phasePercent: number | null;
     }> = [];
     let last = '';
     while (Date.now() - startedAtMs < timeoutMs) {
@@ -528,7 +530,7 @@ async function waitForCleanedOutput(page: Page, sourcePath: string, timeoutMs: n
             atMs: polledAtMs - startedAtMs,
             latencyMs: Date.now() - polledAtMs,
             phase: state.phase,
-            percent: state.percent,
+            phasePercent: state.phasePercent,
         });
         if (state.error) {
             throw new Error(`Scan cleanup failed after ${String(Date.now() - startedAtMs)} ms: ${state.error}`);
@@ -546,7 +548,7 @@ async function waitForCleanedOutput(page: Page, sourcePath: string, timeoutMs: n
                 samples,
             };
         }
-        last = `${state.phase} ${state.percent} running=${String(state.running)}`;
+        last = `${state.phase} phasePercent=${String(state.phasePercent)} running=${String(state.running)}`;
         await new Promise(settle => setTimeout(settle, 500));
     }
     throw new Error(`No cleaned document within ${String(timeoutMs)} ms; last reported: ${last}`);

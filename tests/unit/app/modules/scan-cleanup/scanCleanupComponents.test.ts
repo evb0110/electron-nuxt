@@ -194,8 +194,6 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             progressCountWidestText: session.progressCountWidestText ?? ref('392 / 392'),
             progressEtaText: session.progressEtaText ?? ref(''),
             progressEtaWidestText: session.progressEtaWidestText ?? ref(''),
-            progressPercentText: session.progressPercentText ?? ref(''),
-            progressPercentWidestText: session.progressPercentWidestText ?? ref('100%'),
             progressPhaseText: session.progressPhaseText ?? session.progressText,
             progressText: session.progressText,
             runLabel: session.runLabel ?? ref('Clean up'),
@@ -328,9 +326,15 @@ const translations: Record<string, string> = {
     'scanCleanup.pages.resetAction': 'Reset',
     'scanCleanup.runStatusLabel': 'Cleanup progress',
     'scanCleanup.runStep': 'Step {index} of {count}',
-    'scanCleanup.etaPending': 'Estimating time left…',
-    'scanCleanup.etaMinutes': 'About {minutes} min left',
-    'scanCleanup.etaSeconds': 'About {seconds} sec left',
+    'scanCleanup.progressPhases.label': 'Cleanup phases',
+    'scanCleanup.progressPhases.analyze': 'Analyze pages',
+    'scanCleanup.progressPhases.clean': 'Clean pages',
+    'scanCleanup.progressPhases.finish': 'Finish PDF',
+    'scanCleanup.etaPending': 'Calculating time for current task…',
+    'scanCleanup.etaMinutes': 'Current task: about {minutes} min',
+    'scanCleanup.etaSeconds': 'Current task: about {seconds} sec',
+    'scanCleanup.finishingPhase': 'Finishing current task…',
+    'scanCleanup.almostDone': 'Almost done',
     'scanCleanup.cancelingDetection': 'Stopping background analysis…',
     'scanCleanup.runProgress.rasterizing': 'Preparing cleanup pages',
     'scanCleanup.firstRun.title': 'How scan cleanup works',
@@ -1750,7 +1754,7 @@ describe('Scan cleanup components', () => {
             detecting: false,
             running: false,
         });
-        const etaText = ref('Estimating time left…');
+        const etaText = ref('Calculating time for current task…');
         const zoneWidths = {
             'scan-cleanup-toolbar-zone-left': 160,
             'scan-cleanup-toolbar-zone-center': 680,
@@ -1783,14 +1787,13 @@ describe('Scan cleanup components', () => {
             isRunning: state.running,
             outputEstimate: '120 source pages → about 145 output pages',
             percent: 42,
+            progressPhase: 'clean',
             progressCountText: '51 / 120',
             progressCountWidestText: '120 / 120',
             progressEtaText: etaText.value,
-            progressEtaWidestText: 'Estimated time left: 999:59',
-            progressPercentText: '42%',
-            progressPercentWidestText: '100%',
-            progressPhaseText: 'Step 5 of 8 · Cleaning pages',
-            progressText: `Step 5 of 8 · Cleaning pages — 51 / 120. ${etaText.value}`,
+            progressEtaWidestText: 'Current task: about 999 min',
+            progressPhaseText: 'Cleaning pages',
+            progressText: `Cleaning pages — 51 / 120. ${etaText.value}`,
             runLabel: 'Clean up',
             runDisabledReason: '',
             transitionText: '',
@@ -1814,24 +1817,25 @@ describe('Scan cleanup components', () => {
         expect(widths()).toEqual(reviewWidths);
         const meter = harness.host.querySelector('.scan-cleanup-run-meter');
         expect(meter?.textContent).toContain('Cleaning pages');
-        expect(meter?.textContent).toContain('Step 5 of 8');
+        expect(meter?.textContent).toContain('Analyze pages');
+        expect(meter?.textContent).toContain('Finish PDF');
+        expect(meter?.textContent).not.toContain('Step 5 of 8');
         expect(meter?.textContent).toContain('51 / 120');
-        expect(meter?.textContent).toContain('42%');
-        expect(meter?.textContent).toContain('Estimating time left…');
+        expect(meter?.textContent).not.toContain('42%');
+        expect(meter?.textContent).toContain('Calculating time for current task…');
+        expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Clean pages');
         expect(meter?.querySelector('.scan-cleanup-run-meter-eta .scan-cleanup-stable-width-sizer')?.textContent)
-            .toBe('Estimated time left: 999:59');
+            .toBe('Current task: about 999 min');
         expect(meter?.getAttribute('aria-valuenow')).toBe('42');
         expect(meter?.getAttribute('aria-valuetext'))
-            .toContain('Step 5 of 8 · Cleaning pages');
+            .toContain('Cleaning pages');
         expect(meter?.querySelector('.scan-cleanup-run-meter-count .scan-cleanup-stable-width-sizer')?.textContent)
             .toBe('120 / 120');
-        expect(meter?.querySelector('.scan-cleanup-run-meter-percent .scan-cleanup-stable-width-sizer')?.textContent)
-            .toBe('100%');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')).toBeNull();
         expect(harness.host.querySelectorAll('.scan-cleanup-toolbar-primary-action')).toHaveLength(1);
-        etaText.value = 'Estimated time left: 3:42';
+        etaText.value = 'Current task: about 4 min';
         await nextTick();
-        expect(meter?.textContent).toContain('Estimated time left: 3:42');
+        expect(meter?.textContent).toContain('Current task: about 4 min');
         rectSpy.mockRestore();
     });
 
@@ -1850,7 +1854,6 @@ describe('Scan cleanup components', () => {
             outputEstimate: '',
             percent: 0,
             progressCountText: '',
-            progressPercentText: '',
             progressPhaseText: '',
             progressText: '',
             runError: 'Native cleanup failed',
@@ -5304,7 +5307,6 @@ describe('Scan cleanup components', () => {
             outputEstimate: '',
             percent: 2,
             progressCountText: '',
-            progressPercentText: '',
             progressPhaseText: '',
             progressText: '',
             runLabel: 'Clean up',
@@ -5330,7 +5332,6 @@ describe('Scan cleanup components', () => {
             outputEstimate: '',
             percent: 9,
             progressCountText: '',
-            progressPercentText: '',
             progressPhaseText: '',
             progressText: '',
             runLabel: 'Clean up',
@@ -5356,7 +5357,6 @@ describe('Scan cleanup components', () => {
             outputEstimate: '',
             percent: 0,
             progressCountText: '0 / 392',
-            progressPercentText: '0%',
             progressPhaseText: 'Queued',
             progressText: 'Queued',
             runLabel: 'Clean up',
@@ -5366,7 +5366,7 @@ describe('Scan cleanup components', () => {
         const meter = harness.host.querySelector('.scan-cleanup-run-meter');
 
         expect(meter?.textContent).toContain(transitionText);
-        expect(meter?.textContent).toContain('Estimating time left…');
+        expect(meter?.textContent).toContain('Calculating time for current task…');
         expect(meter?.textContent).not.toContain('0 / 392');
         expect(meter?.textContent).not.toContain('0%');
         expect(meter?.getAttribute('aria-valuenow')).toBeNull();
@@ -5389,8 +5389,8 @@ describe('Scan cleanup components', () => {
             isRunning: true,
             outputEstimate: '',
             percent: 25,
+            progressPhase: 'analyze',
             progressCountText: '98 / 392',
-            progressPercentText: '25%',
             progressPhaseText: 'Pre-analyzing pages',
             progressText: 'Pre-analyzing pages — 98 / 392',
             runLabel: 'Clean up',
@@ -5402,9 +5402,43 @@ describe('Scan cleanup components', () => {
 
         expect(meter?.textContent).toContain('Pre-analyzing pages');
         expect(meter?.textContent).toContain('98 / 392');
-        expect(meter?.textContent).toContain('Estimating time left…');
+        expect(meter?.textContent).toContain('Calculating time for current task…');
+        expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Analyze pages');
         expect(fill?.style.width).toBe('25%');
         expect(meter?.getAttribute('aria-valuenow')).toBe('25');
+    });
+
+    it('finishes with a stable user phase instead of object counts or a false percentage', () => {
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
+            canDetectAll: false,
+            canRun: false,
+            cancelRequested: false,
+            detectionCancelRequested: false,
+            detectionError: '',
+            detectionProgressText: '',
+            detectionProgressWidestText: '',
+            isDetecting: false,
+            isRunning: true,
+            outputEstimate: '',
+            percent: null,
+            progressPhase: 'finish',
+            progressCountText: '',
+            progressEtaText: 'Almost done',
+            progressPhaseText: 'Building PDF',
+            progressText: 'Building PDF. Almost done',
+            runLabel: 'Clean up',
+            runDisabledReason: '',
+            transitionText: '',
+        })));
+        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+
+        expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Finish PDF');
+        expect(meter?.textContent).toContain('Building PDF');
+        expect(meter?.textContent).toContain('Almost done');
+        expect(meter?.textContent).not.toContain('316 / 316');
+        expect(meter?.textContent).not.toMatch(/\b98%\b/);
+        expect(meter?.getAttribute('aria-valuenow')).toBeNull();
+        expect(meter?.querySelector('.scan-cleanup-run-meter-fill--indeterminate')).not.toBeNull();
     });
 
     it('keeps every state-gated setting mounted so switching modes never moves the panel', async () => {

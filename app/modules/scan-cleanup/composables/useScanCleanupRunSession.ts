@@ -36,7 +36,12 @@ import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/forma
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
-import {formatEtaDuration} from '@app/utils/progressFormatting';
+
+const ETA_PAGE_STAGES = new Set([
+    'rasterizing',
+    'classifying',
+    'rendering',
+]);
 
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
@@ -183,9 +188,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         total: progress.value.totalUnits,
     }));
     const progressEtaPendingText = computed(() => t('scanCleanup.etaPending'));
-    const progressFinishingText = computed(() => progress.value.stage === 'handoff'
-        ? t('scanCleanup.runProgress.handoff')
-        : t('scanCleanup.runProgress.assembling'));
     const pageProgressComplete = computed(() => [
         'classifying',
         'rendering',
@@ -201,24 +203,30 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         ].includes(progress.value.stage));
     const progressEtaText = computed(() => {
         if (progressIsFinishing.value) {
-            return progressFinishingText.value;
+            return [
+                'collecting',
+                'assembling',
+                'handoff',
+            ].includes(progress.value.stage)
+                ? t('scanCleanup.almostDone')
+                : t('scanCleanup.finishingPhase');
         }
-        const eta = formatEtaDuration(progress.value.etaSeconds === undefined
-            ? null
-            : progress.value.etaSeconds * 1_000);
-        return eta === null
-            ? progressEtaPendingText.value
-            : t('emptyState.preparingBatchEta', {eta});
+        const etaSeconds = progress.value.etaSeconds;
+        if (etaSeconds === undefined || !ETA_PAGE_STAGES.has(progress.value.stage)) {
+            return progressEtaPendingText.value;
+        }
+        return etaSeconds >= 60
+            ? t('scanCleanup.etaMinutes', {minutes: Math.max(1, Math.ceil(etaSeconds / 60))})
+            : t('scanCleanup.etaSeconds', {seconds: Math.max(1, etaSeconds)});
     });
     const progressEtaWidestText = computed(() => [
         progressEtaPendingText.value,
-        t('emptyState.preparingBatchEta', {eta: '999:59'}),
-        t('scanCleanup.runProgress.assembling'),
-        t('scanCleanup.runProgress.handoff'),
+        t('scanCleanup.etaMinutes', {minutes: 999}),
+        t('scanCleanup.etaSeconds', {seconds: 999}),
+        t('scanCleanup.finishingPhase'),
+        t('scanCleanup.almostDone'),
     ].reduce((widest, candidate) => candidate.length > widest.length ? candidate : widest));
     const progressText = computed(() => `${progressParts.value.text}. ${progressEtaText.value}`);
-    const progressPercentText = computed(() => t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, progress.value.percent)))}));
-    const progressPercentWidestText = computed(() => t('scanCleanup.runPercent', {percent: 100}));
     const runLabel = computed(() => options.sourcePageNumbers.value === null
         ? t('scanCleanup.cleanUp')
         : options.sourcePageNumbers.value.length === 1
@@ -446,8 +454,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         progressCountWidestText,
         progressEtaText,
         progressEtaWidestText,
-        progressPercentText,
-        progressPercentWidestText,
         progressPhaseText,
         progressText,
         runLabel,

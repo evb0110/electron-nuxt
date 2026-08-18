@@ -17,12 +17,11 @@
             :is-running="isRunning"
             :output-estimate="outputEstimate"
             :percent="meterPercent"
+            :progress-phase="progressPhase"
             :progress-count-text="progressCountText"
             :progress-count-widest-text="progressCountWidestText"
             :progress-eta-text="progressEtaText"
             :progress-eta-widest-text="progressEtaWidestText"
-            :progress-percent-text="progressPercentText"
-            :progress-percent-widest-text="progressPercentWidestText"
             :progress-phase-text="progressPhaseText"
             :progress-text="progressText"
             :run-label="runLabel"
@@ -370,8 +369,6 @@ const {
     progressCountWidestText: runProgressCountWidestText,
     progressEtaText: runProgressEtaText,
     progressEtaWidestText: runProgressEtaWidestText,
-    progressPercentText: runProgressPercentText,
-    progressPercentWidestText: runProgressPercentWidestText,
     progressPhaseText: runProgressPhaseText,
     progressText: runProgressText,
     runLabel,
@@ -397,13 +394,26 @@ function emitSessionState() {
         ...(pageMapping === undefined ? {} : {pageMapping}),
     });
 }
-// While an engaged run waits for pre-analysis, the run job itself is still
-// queued at 0%, but detection is producing page verdicts. Drive the meter
-// from those verdicts so the bar and counter move from the first seconds of
-// a Clean Up instead of sitting dead until detection completes.
+const FINISH_STAGES = new Set([
+    'collecting',
+    'assembling',
+    'handoff',
+]);
+const progressPhase = computed<'analyze' | 'clean' | 'finish'>(() => {
+    if (waitingForDetection.value) {
+        return 'analyze';
+    }
+    return FINISH_STAGES.has(jobProgress.value.stage) ? 'finish' : 'clean';
+});
+// The meter is explicitly phase-local. Analysis and cleanup count different
+// work, so presenting them as one percentage created the observed 100% → 10%
+// rewind. The phase rail owns overall position; the final short tail is
+// indeterminate because its units are PDF objects rather than source pages.
 const meterPercent = computed(() => waitingForDetection.value
     ? detectionProgressPercent.value
-    : jobProgress.value.percent);
+    : progressPhase.value === 'finish'
+        ? null
+        : jobProgress.value.percent);
 const progressPhaseText = computed(() => waitingForDetection.value
     ? detectionProgressPhaseText.value
     : runProgressPhaseText.value);
@@ -425,12 +435,6 @@ const progressEtaText = computed(() => {
 const progressEtaWidestText = computed(() => waitingForDetection.value
     ? detectionProgressEtaWidestText.value
     : runProgressEtaWidestText.value);
-const progressPercentText = computed(() => waitingForDetection.value
-    ? t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, detectionProgressPercent.value)))})
-    : runProgressPercentText.value);
-const progressPercentWidestText = computed(() => waitingForDetection.value
-    ? t('scanCleanup.runPercent', {percent: 100})
-    : runProgressPercentWidestText.value);
 const progressText = computed(() => waitingForDetection.value
     ? `${detectionProgressText.value}. ${progressEtaText.value}`
     : runProgressText.value);

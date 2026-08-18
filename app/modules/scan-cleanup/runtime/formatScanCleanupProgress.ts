@@ -5,8 +5,6 @@ interface IScanCleanupProgressCounts {
     stage: TScanCleanupProgressStage;
     completedUnits: number;
     totalUnits: number;
-    stageIndex?: number;
-    stageCount?: number;
 }
 
 interface IScanCleanupPageProgressCounts {
@@ -15,24 +13,23 @@ interface IScanCleanupPageProgressCounts {
 }
 
 const COUNTED_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set([
-    'probing',
-    'extracting',
     'rasterizing',
     'classifying',
     'rendering',
-    'collecting',
-    'assembling',
     'detecting',
 ]);
 
+const USER_FACING_STAGE: Readonly<Partial<Record<
+    TScanCleanupProgressStage,
+    TScanCleanupProgressStage
+>>> = {
+    probing: 'normalizing',
+    extracting: 'normalizing',
+    collecting: 'assembling',
+};
+
 export const formatScanCleanupProgress = (progress: IScanCleanupProgressCounts, t: TTranslateFn) => {
-    const stageLabel = t(`scanCleanup.runProgress.${progress.stage}`);
-    const phase = progress.stageIndex !== undefined && progress.stageCount !== undefined
-        ? `${t('scanCleanup.runStep', {
-            index: progress.stageIndex,
-            count: progress.stageCount,
-        })} · ${stageLabel}`
-        : stageLabel;
+    const phase = t(`scanCleanup.runProgress.${USER_FACING_STAGE[progress.stage] ?? progress.stage}`);
     const count = COUNTED_STAGES.has(progress.stage) && progress.totalUnits > 1
         ? t('scanCleanup.runCount', {
             completed: progress.completedUnits,
