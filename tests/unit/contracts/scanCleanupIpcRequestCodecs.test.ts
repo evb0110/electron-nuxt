@@ -213,6 +213,10 @@ describe('scan-cleanup IPC request codecs', () => {
                 pageNumber: 12,
                 placementAnchors,
             }])).toThrow();
+            expect(() => decodeStartArgs([{
+                ...request,
+                placementAnchorsByPage: {'12': placementAnchors},
+            }])).toThrow();
         }
         expect(() => decodeStartArgs([{
             ...request,

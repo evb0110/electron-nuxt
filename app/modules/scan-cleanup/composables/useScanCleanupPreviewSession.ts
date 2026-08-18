@@ -839,6 +839,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             const softAlphaForegroundRecommendation =
                 options.softAlphaForegroundRecommendationByPage.get(requestPage);
             const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
+            const placementAnchors = placementAnchorsFor(requestPage);
             const requestId = nextRequestId();
             const next = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
                 requestId,
@@ -852,6 +853,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ? {}
                     : {softAlphaForegroundRecommendation}),
                 ...(pagePlanEvidence === undefined ? {} : {pagePlanEvidence}),
+                ...(placementAnchors === undefined ? {} : {placementAnchors}),
                 layoutDetectionComplete: options.layoutDetectionComplete.value,
                 layoutByPage: layoutByPage.value,
                 detail: {

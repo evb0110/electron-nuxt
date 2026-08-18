@@ -161,8 +161,8 @@ fn placement_anchors_reject_unbounded_non_finite_and_unknown_geometry() {
     CleanupOptions {
         placement_anchors: PlacementAnchors {
             full: Some(PlacementAnchor {
-                x_normalized: 1.0 + 1e-16,
-                y_normalized: 0.0,
+                x_normalized: 1.0 + 1e-12,
+                y_normalized: -1e-12,
             }),
             ..PlacementAnchors::default()
         },
@@ -170,6 +170,19 @@ fn placement_anchors_reject_unbounded_non_finite_and_unknown_geometry() {
     }
     .validate()
     .unwrap();
+    let error = CleanupOptions {
+        placement_anchors: PlacementAnchors {
+            full: Some(PlacementAnchor {
+                x_normalized: 1.0 + 1e-6,
+                y_normalized: 0.0,
+            }),
+            ..PlacementAnchors::default()
+        },
+        ..CleanupOptions::default()
+    }
+    .validate()
+    .unwrap_err();
+    assert!(error.contains("full placement anchor"), "{error}");
 
     assert!(serde_json::from_str::<CleanupOptions>(
         r#"{"placementAnchors":{"full":{"xNormalized":0.5,"yNormalized":0.5,"zNormalized":0.5}}}"#,

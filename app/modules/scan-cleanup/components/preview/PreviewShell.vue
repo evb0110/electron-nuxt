@@ -1453,12 +1453,23 @@ function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput
     event.preventDefault();
     event.stopPropagation();
     const current = props.placementOverrides?.[output.metadata.half] ?? props.alignment;
-    // `ink` is not on the nine-way compass. A nudge steps off it from where an
-    // output without a resolved anchor already sits.
+    // `ink` is not on the nine-way compass. A nudge steps off it from the
+    // compass position nearest to where the output was actually placed.
+    const resolvedInkAlignment = () => {
+        const {
+            foldClipLeftPx,
+            reference,
+        } = resolveRetainedPlacementGeometry(output);
+        return alignmentFromOffset(
+            output.placement.left + foldClipLeftPx,
+            output.placement.top,
+            reference,
+        );
+    };
     const [
         vertical,
         horizontal = vertical,
-    ] = (current === 'ink' ? 'top-center' : current).split('-');
+    ] = (current === 'ink' ? resolvedInkAlignment() : current).split('-');
     const axes = [
         'left',
         'center',

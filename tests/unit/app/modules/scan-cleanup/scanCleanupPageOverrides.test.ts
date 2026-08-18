@@ -183,7 +183,7 @@ describe('scan cleanup ink placement', () => {
             heightNormalized: 0.5,
             rotationDegrees: 0,
         }, 'full')).toEqual({
-            xNormalized: 0.30000000000000004,
+            xNormalized: expect.closeTo(0.3, 10),
             yNormalized: 0.2,
         });
         // Both leaves of a spread carry page-normalized boxes, so the same
@@ -205,7 +205,7 @@ describe('scan cleanup ink placement', () => {
             heightNormalized: 0.5,
             rotationDegrees: 0,
         }, 'right')).toEqual({
-            xNormalized: 0.3999999999999999,
+            xNormalized: expect.closeTo(0.4, 10),
             yNormalized: 0.2,
         });
     });

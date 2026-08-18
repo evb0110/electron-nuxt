@@ -84,7 +84,7 @@ export default {
             'selectionAlignment': 'Posicionamento de conteúdo para páginas selecionadas',
             'contentPlacement': 'Posicionamento de conteúdo',
             'enableMatchPageSize': 'Ative “Corresponder ao tamanho da página” nas configurações do documento para usar o posicionamento.',
-            'inkNeedsContentBoxes': 'O endireitamento automático substitui o conteúdo detectado, por isso a colocação pela tinta passa a «Em cima, centralizado».',
+            'inkNeedsContentBoxes': 'A correção automática da curvatura substitui as caixas de conteúdo detectadas, por isso o posicionamento pela tinta passa a «Coloque próximo ao topo, centralizado».',
             'resetScope': {
                 'all': 'Redefinir todas as substituições…',
                 'page': 'Redefinir esta página…',
