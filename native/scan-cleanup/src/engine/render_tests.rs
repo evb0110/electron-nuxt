@@ -7370,6 +7370,64 @@ mod tests {
     }
 
     #[test]
+    fn a_measured_fold_drops_a_blank_leaf_corner_rail_but_keeps_nonblank_edge_ink() {
+        let height = 240;
+        let mut split = fold_test_split(800, height);
+        split.cutter_x = Some(400.0);
+        split.diagnostics.fold_band = FoldBand::measured(390.0, 410.0);
+        let region = Rect::new(400.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut corner_rail = BinaryImage::new(400, height);
+        for y in 0..120 {
+            corner_rail.set(0, y, true);
+            corner_rail.set(1, y, true);
+            if y % 4 != 0 {
+                for x in 2..6 {
+                    corner_rail.set(x, y, true);
+                }
+            }
+        }
+
+        let blank_filtered = filter_fold_edge_fragments(
+            &corner_rail,
+            None,
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            true,
+            300.0,
+        );
+        assert_eq!(
+            blank_filtered.count_black(),
+            0,
+            "measured blank-leaf corner rail survived",
+        );
+
+        let nonblank_filtered = filter_fold_edge_fragments(
+            &corner_rail,
+            None,
+            None,
+            None,
+            PageHalf::Right,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+        assert_eq!(
+            nonblank_filtered.count_black(),
+            corner_rail.count_black(),
+            "top-edge ink on a nonblank leaf was removed",
+        );
+    }
+
+    #[test]
     fn aligned_broken_scanner_rail_segments_are_filtered_as_one_chain() {
         let height = 360;
         let mut split = fold_test_split(800, height);
