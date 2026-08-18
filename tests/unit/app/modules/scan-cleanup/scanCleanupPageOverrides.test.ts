@@ -198,6 +198,32 @@ describe('scan cleanup ink placement', () => {
             ]]));
     });
 
+    it('keeps every output on its own ink when paper cannot be measured (tolerance 0)', () => {
+        expect(resolvedTops([
+            sample(1, 'full', 0.5),
+            sample(2, 'full', 0.5),
+            sample(3, 'full', 0.75),
+            sample(4, 'full', 0.625),
+        ], 0)).toEqual([
+            [
+                1,
+                {full: 0},
+            ],
+            [
+                2,
+                {full: 0},
+            ],
+            [
+                3,
+                {full: 0.25},
+            ],
+            [
+                4,
+                {full: 0.125},
+            ],
+        ]);
+    });
+
     it('snaps pages that agree within the tolerance onto the cluster median', () => {
         expect(resolvedTops([
             sample(1, 'full', 0.1),

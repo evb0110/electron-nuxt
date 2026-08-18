@@ -128,9 +128,11 @@ export const SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM = 4;
 
 /**
  * One output's measured ink top: where its content box starts, as a fraction
- * of the rotated source sheet's height. Boxes are local to the output half but
- * normalized against the whole sheet, and a vertical position is the same in
- * both frames, so the box's top is the sample.
+ * of the document's reference height — the tallest rotated source sheet, the
+ * rectangle the matched canvas settles on. Boxes are local to the output half
+ * but normalized against their own whole sheet, and a vertical position is the
+ * same in both frames, so the box's top rescaled onto the reference height is
+ * the sample; the tolerance is expressed against that same height.
  */
 export interface IScanCleanupPlacementAnchorSample extends IScanCleanupPlacementAnchor {
     pageNumber: number;
@@ -166,7 +168,10 @@ export function resolveScanCleanupPlacementOffset(
     if (alignment === 'ink') {
         // Ink moves content vertically only; horizontally it is centred like
         // `top-center`, which is also what an output without a resolved anchor
-        // falls back to, and what native does for the same page.
+        // falls back to, and what native does for the same page. The anchor is
+        // applied to the inner rect the margins leave rather than the source
+        // sheet it was measured on, so distances below the top edge scale with
+        // the printable height — the same proportion the content itself keeps.
         return {
             x: availableWidth / 2,
             y: ink === undefined
