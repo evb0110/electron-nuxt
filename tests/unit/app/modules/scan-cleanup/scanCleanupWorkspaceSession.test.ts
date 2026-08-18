@@ -1010,7 +1010,23 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`analysis-eta-${Date.now()}`, {totalPages: () => 6});
 
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
-        const firstCompletedAtMs = Date.now() + 1_000;
+        const analysisStartedAtMs = Date.now() + 1_000;
+        // Detection reports itself running before any page lands. That report
+        // anchors the measurement, so the queueing ahead of it is not billed to
+        // the pages that follow.
+        harness.emitDetection({
+            jobId: 'detect-1',
+            status: 'running',
+            progress: {
+                stage: 'detecting',
+                completedUnits: 0,
+                totalUnits: 6,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            results: [],
+            updatedAtMs: analysisStartedAtMs,
+        });
         for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
             harness.emitDetection({
                 jobId: 'detect-1',
@@ -1032,7 +1048,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     clusterAgreement: 0,
                     documentPrior: null,
                 }],
-                updatedAtMs: firstCompletedAtMs + (pageNumber - 1) * 1_000,
+                updatedAtMs: analysisStartedAtMs + pageNumber * 1_000,
             });
         }
         await nextTick();
