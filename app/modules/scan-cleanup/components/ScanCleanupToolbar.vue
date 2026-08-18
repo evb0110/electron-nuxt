@@ -429,7 +429,7 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     flex: none;
     align-items: center;
     justify-content: center;
-    border: 1px solid currentcolor;
+    border: var(--app-divider-width) solid currentcolor;
     border-radius: var(--app-radius-full);
     font-variant-numeric: tabular-nums;
 }
@@ -543,7 +543,7 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     .scan-cleanup-run-meter-fill--indeterminate {
         width: 100%;
         animation: none;
-        opacity: 0.55;
+        opacity: var(--app-scan-toolbar-indeterminate-opacity);
     }
 }
 
