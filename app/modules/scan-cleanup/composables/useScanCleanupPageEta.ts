@@ -1,6 +1,5 @@
 import type {ComputedRef} from 'vue';
 
-const DEFAULT_SAMPLE_WINDOW = 7;
 const MINIMUM_SAMPLE_COUNT = 3;
 
 interface IScanCleanupPageEtaProgress {
@@ -16,32 +15,40 @@ interface IScanCleanupPageEtaEstimator {
     reset: (completedUnits?: number, completedAtMs?: number | null) => void;
 }
 
-export function createScanCleanupPageEtaEstimator(
-    sampleWindow = DEFAULT_SAMPLE_WINDOW,
-): IScanCleanupPageEtaEstimator {
-    const durationsMs: number[] = [];
-    const normalizedWindow = Math.max(MINIMUM_SAMPLE_COUNT, Math.trunc(sampleWindow));
-    let previousCompletedUnits = 0;
-    let previousCompletedAtMs: number | null = null;
+/**
+ * Pages are analyzed several at a time, so completions do not arrive one per
+ * tick: a batch lands within a few milliseconds of itself and is then followed
+ * by a gap while the next batch runs. Timing individual gaps between adjacent
+ * completions therefore measures batch structure rather than speed — most gaps
+ * inside a batch are near zero — and any estimator built on those gaps reads a
+ * throughput the machine never had. Measuring elapsed time against pages
+ * finished since the phase began spans whole batches and their gaps alike, so
+ * the rate it reports is the rate the user is actually waiting through.
+ */
+export function createScanCleanupPageEtaEstimator(): IScanCleanupPageEtaEstimator {
+    let anchorCompletedUnits = 0;
+    let anchorAtMs: number | null = null;
+    let latestCompletedUnits = 0;
 
     function reset(completedUnits = 0, completedAtMs: number | null = null) {
-        durationsMs.length = 0;
-        previousCompletedUnits = Math.max(0, Math.trunc(completedUnits));
-        previousCompletedAtMs = completedAtMs !== null && Number.isFinite(completedAtMs)
+        anchorCompletedUnits = Math.max(0, Math.trunc(completedUnits));
+        latestCompletedUnits = anchorCompletedUnits;
+        anchorAtMs = completedAtMs !== null && Number.isFinite(completedAtMs)
             ? completedAtMs
             : null;
     }
 
-    function estimate(completedUnits: number, totalUnits: number) {
-        if (durationsMs.length < MINIMUM_SAMPLE_COUNT || completedUnits >= totalUnits) {
+    function estimate(completedUnits: number, totalUnits: number, completedAtMs: number) {
+        if (anchorAtMs === null || completedUnits >= totalUnits) {
             return null;
         }
-        const sortedDurations = [...durationsMs].sort((left, right) => left - right);
-        const middle = Math.floor(sortedDurations.length / 2);
-        const medianDurationMs = sortedDurations.length % 2 === 0
-            ? ((sortedDurations[middle - 1] ?? 0) + (sortedDurations[middle] ?? 0)) / 2
-            : sortedDurations[middle] ?? 0;
-        return Math.max(0, Math.round(medianDurationMs * (totalUnits - completedUnits)));
+        const measuredUnits = completedUnits - anchorCompletedUnits;
+        const elapsedMs = completedAtMs - anchorAtMs;
+        if (measuredUnits < MINIMUM_SAMPLE_COUNT || elapsedMs <= 0) {
+            return null;
+        }
+        const msPerUnit = elapsedMs / measuredUnits;
+        return Math.max(0, Math.round(msPerUnit * (totalUnits - completedUnits)));
     }
 
     function record(progress: Omit<IScanCleanupPageEtaProgress, 'phaseKey' | 'runKey'>) {
@@ -49,38 +56,28 @@ export function createScanCleanupPageEtaEstimator(
         const totalUnits = Math.max(completedUnits, Math.trunc(progress.totalUnits));
         const completedAtMs = progress.completedAtMs;
         if (!Number.isFinite(completedAtMs)) {
-            return estimate(completedUnits, totalUnits);
+            return null;
         }
-        if (completedUnits < previousCompletedUnits) {
+        // A counter that moves backward is a different unit of work being
+        // counted, not progress undone, so nothing measured before it can be
+        // extrapolated past it.
+        if (completedUnits < latestCompletedUnits) {
             reset(completedUnits, completedAtMs);
             return null;
         }
-        if (previousCompletedAtMs === null) {
-            previousCompletedUnits = completedUnits;
-            previousCompletedAtMs = completedAtMs;
+        if (anchorAtMs === null) {
+            reset(completedUnits, completedAtMs);
             return null;
         }
-        if (completedUnits === previousCompletedUnits) {
-            if (completedUnits === 0 && completedAtMs > previousCompletedAtMs) {
-                previousCompletedAtMs = completedAtMs;
-            }
-            return estimate(completedUnits, totalUnits);
+        // Nothing has finished since measurement began, so the time spent so
+        // far is queueing and warm-up rather than page work. Carrying it into
+        // the average would charge every remaining page for a cost paid once.
+        if (completedUnits === anchorCompletedUnits && completedAtMs > anchorAtMs) {
+            anchorAtMs = completedAtMs;
+            return null;
         }
-        if (completedAtMs <= previousCompletedAtMs) {
-            return estimate(completedUnits, totalUnits);
-        }
-
-        const completedDelta = completedUnits - previousCompletedUnits;
-        const durationPerPageMs = (completedAtMs - previousCompletedAtMs) / completedDelta;
-        for (let index = 0; index < completedDelta; index += 1) {
-            durationsMs.push(durationPerPageMs);
-        }
-        if (durationsMs.length > normalizedWindow) {
-            durationsMs.splice(0, durationsMs.length - normalizedWindow);
-        }
-        previousCompletedUnits = completedUnits;
-        previousCompletedAtMs = completedAtMs;
-        return estimate(completedUnits, totalUnits);
+        latestCompletedUnits = completedUnits;
+        return estimate(completedUnits, totalUnits, completedAtMs);
     }
 
     return {
