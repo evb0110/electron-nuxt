@@ -51,12 +51,7 @@
                 </p>
                 <ol
                     class="scan-cleanup-run-segments"
-                    role="progressbar"
-                    :aria-label="t('scanCleanup.runStatusLabel')"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    :aria-valuenow="meterIsIndeterminate ? undefined : normalizedPercent ?? undefined"
-                    :aria-valuetext="`${progressStepText}: ${transitionText || progressText}`"
+                    :aria-label="t('scanCleanup.progressPhases.label')"
                 >
                     <li
                         v-for="phase in progressPhases"
@@ -72,10 +67,20 @@
                         />
                         <span
                             v-else-if="phase.state === 'current'"
-                            class="scan-cleanup-run-segment-fill"
-                            :class="{'scan-cleanup-run-segment-fill--indeterminate': meterIsIndeterminate}"
-                            :style="meterIsIndeterminate ? undefined : {width: `${normalizedPercent}%`}"
-                        />
+                            class="scan-cleanup-run-segment-track"
+                            role="progressbar"
+                            :aria-label="t('scanCleanup.runStatusLabel')"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            :aria-valuenow="meterIsIndeterminate ? undefined : normalizedPercent ?? undefined"
+                            :aria-valuetext="`${progressStepText}: ${transitionText || progressText}`"
+                        >
+                            <span
+                                class="scan-cleanup-run-segment-fill"
+                                :class="{'scan-cleanup-run-segment-fill--indeterminate': meterIsIndeterminate}"
+                                :style="meterIsIndeterminate ? undefined : {width: `${normalizedPercent}%`}"
+                            />
+                        </span>
                     </li>
                 </ol>
             </div>
@@ -453,6 +458,11 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     height: var(--app-scan-toolbar-progress-height);
     border-radius: var(--app-radius-full);
     background: var(--ui-border);
+}
+
+.scan-cleanup-run-segment-track {
+    display: block;
+    height: 100%;
 }
 
 .scan-cleanup-run-segment-fill {

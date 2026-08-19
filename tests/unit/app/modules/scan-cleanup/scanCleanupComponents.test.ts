@@ -1823,7 +1823,12 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).not.toContain('42%');
         expect(meter?.textContent).toContain('Calculating time for current task…');
         expect(meter?.querySelector('[aria-current="step"]')?.getAttribute('aria-label')).toBe('Clean pages');
-        expect(meter?.querySelector('ol')?.getAttribute('role')).toBe('progressbar');
+        // The step list stays a native list so each step's label and the
+        // current-step marker reach assistive tech; progress is exposed by a
+        // progressbar inside the current step, not by the list itself.
+        expect(meter?.querySelector('ol')?.getAttribute('role')).toBeNull();
+        expect(meter?.querySelectorAll('ol > li')).toHaveLength(3);
+        expect(meter?.querySelector('[role="progressbar"]')?.closest('[aria-current="step"]')).not.toBeNull();
         expect(meter?.querySelector('.scan-cleanup-run-meter-eta .scan-cleanup-stable-width-sizer')?.textContent)
             .toBe('Current task: about 999 min');
         const progressbar = meter?.querySelector('[role="progressbar"]');
