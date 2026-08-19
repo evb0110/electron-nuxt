@@ -4755,8 +4755,13 @@ fn restore_genuine_horizontal_rules(
     }
 
     let minimum_span = (dpi.max(1.0) * 15.0 / 25.4).round().max(24.0) as usize;
-    let maximum_thickness = (dpi.max(1.0) * 4.0 / 25.4).round().max(2.0) as usize;
-    let thin_thickness = (dpi.max(1.0) * 2.0 / 25.4).round().max(2.0) as usize;
+    // Candidacy is measured on a map already bridged horizontally by
+    // `bridge_radius`, which fuses the glyphs of an ordinary text line into one
+    // long blob. Aspect ratio therefore cannot stand in for thinness: every
+    // body, footnote, and index line clears any aspect threshold once bridged.
+    // Thickness is the only property that still separates a printed rule from a
+    // line of type, so it decides admission alone.
+    let maximum_thickness = (dpi.max(1.0) * 2.0 / 25.4).round().max(2.0) as usize;
     let maximum_text_gap = (dpi.max(1.0) * 14.0 / 25.4).round().max(8.0) as usize;
     let minimum_row_support = (minimum_span / 8).max(8);
     let mut rule_components = vec![false; components.components().len() + 1];
@@ -4767,7 +4772,6 @@ fn restore_genuine_horizontal_rules(
         let horizontal_rule = width >= minimum_span
             && width >= height.saturating_mul(4)
             && height <= maximum_thickness
-            && (height <= thin_thickness || width >= height.saturating_mul(8))
             && component.area >= width;
         if !horizontal_rule {
             continue;
