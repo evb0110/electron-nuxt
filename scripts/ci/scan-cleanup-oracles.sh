@@ -16,6 +16,19 @@ build_scan_cleanup_tool() {
   pnpm run build:scan-cleanup
 }
 
+# Asks the same resolver the export oracles use, so this check cannot disagree
+# with what they need on disk. Any failure to answer reports the tool as absent,
+# which falls through to building it.
+scan_cleanup_tool_is_available() {
+  node --input-type=module -e '
+import {pathToFileURL} from "node:url";
+import {tsImport} from "tsx/esm/api";
+const root = pathToFileURL(`${process.cwd()}/`).href;
+const {resolveCliNativeToolPath} = await tsImport("./scripts/scanCleanupCliAdapters.ts", root);
+process.exit(resolveCliNativeToolPath("evb-scan-cleanup", "scan-cleanup", process.cwd(), process.env.EVB_SCAN_CLEANUP_PATH) ? 0 : 1);
+' >/dev/null 2>&1
+}
+
 run_stroke_weight_oracle() {
   stroke_output="$output_root/stroke-weight"
   mkdir -p "$stroke_output"
@@ -106,12 +119,17 @@ case "$mode" in
         "warning: skipping scan-cleanup preview and word-loss pre-push oracles; Node >= 22.18 is required (found $node_version)" >&2
       exit 0
     fi
-    # The export oracles run on every push and drive the built tool, so the build
-    # cannot be gated on native sources having changed. It is fingerprint cached,
-    # so an unchanged tree reuses the binary it already produced.
-    build_scan_cleanup_tool
+    # The export oracles drive the built tool on every push, so the tool has to be
+    # present whether or not native sources changed -- gating the build on changed
+    # sources left a fresh checkout unable to push at all. Building is also what
+    # takes the machine-wide heavy gate and needs a Rust toolchain, so only reach
+    # for it when sources moved or the binary is genuinely missing; an ordinary
+    # push then waits on no gate capacity and needs no cargo on PATH.
     if [ "$native_changed" -eq 1 ]; then
+      build_scan_cleanup_tool
       run_stroke_weight_oracle
+    elif ! scan_cleanup_tool_is_available; then
+      build_scan_cleanup_tool
     fi
     run_export_oracles
     ;;
