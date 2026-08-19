@@ -148,7 +148,7 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Install PDF text test tools
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils
 
       - name: Install scan-cleanup audit tools

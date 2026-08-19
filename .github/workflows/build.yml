@@ -244,7 +244,7 @@ jobs:
       # (x86-only binary on arm64, download failures on x64). Install system fpm.
       - name: Install system fpm (Linux)
         if: runner.os == 'Linux'
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
           scripts/ci/apt-install.sh ruby-dev build-essential
           sudo gem install fpm

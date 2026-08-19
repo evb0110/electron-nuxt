@@ -1,14 +1,32 @@
 #!/usr/bin/env bash
 # Installs apt packages on a GitHub runner without letting a stalled mirror
-# hold the job for its whole timeout budget. A flaky Azure mirror has hung
-# `apt-get update` for 27 minutes inside a 30-minute job; per-request
-# timeouts turn that into a fast failure and the retry loop gives a
-# transient outage a few chances to clear.
+# hold the job for its whole timeout budget. The runner image resolves
+# Ubuntu sources through a mirror list whose first entry,
+# azure.archive.ubuntu.com, has stalled `apt-get update` for 27 minutes
+# inside a 30-minute job, and apt's per-request Acquire timeouts did not
+# abort the stall. Dropping that mirror sends apt straight to the canonical
+# archive; a hard per-command timeout plus a retry loop turns any remaining
+# outage into a fast failure with a few chances to clear.
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
     echo "usage: $0 <package>..." >&2
     exit 2
+fi
+
+for package in "$@"; do
+    if [[ -z "$package" || "$package" == -* ]]; then
+        echo "invalid package argument: $package" >&2
+        exit 2
+    fi
+done
+
+mirror_list=/etc/apt/apt-mirrors.txt
+if [ -f "$mirror_list" ] && grep -q 'azure.archive.ubuntu.com' "$mirror_list"; then
+    sudo sed -i '/azure\.archive\.ubuntu\.com/d' "$mirror_list"
+    if ! grep -q 'archive.ubuntu.com' "$mirror_list"; then
+        echo 'https://archive.ubuntu.com/ubuntu/	priority:1' | sudo tee -a "$mirror_list" >/dev/null
+    fi
 fi
 
 apt_opts=(
@@ -20,12 +38,14 @@ apt_opts=(
 )
 
 for attempt in 1 2 3; do
-    if sudo apt-get "${apt_opts[@]}" update \
-        && sudo DEBIAN_FRONTEND=noninteractive apt-get "${apt_opts[@]}" install -y --no-install-recommends "$@"; then
+    if sudo timeout 240 apt-get "${apt_opts[@]}" update \
+        && sudo DEBIAN_FRONTEND=noninteractive timeout 600 apt-get "${apt_opts[@]}" install -y --no-install-recommends "$@"; then
         exit 0
     fi
-    echo "apt install attempt ${attempt} failed; retrying" >&2
-    sleep $((attempt * 15))
+    if [ "$attempt" -lt 3 ]; then
+        echo "apt install attempt ${attempt} failed; retrying" >&2
+        sleep $((attempt * 15))
+    fi
 done
 
 echo "apt install failed after 3 attempts: $*" >&2

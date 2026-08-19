@@ -276,7 +276,7 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Install PDF text test tools
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils
 
       - name: Install Rust WASM target
@@ -326,7 +326,7 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Install PDF text test tools
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils
 
       - name: Rust tests
@@ -355,7 +355,7 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Install PDF audit tools
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils python3-numpy python3-opencv python3-pil qpdf
 
       - name: Preview, export, and word-loss gates
@@ -644,7 +644,7 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
 
       - name: Install OCR native smoke tools
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: scripts/ci/apt-install.sh tesseract-ocr tesseract-ocr-eng poppler-utils
 
       - name: Install Rust WASM target
