@@ -962,12 +962,13 @@ export default {rules: {
                 return match ? match[1] : '';
             }
 
-            function formatDestructuring(properties, openBrace, closeBrace, baseIndent) {
+            function formatDestructuring(properties, baseIndent) {
                 const indent = baseIndent + '    ';
-                const propertyTexts = properties.map((p) => sourceCode.getText(p));
 
                 return '{\n' +
-                    propertyTexts.map((t) => `${indent}${t},`).join('\n') +
+                    properties
+                        .map((p) => `${indent}${sourceCode.getText(p)}${p.type === 'RestElement' ? '' : ','}`)
+                        .join('\n') +
                     `\n${baseIndent}}`;
             }
 
@@ -980,7 +981,16 @@ export default {rules: {
 
                 const firstProperty = properties[0];
                 const openBrace = sourceCode.getFirstToken(node);
-                const closeBrace = sourceCode.getLastToken(node);
+                // The pattern node spans its type annotation too, so the last token can be
+                // part of `: IThing` rather than the closing brace; rewriting that far
+                // deletes the annotation.
+                const closeBrace = sourceCode.getTokenAfter(
+                    properties[properties.length - 1],
+                    {filter: (token) => token.value === '}'},
+                );
+                // Rebuilding from property text alone drops anything between the
+                // properties, so leave commented patterns for a human to split.
+                const rebuildLosesComments = sourceCode.commentsExistBetween(openBrace, closeBrace);
 
                 const allOnSameLine = properties.every(
                     (p) => p.loc.start.line === firstProperty.loc.start.line,
@@ -993,12 +1003,12 @@ export default {rules: {
                         node: firstProperty,
                         message: `Destructuring properties should be on separate lines when there are ${minProperties} or more`,
                         fix(fixer) {
-                            return fixer.replaceTextRange(
+                            return rebuildLosesComments ? null : fixer.replaceTextRange(
                                 [
                                     openBrace.range[0],
                                     closeBrace.range[1],
                                 ],
-                                formatDestructuring(properties, openBrace, closeBrace, baseIndent),
+                                formatDestructuring(properties, baseIndent),
                             );
                         },
                     });
@@ -1014,12 +1024,12 @@ export default {rules: {
                             node: next,
                             message: 'Each destructuring property should be on its own line',
                             fix(fixer) {
-                                return fixer.replaceTextRange(
+                                return rebuildLosesComments ? null : fixer.replaceTextRange(
                                     [
                                         openBrace.range[0],
                                         closeBrace.range[1],
                                     ],
-                                    formatDestructuring(properties, openBrace, closeBrace, baseIndent),
+                                    formatDestructuring(properties, baseIndent),
                                 );
                             },
                         });
