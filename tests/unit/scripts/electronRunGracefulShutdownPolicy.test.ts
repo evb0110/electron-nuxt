@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import {
     existsSync,
     mkdirSync,
@@ -19,14 +20,23 @@ import {
     isElectronRunCommand,
     parseElectronRunCommandRequest,
 } from '@scripts/electron-run/electronRunProtocol';
-import { killVerifiedSessionProcess } from '@scripts/electron-run/electronRunProcessIdentity';
+import {
+    inspectProcessIdentity,
+    killVerifiedSessionProcess,
+} from '@scripts/electron-run/electronRunProcessIdentity';
 import type * as TElectronRunProcessTree from '@scripts/electron-run/electronRunProcessTree';
-import { shouldRemoveSessionStopArtifacts } from '@scripts/electron-run/stopSession';
+import {
+    shouldRemoveSessionStopArtifacts,
+    stopSingleSession,
+} from '@scripts/electron-run/stopSession';
 import {
     clearAutomationWorkspaceCrashCheckpoint,
     workspaceCrashCheckpointPath,
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
-import { sessionDir } from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    sessionDir,
+    sessionFilePath,
+} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     clearAutomationWorkspaceCrashCheckpointAfterSessionExit,
     shouldClearAutomationWorkspaceCrashCheckpointOnExit,
@@ -40,6 +50,9 @@ vi.mock('@scripts/electron-run/electronRunProcessTree', async importOriginal => 
 }));
 
 const projectRoot = process.cwd();
+
+// Above Linux's default pid_max, so it can never name a live host process.
+const UNUSED_PID = 4_194_305;
 
 function readProjectSource(path: string) {
     return readFileSync(join(projectRoot, path), 'utf8');
@@ -178,35 +191,80 @@ describe('Electron automation graceful shutdown policy', () => {
         // from an unrelated PID. Reporting that as a refusal strands the
         // session directory and forces a second stop, so a PID that is gone
         // by the time identity is unavailable must count as terminated.
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         processTree.isProcessAlive.mockReset();
         processTree.isProcessAlive.mockReturnValueOnce(true).mockReturnValue(false);
 
-        await expect(killVerifiedSessionProcess({
-            pid: 4_194_303,
-            expectation: {
-                kind: 'controller',
-                sessionName: 'exit-during-identity-read',
-            },
-        })).resolves.toBe(true);
-
-        const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
-        const controllerBody = stopSource.slice(
-            stopSource.indexOf('async function stopSessionController('),
-            stopSource.indexOf('async function stopSessionElectron('),
-        );
-        expect(controllerBody).toContain('return !isProcessAlive(info.pid);');
+        try {
+            await expect(killVerifiedSessionProcess({
+                pid: UNUSED_PID,
+                expectation: {
+                    kind: 'controller',
+                    sessionName: 'exit-during-identity-read',
+                },
+            })).resolves.toBe(true);
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            warn.mockRestore();
+        }
     });
 
-    it('still refuses to terminate a live PID whose identity does not match the session', async () => {
+    it('removes session artifacts when the controller exits while its identity is read', async () => {
+        const sessionName = `stop-race-policy-${String(process.pid)}-${String(Date.now())}`;
         processTree.isProcessAlive.mockReset();
-        processTree.isProcessAlive.mockReturnValue(true);
+        processTree.isProcessAlive.mockReturnValueOnce(true).mockReturnValue(false);
+        try {
+            mkdirSync(sessionDir(sessionName), {recursive: true});
+            writeFileSync(sessionFilePath(sessionName), JSON.stringify({
+                port: 45_001,
+                pid: UNUSED_PID,
+                cdpPort: 45_002,
+                electronPid: null,
+                nuxtPid: null,
+                nuxtPort: 45_003,
+            }), 'utf8');
 
-        await expect(killVerifiedSessionProcess({
-            pid: 4_194_303,
-            expectation: {
-                kind: 'controller',
-                sessionName: 'unrelated-live-pid',
-            },
-        })).resolves.toBe(false);
+            await expect(stopSingleSession(sessionName)).resolves.toBeUndefined();
+            expect(existsSync(sessionFilePath(sessionName))).toBe(false);
+        } finally {
+            rmSync(sessionDir(sessionName), {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('refuses to terminate a live process whose identity does not match the session', async () => {
+        // Exercised against a real, still-running process so the refusal comes
+        // from a successfully read identity that fails ownership matching,
+        // rather than from an absent PID that yields no identity at all.
+        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
+            '@scripts/electron-run/electronRunProcessTree',
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        processTree.isProcessAlive.mockReset();
+        processTree.isProcessAlive.mockImplementation(isProcessAlive);
+
+        const unrelated = spawn('sleep', ['30'], {stdio: 'ignore'});
+        const unrelatedPid = unrelated.pid ?? 0;
+        try {
+            expect(unrelatedPid).toBeGreaterThan(0);
+            await vi.waitFor(() => {
+                expect(inspectProcessIdentity(unrelatedPid)).not.toBeNull();
+            });
+
+            await expect(killVerifiedSessionProcess({
+                pid: unrelatedPid,
+                expectation: {
+                    kind: 'controller',
+                    sessionName: 'unrelated-live-process',
+                },
+            })).resolves.toBe(false);
+            expect(isProcessAlive(unrelatedPid)).toBe(true);
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refused to terminate'));
+        } finally {
+            warn.mockRestore();
+            unrelated.kill('SIGKILL');
+        }
     });
 });
