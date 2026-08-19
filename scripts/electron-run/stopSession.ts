@@ -212,7 +212,7 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
         if (!shouldRemoveSessionStopArtifacts(outcomes)) {
             retainSessionStopArtifacts(name, info);
             throw new Error(
-                `Session '${name}' stop was refused because one or more process identities could not be verified; session artifacts were retained.`,
+                `Session '${name}' stop was refused: a process identity did not match session ownership, or the process outlived termination; session artifacts were retained.`,
             );
         }
         clearAutomationWorkspaceCrashCheckpoint(name);

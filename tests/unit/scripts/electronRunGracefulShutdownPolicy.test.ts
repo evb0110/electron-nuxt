@@ -273,4 +273,49 @@ describe('Electron automation graceful shutdown policy', () => {
             unrelated.kill('SIGKILL');
         }
     });
+
+    it('reports a force-killed process as terminated once it is actually gone', async () => {
+        // SIGKILL only schedules teardown, so a process that ignores SIGTERM is
+        // still visible to `kill(pid, 0)` when the signal is delivered. Every
+        // caller reads the liveness check straight after termination as its
+        // result, which turned a successfully killed session process into a
+        // refusal that stranded the session directory and demanded a second
+        // stop. The child confirms its handler is installed before termination
+        // starts, so the forced-kill path is the one under test.
+        const {
+            isProcessAlive,
+            killProcessTree,
+        } = await vi.importActual<typeof TElectronRunProcessTree>(
+            '@scripts/electron-run/electronRunProcessTree',
+        );
+        const stubborn = spawn(process.execPath, [
+            '-e',
+            'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready\\n");',
+        ], {stdio: [
+            'ignore',
+            'pipe',
+            'ignore',
+        ]});
+        const stubbornPid = stubborn.pid ?? 0;
+        try {
+            expect(stubbornPid).toBeGreaterThan(0);
+            await new Promise<void>((resolve, reject) => {
+                if (!stubborn.stdout) {
+                    reject(new Error('stubborn child was spawned without stdout'));
+                    return;
+                }
+                stubborn.stdout.once('data', () => resolve());
+                stubborn.once('error', reject);
+            });
+
+            await killProcessTree(stubbornPid, 150);
+
+            expect(
+                isProcessAlive(stubbornPid),
+                'a force-killed process must be observed gone before termination reports its result',
+            ).toBe(false);
+        } finally {
+            stubborn.kill('SIGKILL');
+        }
+    });
 });
