@@ -171,13 +171,15 @@ It made two further moves:
   recorded above; a mean has no lattice, which is what makes a bound expressible
   as a *fraction* of a line's median rather than a multiple of it.
 
-**Both rest on a premise this document's change had already removed.** They were
-written against pre-change behaviour, where an oversized fused blob failed
+**Both were aimed at pre-change behaviour**, where an oversized fused blob failed
 admission and kept its full Wolf halo. After the change, `HaloStrip` admission is
 `height <= maximum_extent` and nothing else — there is no longest-side or area
-cap, so no component is skipped for being a wide fused blob. The cliff the peel
-levels does not exist, and neither does the exemption core-scoping protects
-against, except for the rare blob that fuses vertically past 8 mm.
+cap, so no component is skipped for being a wide fused blob, and the cliff the
+peel levels does not exist. Core-scoping is not voided the same way — it still
+changes what the strip treats as one unit, and the measurement below attributes
+6 px to exactly that — but the exemption it was written to prevent is now
+reachable only by a blob that fuses vertically past 8 mm, and the difference it
+makes there gives halo back rather than taking more.
 
 Measured on `luther-p5-impressum-spread.png` at 299 DPI, the fixture behind
 `spread_preview_cli_pins_the_small_print_stroke_budget_outcome`:
