@@ -80,6 +80,18 @@ function shellFunction(source: string, functionName: string) {
         : source.slice(start, start + 1 + nextFunction);
 }
 
+function shellCaseBranch(source: string, label: string) {
+    const start = source.indexOf(`\n  ${label})\n`);
+    if (start === -1) {
+        throw new Error(`Missing shell case branch: ${label}`);
+    }
+    const end = source.indexOf('\n    ;;', start);
+    if (end === -1) {
+        throw new Error(`Unterminated shell case branch: ${label}`);
+    }
+    return source.slice(start, end);
+}
+
 function parseWorkflowJobs(workflow: string) {
     const parsed = getStaticYAMLValue(parseYAML(workflow)) as unknown;
     if (!isRecord(parsed) || !isRecord(parsed.jobs)) {
@@ -359,6 +371,22 @@ describe('CI topology policy', () => {
         expect(prePush).toContain('pre-push .devkit/scratch/pre-push-scan-cleanup-oracles');
         expect(oracleScript).toContain('major === 22 && minor >= 18');
         expect(oracleScript).toContain('warning: skipping scan-cleanup preview and word-loss pre-push oracles');
+
+        // The export oracles drive the built tool on every push, so gating the
+        // build on changed native sources made the hook fail outright on any
+        // checkout that had not already built it. Four-space indentation is the
+        // case-body level: nesting the build back under a condition would
+        // indent it further and fail this pin.
+        const prePushBranch = shellCaseBranch(oracleScript, 'pre-push');
+        const buildIndex = prePushBranch.indexOf('\n    build_scan_cleanup_tool\n');
+        expect(
+            buildIndex,
+            'the pre-push oracles must build their tool unconditionally',
+        ).toBeGreaterThan(-1);
+        expect(
+            prePushBranch.indexOf('run_export_oracles'),
+            'the pre-push export oracles must run after the tool they drive is built',
+        ).toBeGreaterThan(buildIndex);
         expect(workflow).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
         expect(prePush).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
     });

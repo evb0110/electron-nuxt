@@ -95,18 +95,23 @@ case "$mode" in
     ;;
   pre-push)
     remote_name=${3:-origin}
+    native_changed=0
     if native_or_build_changed "$remote_name"; then
+      native_changed=1
       run_catastrophe_oracle
-      if supports_type_stripping; then
-        build_scan_cleanup_tool
-        run_stroke_weight_oracle
-      fi
     fi
     if ! supports_type_stripping; then
       node_version=$(node --version 2>/dev/null || printf 'unavailable')
       printf '%s\n' \
         "warning: skipping scan-cleanup preview and word-loss pre-push oracles; Node >= 22.18 is required (found $node_version)" >&2
       exit 0
+    fi
+    # The export oracles run on every push and drive the built tool, so the build
+    # cannot be gated on native sources having changed. It is fingerprint cached,
+    # so an unchanged tree reuses the binary it already produced.
+    build_scan_cleanup_tool
+    if [ "$native_changed" -eq 1 ]; then
+      run_stroke_weight_oracle
     fi
     run_export_oracles
     ;;
