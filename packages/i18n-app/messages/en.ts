@@ -801,7 +801,7 @@ export default {
             'probing': 'Measuring pages',
             'extracting': 'Reading source layers',
             'rasterizing': 'Preparing cleanup pages',
-            'classifying': 'Analyzing pages',
+            'classifying': 'Classifying pages',
             'rendering': 'Cleaning pages',
             'collecting': 'Collecting results',
             'assembling': 'Building PDF',
