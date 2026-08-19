@@ -16,6 +16,31 @@ build_scan_cleanup_tool() {
   pnpm run build:scan-cleanup
 }
 
+# Asks the same resolver the export oracles use, so this check cannot disagree
+# with what they need on disk. Exit 20 is the resolver answering "nothing there";
+# any other failure means the probe itself could not run, and reporting that as a
+# missing binary would send an otherwise healthy push into a Rust build and a wait
+# on the machine-wide heavy gate before failing for the real reason anyway.
+scan_cleanup_tool_is_available() {
+  probe_status=0
+  probe_error=$(node --input-type=module -e '
+import {pathToFileURL} from "node:url";
+import {tsImport} from "tsx/esm/api";
+const root = pathToFileURL(`${process.cwd()}/`).href;
+const {resolveCliNativeToolPath} = await tsImport("./scripts/scanCleanupCliAdapters.ts", root);
+process.exit(resolveCliNativeToolPath("evb-scan-cleanup", "scan-cleanup", process.cwd(), process.env.EVB_SCAN_CLEANUP_PATH) ? 0 : 20);
+' 2>&1 >/dev/null) || probe_status=$?
+  case "$probe_status" in
+    0) return 0 ;;
+    20) return 1 ;;
+  esac
+  printf '%s\n' "error: cannot tell whether the scan-cleanup tool is present (probe exited $probe_status)" >&2
+  if [ -n "$probe_error" ]; then
+    printf '%s\n' "$probe_error" >&2
+  fi
+  exit 1
+}
+
 run_stroke_weight_oracle() {
   stroke_output="$output_root/stroke-weight"
   mkdir -p "$stroke_output"
@@ -95,18 +120,28 @@ case "$mode" in
     ;;
   pre-push)
     remote_name=${3:-origin}
+    native_changed=0
     if native_or_build_changed "$remote_name"; then
+      native_changed=1
       run_catastrophe_oracle
-      if supports_type_stripping; then
-        build_scan_cleanup_tool
-        run_stroke_weight_oracle
-      fi
     fi
     if ! supports_type_stripping; then
       node_version=$(node --version 2>/dev/null || printf 'unavailable')
       printf '%s\n' \
         "warning: skipping scan-cleanup preview and word-loss pre-push oracles; Node >= 22.18 is required (found $node_version)" >&2
       exit 0
+    fi
+    # The export oracles drive the built tool on every push, so the tool has to be
+    # present whether or not native sources changed -- gating the build on changed
+    # sources left a fresh checkout unable to push at all. Building is also what
+    # takes the machine-wide heavy gate and needs a Rust toolchain, so only reach
+    # for it when sources moved or the binary is genuinely missing; an ordinary
+    # push then waits on no gate capacity and needs no cargo on PATH.
+    if [ "$native_changed" -eq 1 ]; then
+      build_scan_cleanup_tool
+      run_stroke_weight_oracle
+    elif ! scan_cleanup_tool_is_available; then
+      build_scan_cleanup_tool
     fi
     run_export_oracles
     ;;
