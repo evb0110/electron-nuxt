@@ -36,6 +36,7 @@ interface IWorkflowStep {
     id?: string;
     if?: string;
     name?: string;
+    run?: string;
 }
 
 interface IWorkflowJob {
@@ -172,7 +173,7 @@ function expectNoExactRunStep(job: string, command: string) {
 }
 
 function expectExactRunStep(job: string, command: string) {
-    expect(job).toMatch(new RegExp(`run: ${escapeRegExp(command)}(?:\\s|$)`, 'u'));
+    expect(job).toMatch(new RegExp(`^[\\t ]*run:[\\t ]*${escapeRegExp(command)}[\\t ]*$`, 'mu'));
 }
 
 function expectRunSteps(job: string, commands: string[]) {
@@ -761,6 +762,10 @@ describe('CI topology policy', () => {
 
             const installIndex = steps.findIndex(step => step.id === 'install');
             expect(installIndex, `${jobName} must identify its dependency install step`).toBeGreaterThan(-1);
+            expect(
+                steps[installIndex]?.run?.trim(),
+                `${jobName} must key its gates on the dependency install itself`,
+            ).toBe('node scripts/ci-install-dependencies.mjs --frozen-lockfile');
 
             const conditionalSetup = steps
                 .slice(0, installIndex + 1)
