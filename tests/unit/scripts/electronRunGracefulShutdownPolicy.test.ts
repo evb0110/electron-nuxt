@@ -318,4 +318,28 @@ describe('Electron automation graceful shutdown policy', () => {
             stubborn.kill('SIGKILL');
         }
     });
+
+    it('waits for Windows termination to land before reporting a result', () => {
+        // The forced-kill test above proves the POSIX branch only. Unit tests run
+        // on Ubuntu and no lane runs this suite on Windows, so removing the win32
+        // wait would leave every required check green. TerminateProcess is
+        // asynchronous like SIGKILL, and both branches serve the same caller
+        // contract: liveness is read as the result immediately afterwards.
+        const source = readProjectSource('scripts/electron-run/electronRunProcessTree.ts');
+        // Descendant collection carries its own win32 check, so the search has to
+        // start inside the terminating function to reach the right branch.
+        const killIndex = source.indexOf('export async function killProcessTree(');
+        expect(killIndex, 'process-tree termination must stay in this module').toBeGreaterThan(-1);
+
+        const branchIndex = source.indexOf('if (process.platform === \'win32\')', killIndex);
+        expect(branchIndex, 'process-tree termination must still special-case Windows').toBeGreaterThan(-1);
+
+        const taskkillIndex = source.indexOf('taskkill', branchIndex);
+        const waitIndex = source.indexOf('await waitForProcessesExit(', branchIndex);
+        const returnIndex = source.indexOf('return;', branchIndex);
+
+        expect(taskkillIndex, 'the Windows branch must terminate the tree').toBeGreaterThan(branchIndex);
+        expect(waitIndex, 'Windows termination must be awaited before its result is read').toBeGreaterThan(taskkillIndex);
+        expect(returnIndex, 'the Windows branch must not return before the wait').toBeGreaterThan(waitIndex);
+    });
 });
