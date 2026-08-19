@@ -106,7 +106,8 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Install PDF text test tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+        timeout-minutes: 15
+        run: scripts/ci/apt-install.sh poppler-utils
 
       - name: Install scan-cleanup audit tools
         run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0

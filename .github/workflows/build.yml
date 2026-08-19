@@ -244,9 +244,9 @@ jobs:
       # (x86-only binary on arm64, download failures on x64). Install system fpm.
       - name: Install system fpm (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 15
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ruby-dev build-essential
+          scripts/ci/apt-install.sh ruby-dev build-essential
           sudo gem install fpm
 
       # pnpm may lose exec permission on the app-builder binary (pnpm/pnpm#8546)
