@@ -37,16 +37,16 @@ apt_opts=(
     -o DPkg::Lock::Timeout=120
 )
 
-for attempt in 1 2 3; do
-    if sudo timeout 240 apt-get "${apt_opts[@]}" update \
-        && sudo DEBIAN_FRONTEND=noninteractive timeout 600 apt-get "${apt_opts[@]}" install -y --no-install-recommends "$@"; then
+for attempt in 1 2; do
+    if sudo timeout 90 apt-get "${apt_opts[@]}" update \
+        && sudo DEBIAN_FRONTEND=noninteractive timeout 300 apt-get "${apt_opts[@]}" install -y --no-install-recommends "$@"; then
         exit 0
     fi
-    if [ "$attempt" -lt 3 ]; then
+    if [ "$attempt" -lt 2 ]; then
         echo "apt install attempt ${attempt} failed; retrying" >&2
         sleep $((attempt * 15))
     fi
 done
 
-echo "apt install failed after 3 attempts: $*" >&2
+echo "apt install failed after 2 attempts: $*" >&2
 exit 1
