@@ -808,7 +808,7 @@ export default {
             'probing': 'Замер страниц',
             'extracting': 'Чтение слоёв источника',
             'rasterizing': 'Подготовка страниц к очистке',
-            'classifying': 'Анализ страниц',
+            'classifying': 'Классификация страниц',
             'rendering': 'Очистка страниц',
             'collecting': 'Сбор результатов',
             'assembling': 'Сборка PDF',

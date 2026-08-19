@@ -1817,14 +1817,18 @@ describe('Scan cleanup components', () => {
         expect(widths()).toEqual(reviewWidths);
         const meter = harness.host.querySelector('.scan-cleanup-run-meter');
         expect(meter?.textContent).toContain('Cleaning pages');
-        expect(meter?.textContent).toContain('Analyze pages');
-        expect(meter?.textContent).toContain('Finish PDF');
+        expect(meter?.textContent).toContain('Step 2 of 3');
         expect(meter?.textContent).not.toContain('Step 5 of 8');
         expect(meter?.textContent).toContain('51 / 120');
         expect(meter?.textContent).not.toContain('42%');
         expect(meter?.textContent).toContain('Calculating time for current task…');
-        expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Clean pages');
-        expect(meter?.querySelector('ol')?.closest('[role="progressbar"]')).toBeNull();
+        expect(meter?.querySelector('[aria-current="step"]')?.getAttribute('aria-label')).toBe('Clean pages');
+        // The step list stays a native list so each step's label and the
+        // current-step marker reach assistive tech; progress is exposed by a
+        // progressbar inside the current step, not by the list itself.
+        expect(meter?.querySelector('ol')?.getAttribute('role')).toBeNull();
+        expect(meter?.querySelectorAll('ol > li')).toHaveLength(3);
+        expect(meter?.querySelector('[role="progressbar"]')?.closest('[aria-current="step"]')).not.toBeNull();
         expect(meter?.querySelector('.scan-cleanup-run-meter-eta .scan-cleanup-stable-width-sizer')?.textContent)
             .toBe('Current task: about 999 min');
         const progressbar = meter?.querySelector('[role="progressbar"]');
@@ -5372,7 +5376,8 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).not.toContain('0 / 392');
         expect(meter?.textContent).not.toContain('0%');
         expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull();
-        expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(transitionText);
+        expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(`Step 2 of 3: ${transitionText}`);
+        expect(meter?.querySelector('.scan-cleanup-run-segment-fill--indeterminate')).not.toBeNull();
     });
 
     it('shows live pre-analysis progress in the run meter while a run waits for detection', () => {
@@ -5400,14 +5405,18 @@ describe('Scan cleanup components', () => {
             transitionText: '',
         })));
         const meter = harness.host.querySelector('.scan-cleanup-run-meter');
-        const fill = harness.host.querySelector<HTMLElement>('.scan-cleanup-run-meter-fill');
+        const fill = harness.host.querySelector<HTMLElement>('[aria-current="step"] .scan-cleanup-run-segment-fill');
 
         expect(meter?.textContent).toContain('Pre-analyzing pages');
         expect(meter?.textContent).toContain('98 / 392');
         expect(meter?.textContent).toContain('Calculating time for current task…');
-        expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Analyze pages');
+        expect(meter?.querySelector('[aria-current="step"]')?.getAttribute('aria-label')).toBe('Analyze pages');
+        expect(meter?.textContent).toContain('Step 1 of 3');
         expect(fill?.style.width).toBe('25%');
         expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('25');
+        // Progress belongs to the step it measures: only the current segment
+        // fills, and segments not yet reached carry no fill.
+        expect(meter?.querySelectorAll('.scan-cleanup-run-segment-fill')).toHaveLength(1);
     });
 
     it('finishes with a stable user phase instead of object counts or a false percentage', () => {
@@ -5434,13 +5443,15 @@ describe('Scan cleanup components', () => {
         })));
         const meter = harness.host.querySelector('.scan-cleanup-run-meter');
 
-        expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Finish PDF');
+        expect(meter?.querySelector('[aria-current="step"]')?.getAttribute('aria-label')).toBe('Finish PDF');
+        expect(meter?.textContent).toContain('Step 3 of 3');
         expect(meter?.textContent).toContain('Building PDF');
         expect(meter?.textContent).toContain('Almost done');
         expect(meter?.textContent).not.toContain('316 / 316');
         expect(meter?.textContent).not.toMatch(/\b98%\b/);
         expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull();
-        expect(meter?.querySelector('.scan-cleanup-run-meter-fill--indeterminate')).not.toBeNull();
+        expect(meter?.querySelector('.scan-cleanup-run-segment-fill--indeterminate')).not.toBeNull();
+        expect(meter?.querySelectorAll('.scan-cleanup-run-segment-fill--complete')).toHaveLength(2);
     });
 
     it('keeps every state-gated setting mounted so switching modes never moves the panel', async () => {
