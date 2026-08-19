@@ -76,9 +76,6 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-      - name: Install scan-cleanup audit tools
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
       - name: Restore validation caches
         uses: actions/cache@v5
         with:
@@ -87,7 +84,15 @@ jobs:
             .devkit/cache/typecheck
           key: quality-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs', 'tsconfig*.json', 'electron/tsconfig.json', 'landing/tsconfig.json', 'packages/*/tsconfig.json', 'scripts/tsconfig.json', 'server/tsconfig.json', 'tests/tsconfig.json') }}
 
+      # Provisioning ends here so every gate below can report on its own:
+      # a failing gate must not hide the ones after it, while a broken
+      # runner still skips them all rather than blaming the code.
+      - name: Install scan-cleanup audit tools
+        id: setup
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+
       - name: Generate committed build artifacts and reject drift
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: |
           pnpm run generate:build-artifacts
           pnpm run copy:pdfjs
@@ -105,24 +110,31 @@ jobs:
             scripts/release/generated-release-targets.cjs)"
 
       - name: Lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint
 
       - name: Typecheck
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck
 
       - name: Unit tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:unit
 
       - name: Coverage zero-execution tripwire
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:coverage
 
       - name: Production dependency audit
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:production-dependency-audit:production-only
 
       - name: Fallow dead code
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run fallow
 
       - name: Fallow duplicates
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run fallow:dupes
 
   pr_electron_blocking_smoke:

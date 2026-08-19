@@ -784,13 +784,13 @@ describe('CI topology policy', () => {
         expect(buildWorkflow).toContain('run: rustup target add wasm32-unknown-unknown');
     });
 
-    it('reports every maintenance gate even after an earlier gate fails', async () => {
+    it('reports every quality gate even after an earlier gate fails', async () => {
         // A job stops at its first failing step, so a single broken gate used to
         // hide every later one and leave the expensive checks unrun for days.
         // Each gate must therefore survive an earlier failure while still failing
         // the job. Provisioning is the exception: a gate cannot mean anything
         // without the tools it drives, and letting the rest run after a failed
-        // apt or rustup reports gates as broken when only the runner was.
+        // apt, pip, or rustup reports gates as broken when only the runner was.
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const jobs = parseWorkflowJobs(workflow);
         const gateCondition = '${{ !cancelled() && steps.setup.outcome == \'success\' }}';
@@ -799,25 +799,50 @@ describe('CI topology policy', () => {
         // from passing vacuously. Every selector below is built from whatever
         // the workflow happens to contain, and the regression being pinned --
         // gates that stop reporting -- is precisely the one that empties them.
+        const rustProvisioning = 'rustup target add wasm32-unknown-unknown';
         const requiredGates = {
-            manual_quality: [
-                'pnpm run fallow',
-                'pnpm run fallow:dupes',
-                'pnpm run test:coverage',
-            ],
-            nightly_maintenance: [
-                'pnpm run check:production-dependency-audit',
-                'pnpm run fallow',
-                'pnpm run fallow:dupes',
-                'pnpm run test:rust',
-                'pnpm run test:coverage',
-                'pnpm run test:ocr:native-smoke:required',
-            ],
+            // The PR lane owes the same independence: an author who broke lint
+            // and the dependency audit must learn both from one run, not on
+            // consecutive days.
+            pr_quality: {
+                provisioning: 'python3 -m pip install --disable-pip-version-check Pillow==11.3.0',
+                gates: [
+                    'pnpm run lint',
+                    'pnpm run typecheck',
+                    'pnpm run test:unit',
+                    'pnpm run test:coverage',
+                    'pnpm run check:production-dependency-audit:production-only',
+                    'pnpm run fallow',
+                    'pnpm run fallow:dupes',
+                ],
+            },
+            manual_quality: {
+                provisioning: rustProvisioning,
+                gates: [
+                    'pnpm run fallow',
+                    'pnpm run fallow:dupes',
+                    'pnpm run test:coverage',
+                ],
+            },
+            nightly_maintenance: {
+                provisioning: rustProvisioning,
+                gates: [
+                    'pnpm run check:production-dependency-audit',
+                    'pnpm run fallow',
+                    'pnpm run fallow:dupes',
+                    'pnpm run test:rust',
+                    'pnpm run test:coverage',
+                    'pnpm run test:ocr:native-smoke:required',
+                ],
+            },
         };
 
         for (const [
             jobName,
-            gates,
+            {
+                provisioning,
+                gates,
+            },
         ] of Object.entries(requiredGates)) {
             const job = jobs[jobName];
             const steps = job?.steps ?? [];
@@ -830,7 +855,7 @@ describe('CI topology policy', () => {
             expect(
                 steps[setupIndex]?.run?.trim(),
                 `${jobName} must mark its last provisioning step, not a later gate`,
-            ).toBe('rustup target add wasm32-unknown-unknown');
+            ).toBe(provisioning);
 
             // Keying on the final provisioning step is what makes an earlier
             // provisioning failure skip every gate: GitHub skips the remaining
