@@ -186,6 +186,7 @@ import { useWorkspaceMemoryPressureMonitor } from '@app/modules/workspace-shell/
 import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
+import { useBrowserDirtyUnloadGuard } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import { createFallbackToolbarCommandListeners } from '@app/modules/workspace-shell/expose/createFallbackToolbarCommandListeners';
@@ -201,7 +202,6 @@ import { getHostCapability } from '@app/utils/getHostCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
-
 traceRendererStartup('index.vue script setup start');
 useDirectOpenAutomationDispatcherShell();
 
@@ -339,6 +339,8 @@ const {
     activeTabId,
     tabs,
 });
+useBrowserDirtyUnloadGuard(() => isBrowserRuntime.value && Object.values(documentSessionsByTabId.value)
+    .some(session => session.snapshot.value.dirty));
 function updateTabViewState(tabId: string, state: IWorkspaceDocumentRecord['viewState']) {
     applySessionViewState(tabId, state);
 }

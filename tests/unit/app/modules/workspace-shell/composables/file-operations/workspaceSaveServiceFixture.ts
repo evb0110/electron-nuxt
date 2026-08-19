@@ -363,7 +363,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
             4,
             5,
         ])),
-        persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
+        persistAllAnnotationNotes: vi.fn(async () => true),
         captureCanonicalPendingTextUpdates: vi.fn(() => null),
         captureCanonicalPendingAnnotationDeletes: vi.fn(() => null),
         annotationNoteWindowsCount: ref(0),

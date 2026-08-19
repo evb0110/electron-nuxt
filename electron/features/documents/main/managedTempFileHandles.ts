@@ -40,6 +40,7 @@ interface IArtifactStatWitness {
     size: bigint;
     mtimeNs: bigint;
     ctimeNs: bigint;
+    linkCount: bigint;
 }
 
 const leases = new Map<string, IMainManagedTempFileLease | IMainStagedArtifactLease>();
@@ -81,6 +82,7 @@ function createArtifactStatWitness(fileStat: BigIntStats): IArtifactStatWitness 
         size: fileStat.size,
         mtimeNs: fileStat.mtimeNs,
         ctimeNs: fileStat.ctimeNs,
+        linkCount: fileStat.nlink,
     };
 }
 
@@ -90,7 +92,8 @@ function isSameArtifactStatWitness(
 ) {
     return left.size === right.size
         && left.mtimeNs === right.mtimeNs
-        && left.ctimeNs === right.ctimeNs;
+        && left.ctimeNs === right.ctimeNs
+        && left.linkCount === right.linkCount;
 }
 
 async function statRegularArtifact(path: string) {

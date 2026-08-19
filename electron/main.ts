@@ -1,6 +1,7 @@
 import {
     app,
     BrowserWindow,
+    powerMonitor,
 } from 'electron';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
@@ -22,7 +23,7 @@ import {
 } from '@electron/bootstrap/rendererReady';
 import {
     createShutdownCoordinator,
-    runShutdownSteps,
+    createShutdownPhaseRunners,
 } from '@electron/bootstrap/shutdown';
 import { requestShutdownSaveFlush } from '@electron/bootstrap/requestShutdownSaveFlush';
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
@@ -133,10 +134,36 @@ if (automationUserDataDir) {
 resetSettingsCacheAfterUserDataPathChange();
 
 const logger = createLogger('main');
+let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;
+let pendingSafeModeRelaunchArgs: string[] | null = null;
+
+function requestSafeModeRelaunch(args: string[]) {
+    if (!shutdownCoordinator) {
+        logger.warn('[process-death] Deferring safe-mode relaunch until shutdown coordination is ready');
+        pendingSafeModeRelaunchArgs = args;
+        return;
+    }
+    if (
+        shutdownCoordinator.isFatalShutdownInProgress()
+        || shutdownCoordinator.isGracefulQuitInProgress()
+    ) {
+        logger.warn('[process-death] Shutdown is already in progress; leaving its exit action unchanged');
+        return;
+    }
+    shutdownCoordinator.requestGracefulQuit({
+        afterCleanup: () => {
+            app.relaunch({args});
+            app.quit();
+        },
+        preserveRecoveryState: true,
+        reason: 'recovery-relaunch',
+    });
+}
+
 const processDeathRecovery = createProcessDeathRecovery({
-    app,
     argv: process.argv,
     logger,
+    requestSafeModeRelaunch,
 });
 app.on('child-process-gone', (_event, details) => {
     processDeathRecovery.handleChildProcessGone(details);
@@ -146,7 +173,6 @@ const macOpenFileRouter = createMacOpenFileRouter({ logger });
 // feature-local and should not crash the entire public app.
 const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION === '1';
 const startupTrace = createStartupTrace(logger);
-let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;
 
 function requestFatalShutdown(reason: string) {
     if (!shutdownCoordinator) {
@@ -315,40 +341,71 @@ function maybePromptForDefaultViewer() {
     }, 1_500);
 }
 
-async function performShutdownCleanup() {
-    if (defaultViewerPromptTimer) {
-        clearTimeout(defaultViewerPromptTimer);
-        defaultViewerPromptTimer = null;
-    }
-    externalOpenManager.clearTimers();
-    shutdownCoordinator?.clearGracefulQuitForceTimer();
-    const workingCopyCleanupSkipPaths = new Set<string>();
-
-    await runShutdownSteps(logger, [
-        {
-            label: 'renderer-save-flush',
-            timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS + 500,
-            run: async () => {
-                const result = await requestShutdownSaveFlush({
-                    getWindows: getAllRegisteredAppWindows,
-                    logger,
-                    timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS,
-                });
-                for (const workingCopyPath of result.dirtyWorkingCopyPaths) {
-                    workingCopyCleanupSkipPaths.add(workingCopyPath);
-                    logger.error(`Renderer reported dirty working copy during shutdown; skipping deletion: ${workingCopyPath}`);
-                }
-                if (result.flushedWorkingCopyPaths.length > 0) {
-                    logger.info(`Renderer flushed ${result.flushedWorkingCopyPaths.length} working copy path(s) before shutdown`);
-                }
+const workingCopyCleanupSkipPaths = new Set<string>();
+const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
+    createPreservationSteps: () => {
+        workingCopyCleanupSkipPaths.clear();
+        return [
+            {
+                label: 'renderer-save-flush',
+                timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS + 500,
+                run: async () => {
+                    const result = await requestShutdownSaveFlush({
+                        getWindows: getAllRegisteredAppWindows,
+                        logger,
+                        timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS,
+                    });
+                    for (const workingCopyPath of result.dirtyWorkingCopyPaths) {
+                        workingCopyCleanupSkipPaths.add(workingCopyPath);
+                        logger.error(`Renderer reported dirty working copy during shutdown; skipping deletion: ${workingCopyPath}`);
+                    }
+                    if (result.flushedWorkingCopyPaths.length > 0) {
+                        logger.info(`Renderer flushed ${result.flushedWorkingCopyPaths.length} working copy path(s) before shutdown`);
+                    }
+                },
             },
-        },
-        {
-            label: 'main-operation-shutdown',
-            run: () => {
-                beginMainOperationShutdown('Main process is shutting down');
+            {
+                label: 'main-operation-shutdown',
+                run: () => {
+                    beginMainOperationShutdown('Main process is shutting down');
+                },
             },
-        },
+            {
+                label: 'main-operations-cancel',
+                run: () => {
+                    cancelAllMainOperations('app shutdown');
+                },
+            },
+            {
+                label: 'serialized-pdf-persistence',
+                timeoutMs: 8_000,
+                run: () => shutdownSerializedPdfPersistence(),
+            },
+            {
+                label: 'main-critical-writes',
+                // The drain owns a 30s deadline; this guard covers only a bug in
+                // the drain itself while leaving time for its pending-path result.
+                timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS + 500,
+                run: async () => {
+                    const result = await drainCriticalMainOperations({timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS});
+                    if (!result.completed) {
+                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`);
+                        for (const operation of result.pending) {
+                            if (operation.workingCopyPath) {
+                                workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
+                                logger.error(
+                                    `Skipping working-copy deletion for pending critical write path: ${operation.workingCopyPath}`,
+                                );
+                            } else {
+                                logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`);
+                            }
+                        }
+                    }
+                },
+            },
+        ];
+    },
+    createBestEffortCleanupSteps: context => [
         {
             label: 'agent-assistant',
             run: () => shutdownAgentAssistantIfLoaded(),
@@ -365,36 +422,6 @@ async function performShutdownCleanup() {
         {
             label: 'updates',
             run: () => shutdownUpdates(),
-        },
-        {
-            label: 'main-operations-cancel',
-            run: () => {
-                cancelAllMainOperations('app shutdown');
-            },
-        },
-        {
-            label: 'serialized-pdf-persistence',
-            run: () => shutdownSerializedPdfPersistence(),
-        },
-        {
-            label: 'main-critical-writes',
-            timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS,
-            run: async () => {
-                const result = await drainCriticalMainOperations({timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS});
-                if (!result.completed) {
-                    logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`);
-                    for (const operation of result.pending) {
-                        if (operation.workingCopyPath) {
-                            workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
-                            logger.error(
-                                `Skipping working-copy deletion for pending critical write path: ${operation.workingCopyPath}`,
-                            );
-                        } else {
-                            logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`);
-                        }
-                    }
-                }
-            },
         },
         {
             label: 'working-copy-materializations',
@@ -418,24 +445,54 @@ async function performShutdownCleanup() {
         },
         {
             label: 'workspace-checkpoint',
-            run: () => shutdownCoordinator?.isFatalShutdownInProgress()
+            run: () => context.preserveRecoveryState
                 ? undefined
                 : clearWorkspaceCheckpoint(),
         },
         {
             label: 'working-copies',
-            run: () => shutdownCoordinator?.isFatalShutdownInProgress()
+            run: () => context.preserveRecoveryState
                 ? undefined
                 : clearAllWorkingCopies({skipPaths: workingCopyCleanupSkipPaths}),
         },
-    ]);
+    ],
+});
+
+function prepareShutdown() {
+    if (defaultViewerPromptTimer) {
+        clearTimeout(defaultViewerPromptTimer);
+        defaultViewerPromptTimer = null;
+    }
+    externalOpenManager.clearTimers();
 }
 
 shutdownCoordinator = createShutdownCoordinator({
     app,
     logger,
-    runCleanupSteps: performShutdownCleanup,
+    runPreservationSteps: async (context) => {
+        prepareShutdown();
+        await shutdownPhaseRunners.runPreservationSteps(context);
+    },
+    runBestEffortCleanupSteps: shutdownPhaseRunners.runBestEffortCleanupSteps,
 });
+function requestSystemShutdown(event?: {preventDefault(): void}) {
+    if (shutdownCoordinator?.isQuittingAfterCleanup()) {
+        return;
+    }
+    event?.preventDefault();
+    shutdownCoordinator?.requestSystemShutdown();
+}
+app.on('browser-window-created', (_event, window) => {
+    window.on('query-session-end', requestSystemShutdown);
+});
+void app.whenReady().then(() => {
+    powerMonitor.on('shutdown', requestSystemShutdown);
+});
+if (pendingSafeModeRelaunchArgs) {
+    const args = pendingSafeModeRelaunchArgs;
+    pendingSafeModeRelaunchArgs = null;
+    requestSafeModeRelaunch(args);
+}
 configureUpdateInstallShutdown((install) => {
     shutdownCoordinator?.requestGracefulQuit({ afterCleanup: install });
 });

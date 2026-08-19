@@ -459,7 +459,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
-        persistAllAnnotationNotes: (force) => persistAllAnnotationNotes(force),
+        persistAllAnnotationNotes,
         loadRecentFiles: () => {
             void loadRecentFiles();
         },
@@ -742,7 +742,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         if (!hasOpenAnnotationNotes.value) {
             return true;
         }
-        return persistAllAnnotationNotes(true);
+        return persistAllAnnotationNotes();
     }
     async function getQuickPrintPageMetrics() {
         const viewer = pdfViewerRef.value;

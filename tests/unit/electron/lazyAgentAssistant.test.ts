@@ -56,7 +56,9 @@ describe('lazyAgentAssistant', () => {
             getAgentAssistantState(),
             getAgentAssistantState(),
         ]);
-        await shutdownAgentAssistantIfLoaded();
+        const shutdown = shutdownAgentAssistantIfLoaded();
+        expect(mocks.shutdownAgentAssistant).toHaveBeenCalledOnce();
+        await shutdown;
         await getAgentAssistantState();
 
         expect(mocks.moduleLoads).toBe(1);

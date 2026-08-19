@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -6,10 +7,15 @@ import {
 } from 'vitest';
 import {
     effectScope,
+    nextTick,
     ref,
 } from 'vue';
 import type { IShutdownSaveFlushResponse } from '@contracts/systemPlatformFeature';
-import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
+import {
+    preventBrowserUnloadWhenDirty,
+    useBrowserDirtyUnloadGuard,
+    useShutdownSaveFlushReporting,
+} from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 
 const mocks = vi.hoisted(() => ({warn: vi.fn()}));
 
@@ -62,6 +68,52 @@ function createHarness(options: {
 }
 
 describe('useShutdownSaveFlushReporting', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('requests the browser confirmation dialog only for dirty documents', () => {
+        const dirtyEvent = new Event('beforeunload', {cancelable: true}) as BeforeUnloadEvent;
+
+        expect(preventBrowserUnloadWhenDirty(dirtyEvent, true)).toBe(true);
+        expect(dirtyEvent.defaultPrevented).toBe(true);
+
+        const cleanEvent = new Event('beforeunload', {cancelable: true}) as BeforeUnloadEvent;
+        expect(preventBrowserUnloadWhenDirty(cleanEvent, false)).toBe(false);
+        expect(cleanEvent.defaultPrevented).toBe(false);
+    });
+
+    it('attaches and removes the browser unload guard with reactive dirty state', async () => {
+        const browserWindow = new EventTarget();
+        vi.stubGlobal('window', browserWindow);
+        const dirty = ref(false);
+        const scope = effectScope();
+        scope.run(() => useBrowserDirtyUnloadGuard(() => dirty.value));
+
+        const initiallyClean = new Event('beforeunload', {cancelable: true});
+        browserWindow.dispatchEvent(initiallyClean);
+        expect(initiallyClean.defaultPrevented).toBe(false);
+
+        dirty.value = true;
+        await nextTick();
+        const becameDirty = new Event('beforeunload', {cancelable: true});
+        browserWindow.dispatchEvent(becameDirty);
+        expect(becameDirty.defaultPrevented).toBe(true);
+
+        dirty.value = false;
+        await nextTick();
+        const becameClean = new Event('beforeunload', {cancelable: true});
+        browserWindow.dispatchEvent(becameClean);
+        expect(becameClean.defaultPrevented).toBe(false);
+
+        dirty.value = true;
+        scope.stop();
+
+        const afterStop = new Event('beforeunload', {cancelable: true});
+        browserWindow.dispatchEvent(afterStop);
+        expect(afterStop.defaultPrevented).toBe(false);
+    });
+
     it('registers and disposes the shutdown save-flush subscriber', () => {
         const harness = createHarness();
 

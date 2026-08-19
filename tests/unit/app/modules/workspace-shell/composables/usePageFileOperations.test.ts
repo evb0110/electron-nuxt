@@ -75,7 +75,7 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
         isDirty,
         pageLabelsDirty,
         bookmarksDirty,
-        persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
+        persistAllAnnotationNotes: vi.fn(async () => true),
         handleSave: vi.fn(async () => {}),
         pickFileToOpen: vi.fn(async () => null),
         openFile: vi.fn(async () => openedOutcome()),

@@ -29,6 +29,10 @@ const mocks = vi.hoisted(() => ({
     }),
     showMessageBox: vi.fn(async () => ({response: 0})),
     openExternal: vi.fn(async () => undefined),
+    logger: {
+        error: vi.fn(),
+        warn: vi.fn(),
+    },
 }));
 
 const descriptor = {
@@ -83,9 +87,11 @@ vi.mock('@electron/features/agent/mcpServer', () => ({
 }));
 
 vi.mock('@electron/te', () => ({te: (_key: string, values?: Record<string, string>) => values?.server ?? 'translated'}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 describe('codexMcpIntegration', () => {
     beforeEach(() => {
+        vi.resetModules();
         state.settings = {agentMcpEnabled: false};
         state.serverRunning = false;
         mocks.loadSettings.mockClear();
@@ -96,6 +102,8 @@ describe('codexMcpIntegration', () => {
         mocks.shutdownLocalMcpServer.mockClear();
         mocks.showMessageBox.mockClear();
         mocks.openExternal.mockClear();
+        mocks.logger.error.mockClear();
+        mocks.logger.warn.mockClear();
     });
 
     it('registers Codex against the durable stdio proxy transport', async () => {
@@ -171,5 +179,103 @@ describe('codexMcpIntegration', () => {
             claude: 'claude snippet',
             cursor: '{ "cursor": true }',
         });
+    });
+
+    it.each([
+        [
+            'a conflicting listener',
+            Object.assign(new Error('listen EADDRINUSE: address already in use 127.0.0.1:38672'), {code: 'EADDRINUSE'}),
+        ],
+        [
+            'a token-store failure',
+            new Error('Unable to create a stable local MCP token file.'),
+        ],
+    ])('keeps bootstrap alive and preserves opt-in after %s', async (_label, startupError) => {
+        state.settings = {agentMcpEnabled: true};
+        mocks.startLocalMcpServer.mockRejectedValueOnce(startupError);
+        mocks.runCodexCli.mockResolvedValue({
+            ok: false,
+            stdout: '',
+            stderr: '',
+        });
+
+        const {
+            getAgentMcpIntegrationStatus,
+            syncAgentMcpServerWithSettings,
+        } = await import('@electron/features/agent/codexMcpIntegration');
+
+        await expect(syncAgentMcpServerWithSettings()).resolves.toBeUndefined();
+        expect(state.settings.agentMcpEnabled).toBe(true);
+        expect(mocks.shutdownLocalMcpServer).toHaveBeenCalledOnce();
+        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining(startupError.message));
+
+        await expect(getAgentMcpIntegrationStatus()).resolves.toMatchObject({
+            enabled: true,
+            serverRunning: false,
+            error: startupError.message,
+        });
+
+        await expect(syncAgentMcpServerWithSettings()).resolves.toBeUndefined();
+        const recoveredStatus = await getAgentMcpIntegrationStatus();
+        expect(recoveredStatus.serverRunning).toBe(true);
+        expect(recoveredStatus.error).toBeUndefined();
+    });
+
+    it('does not misclassify a settings read failure as an MCP startup failure', async () => {
+        mocks.loadSettings.mockRejectedValueOnce(new Error('settings database unavailable'));
+        const {syncAgentMcpServerWithSettings} = await import('@electron/features/agent/codexMcpIntegration');
+
+        await expect(syncAgentMcpServerWithSettings()).resolves.toBeUndefined();
+
+        expect(mocks.startLocalMcpServer).not.toHaveBeenCalled();
+        expect(mocks.shutdownLocalMcpServer).not.toHaveBeenCalled();
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('Failed to load external MCP setting'),
+        );
+    });
+
+    it('returns a disable-capable status when token-backed setup snippets fail', async () => {
+        state.settings = {agentMcpEnabled: true};
+        const mcpModule = await import('@electron/features/agent/mcpServer');
+        vi.mocked(mcpModule.getLocalMcpSetupSnippets).mockRejectedValueOnce(new Error('token store is read-only'));
+        mocks.runCodexCli.mockResolvedValue({
+            ok: false,
+            stdout: '',
+            stderr: '',
+        });
+
+        const {getAgentMcpIntegrationStatus} = await import('@electron/features/agent/codexMcpIntegration');
+        const status = await getAgentMcpIntegrationStatus();
+
+        expect(status).toMatchObject({
+            enabled: true,
+            serverRunning: false,
+            error: 'token store is read-only',
+        });
+        expect(status.setupSnippets).toBeUndefined();
+    });
+
+    it('allows disabling the persisted integration while token storage remains unavailable', async () => {
+        state.settings = {agentMcpEnabled: true};
+        const mcpModule = await import('@electron/features/agent/mcpServer');
+        vi.mocked(mcpModule.getLocalMcpSetupSnippets).mockRejectedValueOnce(new Error('token store is read-only'));
+        mocks.runCodexCli.mockResolvedValue({
+            ok: true,
+            stdout: '',
+            stderr: '',
+        });
+
+        const {setAgentMcpIntegrationEnabled} = await import('@electron/features/agent/codexMcpIntegration');
+        const result = await setAgentMcpIntegrationEnabled(false);
+
+        expect(result).toMatchObject({
+            ok: true,
+            status: {
+                enabled: false,
+                error: 'token store is read-only',
+            },
+        });
+        expect(state.settings.agentMcpEnabled).toBe(false);
+        expect(mocks.shutdownLocalMcpServer).toHaveBeenCalledOnce();
     });
 });

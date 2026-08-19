@@ -91,12 +91,20 @@ function stubBrowserGlobals(href = 'http://localhost:3235/') {
             windowListeners.get(type)?.delete(listener);
         }),
         open: vi.fn(() => null),
+        close: vi.fn(),
     };
 
     vi.stubGlobal('window', cast<Window>(windowStub));
     vi.stubGlobal('document', { title: 'EVB Viewer Web' });
     vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
-    return windowStub;
+    return {
+        ...windowStub,
+        dispatch(type: string, event: Event = new Event(type)) {
+            for (const listener of Array.from(windowListeners.get(type) ?? [])) {
+                listener(event);
+            }
+        },
+    };
 }
 
 async function resolveTargetWindows(
@@ -194,6 +202,107 @@ describe('browserWindowTabsCapability', () => {
 
         await expect(resolveTargetWindows(secondModule.browserWindowTabsCapability)).resolves.toEqual([]);
         expect(MockBroadcastChannel.channels).toHaveLength(1);
+    });
+
+    it('does not unregister a window when a browser close is cancelled', async () => {
+        const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const messages: unknown[] = [];
+        externalWindow.addEventListener('message', event => messages.push(event.data));
+        const { browserWindowTabsCapability } = await import('@app/platform/browserWindowTabs');
+        browserWindowTabsCapability.notifyRendererReady();
+        messages.length = 0;
+
+        const closed = browserWindowTabsCapability.closeCurrentWindow();
+        await vi.advanceTimersByTimeAsync(160);
+
+        await expect(closed).resolves.toBe(false);
+        expect(browserWindow.close).toHaveBeenCalledOnce();
+        expect(messages).not.toContainEqual(expect.objectContaining({type: 'unregister'}));
+    });
+
+    it('unregisters a window only after the browser confirms it is leaving', async () => {
+        const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const messages: unknown[] = [];
+        externalWindow.addEventListener('message', event => messages.push(event.data));
+        const { browserWindowTabsCapability } = await import('@app/platform/browserWindowTabs');
+        browserWindowTabsCapability.notifyRendererReady();
+        messages.length = 0;
+        browserWindow.close.mockImplementation(() => browserWindow.dispatch('pagehide'));
+
+        await expect(browserWindowTabsCapability.closeCurrentWindow()).resolves.toBe(true);
+        expect(messages).toContainEqual(expect.objectContaining({
+            type: 'unregister',
+            windowId: 100,
+        }));
+    });
+
+    it('can initialize again after a non-persisted page hide tears down the instance', async () => {
+        const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+        browserWindowTabsCapability.notifyRendererReady();
+        expect(MockBroadcastChannel.channels.size).toBe(1);
+
+        browserWindow.dispatch('pagehide');
+        expect(MockBroadcastChannel.channels.size).toBe(0);
+
+        browserWindowTabsCapability.notifyRendererReady();
+        expect(MockBroadcastChannel.channels.size).toBe(1);
+        for (const type of [
+            'pagehide',
+            'pageshow',
+            'focus',
+        ]) {
+            expect(browserWindow.addEventListener.mock.calls.filter(([registered]) => registered === type))
+                .toHaveLength(2);
+        }
+    });
+
+    it('keeps waiting for a real close after a persisted page hide', async () => {
+        const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+        browserWindowTabsCapability.notifyRendererReady();
+        browserWindow.close.mockImplementation(() => {
+            browserWindow.dispatch('pagehide', cast<PageTransitionEvent>({persisted: true}));
+            window.setTimeout(() => browserWindow.dispatch(
+                'pagehide',
+                cast<PageTransitionEvent>({persisted: false}),
+            ), 10);
+        });
+
+        const closed = browserWindowTabsCapability.closeCurrentWindow();
+        await vi.advanceTimersByTimeAsync(10);
+
+        await expect(closed).resolves.toBe(true);
+    });
+
+    it('re-announces a window restored from the browser back-forward cache', async () => {
+        const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const messages: unknown[] = [];
+        externalWindow.addEventListener('message', event => messages.push(event.data));
+        const { browserWindowTabsCapability } = await import('@app/platform/browserWindowTabs');
+        browserWindowTabsCapability.notifyRendererReady();
+        messages.length = 0;
+
+        browserWindow.dispatch('pagehide', cast<PageTransitionEvent>({persisted: true}));
+        expect(messages).toContainEqual(expect.objectContaining({
+            type: 'unregister',
+            windowId: 100,
+        }));
+
+        messages.length = 0;
+        browserWindow.dispatch('pageshow', cast<PageTransitionEvent>({persisted: true}));
+        expect(messages).toContainEqual(expect.objectContaining({
+            type: 'announce',
+            windowId: 100,
+            ready: true,
+        }));
+        expect(messages).toContainEqual(expect.objectContaining({
+            type: 'discover',
+            windowId: 100,
+        }));
     });
 
     it('delegates incoming transfer decoding to the canonical contract decoder', async () => {

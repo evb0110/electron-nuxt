@@ -45,6 +45,43 @@ interface ICodexServerConfig {
     };
 }
 
+interface IExternalMcpStartupError {
+    message: string;
+    code?: string;
+    occurredAt: string;
+}
+
+let lastExternalMcpStartupError: IExternalMcpStartupError | null = null;
+
+function normalizeExternalMcpStartupError(error: unknown): IExternalMcpStartupError {
+    const code = typeof error === 'object'
+        && error !== null
+        && 'code' in error
+        && typeof error.code === 'string'
+        ? error.code
+        : undefined;
+    return {
+        message: getErrorMessage(error),
+        ...(code ? {code} : {}),
+        occurredAt: new Date().toISOString(),
+    };
+}
+
+async function startExternalMcpServer() {
+    try {
+        await startLocalMcpServer();
+        lastExternalMcpStartupError = null;
+    } catch (error) {
+        lastExternalMcpStartupError = normalizeExternalMcpStartupError(error);
+        throw error;
+    }
+}
+
+async function disableExternalMcpServer() {
+    await shutdownLocalMcpServer();
+    lastExternalMcpStartupError = null;
+}
+
 function getTransportEnv(config: ICodexServerConfig | null) {
     const env = config?.transport?.env;
     return typeof env === 'object' && env !== null && !Array.isArray(env)
@@ -54,7 +91,13 @@ function getTransportEnv(config: ICodexServerConfig | null) {
 
 async function createBaseStatus(): Promise<Omit<IAgentMcpIntegrationStatus, 'enabled'>> {
     const descriptor = getLocalMcpServerDescriptor();
-    const setupSnippets = await getLocalMcpSetupSnippets();
+    let setupSnippets: IAgentMcpIntegrationStatus['setupSnippets'];
+    let setupError: string | undefined;
+    try {
+        setupSnippets = await getLocalMcpSetupSnippets();
+    } catch (error) {
+        setupError = getErrorMessage(error);
+    }
     return {
         serverName: descriptor.name,
         serverUrl: descriptor.url,
@@ -65,7 +108,8 @@ async function createBaseStatus(): Promise<Omit<IAgentMcpIntegrationStatus, 'ena
         codexRegistrationState: 'unknown',
         installUrl: CODEX_APP_INSTALL_URL,
         lastCheckedAt: new Date().toISOString(),
-        setupSnippets,
+        ...(setupSnippets ? {setupSnippets} : {}),
+        ...(setupError ? {error: setupError} : {}),
     };
 }
 
@@ -77,6 +121,7 @@ async function createStatus(
         enabled,
         ...await createBaseStatus(),
         ...patch,
+        ...(lastExternalMcpStartupError ? {error: lastExternalMcpStartupError.message} : {}),
     };
 }
 
@@ -257,7 +302,7 @@ export async function setAgentMcpIntegrationEnabled(
     const codexPath = await resolveCodexCliPath();
     if (!codexPath) {
         if (!enabled) {
-            await shutdownLocalMcpServer();
+            await disableExternalMcpServer();
             await setAgentMcpSetting(false);
             return {
                 ok: true,
@@ -284,12 +329,12 @@ export async function setAgentMcpIntegrationEnabled(
 
     try {
         if (enabled) {
-            await startLocalMcpServer();
+            await startExternalMcpServer();
             await registerCodexMcp(codexPath);
             await setAgentMcpSetting(true);
         } else {
             await removeCodexRegistration(codexPath);
-            await shutdownLocalMcpServer();
+            await disableExternalMcpServer();
             await setAgentMcpSetting(false);
         }
         return {
@@ -310,10 +355,25 @@ export async function setAgentMcpIntegrationEnabled(
 }
 
 export async function syncAgentMcpServerWithSettings() {
-    const settings = await loadSettings();
-    if (settings.agentMcpEnabled) {
-        await startLocalMcpServer();
-    } else {
-        await shutdownLocalMcpServer();
+    const settings = await loadSettings().catch((error: unknown) => {
+        logger.error(`Failed to load external MCP setting; continuing without startup sync: ${getErrorMessage(error)}`);
+        return null;
+    });
+    if (!settings) {
+        return;
+    }
+
+    try {
+        if (settings.agentMcpEnabled) {
+            await startExternalMcpServer();
+        } else {
+            await disableExternalMcpServer();
+        }
+    } catch (error) {
+        lastExternalMcpStartupError ??= normalizeExternalMcpStartupError(error);
+        logger.error(`External MCP startup is unavailable; continuing without it: ${getErrorMessage(error)}`);
+        await shutdownLocalMcpServer().catch((shutdownError: unknown) => {
+            logger.warn(`Failed to clean up external MCP startup: ${getErrorMessage(shutdownError)}`);
+        });
     }
 }

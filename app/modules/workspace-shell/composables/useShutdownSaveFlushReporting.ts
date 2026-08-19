@@ -2,7 +2,10 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    useEventListener,
+} from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IShutdownSaveFlushResponse,
@@ -19,6 +22,28 @@ interface IShutdownSaveFlushReportingDeps {
     saveForExternalRead: () => Promise<boolean> | boolean;
     systemCapability?: Pick<ISystemCapability, 'onShutdownSaveFlushRequest'>;
 }
+
+export function preventBrowserUnloadWhenDirty(
+    event: BeforeUnloadEvent,
+    hasPendingUnsavedChanges: boolean,
+) {
+    if (!hasPendingUnsavedChanges) {
+        return false;
+    }
+
+    event.preventDefault();
+    // Retain the legacy assignment alongside preventDefault() for browsers
+    // that still require it to display their built-in confirmation dialog.
+    event.returnValue = true;
+    return true;
+}
+
+export const useBrowserDirtyUnloadGuard = (hasPendingUnsavedChanges: () => boolean) => {
+    const targetWindow = typeof window === 'undefined' ? undefined : window;
+    useEventListener(targetWindow, 'beforeunload', (event: BeforeUnloadEvent) => {
+        preventBrowserUnloadWhenDirty(event, hasPendingUnsavedChanges());
+    });
+};
 
 function getShutdownSaveFlushErrorCode(error: unknown) {
     if (

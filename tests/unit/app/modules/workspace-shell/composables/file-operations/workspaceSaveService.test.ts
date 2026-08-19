@@ -214,7 +214,7 @@ describe('workspaceSaveService', () => {
         const savePromise = handleSave();
         await Promise.resolve();
 
-        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledWith(true);
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
         deps.originalPath.value = '/tmp/different-source.pdf';
         notePersistence.resolve(true);
 
@@ -335,7 +335,7 @@ describe('workspaceSaveService', () => {
         const savePromise = handleSave();
         await Promise.resolve();
 
-        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledWith(true);
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
         deps.workingCopyPath.value = '/tmp/other-work.pdf';
         notePersistence.resolve(true);
 
@@ -815,7 +815,7 @@ describe('workspaceSaveService', () => {
 
         await handleSave();
 
-        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledWith(true);
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.isSaving.value).toBe(false);

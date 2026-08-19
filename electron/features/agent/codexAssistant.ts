@@ -44,10 +44,7 @@ import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_SERVER_NAME,
 } from '@electron/features/agent/codexAssistantConfig';
-import {
-    isCodexAppServerRequestTimeoutError,
-    type ICodexAppServerNotification,
-} from '@electron/features/agent/codexAppServerClient';
+import {isCodexAppServerRequestTimeoutError} from '@electron/features/agent/codexAppServerClient';
 import type { TCodexAssistantModelOption } from '@electron/features/agent/assistantModelCatalog';
 import {
     codexDefaultModelId,
@@ -72,6 +69,7 @@ import {
     type IAssistantChatSession,
 } from '@electron/features/agent/assistantChatSessionStore';
 import {
+    createAssistantFeatureLifecycle,
     createAssistantRuntimeLifecycle,
     createBaseAssistantMcpStatus,
     ensureAssistantCwd,
@@ -152,9 +150,13 @@ const runtimeLifecycle = createAssistantRuntimeLifecycle({
         scope === undefined ? sessionStore.getRememberedScope() : scope,
         selection ?? currentCodexSelection(),
     ),
-    handleNotification: handleAppServerNotification,
-    handleExit: handleAppServerExit,
+    handleNotification: notification => appServerNotifications.handleNotification(notification),
+    handleExit: message => appServerNotifications.handleExit(message),
     logger,
+});
+const assistantFeatureLifecycle = createAssistantFeatureLifecycle({
+    isEnabled: isAssistantFeatureEnabled,
+    createDisabledError: createAssistantDisabledError,
 });
 let syncAssistantHeartbeat = () => {};
 const {
@@ -170,10 +172,6 @@ const {
     sessionStore,
     onTurnStateChanged: () => syncAssistantHeartbeat(),
 });
-function ensureSharedEmbeddedMcp() {
-    return startEmbeddedMcpServer();
-}
-
 async function isAssistantFeatureEnabled() {
     const settings = await loadSettings();
     return settings.assistantPanelEnabled;
@@ -183,22 +181,21 @@ function createAssistantDisabledError() {
     return te('dialogs.agentAssistant.disabledMessage');
 }
 
-function markAssistantDisabledError() {
+function createAssistantDisabledResult(state: IAgentAssistantState) {
     const error = createAssistantDisabledError();
-    codexProviderRuntime.lastError = error;
-    codexProviderRuntime.runtimeState = 'stopped';
-    return error;
+    return withAssistantErrorEnvelope({
+        ok: false,
+        state,
+        error,
+    });
 }
 
 async function stopAssistantForDisabledFeature() {
     await shutdownAgentAssistant();
-    return markAssistantDisabledError();
-}
-
-async function shutdownCodexAssistantRuntime(options: { shutdownMcp?: boolean } = {}) {
-    authReturnWindow = null;
-    pendingLoginId = null;
-    await runtimeLifecycle.shutdownCodexRuntime(options);
+    const error = createAssistantDisabledError();
+    codexProviderRuntime.lastError = error;
+    codexProviderRuntime.runtimeState = 'stopped';
+    return error;
 }
 
 async function shutdownClaudeAssistantRuntime(options: { shutdownMcp?: boolean } = {}) {
@@ -239,16 +236,17 @@ function getChatSession(
     return sessionStore.getSession(scope, selection);
 }
 
-function getActiveChatSession(provider?: TAgentAssistantProviderId) {
-    return sessionStore.getActiveSession(provider);
-}
-
-function getChatSessionByThreadId(candidateThreadId: string | null) {
-    return sessionStore.getSessionByThreadId(candidateThreadId);
-}
-
 function getAssistantTurnBusyError() {
     return te('dialogs.agentAssistant.turnBusy');
+}
+
+function createAssistantBusyResult(session: IAssistantChatSession) {
+    const error = getAssistantTurnBusyError();
+    return withAssistantErrorEnvelope({
+        ok: false,
+        state: currentState(session.scope, session),
+        error,
+    });
 }
 
 function hasConflictingAssistantMcpSessionScope(session: IAssistantChatSession) {
@@ -263,16 +261,8 @@ function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAss
     return scope ? getChatSession(scope, selection, { create: true }) : null;
 }
 
-function createBaseMcpStatus() {
-    return createBaseAssistantMcpStatus();
-}
-
 function decodeRecordResponse(value: unknown): Record<PropertyKey, unknown> | null {
     return isRecord(value) ? value : null;
-}
-
-function getCodexAppServerModel(model: string | null | undefined) {
-    return normalizeCodexAssistantModel(codexAssistantModels, model);
 }
 
 function currentCodexSelection(): IAssistantSelection {
@@ -295,10 +285,6 @@ function currentCodexSelection(): IAssistantSelection {
         ),
     };
 }
-function getSessionForStatus(scope: IAgentAssistantChatScope | null, selection: IAssistantSelection) {
-    return getChatSession(scope, selection);
-}
-
 function cloneMessages(
     scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
     selection: IAssistantSelection = sessionStore.getRememberedSelection(),
@@ -316,7 +302,8 @@ function currentState(
         codexInfo: runtimeLifecycle.getCodexInfo(),
         codexModels: codexAssistantModels,
         createMcpStatus: createBaseMcpStatusWithToolCount,
-        getSessionForStatus,
+        getSessionForStatus: (requestedScope, requestedSelection) =>
+            getChatSession(requestedScope, requestedSelection),
         isAssistantTurnActiveForScope,
         messages: cloneMessages(scope, selection),
         platform: process.platform,
@@ -347,9 +334,9 @@ const appServerNotifications = createAssistantAppServerNotificationController({
     completeSessionTurn,
     currentCodexSelection,
     errorSessionTurn,
-    getActiveChatSession: () => getActiveChatSession('codex'),
+    getActiveChatSession: () => sessionStore.getActiveSession('codex'),
     getAuthReturnWindow: () => authReturnWindow,
-    getChatSessionByThreadId,
+    getChatSessionByThreadId: candidateThreadId => sessionStore.getSessionByThreadId(candidateThreadId),
     getRememberedScope: () => sessionStore.getRememberedScope(),
     logger,
     markSessionTurnRunning,
@@ -379,7 +366,6 @@ type TAssistantHeartbeatTimer =
 
 let assistantHeartbeatTimer: TAssistantHeartbeatTimer | null = null;
 
-// fallow-ignore-next-line unused-export
 export function initializeAgentAssistantRuntime() {
     assistantHeartbeatTimer ??= startAssistantHeartbeat();
 }
@@ -401,18 +387,6 @@ function upsertAssistantMessage(
 
 function appendAssistantDelta(session: IAssistantChatSession, messageId: string, delta: string) {
     sessionStore.appendAssistantDelta(session, messageId, delta);
-}
-
-function handleAppServerNotification(notification: ICodexAppServerNotification) {
-    appServerNotifications.handleNotification(notification);
-}
-
-function handleAppServerExit(message: string) {
-    appServerNotifications.handleExit(message);
-}
-
-async function refreshCodexInfo() {
-    return runtimeLifecycle.refreshCodexInfo();
 }
 
 function hasActiveClaudeSession() {
@@ -463,24 +437,16 @@ async function refreshAuthStateAndRuntimeAvailability(options: { recoverFromErro
     await runtimeLifecycle.refreshAuthStateAndRuntimeAvailability(options);
 }
 
-async function ensureAssistantRuntime() {
-    return runtimeLifecycle.ensureRuntime();
-}
-
 let claudeMcpToolCount = 0;
 
 function createBaseMcpStatusWithToolCount(
     provider: TAgentAssistantProviderId = sessionStore.getRememberedSelection().provider,
 ): IAgentAssistantStatus['mcp'] {
-    const base = createBaseMcpStatus();
+    const base = createBaseAssistantMcpStatus();
     return {
         ...base,
         toolCount: provider === 'claude' ? claudeMcpToolCount : runtimeLifecycle.getMcpToolCount(),
     };
-}
-
-async function ensureAssistantThread(session: IAssistantChatSession) {
-    return runtimeLifecycle.ensureThread(session);
 }
 
 function requestBestEffortCodexTurnCleanup(
@@ -722,12 +688,11 @@ async function ensureClaudeAssistantSession(
     model: string,
     effort: TAgentAssistantEffort,
     speedMode: TAgentAssistantSpeedMode,
+    generation: number,
 ) {
-    if (!(await isAssistantFeatureEnabled())) {
-        await shutdownAgentAssistant();
-        throw new Error(createAssistantDisabledError());
-    }
+    await assistantFeatureLifecycle.assertEnabled(generation);
     const claudeInfo = await refreshClaudeInfo();
+    await assistantFeatureLifecycle.assertEnabled(generation);
     if (!claudeInfo.installed || !claudeInfo.executablePath) {
         const error = claudeInfo.error ?? 'Claude Agent SDK is not available.';
         claudeProviderRuntime.lastError = error;
@@ -764,10 +729,12 @@ async function ensureClaudeAssistantSession(
     delete claudeProviderRuntime.lastError;
     publishState(session.scope, session);
     const cwd = await ensureAssistantCwd();
+    await assistantFeatureLifecycle.assertEnabled(generation);
     const {
         descriptor,
         token: mcpToken,
-    } = await ensureSharedEmbeddedMcp();
+    } = await startEmbeddedMcpServer();
+    await assistantFeatureLifecycle.assertEnabled(generation);
     session.model = normalizedModel;
     session.effort = normalizedEffort;
     session.speedMode = normalizedSpeedMode;
@@ -790,6 +757,7 @@ async function ensureClaudeAssistantSession(
 export async function getAgentAssistantState(
     request?: IAgentAssistantStateRequest,
 ): Promise<IAgentAssistantState> {
+    await assistantFeatureLifecycle.waitForShutdown();
     const session = getRequestChatSession(request);
     const scope = session?.scope ?? null;
     const selection = resolveAssistantSelection(codexAssistantModels, request);
@@ -804,10 +772,10 @@ export async function getAgentAssistantState(
     }
 
     if (selection.provider === 'codex') {
-        const codexInfo = await refreshCodexInfo();
+        const codexInfo = await runtimeLifecycle.refreshCodexInfo();
         if (codexInfo.installed && codexInfo.isVersionSupported) {
             try {
-                await ensureAssistantRuntime();
+                await runtimeLifecycle.ensureRuntime();
                 await refreshAuthStateAndRuntimeAvailability();
             } catch (error) {
                 logger.warn(`Assistant runtime is not ready: ${getErrorMessage(error)}`);
@@ -817,8 +785,8 @@ export async function getAgentAssistantState(
     return currentState(scope, selection);
 }
 
-// fallow-ignore-next-line unused-export
 export async function installAgentAssistantCodex(): Promise<IAgentAssistantInstallResult> {
+    await assistantFeatureLifecycle.waitForShutdown();
     if (!(await isAssistantFeatureEnabled())) {
         const error = await stopAssistantForDisabledFeature();
         return withAssistantErrorEnvelope({
@@ -848,7 +816,7 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
                 type: 'install-progress',
                 progress: 'Starting EVB Assistant with the updated Codex.',
             });
-            await ensureAssistantRuntime();
+            await runtimeLifecycle.ensureRuntime();
             return {
                 ok: true,
                 state: currentState(),
@@ -876,8 +844,12 @@ export async function startAgentAssistantLogin(
     request: IAgentAssistantLoginRequest,
     parentWindow?: BrowserWindow | null,
 ): Promise<IAgentAssistantLoginResult> {
+    await assistantFeatureLifecycle.waitForShutdown();
+    const operationGeneration = assistantFeatureLifecycle.captureGeneration();
     try {
-        const currentRuntime = await ensureAssistantRuntime();
+        const currentRuntime = await runtimeLifecycle.ensureRuntime();
+        await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+        await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
         const params = request.mode === 'device-code'
             ? { type: 'chatgptDeviceCode' }
             : {
@@ -885,6 +857,8 @@ export async function startAgentAssistantLogin(
                 codexStreamlinedLogin: true,
             };
         const response = await currentRuntime.client.requestDecoded('account/login/start', params, decodeRecordResponse);
+        await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+        await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
         if (typeof response.type !== 'string') {
             throw new Error('Codex did not return a login flow.');
         }
@@ -897,6 +871,8 @@ export async function startAgentAssistantLogin(
         const urlToOpen = authUrl ?? verificationUrl;
         if (urlToOpen) {
             await shell.openExternal(sanitizeAllowedExternalUrl(urlToOpen));
+            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+            await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
         }
         publishState();
         return {
@@ -908,6 +884,9 @@ export async function startAgentAssistantLogin(
             ...(typeof response.userCode === 'string' ? { userCode: response.userCode } : {}),
         };
     } catch (error) {
+        if (!(await assistantFeatureLifecycle.isEnabled(operationGeneration))) {
+            return createAssistantDisabledResult(currentState());
+        }
         authReturnWindow = null;
         codexProviderRuntime.lastError = getErrorMessage(error);
         codexProviderRuntime.authState = 'signed-out';
@@ -923,7 +902,6 @@ export async function startAgentAssistantLogin(
     }
 }
 
-// fallow-ignore-next-line unused-export
 export async function cancelAgentAssistantLogin(): Promise<IAgentAssistantState> {
     authReturnWindow = null;
     const currentRuntime = runtimeLifecycle.getRuntime();
@@ -942,6 +920,7 @@ export async function sendAgentAssistantMessage(
     request: IAgentAssistantSendMessageRequest,
     options: IAgentAssistantSendMessageOptions = {},
 ): Promise<IAgentAssistantSendMessageResult> {
+    await assistantFeatureLifecycle.waitForShutdown();
     if (!(await isAssistantFeatureEnabled())) {
         const error = await stopAssistantForDisabledFeature();
         return withAssistantErrorEnvelope({
@@ -950,6 +929,7 @@ export async function sendAgentAssistantMessage(
             error,
         });
     }
+    const operationGeneration = assistantFeatureLifecycle.captureGeneration();
 
     const selection = resolveAssistantSelection(codexAssistantModels, request);
     const scope = normalizeAssistantScope(request.scope);
@@ -970,40 +950,18 @@ export async function sendAgentAssistantMessage(
     const session = getChatSession(scope, selection, { create: true });
     session.lastSenderWindowId = options.windowId ?? null;
     if (hasConflictingAssistantMcpSessionScope(session)) {
-        const error = getAssistantTurnBusyError();
-        return withAssistantErrorEnvelope({
-            ok: false,
-            state: currentState(session.scope, session),
-            error,
-        });
+        return createAssistantBusyResult(session);
     }
     if (session.sendInFlight) {
-        const error = getAssistantTurnBusyError();
-        return withAssistantErrorEnvelope({
-            ok: false,
-            state: currentState(session.scope, session),
-            error,
-        });
+        return createAssistantBusyResult(session);
     }
     if (isAssistantTurnActive(session.turnOwner)) {
         if (!isAssistantTurnActiveForScope(session, session.scope)) {
             interruptSessionTurn(session);
             publishState(session.scope, session);
             await interruptStaleSessionTurn(session, 'stale-scope');
-            const error = getAssistantTurnBusyError();
-            return withAssistantErrorEnvelope({
-                ok: false,
-                state: currentState(session.scope, session),
-                error,
-            });
-        } else {
-            const error = getAssistantTurnBusyError();
-            return withAssistantErrorEnvelope({
-                ok: false,
-                state: currentState(session.scope, session),
-                error,
-            });
         }
+        return createAssistantBusyResult(session);
     }
 
     const sendInFlight = Promise.resolve();
@@ -1054,7 +1012,12 @@ export async function sendAgentAssistantMessage(
                     selection.model,
                     selection.effort,
                     selection.speedMode,
+                    operationGeneration,
                 );
+                await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+                if (session.claudeSession !== claudeSession) {
+                    return createAssistantBusyResult(session);
+                }
                 sessionStore.setActiveSession(session);
                 claimSessionTurn(session);
                 claudeProviderRuntime.runtimeState = 'busy';
@@ -1066,12 +1029,19 @@ export async function sendAgentAssistantMessage(
                 });
                 publishState(session.scope, session);
                 await claudeSession.sendMessage(modelText, attachments, selection.model);
+                await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+                if (session.claudeSession !== claudeSession) {
+                    return createAssistantBusyResult(session);
+                }
                 publishState(session.scope, session);
                 return {
                     ok: true,
                     state: currentState(session.scope, session),
                 };
             } catch (error) {
+                if (!(await assistantFeatureLifecycle.isEnabled(operationGeneration))) {
+                    return createAssistantDisabledResult(currentState(session.scope, session));
+                }
                 const message = getErrorMessage(error);
                 markClaudeTurnError(session, message);
                 return withAssistantErrorEnvelope({
@@ -1085,13 +1055,17 @@ export async function sendAgentAssistantMessage(
         let currentThreadId: string | null = null;
         let turnGeneration: number | null = null;
         try {
-            const currentRuntime = await ensureAssistantRuntime();
-            const codexModel = getCodexAppServerModel(selection.model);
+            const currentRuntime = await runtimeLifecycle.ensureRuntime();
+            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+            await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
+            const codexModel = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
             const codexServiceTier = resolveCodexServiceTier(codexAssistantModels, selection.model, selection.speedMode);
             session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
             session.effort = selection.effort;
             session.speedMode = selection.speedMode;
-            currentThreadId = await ensureAssistantThread(session);
+            currentThreadId = await runtimeLifecycle.ensureThread(session);
+            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+            await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
             sessionStore.setActiveSession(session);
             turnGeneration = claimSessionTurn(session);
             codexProviderRuntime.runtimeState = 'busy';
@@ -1126,6 +1100,8 @@ export async function sendAgentAssistantMessage(
                 },
                 personality: 'friendly',
             }, decodeRecordResponse);
+            await assistantFeatureLifecycle.assertEnabled(operationGeneration);
+            await runtimeLifecycle.assertRuntimeEnabled(currentRuntime);
             if (isRecord(response.turn) && typeof response.turn.id === 'string') {
                 session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
                 if (session.providerThreadId !== currentThreadId) {
@@ -1152,6 +1128,9 @@ export async function sendAgentAssistantMessage(
                 state: currentState(session.scope, session),
             };
         } catch (error) {
+            if (!(await assistantFeatureLifecycle.isEnabled(operationGeneration))) {
+                return createAssistantDisabledResult(currentState(session.scope, session));
+            }
             if (currentThreadId && session.providerThreadId !== currentThreadId) {
                 return withAssistantErrorEnvelope({
                     ok: false,
@@ -1215,7 +1194,7 @@ export async function interruptAgentAssistant(
 ): Promise<IAgentAssistantState> {
     const requestedSession = getRequestChatSession(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request);
-    const session = requestedSession ?? getActiveChatSession(selection.provider);
+    const session = requestedSession ?? sessionStore.getActiveSession(selection.provider);
     abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
     if (session?.provider === 'claude') {
         if (session.claudeSession && isAssistantTurnActive(session.turnOwner)) {
@@ -1342,13 +1321,25 @@ export async function resetAgentAssistantChat(
     return currentState(session.scope, session);
 }
 
-export async function shutdownAgentAssistant() {
-    assistantHeartbeatTimer?.dispose();
-    assistantHeartbeatTimer = null;
-    syncAssistantHeartbeat = () => {};
-    await shutdownCodexAssistantRuntime({ shutdownMcp: false });
-    await shutdownClaudeAssistantRuntime({ shutdownMcp: false });
-    await sessionStore.flushPersistence();
-    sessionStore.clearActiveSession();
-    await shutdownEmbeddedMcpServer();
+async function runAssistantShutdownStep(label: string, run: () => unknown | Promise<unknown>) {
+    try {
+        await run();
+    } catch (error) {
+        logger.warn(`Failed to shut down ${label}: ${getErrorMessage(error)}`);
+    }
+}
+
+export function shutdownAgentAssistant() {
+    return assistantFeatureLifecycle.shutdown(async () => {
+        assistantHeartbeatTimer?.dispose();
+        assistantHeartbeatTimer = null;
+        syncAssistantHeartbeat = () => {};
+        authReturnWindow = null;
+        pendingLoginId = null;
+        await runAssistantShutdownStep('Codex runtime', () => runtimeLifecycle.shutdownCodexRuntime({shutdownMcp: false}));
+        await runAssistantShutdownStep('Claude runtime', () => shutdownClaudeAssistantRuntime({shutdownMcp: false}));
+        await runAssistantShutdownStep('assistant session persistence', () => sessionStore.flushPersistence());
+        await runAssistantShutdownStep('active assistant session', () => sessionStore.clearActiveSession());
+        await runAssistantShutdownStep('embedded MCP server', () => shutdownEmbeddedMcpServer());
+    });
 }

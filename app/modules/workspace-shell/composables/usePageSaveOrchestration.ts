@@ -78,7 +78,7 @@ interface IPageSaveOrchestrationDeps {
     trySaveEmbeddedNoteTextUpdates?: IWorkspaceSaveDependencies['persistence']['trySaveEmbeddedNoteTextUpdates'];
     saveWorkingCopyAs: IWorkspaceSaveDependencies['persistence']['saveAs'];
     optimizePdfOnSaveAs?: Ref<boolean>;
-    persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
+    persistAllAnnotationNotes: () => Promise<boolean>;
     loadRecentFiles: () => void;
     currentPage: Ref<number>;
     resetSearchCache: () => void;

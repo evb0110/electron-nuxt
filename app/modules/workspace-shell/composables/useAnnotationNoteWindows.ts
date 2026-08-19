@@ -336,7 +336,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         clearTimer(id);
         timers.set(id, setTimeout(() => {
             timers.delete(id);
-            runGuardedTask(() => Promise.resolve(persistAnnotationNote(id, false)), {
+            runGuardedTask(() => Promise.resolve(persistAnnotationNote(id)), {
                 category: 'background-diagnostic',
                 scope: 'annotations',
                 message: `Failed to persist annotation note ${id}`,
@@ -372,7 +372,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         };
     }
 
-    function persistAnnotationNote(value: string, force = false): boolean | Promise<boolean> {
+    function persistAnnotationNote(value: string): boolean | Promise<boolean> {
         const id = resolveId(value) ?? asAnnotationId(value);
         const state = stateById(id);
         const metadata = runtime.get(id);
@@ -386,18 +386,22 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         metadata.error = null;
         const submittedText = state.draftText;
         const finish = (updated: boolean) => {
+            if (!updated) {
+                if (metadata.requiresEmbeddedSave) {
+                    metadata.pendingEmbeddedSave = true;
+                }
+                metadata.error = t('errors.annotation.updateNote');
+                return false;
+            }
             if (metadata.requiresEmbeddedSave) {
                 metadata.pendingEmbeddedSave = true;
-            }
-            if (!updated && !force) {
-                metadata.pendingEmbeddedSave = true;
-                return true;
             }
             metadata.canonicalText = submittedText;
             if (state.draftText === submittedText) {
                 metadata.dirty = false;
+                return true;
             }
-            return true;
+            return false;
         };
         const fail = () => {
             metadata.error = t('errors.annotation.updateNote');
@@ -423,10 +427,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
     }
 
-    async function persistAllAnnotationNotes(force = false) {
+    async function persistAllAnnotationNotes() {
         const results = await Promise.all(
             states.value.map(state => Promise.resolve(
-                persistAnnotationNote(state.annotationId, force),
+                persistAnnotationNote(state.annotationId),
             )),
         );
         return results.every(Boolean);
@@ -444,14 +448,14 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     async function closeAnnotationNote(value: string, options: {saveIfDirty?: boolean} = {}) {
-        if (options.saveIfDirty !== false && !await persistAnnotationNote(value, true)) {
+        if (options.saveIfDirty !== false && !await persistAnnotationNote(value)) {
             return;
         }
         removeAnnotationNoteWindow(value);
     }
 
     async function closeAllAnnotationNotes(options: {saveIfDirty?: boolean} = {}) {
-        if (options.saveIfDirty !== false && !await persistAllAnnotationNotes(true)) {
+        if (options.saveIfDirty !== false && !await persistAllAnnotationNotes()) {
             return false;
         }
         timers.forEach(timer => clearTimeout(timer));

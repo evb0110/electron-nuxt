@@ -41,6 +41,18 @@ const mocks = vi.hoisted(() => ({
         promise: Promise<void>;
         resolve: () => void;
     },
+    threadStartGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
+    loginStartGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
+    processKillGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
     logger: {
@@ -69,7 +81,12 @@ class FakeCodexAppServerProcess extends EventEmitter {
     private turnCount = 0;
 
     kill = vi.fn(() => {
-        this.emit('close', 0);
+        const close = () => this.emit('close', 0);
+        if (mocks.processKillGate) {
+            void mocks.processKillGate.promise.then(close);
+        } else {
+            close();
+        }
         return true;
     });
 
@@ -131,13 +148,19 @@ class FakeCodexAppServerProcess extends EventEmitter {
                         authMethod: 'chatgpt',
                     });
                 return;
-            case 'account/login/start':
-                this.respond(request.id, {
+            case 'account/login/start': {
+                const respondToLogin = () => this.respond(request.id!, {
                     type: 'chatgpt',
                     loginId: 'login-1',
                     authUrl: 'https://auth.example.test/start',
                 });
+                if (mocks.loginStartGate) {
+                    void mocks.loginStartGate.promise.then(respondToLogin);
+                    return;
+                }
+                respondToLogin();
                 return;
+            }
             case 'mcpServerStatus/list':
                 this.respond(request.id, {data: [{
                     name: 'evb_viewer_embedded',
@@ -146,7 +169,12 @@ class FakeCodexAppServerProcess extends EventEmitter {
                 return;
             case 'thread/start': {
                 this.threadCount += 1;
-                this.respond(request.id, { thread: { id: `thread-${this.threadCount}` } });
+                const respond = () => this.respond(request.id!, { thread: { id: `thread-${this.threadCount}` } });
+                if (mocks.threadStartGate) {
+                    void mocks.threadStartGate.promise.then(respond);
+                    return;
+                }
+                respond();
                 return;
             }
             case 'turn/start': {
@@ -427,6 +455,9 @@ describe('agent assistant opt-in gating', () => {
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
         mocks.initializeGate = null;
         mocks.turnStartGate = null;
+        mocks.threadStartGate = null;
+        mocks.loginStartGate = null;
+        mocks.processKillGate = null;
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
     });
@@ -442,6 +473,28 @@ describe('agent assistant opt-in gating', () => {
             recursive: true,
             retryDelay: 20,
         });
+    });
+
+    it('lets lifecycle waiters continue when a queued shutdown rejects', async () => {
+        const {createAssistantFeatureLifecycle} = await import('@electron/features/agent/assistantRuntimeLifecycle');
+        const gate = createInitializeGate();
+        const lifecycle = createAssistantFeatureLifecycle({
+            isEnabled: async () => true,
+            createDisabledError: () => 'disabled',
+        });
+        const operationGeneration = lifecycle.captureGeneration();
+        const shutdown = lifecycle.shutdown(async () => {
+            await gate.promise;
+            throw new Error('teardown failed');
+        });
+        const waiter = lifecycle.waitForShutdown();
+        const enabled = lifecycle.isEnabled(operationGeneration);
+
+        gate.resolve();
+
+        await expect(shutdown).rejects.toThrow('teardown failed');
+        await expect(waiter).resolves.toBeUndefined();
+        await expect(enabled).resolves.toBe(false);
     });
 
     it('does not discover Codex or start MCP when disabled state is requested', async () => {
@@ -529,6 +582,152 @@ describe('agent assistant opt-in gating', () => {
             secondState,
         ])).resolves.toHaveLength(2);
         expect(mocks.spawn).toHaveBeenCalledOnce();
+    });
+
+    it('cancels an in-flight Codex startup when the assistant is disabled', async () => {
+        configureEnabledAssistantRuntime();
+        mocks.initializeGate = createInitializeGate();
+        const process = new FakeCodexAppServerProcess();
+        mocks.spawn.mockImplementation(() => process);
+
+        const {
+            getAgentAssistantState,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const statePromise = getAgentAssistantState();
+        await waitForCodexRequest(process, 'initialize');
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        await shutdownAgentAssistant();
+        mocks.initializeGate.resolve();
+        await statePromise;
+
+        expect(process.kill).toHaveBeenCalled();
+        expect(process.requestMethods).toEqual(['initialize']);
+    });
+
+    it('does not start a provider turn when opt-out wins during thread creation', async () => {
+        const documentScope = createDocumentScope('disable-during-send.pdf');
+        const process = enableAssistantRuntime();
+        mocks.threadStartGate = createInitializeGate();
+        const {
+            sendAgentAssistantMessage,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const sendPromise = sendAgentAssistantMessage({
+            text: 'Do not send this after opt-out',
+            scope: documentScope,
+        });
+        await waitForCodexRequest(process, 'thread/start');
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        await shutdownAgentAssistant();
+        mocks.threadStartGate.resolve();
+
+        await expect(sendPromise).resolves.toMatchObject({ok: false});
+        expect(process.requestMethods).not.toContain('turn/start');
+        expect(process.kill).toHaveBeenCalled();
+    });
+
+    it('waits for an old client shutdown before starting again after rapid re-enable', async () => {
+        const process = enableAssistantRuntime();
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        await getAgentAssistantState();
+        expect(mocks.spawn).toHaveBeenCalledOnce();
+
+        mocks.processKillGate = createInitializeGate();
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        const shutdown = shutdownAgentAssistant();
+        await vi.waitFor(() => {
+            expect(process.kill).toHaveBeenCalled();
+        });
+
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        const restartedSend = sendAgentAssistantMessage({
+            text: 'Run only after the old runtime is gone',
+            scope: createDocumentScope('rapid-reenable.pdf'),
+        });
+        await settleAsyncTicks();
+        expect(mocks.spawn).toHaveBeenCalledOnce();
+
+        mocks.processKillGate.resolve();
+        mocks.processKillGate = null;
+        await shutdown;
+        await expect(restartedSend).resolves.toMatchObject({ok: true});
+        expect(mocks.spawn).toHaveBeenCalledTimes(2);
+    });
+
+    it('runs every shutdown cleanup request when shutdowns overlap', async () => {
+        const process = enableAssistantRuntime();
+        const {
+            getAgentAssistantState,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        await getAgentAssistantState();
+
+        mocks.processKillGate = createInitializeGate();
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        const firstShutdown = shutdownAgentAssistant();
+        const secondShutdown = shutdownAgentAssistant();
+        await vi.waitFor(() => {
+            expect(process.kill).toHaveBeenCalled();
+        });
+        mocks.processKillGate.resolve();
+        mocks.processKillGate = null;
+
+        await expect(Promise.all([
+            firstShutdown,
+            secondShutdown,
+        ])).resolves.toHaveLength(2);
+        expect(mocks.shutdownEmbeddedMcpServer).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops a login response that arrives after opt-out', async () => {
+        const process = enableAssistantRuntime();
+        mocks.loginStartGate = createInitializeGate();
+        const {
+            startAgentAssistantLogin,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const login = startAgentAssistantLogin({mode: 'chatgpt'});
+        await waitForCodexRequest(process, 'account/login/start');
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        mocks.loginStartGate.resolve();
+
+        await expect(login).resolves.toMatchObject({
+            ok: false,
+            error: mocks.assistantDisabledMessage,
+        });
+        expect(mocks.openExternal).not.toHaveBeenCalled();
+        await shutdownAgentAssistant();
+    });
+
+    it('drops a turn response that arrives after opt-out', async () => {
+        const process = enableAssistantRuntime();
+        mocks.turnStartGate = createInitializeGate();
+        const {
+            sendAgentAssistantMessage,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const send = sendAgentAssistantMessage({
+            text: 'Do not acknowledge this turn after opt-out',
+            scope: createDocumentScope('turn-response-after-opt-out.pdf'),
+        });
+        await waitForCodexRequest(process, 'turn/start');
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        mocks.turnStartGate.resolve();
+
+        await expect(send).resolves.toMatchObject({
+            ok: false,
+            error: mocks.assistantDisabledMessage,
+        });
+        await shutdownAgentAssistant();
     });
 
     it('keeps assistant chat messages scoped to the selected document', async () => {

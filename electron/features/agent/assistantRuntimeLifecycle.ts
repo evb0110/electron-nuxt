@@ -55,6 +55,7 @@ import { getErrorMessage } from '@electron/utils/error';
 
 interface IAssistantRuntime {
     client: CodexAppServerClient;
+    generation: number;
     codexPath: string;
     codeHome: string;
     cwd: string;
@@ -119,6 +120,50 @@ export function createBaseAssistantMcpStatus() {
     };
 }
 
+export function createAssistantFeatureLifecycle(options: {
+    isEnabled: () => Promise<boolean>;
+    createDisabledError: () => string;
+}) {
+    let generation = 0;
+    let shutdownPromise: Promise<void> | null = null;
+
+    async function isEnabled(expectedGeneration: number) {
+        await shutdownPromise?.catch(() => undefined);
+        if (generation !== expectedGeneration) {
+            return false;
+        }
+        const enabled = await options.isEnabled();
+        return enabled && generation === expectedGeneration;
+    }
+
+    async function assertEnabled(expectedGeneration: number) {
+        if (!(await isEnabled(expectedGeneration))) {
+            throw new Error(options.createDisabledError());
+        }
+    }
+
+    return {
+        assertEnabled,
+        captureGeneration: () => generation,
+        isEnabled,
+        waitForShutdown: () => shutdownPromise?.catch(() => undefined) ?? Promise.resolve(),
+        shutdown(run: () => Promise<void>) {
+            generation += 1;
+            const previousShutdown = shutdownPromise ?? Promise.resolve();
+            const nextShutdown = previousShutdown
+                .catch(() => undefined)
+                .then(run)
+                .finally(() => {
+                    if (shutdownPromise === nextShutdown) {
+                        shutdownPromise = null;
+                    }
+                });
+            shutdownPromise = nextShutdown;
+            return nextShutdown;
+        },
+    };
+}
+
 function decodeRecordResponse(value: unknown): Record<PropertyKey, unknown> | null {
     return isRecord(value) ? value : null;
 }
@@ -127,6 +172,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
     let codexInfoCache: ICodexCliInfo | null = null;
     let runtime: IAssistantRuntime | null = null;
     let runtimeStartPromise: Promise<IAssistantRuntime> | null = null;
+    let runtimeGeneration = 0;
     let mcpToolCount = 0;
 
     function getRuntime() {
@@ -149,10 +195,34 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         runtime = null;
     }
 
+    async function assertRuntimeEnabled(
+        expectedRuntime: IAssistantRuntime | null,
+        generation: number,
+    ) {
+        if (runtimeGeneration !== generation || (expectedRuntime && runtime !== expectedRuntime)) {
+            throw new Error(options.createAssistantDisabledError());
+        }
+        const enabled = await options.isAssistantFeatureEnabled();
+        if (
+            !enabled
+            || runtimeGeneration !== generation
+            || (expectedRuntime && runtime !== expectedRuntime)
+        ) {
+            throw new Error(options.createAssistantDisabledError());
+        }
+    }
+
     async function shutdownCodexRuntime(shutdownOptions: { shutdownMcp?: boolean } = {}) {
+        const shutdownGeneration = ++runtimeGeneration;
         runtimeStartPromise = null;
-        await runtime?.client.shutdown();
+        const runtimeToShutdown = runtime;
         runtime = null;
+        await runtimeToShutdown?.client.shutdown().catch((error: unknown) => {
+            options.logger.warn(`Failed to stop Codex client during shutdown: ${getErrorMessage(error)}`);
+        });
+        if (runtimeGeneration !== shutdownGeneration) {
+            return;
+        }
         options.providerRuntime.runtimeState = 'stopped';
         options.sessionStore.clearActiveSessionForProvider('codex');
         for (const session of options.sessionStore.listSessions()) {
@@ -222,7 +292,8 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             return runtime;
         }
 
-        const startPromise = startRuntime().finally(() => {
+        const generation = ++runtimeGeneration;
+        const startPromise = startRuntime(generation).finally(() => {
             if (runtimeStartPromise === startPromise) {
                 runtimeStartPromise = null;
             }
@@ -231,12 +302,13 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         return startPromise;
     }
 
-    async function startRuntime() {
+    async function startRuntime(generation: number) {
         options.providerRuntime.runtimeState = 'starting';
         delete options.providerRuntime.lastError;
         options.publishCodexState();
 
         const codexInfo = await refreshCodexInfo();
+        await assertRuntimeEnabled(null, generation);
         if (!codexInfo.installed || !codexInfo.path) {
             options.providerRuntime.runtimeState = 'stopped';
             options.providerRuntime.authState = 'unknown';
@@ -252,6 +324,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
         const codeHome = getAssistantCodexHome();
         const cwd = await ensureAssistantCwd();
+        await assertRuntimeEnabled(null, generation);
         const selection = options.sessionStore.getRememberedSelection();
         const codexModels = options.getCodexModels();
         const codexModel = selection.provider === 'codex'
@@ -267,7 +340,9 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             descriptor,
             token: mcpToken,
         } = await ensureSharedEmbeddedMcp();
+        await assertRuntimeEnabled(null, generation);
         await writeAssistantConfig(codeHome, descriptor.url, codexEffort);
+        await assertRuntimeEnabled(null, generation);
 
         const client = new CodexAppServerClient(
             codexInfo.path,
@@ -283,6 +358,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         );
         const nextRuntime = {
             client,
+            generation,
             codexPath: codexInfo.path,
             codeHome,
             cwd,
@@ -293,19 +369,30 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         runtime = nextRuntime;
 
         try {
+            await assertRuntimeEnabled(nextRuntime, generation);
             await client.initialize();
+            await assertRuntimeEnabled(nextRuntime, generation);
             await refreshAuthState();
+            await assertRuntimeEnabled(nextRuntime, generation);
             syncCodexRuntimeStateAfterAuthCheck(options.providerRuntime, { hasRuntime: true });
             await refreshCodexModelList();
+            await assertRuntimeEnabled(nextRuntime, generation);
             await refreshMcpToolCount();
+            await assertRuntimeEnabled(nextRuntime, generation);
             options.publishCodexState();
             return nextRuntime;
         } catch (error) {
-            await client.shutdown();
-            runtime = null;
-            options.providerRuntime.runtimeState = 'error';
-            options.providerRuntime.lastError = getErrorMessage(error);
-            options.publishCodexState();
+            if (runtime === nextRuntime) {
+                runtime = null;
+            }
+            await client.shutdown().catch((shutdownError: unknown) => {
+                options.logger.warn(`Failed to stop Codex client after startup failure: ${getErrorMessage(shutdownError)}`);
+            });
+            if (runtimeGeneration === generation) {
+                options.providerRuntime.runtimeState = 'error';
+                options.providerRuntime.lastError = getErrorMessage(error);
+                options.publishCodexState();
+            }
             throw error;
         }
     }
@@ -362,6 +449,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
     async function ensureThread(session: IAssistantChatSession) {
         const currentRuntime = await ensureRuntime();
+        await assertRuntimeEnabled(currentRuntime, currentRuntime.generation);
         if (options.providerRuntime.authState !== 'signed-in') {
             throw new Error('Sign in with ChatGPT before using EVB Assistant.');
         }
@@ -381,6 +469,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             ephemeral: true,
             threadSource: 'user',
         }, decodeRecordResponse);
+        await assertRuntimeEnabled(currentRuntime, currentRuntime.generation);
         if (!isRecord(response.thread) || typeof response.thread.id !== 'string') {
             throw new Error('Codex did not return an assistant thread.');
         }
@@ -395,6 +484,8 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
     return {
         clearRuntimeForExit,
+        assertRuntimeEnabled: (expectedRuntime: IAssistantRuntime) =>
+            assertRuntimeEnabled(expectedRuntime, expectedRuntime.generation),
         ensureRuntime,
         ensureThread,
         getCodexInfo,

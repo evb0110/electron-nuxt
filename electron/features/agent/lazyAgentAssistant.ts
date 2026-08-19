@@ -6,10 +6,14 @@ type TAgentAssistantRuntimeModule =
     typeof import('@electron/features/agent/codexAssistant');
 
 let runtimeModulePromise: Promise<TAgentAssistantRuntimeModule> | null = null;
+let runtimeModule: TAgentAssistantRuntimeModule | null = null;
 
 function loadAgentAssistantRuntime() {
     runtimeModulePromise ??=
-        import('@electron/features/agent/codexAssistant');
+        import('@electron/features/agent/codexAssistant').then((loadedRuntime) => {
+            runtimeModule = loadedRuntime;
+            return loadedRuntime;
+        });
     return runtimeModulePromise;
 }
 
@@ -70,6 +74,12 @@ export async function resetAgentAssistantChat(
 }
 
 export async function shutdownAgentAssistantIfLoaded() {
+    if (runtimeModule) {
+        // Calling the runtime before the first await synchronously invalidates
+        // in-flight startup/send generations as soon as opt-out is observed.
+        await runtimeModule.shutdownAgentAssistant();
+        return;
+    }
     if (!runtimeModulePromise) {
         return;
     }

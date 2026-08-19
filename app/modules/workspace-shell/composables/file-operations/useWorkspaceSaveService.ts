@@ -107,7 +107,7 @@ export interface IWorkspaceSaveDependencies {
         hasPreservedSourceChanges?: () => boolean;
         hasPendingDeletes?: () => boolean;
         openNoteCount: Ref<number>;
-        persistOpenNotes: (force: boolean) => Promise<boolean>;
+        persistOpenNotes: () => Promise<boolean>;
     };
     metadata: {
         totalPages: Ref<number>;
@@ -1029,7 +1029,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 for (let attempt = 0; attempt <= MAX_STALE_REVISION_SAVE_RETRIES; attempt += 1) {
                     if (
                         deps.annotations.openNoteCount.value > 0
-                        && !await deps.annotations.persistOpenNotes(true)
+                        && !await deps.annotations.persistOpenNotes()
                     ) {
                         BrowserLogger.warn('workspace', 'Save aborted because annotation note persistence failed');
                         return await completeWorkspaceSave(

@@ -327,9 +327,11 @@ function cleanupBrowserWindowTabsInstance(unregister: boolean) {
     }
 
     if (hasBrowserWindowContext() && cleanupRegistered) {
-        window.removeEventListener('beforeunload', handleWindowBeforeUnload);
+        window.removeEventListener('pagehide', handleWindowPageHide);
+        window.removeEventListener('pageshow', handleWindowPageShow);
         window.removeEventListener('focus', handleWindowFocus);
     }
+    initialized = false;
     cleanupRegistered = false;
     cleanupChannel();
     clearIncomingTransferNonces();
@@ -375,7 +377,6 @@ function waitForBrowserWindowCloseAttempt() {
 
         const cleanup = () => {
             window.removeEventListener('pagehide', handleWindowClosed);
-            window.removeEventListener('beforeunload', handleWindowClosed);
             if (timeoutId) {
                 window.clearTimeout(timeoutId);
             }
@@ -391,12 +392,14 @@ function waitForBrowserWindowCloseAttempt() {
             resolve(closed);
         };
 
-        const handleWindowClosed = () => {
+        const handleWindowClosed = (event: PageTransitionEvent) => {
+            if (event.persisted) {
+                return;
+            }
             finish(true);
         };
 
-        window.addEventListener('pagehide', handleWindowClosed, { once: true });
-        window.addEventListener('beforeunload', handleWindowClosed, { once: true });
+        window.addEventListener('pagehide', handleWindowClosed);
 
         timeoutId = window.setTimeout(() => {
             finish(false);
@@ -638,12 +641,31 @@ function registerCleanupHandlers() {
     }
 
     cleanupRegistered = true;
-    window.addEventListener('beforeunload', handleWindowBeforeUnload);
+    window.addEventListener('pagehide', handleWindowPageHide);
+    window.addEventListener('pageshow', handleWindowPageShow);
     window.addEventListener('focus', handleWindowFocus);
 }
 
-function handleWindowBeforeUnload() {
+function handleWindowPageHide(event: PageTransitionEvent) {
+    if (event.persisted) {
+        postMessage({
+            type: 'unregister',
+            windowId: currentWindowId,
+        });
+        return;
+    }
     cleanupBrowserWindowTabsInstance(true);
+}
+
+function handleWindowPageShow(event: PageTransitionEvent) {
+    if (!event.persisted) {
+        return;
+    }
+    announceCurrentWindow();
+    postMessage({
+        type: 'discover',
+        windowId: currentWindowId,
+    });
 }
 
 function handleWindowFocus() {
@@ -874,12 +896,9 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             return false;
         }
 
-        postMessage({
-            type: 'unregister',
-            windowId: currentWindowId,
-        });
+        const closeAttempt = waitForBrowserWindowCloseAttempt();
         window.close();
-        return waitForBrowserWindowCloseAttempt();
+        return closeAttempt;
     },
     notifyRendererReady() {
         initializeBrowserWindowTabs();

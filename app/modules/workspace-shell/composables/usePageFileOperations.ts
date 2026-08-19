@@ -46,7 +46,7 @@ export interface IPageFileOperationsDeps {
     isDirty: Ref<boolean>;
     pageLabelsDirty: Ref<boolean>;
     bookmarksDirty: Ref<boolean>;
-    persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
+    persistAllAnnotationNotes: () => Promise<boolean>;
     handleSave: () => Promise<unknown>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
@@ -155,7 +155,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             return true;
         }
 
-        const savedAllNotes = await persistAllAnnotationNotes(true);
+        const savedAllNotes = await persistAllAnnotationNotes();
         if (!savedAllNotes) {
             BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: failed to persist annotation note windows');
         }
