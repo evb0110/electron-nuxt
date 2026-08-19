@@ -209,6 +209,20 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         };
     }
 
+    function applyCommentSnapshot(metadata: IAnnotationNoteWindowRuntime, comment: IAnnotationCommentSummary) {
+        metadata.canonicalText = comment.text;
+        metadata.requiresEmbeddedSave = comment.source === 'pdf' || Boolean(comment.annotationId);
+        metadata.pageIndex = comment.pageIndex;
+        metadata.pageNumber = comment.pageNumber;
+        metadata.author = comment.author ?? null;
+        metadata.createdAt = comment.createdAt ?? metadata.createdAt;
+        metadata.modifiedAt = comment.modifiedAt ?? null;
+        metadata.markerRect = comment.markerRect ? {...comment.markerRect} : null;
+        metadata.subtype = comment.subtype ?? null;
+        metadata.source = comment.source;
+        metadata.hasNote = comment.hasNote === true;
+    }
+
     function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
         if (!isNoteEligibleComment(comment)) {
             return;
@@ -220,17 +234,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             const metadata = runtime.get(annotationId)!;
             metadata.error = null;
             metadata.order = ++nextOrder;
-            metadata.canonicalText = comment.text;
-            metadata.requiresEmbeddedSave = comment.source === 'pdf' || Boolean(comment.annotationId);
-            metadata.pageIndex = comment.pageIndex;
-            metadata.pageNumber = comment.pageNumber;
-            metadata.author = comment.author ?? null;
-            metadata.createdAt = comment.createdAt ?? metadata.createdAt;
-            metadata.modifiedAt = comment.modifiedAt ?? null;
-            metadata.markerRect = comment.markerRect ? {...comment.markerRect} : null;
-            metadata.subtype = comment.subtype ?? null;
-            metadata.source = comment.source;
-            metadata.hasNote = comment.hasNote === true;
+            applyCommentSnapshot(metadata, comment);
             if (!metadata.dirty) existing.draftText = comment.text;
             return;
         }
@@ -481,17 +485,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             if (!metadata) {
                 return;
             }
-            metadata.canonicalText = comment.text;
-            metadata.requiresEmbeddedSave = comment.source === 'pdf' || Boolean(comment.annotationId);
-            metadata.pageIndex = comment.pageIndex;
-            metadata.pageNumber = comment.pageNumber;
-            metadata.author = comment.author ?? null;
-            metadata.createdAt = comment.createdAt ?? metadata.createdAt;
-            metadata.modifiedAt = comment.modifiedAt ?? null;
-            metadata.markerRect = comment.markerRect ? {...comment.markerRect} : null;
-            metadata.subtype = comment.subtype ?? null;
-            metadata.source = comment.source;
-            metadata.hasNote = comment.hasNote === true;
+            applyCommentSnapshot(metadata, comment);
             clearDisappearanceTimer(id);
         });
         states.value.filter(state => !ids.has(asAnnotationId(state.annotationId))).forEach((state) => {
