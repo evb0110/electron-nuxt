@@ -33,57 +33,71 @@
                         :key="phase.id"
                         class="scan-cleanup-run-phase"
                         :class="{
-                            'scan-cleanup-run-phase--complete': phase.index < activeProgressPhaseIndex,
-                            'scan-cleanup-run-phase--current': phase.id === progressPhase,
+                            'scan-cleanup-run-phase--complete': phase.state === 'complete',
+                            'scan-cleanup-run-phase--current': phase.state === 'current',
                         }"
-                        :aria-current="phase.id === progressPhase ? 'step' : undefined"
+                        :aria-current="phase.state === 'current' ? 'step' : undefined"
                     >
                         <span class="scan-cleanup-run-phase-marker" aria-hidden="true">
-                            {{ phase.index < activeProgressPhaseIndex ? '✓' : phase.index }}
+                            <UIcon
+                                v-if="phase.state === 'complete'"
+                                name="i-ph-check"
+                                class="scan-cleanup-run-phase-check"
+                            />
+                            <template v-else>{{ phase.index }}</template>
                         </span>
                         <span class="scan-cleanup-run-phase-label">{{ phase.label }}</span>
-                    </li>
-                </ol>
-                <div class="scan-cleanup-run-meter-head">
-                    <div class="scan-cleanup-run-meter-left">
                         <span
-                            class="scan-cleanup-run-meter-phase"
-                            role="status"
-                            aria-live="polite"
-                        >
-                            <span class="scan-cleanup-run-meter-phase-label">
-                                {{ transitionText || progressPhaseText }}
-                            </span>
-                        </span>
-                        <ScanCleanupStableWidthText
-                            class="scan-cleanup-run-meter-count"
-                            :text="transitionText ? '' : progressCountText"
-                            :widest="transitionText ? '' : progressCountWidestText"
-                        />
-                    </div>
-                    <div class="scan-cleanup-run-meter-right">
-                        <span
-                            class="scan-cleanup-run-meter-track"
+                            v-if="phase.state === 'current'"
+                            class="scan-cleanup-run-phase-track"
                             role="progressbar"
                             :aria-label="t('scanCleanup.runStatusLabel')"
                             aria-valuemin="0"
                             aria-valuemax="100"
-                            :aria-valuenow="transitionText ? undefined : normalizedPercent ?? undefined"
+                            :aria-valuenow="meterIsIndeterminate ? undefined : normalizedPercent ?? undefined"
                             :aria-valuetext="transitionText || progressText"
                         >
                             <span
-                                class="scan-cleanup-run-meter-fill"
-                                :class="{'scan-cleanup-run-meter-fill--indeterminate': normalizedPercent === null}"
-                                :style="normalizedPercent === null ? undefined : {width: `${normalizedPercent}%`}"
+                                class="scan-cleanup-run-phase-fill"
+                                :class="{'scan-cleanup-run-phase-fill--indeterminate': meterIsIndeterminate}"
+                                :style="meterIsIndeterminate ? undefined : {width: `${normalizedPercent}%`}"
                             />
                         </span>
+                        <span
+                            v-else
+                            class="scan-cleanup-run-phase-track"
+                            aria-hidden="true"
+                        >
+                            <span
+                                v-if="phase.state === 'complete'"
+                                class="scan-cleanup-run-phase-fill scan-cleanup-run-phase-fill--complete"
+                            />
+                        </span>
+                    </li>
+                </ol>
+                <p
+                    class="scan-cleanup-run-meter-status"
+                    role="status"
+                    aria-live="polite"
+                >
+                    <span class="scan-cleanup-run-meter-phase">
+                        {{ transitionText || progressPhaseText }}
+                    </span>
+                    <template v-if="!transitionText && progressCountText">
+                        <span class="scan-cleanup-run-meter-separator" aria-hidden="true">·</span>
                         <ScanCleanupStableWidthText
-                            class="scan-cleanup-run-meter-eta"
-                            :text="resolvedProgressEtaText"
-                            :widest="resolvedProgressEtaWidestText"
+                            class="scan-cleanup-run-meter-count"
+                            :text="progressCountText"
+                            :widest="progressCountWidestText"
                         />
-                    </div>
-                </div>
+                    </template>
+                    <span class="scan-cleanup-run-meter-separator" aria-hidden="true">·</span>
+                    <ScanCleanupStableWidthText
+                        class="scan-cleanup-run-meter-eta"
+                        :text="resolvedProgressEtaText"
+                        :widest="resolvedProgressEtaWidestText"
+                    />
+                </p>
             </div>
             <template v-else>
                 <AppTooltip :text="t('scanCleanup.zones.toggleHint')">
@@ -307,25 +321,27 @@ const {t} = useTypedI18n();
 const normalizedPercent = computed(() => percent === null
     ? null
     : Math.min(100, Math.max(0, Math.round(percent))));
-const progressPhases = computed(() => ([
-    {
-        id: 'analyze' as const,
-        index: 1,
-        label: t('scanCleanup.progressPhases.analyze'),
-    },
-    {
-        id: 'clean' as const,
-        index: 2,
-        label: t('scanCleanup.progressPhases.clean'),
-    },
-    {
-        id: 'finish' as const,
-        index: 3,
-        label: t('scanCleanup.progressPhases.finish'),
-    },
-]));
-const activeProgressPhaseIndex = computed(() => progressPhases.value
-    .find(phase => phase.id === progressPhase)?.index ?? 2);
+// A transition has no job yet, so its 0% is a placeholder rather than a
+// measurement; the track pulses instead of promising a start it cannot show.
+const meterIsIndeterminate = computed(() => normalizedPercent.value === null || transitionText !== '');
+const PROGRESS_PHASE_IDS = [
+    'analyze',
+    'clean',
+    'finish',
+] as const;
+const progressPhases = computed(() => {
+    const currentIndex = PROGRESS_PHASE_IDS.indexOf(progressPhase);
+    return PROGRESS_PHASE_IDS.map((id, index) => ({
+        id,
+        index: index + 1,
+        label: t(`scanCleanup.progressPhases.${id}`),
+        state: index < currentIndex
+            ? 'complete' as const
+            : index === currentIndex
+                ? 'current' as const
+                : 'upcoming' as const,
+    }));
+});
 const resolvedProgressEtaText = computed(() => progressEtaText === ''
     ? t('scanCleanup.etaPending')
     : progressEtaText);
@@ -392,16 +408,18 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     display: flex;
     width: 100%;
     flex-direction: column;
-    gap: var(--app-space-xs);
+    gap: var(--app-space-sm);
 }
 
+/* One step per equal column: the marker, its name and its own track sit in the
+   same cell, so a step's progress can only ever be read as that step's. */
 .scan-cleanup-run-phases {
     display: grid;
     padding: 0;
     margin: 0;
     color: var(--ui-text-dimmed);
     font-size: var(--app-text-size-kicker);
-    gap: var(--app-space-lg);
+    gap: var(--app-space-5xl);
     grid-template-columns: repeat(3, minmax(0, 1fr));
     list-style: none;
 }
@@ -410,7 +428,8 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: var(--app-space-xs);
+    gap: var(--app-space-md);
+    line-height: 1;
 }
 
 .scan-cleanup-run-phase--complete {
@@ -431,100 +450,54 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     justify-content: center;
     border: var(--app-divider-width) solid currentcolor;
     border-radius: var(--app-radius-full);
+    font-size: var(--app-text-size-micro);
     font-variant-numeric: tabular-nums;
+}
+
+.scan-cleanup-run-phase--complete .scan-cleanup-run-phase-marker {
+    border-color: var(--ui-primary);
+    background: var(--ui-primary);
+    color: var(--ui-primary-fg);
+}
+
+.scan-cleanup-run-phase-check {
+    width: var(--app-space-7xl);
+    height: var(--app-space-7xl);
 }
 
 .scan-cleanup-run-phase-label {
+    min-width: 0;
+    flex: 0 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.scan-cleanup-run-meter-head {
-    display: grid;
-
-    /* The phase names the work and is the only variable-width text here; every
-       box on the right already reserves its widest string. Sizing the left
-       column to its content keeps the step counter readable instead of
-       ellipsizing it at a fixed third. The right column floors at its own
-       reserved width because grid maximizes the auto track before the flexible
-       one expands: without that floor a long phase label in any locale would
-       push the track, percentage and caption out of the meter rather than
-       ellipsizing itself. */
-    grid-template-columns: auto minmax(min-content, 1fr);
-    gap: var(--app-space-3xl);
-    font-size: var(--app-text-size-body-sm);
-    white-space: nowrap;
-}
-
-.scan-cleanup-run-meter-left,
-.scan-cleanup-run-meter-right {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: var(--app-space-3xl);
-}
-
-.scan-cleanup-run-meter-left {
-    overflow: hidden;
-}
-
-.scan-cleanup-run-meter-right {
-    justify-content: flex-end;
-}
-
-.scan-cleanup-run-meter-phase {
-    display: flex;
-    min-width: 0;
-    gap: var(--app-space-sm);
-    overflow: hidden;
-    color: var(--ui-text-highlighted);
-    font-weight: var(--app-font-weight-heading);
-    text-overflow: ellipsis;
-}
-
-.scan-cleanup-run-meter-phase-label,
-.scan-cleanup-run-meter-eta {
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.scan-cleanup-run-meter-phase-label {
-    min-width: 0;
-    flex: 1;
-}
-
-.scan-cleanup-run-meter-eta {
-    min-width: 0;
-    color: var(--ui-text-muted);
-    flex: none;
-    font-weight: var(--app-font-weight-medium);
-}
-
-.scan-cleanup-run-meter-count {
-    color: var(--ui-text-muted);
-    font-variant-numeric: tabular-nums;
-}
-
-.scan-cleanup-run-meter-track {
+/* The track takes whatever the name leaves; it also reads as the connector to
+   the next step, so it never collapses below a visible stub. */
+.scan-cleanup-run-phase-track {
     display: block;
     min-width: var(--app-scan-toolbar-progress-min-width);
     overflow: hidden;
-    width: 100%;
     flex: 1;
     height: var(--app-scan-toolbar-progress-height);
     border-radius: var(--app-radius-full);
-    background: var(--ui-bg-muted);
+    background: var(--ui-border);
 }
 
-.scan-cleanup-run-meter-fill {
+.scan-cleanup-run-phase-fill {
     display: block;
     height: 100%;
     background: var(--ui-primary);
     transition: width var(--app-transition-standard);
 }
 
-.scan-cleanup-run-meter-fill--indeterminate {
+.scan-cleanup-run-phase-fill--complete {
+    width: 100%;
+    opacity: var(--app-scan-toolbar-indeterminate-opacity);
+}
+
+.scan-cleanup-run-phase-fill--indeterminate {
     width: 40%;
     animation: scan-cleanup-progress-indeterminate 1.5s ease-in-out infinite;
 }
@@ -540,11 +513,47 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .scan-cleanup-run-meter-fill--indeterminate {
+    .scan-cleanup-run-phase-fill--indeterminate {
         width: 100%;
         animation: none;
         opacity: var(--app-scan-toolbar-indeterminate-opacity);
     }
+}
+
+/* One sentence for the whole run — what is happening, how far, how long —
+   instead of fragments spread under unrelated steps. */
+.scan-cleanup-run-meter-status {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    margin: 0;
+    gap: var(--app-space-md);
+    font-size: var(--app-text-size-body-sm);
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.scan-cleanup-run-meter-phase {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ui-text-highlighted);
+    font-weight: var(--app-font-weight-heading);
+    text-overflow: ellipsis;
+}
+
+.scan-cleanup-run-meter-separator {
+    flex: none;
+    color: var(--ui-text-dimmed);
+}
+
+.scan-cleanup-run-meter-count,
+.scan-cleanup-run-meter-eta {
+    flex: none;
+    color: var(--ui-text-muted);
+}
+
+.scan-cleanup-run-meter-status :deep(.scan-cleanup-stable-width-text) {
+    justify-items: start;
 }
 
 .scan-cleanup-toolbar-redetect {

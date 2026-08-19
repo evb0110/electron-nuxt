@@ -5373,6 +5373,7 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).not.toContain('0%');
         expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull();
         expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(transitionText);
+        expect(meter?.querySelector('.scan-cleanup-run-phase-fill--indeterminate')).not.toBeNull();
     });
 
     it('shows live pre-analysis progress in the run meter while a run waits for detection', () => {
@@ -5400,7 +5401,7 @@ describe('Scan cleanup components', () => {
             transitionText: '',
         })));
         const meter = harness.host.querySelector('.scan-cleanup-run-meter');
-        const fill = harness.host.querySelector<HTMLElement>('.scan-cleanup-run-meter-fill');
+        const fill = harness.host.querySelector<HTMLElement>('[aria-current="step"] .scan-cleanup-run-phase-fill');
 
         expect(meter?.textContent).toContain('Pre-analyzing pages');
         expect(meter?.textContent).toContain('98 / 392');
@@ -5408,6 +5409,10 @@ describe('Scan cleanup components', () => {
         expect(meter?.querySelector('[aria-current="step"]')?.textContent).toContain('Analyze pages');
         expect(fill?.style.width).toBe('25%');
         expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('25');
+        // Progress belongs to the step it measures: the only progressbar sits
+        // inside the current step, and steps not yet reached carry no fill.
+        expect(meter?.querySelector('[role="progressbar"]')?.closest('[aria-current="step"]')).not.toBeNull();
+        expect(meter?.querySelectorAll('.scan-cleanup-run-phase-fill')).toHaveLength(1);
     });
 
     it('finishes with a stable user phase instead of object counts or a false percentage', () => {
@@ -5440,7 +5445,8 @@ describe('Scan cleanup components', () => {
         expect(meter?.textContent).not.toContain('316 / 316');
         expect(meter?.textContent).not.toMatch(/\b98%\b/);
         expect(meter?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull();
-        expect(meter?.querySelector('.scan-cleanup-run-meter-fill--indeterminate')).not.toBeNull();
+        expect(meter?.querySelector('.scan-cleanup-run-phase-fill--indeterminate')).not.toBeNull();
+        expect(meter?.querySelectorAll('.scan-cleanup-run-phase-fill--complete')).toHaveLength(2);
     });
 
     it('keeps every state-gated setting mounted so switching modes never moves the panel', async () => {
