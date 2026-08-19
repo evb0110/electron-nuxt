@@ -149,3 +149,57 @@ rise by 24–56 per leaf, which is the de-fusing itself.
 Non-goals: this does not change the additive rescue, the oracle's calibration, or
 any Otsu-route behaviour, and it does not claim to close the remaining
 0.0517→0.0441 gap to the source floor.
+
+## Follow-on that did not pay off: levelling to the line's own weight
+
+Recorded here so the next attempt does not re-derive it. A sibling branch
+(`fix/scan-cleanup-weight-uniformity`, forked from the same `a493dd028` as the
+branch that became this document's change) kept going past the admission split
+and was measured against `main` *after* that change had landed. It does not ship.
+
+It made two further moves:
+
+- **The strip decides per dark core, not per thresholded blob.** Halo is what
+  fuses letters, so a thresholded component looked like an unstable unit of
+  decision: a chance contact between two letters could exempt a whole word from a
+  correction its neighbours received.
+- **Oversized units are peeled, not skipped.** Units the glyph-extent bound
+  rejects get their darkest halo pixels removed first, in at most three rounds,
+  until their mean width reaches the local line's median. Width is measured as a
+  mean over the chamfer field rather than the median ridge width, because ridge
+  width is twice an integer chamfer distance and so quantizes to the 2 px lattice
+  recorded above; a mean has no lattice, which is what makes a bound expressible
+  as a *fraction* of a line's median rather than a multiple of it.
+
+**Both rest on a premise this document's change had already removed.** They were
+written against pre-change behaviour, where an oversized fused blob failed
+admission and kept its full Wolf halo. After the change, `HaloStrip` admission is
+`height <= maximum_extent` and nothing else — there is no longest-side or area
+cap, so no component is skipped for being a wide fused blob. The cliff the peel
+levels does not exist, and neither does the exemption core-scoping protects
+against, except for the rare blob that fuses vertically past 8 mm.
+
+Measured on `luther-p5-impressum-spread.png` at 299 DPI, the fixture behind
+`spread_preview_cli_pins_the_small_print_stroke_budget_outcome`:
+
+| | current | sibling branch |
+|---|---:|---:|
+| within-line relative-weight dispersion (320 matched word boxes, 29 lines) | 0.07671 | 0.07672 |
+| worst word | 1.4899 | 1.4899 |
+
+- Left leaf byte-identical. Right leaf **added = 133, removed = 0**: the branch
+  removes nothing the current code does not, and keeps 133 px it strips.
+- Four oversized units on the leaf. Three peel their entire qualifying ring
+  (432/432, 347/347, 290/290) — identical to current behaviour. One converges at
+  round 2 (mean width 5.5089 against a local line target of 5.5676) and stops with
+  127 of 313 ring pixels unremoved. The other 6 px are one small mark whose ring
+  differs under core-scoping; a control run with the peel forced to remove
+  everything isolates them to the unit boundary, not the peel.
+- Word boxes are taken once from the current output and applied to both rasters,
+  so the pairs are matched and immune to de-fusing changing component counts.
+
+The negative result is the useful part: **the peel can only ever remove less than
+the current code**, because it stops at the line's median instead of taking the
+whole ring. It cannot reduce over-boldness beyond what already ships; it can only
+give back halo. Any future attempt on the residual 0.0517 -> 0.0441 gap has to
+find ink the strip never reaches, not moderate what it already removes.

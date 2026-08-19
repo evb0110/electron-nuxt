@@ -344,11 +344,11 @@ impl LineStrokeBudget {
     }
 }
 
-fn local_stroke_window<'a>(
-    line: &'a StrokeBudgetLine,
+fn local_stroke_window(
+    line: &StrokeBudgetLine,
     center_x: f64,
     dpi: f64,
-) -> Option<Vec<&'a StrokeBudgetComponent>> {
+) -> Option<Vec<&StrokeBudgetComponent>> {
     let window_px = STROKE_BUDGET_LOCAL_WINDOW_MM * dpi.max(1.0) / 25.4;
     let local = line
         .components
@@ -2543,7 +2543,7 @@ fn rescue_component_scoped_faint_strokes_budgeted(
                 right: unit_right,
                 bottom: unit_bottom,
             };
-            if !is_text_shaped_rescue_component(&measured, dpi) {
+            if !is_text_like_rescue_component(&measured, dpi, RescueAdmission::HaloStrip) {
                 continue;
             }
             let mut captured_raw = Vec::with_capacity(unit.len());
@@ -2553,7 +2553,8 @@ fn rescue_component_scoped_faint_strokes_budgeted(
             for &(x, y) in &unit {
                 captured_raw.push(raw.get(x, y));
                 component_rows[y - unit_top] += 1;
-                touches_picture_owner |= picture_owner.as_ref().is_some_and(|owner| owner.get(x, y));
+                touches_picture_owner |=
+                    picture_owner.as_ref().is_some_and(|owner| owner.get(x, y));
                 row_aligned |= row_signal.as_ref().is_some_and(|signal| signal.get(x, y));
             }
             captured_raw.sort_unstable();
@@ -2602,12 +2603,15 @@ fn rescue_component_scoped_faint_strokes_budgeted(
             if qualifying.is_empty() {
                 continue;
             }
-            if is_text_sized_rescue_component(&measured, dpi) {
+            if is_text_like_rescue_component(&measured, dpi, RescueAdmission::Additive) {
                 for (x, y) in qualifying {
                     retained.set(x, y, false);
                 }
             } else {
-                oversized.push((unit, qualifying));
+                oversized.push(HaloUnit {
+                    pixels: unit,
+                    qualifying,
+                });
             }
         }
         strip_oversized_units_to_line_weight(&mut retained, oversized, raw, dpi);
@@ -2618,9 +2622,7 @@ fn rescue_component_scoped_faint_strokes_budgeted(
     }
 
     for component in components.components() {
-        if !is_text_shaped_rescue_component(component, dpi)
-            || !is_text_sized_rescue_component(component, dpi)
-        {
+        if !is_text_like_rescue_component(component, dpi, RescueAdmission::Additive) {
             continue;
         }
         let mut missing = 0usize;
@@ -2781,9 +2783,17 @@ fn drop_boundary_accretion_clusters(proposed: &BinaryImage, captured: &BinaryIma
 /// constant is a visible cliff — one word on a line keeps a halo every other
 /// word lost. Peeling can never exceed the full strip, because the removable
 /// pool is exactly the pool the full strip would have taken.
+/// One dark core plus the halo ring the strip is allowed to take off it, kept
+/// together because the peel needs the whole unit to measure width and the ring
+/// alone to decide what to remove.
+struct HaloUnit {
+    pixels: Vec<(usize, usize)>,
+    qualifying: Vec<(usize, usize)>,
+}
+
 fn strip_oversized_units_to_line_weight(
     retained: &mut BinaryImage,
-    units: Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)>,
+    units: Vec<HaloUnit>,
     raw: &GrayImage,
     dpi: f64,
 ) {
@@ -2794,7 +2804,11 @@ fn strip_oversized_units_to_line_weight(
     let Some((budget, _)) = LineStrokeBudget::from_binary(retained, dpi) else {
         return;
     };
-    for (unit, mut qualifying) in units {
+    for HaloUnit {
+        pixels: unit,
+        mut qualifying,
+    } in units
+    {
         let center_x = unit.iter().map(|&(x, _)| x as f64).sum::<f64>() / unit.len() as f64;
         let center_y = unit.iter().map(|&(_, y)| y as f64).sum::<f64>() / unit.len() as f64;
         let Some(target) = budget.local_median_mean_width_at(center_x, center_y) else {
@@ -2974,9 +2988,31 @@ fn raw_text_row_profile(
     banded
 }
 
-/// Discriminates text from rules, fold shadows and smears. These terms are
-/// scale-free and stay hard vetoes wherever the rescue or the halo strip runs.
-fn is_text_shaped_rescue_component(component: &scan_primitives::Component, dpi: f64) -> bool {
+/// Which of the two rescue passes is asking whether a component is text-like.
+///
+/// The passes need different extent bounds because they can do different damage.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RescueAdmission {
+    /// Additive faint-ink rescue. It can turn paper into ink, so a component
+    /// larger than a single glyph in any direction must never be admitted.
+    /// The halo strip reuses this same bound as a *router* rather than a veto:
+    /// what it admits is stripped outright, what it rejects is levelled to the
+    /// line's own weight instead of being skipped.
+    Additive,
+    /// Subtractive Wolf halo strip. It can only remove halo, never fabricate
+    /// ink, so the longest-side bound does not apply and is actively harmful:
+    /// the halo is what fuses adjacent letters into one multi-letter blob, so
+    /// an extent cap rejects exactly the components whose halo most needs
+    /// removing, leaving them at full Wolf weight beside de-haloed neighbours.
+    /// Height still confines admission to text-line-sized material.
+    HaloStrip,
+}
+
+fn is_text_like_rescue_component(
+    component: &scan_primitives::Component,
+    dpi: f64,
+    admission: RescueAdmission,
+) -> bool {
     let px_per_mm = dpi.max(1.0) / 25.4;
     let width = component.right - component.left + 1;
     let height = component.bottom - component.top + 1;
@@ -2984,27 +3020,23 @@ fn is_text_shaped_rescue_component(component: &scan_primitives::Component, dpi: 
     let minor = width.min(height);
     let aspect = major as f64 / minor.max(1) as f64;
     let average_stroke = component.area as f64 / major.max(1) as f64;
+    let maximum_extent = (px_per_mm * 8.0).round().max(4.0) as usize;
+    let maximum_area = (px_per_mm * 4.5).round().max(16.0).powf(2.0) as usize;
     let minimum_stroke = (px_per_mm * 0.08).max(0.75);
     let maximum_stroke = (px_per_mm * 2.5).max(2.0);
 
+    let extent_admitted = match admission {
+        RescueAdmission::Additive => {
+            major <= maximum_extent && aspect <= 10.0 && component.area <= maximum_area
+        }
+        RescueAdmission::HaloStrip => height <= maximum_extent,
+    };
+
     component.area >= 2
+        && extent_admitted
         && minor >= 1
-        && aspect <= 10.0
         && average_stroke >= minimum_stroke
         && average_stroke <= maximum_stroke
-}
-
-/// Bounds a component to one glyph's worth of page. Unlike the shape terms this
-/// is a statement about extent alone, so the halo strip routes on it instead of
-/// vetoing on it.
-fn is_text_sized_rescue_component(component: &scan_primitives::Component, dpi: f64) -> bool {
-    let px_per_mm = dpi.max(1.0) / 25.4;
-    let width = component.right - component.left + 1;
-    let height = component.bottom - component.top + 1;
-    let maximum_extent = (px_per_mm * 8.0).round().max(4.0) as usize;
-    let maximum_area = (px_per_mm * 4.5).round().max(16.0).powf(2.0) as usize;
-
-    width.max(height) <= maximum_extent && component.area <= maximum_area
 }
 
 pub(crate) fn is_crisp_or_deep_sample(sample: u8, local_paper: u8, gradient: u8) -> bool {
