@@ -76,9 +76,6 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-      - name: Install scan-cleanup audit tools
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
       - name: Restore validation caches
         uses: actions/cache@v5
         with:
@@ -87,7 +84,15 @@ jobs:
             .devkit/cache/typecheck
           key: quality-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs', 'tsconfig*.json', 'electron/tsconfig.json', 'landing/tsconfig.json', 'packages/*/tsconfig.json', 'scripts/tsconfig.json', 'server/tsconfig.json', 'tests/tsconfig.json') }}
 
+      # Provisioning ends here so every gate below can report on its own:
+      # a failing gate must not hide the ones after it, while a broken
+      # runner still skips them all rather than blaming the code.
+      - name: Install scan-cleanup audit tools
+        id: setup
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+
       - name: Generate committed build artifacts and reject drift
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: |
           pnpm run generate:build-artifacts
           pnpm run copy:pdfjs
@@ -105,16 +110,32 @@ jobs:
             scripts/release/generated-release-targets.cjs)"
 
       - name: Lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint
 
       - name: Typecheck
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck
 
       - name: Unit tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:unit
 
       - name: Coverage zero-execution tripwire
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:coverage
+
+      - name: Production dependency audit
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:production-dependency-audit:production-only
+
+      - name: Fallow dead code
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run fallow
+
+      - name: Fallow duplicates
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run fallow:dupes
 
   pr_electron_blocking_smoke:
     name: Electron Blocking Smoke
@@ -485,36 +506,47 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
 
       - name: Install Rust WASM target
+        id: setup
         run: rustup target add wasm32-unknown-unknown
 
       - name: WASM portable build
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:wasm:portable
 
       - name: Lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint:clean
 
       - name: Static reports
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:static:reports
 
       - name: Static assets
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:static:assets
 
       - name: Typecheck
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck:clean
 
       - name: Type coverage
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck:coverage
 
       - name: Strict build
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run build:strict:no-wasm-check
 
       - name: Fallow dead code
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run fallow
 
       - name: Fallow duplicates
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run fallow:dupes
 
       - name: Coverage
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:coverage
 
   nightly_rust_fuzz:
@@ -612,45 +644,59 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils
 
       - name: Install Rust WASM target
+        id: setup
         run: rustup target add wasm32-unknown-unknown
 
       - name: Production dependency audit
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:production-dependency-audit
 
       - name: WASM freshness
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:wasm:portable
 
       - name: Lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint
 
       - name: Static reports
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:static:reports
 
       - name: Static assets
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:static:assets
 
       - name: Typecheck
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck
 
       - name: Type coverage
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck:coverage
 
       - name: Strict build
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run build:strict:no-wasm-check
 
       - name: Fallow dead code
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run fallow
 
       - name: Fallow duplicates
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run fallow:dupes
 
       - name: Rust tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:rust
 
       - name: Coverage
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:coverage
 
       - name: OCR native smoke
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:ocr:native-smoke:required
 
   nightly_electron_e2e_regression:

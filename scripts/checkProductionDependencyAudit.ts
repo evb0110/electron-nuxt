@@ -143,12 +143,16 @@ function runProjectAudit(project: IAuditProject) {
     console.log(`${project.label} dependency audit passed (${summary.total} vulnerabilities).`);
 }
 
-export function runProductionDependencyAudits() {
+export function runProductionDependencyAudits({includeFullGraph = true} = {}) {
     runProjectAudit({
         cwd: PROJECT_ROOT,
         label: 'workspace production',
         scope: 'prod',
     });
+    if (!includeFullGraph) {
+        return;
+    }
+
     runProjectAudit({
         cwd: PROJECT_ROOT,
         label: 'workspace full graph (Electron runtime and build tooling)',
@@ -162,5 +166,5 @@ function isDirectExecution() {
 }
 
 if (isDirectExecution()) {
-    runProductionDependencyAudits();
+    runProductionDependencyAudits({includeFullGraph: !process.argv.includes('--production-only')});
 }

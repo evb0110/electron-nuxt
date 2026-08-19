@@ -112,6 +112,7 @@
     "check:electron-builder:asar-unpack": "node scripts/check-electron-builder-asar-unpack.mjs",
     "check:drizzle-schema": "node scripts/check-drizzle-schema.mjs",
     "check:production-dependency-audit": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts",
+    "check:production-dependency-audit:production-only": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts --production-only",
     "check:static:assets": "node scripts/check-web-deploy-source.mjs",
     "check:static:reports": "pnpm exec tsx scripts/reportPlatformManifestConsumers.ts",
     "check:build-artifacts:hygiene": "node scripts/check-build-artifacts-hygiene.mjs",
