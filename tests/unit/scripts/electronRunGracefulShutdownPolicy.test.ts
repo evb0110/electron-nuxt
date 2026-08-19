@@ -306,6 +306,12 @@ describe('Electron automation graceful shutdown policy', () => {
                 }
                 stubborn.stdout.once('data', () => resolve());
                 stubborn.once('error', reject);
+                // A child that starts and then dies emits neither, so without this
+                // the suite would wait out its own timeout instead of reporting
+                // that the fixture never became ready.
+                stubborn.once('exit', (code, signal) => reject(new Error(
+                    `stubborn child exited before readiness (code ${code}, signal ${signal})`,
+                )));
             });
 
             await killProcessTree(stubbornPid, 150);
