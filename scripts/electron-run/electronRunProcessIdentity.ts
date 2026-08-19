@@ -276,6 +276,12 @@ export async function killVerifiedSessionProcess(options: {
         return true;
     }
     if (!isVerifiedSessionProcess(options.pid, options.expectation)) {
+        // Identity is read from `ps`, so a process that exits between the
+        // liveness check above and the probe reports as unverifiable. Such a
+        // process is already terminated; only a live one is a real refusal.
+        if (!isProcessAlive(options.pid)) {
+            return true;
+        }
         console.warn(
             `[Session '${options.expectation.sessionName}'] Refused to terminate PID ${options.pid}: `
             + `${options.expectation.kind} process identity did not match session ownership.`,

@@ -13,11 +13,14 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     isElectronRunCommand,
     parseElectronRunCommandRequest,
 } from '@scripts/electron-run/electronRunProtocol';
+import { killVerifiedSessionProcess } from '@scripts/electron-run/electronRunProcessIdentity';
+import type * as TElectronRunProcessTree from '@scripts/electron-run/electronRunProcessTree';
 import { shouldRemoveSessionStopArtifacts } from '@scripts/electron-run/stopSession';
 import {
     clearAutomationWorkspaceCrashCheckpoint,
@@ -28,6 +31,13 @@ import {
     clearAutomationWorkspaceCrashCheckpointAfterSessionExit,
     shouldClearAutomationWorkspaceCrashCheckpointOnExit,
 } from '@scripts/electron-run/sessionController';
+
+const processTree = vi.hoisted(() => ({isProcessAlive: vi.fn<(pid: number) => boolean>()}));
+
+vi.mock('@scripts/electron-run/electronRunProcessTree', async importOriginal => ({
+    ...await importOriginal<typeof TElectronRunProcessTree>(),
+    isProcessAlive: processTree.isProcessAlive,
+}));
 
 const projectRoot = process.cwd();
 
@@ -160,5 +170,43 @@ describe('Electron automation graceful shutdown policy', () => {
         );
         expect(refusalBranch).toContain('retainSessionStopArtifacts(name, info)');
         expect(refusalBranch).toContain('throw new Error');
+    });
+
+    it('treats a process that exits while its identity is read as terminated, not refused', async () => {
+        // A session process can exit between the liveness gate and the `ps`
+        // read that establishes ownership, which makes it indistinguishable
+        // from an unrelated PID. Reporting that as a refusal strands the
+        // session directory and forces a second stop, so a PID that is gone
+        // by the time identity is unavailable must count as terminated.
+        processTree.isProcessAlive.mockReset();
+        processTree.isProcessAlive.mockReturnValueOnce(true).mockReturnValue(false);
+
+        await expect(killVerifiedSessionProcess({
+            pid: 4_194_303,
+            expectation: {
+                kind: 'controller',
+                sessionName: 'exit-during-identity-read',
+            },
+        })).resolves.toBe(true);
+
+        const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
+        const controllerBody = stopSource.slice(
+            stopSource.indexOf('async function stopSessionController('),
+            stopSource.indexOf('async function stopSessionElectron('),
+        );
+        expect(controllerBody).toContain('return !isProcessAlive(info.pid);');
+    });
+
+    it('still refuses to terminate a live PID whose identity does not match the session', async () => {
+        processTree.isProcessAlive.mockReset();
+        processTree.isProcessAlive.mockReturnValue(true);
+
+        await expect(killVerifiedSessionProcess({
+            pid: 4_194_303,
+            expectation: {
+                kind: 'controller',
+                sessionName: 'unrelated-live-pid',
+            },
+        })).resolves.toBe(false);
     });
 });

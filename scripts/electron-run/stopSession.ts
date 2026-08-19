@@ -90,7 +90,9 @@ async function stopSessionController(info: ISessionInfo, name: string, keepNuxt?
         kind: 'controller',
         sessionName: name,
     })) {
-        return false;
+        // A controller that exited during the identity probe is stopped, not
+        // unverifiable, and must not retain the session artifacts.
+        return !isProcessAlive(info.pid);
     }
 
     try {
