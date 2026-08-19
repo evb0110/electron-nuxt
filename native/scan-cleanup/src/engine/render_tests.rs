@@ -829,6 +829,63 @@ mod tests {
     }
 
     #[test]
+    fn bridged_text_line_is_never_restored_as_a_rule() {
+        // Candidacy is measured on a horizontally bridged map, which fuses the
+        // glyphs of a text line into a single long blob. Admitting that blob
+        // re-inks the whole line at the rule depth instead of the page's
+        // binarization threshold, printing footnote and index lines visibly
+        // bolder than their neighbours. Only thickness separates the two, so a
+        // line of type must be rejected however long it is.
+        let mut raw = GrayImage::new(420, 200, 220);
+        let mut binary = BinaryImage::new(420, 200);
+        let mut text_vicinity = BinaryImage::new(420, 200);
+
+        for y in 20..48 {
+            for x in 48..372 {
+                text_vicinity.set(x, y, true);
+            }
+        }
+
+        // Glyph-height marks: taller than a 2mm rule at 360 dpi, and gapped
+        // closely enough that bridging fuses them into one wide component.
+        // Odd columns are dark in `raw` but absent from `binary`, so any rule
+        // restore over this line would be visible as added ink.
+        for left in (60..360).step_by(40) {
+            for y in 70..100 {
+                for x in left..left + 30 {
+                    raw.set(x, y, 60);
+                    if x % 2 == 0 {
+                        binary.set(x, y, true);
+                    }
+                }
+            }
+        }
+
+        // A genuine thin rule on the same page must still be recovered.
+        for y in 150..152 {
+            for x in 48..372 {
+                raw.set(x, y, 120);
+            }
+        }
+
+        let restored =
+            restore_genuine_horizontal_rules(&binary, &raw, None, None, Some(&text_vicinity), 360.0);
+
+        assert!(
+            (60..360)
+                .step_by(40)
+                .all(|left| (left..left + 30)
+                    .filter(|x| x % 2 == 1)
+                    .all(|x| (70..100).all(|y| !restored.get(x, y)))),
+            "a bridged text line was re-inked as a horizontal rule"
+        );
+        assert!(
+            (48..372).all(|x| (150..152).all(|y| restored.get(x, y))),
+            "the genuine thin rule was no longer recovered"
+        );
+    }
+
+    #[test]
     fn thin_rule_below_text_survives_binarize_postprocess_and_bleed_chain() {
         let mut raw = GrayImage::new(420, 160, 220);
         let mut text_mask = BinaryImage::new(420, 160);

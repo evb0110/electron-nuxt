@@ -2331,10 +2331,13 @@ fn spread_preview_cli_pins_the_small_print_stroke_budget_outcome() {
          (an erosion storm on the impressum leaf shows up here first)",
     );
 
-    // The right leaf drops 7_394 px of Wolf halo that used to survive on
-    // multi-letter blobs the halo itself had fused; the strip only removes ink,
-    // so the left leaf and both leaf sizes are unchanged.
-    let expected = [(1773usize, 2528usize, 187_731usize), (1803, 2451, 581_692)];
+    // The spread drops 5_304 px on the left leaf and 264 px on the right that
+    // the rule restore used to add on top of six ordinary text lines (33-45 px
+    // tall) it had misread as horizontal rules -- among them the full-width
+    // "au\u{df}erhalb der engen Grenzen" line and the "2. Timotheus 4,5:" run.
+    // Those lines printed visibly bolder than their neighbours. Every changed
+    // band is thicker than the 2 mm rule bound, so no genuine rule regressed.
+    let expected = [(1773usize, 2528usize, 182_427usize), (1803, 2451, 581_428)];
     for ((output_path, _), (width, height, ink)) in outputs.iter().zip(expected) {
         let cleaned = decode_gray(&fs::read(output_path).unwrap(), 40_000_000, 40_000).unwrap();
         assert_eq!((cleaned.width(), cleaned.height()), (width, height));
