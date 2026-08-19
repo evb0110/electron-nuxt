@@ -33,6 +33,7 @@ import type {
 type TTsConfigJsonWithGlobs = Simplify<SetRequired<TsConfigJson, 'exclude' | 'include'>>;
 
 interface IWorkflowStep {
+    'continue-on-error'?: boolean;
     id?: string;
     if?: string;
     name?: string;
@@ -170,6 +171,15 @@ function escapeRegExp(source: string) {
 
 function expectNoExactRunStep(job: string, command: string) {
     expect(job).not.toMatch(new RegExp(`run: ${escapeRegExp(command)}(?:\\s|$)`, 'u'));
+}
+
+// Compares what a step runs rather than how the YAML reads: a trailing
+// comment is enough to slip a forbidden command past a substring check.
+function runCommandLines(step: IWorkflowStep) {
+    return (step.run ?? '')
+        .split('\n')
+        .map(line => line.replace(/#.*$/u, '').trim())
+        .filter(Boolean);
 }
 
 function expectExactRunStep(job: string, command: string) {
@@ -384,7 +394,16 @@ describe('CI topology policy', () => {
         // advisory at any severity across dev tooling and permits no waiver, so
         // on the merge-blocking lane one upstream publication would stop every
         // pull request in the repository for something no author introduced.
-        expect(prQuality).not.toContain('run: pnpm run check:production-dependency-audit\n');
+        const prQualityCommands = (parseWorkflowJobs(workflow).pr_quality?.steps ?? [])
+            .flatMap(step => runCommandLines(step));
+        expect(
+            prQualityCommands.filter(command => command === 'pnpm run check:production-dependency-audit'),
+            'the merge-blocking lane must not audit the full dependency graph',
+        ).toEqual([]);
+        expect(
+            prQualityCommands.filter(command => command === 'pnpm run check:production-dependency-audit:production-only'),
+            'the merge-blocking lane must audit production dependencies exactly once',
+        ).toHaveLength(1);
         expect(packageScripts['test:unit']).toContain('validation-gates.mjs heavy');
         for (const project of [
             'unit-core',
@@ -776,15 +795,42 @@ describe('CI topology policy', () => {
         const jobs = parseWorkflowJobs(workflow);
         const gateCondition = '${{ !cancelled() && steps.setup.outcome == \'success\' }}';
 
-        for (const jobName of [
-            'nightly_maintenance',
-            'manual_quality',
-        ]) {
-            const steps = jobs[jobName]?.steps ?? [];
+        // Naming the gates each lane owes is what keeps the rest of this test
+        // from passing vacuously. Every selector below is built from whatever
+        // the workflow happens to contain, and the regression being pinned --
+        // gates that stop reporting -- is precisely the one that empties them.
+        const requiredGates = {
+            manual_quality: [
+                'pnpm run fallow',
+                'pnpm run fallow:dupes',
+                'pnpm run test:coverage',
+            ],
+            nightly_maintenance: [
+                'pnpm run check:production-dependency-audit',
+                'pnpm run fallow',
+                'pnpm run fallow:dupes',
+                'pnpm run test:rust',
+                'pnpm run test:coverage',
+                'pnpm run test:ocr:native-smoke:required',
+            ],
+        };
+
+        for (const [
+            jobName,
+            gates,
+        ] of Object.entries(requiredGates)) {
+            const job = jobs[jobName];
+            const steps = job?.steps ?? [];
             expect(steps.length, `${jobName} must declare steps`).toBeGreaterThan(0);
 
+            // Anchoring the split on the provisioning command, not on the marker
+            // alone, is what stops it from sliding down the job: carried to the
+            // last step, `id: setup` leaves nothing after it to require a guard.
             const setupIndex = steps.findIndex(step => step.id === 'setup');
-            expect(setupIndex, `${jobName} must mark the last step that provisions its tools`).toBeGreaterThan(-1);
+            expect(
+                steps[setupIndex]?.run?.trim(),
+                `${jobName} must mark its last provisioning step, not a later gate`,
+            ).toBe('rustup target add wasm32-unknown-unknown');
 
             // Keying on the final provisioning step is what makes an earlier
             // provisioning failure skip every gate: GitHub skips the remaining
@@ -795,11 +841,25 @@ describe('CI topology policy', () => {
                 .map(step => step.name);
             expect(conditionalSetup, `${jobName} provisioning must stay unconditional so a broken runner aborts`).toEqual([]);
 
-            const abortingGates = steps
-                .slice(setupIndex + 1)
+            const gateSteps = steps.slice(setupIndex + 1);
+            const abortingGates = gateSteps
                 .filter(step => step.if !== gateCondition)
                 .map(step => step.name);
             expect(abortingGates, `${jobName} gates that would skip the rest of the job`).toEqual([]);
+
+            const gateCommands = gateSteps.flatMap(step => runCommandLines(step));
+            for (const gate of gates) {
+                expect(gateCommands, `${jobName} must still report ${gate} after an earlier gate fails`).toContain(gate);
+            }
+
+            // Surviving an earlier gate's failure must not become surviving your
+            // own. An advisory gate reports the lane green while the check it
+            // performs is broken, which is the state this job exists to expose.
+            expect(job?.['continue-on-error'], `${jobName} must fail when one of its gates fails`).not.toBe(true);
+            const advisoryGates = gateSteps
+                .filter(step => step['continue-on-error'] === true)
+                .map(step => step.name);
+            expect(advisoryGates, `${jobName} gates that would report a broken check as success`).toEqual([]);
         }
     });
 
