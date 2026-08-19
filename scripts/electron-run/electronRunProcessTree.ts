@@ -158,6 +158,9 @@ export async function killProcessTree(pid: number, graceMs = 1500) {
         try {
             execSync(`taskkill /PID ${pid} /T /F >NUL 2>&1`);
         } catch {}
+        // TerminateProcess is asynchronous like SIGKILL, so the process stays
+        // visible to the liveness check callers read straight afterwards.
+        await waitForProcessesExit([pid], FORCED_EXIT_TIMEOUT_MS);
         return;
     }
 
