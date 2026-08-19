@@ -363,6 +363,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         ]);
         expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 1 of 3 pages');
         expect(mounted.session.detection.progressWidestText.value).toBe('Pre-analyzing pages — 3 of 3 pages');
+        expect(mounted.session.detection.progressCountWidestText.value).toBe('3 of 3 pages');
 
         mounted.unmount();
     });

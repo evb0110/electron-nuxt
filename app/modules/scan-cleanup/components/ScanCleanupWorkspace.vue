@@ -326,6 +326,7 @@ const {
     outputEstimate,
     pending: detectionPending,
     progressCountText: detectionProgressCountText,
+    progressCountWidestText: detectionProgressCountWidestText,
     progressEtaText: detectionProgressEtaText,
     progressEtaWidestText: detectionProgressEtaWidestText,
     progressPercent: detectionProgressPercent,
@@ -421,7 +422,7 @@ const progressCountText = computed(() => waitingForDetection.value
     ? detectionProgressCountText.value
     : runProgressCountText.value);
 const progressCountWidestText = computed(() => waitingForDetection.value
-    ? detectionProgressWidestText.value
+    ? detectionProgressCountWidestText.value
     : runProgressCountWidestText.value);
 const progressEtaText = computed(() => {
     const eta = waitingForDetection.value

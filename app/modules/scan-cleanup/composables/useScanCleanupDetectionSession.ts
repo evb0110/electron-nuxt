@@ -307,10 +307,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }), computed(() => t('scanCleanup.detectAll.reconciling')));
     // The same sentence at its widest counter, so the status line can reserve
     // its box and the cancel button beside it never moves as the count grows.
-    const progressWidestText = computed(() => formatScanCleanupPreAnalysisProgress({
+    const preAnalysisWidestParts = computed(() => formatScanCleanupPreAnalysisProgress({
         ...preAnalysisProgress.value,
         completedUnits: preAnalysisProgress.value.totalUnits,
-    }, t).text);
+    }, t));
+    const progressWidestText = computed(() => preAnalysisWidestParts.value.text);
+    const progressCountWidestText = computed(() => preAnalysisWidestParts.value.count);
     const blankPageCount = computed(() => jobState.value?.status === 'completed'
         ? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
         : 0);
@@ -1130,6 +1132,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         pending,
         progress,
         progressCountText,
+        progressCountWidestText,
         progressEtaText,
         progressEtaWidestText,
         progressPercent,

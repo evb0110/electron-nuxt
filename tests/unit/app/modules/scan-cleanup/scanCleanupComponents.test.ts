@@ -140,6 +140,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             pending: session.detectionPending,
             progress: session.detectionProgress,
             progressCountText: session.detectionProgressCountText ?? ref(''),
+            progressCountWidestText: session.detectionProgressCountWidestText ?? ref(''),
             progressEtaText: session.detectionProgressEtaText ?? ref(''),
             progressEtaWidestText: session.detectionProgressEtaWidestText ?? ref(''),
             progressPercent: session.detectionProgressPercent ?? computed(() => {
@@ -1317,6 +1318,37 @@ describe('Scan cleanup components', () => {
         expect(settings.preserveOriginalQuality).toBe(false);
         expect(settings.outputMode).toBe('color');
         expect(updateSelectionOutputModeOverride).toHaveBeenCalledWith('mixed', [2]);
+    });
+
+    it('reserves only the counter width in the run meter while a run waits for detection', () => {
+        // Regression: the meter's count slot was sized to the whole pre-analysis
+        // sentence, which overflowed the meter and ellipsized the phase label
+        // ("Pre-analyzing p…") although the visible line is short.
+        workspaceSession.value = createWorkspaceEntrySession({
+            detectionPending: ref(true),
+            detectionProgress: ref({
+                completedUnits: 1,
+                totalUnits: 158,
+            }),
+            detectionProgressCountText: ref('1 of 158 pages'),
+            detectionProgressCountWidestText: ref('158 of 158 pages'),
+            detectionProgressPhaseText: ref('Pre-analyzing pages'),
+            detectionProgressText: ref('Pre-analyzing pages — 1 of 158 pages'),
+            detectionProgressWidestText: ref('Pre-analyzing pages — 158 of 158 pages'),
+            isRunning: ref(true),
+            waitingForDetection: computed(() => true),
+        });
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: null,
+            totalPages: 158,
+        })));
+        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+        const count = meter?.querySelector('.scan-cleanup-run-meter-count');
+
+        expect(meter?.querySelector('.scan-cleanup-run-meter-phase')?.textContent).toBe('Pre-analyzing pages');
+        expect(count?.querySelector('.scan-cleanup-stable-width-value')?.textContent).toBe('1 of 158 pages');
+        expect(count?.querySelector('.scan-cleanup-stable-width-sizer')?.textContent).toBe('158 of 158 pages');
+        expect(meter?.textContent).not.toContain('Pre-analyzing pages — ');
     });
 
     it('shows detected blank pages under the sidebar setting without changing the default', async () => {
