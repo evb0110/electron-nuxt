@@ -237,7 +237,10 @@ describe('Electron automation graceful shutdown policy', () => {
     it('refuses to terminate a live process whose identity does not match the session', async () => {
         // Exercised against a real, still-running process so the refusal comes
         // from a successfully read identity that fails ownership matching,
-        // rather than from an absent PID that yields no identity at all.
+        // rather than from an absent PID that yields no identity at all. The
+        // child runs from the project root, so it clears the project-identity
+        // half of the controller check and can only be rejected on the
+        // controller entry point itself.
         const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
             '@scripts/electron-run/electronRunProcessTree',
         );
@@ -245,7 +248,10 @@ describe('Electron automation graceful shutdown policy', () => {
         processTree.isProcessAlive.mockReset();
         processTree.isProcessAlive.mockImplementation(isProcessAlive);
 
-        const unrelated = spawn('sleep', ['30'], {stdio: 'ignore'});
+        const unrelated = spawn(process.execPath, [
+            '-e',
+            'setTimeout(() => {}, 30000)',
+        ], {stdio: 'ignore'});
         const unrelatedPid = unrelated.pid ?? 0;
         try {
             expect(unrelatedPid).toBeGreaterThan(0);
