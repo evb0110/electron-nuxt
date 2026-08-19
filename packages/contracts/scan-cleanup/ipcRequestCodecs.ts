@@ -197,7 +197,7 @@ export function decodeScanCleanupPagePlanEvidence(
     };
 }
 
-export function decodeScanCleanupPlacementAnchors(
+function decodeScanCleanupPlacementAnchors(
     value: unknown,
     label: string,
 ): Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> {
