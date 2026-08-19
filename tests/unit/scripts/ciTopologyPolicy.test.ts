@@ -32,10 +32,17 @@ import type {
 
 type TTsConfigJsonWithGlobs = Simplify<SetRequired<TsConfigJson, 'exclude' | 'include'>>;
 
+interface IWorkflowStep {
+    id?: string;
+    if?: string;
+    name?: string;
+}
+
 interface IWorkflowJob {
     'continue-on-error'?: boolean;
     if?: string;
     needs?: string | string[];
+    steps?: IWorkflowStep[];
 }
 
 async function readProjectFile(filePath: string) {
@@ -162,6 +169,10 @@ function escapeRegExp(source: string) {
 
 function expectNoExactRunStep(job: string, command: string) {
     expect(job).not.toMatch(new RegExp(`run: ${escapeRegExp(command)}(?:\\s|$)`, 'u'));
+}
+
+function expectExactRunStep(job: string, command: string) {
+    expect(job).toMatch(new RegExp(`run: ${escapeRegExp(command)}(?:\\s|$)`, 'u'));
 }
 
 function expectRunSteps(job: string, commands: string[]) {
@@ -348,6 +359,9 @@ describe('CI topology policy', () => {
         expect(packageScripts['check:static:reports']).toContain('reportPlatformManifestConsumers.ts');
         expect(packageScripts['check:static:assets']).toContain('check-web-deploy-source.mjs');
         expect(prQuality).toContain('run: pnpm run typecheck');
+        expectExactRunStep(prQuality, 'pnpm run check:production-dependency-audit');
+        expectExactRunStep(prQuality, 'pnpm run fallow');
+        expectExactRunStep(prQuality, 'pnpm run fallow:dupes');
         expect(prQuality).toContain('run: pnpm run test:unit');
         expect(packageScripts['test:unit']).toContain('validation-gates.mjs heavy');
         for (const project of [
@@ -727,6 +741,39 @@ describe('CI topology policy', () => {
         expect(rustToolchain).toContain('channel = "1.89.0"');
         expect(rustToolchain).toContain('profile = "minimal"');
         expect(buildWorkflow).toContain('run: rustup target add wasm32-unknown-unknown');
+    });
+
+    it('reports every maintenance gate even after an earlier gate fails', async () => {
+        // A job stops at its first failing step, so a single broken gate used to
+        // hide every later one and leave the expensive checks unrun for days.
+        // Each gate must therefore survive an earlier failure while still
+        // failing the job, and setup must keep aborting the rest.
+        const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const jobs = parseWorkflowJobs(workflow);
+        const gateCondition = '${{ !cancelled() && steps.install.outcome == \'success\' }}';
+
+        for (const jobName of [
+            'nightly_maintenance',
+            'manual_quality',
+        ]) {
+            const steps = jobs[jobName]?.steps ?? [];
+            expect(steps.length, `${jobName} must declare steps`).toBeGreaterThan(0);
+
+            const installIndex = steps.findIndex(step => step.id === 'install');
+            expect(installIndex, `${jobName} must identify its dependency install step`).toBeGreaterThan(-1);
+
+            const conditionalSetup = steps
+                .slice(0, installIndex + 1)
+                .filter(step => step.if !== undefined)
+                .map(step => step.name);
+            expect(conditionalSetup, `${jobName} setup steps must stay unconditional`).toEqual([]);
+
+            const abortingGates = steps
+                .slice(installIndex + 1)
+                .filter(step => step.if !== gateCondition)
+                .map(step => step.name);
+            expect(abortingGates, `${jobName} gates that would skip the rest of the job`).toEqual([]);
+        }
     });
 
     it('keeps Electron desktop automation and PDF tab diagnostics nightly and non-blocking', async () => {
