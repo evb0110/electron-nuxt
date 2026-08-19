@@ -17,16 +17,28 @@ build_scan_cleanup_tool() {
 }
 
 # Asks the same resolver the export oracles use, so this check cannot disagree
-# with what they need on disk. Any failure to answer reports the tool as absent,
-# which falls through to building it.
+# with what they need on disk. Exit 20 is the resolver answering "nothing there";
+# any other failure means the probe itself could not run, and reporting that as a
+# missing binary would send an otherwise healthy push into a Rust build and a wait
+# on the machine-wide heavy gate before failing for the real reason anyway.
 scan_cleanup_tool_is_available() {
-  node --input-type=module -e '
+  probe_status=0
+  probe_error=$(node --input-type=module -e '
 import {pathToFileURL} from "node:url";
 import {tsImport} from "tsx/esm/api";
 const root = pathToFileURL(`${process.cwd()}/`).href;
 const {resolveCliNativeToolPath} = await tsImport("./scripts/scanCleanupCliAdapters.ts", root);
-process.exit(resolveCliNativeToolPath("evb-scan-cleanup", "scan-cleanup", process.cwd(), process.env.EVB_SCAN_CLEANUP_PATH) ? 0 : 1);
-' >/dev/null 2>&1
+process.exit(resolveCliNativeToolPath("evb-scan-cleanup", "scan-cleanup", process.cwd(), process.env.EVB_SCAN_CLEANUP_PATH) ? 0 : 20);
+' 2>&1 >/dev/null) || probe_status=$?
+  case "$probe_status" in
+    0) return 0 ;;
+    20) return 1 ;;
+  esac
+  printf '%s\n' "error: cannot tell whether the scan-cleanup tool is present (probe exited $probe_status)" >&2
+  if [ -n "$probe_error" ]; then
+    printf '%s\n' "$probe_error" >&2
+  fi
+  exit 1
 }
 
 run_stroke_weight_oracle() {

@@ -1,9 +1,18 @@
 import {isRecord} from '@contracts/runtimeGuards';
-import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+    chmodSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    writeFileSync,
+} from 'node:fs';
 import {
     readFile,
     readdir,
 } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
     describe,
@@ -78,18 +87,6 @@ function shellFunction(source: string, functionName: string) {
     return nextFunction === -1
         ? source.slice(start)
         : source.slice(start, start + 1 + nextFunction);
-}
-
-function shellCaseBranch(source: string, label: string) {
-    const start = source.indexOf(`\n  ${label})\n`);
-    if (start === -1) {
-        throw new Error(`Missing shell case branch: ${label}`);
-    }
-    const end = source.indexOf('\n    ;;', start);
-    if (end === -1) {
-        throw new Error(`Unterminated shell case branch: ${label}`);
-    }
-    return source.slice(start, end);
 }
 
 function parseWorkflowJobs(workflow: string) {
@@ -194,6 +191,87 @@ async function collectTestFiles(directory: string): Promise<string[]> {
     }));
 
     return nestedFiles.flat();
+}
+
+interface IPrePushScenario {
+    nativeChanged: boolean;
+    probeExit: number;
+}
+
+// Runs the real pre-push branch with every external command replaced by a
+// logging stub. Shell indentation carries no meaning, so which build an ordinary
+// push reaches can only be established by what the script actually does.
+function runPrePushBranch({
+    nativeChanged,
+    probeExit,
+}: IPrePushScenario) {
+    const workdir = mkdtempSync(path.join(tmpdir(), 'scan-cleanup-pre-push-'));
+    const binDir = path.join(workdir, 'bin');
+    const logPath = path.join(workdir, 'calls.log');
+    mkdirSync(binDir, {recursive: true});
+    mkdirSync(path.join(workdir, 'native/target/release'), {recursive: true});
+
+    function stub(commandPath: string, body: string) {
+        writeFileSync(commandPath, `#!/bin/sh\n${body}\n`);
+        chmodSync(commandPath, 0o755);
+    }
+
+    function record(label: string) {
+        return `printf '%s\\n' ${label} >> '${logPath}'`;
+    }
+
+    stub(path.join(binDir, 'git'), 'case "$*" in *--abbrev-ref*) printf \'%s\\n\' origin/main ;; esac\nexit 0');
+    stub(path.join(binDir, 'cargo'), `${record('catastrophe-oracle')}`);
+    stub(path.join(binDir, 'pnpm'), `${record('build')}`);
+    stub(path.join(workdir, 'native/target/release/evb-scan-cleanup'), `${record('stroke-weight-oracle')}`);
+    stub(path.join(binDir, 'node'), [
+        'case "$*" in',
+        `  *classify-changed-areas.mjs*) printf 'native_or_build=%s\\n' '${nativeChanged}' > "$GITHUB_OUTPUT" ;;`,
+        `  *--input-type=module*) ${record('tool-probe')}; exit ${probeExit} ;;`,
+        `  *stroke-weight-oracle*|*assert-calibration*) ${record('stroke-weight-oracle')} ;;`,
+        `  *scan-cleanup-preview-harness.mjs*|*scan-cleanup-word-loss-audit.mjs*) ${record('export-oracles')} ;;`,
+        'esac',
+    ].join('\n'));
+
+    let failed = false;
+    let stderr = '';
+    try {
+        execFileSync('/bin/sh', [
+            path.resolve(process.cwd(), 'scripts/ci/scan-cleanup-oracles.sh'),
+            'pre-push',
+            '.devkit/scratch/pre-push-oracles',
+            'origin',
+        ], {
+            cwd: workdir,
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                PATH: `${binDir}:${process.env.PATH ?? ''}`,
+            },
+            // execFileSync forwards stderr to the parent unless it is captured,
+            // and one scenario here deliberately makes the script complain.
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+        });
+    } catch (error) {
+        failed = true;
+        stderr = isRecord(error) && typeof error.stderr === 'string' ? error.stderr : '';
+    }
+
+    // Duplicates collapse so the log reads as the sequence of decisions taken,
+    // not the number of commands each one happens to run.
+    const calls = existsSync(logPath)
+        ? [...new Set(readFileSync(logPath, 'utf8').split('\n').filter(Boolean))]
+        : [];
+
+    return {
+        calls,
+        failed,
+        stderr,
+    };
 }
 
 describe('CI topology policy', () => {
@@ -372,33 +450,62 @@ describe('CI topology policy', () => {
         expect(oracleScript).toContain('major === 22 && minor >= 18');
         expect(oracleScript).toContain('warning: skipping scan-cleanup preview and word-loss pre-push oracles');
 
-        // The export oracles drive the built tool on every push, so gating the
-        // build on changed native sources made the hook fail outright on any
-        // checkout that had not already built it. A missing binary must still
-        // reach a build, and that build must precede the oracles.
-        const prePushBranch = shellCaseBranch(oracleScript, 'pre-push');
-        expect(
-            /elif\s+!\s+scan_cleanup_tool_is_available;\s*then\s+build_scan_cleanup_tool/u.test(prePushBranch),
-            'a missing scan-cleanup binary must still reach a build on an ordinary push',
-        ).toBe(true);
-        expect(
-            prePushBranch.indexOf('build_scan_cleanup_tool'),
-            'the scan-cleanup build must precede the export oracles that drive it',
-        ).toBeLessThan(prePushBranch.indexOf('run_export_oracles'));
-
-        // Building takes the machine-wide heavy gate and needs a Rust toolchain,
-        // so it must stay behind a guard: an unconditional call would make every
-        // docs-only push wait on gate capacity and require cargo on PATH.
-        const buildLines = prePushBranch.split('\n').filter(line => line.includes('build_scan_cleanup_tool'));
-        expect(buildLines.length, 'pre-push must be able to build the scan-cleanup tool').toBeGreaterThan(0);
-        for (const line of buildLines) {
-            expect(
-                /^ {6,}build_scan_cleanup_tool$/u.test(line),
-                `the scan-cleanup build must stay guarded so an ordinary push does not take the heavy gate: ${line}`,
-            ).toBe(true);
-        }
+        // Which build the pre-push branch reaches is pinned by running it, below.
+        // The probe's own contract cannot be: that test stubs node, so it can see
+        // neither the resolver being asked nor the status that separates a missing
+        // binary from a probe that could not answer at all.
+        const probe = shellFunction(oracleScript, 'scan_cleanup_tool_is_available');
+        expect(probe, 'the probe must ask the resolver the export oracles use').toContain('resolveCliNativeToolPath');
+        expect(probe, 'absence needs a status of its own, distinct from a failed probe').toContain('? 0 : 20');
         expect(workflow).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
         expect(prePush).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
+    });
+
+    it('reaches a scan-cleanup build on pre-push only when the oracles would otherwise fail', () => {
+        // Every push runs the export oracles against the built tool, so a checkout
+        // that never built it could not push at all. Building is also what takes
+        // the machine-wide heavy gate and needs a Rust toolchain, so a docs-only
+        // push must not reach it. Both halves are decisions, not text.
+        const nativeChanged = runPrePushBranch({
+            nativeChanged: true,
+            probeExit: 0,
+        });
+        expect(nativeChanged.calls, 'changed native sources must rebuild and re-run the stroke oracle').toEqual([
+            'catastrophe-oracle',
+            'build',
+            'stroke-weight-oracle',
+            'export-oracles',
+        ]);
+
+        const toolPresent = runPrePushBranch({
+            nativeChanged: false,
+            probeExit: 0,
+        });
+        expect(toolPresent.calls, 'an ordinary push with the tool present must not take the heavy gate').toEqual([
+            'tool-probe',
+            'export-oracles',
+        ]);
+
+        const toolMissing = runPrePushBranch({
+            nativeChanged: false,
+            probeExit: 20,
+        });
+        expect(toolMissing.calls, 'a checkout that never built the tool must still reach a build').toEqual([
+            'tool-probe',
+            'build',
+            'export-oracles',
+        ]);
+
+        // A probe that cannot answer is not an answer. Reading its failure as
+        // absence sends a healthy docs-only push into a Rust build and a wait on
+        // the heavy gate before it fails for the real reason anyway.
+        const probeBroken = runPrePushBranch({
+            nativeChanged: false,
+            probeExit: 1,
+        });
+        expect(probeBroken.failed, 'a probe that cannot run must stop the push').toBe(true);
+        expect(probeBroken.calls, 'a broken probe must not be read as a missing binary').toEqual(['tool-probe']);
+        expect(probeBroken.stderr).toContain('cannot tell whether the scan-cleanup tool is present');
     });
 
     it('runs regular packaged-content verification against extracted Store AppX contents', async () => {
