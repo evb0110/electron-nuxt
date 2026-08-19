@@ -273,4 +273,79 @@ describe('Electron automation graceful shutdown policy', () => {
             unrelated.kill('SIGKILL');
         }
     });
+
+    it('reports a force-killed process as terminated once it is actually gone', async () => {
+        // SIGKILL only schedules teardown, so a process that ignores SIGTERM is
+        // still visible to `kill(pid, 0)` when the signal is delivered. Every
+        // caller reads the liveness check straight after termination as its
+        // result, which turned a successfully killed session process into a
+        // refusal that stranded the session directory and demanded a second
+        // stop. The child confirms its handler is installed before termination
+        // starts, so the forced-kill path is the one under test.
+        const {
+            isProcessAlive,
+            killProcessTree,
+        } = await vi.importActual<typeof TElectronRunProcessTree>(
+            '@scripts/electron-run/electronRunProcessTree',
+        );
+        const stubborn = spawn(process.execPath, [
+            '-e',
+            'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready\\n");',
+        ], {stdio: [
+            'ignore',
+            'pipe',
+            'ignore',
+        ]});
+        const stubbornPid = stubborn.pid ?? 0;
+        try {
+            expect(stubbornPid).toBeGreaterThan(0);
+            await new Promise<void>((resolve, reject) => {
+                if (!stubborn.stdout) {
+                    reject(new Error('stubborn child was spawned without stdout'));
+                    return;
+                }
+                stubborn.stdout.once('data', () => resolve());
+                stubborn.once('error', reject);
+                // A child that starts and then dies emits neither, so without this
+                // the suite would wait out its own timeout instead of reporting
+                // that the fixture never became ready.
+                stubborn.once('exit', (code, signal) => reject(new Error(
+                    `stubborn child exited before readiness (code ${code}, signal ${signal})`,
+                )));
+            });
+
+            await killProcessTree(stubbornPid, 150);
+
+            expect(
+                isProcessAlive(stubbornPid),
+                'a force-killed process must be observed gone before termination reports its result',
+            ).toBe(false);
+        } finally {
+            stubborn.kill('SIGKILL');
+        }
+    });
+
+    it('waits for Windows termination to land before reporting a result', () => {
+        // The forced-kill test above proves the POSIX branch only. Unit tests run
+        // on Ubuntu and no lane runs this suite on Windows, so removing the win32
+        // wait would leave every required check green. TerminateProcess is
+        // asynchronous like SIGKILL, and both branches serve the same caller
+        // contract: liveness is read as the result immediately afterwards.
+        const source = readProjectSource('scripts/electron-run/electronRunProcessTree.ts');
+        // Descendant collection carries its own win32 check, so the search has to
+        // start inside the terminating function to reach the right branch.
+        const killIndex = source.indexOf('export async function killProcessTree(');
+        expect(killIndex, 'process-tree termination must stay in this module').toBeGreaterThan(-1);
+
+        const branchIndex = source.indexOf('if (process.platform === \'win32\')', killIndex);
+        expect(branchIndex, 'process-tree termination must still special-case Windows').toBeGreaterThan(-1);
+
+        const taskkillIndex = source.indexOf('taskkill', branchIndex);
+        const waitIndex = source.indexOf('await waitForProcessesExit(', branchIndex);
+        const returnIndex = source.indexOf('return;', branchIndex);
+
+        expect(taskkillIndex, 'the Windows branch must terminate the tree').toBeGreaterThan(branchIndex);
+        expect(waitIndex, 'Windows termination must be awaited before its result is read').toBeGreaterThan(taskkillIndex);
+        expect(returnIndex, 'the Windows branch must not return before the wait').toBeGreaterThan(waitIndex);
+    });
 });

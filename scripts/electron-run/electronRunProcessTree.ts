@@ -6,6 +6,11 @@ import {
 import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 
+// SIGKILL only schedules teardown, so a killed process stays visible to
+// `kill(pid, 0)` until the kernel reaps it. Callers read the liveness check
+// straight after termination as its result, so the tree must be observed gone.
+const FORCED_EXIT_TIMEOUT_MS = 2_000;
+
 export async function findFreePort(): Promise<number> {
     return new Promise((resolve, reject) => {
         const server = createNetServer();
@@ -153,6 +158,9 @@ export async function killProcessTree(pid: number, graceMs = 1500) {
         try {
             execSync(`taskkill /PID ${pid} /T /F >NUL 2>&1`);
         } catch {}
+        // TerminateProcess is asynchronous like SIGKILL, so the process stays
+        // visible to the liveness check callers read straight afterwards.
+        await waitForProcessesExit([pid], FORCED_EXIT_TIMEOUT_MS);
         return;
     }
 
@@ -177,6 +185,7 @@ export async function killProcessTree(pid: number, graceMs = 1500) {
     const remaining = targets.filter(targetPid => isProcessAlive(targetPid));
     if (remaining.length > 0) {
         killPids(remaining, { signal: 'SIGKILL' });
+        await waitForProcessesExit(remaining, FORCED_EXIT_TIMEOUT_MS);
     }
 }
 
@@ -201,15 +210,21 @@ export async function killSpawnedProcessTree(child: ChildProcess | null | undefi
     } catch {}
 }
 
-export async function waitForProcessExit(pid: number, timeoutMs: number) {
+async function waitForProcessesExit(pids: readonly number[], timeoutMs: number) {
+    const targets = uniq([...pids]);
+    const hasSurvivor = () => targets.some(pid => isProcessAlive(pid));
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-        if (!isProcessAlive(pid)) {
+        if (!hasSurvivor()) {
             return true;
         }
         await delay(100);
     }
-    return !isProcessAlive(pid);
+    return !hasSurvivor();
+}
+
+export async function waitForProcessExit(pid: number, timeoutMs: number) {
+    return waitForProcessesExit([pid], timeoutMs);
 }
 
 export function isProcessAlive(pid: number) {
