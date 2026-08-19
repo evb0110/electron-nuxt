@@ -886,6 +886,53 @@ mod tests {
     }
 
     #[test]
+    fn rule_admission_tracks_the_two_millimetre_thickness_bound() {
+        // Thickness alone decides admission, so the boundary between a printed
+        // rule and a line of type is a physical 2 mm that has to survive the
+        // pixel rounding at whatever dpi a page renders at. 360 dpi rounds the
+        // bound down to 28 px and the 299 dpi the spread CLI renders with
+        // rounds it up to 24, so both sides are pinned at both densities.
+        for (dpi, admitted, rejected) in [(360.0_f64, 28usize, 29usize), (299.0, 24, 25)] {
+            let mut raw = GrayImage::new(640, 520, 220);
+            let binary = BinaryImage::new(640, 520);
+            let mut text_vicinity = BinaryImage::new(640, 520);
+
+            // Each band needs a text row inside the 14 mm lookback above it,
+            // so the two differ in thickness and in nothing else.
+            for (top, thickness) in [(140usize, admitted), (380, rejected)] {
+                for y in top - 80..top - 50 {
+                    for x in 40..600 {
+                        text_vicinity.set(x, y, true);
+                    }
+                }
+                for y in top..top + thickness {
+                    for x in 40..600 {
+                        raw.set(x, y, 120);
+                    }
+                }
+            }
+
+            let restored = restore_genuine_horizontal_rules(
+                &binary,
+                &raw,
+                None,
+                None,
+                Some(&text_vicinity),
+                dpi,
+            );
+
+            assert!(
+                (140..140 + admitted).all(|y| (40..600).all(|x| restored.get(x, y))),
+                "a {admitted} px band exactly at the 2 mm bound was rejected at {dpi} dpi"
+            );
+            assert!(
+                (380..380 + rejected).all(|y| (40..600).all(|x| !restored.get(x, y))),
+                "a {rejected} px band one pixel over the 2 mm bound was admitted at {dpi} dpi"
+            );
+        }
+    }
+
+    #[test]
     fn thin_rule_below_text_survives_binarize_postprocess_and_bleed_chain() {
         let mut raw = GrayImage::new(420, 160, 220);
         let mut text_mask = BinaryImage::new(420, 160);
