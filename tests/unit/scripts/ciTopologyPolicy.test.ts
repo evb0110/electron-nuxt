@@ -6,6 +6,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    rmSync,
     writeFileSync,
 } from 'node:fs';
 import {
@@ -236,42 +237,51 @@ function runPrePushBranch({
     let failed = false;
     let stderr = '';
     try {
-        execFileSync('/bin/sh', [
-            path.resolve(process.cwd(), 'scripts/ci/scan-cleanup-oracles.sh'),
-            'pre-push',
-            '.devkit/scratch/pre-push-oracles',
-            'origin',
-        ], {
-            cwd: workdir,
-            encoding: 'utf8',
-            env: {
-                ...process.env,
-                PATH: `${binDir}:${process.env.PATH ?? ''}`,
-            },
-            // execFileSync forwards stderr to the parent unless it is captured,
-            // and one scenario here deliberately makes the script complain.
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+        try {
+            execFileSync('/bin/sh', [
+                path.resolve(process.cwd(), 'scripts/ci/scan-cleanup-oracles.sh'),
+                'pre-push',
+                '.devkit/scratch/pre-push-oracles',
+                'origin',
+            ], {
+                cwd: workdir,
+                encoding: 'utf8',
+                env: {
+                    ...process.env,
+                    PATH: `${binDir}:${process.env.PATH ?? ''}`,
+                },
+                // execFileSync forwards stderr to the parent unless it is captured,
+                // and one scenario here deliberately makes the script complain.
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'pipe',
+                ],
+            });
+        } catch (error) {
+            failed = true;
+            stderr = isRecord(error) && typeof error.stderr === 'string' ? error.stderr : '';
+        }
+
+        // Duplicates collapse so the log reads as the sequence of decisions taken,
+        // not the number of commands each one happens to run.
+        const calls = existsSync(logPath)
+            ? [...new Set(readFileSync(logPath, 'utf8').split('\n').filter(Boolean))]
+            : [];
+
+        return {
+            calls,
+            failed,
+            stderr,
+        };
+    } finally {
+        // Each scenario stages stub executables and a native target tree; leaving
+        // them behind would grow the system temporary directory every test run.
+        rmSync(workdir, {
+            recursive: true,
+            force: true,
         });
-    } catch (error) {
-        failed = true;
-        stderr = isRecord(error) && typeof error.stderr === 'string' ? error.stderr : '';
     }
-
-    // Duplicates collapse so the log reads as the sequence of decisions taken,
-    // not the number of commands each one happens to run.
-    const calls = existsSync(logPath)
-        ? [...new Set(readFileSync(logPath, 'utf8').split('\n').filter(Boolean))]
-        : [];
-
-    return {
-        calls,
-        failed,
-        stderr,
-    };
 }
 
 describe('CI topology policy', () => {
