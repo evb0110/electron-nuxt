@@ -623,3 +623,50 @@ describe('app-tooltip-only rule', () => {
         );
     });
 });
+
+describe('destructuring-property-newline rule', () => {
+    it('splits properties without discarding annotations, rest elements, or comments', () => {
+        tester.run(
+            'destructuring-property-newline',
+            rules['destructuring-property-newline'] as Parameters<typeof tester.run>[1],
+            {
+                valid: [
+                    { code: 'const {alpha} = source;' },
+                    { code: 'const {\n    alpha,\n    beta,\n} = source;' },
+                ],
+                invalid: [
+                    {
+                        code: 'const {alpha, beta} = source;',
+                        output: 'const {\n    alpha,\n    beta,\n} = source;',
+                        errors: [{message: 'Destructuring properties should be on separate lines when there are 2 or more'}],
+                    },
+                    {
+                        code: 'function useThing({alpha, beta}: IThing) {}',
+                        output: 'function useThing({\n    alpha,\n    beta,\n}: IThing) {}',
+                        errors: 1,
+                    },
+                    {
+                        code: 'function useThing({\n    alpha,\n    beta, gamma\n}: IThing) {}',
+                        output: 'function useThing({\n    alpha,\n    beta,\n    gamma,\n}: IThing) {}',
+                        errors: [{message: 'Each destructuring property should be on its own line'}],
+                    },
+                    {
+                        code: 'function maybe({alpha, beta}: IOpts = {}) {}',
+                        output: 'function maybe({\n    alpha,\n    beta,\n}: IOpts = {}) {}',
+                        errors: 1,
+                    },
+                    {
+                        code: 'const {alpha, ...rest} = source;',
+                        output: 'const {\n    alpha,\n    ...rest\n} = source;',
+                        errors: 1,
+                    },
+                    {
+                        code: 'const {alpha, /* load-bearing */ beta} = source;',
+                        output: null,
+                        errors: 1,
+                    },
+                ],
+            },
+        );
+    });
+});
