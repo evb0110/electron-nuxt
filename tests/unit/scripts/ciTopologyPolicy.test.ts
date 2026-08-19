@@ -360,10 +360,31 @@ describe('CI topology policy', () => {
         expect(packageScripts['check:static:reports']).toContain('reportPlatformManifestConsumers.ts');
         expect(packageScripts['check:static:assets']).toContain('check-web-deploy-source.mjs');
         expect(prQuality).toContain('run: pnpm run typecheck');
-        expectExactRunStep(prQuality, 'pnpm run check:production-dependency-audit');
+        expect(prQuality).toContain('run: pnpm run test:unit');
+
+        // These three gates went unrun for days because only the invisible
+        // nightly lane checked them. They belong on the merge-blocking lane, but
+        // behind the tests: a job stops at its first failure, and a three-second
+        // dead-export check must not be the reason a run reports no test result.
+        expectExactRunStep(prQuality, 'pnpm run check:production-dependency-audit:production-only');
         expectExactRunStep(prQuality, 'pnpm run fallow');
         expectExactRunStep(prQuality, 'pnpm run fallow:dupes');
-        expect(prQuality).toContain('run: pnpm run test:unit');
+        for (const gate of [
+            'pnpm run check:production-dependency-audit:production-only',
+            'pnpm run fallow',
+            'pnpm run fallow:dupes',
+        ]) {
+            expect(
+                prQuality.indexOf('run: pnpm run test:coverage'),
+                `${gate} must not mask the unit tests and coverage tripwire`,
+            ).toBeLessThan(prQuality.indexOf(`run: ${gate}`));
+        }
+
+        // The full-graph audit stays on the maintenance lane. It rejects any
+        // advisory at any severity across dev tooling and permits no waiver, so
+        // on the merge-blocking lane one upstream publication would stop every
+        // pull request in the repository for something no author introduced.
+        expect(prQuality).not.toContain('run: pnpm run check:production-dependency-audit\n');
         expect(packageScripts['test:unit']).toContain('validation-gates.mjs heavy');
         for (const project of [
             'unit-core',
@@ -747,11 +768,13 @@ describe('CI topology policy', () => {
     it('reports every maintenance gate even after an earlier gate fails', async () => {
         // A job stops at its first failing step, so a single broken gate used to
         // hide every later one and leave the expensive checks unrun for days.
-        // Each gate must therefore survive an earlier failure while still
-        // failing the job, and setup must keep aborting the rest.
+        // Each gate must therefore survive an earlier failure while still failing
+        // the job. Provisioning is the exception: a gate cannot mean anything
+        // without the tools it drives, and letting the rest run after a failed
+        // apt or rustup reports gates as broken when only the runner was.
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const jobs = parseWorkflowJobs(workflow);
-        const gateCondition = '${{ !cancelled() && steps.install.outcome == \'success\' }}';
+        const gateCondition = '${{ !cancelled() && steps.setup.outcome == \'success\' }}';
 
         for (const jobName of [
             'nightly_maintenance',
@@ -760,21 +783,20 @@ describe('CI topology policy', () => {
             const steps = jobs[jobName]?.steps ?? [];
             expect(steps.length, `${jobName} must declare steps`).toBeGreaterThan(0);
 
-            const installIndex = steps.findIndex(step => step.id === 'install');
-            expect(installIndex, `${jobName} must identify its dependency install step`).toBeGreaterThan(-1);
-            expect(
-                steps[installIndex]?.run?.trim(),
-                `${jobName} must key its gates on the dependency install itself`,
-            ).toBe('node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+            const setupIndex = steps.findIndex(step => step.id === 'setup');
+            expect(setupIndex, `${jobName} must mark the last step that provisions its tools`).toBeGreaterThan(-1);
 
+            // Keying on the final provisioning step is what makes an earlier
+            // provisioning failure skip every gate: GitHub skips the remaining
+            // unconditional setup, so this step reports 'skipped', not 'success'.
             const conditionalSetup = steps
-                .slice(0, installIndex + 1)
+                .slice(0, setupIndex + 1)
                 .filter(step => step.if !== undefined)
                 .map(step => step.name);
-            expect(conditionalSetup, `${jobName} setup steps must stay unconditional`).toEqual([]);
+            expect(conditionalSetup, `${jobName} provisioning must stay unconditional so a broken runner aborts`).toEqual([]);
 
             const abortingGates = steps
-                .slice(installIndex + 1)
+                .slice(setupIndex + 1)
                 .filter(step => step.if !== gateCondition)
                 .map(step => step.name);
             expect(abortingGates, `${jobName} gates that would skip the rest of the job`).toEqual([]);
