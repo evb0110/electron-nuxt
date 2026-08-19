@@ -92,6 +92,36 @@ function shellCaseBranch(source: string, label: string) {
     return source.slice(start, end);
 }
 
+const SHELL_CONTINUATION_KEYWORDS = new Set([
+    'do',
+    'elif',
+    'else',
+    'then',
+]);
+
+function unconditionalShellCommands(branch: string) {
+    const commands: string[] = [];
+    let depth = 0;
+    for (const line of branch.split('\n')) {
+        const statement = line.trim();
+        if (/^(?:fi|done|esac)\b/u.test(statement)) {
+            depth -= 1;
+        } else if (/^(?:if|for|while|until|case)\b/u.test(statement)) {
+            depth += 1;
+        } else if (
+            depth === 0
+            && !SHELL_CONTINUATION_KEYWORDS.has(statement)
+            && /^[a-z_][a-z0-9_]*$/u.test(statement)
+        ) {
+            commands.push(statement);
+        }
+    }
+    if (depth !== 0) {
+        throw new Error(`Unbalanced shell blocks in case branch (depth ${depth})`);
+    }
+    return commands;
+}
+
 function parseWorkflowJobs(workflow: string) {
     const parsed = getStaticYAMLValue(parseYAML(workflow)) as unknown;
     if (!isRecord(parsed) || !isRecord(parsed.jobs)) {
@@ -374,19 +404,17 @@ describe('CI topology policy', () => {
 
         // The export oracles drive the built tool on every push, so gating the
         // build on changed native sources made the hook fail outright on any
-        // checkout that had not already built it. Four-space indentation is the
-        // case-body level: nesting the build back under a condition would
-        // indent it further and fail this pin.
-        const prePushBranch = shellCaseBranch(oracleScript, 'pre-push');
-        const buildIndex = prePushBranch.indexOf('\n    build_scan_cleanup_tool\n');
+        // checkout that had not already built it. Pinning the whole
+        // unconditional sequence keeps the build reachable on every push, keeps
+        // it ahead of the oracles that need it, and keeps everything else
+        // conditional so an ordinary push does not silently grow work.
         expect(
-            buildIndex,
-            'the pre-push oracles must build their tool unconditionally',
-        ).toBeGreaterThan(-1);
-        expect(
-            prePushBranch.indexOf('run_export_oracles'),
-            'the pre-push export oracles must run after the tool they drive is built',
-        ).toBeGreaterThan(buildIndex);
+            unconditionalShellCommands(shellCaseBranch(oracleScript, 'pre-push')),
+            'pre-push must build the scan-cleanup tool on every push, before the oracles that drive it',
+        ).toEqual([
+            'build_scan_cleanup_tool',
+            'run_export_oracles',
+        ]);
         expect(workflow).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
         expect(prePush).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
     });
