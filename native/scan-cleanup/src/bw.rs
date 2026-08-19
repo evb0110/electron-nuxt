@@ -127,6 +127,7 @@ struct StrokeBudgetComponent {
     center_x: f64,
     center_y: f64,
     ridge_width_px: f64,
+    mean_width_px: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -209,7 +210,8 @@ impl LineStrokeBudget {
             {
                 continue;
             }
-            let ridge_width_px = component_ridge_width(source, &map, component.label);
+            let (ridge_width_px, mean_width_px) =
+                component_ridge_width(source, &map, component.label);
             if ridge_width_px <= 0.0 {
                 continue;
             }
@@ -220,6 +222,7 @@ impl LineStrokeBudget {
                     center_x: sums_x[component.label as usize] as f64 / component.area as f64,
                     center_y: sums_y[component.label as usize] as f64 / component.area as f64,
                     ridge_width_px,
+                    mean_width_px,
                 },
             ));
         }
@@ -314,19 +317,45 @@ impl LineStrokeBudget {
         ))
     }
 
-    fn local_budget_at(&self, center_x: f64, center_y: f64) -> Option<LocalStrokeBudget> {
-        let line = self
-            .lines
-            .iter()
-            .filter(|line| line.intervention_enabled)
-            .filter_map(|line| {
-                let distance = (line.center_y - center_y).abs();
-                (distance <= self.maximum_center_gap).then_some((line, distance))
-            })
-            .min_by(|left, right| left.1.total_cmp(&right.1))?
-            .0;
-        local_stroke_budget(line, center_x, self.dpi)
+    fn nearest_line(&self, center_y: f64) -> Option<&StrokeBudgetLine> {
+        Some(
+            self.lines
+                .iter()
+                .filter(|line| line.intervention_enabled)
+                .filter_map(|line| {
+                    let distance = (line.center_y - center_y).abs();
+                    (distance <= self.maximum_center_gap).then_some((line, distance))
+                })
+                .min_by(|left, right| left.1.total_cmp(&right.1))?
+                .0,
+        )
     }
+
+    fn local_budget_at(&self, center_x: f64, center_y: f64) -> Option<LocalStrokeBudget> {
+        local_stroke_budget(self.nearest_line(center_y)?, center_x, self.dpi)
+    }
+
+    fn local_median_mean_width_at(&self, center_x: f64, center_y: f64) -> Option<f64> {
+        let mut widths = local_stroke_window(self.nearest_line(center_y)?, center_x, self.dpi)?
+            .iter()
+            .map(|component| component.mean_width_px)
+            .collect::<Vec<_>>();
+        median_f64(&mut widths)
+    }
+}
+
+fn local_stroke_window<'a>(
+    line: &'a StrokeBudgetLine,
+    center_x: f64,
+    dpi: f64,
+) -> Option<Vec<&'a StrokeBudgetComponent>> {
+    let window_px = STROKE_BUDGET_LOCAL_WINDOW_MM * dpi.max(1.0) / 25.4;
+    let local = line
+        .components
+        .iter()
+        .filter(|component| (component.center_x - center_x).abs() <= window_px)
+        .collect::<Vec<_>>();
+    (local.len() >= STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS).then_some(local)
 }
 
 fn local_stroke_budget(
@@ -334,16 +363,10 @@ fn local_stroke_budget(
     center_x: f64,
     dpi: f64,
 ) -> Option<LocalStrokeBudget> {
-    let window_px = STROKE_BUDGET_LOCAL_WINDOW_MM * dpi.max(1.0) / 25.4;
-    let mut widths = line
-        .components
+    let mut widths = local_stroke_window(line, center_x, dpi)?
         .iter()
-        .filter(|component| (component.center_x - center_x).abs() <= window_px)
         .map(|component| component.ridge_width_px)
         .collect::<Vec<_>>();
-    if widths.len() < STROKE_BUDGET_MINIMUM_LOCAL_COMPONENTS {
-        return None;
-    }
     median_f64(&mut widths)
         .filter(|median_width_px| {
             median_width_px * (STROKE_BUDGET_TOLERANCE_RATIO - 1.0)
@@ -400,9 +423,9 @@ fn median_f64(values: &mut [f64]) -> Option<f64> {
     })
 }
 
-fn component_ridge_width(source: &BinaryImage, map: &ComponentMap, label: u32) -> f64 {
+fn component_ridge_width(source: &BinaryImage, map: &ComponentMap, label: u32) -> (f64, f64) {
     let Some(component) = map.components().get(label as usize - 1) else {
-        return 0.0;
+        return (0.0, 0.0);
     };
     let width = component.right - component.left + 1;
     let height = component.bottom - component.top + 1;
@@ -413,9 +436,15 @@ fn component_ridge_width(source: &BinaryImage, map: &ComponentMap, label: u32) -
     ridge_width_of_isolated_component(&isolated)
 }
 
-fn ridge_width_of_isolated_component(component: &BinaryImage) -> f64 {
-    if component.count_black() == 0 {
-        return 0.0;
+/// Returns the ridge width the OpenCV conformance pin owns, paired with a
+/// continuous mean-distance width read off the same chamfer field. Ridge width
+/// is twice an integer chamfer distance and therefore sits on a 2-pixel
+/// lattice; the mean estimator has no lattice, which is what lets a bound be
+/// expressed as a fraction of a line's median rather than a multiple of it.
+fn ridge_width_of_isolated_component(component: &BinaryImage) -> (f64, f64) {
+    let ink = component.count_black();
+    if ink == 0 {
+        return (0.0, 0.0);
     }
     let padding = 2usize;
     let width = component.width() + padding * 2;
@@ -448,12 +477,14 @@ fn ridge_width_of_isolated_component(component: &BinaryImage) -> f64 {
         }
     }
     let mut ridge = Vec::new();
+    let mut distance_sum = 0.0f64;
     for y in padding..height - padding {
         for x in padding..width - padding {
             let value = distances[y * width + x];
             if value == 0 {
                 continue;
             }
+            distance_sum += f64::from(value as f32 * DISTANCE_L2_5_SCALE);
             let mut local_maximum = 0u32;
             for neighbor_y in y - 1..=y + 1 {
                 for neighbor_x in x - 1..=x + 1 {
@@ -465,7 +496,10 @@ fn ridge_width_of_isolated_component(component: &BinaryImage) -> f64 {
             }
         }
     }
-    median_f64(&mut ridge).unwrap_or_default()
+    (
+        median_f64(&mut ridge).unwrap_or_default(),
+        (4.0 * distance_sum / ink as f64 - 2.0).max(0.0),
+    )
 }
 
 fn distance_l2_5_forward(distances: &[u32], width: usize, x: usize, y: usize) -> u32 {
@@ -718,13 +752,13 @@ where
         if component.get(x, y) && can_remove(component, x, y) {
             component.set(x, y, false);
             removed += 1;
-            let current_width = ridge_width_of_isolated_component(component);
+            let (current_width, _) = ridge_width_of_isolated_component(component);
             if current_width <= target_width_px {
                 return (removed, current_width);
             }
         }
     }
-    (removed, ridge_width_of_isolated_component(component))
+    (removed, ridge_width_of_isolated_component(component).0)
 }
 
 fn topology_preserving_boundary_removal(component: &BinaryImage, x: usize, y: usize) -> bool {
@@ -840,7 +874,7 @@ fn cap_added_ink_to_stroke_budget(
         let Some(local_budget) = comparison_budget.local_budget_at(center_x, center_y) else {
             continue;
         };
-        let candidate_width = component_ridge_width(candidate, &map, component.label);
+        let candidate_width = component_ridge_width(candidate, &map, component.label).0;
         // The cap is an offender guard, not a normalizer. A line/component
         // already within the oracle's >1.6x tolerance is bit-for-bit untouched.
         if candidate_width <= local_budget.maximum_width_px {
@@ -851,7 +885,7 @@ fn cap_added_ink_to_stroke_budget(
             .components()
             .iter()
             .map(|base_component| {
-                component_ridge_width(&base_overlap, &base_map, base_component.label)
+                component_ridge_width(&base_overlap, &base_map, base_component.label).0
             })
             .fold(0.0f64, f64::max);
         // A merge can evade the ridge cap when two already complete glyphs have
@@ -963,7 +997,7 @@ fn trim_added_ink_to_budget(
     maximum_width_px: f64,
 ) -> (usize, bool) {
     let mut removed = 0usize;
-    let mut current_width = ridge_width_of_isolated_component(candidate);
+    let mut current_width = ridge_width_of_isolated_component(candidate).0;
     while current_width > maximum_width_px {
         let mut boundary = Vec::new();
         for y in 0..candidate.height() {
@@ -995,7 +1029,7 @@ fn trim_added_ink_to_budget(
             {
                 candidate.set(x, y, false);
                 removed += 1;
-                current_width = ridge_width_of_isolated_component(candidate);
+                current_width = ridge_width_of_isolated_component(candidate).0;
                 if current_width <= maximum_width_px {
                     return (removed, true);
                 }
@@ -1004,7 +1038,7 @@ fn trim_added_ink_to_budget(
         if removed == before_ring {
             break;
         }
-        current_width = ridge_width_of_isolated_component(candidate);
+        current_width = ridge_width_of_isolated_component(candidate).0;
     }
     (removed, current_width <= maximum_width_px)
 }
@@ -2463,43 +2497,78 @@ fn rescue_component_scoped_faint_strokes_budgeted(
     let mut retained = damaged.clone();
 
     if selected_mode == BinarizationMode::Wolf {
-        let damaged_components = ComponentMap::from_binary(damaged);
-        for component in damaged_components.components() {
-            if !is_text_like_rescue_component(component, dpi, RescueAdmission::HaloStrip) {
+        // The unit of decision is the dark core, not the thresholded blob.
+        // Neighbouring glyphs merge only through the gray halo this pass exists
+        // to remove, so a blob-scoped decision lets a chance contact between two
+        // letters exempt a whole word from a correction its neighbours receive.
+        // Cores are separated by definition: they never touch through halo.
+        let core = BinaryImage::from_fn_parallel(damaged.width(), damaged.height(), |x, y| {
+            damaged.get(x, y) && raw.get(x, y) < RESCUE_SOLID_DEPTH
+        });
+        let core_map = ComponentMap::from_binary(&core);
+        let mut oversized = Vec::new();
+        for component in core_map.components() {
+            let scan_left = component.left.saturating_sub(1);
+            let scan_right = component.right.saturating_add(1).min(damaged.width() - 1);
+            let scan_top = component.top.saturating_sub(1);
+            let scan_bottom = component.bottom.saturating_add(1).min(damaged.height() - 1);
+            let mut unit = Vec::with_capacity(component.area);
+            let mut ring = Vec::new();
+            for y in scan_top..=scan_bottom {
+                for x in scan_left..=scan_right {
+                    if core_map.label_at(x, y) == component.label {
+                        unit.push((x, y));
+                    } else if damaged.get(x, y)
+                        && !core.get(x, y)
+                        && raw.get(x, y) >= WOLF_SOLID_STROKE_CEILING
+                        && is_adjacent_to_core(&core_map, Some(component.label), x, y)
+                    {
+                        unit.push((x, y));
+                        ring.push((x, y));
+                    }
+                }
+            }
+            if ring.is_empty() {
                 continue;
             }
-            let mut captured_raw = Vec::with_capacity(component.area);
-            let mut component_rows = vec![0usize; component.bottom - component.top + 1];
+            let unit_left = unit.iter().map(|&(x, _)| x).min().unwrap_or(0);
+            let unit_right = unit.iter().map(|&(x, _)| x).max().unwrap_or(0);
+            let unit_top = unit.iter().map(|&(_, y)| y).min().unwrap_or(0);
+            let unit_bottom = unit.iter().map(|&(_, y)| y).max().unwrap_or(0);
+            let measured = scan_primitives::Component {
+                label: component.label,
+                area: unit.len(),
+                left: unit_left,
+                top: unit_top,
+                right: unit_right,
+                bottom: unit_bottom,
+            };
+            if !is_text_shaped_rescue_component(&measured, dpi) {
+                continue;
+            }
+            let mut captured_raw = Vec::with_capacity(unit.len());
+            let mut component_rows = vec![0usize; unit_bottom - unit_top + 1];
             let mut row_aligned = false;
             let mut touches_picture_owner = false;
-            for y in component.top..=component.bottom {
-                for x in component.left..=component.right {
-                    if damaged_components.label_at(x, y) != component.label {
-                        continue;
-                    }
-                    captured_raw.push(raw.get(x, y));
-                    component_rows[y - component.top] += 1;
-                    touches_picture_owner |=
-                        picture_owner.as_ref().is_some_and(|owner| owner.get(x, y));
-                    row_aligned |= row_signal.as_ref().is_some_and(|signal| signal.get(x, y));
-                }
+            for &(x, y) in &unit {
+                captured_raw.push(raw.get(x, y));
+                component_rows[y - unit_top] += 1;
+                touches_picture_owner |= picture_owner.as_ref().is_some_and(|owner| owner.get(x, y));
+                row_aligned |= row_signal.as_ref().is_some_and(|signal| signal.get(x, y));
             }
             captured_raw.sort_unstable();
             let captured_median_raw = median_u8(&captured_raw);
             if let Some(profile) = independent_row_profile.as_ref() {
-                row_aligned |= (component.top..=component.bottom).any(|y| {
-                    profile[y]
-                        >= minimum_independent_row_support + component_rows[y - component.top]
+                row_aligned |= (unit_top..=unit_bottom).any(|y| {
+                    profile[y] >= minimum_independent_row_support + component_rows[y - unit_top]
                 });
             }
-            let left = component.left.saturating_sub(gradient_radius);
-            let right = component
-                .right
+            let left = unit_left.saturating_sub(gradient_radius);
+            let right = unit_right
                 .saturating_add(gradient_radius)
                 .min(raw.width() - 1);
-            let top = component.top.saturating_sub(gradient_radius);
-            let bottom = component
-                .bottom
+            let top = unit_top.saturating_sub(gradient_radius);
+            let bottom = unit_bottom
                 .saturating_add(gradient_radius)
                 .min(raw.height() - 1);
             let mut missing = 0usize;
@@ -2526,30 +2595,22 @@ fn rescue_component_scoped_faint_strokes_budgeted(
             if touches_picture_owner || !row_aligned || !solid_core_already_captured {
                 continue;
             }
-            for y in component.top..=component.bottom {
-                for x in component.left..=component.right {
-                    if damaged_components.label_at(x, y) == component.label
-                        && raw.get(x, y) >= WOLF_SOLID_STROKE_CEILING
-                        && has_adjacent_component_core(
-                            &damaged_components,
-                            component.label,
-                            raw,
-                            x,
-                            y,
-                        )
-                        && !has_coherent_noncore_run(
-                            &damaged_components,
-                            component.label,
-                            raw,
-                            x,
-                            y,
-                        )
-                    {
-                        retained.set(x, y, false);
-                    }
+            let qualifying = ring
+                .into_iter()
+                .filter(|&(x, y)| !has_coherent_noncore_run(damaged, &core_map, raw, x, y))
+                .collect::<Vec<_>>();
+            if qualifying.is_empty() {
+                continue;
+            }
+            if is_text_sized_rescue_component(&measured, dpi) {
+                for (x, y) in qualifying {
+                    retained.set(x, y, false);
                 }
+            } else {
+                oversized.push((unit, qualifying));
             }
         }
+        strip_oversized_units_to_line_weight(&mut retained, oversized, raw, dpi);
     }
 
     if !faint_rescue_enabled {
@@ -2557,7 +2618,9 @@ fn rescue_component_scoped_faint_strokes_budgeted(
     }
 
     for component in components.components() {
-        if !is_text_like_rescue_component(component, dpi, RescueAdmission::Additive) {
+        if !is_text_shaped_rescue_component(component, dpi)
+            || !is_text_sized_rescue_component(component, dpi)
+        {
             continue;
         }
         let mut missing = 0usize;
@@ -2711,9 +2774,71 @@ fn drop_boundary_accretion_clusters(proposed: &BinaryImage, captured: &BinaryIma
     kept
 }
 
+/// A halo pixel that is too large for the text-size test is not exempt from the
+/// correction, only from the all-or-nothing form of it: peel its unit's halo
+/// weakest-evidence first until the unit's stroke weight reaches the local
+/// median its already corrected neighbours sit at. Without this the size
+/// constant is a visible cliff — one word on a line keeps a halo every other
+/// word lost. Peeling can never exceed the full strip, because the removable
+/// pool is exactly the pool the full strip would have taken.
+fn strip_oversized_units_to_line_weight(
+    retained: &mut BinaryImage,
+    units: Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)>,
+    raw: &GrayImage,
+    dpi: f64,
+) {
+    const MAXIMUM_ROUNDS: usize = 3;
+    if units.is_empty() {
+        return;
+    }
+    let Some((budget, _)) = LineStrokeBudget::from_binary(retained, dpi) else {
+        return;
+    };
+    for (unit, mut qualifying) in units {
+        let center_x = unit.iter().map(|&(x, _)| x as f64).sum::<f64>() / unit.len() as f64;
+        let center_y = unit.iter().map(|&(_, y)| y as f64).sum::<f64>() / unit.len() as f64;
+        let Some(target) = budget.local_median_mean_width_at(center_x, center_y) else {
+            continue;
+        };
+        qualifying.sort_by_key(|&(x, y)| (std::cmp::Reverse(raw.get(x, y)), y, x));
+        let left = unit.iter().map(|&(x, _)| x).min().unwrap_or(0);
+        let right = unit.iter().map(|&(x, _)| x).max().unwrap_or(0);
+        let top = unit.iter().map(|&(_, y)| y).min().unwrap_or(0);
+        let bottom = unit.iter().map(|&(_, y)| y).max().unwrap_or(0);
+        let mut raster = BinaryImage::new(right - left + 1, bottom - top + 1);
+        for &(x, y) in &unit {
+            if retained.get(x, y) {
+                raster.set(x - left, y - top, true);
+            }
+        }
+        let mut peeled = 0usize;
+        for _ in 0..MAXIMUM_ROUNDS {
+            let ink = raster.count_black();
+            let (_, width_px) = ridge_width_of_isolated_component(&raster);
+            if ink == 0 || width_px <= target {
+                break;
+            }
+            // Peeling a one-pixel shell leaves skeleton length unchanged, so
+            // area / width converts a width overshoot straight into pixels.
+            let excess = (ink as f64 * (1.0 - target / width_px)).round().max(1.0) as usize;
+            let next = peeled.saturating_add(excess).min(qualifying.len());
+            if next == peeled {
+                break;
+            }
+            for &(x, y) in &qualifying[peeled..next] {
+                raster.set(x - left, y - top, false);
+            }
+            peeled = next;
+        }
+        for &(x, y) in &qualifying[..peeled] {
+            retained.set(x, y, false);
+        }
+    }
+}
+
 fn has_coherent_noncore_run(
-    components: &ComponentMap,
-    label: u32,
+    damaged: &BinaryImage,
+    core: &ComponentMap,
     raw: &GrayImage,
     x: usize,
     y: usize,
@@ -2733,42 +2858,36 @@ fn has_coherent_noncore_run(
                         || sample_y < 0
                         || sample_x >= raw.width() as isize
                         || sample_y >= raw.height() as isize
-                        || components.label_at(sample_x as usize, sample_y as usize) != label
+                        || !damaged.get(sample_x as usize, sample_y as usize)
                         || raw.get(sample_x as usize, sample_y as usize) < RESCUE_SOLID_DEPTH
                         || raw.get(sample_x as usize, sample_y as usize) != anchor
                     {
                         break;
                     }
                     length += 1;
-                    reaches_beyond_core_ring |= !has_adjacent_component_core(
-                        components,
-                        label,
-                        raw,
-                        sample_x as usize,
-                        sample_y as usize,
-                    );
+                    reaches_beyond_core_ring |=
+                        !is_adjacent_to_core(core, None, sample_x as usize, sample_y as usize);
                 }
             }
             length >= MINIMUM_RUN && reaches_beyond_core_ring
         })
 }
 
-fn has_adjacent_component_core(
-    components: &ComponentMap,
-    label: u32,
-    raw: &GrayImage,
-    x: usize,
-    y: usize,
-) -> bool {
+/// Core adjacency of a single halo pixel: to the requested dark core component
+/// when a label is given, or to any dark core otherwise. Successive samples of
+/// a run are 8-adjacent, so walking `damaged` alone cannot leave the anchor's
+/// own thresholded component.
+fn is_adjacent_to_core(core: &ComponentMap, label: Option<u32>, x: usize, y: usize) -> bool {
     let left = x.saturating_sub(1);
-    let right = x.saturating_add(1).min(raw.width() - 1);
+    let right = x.saturating_add(1).min(core.width() - 1);
     let top = y.saturating_sub(1);
-    let bottom = y.saturating_add(1).min(raw.height() - 1);
+    let bottom = y.saturating_add(1).min(core.height() - 1);
     (top..=bottom).any(|sample_y| {
         (left..=right).any(|sample_x| {
+            let sample = core.label_at(sample_x, sample_y);
             (sample_x != x || sample_y != y)
-                && components.label_at(sample_x, sample_y) == label
-                && raw.get(sample_x, sample_y) < RESCUE_SOLID_DEPTH
+                && sample != 0
+                && label.is_none_or(|label| sample == label)
         })
     })
 }
@@ -2855,28 +2974,9 @@ fn raw_text_row_profile(
     banded
 }
 
-/// Which of the two rescue passes is asking whether a component is text-like.
-///
-/// The passes need different extent bounds because they can do different damage.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RescueAdmission {
-    /// Additive faint-ink rescue. It can turn paper into ink, so a component
-    /// larger than a single glyph in any direction must never be admitted.
-    Additive,
-    /// Subtractive Wolf halo strip. It can only remove halo, never fabricate
-    /// ink, so the longest-side bound does not apply and is actively harmful:
-    /// the halo is what fuses adjacent letters into one multi-letter blob, so
-    /// an extent cap rejects exactly the components whose halo most needs
-    /// removing, leaving them at full Wolf weight beside de-haloed neighbours.
-    /// Height still confines admission to text-line-sized material.
-    HaloStrip,
-}
-
-fn is_text_like_rescue_component(
-    component: &scan_primitives::Component,
-    dpi: f64,
-    admission: RescueAdmission,
-) -> bool {
+/// Discriminates text from rules, fold shadows and smears. These terms are
+/// scale-free and stay hard vetoes wherever the rescue or the halo strip runs.
+fn is_text_shaped_rescue_component(component: &scan_primitives::Component, dpi: f64) -> bool {
     let px_per_mm = dpi.max(1.0) / 25.4;
     let width = component.right - component.left + 1;
     let height = component.bottom - component.top + 1;
@@ -2884,23 +2984,27 @@ fn is_text_like_rescue_component(
     let minor = width.min(height);
     let aspect = major as f64 / minor.max(1) as f64;
     let average_stroke = component.area as f64 / major.max(1) as f64;
-    let maximum_extent = (px_per_mm * 8.0).round().max(4.0) as usize;
-    let maximum_area = (px_per_mm * 4.5).round().max(16.0).powf(2.0) as usize;
     let minimum_stroke = (px_per_mm * 0.08).max(0.75);
     let maximum_stroke = (px_per_mm * 2.5).max(2.0);
 
-    let extent_admitted = match admission {
-        RescueAdmission::Additive => {
-            major <= maximum_extent && aspect <= 10.0 && component.area <= maximum_area
-        }
-        RescueAdmission::HaloStrip => height <= maximum_extent,
-    };
-
     component.area >= 2
-        && extent_admitted
         && minor >= 1
+        && aspect <= 10.0
         && average_stroke >= minimum_stroke
         && average_stroke <= maximum_stroke
+}
+
+/// Bounds a component to one glyph's worth of page. Unlike the shape terms this
+/// is a statement about extent alone, so the halo strip routes on it instead of
+/// vetoing on it.
+fn is_text_sized_rescue_component(component: &scan_primitives::Component, dpi: f64) -> bool {
+    let px_per_mm = dpi.max(1.0) / 25.4;
+    let width = component.right - component.left + 1;
+    let height = component.bottom - component.top + 1;
+    let maximum_extent = (px_per_mm * 8.0).round().max(4.0) as usize;
+    let maximum_area = (px_per_mm * 4.5).round().max(16.0).powf(2.0) as usize;
+
+    width.max(height) <= maximum_extent && component.area <= maximum_area
 }
 
 pub(crate) fn is_crisp_or_deep_sample(sample: u8, local_paper: u8, gradient: u8) -> bool {
@@ -3809,7 +3913,7 @@ mod tests {
                 rectangle.set(x, y, true);
             }
         }
-        assert_eq!(ridge_width_of_isolated_component(&rectangle), 6.0);
+        assert_eq!(ridge_width_of_isolated_component(&rectangle).0, 6.0);
 
         let mut diamond = BinaryImage::new(11, 11);
         for y in 0..diamond.height() {
@@ -3819,7 +3923,7 @@ mod tests {
                 }
             }
         }
-        let diamond_width = ridge_width_of_isolated_component(&diamond);
+        let (diamond_width, _) = ridge_width_of_isolated_component(&diamond);
         assert!(
             (diamond_width - 7.193_786_6).abs() < 0.000_01,
             "diamond width {diamond_width}"
@@ -3871,7 +3975,7 @@ mod tests {
         for x in 7..10 {
             dumbbell.set(x, 4, true);
         }
-        let before_width = ridge_width_of_isolated_component(&dumbbell);
+        let (before_width, _) = ridge_width_of_isolated_component(&dumbbell);
         assert!(normalize_offender_component(
             &dumbbell,
             before_width,
@@ -3894,7 +3998,7 @@ mod tests {
 
         let map = ComponentMap::from_binary(&normalized);
         let label = map.label_at(10 + 7 * 28 + 4, 24);
-        let width = component_ridge_width(&normalized, &map, label);
+        let (width, _) = component_ridge_width(&normalized, &map, label);
         assert!((4.0..=6.4).contains(&width), "normalized width {width}");
     }
 
@@ -3952,6 +4056,7 @@ mod tests {
                     center_x: index as f64 * 10.0,
                     center_y: 24.0,
                     ridge_width_px: median_width_px,
+                    mean_width_px: median_width_px,
                 })
                 .collect(),
         };
@@ -4001,7 +4106,7 @@ mod tests {
         }
         let guarded_map = ComponentMap::from_binary(&guarded);
         let label = guarded_map.label_at(left + 3, 24);
-        let guarded_width = component_ridge_width(&guarded, &guarded_map, label);
+        let (guarded_width, _) = component_ridge_width(&guarded, &guarded_map, label);
         assert!(guarded_width <= 6.4, "guarded width {guarded_width}");
         assert_eq!(interventions.smoothing_components_capped, 1);
         assert!((1..40).contains(&interventions.smoothing_pixels_suppressed));
@@ -5194,7 +5299,7 @@ mod tests {
         let faint_base_map = ComponentMap::from_binary(&damaged);
         let body_center_y = number("faintBodyTop") + number("faintBodyHeight") / 2;
         let faint_label = faint_base_map.label_at(number("capturedSkeletonLeft"), body_center_y);
-        let faint_base_width = component_ridge_width(&damaged, &faint_base_map, faint_label);
+        let (faint_base_width, _) = component_ridge_width(&damaged, &faint_base_map, faint_label);
         let local_budget = budget
             .local_budget_at(
                 number("capturedSkeletonLeft") as f64 + 0.5,
