@@ -6,6 +6,22 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    createSourceFile,
+    forEachChild,
+    isAsExpression,
+    isIdentifier,
+    isObjectLiteralExpression,
+    isPropertyAssignment,
+    isStringLiteral,
+    isVariableDeclaration,
+    ScriptTarget,
+} from 'typescript';
+import type {
+    Expression,
+    Node,
+    ObjectLiteralExpression,
+} from 'typescript';
 interface IMessageTree {readonly [key: string]: string | IMessageTree;}
 
 interface IPrivacyLocale {privacy: IMessageTree & {
@@ -57,6 +73,7 @@ const locales = {
     ru,
 } as const;
 const pageSource = readFileSync(resolve(process.cwd(), 'landing/app/pages/privacy.vue'), 'utf8');
+const rootPageSource = readFileSync(resolve(process.cwd(), 'app/pages/privacy.vue'), 'utf8');
 
 function flattenLeafPaths(tree: IMessageTree, prefix = ''): string[] {
     return Object.entries(tree).flatMap(([
@@ -66,6 +83,75 @@ function flattenLeafPaths(tree: IMessageTree, prefix = ''): string[] {
         const path = prefix ? `${prefix}.${key}` : key;
         return typeof value === 'string' ? [path] : flattenLeafPaths(value, path);
     });
+}
+
+function unwrapConstAssertion(expression: Expression): Expression {
+    return isAsExpression(expression) ? unwrapConstAssertion(expression.expression) : expression;
+}
+
+function readMessageTree(object: ObjectLiteralExpression): IMessageTree {
+    return Object.fromEntries(object.properties.map(property => {
+        if (!isPropertyAssignment(property)) {
+            throw new Error('Privacy copy may contain only property assignments');
+        }
+        const propertyName = property.name.getText().replace(/^['"]|['"]$/gu, '');
+        const value = unwrapConstAssertion(property.initializer);
+        if (isStringLiteral(value)) {
+            return [
+                propertyName,
+                value.text,
+            ];
+        }
+        if (isObjectLiteralExpression(value)) {
+            return [
+                propertyName,
+                readMessageTree(value),
+            ];
+        }
+        throw new Error(`Unsupported privacy copy value for ${propertyName}`);
+    }));
+}
+
+function loadRootPrivacyCopy(): {
+    en: IMessageTree;
+    ru: IMessageTree;
+} {
+    const script = rootPageSource.match(/<script setup lang="ts">([\s\S]*?)<\/script>/u)?.[1];
+    if (!script) {
+        throw new Error('Root privacy page script was not found');
+    }
+
+    const sourceFile = createSourceFile('privacy.vue.ts', script, ScriptTarget.Latest, true);
+    let privacyCopyObject: ObjectLiteralExpression | null = null;
+    const visit = (node: Node) => {
+        if (
+            isVariableDeclaration(node)
+            && isIdentifier(node.name)
+            && node.name.text === 'PRIVACY_COPY'
+            && node.initializer
+        ) {
+            const initializer = unwrapConstAssertion(node.initializer);
+            if (isObjectLiteralExpression(initializer)) {
+                privacyCopyObject = initializer;
+            }
+        }
+        forEachChild(node, visit);
+    };
+    visit(sourceFile);
+
+    if (!privacyCopyObject) {
+        throw new Error('PRIVACY_COPY object was not found');
+    }
+    const messages = readMessageTree(privacyCopyObject);
+    const en = messages.en;
+    const ru = messages.ru;
+    if (typeof en === 'string' || typeof ru === 'string' || !en || !ru) {
+        throw new Error('PRIVACY_COPY must define English and Russian message trees');
+    }
+    return {
+        en,
+        ru,
+    };
 }
 
 describe('landing privacy localization', () => {
@@ -113,5 +199,36 @@ describe('landing privacy localization', () => {
         expect(pageSource).toMatch(/<a[\s\S]*>\{\{ t\('privacy\.contact\.linkLabel'\) \}\}<\/a>/u);
         expect(pageSource).not.toContain('Privacy policy for EVB Viewer desktop');
         expect(pageSource).not.toContain('Documents and local processing');
+    });
+});
+
+describe('root privacy localization', () => {
+    it('keeps the complete Russian policy structurally aligned with English', () => {
+        const rootPrivacy = loadRootPrivacyCopy();
+        const expectedPaths = flattenLeafPaths(rootPrivacy.en).sort();
+
+        expect(flattenLeafPaths(rootPrivacy.ru).sort()).toEqual(expectedPaths);
+        for (const path of expectedPaths) {
+            const russianValue = path.split('.').reduce<string | IMessageTree>(
+                (node, key) => typeof node === 'string' ? node : node[key] ?? '',
+                rootPrivacy.ru,
+            );
+            expect(typeof russianValue === 'string' && russianValue.trim().length > 0, path).toBe(true);
+        }
+    });
+
+    it('localizes storage, analytics retention, assistant reporting, and metadata in Russian', () => {
+        const rootPrivacy = loadRootPrivacyCopy();
+
+        expect(rootPrivacy.ru).not.toEqual(rootPrivacy.en);
+        expect(rootPageSource).toContain('locale.value === \'ru\' ? \'ru\' : \'en\'');
+        expect(rootPageSource).toContain('useHead(() => ({');
+        expect(rootPageSource).toContain('Файлы cookie языка могут храниться до одного года');
+        expect(rootPageSource).toContain('файл cookie темы — до 180 дней');
+        expect(rootPageSource).toContain('файл cookie когорты с атрибутом HttpOnly сроком до 90 дней');
+        expect(rootPageSource).toContain('случайного идентификатора аналитической сессии');
+        expect(rootPageSource).toContain('автоматическому удалению через 90 дней');
+        expect(rootPageSource).toContain('не копирует и не отправляет ответ');
+        expect(rootPageSource).toContain('Политика конфиденциальности | EVB Viewer');
     });
 });

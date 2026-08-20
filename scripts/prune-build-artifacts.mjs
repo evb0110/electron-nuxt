@@ -1,9 +1,11 @@
 import {
     readdir,
+    realpath,
     rm,
     stat,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const buildRoots = [
@@ -40,13 +42,20 @@ function shouldRemoveEntry(entryName, isDirectory) {
     return removableFilePatterns.some(pattern => pattern.test(entryName));
 }
 
-async function pruneDirectory(dirPath) {
+export async function pruneDirectory(dirPath) {
     const entries = await readdir(dirPath, { withFileTypes: true });
     let removedCount = 0;
 
     for (const entry of entries) {
         const entryPath = path.join(dirPath, entry.name);
         const isDirectory = entry.isDirectory();
+
+        // Traced server dependencies are executable input, not app-owned build
+        // debris. Package authors may legitimately expose runtime modules from
+        // directories or files whose names resemble tests.
+        if (isDirectory && entry.name === 'node_modules') {
+            continue;
+        }
 
         if (shouldRemoveEntry(entry.name, isDirectory)) {
             await rm(entryPath, {
@@ -65,9 +74,28 @@ async function pruneDirectory(dirPath) {
     return removedCount;
 }
 
-async function pruneBuildRoot(relativeRoot) {
-    const root = path.join(projectRoot, relativeRoot);
+function assertSafeBuildRoot(rootDirectory, buildRoot, configuredRoot) {
+    const relativePath = path.relative(rootDirectory, buildRoot);
+    if (
+        path.isAbsolute(configuredRoot)
+        || !relativePath
+        || relativePath === '..'
+        || relativePath.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relativePath)
+    ) {
+        throw new Error(`Refusing to prune build root outside the project: ${configuredRoot}`);
+    }
+}
+
+async function pruneBuildRoot(rootDirectory, relativeRoot) {
+    const canonicalRootDirectory = await realpath(path.resolve(rootDirectory));
+    const requestedRoot = path.resolve(canonicalRootDirectory, relativeRoot);
+    assertSafeBuildRoot(canonicalRootDirectory, requestedRoot, relativeRoot);
+
+    let root;
     try {
+        root = await realpath(requestedRoot);
+        assertSafeBuildRoot(canonicalRootDirectory, root, relativeRoot);
         const rootStat = await stat(root);
         if (!rootStat.isDirectory()) {
             return 0;
@@ -82,11 +110,36 @@ async function pruneBuildRoot(relativeRoot) {
     return pruneDirectory(root);
 }
 
-let totalRemoved = 0;
-for (const buildRoot of buildRoots) {
-    totalRemoved += await pruneBuildRoot(buildRoot);
+export async function pruneBuildArtifacts({
+    rootDirectory = projectRoot,
+    roots = buildRoots,
+} = {}) {
+    let totalRemoved = 0;
+    for (const buildRoot of roots) {
+        totalRemoved += await pruneBuildRoot(rootDirectory, buildRoot);
+    }
+
+    return totalRemoved;
 }
 
-if (totalRemoved > 0) {
-    console.log(`Pruned ${totalRemoved} unnecessary build artifact(s).`);
+async function isDirectCliInvocation() {
+    if (!process.argv[1]) {
+        return false;
+    }
+
+    const [
+        invokedPath,
+        modulePath,
+    ] = await Promise.all([
+        realpath(path.resolve(process.argv[1])).catch(() => null),
+        realpath(fileURLToPath(import.meta.url)).catch(() => null),
+    ]);
+    return invokedPath !== null && invokedPath === modulePath;
+}
+
+if (await isDirectCliInvocation()) {
+    const totalRemoved = await pruneBuildArtifacts();
+    if (totalRemoved > 0) {
+        console.log(`Pruned ${totalRemoved} unnecessary build artifact(s).`);
+    }
 }

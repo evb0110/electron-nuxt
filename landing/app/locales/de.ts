@@ -26,7 +26,7 @@ export default {
         hero: {
             title: 'Datenschutzerklärung',
             subtitle: 'Wie EVB Viewer Dokumente, Einstellungen, Analysedaten und optionale Assistentenfunktionen behandelt.',
-            effectiveDate: 'Gültig ab 9. Juli 2026',
+            effectiveDate: 'Gültig ab 19. August 2026',
         },
         documents: {
             heading: 'Dokumente und lokale Verarbeitung',
@@ -44,9 +44,13 @@ export default {
             heading: 'Einstellungen, zuletzt verwendete Dateien und Updates',
             body: 'App-Einstellungen, Arbeitsbereichszustand und Verweise auf zuletzt verwendete Dateien können lokal auf deinem Gerät gespeichert werden. Die Desktop-App kann GitHub kontaktieren, um Softwareupdates zu suchen und herunterzuladen. Betriebssystem- und App-Store-Dienste können nach ihren eigenen Richtlinien weitere technische Informationen verarbeiten.',
         },
+        storage: {
+            heading: 'Cookies und Browserspeicher',
+            body: 'EVB Viewer verwendet eigene Präferenz-Cookies, um die Sprache und in der Browser-App das Design zu speichern. Sprach-Cookies können bis zu ein Jahr und das Design-Cookie bis zu 180 Tage gespeichert werden. Die Download-Website verwendet bis zu 90 Tage lang ein undurchsichtiges HttpOnly-Kohorten-Cookie, damit Empfehlungen bei gestaffelten Veröffentlichungen konsistent bleiben; es wird weder für Werbung noch für websiteübergreifendes Tracking eingesetzt. Die Browser-App verwendet außerdem lokalen Speicher, Sitzungsspeicher und IndexedDB für Einstellungen, Verweise auf zuletzt verwendete Dateien, den Arbeitsbereichszustand, von dir zur Aufbewahrung ausgewählte Dokumentdaten und eine zufällige Analysekennung pro Sitzung. EVB Viewer setzt keine Werbe- oder Drittanbieter-Cookies. Cookies und gespeicherte Browserdaten kannst du über die Website-Datenverwaltung deines Browsers löschen; dadurch werden Einstellungen und lokal gespeicherte App-Daten zurückgesetzt.',
+        },
         retention: {
             heading: 'Aufbewahrung und Wahlmöglichkeiten',
-            body: 'Lokale App-Daten verbleiben auf deinem Gerät, bis du sie entfernst oder die App deinstallierst. Du entscheidest, welche Dokumente und Anhänge geöffnet oder an optionale Assistentendienste gesendet werden. Website-Analysedaten werden nur so lange gespeichert, wie es für Produktbetrieb, Sicherheit und Trendanalysen erforderlich ist.',
+            body: 'Lokale App-Daten verbleiben auf deinem Gerät, bis du sie entfernst oder die App deinstallierst. Du entscheidest, welche Dokumente und Anhänge geöffnet oder an optionale Assistentendienste gesendet werden. Website-Analysedaten werden nur so lange gespeichert, wie es für Produktbetrieb, Sicherheit und Trendanalysen erforderlich ist, und nach 90 Tagen zur automatischen Löschung eingeplant.',
         },
         contact: {
             heading: 'Kontakt',

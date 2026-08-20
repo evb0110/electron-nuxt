@@ -37,6 +37,11 @@
       </div>
 
       <div>
+        <h2>{{ t('privacy.storage.heading') }}</h2>
+        <p>{{ t('privacy.storage.body') }}</p>
+      </div>
+
+      <div>
         <h2>{{ t('privacy.retention.heading') }}</h2>
         <p>{{ t('privacy.retention.body') }}</p>
       </div>

@@ -23,8 +23,10 @@ import {
     BROWSER_SETTINGS_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
+    expireLegacyBrowserSettingsCookie,
+    isValidBrowserSettingsStoragePayload,
+    isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
-    serializeBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
@@ -37,7 +39,7 @@ function writeBrowserSettingsToStorage(nextSettings: ISettingsData) {
     safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
 }
 
-function readBrowserSettingsFromCookie() {
+function readBrowserSettingsCookies() {
     if (typeof document === 'undefined') {
         return null;
     }
@@ -48,7 +50,7 @@ function readBrowserSettingsFromCookie() {
     const rawSettingsCookie = getCookieValue(BROWSER_SETTINGS_COOKIE_KEY);
     const localeCookie = getCookieValue(BROWSER_LOCALE_COOKIE_KEY);
     const themeCookie = getCookieValue(BROWSER_THEME_COOKIE_KEY);
-    if (!rawSettingsCookie && !localeCookie && !themeCookie) {
+    if (rawSettingsCookie === null && localeCookie === null && themeCookie === null) {
         return null;
     }
 
@@ -60,10 +62,12 @@ function readBrowserSettingsFromCookie() {
         fallbackSettings.theme = normalizeTheme(safeDecodeURIComponent(themeCookie));
     }
 
-    return parseBrowserSettingsPayload(
-        rawSettingsCookie ? safeDecodeURIComponent(rawSettingsCookie) : null,
+    return {
         fallbackSettings,
-    );
+        rawSettings: rawSettingsCookie === null
+            ? null
+            : safeDecodeURIComponent(rawSettingsCookie),
+    };
 }
 
 function readBrowserSettingsFromStorage() {
@@ -73,29 +77,64 @@ function readBrowserSettingsFromStorage() {
     }
 
     try {
-        const parsed: unknown = JSON.parse(rawSettings);
-        return sanitizeSettings(parsed);
+        if (!isValidBrowserSettingsStoragePayload(rawSettings)) {
+            return null;
+        }
+        return sanitizeSettings(JSON.parse(rawSettings));
     } catch {
         return null;
     }
 }
 
-function writeBrowserSettingsToCookie(nextSettings: ISettingsData) {
+function writeBrowserSettingsBootstrapCookies(nextSettings: ISettingsData) {
     if (typeof document === 'undefined') {
         return;
     }
 
-    const encodedValue = encodeURIComponent(serializeBrowserSettingsPayload(nextSettings));
-    document.cookie = `${BROWSER_SETTINGS_COOKIE_KEY}=${encodedValue}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
-    document.cookie = `${BROWSER_LOCALE_COOKIE_KEY}=${encodeURIComponent(nextSettings.locale)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
-    document.cookie = `${BROWSER_THEME_COOKIE_KEY}=${encodeURIComponent(nextSettings.theme)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
+    expireLegacyBrowserSettingsCookie();
+    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:'
+        ? '; Secure'
+        : '';
+    document.cookie = `${BROWSER_LOCALE_COOKIE_KEY}=${encodeURIComponent(nextSettings.locale)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttribute}`;
+    document.cookie = `${BROWSER_THEME_COOKIE_KEY}=${encodeURIComponent(nextSettings.theme)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttribute}`;
+}
+
+function readAndMigrateBrowserSettings() {
+    const cookieSnapshot = readBrowserSettingsCookies();
+    if (cookieSnapshot && cookieSnapshot.rawSettings !== null) {
+        const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(cookieSnapshot.rawSettings);
+        if (isValidLegacyCookie) {
+            const legacySettings = parseBrowserSettingsPayload(
+                cookieSnapshot.rawSettings,
+                cookieSnapshot.fallbackSettings,
+            );
+            writeBrowserSettingsToStorage(legacySettings);
+            expireLegacyBrowserSettingsCookie();
+            return legacySettings;
+        }
+        expireLegacyBrowserSettingsCookie();
+    }
+
+    const persistedSettings = readBrowserSettingsFromStorage();
+    if (persistedSettings) {
+        return persistedSettings;
+    }
+
+    if (cookieSnapshot) {
+        const bootstrapSettings = parseBrowserSettingsPayload(
+            null,
+            cookieSnapshot.fallbackSettings,
+        );
+        writeBrowserSettingsToStorage(bootstrapSettings);
+        return bootstrapSettings;
+    }
+    return null;
 }
 
 export const browserSettingsCapability: ISettingsCapability = {
     get() {
         if (!browserSettingsLoaded) {
-            settingsState = readBrowserSettingsFromCookie()
-                ?? readBrowserSettingsFromStorage()
+            settingsState = readAndMigrateBrowserSettings()
                 ?? { ...DEFAULT_SETTINGS };
             browserSettingsLoaded = true;
         }
@@ -105,8 +144,7 @@ export const browserSettingsCapability: ISettingsCapability = {
     save(settings) {
         const currentSettings = browserSettingsLoaded
             ? settingsState
-            : readBrowserSettingsFromCookie()
-                ?? readBrowserSettingsFromStorage()
+            : readAndMigrateBrowserSettings()
                 ?? { ...DEFAULT_SETTINGS };
         const nextSettings = sanitizeSettings({
             ...currentSettings,
@@ -115,7 +153,7 @@ export const browserSettingsCapability: ISettingsCapability = {
         settingsState = nextSettings;
         browserSettingsLoaded = true;
         writeBrowserSettingsToStorage(nextSettings);
-        writeBrowserSettingsToCookie(nextSettings);
+        writeBrowserSettingsBootstrapCookies(nextSettings);
         return Promise.resolve(undefined);
     },
     getDebugLogs(): Promise<IDebugLogEntry[]> {

@@ -78,7 +78,7 @@
           class="installer-card installer-card-compact"
         >
           <div
-            v-if="status === 'pending'"
+            v-if="status === 'pending' || status === 'idle'"
             class="installer-state"
           >
             <p>{{ t('home.installers.loading') }}</p>
@@ -158,12 +158,12 @@
                   :key="installer.id"
                   class="installer-row"
                 >
-                  <button
-                    type="button"
+                  <a
                     class="installer-item"
                     :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
+                    :href="installer.downloadUrl"
                     :aria-label="downloadAriaLabel(installer)"
-                    @click="downloadInstaller(installer)"
+                    @click="trackInstallerDownload(installer)"
                   >
                     <div class="installer-item-info">
                       <div class="installer-item-header">
@@ -188,7 +188,7 @@
                         class="installer-item-icon"
                       />
                     </span>
-                  </button>
+                  </a>
                   <a
                     v-if="installer.mirrorDownloadUrl"
                     class="installer-mirror-link"
@@ -206,18 +206,6 @@
               {{ installerPlatformHint }}
             </p>
 
-            <NuxtLink
-              class="installer-browse"
-              :to="fallbackReleaseUrl"
-              target="_blank"
-              rel="noreferrer"
-            >
-              {{ t('home.hero.browseInstallers') }}
-              <UIcon
-                name="i-ph-arrow-right"
-                class="installer-browse-icon"
-              />
-            </NuxtLink>
           </div>
 
           <div
@@ -226,6 +214,19 @@
           >
             <p>{{ t('home.installers.noArtifacts') }}</p>
           </div>
+
+          <NuxtLink
+            class="installer-browse"
+            :to="fallbackReleaseUrl"
+            target="_blank"
+            rel="noreferrer"
+          >
+            {{ t('home.hero.browseInstallers') }}
+            <UIcon
+              name="i-ph-arrow-right"
+              class="installer-browse-icon"
+            />
+          </NuxtLink>
         </div>
       </div>
 
@@ -252,7 +253,6 @@
 </template>
 
 <script setup lang="ts">
-import { useTimeoutFn } from '@vueuse/core';
 import { partition } from 'es-toolkit/array';
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
@@ -294,11 +294,10 @@ const {
 });
 
 const clientProfile = useState<IUserAgentProfile>('landing-client-profile', () => {
-    const userAgent = import.meta.server
-        ? useRequestHeaders(['user-agent'])['user-agent'] ?? ''
-        : navigator.userAgent;
-
-    return buildClientProfile(userAgent);
+    return {
+        platform: 'unknown',
+        arch: 'unknown',
+    };
 });
 
 const {
@@ -306,7 +305,10 @@ const {
     error,
     refresh,
     status,
-} = await useFetch('/api/releases/latest', { key: 'latest-release-data' });
+} = await useFetch('/api/releases/latest', {
+    key: 'latest-release-data',
+    server: false,
+});
 
 const releaseAssets = computed(() => releaseData.value?.assets ?? []);
 const releaseAssetGroups = computed(() => {
@@ -331,24 +333,11 @@ const selectablePlatforms = computed<TReleasePlatform[]>(() => INSTALLER_PLATFOR
 const installerTabs = computed<TReleasePlatform[]>(() => selectablePlatforms.value);
 
 const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
-    if (!installers.value.length) {
+    if (!installers.value.length || clientProfile.value.platform === 'unknown') {
         return null;
     }
 
-    const clientSideChoice = recommendInstaller(installers.value, clientProfile.value);
-    if (clientSideChoice) {
-        return clientSideChoice;
-    }
-
-    const apiRecommendationId = releaseData.value?.recommendation.assetId;
-    if (apiRecommendationId != null) {
-        const apiRecommendation = installers.value.find(asset => asset.id === apiRecommendationId);
-        if (apiRecommendation) {
-            return apiRecommendation;
-        }
-    }
-
-    return installers.value[0] ?? null;
+    return recommendInstaller(installers.value, clientProfile.value);
 });
 
 const selectedInstallerTabOverride = ref<TReleasePlatform | null>(null);
@@ -395,7 +384,7 @@ const installerPlatformHint = computed(() => {
     return t('home.installers.platformHint.default');
 });
 
-const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl ?? `${GITHUB_REPOSITORY_URL}/releases/latest`);
+const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl ?? `${GITHUB_REPOSITORY_URL}/releases`);
 const softwareApplicationSchema = computed(() => {
     const latestRelease = releaseData.value?.release;
 
@@ -429,21 +418,8 @@ useHead(() => ({ script: [{
     textContent: JSON.stringify(softwareApplicationSchema.value),
 }] }));
 
-const pendingDownloadIframes = new Set<HTMLIFrameElement>();
-const {
-    start: startIframeCleanup,
-    stop: stopIframeCleanup,
-} = useTimeoutFn(() => {
-    cleanupPendingDownloadIframes();
-}, 60_000, { immediate: false });
-
 onMounted(async () => {
     clientProfile.value = await detectClientProfile();
-});
-
-onBeforeUnmount(() => {
-    stopIframeCleanup();
-    cleanupPendingDownloadIframes();
 });
 
 async function detectClientProfile(): Promise<IUserAgentProfile> {
@@ -468,23 +444,6 @@ async function detectClientProfile(): Promise<IUserAgentProfile> {
     return buildClientProfile(navigator.userAgent, hintedPlatform, hintedArch);
 }
 
-function cleanupPendingDownloadIframes() {
-    for (const iframe of pendingDownloadIframes) {
-        iframe.remove();
-    }
-    pendingDownloadIframes.clear();
-}
-
-function triggerIframeDownload(url: string) {
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    iframe.src = url;
-    pendingDownloadIframes.add(iframe);
-    stopIframeCleanup();
-    startIframeCleanup();
-}
-
 function trackInstallerDownload(installer: IReleaseInstaller) {
     trackDownload({
         platform: installer.platform,
@@ -492,11 +451,6 @@ function trackInstallerDownload(installer: IReleaseInstaller) {
         version: releaseData.value?.release.tag ?? 'unknown',
         fileName: installer.name,
     });
-}
-
-function downloadInstaller(installer: IReleaseInstaller) {
-    trackInstallerDownload(installer);
-    triggerIframeDownload(installer.downloadUrl);
 }
 
 function isRecommendedInstaller(installer: IReleaseInstaller) {

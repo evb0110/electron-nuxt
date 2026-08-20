@@ -40,6 +40,9 @@ async function collectFiles(dirPath, relativeRoot) {
         const relativePath = path.join(relativeRoot, entry.name);
 
         if (entry.isDirectory()) {
+            if (entry.name === 'node_modules') {
+                continue;
+            }
             files.push(...await collectFiles(absolutePath, relativePath));
             continue;
         }

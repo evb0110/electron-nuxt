@@ -1,5 +1,8 @@
 import { omit } from 'es-toolkit/object';
-import { sanitizeSettings } from '@contracts/settings';
+import {
+    DEFAULT_SETTINGS,
+    sanitizeSettings,
+} from '@contracts/settings';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
     ISettingsData,
@@ -9,6 +12,11 @@ import type {
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { LOCALE_CODES } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
+import {
+    safeGetLocalStorageItem,
+    safeSetLocalStorageItem,
+} from '@app/utils/localStorage';
+import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
 export const BROWSER_SETTINGS_COOKIE_KEY = 'evb_viewer_settings';
 export const BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
@@ -37,6 +45,43 @@ function parseRawBrowserSettingsPayload(raw: unknown): Record<PropertyKey, unkno
     } catch {
         return null;
     }
+}
+
+function hasExpectedSettingsShape(
+    value: Record<PropertyKey, unknown> | null,
+    requireBrowserOnlyFields: boolean,
+) {
+    if (!value
+        || typeof value.version !== 'number'
+        || !Number.isInteger(value.version)
+        || value.version < 1
+        || value.version > DEFAULT_SETTINGS.version
+        || typeof value.authorName !== 'string'
+        || typeof value.defaultZoomPreset !== 'string'
+        || typeof value.defaultViewMode !== 'string'
+        || typeof value.defaultContinuousScroll !== 'boolean'
+        || typeof value.defaultAnnotationColor !== 'string'
+        || typeof value.uiScale !== 'string'
+        || typeof value.tabMemoryPolicy !== 'string'
+        || typeof value.performanceMode !== 'string'
+        || typeof value.optimizePdfOnSaveAs !== 'boolean'
+        || typeof value.assistantPanelEnabled !== 'boolean') {
+        return false;
+    }
+
+    return !requireBrowserOnlyFields || (
+        isAppLocale(value.locale)
+        && isAppTheme(value.theme)
+        && typeof value.agentMcpEnabled === 'boolean'
+    );
+}
+
+export function isValidLegacyBrowserSettingsPayload(raw: unknown) {
+    return hasExpectedSettingsShape(parseRawBrowserSettingsPayload(raw), false);
+}
+
+export function isValidBrowserSettingsStoragePayload(raw: unknown) {
+    return hasExpectedSettingsShape(parseRawBrowserSettingsPayload(raw), true);
 }
 
 function isAppLocale(value: unknown): value is TAppLocale {
@@ -102,6 +147,16 @@ export function serializeBrowserSettingsPayload(settings: ISettingsData) {
     return JSON.stringify(payload);
 }
 
+export function expireLegacyBrowserSettingsCookie() {
+    if (typeof document === 'undefined') {
+        return;
+    }
+    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:'
+        ? '; Secure'
+        : '';
+    document.cookie = `${BROWSER_SETTINGS_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secureAttribute}`;
+}
+
 function readRawSettingsCookie(): string | null {
     if (typeof document === 'undefined') {
         return null;
@@ -124,5 +179,24 @@ function readRawSettingsCookie(): string | null {
 }
 
 export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
-    return parseBrowserSettingsPayload(readRawSettingsCookie()).performanceMode;
+    const legacyCookie = readRawSettingsCookie();
+    if (legacyCookie !== null) {
+        const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(legacyCookie);
+        if (isValidLegacyCookie) {
+            const migratedSettings = parseBrowserSettingsPayload(legacyCookie);
+            safeSetLocalStorageItem(
+                BROWSER_SETTINGS_STORAGE_KEY,
+                JSON.stringify(migratedSettings),
+            );
+            expireLegacyBrowserSettingsCookie();
+            return migratedSettings.performanceMode;
+        }
+        expireLegacyBrowserSettingsCookie();
+    }
+
+    const storageSnapshot = safeGetLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    if (isValidBrowserSettingsStoragePayload(storageSnapshot)) {
+        return parseBrowserSettingsPayload(storageSnapshot).performanceMode;
+    }
+    return 'auto';
 }

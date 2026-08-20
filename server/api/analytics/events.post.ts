@@ -1,4 +1,5 @@
 import {
+    createError,
     defineEventHandler,
     getHeader,
     setHeader,
@@ -10,6 +11,7 @@ import {
     getAnalyticsRequestHost,
     hashVisitorIdentity,
     isAnalyticsWriteAllowed,
+    isTrustedAnalyticsRequest,
 } from '@server/utils/analytics';
 import {
     createAnalyticsDedupeKey,
@@ -30,6 +32,12 @@ export default defineEventHandler(async (event) => {
             ok: true,
             persisted: false,
         };
+    }
+    if (!isTrustedAnalyticsRequest(event)) {
+        throw createError({
+            statusCode: 403,
+            statusMessage: 'Analytics request is not same-origin JSON',
+        });
     }
 
     const body = await readBoundedAnalyticsJsonBody(event, ROOT_ANALYTICS_BODY_MAX_BYTES);

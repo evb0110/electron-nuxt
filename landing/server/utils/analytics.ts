@@ -4,9 +4,16 @@ import {
     getRequestIP,
     getRequestURL,
 } from 'h3';
+import {
+    ANALYTICS_HASH_SECRET_MIN_LENGTH,
+    createDailyAnalyticsVisitorHash,
+    resolveAnalyticsClientIp,
+    resolveStrongAnalyticsSecret,
+} from '@contracts/analyticsPrivacy';
 
 export const LANDING_ANALYTICS_ADMISSION_REJECTED_SQLSTATE = 'EVB01';
 export const LANDING_ANALYTICS_BODY_MAX_BYTES = 8 * 1024;
+export const LANDING_ANALYTICS_HASH_SECRET_MIN_LENGTH = ANALYTICS_HASH_SECRET_MIN_LENGTH;
 export const LANDING_ANALYTICS_USER_AGENT_MAX_LENGTH = 512;
 
 export const LANDING_ANALYTICS_ADMISSION_DEFAULTS = Object.freeze({
@@ -58,6 +65,13 @@ function normalizeAllowedHosts(value: string) {
         .filter(Boolean);
 }
 
+function resolveLandingAnalyticsHashSecret(env: TAnalyticsEnvironment) {
+    return resolveStrongAnalyticsSecret([
+        env.NUXT_LANDING_ANALYTICS_HASH_SECRET,
+        env.LANDING_ANALYTICS_HASH_SECRET,
+    ]);
+}
+
 function resolveBoundedInteger(
     value: string,
     fallback: number,
@@ -102,6 +116,10 @@ export function isLandingAnalyticsWriteAllowedForHost(
         return false;
     }
 
+    if (!resolveLandingAnalyticsHashSecret(env)) {
+        return false;
+    }
+
     const allowedHosts = normalizeAllowedHosts(firstNonEmptyString([
         env.NUXT_LANDING_ANALYTICS_ALLOWED_HOSTS,
         env.LANDING_ANALYTICS_ALLOWED_HOSTS,
@@ -112,6 +130,37 @@ export function isLandingAnalyticsWriteAllowedForHost(
         return true;
     }
     return allowedHosts.includes(requestHost.trim().toLowerCase());
+}
+
+export function isTrustedLandingAnalyticsRequestValues(input: {
+    contentType: string | undefined
+    fetchSite: string | undefined
+    origin: string | undefined
+    requestOrigin: string | undefined
+}) {
+    if (input.contentType?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
+        return false;
+    }
+    if (input.fetchSite?.toLowerCase() !== 'same-origin') {
+        return false;
+    }
+    if (!input.origin || !input.requestOrigin) {
+        return false;
+    }
+    try {
+        return new URL(input.origin).origin === new URL(input.requestOrigin).origin;
+    } catch {
+        return false;
+    }
+}
+
+export function isTrustedLandingAnalyticsRequest(event: H3Event) {
+    return isTrustedLandingAnalyticsRequestValues({
+        contentType: getHeader(event, 'content-type'),
+        fetchSite: getHeader(event, 'sec-fetch-site'),
+        origin: getHeader(event, 'origin'),
+        requestOrigin: getRequestURL(event).origin,
+    });
 }
 
 export function resolveLandingAnalyticsAdmissionPolicy(
@@ -186,10 +235,13 @@ export function extractGeo(event: H3Event): IGeoData {
     };
 }
 
-export async function getAnalyticsRequestContext(event: H3Event) {
+export async function getAnalyticsRequestContext(
+    event: H3Event,
+    env: TAnalyticsEnvironment = process.env,
+) {
     return {
         geo: extractGeo(event),
-        visitorHash: await hashVisitorIdentity(event),
+        visitorHash: await hashVisitorIdentity(event, env),
         userAgent: getHeader(event, 'user-agent')?.slice(0, LANDING_ANALYTICS_USER_AGENT_MAX_LENGTH) ?? null,
     };
 }
@@ -206,15 +258,26 @@ export async function createLandingAnalyticsDedupeKey(
         .join('');
 }
 
-export async function hashVisitorIdentity(event: H3Event) {
-    const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown';
-    const ua = getHeader(event, 'user-agent') ?? '';
-    const dailySalt = new Date().toISOString().slice(0, 10);
+export async function createLandingAnalyticsVisitorHash(input: {
+    date: string
+    ip: string
+    secret: string
+}) {
+    return createDailyAnalyticsVisitorHash(input);
+}
 
-    const raw = `${ip}:${ua}:${dailySalt}`;
-    const data = new TextEncoder().encode(raw);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hashBuffer))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+export async function hashVisitorIdentity(
+    event: H3Event,
+    env: TAnalyticsEnvironment = process.env,
+) {
+    const ip = resolveAnalyticsClientIp({
+        isVercel: env.VERCEL === '1',
+        platformIp: getRequestIP(event),
+        vercelForwardedFor: getHeader(event, 'x-vercel-forwarded-for'),
+    });
+    return createLandingAnalyticsVisitorHash({
+        date: new Date().toISOString().slice(0, 10),
+        ip,
+        secret: resolveLandingAnalyticsHashSecret(env),
+    });
 }

@@ -2,7 +2,10 @@ import {
     readFile,
     stat,
 } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { createServer } from 'node:net';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import {
     fileURLToPath,
     pathToFileURL,
@@ -14,6 +17,7 @@ import {
 } from './web-deploy-asset-manifest.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const execFileAsync = promisify(execFile);
 const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
     'pdf-lib',
     'utif',
@@ -232,6 +236,70 @@ export async function validateVercelFunctionBoot({projectRoot = defaultProjectRo
     }
 }
 
+export async function validateNodeServerBoot({projectRoot = defaultProjectRoot} = {}) {
+    const entryPath = path.join(projectRoot, 'nuxt-output/server/index.mjs');
+    await assertFileAsset(
+        path.dirname(entryPath),
+        'Nuxt node server',
+        {relativePath: path.basename(entryPath)},
+    );
+
+    const port = await new Promise((resolve, reject) => {
+        const reservation = createServer();
+        reservation.once('error', reject);
+        reservation.listen(0, '127.0.0.1', () => {
+            const address = reservation.address();
+            if (!address || typeof address === 'string') {
+                reservation.close();
+                reject(new Error('Unable to reserve a loopback port for the Nuxt boot check.'));
+                return;
+            }
+            reservation.close((error) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+                resolve(address.port);
+            });
+        });
+    });
+    const entryUrl = pathToFileURL(entryPath).href;
+    const healthUrl = `http://127.0.0.1:${String(port)}/`;
+    try {
+        await execFileAsync(process.execPath, [
+            '--input-type=module',
+            '--eval',
+            [
+                `await import(${JSON.stringify(entryUrl)});`,
+                'const deadline = Date.now() + 8_000;',
+                'let lastError;',
+                'while (Date.now() < deadline) {',
+                '  try {',
+                `    const response = await fetch(${JSON.stringify(healthUrl)}, {signal: AbortSignal.timeout(1_000)});`,
+                '    await response.body?.cancel();',
+                '    process.exit(0);',
+                '  } catch (error) {',
+                '    lastError = error;',
+                '    await new Promise(resolve => setTimeout(resolve, 50));',
+                '  }',
+                '}',
+                'throw lastError ?? new Error("Nuxt server did not answer its loopback health request.");',
+            ].join('\n'),
+        ], {
+            env: {
+                ...process.env,
+                HOST: '127.0.0.1',
+                NITRO_HOST: '127.0.0.1',
+                NITRO_PORT: String(port),
+                PORT: String(port),
+            },
+            timeout: 10_000,
+        });
+    } catch (error) {
+        throw new Error('Nuxt node server failed to boot', {cause: error});
+    }
+}
+
 const isDirectCliRun = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
@@ -240,6 +308,8 @@ if (isDirectCliRun) {
         const result = await validateWebDeployAssets();
         if (isVercelBuildOutputEnv()) {
             await validateVercelFunctionBoot();
+        } else {
+            await validateNodeServerBoot();
         }
         const outputRoots = result.outputResults.map(entry => entry.root).join(', ');
         console.log(`Web deploy asset check passed for ${outputRoots}.`);

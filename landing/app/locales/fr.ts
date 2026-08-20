@@ -26,7 +26,7 @@ export default {
         hero: {
             title: 'Politique de confidentialité',
             subtitle: 'Comment EVB Viewer traite les documents, les réglages, les données analytiques et les fonctions d’assistant optionnelles.',
-            effectiveDate: 'En vigueur le 9 juillet 2026',
+            effectiveDate: 'En vigueur le 19 août 2026',
         },
         documents: {
             heading: 'Documents et traitement local',
@@ -44,9 +44,13 @@ export default {
             heading: 'Réglages, fichiers récents et mises à jour',
             body: 'Les préférences de l’application, l’état de l’espace de travail et les références aux fichiers récents peuvent être stockés localement sur votre appareil. L’application de bureau peut contacter GitHub pour rechercher et télécharger des mises à jour. Le système d’exploitation et les services de la boutique d’applications peuvent traiter d’autres données techniques selon leurs propres politiques.',
         },
+        storage: {
+            heading: 'Cookies et stockage du navigateur',
+            body: 'EVB Viewer utilise des cookies de préférence internes pour mémoriser la langue et, dans l’application web, le thème. Les cookies de langue peuvent être conservés jusqu’à un an et le cookie de thème jusqu’à 180 jours. Le site de téléchargement utilise pendant 90 jours au maximum un cookie de cohorte opaque et HttpOnly afin de maintenir la cohérence des recommandations lors des déploiements progressifs ; il n’est pas utilisé à des fins publicitaires ni pour le suivi intersite. L’application web utilise également le stockage local, le stockage de session et IndexedDB pour les préférences, les références aux fichiers récents, l’état de l’espace de travail, les données de documents que vous choisissez de conserver et un identifiant analytique aléatoire propre à la session. EVB Viewer ne dépose aucun cookie publicitaire ou tiers. Vous pouvez supprimer les cookies et les données stockées par le navigateur depuis les contrôles de données de site de votre navigateur ; cette opération réinitialise les préférences et les données locales de l’application.',
+        },
         retention: {
             heading: 'Conservation et choix',
-            body: 'Les données locales de l’application restent sur votre appareil jusqu’à ce que vous les supprimiez ou désinstalliez l’application. Vous choisissez les documents et pièces jointes ouverts ou envoyés aux services d’assistant optionnels. Les données analytiques du site ne sont conservées que le temps nécessaire au fonctionnement du produit, à la sécurité et à l’analyse des tendances.',
+            body: 'Les données locales de l’application restent sur votre appareil jusqu’à ce que vous les supprimiez ou désinstalliez l’application. Vous choisissez les documents et pièces jointes ouverts ou envoyés aux services d’assistant optionnels. Les données analytiques du site ne sont conservées que le temps nécessaire au fonctionnement du produit, à la sécurité et à l’analyse des tendances, et leur suppression automatique est programmée après 90 jours.',
         },
         contact: {
             heading: 'Contact',

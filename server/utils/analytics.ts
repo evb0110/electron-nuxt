@@ -9,7 +9,15 @@ import {
     normalizeAnalyticsGeo,
     type IAnalyticsGeoData,
 } from '@contracts/analytics';
+import {
+    ANALYTICS_HASH_SECRET_MIN_LENGTH,
+    createDailyAnalyticsVisitorHash,
+    resolveAnalyticsClientIp,
+    resolveStrongAnalyticsSecret,
+} from '@contracts/analyticsPrivacy';
 import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
+
+export { ANALYTICS_HASH_SECRET_MIN_LENGTH };
 
 function isTruthyFlag(value: unknown) {
     return value === true
@@ -42,6 +50,13 @@ function firstNonEmptyString(values: Array<string | undefined>) {
     return '';
 }
 
+function resolveAnalyticsHashSecret(env: Record<string, string | undefined>) {
+    return resolveStrongAnalyticsSecret([
+        env.NUXT_ANALYTICS_HASH_SECRET,
+        env.ANALYTICS_HASH_SECRET,
+    ]);
+}
+
 export function isAnalyticsWriteAllowedForHost(
     env: Record<string, string | undefined>,
     requestHost: string,
@@ -51,6 +66,9 @@ export function isAnalyticsWriteAllowedForHost(
         env.ANALYTICS_WRITE_ENABLED,
     ]);
     if (!isTruthyFlag(writeEnabled)) {
+        return false;
+    }
+    if (!resolveAnalyticsHashSecret(env)) {
         return false;
     }
 
@@ -66,6 +84,37 @@ export function isAnalyticsWriteAllowedForHost(
     return allowedHosts.includes(requestHost.trim().toLowerCase());
 }
 
+export function isTrustedAnalyticsRequestValues(input: {
+    contentType: string | undefined
+    fetchSite: string | undefined
+    origin: string | undefined
+    requestOrigin: string | undefined
+}) {
+    if (input.contentType?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
+        return false;
+    }
+    if (input.fetchSite?.toLowerCase() !== 'same-origin') {
+        return false;
+    }
+    if (!input.origin || !input.requestOrigin) {
+        return false;
+    }
+    try {
+        return new URL(input.origin).origin === new URL(input.requestOrigin).origin;
+    } catch {
+        return false;
+    }
+}
+
+export function isTrustedAnalyticsRequest(event: H3Event) {
+    return isTrustedAnalyticsRequestValues({
+        contentType: getHeader(event, 'content-type'),
+        fetchSite: getHeader(event, 'sec-fetch-site'),
+        origin: getHeader(event, 'origin'),
+        requestOrigin: getRequestURL(event).origin,
+    });
+}
+
 export function extractGeo(event: H3Event): IAnalyticsGeoData {
     return normalizeAnalyticsGeo({
         country: getHeader(event, 'x-vercel-ip-country') ?? null,
@@ -79,17 +128,28 @@ export function getAnalyticsRequestHost(event: H3Event) {
     return getRequestURL(event).host.trim().toLowerCase();
 }
 
-export async function hashVisitorIdentity(event: H3Event) {
-    const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown';
-    const ua = getHeader(event, 'user-agent') ?? '';
-    const dailySalt = new Date().toISOString().slice(0, 10);
+export async function createAnalyticsVisitorHash(input: {
+    date: string
+    ip: string
+    secret: string
+}) {
+    return createDailyAnalyticsVisitorHash(input);
+}
 
-    const raw = `${ip}:${ua}:${dailySalt}`;
-    const data = new TextEncoder().encode(raw);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hashBuffer))
-        .map(byte => byte.toString(16).padStart(2, '0'))
-        .join('');
+export async function hashVisitorIdentity(
+    event: H3Event,
+    env: Record<string, string | undefined> = getRuntimeEnv(),
+) {
+    const ip = resolveAnalyticsClientIp({
+        isVercel: env.VERCEL === '1',
+        platformIp: getRequestIP(event),
+        vercelForwardedFor: getHeader(event, 'x-vercel-forwarded-for'),
+    });
+    return createAnalyticsVisitorHash({
+        date: new Date().toISOString().slice(0, 10),
+        ip,
+        secret: resolveAnalyticsHashSecret(env),
+    });
 }
 
 export function isAnalyticsWriteAllowed(event: H3Event) {

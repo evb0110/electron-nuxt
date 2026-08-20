@@ -12,6 +12,33 @@ import {
 const defineNuxtConfig = defineNuxtConfigBase as <T extends Record<string, unknown>>(config: T) => T;
 const isolatedNuxtBuildDir = process.env.EVB_NUXT_BUILD_DIR?.trim();
 const enableNuxtCompatibilityV5 = process.env.EVB_NUXT_COMPATIBILITY_VERSION === '5';
+const landingContentSecurityPolicy = [
+    'default-src \'self\'',
+    'script-src \'self\' \'unsafe-inline\'',
+    'script-src-attr \'none\'',
+    'style-src \'self\' \'unsafe-inline\'',
+    'img-src \'self\' data:',
+    'font-src \'self\' data:',
+    'connect-src \'self\'',
+    'frame-src \'none\'',
+    'object-src \'none\'',
+    'base-uri \'self\'',
+    'frame-ancestors \'none\'',
+    'form-action \'self\'',
+].join('; ');
+const landingSecurityHeaders = {
+    'Content-Security-Policy': landingContentSecurityPolicy,
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Resource-Policy': 'same-origin',
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()',
+} as const;
+const withLandingSecurityHeaders = (headers: Record<string, string> = {}) => ({
+    ...landingSecurityHeaders,
+    ...headers,
+});
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -72,33 +99,56 @@ export default defineNuxtConfig({
     },
 
     routeRules: {
-        '/': { isr: 600 },
-        '/features': { prerender: true },
-        '/docs': { prerender: true },
-        '/privacy': { prerender: true },
+        '/': { headers: withLandingSecurityHeaders({'cache-control': 'private, no-store, max-age=0'}) },
+        '/features': {
+            prerender: true,
+            headers: withLandingSecurityHeaders(),
+        },
+        '/docs': {
+            prerender: true,
+            headers: withLandingSecurityHeaders(),
+        },
+        '/privacy': {
+            prerender: true,
+            headers: withLandingSecurityHeaders(),
+        },
         ...Object.fromEntries(
             LOCALE_CODES
                 .filter(code => code !== DEFAULT_LOCALE)
                 .flatMap(code => [
                     [
                         `/${code}`,
-                        { isr: 600 },
+                        { headers: withLandingSecurityHeaders({'cache-control': 'private, no-store, max-age=0'}) },
                     ],
                     [
                         `/${code}/features`,
-                        { prerender: true },
+                        {
+                            prerender: true,
+                            headers: withLandingSecurityHeaders(),
+                        },
                     ],
                     [
                         `/${code}/docs`,
-                        { prerender: true },
+                        {
+                            prerender: true,
+                            headers: withLandingSecurityHeaders(),
+                        },
                     ],
                     [
                         `/${code}/privacy`,
-                        { prerender: true },
+                        {
+                            prerender: true,
+                            headers: withLandingSecurityHeaders(),
+                        },
                     ],
                 ]),
         ),
-        '/robots.txt': { prerender: true },
+        '/robots.txt': {
+            prerender: true,
+            headers: withLandingSecurityHeaders(),
+        },
+        '/api/**': {headers: withLandingSecurityHeaders({'cache-control': 'private, no-store, max-age=0'})},
+        '/**': {headers: landingSecurityHeaders},
     },
 
     sitemap: {
@@ -126,6 +176,7 @@ export default defineNuxtConfig({
         detectBrowserLanguage: {
             useCookie: true,
             cookieKey: 'i18n_locale',
+            cookieSecure: process.env.NODE_ENV === 'production',
             redirectOn: 'root',
         },
     },

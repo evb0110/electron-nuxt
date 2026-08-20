@@ -5,8 +5,10 @@ import {
     it,
 } from 'vitest';
 import {
+    createLandingAnalyticsVisitorHash,
     isLandingAnalyticsAdmissionRejected,
     isLandingAnalyticsWriteAllowedForHost,
+    isTrustedLandingAnalyticsRequestValues,
     LANDING_ANALYTICS_ADMISSION_DEFAULTS,
     LANDING_ANALYTICS_ADMISSION_REJECTED_SQLSTATE,
     resolveLandingAnalyticsAdmissionPolicy,
@@ -31,13 +33,87 @@ describe('landing analytics admission policy', () => {
 
     it('matches explicit enablement and allowed-host behavior', () => {
         expect(isLandingAnalyticsWriteAllowedForHost({
+            LANDING_ANALYTICS_HASH_SECRET: 'a'.repeat(32),
             LANDING_ANALYTICS_WRITE_ENABLED: 'true',
             LANDING_ANALYTICS_ALLOWED_HOSTS: 'evb-viewer.com,www.evb-viewer.com',
         }, 'EVB-VIEWER.COM')).toBe(true);
         expect(isLandingAnalyticsWriteAllowedForHost({
+            LANDING_ANALYTICS_HASH_SECRET: 'a'.repeat(32),
             LANDING_ANALYTICS_WRITE_ENABLED: 'true',
             LANDING_ANALYTICS_ALLOWED_HOSTS: 'evb-viewer.com',
         }, 'attacker.example')).toBe(false);
+    });
+
+    it('fails closed without a sufficiently strong hashing secret', () => {
+        expect(isLandingAnalyticsWriteAllowedForHost({LANDING_ANALYTICS_WRITE_ENABLED: 'true'}, 'evb-viewer.com')).toBe(false);
+        expect(isLandingAnalyticsWriteAllowedForHost({
+            LANDING_ANALYTICS_HASH_SECRET: 'short',
+            LANDING_ANALYTICS_WRITE_ENABLED: 'true',
+        }, 'evb-viewer.com')).toBe(false);
+        expect(isLandingAnalyticsWriteAllowedForHost({
+            ANALYTICS_HASH_SECRET: 'a'.repeat(32),
+            LANDING_ANALYTICS_WRITE_ENABLED: 'true',
+        }, 'evb-viewer.com')).toBe(false);
+    });
+
+    it('requires same-origin JSON before analytics admission', () => {
+        const trusted = {
+            contentType: 'application/json; charset=utf-8',
+            fetchSite: 'same-origin',
+            origin: 'https://evb-viewer.com',
+            requestOrigin: 'https://evb-viewer.com',
+        };
+        expect(isTrustedLandingAnalyticsRequestValues(trusted)).toBe(true);
+        expect(isTrustedLandingAnalyticsRequestValues({
+            ...trusted,
+            contentType: 'text/plain',
+        })).toBe(false);
+        expect(isTrustedLandingAnalyticsRequestValues({
+            ...trusted,
+            contentType: undefined,
+        })).toBe(false);
+        expect(isTrustedLandingAnalyticsRequestValues({
+            ...trusted,
+            fetchSite: 'cross-site',
+        })).toBe(false);
+        expect(isTrustedLandingAnalyticsRequestValues({
+            ...trusted,
+            fetchSite: undefined,
+        })).toBe(false);
+        expect(isTrustedLandingAnalyticsRequestValues({
+            ...trusted,
+            origin: 'https://attacker.example',
+        })).toBe(false);
+        expect(isTrustedLandingAnalyticsRequestValues({
+            ...trusted,
+            origin: undefined,
+        })).toBe(false);
+        expect(isTrustedLandingAnalyticsRequestValues({
+            ...trusted,
+            requestOrigin: undefined,
+        })).toBe(false);
+    });
+
+    it('uses a keyed daily HMAC for visitor admission identities', async () => {
+        const input = {
+            date: '2026-08-19',
+            ip: '203.0.113.7',
+            secret: 'a'.repeat(32),
+        };
+        const hash = await createLandingAnalyticsVisitorHash(input);
+        await expect(createLandingAnalyticsVisitorHash(input)).resolves.toBe(hash);
+        await expect(createLandingAnalyticsVisitorHash({
+            ...input,
+            secret: 'b'.repeat(32),
+        })).resolves.not.toBe(hash);
+        await expect(createLandingAnalyticsVisitorHash({
+            ...input,
+            date: '2026-08-20',
+        })).resolves.not.toBe(hash);
+        await expect(createLandingAnalyticsVisitorHash({
+            ...input,
+            secret: 'short',
+        })).rejects.toThrow('not configured securely');
     });
 
     it('uses surface-specific defaults and clamps overrides', () => {

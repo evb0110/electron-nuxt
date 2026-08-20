@@ -33,6 +33,12 @@ const NON_INSTALLER_SUFFIXES = [
     '.yaml',
 ];
 
+const UNSUPPORTED_BROWSER_PLATFORM_PATTERN = /(^|[^a-z0-9])(android|chrome\s*os|cros|ios|ipados|ipad|iphone|ipod|mobile)([^a-z0-9]|$)/i;
+
+function isUnsupportedBrowserPlatform(value: string) {
+    return UNSUPPORTED_BROWSER_PLATFORM_PATTERN.test(value);
+}
+
 export const INSTALLER_PLATFORM_ORDER = [
     'macos',
     'windows',
@@ -173,6 +179,10 @@ export function detectArchitecture(assetName: string): TReleaseArch {
 export function parsePlatformHint(hint: string | null | undefined): TReleasePlatform {
     const normalizedHint = (hint ?? '').toLowerCase();
 
+    if (isUnsupportedBrowserPlatform(normalizedHint)) {
+        return 'unknown';
+    }
+
     if (normalizedHint.includes('mac') || normalizedHint.includes('darwin')) {
         return 'macos';
     }
@@ -205,6 +215,13 @@ export function parseArchitectureHint(hint: string | null | undefined): TRelease
 export function parseUserAgent(userAgent: string, platformHint = ''): IUserAgentProfile {
     const normalized = `${platformHint} ${userAgent}`.toLowerCase();
 
+    if (isUnsupportedBrowserPlatform(normalized)) {
+        return {
+            platform: 'unknown',
+            arch: 'unknown',
+        };
+    }
+
     let platform: TReleasePlatform = 'unknown';
     if (/(macintosh|mac os x|darwin)/.test(normalized)) {
         platform = 'macos';
@@ -217,9 +234,12 @@ export function parseUserAgent(userAgent: string, platformHint = ''): IUserAgent
     let arch: TReleaseArch = 'unknown';
     if (/(arm64|aarch64|armv8|apple silicon)/.test(normalized)) {
         arch = 'arm64';
-    } else if (/(x86_64|x64|amd64|wow64|intel|win64)/.test(normalized)) {
+    } else if (/(x86_64|x64|amd64|wow64|win64)/.test(normalized)) {
         arch = 'x64';
     }
+    // Safari's frozen macOS UA contains "Intel Mac OS X" on both Intel and
+    // Apple Silicon hardware. Only UA-CH or an explicit architecture token is
+    // safe enough for an automatic binary recommendation.
 
     return {
         platform,
@@ -233,10 +253,16 @@ export function buildClientProfile(
     hintedArch: TReleaseArch = 'unknown',
 ): IUserAgentProfile {
     const userAgentProfile = parseUserAgent(userAgent);
+    const hasUnsupportedBrowserPlatform = userAgentProfile.platform === 'unknown'
+        && isUnsupportedBrowserPlatform(userAgent);
 
     return {
-        platform: hintedPlatform === 'unknown' ? userAgentProfile.platform : hintedPlatform,
-        arch: hintedArch === 'unknown' ? userAgentProfile.arch : hintedArch,
+        platform: hasUnsupportedBrowserPlatform
+            ? 'unknown'
+            : (hintedPlatform === 'unknown' ? userAgentProfile.platform : hintedPlatform),
+        arch: hasUnsupportedBrowserPlatform
+            ? 'unknown'
+            : (hintedArch === 'unknown' ? userAgentProfile.arch : hintedArch),
     };
 }
 
@@ -244,18 +270,25 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     const preferredAssets = assets.filter(asset => !asset.isLegacy);
     const candidatePool = preferredAssets.length ? preferredAssets : assets;
 
-    if (!candidatePool.length) {
+    if (!candidatePool.length || profile.platform === 'unknown') {
         return null;
     }
 
     const extensionPreference = PREFERRED_EXTENSION_ORDER[profile.platform] || PREFERRED_EXTENSION_ORDER.unknown;
-    const platformFiltered = candidatePool.filter(asset => profile.platform !== 'unknown' && asset.platform === profile.platform);
-    const platformScopedAssets = platformFiltered.length ? platformFiltered : candidatePool;
+    const platformScopedAssets = candidatePool.filter(asset => asset.platform === profile.platform);
+    if (!platformScopedAssets.length) {
+        return null;
+    }
 
     const preferredScopedAssets = platformScopedAssets.filter(asset => extensionPreference.includes(asset.extension));
     const extensionScopedAssets = preferredScopedAssets.length ? preferredScopedAssets : platformScopedAssets;
     const architectureFiltered = extensionScopedAssets.filter(asset => isCompatibleArchitecture(asset.arch, profile.arch));
-    const candidateAssets = architectureFiltered.length ? architectureFiltered : extensionScopedAssets;
+    if (!architectureFiltered.length) {
+        // A wrong native binary is worse than no automatic recommendation.
+        // Unknown variants remain visible for deliberate manual selection.
+        return null;
+    }
+    const candidateAssets = architectureFiltered;
 
     const sorted = orderBy(candidateAssets, [
         asset => architectureRank(asset.arch, profile.arch),
@@ -274,10 +307,10 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
 
 function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TReleaseArch) {
     if (profileArch === 'unknown') {
-        return true;
+        return assetArch === 'universal';
     }
 
-    return assetArch === profileArch || assetArch === 'universal' || assetArch === 'unknown';
+    return assetArch === profileArch || assetArch === 'universal';
 }
 
 export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
@@ -414,12 +447,8 @@ export function formatInstallerLabel(asset: IReleaseInstaller) {
     return `${platform} (${extension})`;
 }
 
-function effectiveArch(asset: IReleaseInstaller): TReleaseArch {
-    return asset.arch === 'unknown' ? 'x64' : asset.arch;
-}
-
 export function formatInstallerVariantLabel(asset: IReleaseInstaller) {
-    const arch = formatArch(effectiveArch(asset));
+    const arch = formatArch(asset.arch);
     const extension = formatExtension(asset.extension);
 
     if (arch) {
@@ -460,7 +489,7 @@ export function selectPreferredInstallers(assets: IReleaseInstaller[]): IRelease
     }
 
     const formatOrder = PREFERRED_EXTENSION_ORDER[first.platform] || PREFERRED_EXTENSION_ORDER.unknown;
-    const assetsByArch = groupBy(assets, effectiveArch);
+    const assetsByArch = groupBy(assets, asset => asset.arch);
 
     const preferredInstallers: IReleaseInstaller[] = [];
     for (const archAssets of Object.values(assetsByArch)) {

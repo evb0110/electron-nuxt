@@ -347,6 +347,11 @@ describe('package scripts', () => {
         expect(scripts['release:cut']).toContain('scripts/release/cut-release.mjs');
         expect(scripts['db:generate']).toContain('drizzle-kit generate');
         expect(scripts['db:migrate']).toContain('drizzle-kit migrate');
+        const landingPackage = JSON.parse(await readFile(
+            path.resolve(process.cwd(), 'landing/package.json'),
+            'utf8',
+        )) as {scripts?: Record<string, string>};
+        expect(landingPackage.scripts?.['db:migrate']).toContain('drizzle-kit migrate');
         expect(scriptCommands(scripts, 'test:electron-bundle-static-integrity')).toEqual([
             'pnpm run build:electron',
             'pnpm run test:electron-bundle-static-integrity:no-build',

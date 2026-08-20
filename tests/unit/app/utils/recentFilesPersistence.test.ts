@@ -8,18 +8,58 @@ import {
 import {
     parseRecentFilesCookieSnapshot,
     readBrowserRecentFilesSnapshot,
-    serializeRecentFilesCookiePayload,
-    trimRecentFilesForCookie,
+    RECENT_FILES_COOKIE_KEY,
 } from '@app/utils/recentFilesPersistence';
 import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
+function expectedLegacyRecentFilesCookieExpiry(secure = false) {
+    return `${RECENT_FILES_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secure ? '; Secure' : ''}`;
+}
+
 function stubBrowserStorage(options: {
     cookie?: string;
+    protocol?: 'http:' | 'https:';
     storage?: Record<string, string>;
+    throwOnSet?: boolean;
 }) {
     const storage = options.storage ?? {};
-    vi.stubGlobal('document', {cookie: options.cookie ?? ''});
-    vi.stubGlobal('window', {localStorage: {getItem: (key: string) => storage[key] ?? null}});
+    const cookieWrites: string[] = [];
+    vi.stubGlobal('document', {
+        get cookie() { return options.cookie ?? ''; },
+        set cookie(value: string) { cookieWrites.push(value); },
+    });
+    vi.stubGlobal('location', {protocol: options.protocol ?? 'http:'});
+    vi.stubGlobal('window', {localStorage: {
+        getItem: (key: string) => storage[key] ?? null,
+        setItem: (key: string, value: string) => {
+            if (options.throwOnSet) {
+                throw new Error('storage unavailable');
+            }
+            storage[key] = value;
+        },
+    }});
+    return {
+        cookieWrites,
+        storage,
+    };
+}
+
+function compactPayload(options: {
+    truncated?: boolean;
+    path?: string
+} = {}) {
+    return JSON.stringify({
+        v: 1,
+        t: options.truncated ?? false,
+        f: [[
+            options.path ?? 'browser://documents/example',
+            'example.pdf',
+            123,
+            456,
+            'browser',
+            789,
+        ]],
+    });
 }
 
 describe('recentFilesPersistence', () => {
@@ -27,56 +67,13 @@ describe('recentFilesPersistence', () => {
         vi.unstubAllGlobals();
     });
 
-    it('keeps adding recent files to the cookie payload until the encoded-size limit is reached', () => {
-        const recentFiles = Array.from({ length: 12 }, (_, index) => ({
-            originalPath: `browser://documents/${index}/doc-${index}.pdf`,
-            backend: 'browser' as const,
-            fileName: `doc-${index}.pdf`,
-            timestamp: index + 1,
-            fileSize: 1024,
-        }));
-
-        const trimmed = trimRecentFilesForCookie(recentFiles);
-
-        expect(trimmed.recentFiles.length).toBeGreaterThan(8);
-        expect(trimmed.recentFiles).toEqual(recentFiles);
-        expect(trimmed.truncated).toBe(false);
-    });
-
-    it('marks cookie snapshots as truncated when not every recent file fits', () => {
-        const recentFiles = Array.from({ length: 30 }, (_, index) => ({
-            originalPath: `/Users/example/Desktop/really-long-folder-name-${index}/really-long-folder-name-${index}/document-${index}.pdf`,
-            fileName: `really-long-document-name-${index}.pdf`,
-            timestamp: index + 1,
-            fileSize: 2048,
-        }));
-
-        const serialized = serializeRecentFilesCookiePayload(recentFiles);
-        const snapshot = parseRecentFilesCookieSnapshot(serialized);
-
-        expect(snapshot.hasSnapshot).toBe(true);
-        expect(snapshot.truncated).toBe(true);
-        expect(snapshot.recentFiles.length).toBeLessThan(recentFiles.length);
-    });
-
-    it('parses the compact cookie snapshot format', () => {
-        const snapshot = parseRecentFilesCookieSnapshot(JSON.stringify({
-            v: 1,
-            t: false,
-            f: [[
-                '/tmp/example.pdf',
-                'example.pdf',
-                123,
-                456,
-                'electron',
-                789,
-            ]],
-        }));
+    it('parses the legacy compact cookie snapshot format', () => {
+        const snapshot = parseRecentFilesCookieSnapshot(compactPayload({path: '/tmp/example.pdf'}));
 
         expect(snapshot).toEqual({
             recentFiles: [{
                 originalPath: '/tmp/example.pdf',
-                backend: 'electron',
+                backend: 'browser',
                 fileName: 'example.pdf',
                 timestamp: 123,
                 fileSize: 456,
@@ -108,6 +105,81 @@ describe('recentFilesPersistence', () => {
         }]);
     });
 
+    it('prefers a valid legacy cookie over divergent local storage and replaces storage', () => {
+        const localFiles = [{
+            originalPath: 'browser://documents/storage',
+            fileName: 'storage.pdf',
+            timestamp: 3,
+            fileSize: 4,
+        }];
+        const browser = stubBrowserStorage({
+            cookie: `${RECENT_FILES_COOKIE_KEY}=${encodeURIComponent(compactPayload())}`,
+            storage: {[BROWSER_RECENT_FILES_STORAGE_KEY]: JSON.stringify(localFiles)},
+        });
+
+        const snapshot = readBrowserRecentFilesSnapshot();
+        expect(snapshot.recentFiles[0]?.originalPath).toBe('browser://documents/example');
+        expect(JSON.parse(browser.storage[BROWSER_RECENT_FILES_STORAGE_KEY] ?? 'null'))
+            .toEqual(snapshot.recentFiles);
+        expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry()]);
+    });
+
+    it('does not treat valid JSON with the wrong storage shape as canonical', () => {
+        stubBrowserStorage({storage: {[BROWSER_RECENT_FILES_STORAGE_KEY]: JSON.stringify({})}});
+
+        expect(readBrowserRecentFilesSnapshot()).toEqual({
+            recentFiles: [],
+            hasSnapshot: false,
+            truncated: false,
+        });
+    });
+
+    it('migrates a complete legacy cookie snapshot to local storage and expires it', () => {
+        const browser = stubBrowserStorage({cookie: `${RECENT_FILES_COOKIE_KEY}=${encodeURIComponent(compactPayload())}`});
+
+        const snapshot = readBrowserRecentFilesSnapshot();
+
+        expect(snapshot.hasSnapshot).toBe(true);
+        expect(snapshot.recentFiles[0]?.originalPath).toBe('browser://documents/example');
+        expect(JSON.parse(browser.storage[BROWSER_RECENT_FILES_STORAGE_KEY] ?? 'null')).toEqual(snapshot.recentFiles);
+        expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry()]);
+    });
+
+    it('adds Secure to legacy cookie expiry only over HTTPS', () => {
+        const browser = stubBrowserStorage({
+            cookie: `${RECENT_FILES_COOKIE_KEY}=${encodeURIComponent(compactPayload())}`,
+            protocol: 'https:',
+        });
+
+        expect(readBrowserRecentFilesSnapshot().hasSnapshot).toBe(true);
+        expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry(true)]);
+    });
+
+    it('migrates the valid subset of a truncated cookie without marking it complete', () => {
+        const browser = stubBrowserStorage({cookie: `${RECENT_FILES_COOKIE_KEY}=${encodeURIComponent(compactPayload({truncated: true}))}`});
+
+        const snapshot = readBrowserRecentFilesSnapshot();
+        expect(snapshot.hasSnapshot).toBe(true);
+        expect(snapshot.truncated).toBe(true);
+        expect(snapshot.recentFiles).toHaveLength(1);
+        expect(JSON.parse(browser.storage[BROWSER_RECENT_FILES_STORAGE_KEY] ?? 'null'))
+            .toMatchObject({
+                truncated: true,
+                files: snapshot.recentFiles,
+            });
+        expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry()]);
+    });
+
+    it('expires the request cookie even when local storage migration fails', () => {
+        const browser = stubBrowserStorage({
+            cookie: `${RECENT_FILES_COOKIE_KEY}=${encodeURIComponent(compactPayload())}`,
+            throwOnSet: true,
+        });
+
+        expect(readBrowserRecentFilesSnapshot().hasSnapshot).toBe(true);
+        expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry()]);
+    });
+
     it('keeps only the newest entry for each recent file path', () => {
         const snapshot = parseRecentFilesCookieSnapshot(JSON.stringify({
             v: 1,
@@ -134,73 +206,10 @@ describe('recentFilesPersistence', () => {
             ],
         }));
 
-        expect(snapshot.recentFiles).toEqual([
-            {
-                originalPath: '/tmp/example.pdf',
-                backend: 'electron',
-                fileName: 'example-new.pdf',
-                timestamp: 3,
-                fileSize: 456,
-            },
-            {
-                originalPath: '/tmp/other.pdf',
-                backend: 'electron',
-                fileName: 'other.pdf',
-                timestamp: 2,
-                fileSize: 123,
-            },
+        expect(snapshot.recentFiles.map(file => file.fileName)).toEqual([
+            'example-new.pdf',
+            'other.pdf',
         ]);
-    });
-
-    it('reads a complete browser cookie snapshot synchronously', () => {
-        const payload = serializeRecentFilesCookiePayload([{
-            originalPath: 'browser://documents/cookie',
-            fileName: 'cookie.pdf',
-            timestamp: 1,
-            fileSize: 2,
-        }]);
-        stubBrowserStorage({
-            cookie: `evb_viewer_recent_files=${encodeURIComponent(payload)}`,
-            storage: {[BROWSER_RECENT_FILES_STORAGE_KEY]: JSON.stringify([{
-                originalPath: 'browser://documents/storage',
-                fileName: 'storage.pdf',
-                timestamp: 3,
-                fileSize: 4,
-            }])},
-        });
-
-        expect(readBrowserRecentFilesSnapshot()).toEqual({
-            recentFiles: [{
-                originalPath: 'browser://documents/cookie',
-                backend: 'browser',
-                fileName: 'cookie.pdf',
-                timestamp: 1,
-                fileSize: 2,
-            }],
-            hasSnapshot: true,
-            truncated: false,
-        });
-    });
-
-    it('falls back to localStorage when the browser cookie snapshot is missing', () => {
-        stubBrowserStorage({storage: {[BROWSER_RECENT_FILES_STORAGE_KEY]: JSON.stringify([{
-            originalPath: 'browser://documents/storage',
-            fileName: 'storage.pdf',
-            timestamp: 3,
-            fileSize: 4,
-        }])}});
-
-        expect(readBrowserRecentFilesSnapshot()).toEqual({
-            recentFiles: [{
-                originalPath: 'browser://documents/storage',
-                backend: 'browser',
-                fileName: 'storage.pdf',
-                timestamp: 3,
-                fileSize: 4,
-            }],
-            hasSnapshot: true,
-            truncated: false,
-        });
     });
 
     it('drops legacy recent files whose backend cannot be inferred', () => {

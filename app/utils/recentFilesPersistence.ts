@@ -9,13 +9,14 @@ import {
     getOptionalString,
     isRecord,
 } from '@app/services/pdfjs/runtime';
-import { safeGetLocalStorageItem } from '@app/utils/localStorage';
+import {
+    safeGetLocalStorageItem,
+    safeSetLocalStorageItem,
+} from '@app/utils/localStorage';
 import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
 export const RECENT_FILES_COOKIE_KEY = 'evb_viewer_recent_files';
-export const RECENT_FILES_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
 const RECENT_FILES_LIMIT = 30;
-const RECENT_FILES_COOKIE_MAX_ENCODED_LENGTH = 3000;
 
 interface IRecentFilesCookieSnapshot {
     recentFiles: IRecentFile[];
@@ -91,19 +92,64 @@ function normalizeRecentFilesCollection(value: unknown) {
     return recentFiles;
 }
 
-function buildRecentFilesCookiePayload(recentFiles: IRecentFile[], truncated: boolean) {
+function isValidRecentFilesCollection(value: unknown) {
+    return Array.isArray(value) && value.every(
+        candidate => normalizeRecentFile(candidate) !== null
+            || normalizeRecentFileTuple(candidate) !== null,
+    );
+}
+
+function parseJsonValue(raw: string | null | undefined): unknown {
+    if (!raw) {
+        return null;
+    }
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+function parseStrictRecentFilesSnapshot(
+    collection: unknown,
+    truncated: boolean,
+): IRecentFilesCookieSnapshot {
+    if (!isValidRecentFilesCollection(collection)) {
+        return {
+            recentFiles: [],
+            hasSnapshot: false,
+            truncated: false,
+        };
+    }
     return {
-        v: 1,
-        t: truncated,
-        f: recentFiles.map(file => [
-            file.originalPath,
-            file.fileName,
-            file.timestamp,
-            file.fileSize ?? null,
-            file.backend ?? inferDocumentRefBackend(file.originalPath),
-            file.modifiedAt ?? null,
-        ]),
+        recentFiles: normalizeRecentFilesCollection(collection),
+        hasSnapshot: true,
+        truncated,
     };
+}
+
+export function parseLegacyRecentFilesCookieSnapshot(raw: string | null | undefined) {
+    const parsed = parseJsonValue(raw);
+    if (!isRecord(parsed)
+        || parsed.v !== 1
+        || typeof parsed.t !== 'boolean'
+        || !Array.isArray(parsed.f)) {
+        return parseStrictRecentFilesSnapshot(null, false);
+    }
+    return parseStrictRecentFilesSnapshot(parsed.f, parsed.t);
+}
+
+export function parseRecentFilesStorageSnapshot(raw: string | null | undefined) {
+    const parsed = parseJsonValue(raw);
+    if (Array.isArray(parsed)) {
+        return parseStrictRecentFilesSnapshot(parsed, false);
+    }
+    if (isRecord(parsed)
+        && parsed.truncated === true
+        && Array.isArray(parsed.files)) {
+        return parseStrictRecentFilesSnapshot(parsed.files, true);
+    }
+    return parseStrictRecentFilesSnapshot(null, false);
 }
 
 function normalizeRecentFile(value: unknown): IRecentFile | null {
@@ -222,62 +268,49 @@ function readCookieValue(key: string) {
     }
 }
 
-export function readBrowserRecentFilesSnapshot(): IRecentFilesCookieSnapshot {
-    const cookieSnapshot = parseRecentFilesCookieSnapshot(readCookieValue(RECENT_FILES_COOKIE_KEY));
-    if (cookieSnapshot.hasSnapshot && !cookieSnapshot.truncated) {
-        return cookieSnapshot;
+export function expireLegacyRecentFilesCookie() {
+    if (typeof document === 'undefined') {
+        return;
     }
+    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:'
+        ? '; Secure'
+        : '';
+    document.cookie = `${RECENT_FILES_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secureAttribute}`;
+}
+
+export function readBrowserRecentFilesSnapshot(): IRecentFilesCookieSnapshot {
+    const legacySnapshot = parseLegacyRecentFilesCookieSnapshot(
+        readCookieValue(RECENT_FILES_COOKIE_KEY),
+    );
+    if (legacySnapshot.hasSnapshot) {
+        safeSetLocalStorageItem(
+            BROWSER_RECENT_FILES_STORAGE_KEY,
+            legacySnapshot.truncated
+                ? JSON.stringify({
+                    files: legacySnapshot.recentFiles,
+                    truncated: true,
+                })
+                : serializeRecentFilesPayload(legacySnapshot.recentFiles),
+        );
+        expireLegacyRecentFilesCookie();
+        return legacySnapshot;
+    }
+    expireLegacyRecentFilesCookie();
 
     const rawStorageSnapshot = safeGetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);
     if (rawStorageSnapshot !== null) {
-        return {
-            recentFiles: parseRecentFilesPayload(rawStorageSnapshot),
-            hasSnapshot: true,
-            truncated: false,
-        };
+        const storageSnapshot = parseRecentFilesStorageSnapshot(rawStorageSnapshot);
+        if (storageSnapshot.hasSnapshot) {
+            return storageSnapshot;
+        }
     }
-
-    return cookieSnapshot;
+    return {
+        recentFiles: [],
+        hasSnapshot: false,
+        truncated: false,
+    };
 }
 
 export function serializeRecentFilesPayload(recentFiles: IRecentFile[]) {
     return JSON.stringify(take(recentFiles, RECENT_FILES_LIMIT));
-}
-
-export function trimRecentFilesForCookie(recentFiles: IRecentFile[]) {
-    const trimmed: IRecentFile[] = [];
-    let truncated = false;
-
-    for (const candidateValue of recentFiles) {
-        const candidate = normalizeRecentFile(candidateValue);
-        if (!candidate) {
-            continue;
-        }
-
-        const nextTrimmed = [
-            ...trimmed,
-            candidate,
-        ];
-        const encodedPayload = encodeURIComponent(JSON.stringify(buildRecentFilesCookiePayload(nextTrimmed, false)));
-        if (encodedPayload.length > RECENT_FILES_COOKIE_MAX_ENCODED_LENGTH) {
-            truncated = true;
-            break;
-        }
-
-        trimmed.push(candidate);
-    }
-
-    return {
-        recentFiles: trimmed,
-        truncated,
-    };
-}
-
-export function serializeRecentFilesCookiePayload(recentFiles: IRecentFile[]) {
-    const {
-        recentFiles: trimmed,
-        truncated,
-    } = trimRecentFilesForCookie(recentFiles);
-
-    return JSON.stringify(buildRecentFilesCookiePayload(trimmed, truncated));
 }

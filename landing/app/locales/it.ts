@@ -26,7 +26,7 @@ export default {
         hero: {
             title: 'Informativa sulla privacy',
             subtitle: 'Come EVB Viewer gestisce documenti, impostazioni, dati analitici e funzionalità opzionali dell’assistente.',
-            effectiveDate: 'In vigore dal 9 luglio 2026',
+            effectiveDate: 'In vigore dal 19 agosto 2026',
         },
         documents: {
             heading: 'Documenti ed elaborazione locale',
@@ -44,9 +44,13 @@ export default {
             heading: 'Impostazioni, file recenti e aggiornamenti',
             body: 'Le preferenze dell’app, lo stato dell’area di lavoro e i riferimenti ai file recenti possono essere archiviati localmente sul tuo dispositivo. L’app desktop può contattare GitHub per cercare e scaricare aggiornamenti software. Il sistema operativo e i servizi dello store possono elaborare ulteriori informazioni tecniche secondo le proprie politiche.',
         },
+        storage: {
+            heading: 'Cookie e archiviazione del browser',
+            body: 'EVB Viewer utilizza cookie di preferenza proprietari per ricordare la lingua e, nell’app browser, il tema. I cookie della lingua possono durare fino a un anno e quello del tema fino a 180 giorni. Il sito di download utilizza per un massimo di 90 giorni un cookie di coorte opaco e HttpOnly per mantenere coerenti i suggerimenti durante i rilasci graduali; non viene usato per pubblicità o tracciamento tra siti. L’app browser utilizza inoltre archiviazione locale, archiviazione di sessione e IndexedDB per preferenze, riferimenti ai file recenti, stato dell’area di lavoro, dati dei documenti che scegli di conservare e un identificatore analitico casuale per sessione. EVB Viewer non imposta cookie pubblicitari o di terze parti. Puoi eliminare cookie e dati memorizzati dal browser tramite i controlli dei dati dei siti del browser; questa operazione reimposta le preferenze e i dati locali dell’app.',
+        },
         retention: {
             heading: 'Conservazione e scelte',
-            body: 'I dati locali dell’app rimangono sul dispositivo finché non li rimuovi o disinstalli l’app. Sei tu a decidere quali documenti e allegati aprire o inviare ai servizi opzionali dell’assistente. I dati analitici del sito vengono conservati solo per il tempo necessario al funzionamento del prodotto, alla sicurezza e all’analisi delle tendenze.',
+            body: 'I dati locali dell’app rimangono sul dispositivo finché non li rimuovi o disinstalli l’app. Sei tu a decidere quali documenti e allegati aprire o inviare ai servizi opzionali dell’assistente. I dati analitici del sito vengono conservati solo per il tempo necessario al funzionamento del prodotto, alla sicurezza e all’analisi delle tendenze e ne è programmata l’eliminazione automatica dopo 90 giorni.',
         },
         contact: {
             heading: 'Contatti',

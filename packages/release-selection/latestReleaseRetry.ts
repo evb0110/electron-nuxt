@@ -1,15 +1,33 @@
 interface IHeadersLike {get: (name: string) => string | null}
+interface ITaggedRelease {tag_name: string}
 
-interface ILatestReleaseRetryOptions<TRelease, TInstaller> {
-    fetchRelease: () => Promise<TRelease>
-    toInstallers: (release: TRelease) => TInstaller[]
+interface IReleaseDataRetryOptions<TResult> {
+    fetchResult: (signal: AbortSignal) => Promise<TResult>
+    shouldRetryResult?: (result: TResult) => boolean
     sleep?: (delayMs: number) => Promise<void>
     retries?: number
+    random?: () => number
+    totalTimeoutMs?: number
+}
+
+interface IReleaseCatalogLoaderOptions {
+    freshForMs?: number
+    staleForMs?: number
+    now?: () => number
+}
+
+interface IReleaseCatalogLoadOptions<TCatalog> {
+    cacheKey: string
+    fetchCatalog: () => Promise<TCatalog>
+    isUsableCatalog?: (catalog: TCatalog) => boolean
 }
 
 const DEFAULT_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 450;
-const MAX_RETRY_AFTER_MS = 10_000;
+const DEFAULT_TOTAL_TIMEOUT_MS = 9_000;
+const MAX_RETRY_AFTER_MS = 8_000;
+const DEFAULT_CATALOG_FRESH_MS = 5 * 60_000;
+const DEFAULT_CATALOG_STALE_MS = 7 * 24 * 60 * 60_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -66,50 +84,206 @@ export function shouldRetryReleaseFetch(error: unknown) {
     return statusCode === null || statusCode === 429 || statusCode >= 500;
 }
 
+export function getMissingConfiguredReleaseTags(
+    releases: readonly ITaggedRelease[],
+    configuredTags: readonly string[],
+) {
+    const listedTags = new Set(releases.map(release => release.tag_name));
+    return Array.from(new Set(configuredTags)).filter(tag => !listedTags.has(tag));
+}
+
 function sleep(delayMs: number) {
     return new Promise<void>((resolve) => {
         setTimeout(resolve, delayMs);
     });
 }
 
-export async function fetchLatestReleaseWithRetry<TRelease, TInstaller>(
-    options: ILatestReleaseRetryOptions<TRelease, TInstaller>,
+function createDeadlineError() {
+    const error = new Error('Latest release fetch exceeded its total deadline.');
+    error.name = 'TimeoutError';
+    return error;
+}
+
+async function runWithinDeadline<T>(
+    operation: (signal: AbortSignal) => Promise<T>,
+    timeoutMs: number,
+): Promise<T> {
+    if (timeoutMs <= 0) {
+        throw createDeadlineError();
+    }
+
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            controller.abort();
+            reject(createDeadlineError());
+        }, timeoutMs);
+    });
+
+    try {
+        return await Promise.race([
+            operation(controller.signal),
+            deadline,
+        ]);
+    } finally {
+        if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+        }
+    }
+}
+
+function jitterDelay(delayMs: number, random: () => number) {
+    const normalizedRandom = Math.min(1, Math.max(0, random()));
+    return Math.round(delayMs * (0.75 + normalizedRandom * 0.5));
+}
+
+export async function fetchReleaseDataWithRetry<TResult>(
+    options: IReleaseDataRetryOptions<TResult>,
 ) {
     const retryCount = options.retries ?? DEFAULT_RETRIES;
     const wait = options.sleep ?? sleep;
-    let latestEmptyResult: {
-        release: TRelease,
-        installers: TInstaller[]
-    } | null = null;
+    const random = options.random ?? Math.random;
+    const totalTimeoutMs = options.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
+    const startedAt = Date.now();
+    let hasLatestResult = false;
+    let latestResult: TResult | undefined;
 
     for (let attempt = 0; attempt <= retryCount; attempt += 1) {
         try {
-            const release = await options.fetchRelease();
-            const installers = options.toInstallers(release);
-            const result = {
-                release,
-                installers,
-            };
-            if (installers.length || attempt === retryCount) {
+            const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
+            const result = await runWithinDeadline(options.fetchResult, remainingMs);
+            if (!options.shouldRetryResult?.(result) || attempt === retryCount) {
                 return result;
             }
-            latestEmptyResult = result;
+            latestResult = result;
+            hasLatestResult = true;
         } catch (error) {
-            if (attempt === retryCount || !shouldRetryReleaseFetch(error)) {
+            if (!shouldRetryReleaseFetch(error)) {
+                throw error;
+            }
+            if (attempt === retryCount) {
+                if (hasLatestResult) {
+                    return latestResult as TResult;
+                }
                 throw error;
             }
 
             const retryAfterMs = parseRetryAfterMs(getRetryAfterHeader(error));
-            await wait(retryAfterMs ?? DEFAULT_RETRY_DELAY_MS * (attempt + 1));
+            const delayMs = retryAfterMs ?? jitterDelay(DEFAULT_RETRY_DELAY_MS * (attempt + 1), random);
+            const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
+            if (delayMs >= remainingMs) {
+                if (hasLatestResult) {
+                    return latestResult as TResult;
+                }
+                throw createDeadlineError();
+            }
+            await wait(delayMs);
             continue;
         }
 
-        await wait(DEFAULT_RETRY_DELAY_MS * (attempt + 1));
+        const delayMs = jitterDelay(DEFAULT_RETRY_DELAY_MS * (attempt + 1), random);
+        const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
+        if (delayMs >= remainingMs) {
+            if (hasLatestResult) {
+                return latestResult;
+            }
+            throw createDeadlineError();
+        }
+        await wait(delayMs);
     }
 
-    if (latestEmptyResult) {
-        return latestEmptyResult;
+    if (hasLatestResult) {
+        return latestResult as TResult;
     }
 
-    throw new Error('Latest release fetch exhausted without a result.');
+    throw new Error('Release data fetch exhausted without a result.');
+}
+
+/** Keeps one raw upstream catalog per warm server instance, independent of request headers. */
+export function createReleaseCatalogLoader<TCatalog>(options: IReleaseCatalogLoaderOptions = {}) {
+    const freshForMs = options.freshForMs ?? DEFAULT_CATALOG_FRESH_MS;
+    const staleForMs = options.staleForMs ?? DEFAULT_CATALOG_STALE_MS;
+    const now = options.now ?? Date.now;
+    let cached: {
+        cacheKey: string
+        catalog: TCatalog
+        fetchedAt: number
+    } | null = null;
+    let inFlight: {
+        cacheKey: string
+        promise: Promise<{
+            catalog: TCatalog
+            stale: boolean
+        }>
+    } | null = null;
+
+    return async ({
+        cacheKey,
+        fetchCatalog,
+        isUsableCatalog = () => true,
+    }: IReleaseCatalogLoadOptions<TCatalog>): Promise<{
+        catalog: TCatalog
+        stale: boolean
+    }> => {
+        const ageMs = cached?.cacheKey === cacheKey ? now() - cached.fetchedAt : Number.POSITIVE_INFINITY;
+        if (cached && cached.cacheKey === cacheKey && ageMs <= freshForMs) {
+            return {
+                catalog: cached.catalog,
+                stale: false,
+            };
+        }
+        if (inFlight?.cacheKey === cacheKey) {
+            return inFlight.promise;
+        }
+
+        const staleCandidate = cached?.cacheKey === cacheKey && ageMs <= staleForMs ? cached : null;
+        const promise = (async () => {
+            try {
+                const catalog = await fetchCatalog();
+                if (!isUsableCatalog(catalog)) {
+                    if (staleCandidate) {
+                        return {
+                            catalog: staleCandidate.catalog,
+                            stale: true,
+                        };
+                    }
+
+                    return {
+                        catalog,
+                        stale: false,
+                    };
+                }
+                cached = {
+                    cacheKey,
+                    catalog,
+                    fetchedAt: now(),
+                };
+                return {
+                    catalog,
+                    stale: false,
+                };
+            } catch (error) {
+                if (staleCandidate) {
+                    return {
+                        catalog: staleCandidate.catalog,
+                        stale: true,
+                    };
+                }
+                throw error;
+            }
+        })();
+        inFlight = {
+            cacheKey,
+            promise,
+        };
+
+        try {
+            return await promise;
+        } finally {
+            if (inFlight?.promise === promise) {
+                inFlight = null;
+            }
+        }
+    };
 }

@@ -4,8 +4,8 @@ import {
 } from '@vueuse/core';
 import type { Ref } from 'vue';
 import {
-    BROWSER_INSTALL_HINT_COOKIE_KEY,
     BROWSER_INSTALL_HINT_STORAGE_KEY,
+    migrateLegacyBrowserInstallHintCookie,
 } from '@app/utils/browserRuntimePersistence';
 import type { TAnalyticsEventName } from '@contracts/analytics';
 
@@ -24,21 +24,10 @@ interface IUseBrowserInstallHintOptions {
 
 export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) => {
     const runtimeConfig = useRuntimeConfig();
-    const browserInstallHintCookie = useCookie<string | null>(
-        BROWSER_INSTALL_HINT_COOKIE_KEY,
-        {
-            default: () => null,
-            maxAge: 365 * 24 * 60 * 60,
-        },
-    );
-    const browserInstallHintStorageDismissed = useLocalStorage(
+    const browserInstallHintDismissed = useLocalStorage(
         BROWSER_INSTALL_HINT_STORAGE_KEY,
         false,
     );
-    const browserInstallHintDismissed = computed(() => (
-        browserInstallHintCookie.value !== null
-        || browserInstallHintStorageDismissed.value
-    ));
     const isBrowserInstallHintClientReady = ref(false);
     const didTrackViewerSession = useState(
         'analytics:viewer-session-started',
@@ -95,12 +84,11 @@ export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) =>
 
         trackBrowserInstallHint(reason === 'auto' ? 'auto_dismissed' : 'dismissed');
 
-        if (!import.meta.client || !options.isBrowserRuntime.value) {
+        if (typeof window === 'undefined' || !options.isBrowserRuntime.value) {
             return;
         }
 
-        browserInstallHintCookie.value = '1';
-        browserInstallHintStorageDismissed.value = true;
+        browserInstallHintDismissed.value = true;
     }
 
     const { start: startBrowserInstallHintAutoDismiss } = useTimeoutFn(
@@ -110,6 +98,9 @@ export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) =>
     );
 
     onMounted(() => {
+        if (migrateLegacyBrowserInstallHintCookie()) {
+            browserInstallHintDismissed.value = true;
+        }
         isBrowserInstallHintClientReady.value = true;
 
         if (options.isBrowserRuntime.value && !didTrackViewerSession.value) {

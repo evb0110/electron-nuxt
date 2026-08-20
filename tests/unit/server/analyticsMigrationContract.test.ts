@@ -18,6 +18,30 @@ const landingSchemaMigration = readFileSync(
     resolve(process.cwd(), 'landing/drizzle/0001_sparkling_gauntlet.sql'),
     'utf8',
 );
+const rootAnalyticsSchema = readFileSync(
+    resolve(process.cwd(), 'server/db/viewerAnalyticsEvent.ts'),
+    'utf8',
+);
+const landingAnalyticsSchema = readFileSync(
+    resolve(process.cwd(), 'landing/server/db/schema.ts'),
+    'utf8',
+);
+const rootRetentionMigration = readFileSync(
+    resolve(process.cwd(), 'drizzle/0003_analytics_event_retention.sql'),
+    'utf8',
+);
+const landingRetentionMigration = readFileSync(
+    resolve(process.cwd(), 'landing/drizzle/0003_analytics_event_retention.sql'),
+    'utf8',
+);
+const rootRetentionEndpoint = readFileSync(
+    resolve(process.cwd(), 'server/api/maintenance/analyticsRetention.get.ts'),
+    'utf8',
+);
+const landingRetentionEndpoint = readFileSync(
+    resolve(process.cwd(), 'landing/server/api/maintenance/analyticsRetention.get.ts'),
+    'utf8',
+);
 
 function expectOrdered(source: string, fragments: string[]) {
     let previousIndex = -1;
@@ -79,6 +103,125 @@ describe('analytics SQL admission migrations', () => {
         );
     });
 
+    it.each([
+        [
+            'root',
+            rootRetentionMigration,
+        ],
+        [
+            'landing',
+            landingRetentionMigration,
+        ],
+    ])('%s defines scheduled retention without deployment-time deletion', (_name, migration) => {
+        expect(migration).toContain('interval \'90 days\'');
+        expect(migration).not.toContain('prune_viewer_analytics_events_on_insert');
+        expect(migration).not.toContain('prune_landing_analytics_events_on_insert');
+        expect(migration).not.toMatch(/^SELECT public\.purge_(?:viewer|landing)_analytics_retention\(\);$/mu);
+        expect(migration).toContain('SET search_path = pg_catalog, public');
+        expect(migration).not.toMatch(/SECURITY\s+DEFINER/iu);
+        expect(migration).toContain('FOR UPDATE SKIP LOCKED');
+    });
+
+    it('bounds each retention delete so one cron run cannot create an unbounded transaction', () => {
+        expect(rootRetentionMigration.match(/LIMIT 5000/gu)).toHaveLength(4);
+        expect(landingRetentionMigration.match(/LIMIT 5000/gu)).toHaveLength(5);
+    });
+
+    it('caps daily admissions below one scheduled drain capacity', () => {
+        expect(rootRetentionMigration).toContain('event_count + 1 <= 40000');
+        expect(rootRetentionMigration).toContain('enforce_viewer_analytics_daily_cap_on_insert');
+        expect(landingRetentionMigration).toContain('event_count + 1 <= 20000');
+        expect(landingRetentionMigration).toContain('enforce_landing_page_view_daily_cap_on_insert');
+        expect(landingRetentionMigration).toContain('enforce_landing_download_daily_cap_on_insert');
+        for (const migration of [
+            rootRetentionMigration,
+            landingRetentionMigration,
+        ]) {
+            expect(migration).toContain('date_trunc(\'day\', clock_timestamp()) - interval \'1 microsecond\'');
+            expect(migration).toContain('ERRCODE = \'EVB01\'');
+        }
+    });
+
+    it('seeds migration-day caps from events admitted before trigger installation', () => {
+        expect(rootRetentionMigration).toContain(
+            'least(count(public.viewer_analytics_event.id), 40000)::integer',
+        );
+        expect(rootRetentionMigration).toContain(
+            'public.viewer_analytics_event.occurred_at >= migration_clock.day_start',
+        );
+        expect(landingRetentionMigration).toContain(
+            'least(count(public.landing_page_view.id), 20000)::integer',
+        );
+        expect(landingRetentionMigration).toContain(
+            'least(count(public.landing_download.id), 20000)::integer',
+        );
+        for (const migration of [
+            rootRetentionMigration,
+            landingRetentionMigration,
+        ]) {
+            expect(migration).toContain('SET event_count = greatest(');
+            expect(migration).toContain('EXCLUDED.event_count');
+        }
+    });
+
+    it('purges event and admission identity tables independently of future writes', () => {
+        for (const migration of [
+            rootRetentionMigration,
+            landingRetentionMigration,
+        ]) {
+            expect(migration).toContain('analytics_dedupe');
+            expect(migration).toContain('analytics_visitor_quota');
+            expect(migration).toContain('analytics_global_quota');
+            expect(migration).toContain('interval \'1 day\'');
+        }
+        expect(rootRetentionMigration).toContain('WHERE occurred_at <');
+        expect(rootAnalyticsSchema).toContain('index(\'viewer_analytics_event_occurred_at_idx\').on(table.occurredAt)');
+        expect(landingAnalyticsSchema).toContain('index(\'landing_pv_created_at_idx\').on(table.createdAt)');
+        expect(landingAnalyticsSchema).toContain('index(\'landing_dl_created_at_idx\').on(table.createdAt)');
+    });
+
+    it('registers authenticated daily retention jobs for both deployments', () => {
+        const cronConfigs = [
+            {
+                filePath: 'vercel.json',
+                schedule: '17 3 * * *',
+            },
+            {
+                filePath: 'landing/vercel.json',
+                schedule: '43 3 * * *',
+            },
+        ];
+        for (const cronConfig of cronConfigs) {
+            const config = JSON.parse(readFileSync(
+                resolve(process.cwd(), cronConfig.filePath),
+                'utf8',
+            )) as {crons?: Array<{
+                path?: string;
+                schedule?: string
+            }>};
+            expect(config.crons).toEqual([{
+                path: '/api/maintenance/analyticsRetention',
+                schedule: cronConfig.schedule,
+            }]);
+        }
+    });
+
+    it('bounds both scheduled purge calls and returns observable JSON-safe counts', () => {
+        for (const endpoint of [
+            rootRetentionEndpoint,
+            landingRetentionEndpoint,
+        ]) {
+            expectOrdered(endpoint, [
+                'set local lock_timeout = \'2s\'',
+                'set local statement_timeout = \'4s\'',
+                'deleted_rows::text as "deletedRows"',
+            ]);
+            expect(endpoint).toContain('db.batch([');
+            expect(endpoint).toContain('while (hasMore && batches < ANALYTICS_RETENTION_MAX_BATCHES)');
+            expect(endpoint).toContain('retention backlog remains after the bounded drain');
+        }
+    });
+
     it('keeps generated migration journals and custom snapshots aligned', () => {
         for (const directory of [
             'drizzle',
@@ -92,11 +235,11 @@ describe('analytics SQL admission migrations', () => {
                 tag: string
             }>};
             expect(journal.entries.at(-1)).toEqual(expect.objectContaining({
-                idx: 2,
-                tag: '0002_analytics_admission',
+                idx: 3,
+                tag: '0003_analytics_event_retention',
             }));
             expect(() => readFileSync(
-                resolve(process.cwd(), directory, 'meta/0002_snapshot.json'),
+                resolve(process.cwd(), directory, 'meta/0003_snapshot.json'),
                 'utf8',
             )).not.toThrow();
         }

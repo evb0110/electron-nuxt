@@ -4,12 +4,7 @@ import {
     shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
-import {
-    RECENT_FILES_COOKIE_KEY,
-    parseRecentFilesCookieSnapshot,
-    readBrowserRecentFilesSnapshot,
-} from '@app/utils/recentFilesPersistence';
-import { safeDecodeURIComponent } from '@app/utils/browserSafe';
+import {readBrowserRecentFilesSnapshot} from '@app/utils/recentFilesPersistence';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 import {
     getDocumentOpenCapability as getPlatformDocumentOpenCapability,
@@ -25,16 +20,7 @@ export const useRecentFiles = () => {
     const toast = useToast();
     const { isDesktopRuntime } = useRuntimeEnvironment();
     const route = useRoute();
-    const recentFilesCookie = useCookie<string | null>(RECENT_FILES_COOKIE_KEY, {
-        default: () => null,
-        watch: false,
-        decode: value => typeof value === 'string'
-            ? safeDecodeURIComponent(value)
-            : null,
-    });
-    const initialCookieSnapshot = import.meta.client
-        ? readBrowserRecentFilesSnapshot()
-        : parseRecentFilesCookieSnapshot(recentFilesCookie.value);
+    const initialCookieSnapshot = readBrowserRecentFilesSnapshot();
     const hasResolvedCookieSnapshot = initialCookieSnapshot.hasSnapshot && !initialCookieSnapshot.truncated;
     const shouldPreferElectronRuntime = computed(() => (
         shouldPreferDesktopPlatform(route.path, isDesktopRuntime.value)
@@ -97,18 +83,6 @@ export const useRecentFiles = () => {
 
     async function loadRecentFiles() {
         await loadRecentFilesState();
-    }
-
-    async function syncCookieFromRuntime() {
-        if (shouldPreferElectronRuntime.value || hasResolvedCookieSnapshot) {
-            return;
-        }
-
-        try {
-            await (await getDocumentRecentFilesCapability()).recentFiles.get();
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.recent.load');
-        }
     }
 
     async function openRecentFile(file: IRecentFile) {
@@ -174,7 +148,6 @@ export const useRecentFiles = () => {
         hasUsableInitialSnapshot,
         error,
         loadRecentFiles,
-        syncCookieFromRuntime,
         openRecentFile,
         removeRecentFile,
         removeRecentFileIfMissing,

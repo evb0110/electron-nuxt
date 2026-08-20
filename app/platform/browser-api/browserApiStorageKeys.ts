@@ -1,3 +1,3 @@
-const SETTINGS_STORAGE_KEY = 'evb-viewer:browser:settings';
+import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
-export { SETTINGS_STORAGE_KEY };
+export { BROWSER_SETTINGS_STORAGE_KEY as SETTINGS_STORAGE_KEY };

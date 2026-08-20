@@ -11,7 +11,8 @@ import {
     varchar,
 } from 'drizzle-orm/pg-core';
 import type { JsonObject } from 'type-fest';
-import { ANALYTICS_GEO_LIMITS } from '@contracts/analytics';
+// eslint-disable-next-line custom/no-relative-imports -- Drizzle Kit loads this schema outside Nuxt alias resolution.
+import { ANALYTICS_GEO_LIMITS } from '../../packages/contracts/analytics';
 
 export const viewerAnalyticsEvent = pgTable(
     'viewer_analytics_event',

@@ -26,7 +26,7 @@ export default {
         hero: {
             title: 'Política de privacidade',
             subtitle: 'Como o EVB Viewer trata documentos, configurações, dados analíticos e recursos opcionais do assistente.',
-            effectiveDate: 'Em vigor desde 9 de julho de 2026',
+            effectiveDate: 'Em vigor desde 19 de agosto de 2026',
         },
         documents: {
             heading: 'Documentos e processamento local',
@@ -44,9 +44,13 @@ export default {
             heading: 'Configurações, arquivos recentes e atualizações',
             body: 'As preferências do aplicativo, o estado da área de trabalho e as referências a arquivos recentes podem ser armazenados localmente no seu dispositivo. O aplicativo desktop pode acessar o GitHub para procurar e baixar atualizações. O sistema operacional e os serviços da loja de aplicativos podem processar outras informações técnicas conforme suas próprias políticas.',
         },
+        storage: {
+            heading: 'Cookies e armazenamento do navegador',
+            body: 'O EVB Viewer usa cookies próprios de preferências para lembrar o idioma e, no aplicativo web, o tema. Os cookies de idioma podem durar até um ano e o cookie do tema até 180 dias. O site de downloads usa por até 90 dias um cookie de coorte opaco e HttpOnly para manter consistentes as recomendações durante lançamentos graduais; ele não é usado para publicidade nem rastreamento entre sites. O aplicativo web também usa armazenamento local, armazenamento de sessão e IndexedDB para preferências, referências a arquivos recentes, estado do espaço de trabalho, dados de documentos que você decidir manter e um identificador analítico aleatório por sessão. O EVB Viewer não define cookies de publicidade nem de terceiros. Você pode remover cookies e dados armazenados pelo navegador usando os controles de dados de sites do navegador; isso redefine as preferências e os dados locais do aplicativo.',
+        },
         retention: {
             heading: 'Retenção e escolhas',
-            body: 'Os dados locais do aplicativo permanecem no seu dispositivo até que você os remova ou desinstale o aplicativo. Você controla quais documentos e anexos são abertos ou enviados aos serviços opcionais do assistente. Os registros analíticos do site são mantidos apenas pelo tempo necessário para a operação do produto, a segurança e a análise de tendências.',
+            body: 'Os dados locais do aplicativo permanecem no seu dispositivo até que você os remova ou desinstale o aplicativo. Você controla quais documentos e anexos são abertos ou enviados aos serviços opcionais do assistente. Os registros analíticos do site são mantidos apenas pelo tempo necessário para a operação do produto, a segurança e a análise de tendências e têm exclusão automática programada após 90 dias.',
         },
         contact: {
             heading: 'Contato',

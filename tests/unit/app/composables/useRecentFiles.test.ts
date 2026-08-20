@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -16,6 +17,7 @@ import type { IRecentFile } from '@contracts/shared';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
+import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
 const cookieStore = new Map<string, ReturnType<typeof ref>>();
 const stateStore = new Map<string, ReturnType<typeof ref>>();
@@ -29,6 +31,7 @@ const electronRecentFilesClear = vi.fn<() => Promise<void>>();
 const electronOpenDocumentDirect = vi.fn<(path: string) => Promise<TOpenFileResult | null>>();
 const browserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const toastAdd = vi.fn();
+const browserStorage = new Map<string, string>();
 const electronRecentFiles = {
     get: electronRecentFilesGet,
     remove: electronRecentFilesRemove,
@@ -104,12 +107,28 @@ function installRecentFilesStubs() {
 }
 
 describe('useRecentFiles', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.useRealTimers();
+    });
+
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.useRealTimers();
         cookieStore.clear();
         stateStore.clear();
+        browserStorage.clear();
+        vi.stubGlobal('window', {localStorage: {
+            getItem: (key: string) => browserStorage.get(key) ?? null,
+            clear: () => browserStorage.clear(),
+            removeItem: (key: string) => browserStorage.delete(key),
+            setItem: (key: string, value: string) => browserStorage.set(key, value),
+        }});
+        vi.stubGlobal('document', {
+            get cookie() { return ''; },
+            set cookie(_value: string) {},
+        });
         desktopRuntime.value = true;
         electronBridgeReady.value = true;
         routePath.value = '/electron';
@@ -123,7 +142,6 @@ describe('useRecentFiles', () => {
     });
 
     it('keeps desktop recent files unresolved until Electron results load', async () => {
-        cookieStore.set('evb_viewer_recent_files', ref(encodeURIComponent('[]')));
         electronRecentFilesGet.mockResolvedValue([recentFile('/tmp/example.pdf')]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
@@ -229,17 +247,6 @@ describe('useRecentFiles', () => {
     });
 
     it('clears recent files through the split recent-files capability', async () => {
-        cookieStore.set('evb_viewer_recent_files', ref(JSON.stringify({
-            v: 1,
-            t: false,
-            f: [[
-                '/tmp/clear-me.pdf',
-                'clear-me.pdf',
-                1,
-                10,
-            ]],
-        })));
-
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
             clearRecentFiles,
@@ -313,20 +320,10 @@ describe('useRecentFiles', () => {
         expect(recentFilesState.recentFiles.value).toEqual([]);
     });
 
-    it('keeps browser recent files unresolved when the cookie snapshot is truncated', async () => {
+    it('keeps browser recent files unresolved when local storage has no snapshot', async () => {
         desktopRuntime.value = false;
         electronBridgeReady.value = false;
         routePath.value = '/';
-        cookieStore.set('evb_viewer_recent_files', ref(JSON.stringify({
-            v: 1,
-            t: true,
-            f: [[
-                '/tmp/preview.pdf',
-                'preview.pdf',
-                1,
-                10,
-            ]],
-        })));
         browserRecentFilesGet.mockResolvedValue([recentFile('/tmp/full.pdf', 10)]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
@@ -337,7 +334,7 @@ describe('useRecentFiles', () => {
         } = useRecentFiles();
 
         expect(isResolved.value).toBe(false);
-        expect(recentFiles.value.length).toBeGreaterThan(0);
+        expect(recentFiles.value).toEqual([]);
 
         await loadRecentFiles();
 
@@ -346,20 +343,11 @@ describe('useRecentFiles', () => {
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/full.pdf'})]);
     });
 
-    it('marks a complete browser cookie snapshot as usable for startup paint', async () => {
+    it('marks a local browser snapshot as usable for startup paint', async () => {
         desktopRuntime.value = false;
         electronBridgeReady.value = false;
         routePath.value = '/';
-        cookieStore.set('evb_viewer_recent_files', ref(JSON.stringify({
-            v: 1,
-            t: false,
-            f: [[
-                '/tmp/cookie.pdf',
-                'cookie.pdf',
-                11,
-                12,
-            ]],
-        })));
+        browserStorage.set(BROWSER_RECENT_FILES_STORAGE_KEY, JSON.stringify([recentFile('browser://documents/local', 11)]));
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
@@ -370,20 +358,11 @@ describe('useRecentFiles', () => {
 
         expect(hasUsableInitialSnapshot.value).toBe(true);
         expect(isResolved.value).toBe(true);
-        expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/cookie.pdf'})]);
+        expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: 'browser://documents/local'})]);
     });
 
-    it('does not treat cookie snapshots as startup-usable for Electron runtime', async () => {
-        cookieStore.set('evb_viewer_recent_files', ref(JSON.stringify({
-            v: 1,
-            t: false,
-            f: [[
-                '/tmp/electron-cookie.pdf',
-                'electron-cookie.pdf',
-                13,
-                14,
-            ]],
-        })));
+    it('does not treat browser local snapshots as startup-usable for Electron runtime', async () => {
+        browserStorage.set(BROWSER_RECENT_FILES_STORAGE_KEY, JSON.stringify([recentFile('browser://documents/local', 13)]));
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
@@ -394,6 +373,6 @@ describe('useRecentFiles', () => {
 
         expect(hasUsableInitialSnapshot.value).toBe(false);
         expect(isResolved.value).toBe(false);
-        expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/electron-cookie.pdf'})]);
+        expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: 'browser://documents/local'})]);
     });
 });

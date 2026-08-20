@@ -79,7 +79,7 @@ describe('release selection', () => {
         expect(parsePlatformHint('Linux x86_64')).toBe('linux');
         expect(parseUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')).toEqual({
             platform: 'macos',
-            arch: 'x64',
+            arch: 'unknown',
         });
         expect(parseUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toEqual({
             platform: 'windows',
@@ -91,16 +91,67 @@ describe('release selection', () => {
         });
     });
 
-    it('preserves a parsed Intel Mac architecture until Client Hints provide a real override', () => {
+    it.each([
+        [
+            'iPhone',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)',
+        ],
+        [
+            'iPad desktop mode',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) Mobile/15E148',
+        ],
+        [
+            'Android',
+            'Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro)',
+        ],
+        [
+            'ChromeOS',
+            'Mozilla/5.0 (X11; CrOS x86_64 16093.68.0)',
+        ],
+    ])('does not classify %s as a desktop installer platform', (_label, userAgent) => {
+        expect(parseUserAgent(userAgent)).toEqual({
+            platform: 'unknown',
+            arch: 'unknown',
+        });
+        expect(buildClientProfile(userAgent, 'macos', 'arm64')).toEqual({
+            platform: 'unknown',
+            arch: 'unknown',
+        });
+    });
+
+    it('does not parse mobile and ChromeOS client hints as desktop platforms', () => {
+        expect(parsePlatformHint('iOS')).toBe('unknown');
+        expect(parsePlatformHint('iPadOS')).toBe('unknown');
+        expect(parsePlatformHint('Android')).toBe('unknown');
+        expect(parsePlatformHint('Chrome OS')).toBe('unknown');
+    });
+
+    it('does not treat the frozen Intel Mac compatibility token as a hardware signal', () => {
         const intelMacUserAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)';
 
         expect(buildClientProfile(intelMacUserAgent)).toEqual({
+            platform: 'macos',
+            arch: 'unknown',
+        });
+        expect(buildClientProfile(intelMacUserAgent, 'macos', 'x64')).toEqual({
             platform: 'macos',
             arch: 'x64',
         });
         expect(buildClientProfile(intelMacUserAgent, 'macos', 'arm64')).toEqual({
             platform: 'macos',
             arch: 'arm64',
+        });
+    });
+
+    it('does not mistake unrelated platform substrings for mobile operating systems', () => {
+        expect(parsePlatformHint('Microsoft Windows')).toBe('windows');
+        expect(buildClientProfile('Mozilla/5.0 (Windows NT 10.0) Microsoft Edge', 'windows', 'x64')).toEqual({
+            platform: 'windows',
+            arch: 'x64',
+        });
+        expect(buildClientProfile('Studios Linux x86_64')).toEqual({
+            platform: 'linux',
+            arch: 'x64',
         });
     });
 
@@ -184,6 +235,64 @@ describe('release selection', () => {
         expect(recommended?.name).toBe('EVB-Viewer-mac-x64.zip');
     });
 
+    it('requires a known compatible desktop platform and architecture', () => {
+        const installers = [
+            createInstaller({
+                arch: 'arm64',
+                extension: 'dmg',
+                id: 1,
+                name: 'EVB-Viewer-mac-arm64.dmg',
+            }),
+            createInstaller({
+                arch: 'x64',
+                extension: 'exe',
+                id: 2,
+                name: 'EVB-Viewer-win-x64.exe',
+                platform: 'windows',
+            }),
+        ];
+
+        expect(recommendInstaller(installers, {
+            platform: 'unknown',
+            arch: 'unknown',
+        })).toBeNull();
+        expect(recommendInstaller(installers, {
+            platform: 'linux',
+            arch: 'x64',
+        })).toBeNull();
+        expect(recommendInstaller(installers, {
+            platform: 'macos',
+            arch: 'x64',
+        })).toBeNull();
+        expect(recommendInstaller(installers, {
+            platform: 'windows',
+            arch: 'unknown',
+        })).toBeNull();
+
+        const universalMac = createInstaller({
+            arch: 'universal',
+            extension: 'dmg',
+            id: 3,
+            name: 'EVB-Viewer-mac-universal.dmg',
+        });
+        expect(recommendInstaller([universalMac], {
+            platform: 'macos',
+            arch: 'unknown',
+        })).toBe(universalMac);
+
+        const unknownWindows = createInstaller({
+            arch: 'unknown',
+            extension: 'exe',
+            id: 4,
+            name: 'EVB-Viewer-win.exe',
+            platform: 'windows',
+        });
+        expect(recommendInstaller([unknownWindows], {
+            platform: 'windows',
+            arch: 'x64',
+        })).toBeNull();
+    });
+
     it('formats installer arch and variant labels for mac architectures and unknown arch fallbacks', () => {
         expect(formatInstallerArchLabel(createInstaller({
             arch: 'x64',
@@ -202,7 +311,7 @@ describe('release selection', () => {
             extension: 'zip',
             id: 3,
             name: 'EVB-Viewer-mac.zip',
-        }))).toBe('x64 (ZIP)');
+        }))).toBe('ZIP');
     });
 
     it('formats file sizes at byte and unit boundaries', () => {

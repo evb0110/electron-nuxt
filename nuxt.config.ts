@@ -36,6 +36,34 @@ const appShellCacheHeaders = {
     'pragma': 'no-cache',
     'expires': '0',
 } as const;
+const appContentSecurityPolicy = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+    "script-src-attr 'none'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    `connect-src 'self' blob:${isDev ? ' ws: wss:' : ''}`,
+    "worker-src 'self' blob:",
+    "frame-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+].join('; ');
+const appSecurityHeaders = {
+    'Content-Security-Policy': appContentSecurityPolicy,
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Resource-Policy': 'same-origin',
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()',
+} as const;
+const withAppSecurityHeaders = (headers: Record<string, string> = {}) => ({
+    ...appSecurityHeaders,
+    ...headers,
+});
 const appDir = fileURLToPath(new URL('./app', import.meta.url));
 const knownSourcemapWarningPlugins = new Set([
     '@tailwindcss/vite:generate:build',
@@ -153,7 +181,10 @@ export default defineNuxtConfig({
 
     colorMode: {
         preference: 'light',
-        storage: 'cookie',
+        // The settings capability owns the hardened SSR bootstrap cookie.
+        // Color mode keeps its client preference in localStorage so the module
+        // never rewrites that cookie without Secure/SameSite/expiry attributes.
+        storage: 'localStorage',
         disableTransition: true,
     },
 
@@ -198,62 +229,60 @@ export default defineNuxtConfig({
     },
 
     routeRules: {
-        '/robots.txt': { prerender: true },
-        '/sitemap.xml': { prerender: true },
+        '/robots.txt': { prerender: true, headers: withAppSecurityHeaders() },
+        '/sitemap.xml': { prerender: true, headers: withAppSecurityHeaders() },
         '/electron': {
             prerender: true,
             ssr: false,
-            headers: {
+            headers: withAppSecurityHeaders({
                 ...appShellCacheHeaders,
                 'X-Robots-Tag': 'noindex, nofollow',
-            },
+            }),
         },
         '/electron/**': {
             prerender: true,
             ssr: false,
-            headers: {
+            headers: withAppSecurityHeaders({
                 ...appShellCacheHeaders,
                 'X-Robots-Tag': 'noindex, nofollow',
-            },
+            }),
         },
         '/': {
             prerender: true,
-            headers: appShellCacheHeaders,
+            headers: withAppSecurityHeaders(appShellCacheHeaders),
         },
         '/_payload.json': {
-            headers: appShellCacheHeaders,
+            headers: withAppSecurityHeaders(appShellCacheHeaders),
         },
         '/**/_payload.json': {
-            headers: appShellCacheHeaders,
+            headers: withAppSecurityHeaders(appShellCacheHeaders),
         },
         '/_nuxt/builds/**': {
-            headers: appShellCacheHeaders,
+            headers: withAppSecurityHeaders(appShellCacheHeaders),
         },
         '/workspace': {
             // Compatibility entry only. Keep the browser workspace SSR/SSG surface
             // canonical at `/` so refresh does not hit a SPA-only shell.
             redirect: { to: '/', statusCode: 302 },
-            headers: {
+            headers: withAppSecurityHeaders({
                 ...appShellCacheHeaders,
                 'X-Robots-Tag': 'noindex, nofollow',
-            },
+            }),
         },
         '/mobile-reader-proof': {
             prerender: true,
-            headers: appShellCacheHeaders,
+            headers: withAppSecurityHeaders(appShellCacheHeaders),
         },
         '/privacy': {
             prerender: true,
+            headers: withAppSecurityHeaders(),
         },
         '/api/analytics/events': {
             prerender: false,
+            headers: withAppSecurityHeaders(),
         },
         '/**': {
-            headers: {
-                'X-Content-Type-Options': 'nosniff',
-                'Referrer-Policy': 'strict-origin-when-cross-origin',
-                'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-            },
+            headers: appSecurityHeaders,
         },
     },
 
@@ -284,6 +313,7 @@ export default defineNuxtConfig({
         detectBrowserLanguage: {
             useCookie: true,
             cookieKey: 'i18n_redirected',
+            cookieSecure: process.env.NODE_ENV === 'production',
             redirectOn: 'root',
         },
     },

@@ -30,6 +30,7 @@ interface IWebDeployAssetsModule {
         sourceRoot?: string;
     }) => Promise<unknown>;
     validateVercelFunctionBoot: (options?: {projectRoot?: string}) => Promise<void>;
+    validateNodeServerBoot: (options?: {projectRoot?: string}) => Promise<void>;
 }
 
 const {
@@ -39,6 +40,7 @@ const {
     assertInitialRendererDependencyGraph,
     getExpectedWebDeployOutputRoots,
     validateWebDeployAssets,
+    validateNodeServerBoot,
     validateVercelFunctionBoot,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/check-web-deploy-assets.mjs')).href
@@ -90,6 +92,40 @@ async function createTempProject() {
 }
 
 describe('web deploy assets check', () => {
+    it('boots the generated Node server entry instead of trusting file presence', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-node-server-'));
+        const serverRoot = path.join(tempRoot, 'nuxt-output/server');
+        try {
+            await mkdir(serverRoot, {recursive: true});
+            await writeFile(
+                path.join(serverRoot, 'index.mjs'),
+                'await import("./missing-runtime-module.mjs");',
+                'utf8',
+            );
+            await expect(validateNodeServerBoot({projectRoot: tempRoot}))
+                .rejects.toThrow('Nuxt node server failed to boot');
+
+            await writeFile(
+                path.join(serverRoot, 'index.mjs'),
+                [
+                    'import {createServer} from "node:http";',
+                    'const server = createServer((_request, response) => {',
+                    '  response.statusCode = 204;',
+                    '  response.end();',
+                    '});',
+                    'server.listen(Number(process.env.PORT), process.env.HOST);',
+                ].join('\n'),
+                'utf8',
+            );
+            await expect(validateNodeServerBoot({projectRoot: tempRoot})).resolves.toBeUndefined();
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('checks local Nuxt build output assets', async () => {
         const tempRoot = await createTempProject();
         try {

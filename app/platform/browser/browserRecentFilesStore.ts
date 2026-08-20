@@ -5,10 +5,9 @@ import {
 } from '@app/utils/localStorage';
 import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 import {
-    RECENT_FILES_COOKIE_KEY,
-    RECENT_FILES_COOKIE_MAX_AGE_SECONDS,
+    expireLegacyRecentFilesCookie,
     parseRecentFilesPayload,
-    serializeRecentFilesCookiePayload,
+    parseRecentFilesStorageSnapshot,
     serializeRecentFilesPayload,
 } from '@app/utils/recentFilesPersistence';
 import {
@@ -24,27 +23,18 @@ export function readRecentFilesFromStorage() {
 }
 
 export function hasRecentFilesStorageSnapshot() {
-    return safeGetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY) !== null;
-}
-
-function writeRecentFilesToCookie(recentFiles: IRecentFile[]) {
-    if (typeof document === 'undefined') {
-        return;
+    const raw = safeGetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);
+    if (raw === null) {
+        return false;
     }
-
-    if (recentFiles.length === 0) {
-        document.cookie = `${RECENT_FILES_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
-        return;
-    }
-
-    const encodedValue = encodeURIComponent(serializeRecentFilesCookiePayload(recentFiles));
-    document.cookie = `${RECENT_FILES_COOKIE_KEY}=${encodedValue}; Path=/; Max-Age=${RECENT_FILES_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
+    const snapshot = parseRecentFilesStorageSnapshot(raw);
+    return snapshot.hasSnapshot && !snapshot.truncated;
 }
 
 export function writeRecentFilesToStorage(recentFiles: IRecentFile[]) {
     const payload = serializeRecentFilesPayload(recentFiles);
     safeSetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY, payload);
-    writeRecentFilesToCookie(recentFiles);
+    expireLegacyRecentFilesCookie();
 }
 
 function normalizeRecentFileSize(fileSize: number | undefined) {
@@ -135,9 +125,8 @@ export class BrowserRecentFilesStore {
     }
 
     public getRecentFiles() {
-        const recentFiles = readRecentFilesFromStorage();
-        writeRecentFilesToCookie(recentFiles);
-        return recentFiles;
+        expireLegacyRecentFilesCookie();
+        return readRecentFilesFromStorage();
     }
 
     public async recoverRecentFilesIfStorageMissing() {

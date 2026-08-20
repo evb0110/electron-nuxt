@@ -202,12 +202,8 @@ let themeRepaintRevision = 0;
 const {
     loadRecentFiles,
     recentFiles,
-    syncCookieFromRuntime: syncRecentFilesCookieFromRuntime,
 } = useRecentFiles();
-const {
-    isBrowserRuntime,
-    isDesktopRuntime,
-} = useRuntimeEnvironment();
+const {isDesktopRuntime} = useRuntimeEnvironment();
 const {
     locale,
     t,
@@ -511,12 +507,6 @@ onMounted(async () => {
         markStartupMetricOnce('evb:shell-interactive');
         dispatchAppReady();
         schedulePostReadyRecentGeometryWarmup(resolveStartupWorkProfile());
-        if (isBrowserRuntime.value) {
-            guardStartupWarmup(
-                syncRecentFilesCookieFromRuntime(),
-                'Recent files cookie synchronization failed',
-            );
-        }
     } catch (error) {
         BrowserLogger.error('loader', 'App bootstrap failed', error);
         setFatalRuntimeError('startup', error, 'app-bootstrap');

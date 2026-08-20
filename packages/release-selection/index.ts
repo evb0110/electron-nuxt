@@ -33,8 +33,10 @@ export type {
 } from '@contracts';
 
 export {
-    fetchLatestReleaseWithRetry,
+    createReleaseCatalogLoader,
+    fetchReleaseDataWithRetry,
     getReleaseFetchStatusCode,
+    getMissingConfiguredReleaseTags,
     parseRetryAfterMs,
     shouldRetryReleaseFetch,
 } from '@evb/releaseSelection/latestReleaseRetry';

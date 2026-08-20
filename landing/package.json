@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "nuxt build",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "dev": "nuxt dev",
     "lint": "eslint . --max-warnings=0",
     "preview": "nuxt preview",

@@ -26,7 +26,7 @@ export default {
         hero: {
             title: 'Privacybeleid',
             subtitle: 'Hoe EVB Viewer omgaat met documenten, instellingen, analysegegevens en optionele assistentfuncties.',
-            effectiveDate: 'Van kracht vanaf 9 juli 2026',
+            effectiveDate: 'Van kracht vanaf 19 augustus 2026',
         },
         documents: {
             heading: 'Documenten en lokale verwerking',
@@ -44,9 +44,13 @@ export default {
             heading: 'Instellingen, recente bestanden en updates',
             body: 'Appvoorkeuren, de status van de werkruimte en verwijzingen naar recente bestanden kunnen lokaal op je apparaat worden opgeslagen. De desktop-app kan GitHub benaderen om software-updates te controleren en te downloaden. Het besturingssysteem en appstorediensten kunnen aanvullende technische gegevens verwerken volgens hun eigen beleid.',
         },
+        storage: {
+            heading: 'Cookies en browseropslag',
+            body: 'EVB Viewer gebruikt eigen voorkeurscookies om de taal en, in de browser-app, het thema te onthouden. Taalcookies kunnen maximaal één jaar worden bewaard en de themacookie maximaal 180 dagen. De downloadsite gebruikt maximaal 90 dagen een ondoorzichtige HttpOnly-cohortcookie om aanbevelingen tijdens gefaseerde releases consistent te houden; deze wordt niet gebruikt voor advertenties of tracking tussen websites. De browser-app gebruikt daarnaast lokale opslag, sessieopslag en IndexedDB voor voorkeuren, verwijzingen naar recente bestanden, de status van de werkruimte, documentgegevens die je wilt bewaren en een willekeurige analyse-ID per sessie. EVB Viewer plaatst geen advertentiecookies of cookies van derden. Je kunt cookies en door de browser opgeslagen gegevens verwijderen via de instellingen voor websitegegevens van je browser; hierdoor worden voorkeuren en lokaal opgeslagen appgegevens gewist.',
+        },
         retention: {
             heading: 'Bewaartermijnen en keuzes',
-            body: 'Lokale appgegevens blijven op je apparaat totdat je ze verwijdert of de app deïnstalleert. Je bepaalt zelf welke documenten en bijlagen worden geopend of naar optionele assistentdiensten worden gestuurd. Analysegegevens van de website worden alleen bewaard zolang dat nodig is voor de werking en beveiliging van het product en voor trendanalyse.',
+            body: 'Lokale appgegevens blijven op je apparaat totdat je ze verwijdert of de app deïnstalleert. Je bepaalt zelf welke documenten en bijlagen worden geopend of naar optionele assistentdiensten worden gestuurd. Analysegegevens van de website worden alleen bewaard zolang dat nodig is voor de werking en beveiliging van het product en voor trendanalyse en worden na 90 dagen automatisch voor verwijdering ingepland.',
         },
         contact: {
             heading: 'Contact',

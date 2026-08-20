@@ -26,7 +26,7 @@ export default {
         hero: {
             title: 'Privacy Policy',
             subtitle: 'How EVB Viewer handles documents, settings, analytics, and optional assistant features.',
-            effectiveDate: 'Effective July 9, 2026',
+            effectiveDate: 'Effective August 19, 2026',
         },
         documents: {
             heading: 'Documents and local processing',
@@ -44,9 +44,13 @@ export default {
             heading: 'Settings, recent files, and updates',
             body: 'App preferences, workspace state, and recent-file references may be stored locally on your device. The desktop app may contact GitHub to check for and download software updates. Operating-system and app-store services may process additional technical information under their own policies.',
         },
+        storage: {
+            heading: 'Cookies and browser storage',
+            body: 'EVB Viewer uses first-party preference cookies to remember language and, in the browser app, theme. Language cookies may last up to one year, and the theme cookie may last up to 180 days. The download site uses an opaque, HttpOnly cohort cookie for up to 90 days to keep staged release recommendations consistent; it is not used for advertising or cross-site tracking. The browser app also uses local storage, session storage, and IndexedDB for preferences, recent-file references, workspace state, document data you choose to retain, and a random per-session analytics identifier. EVB Viewer does not set advertising or third-party cookies. You can remove cookies and browser-stored data through your browser’s site-data controls; doing so resets preferences and locally retained app data.',
+        },
         retention: {
             heading: 'Retention and choices',
-            body: 'Local app data remains on your device until you remove it or uninstall the app. You control which documents and attachments are opened or sent to optional assistant services. Website analytics records are retained only as needed for product operation, security, and trend analysis.',
+            body: 'Local app data remains on your device until you remove it or uninstall the app. You control which documents and attachments are opened or sent to optional assistant services. Website analytics records are retained only as needed for product operation, security, and trend analysis and are scheduled for automatic deletion after 90 days.',
         },
         contact: {
             heading: 'Contact',

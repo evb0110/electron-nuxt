@@ -6,6 +6,7 @@ import {
     getAnalyticsRequestContext,
     isLandingAnalyticsAdmissionRejected,
     isLandingAnalyticsWriteAllowed,
+    isTrustedLandingAnalyticsRequest,
     LANDING_ANALYTICS_BODY_MAX_BYTES,
     resolveLandingAnalyticsAdmissionPolicy,
 } from '~~/server/utils/analytics';
@@ -41,11 +42,18 @@ function validatePageViewBody(value: unknown): IPageViewBody {
 }
 
 export default defineEventHandler(async (event) => {
+    setHeader(event, 'cache-control', 'no-store');
     if (!isLandingAnalyticsWriteAllowed(event)) {
         return {
             ok: true,
             persisted: false,
         };
+    }
+    if (!isTrustedLandingAnalyticsRequest(event)) {
+        throw createError({
+            statusCode: 403,
+            statusMessage: 'Analytics request is not same-origin JSON',
+        });
     }
     const config = useRuntimeConfig(event);
     const db = getOptionalDb(config.databaseUrl ?? process.env.DATABASE_URL);

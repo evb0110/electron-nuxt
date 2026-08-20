@@ -8,13 +8,10 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
-    BROWSER_SETTINGS_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     parseBrowserSettingsPayload,
-    serializeBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
-import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 import {
@@ -28,17 +25,11 @@ const PERSISTENT_SETTINGS_COOKIE_OPTIONS = {
     maxAge: BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     sameSite: 'lax' as const,
     path: '/',
+    secure: import.meta.client && window.location?.protocol === 'https:',
 };
 let settingsPersistenceQueue: ISettingsPersistenceQueue | null = null;
 
 export const useSettings = () => {
-    const settingsCookie = useCookie<string | Partial<ISettingsData> | null>(BROWSER_SETTINGS_COOKIE_KEY, {
-        ...PERSISTENT_SETTINGS_COOKIE_OPTIONS,
-        default: () => null,
-        decode: value => typeof value === 'string'
-            ? safeDecodeURIComponent(value)
-            : null,
-    });
     const localeCookie = useCookie(
         BROWSER_LOCALE_COOKIE_KEY,
         PERSISTENT_SETTINGS_COOKIE_OPTIONS,
@@ -47,11 +38,9 @@ export const useSettings = () => {
         BROWSER_THEME_COOKIE_KEY,
         PERSISTENT_SETTINGS_COOKIE_OPTIONS,
     );
-    const hasSettingsCookie = settingsCookie.value !== null;
     const hasSettingsCookieSnapshot = useState(
         'settings:has-cookie-snapshot',
-        () => hasSettingsCookie
-            || localeCookie.value != null
+        () => localeCookie.value != null
             || themeCookie.value != null,
     );
     const fallbackSettings: Partial<ISettingsData> = {};
@@ -61,12 +50,10 @@ export const useSettings = () => {
     if (themeCookie.value != null) {
         fallbackSettings.theme = normalizeTheme(themeCookie.value);
     }
-    const initialSettings = parseBrowserSettingsPayload(settingsCookie.value, fallbackSettings);
+    const initialSettings = parseBrowserSettingsPayload(null, fallbackSettings);
     const lastSavedSettings = useState<ISettingsData | null>(
         'settings:last-saved',
-        () => hasSettingsCookieSnapshot.value
-            ? sanitizeSettings(initialSettings)
-            : null,
+        () => null,
     );
     const settingsSaveStatus = useState<TSettingsPersistenceStatus>('settings:save-status', () => 'idle');
     const settingsSaveError = useState<string | null>('settings:save-error', () => null);
@@ -76,8 +63,7 @@ export const useSettings = () => {
         lastSavedSettings.value = sanitizeSettings(nextSettings);
     }
 
-    function syncSettingsCookies(nextSettings: ISettingsData) {
-        settingsCookie.value = serializeBrowserSettingsPayload(nextSettings);
+    function syncSettingsBootstrapCookies(nextSettings: ISettingsData) {
         localeCookie.value = nextSettings.locale;
         themeCookie.value = nextSettings.theme;
         hasSettingsCookieSnapshot.value = true;
@@ -90,13 +76,13 @@ export const useSettings = () => {
     } = usePlatformHydratedState<ISettingsData>({
         key: 'settings',
         initialValue: () => initialSettings,
-        initialResolved: hasSettingsCookieSnapshot.value,
+        initialResolved: false,
         async loadValue() {
             const loadedSettings = await getSettingsCapability().get();
             return sanitizeSettings(loadedSettings);
         },
         onLoaded(nextSettings) {
-            syncSettingsCookies(nextSettings);
+            syncSettingsBootstrapCookies(nextSettings);
             rememberSavedSettings(nextSettings);
         },
         onError(loadError) {
@@ -119,7 +105,7 @@ export const useSettings = () => {
             savePatch: patch => getSettingsCapability().save(patch),
             onSaved(nextSettings) {
                 rememberSavedSettings(nextSettings);
-                syncSettingsCookies(nextSettings);
+                syncSettingsBootstrapCookies(nextSettings);
             },
             onSaveError(error) {
                 BrowserLogger.error('settings', 'Failed to save settings', error);

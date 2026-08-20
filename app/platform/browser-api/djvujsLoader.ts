@@ -1,6 +1,7 @@
 import type { IDjvuPageSize } from '@contracts/electronApiDjvu';
 
 const DJVU_SCRIPT_PATH = '/vendor/djvujs/djvu.js';
+export const DJVU_SCRIPT_LOAD_TIMEOUT_MS = 15_000;
 
 export type { IDjvuPageSize } from '@contracts/electronApiDjvu';
 
@@ -80,56 +81,79 @@ export async function loadDjvuJs() {
         throw new Error('DjVu.js can only be loaded in a browser runtime');
     }
 
-    djvuLoadPromise ??= new Promise<IDjvuGlobal>((resolve, reject) => {
-        const existingScript = document.querySelector<HTMLScriptElement>(
-            `script[data-djvujs-src="${DJVU_SCRIPT_PATH}"]`,
-        );
-
-        const handleReady = () => {
-            const nextGlobal = getLoadedDjvuGlobal();
-            if (!nextGlobal) {
-                reject(new Error('DjVu.js loaded without exposing window.DjVu'));
-                return;
-            }
-
-            if (existingScript) {
-                existingScript.dataset.djvujsReady = 'true';
-            }
-            resolve(nextGlobal);
-        };
-
-        if (existingScript) {
-            if (existingScript.dataset.djvujsReady === 'true') {
-                handleReady();
-                return;
-            }
-            existingScript.addEventListener('load', handleReady, { once: true });
-            existingScript.addEventListener(
-                'error',
-                () => reject(new Error(`Failed to load DjVu.js from ${DJVU_SCRIPT_PATH}`)),
-                { once: true },
+    if (!djvuLoadPromise) {
+        const pendingLoad = new Promise<IDjvuGlobal>((resolve, reject) => {
+            let script = document.querySelector<HTMLScriptElement>(
+                `script[data-djvujs-src="${DJVU_SCRIPT_PATH}"]`,
             );
-            return;
-        }
 
-        const script = document.createElement('script');
-        script.src = DJVU_SCRIPT_PATH;
-        script.async = true;
-        script.dataset.djvujsSrc = DJVU_SCRIPT_PATH;
-        script.addEventListener('load', () => {
-            script.dataset.djvujsReady = 'true';
-            handleReady();
-        }, { once: true });
-        script.addEventListener(
-            'error',
-            () => reject(new Error(`Failed to load DjVu.js from ${DJVU_SCRIPT_PATH}`)),
-            { once: true },
-        );
-        document.head.append(script);
-    }).catch((error: unknown) => {
-        djvuLoadPromise = null;
-        throw error;
-    });
+            if (script?.dataset.djvujsState === 'failed'
+                || script?.dataset.djvujsState === 'ready') {
+                script.remove();
+                script = null;
+            }
+
+            if (!script) {
+                script = document.createElement('script');
+                script.src = DJVU_SCRIPT_PATH;
+                script.async = true;
+                script.dataset.djvujsSrc = DJVU_SCRIPT_PATH;
+                script.dataset.djvujsState = 'loading';
+            }
+
+            const targetScript = script;
+            let settled = false;
+            const timeoutId = globalThis.setTimeout(() => {
+                fail(new Error(`Timed out loading DjVu.js from ${DJVU_SCRIPT_PATH}`));
+            }, DJVU_SCRIPT_LOAD_TIMEOUT_MS);
+
+            const cleanup = () => {
+                globalThis.clearTimeout(timeoutId);
+                targetScript.removeEventListener('load', handleLoad);
+                targetScript.removeEventListener('error', handleError);
+            };
+            const fail = (error: Error) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+                targetScript.dataset.djvujsState = 'failed';
+                targetScript.remove();
+                reject(error);
+            };
+            const handleLoad = () => {
+                if (settled) {
+                    return;
+                }
+                const nextGlobal = getLoadedDjvuGlobal();
+                if (!nextGlobal) {
+                    fail(new Error('DjVu.js loaded without exposing window.DjVu'));
+                    return;
+                }
+                settled = true;
+                cleanup();
+                targetScript.dataset.djvujsState = 'ready';
+                resolve(nextGlobal);
+            };
+            const handleError = () => {
+                fail(new Error(`Failed to load DjVu.js from ${DJVU_SCRIPT_PATH}`));
+            };
+
+            targetScript.addEventListener('load', handleLoad);
+            targetScript.addEventListener('error', handleError);
+            if (!targetScript.isConnected) {
+                document.head.append(targetScript);
+            }
+        });
+        const retryableLoad = pendingLoad.catch((error: unknown) => {
+            if (djvuLoadPromise === retryableLoad) {
+                djvuLoadPromise = null;
+            }
+            throw error;
+        });
+        djvuLoadPromise = retryableLoad;
+    }
 
     return djvuLoadPromise;
 }
