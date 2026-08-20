@@ -117,6 +117,8 @@ function createViewportFixture(input: {
     bufferPages?: number;
     chassisAuthority?: IDocumentViewerChassisAuthority;
     continuousScroll?: boolean;
+    fitMode?: Ref<'width' | 'height'>;
+    isActive?: Ref<boolean>;
     pageCount?: number;
     viewMode?: 'single' | 'facing' | 'facing-first-single';
     zoom?: Ref<number>;
@@ -133,6 +135,8 @@ function createViewportFixture(input: {
     const outputScale = ref(1);
     const zoomMode = ref(input.zoomMode ?? 'fit-width');
     const viewMode = ref(input.viewMode ?? 'single');
+    const fitMode = input.fitMode ?? ref<'width' | 'height'>('width');
+    const isActive = input.isActive ?? ref(true);
     const emittedPages: number[] = [];
     const {port} = createTestPdfViewportWritePort();
     let viewport: ReturnType<typeof createPdfViewportSession> | undefined;
@@ -150,11 +154,11 @@ function createViewportFixture(input: {
                 viewportWritePort: port,
                 zoom: computed(() => zoom.value),
                 zoomMode: computed(() => zoomMode.value),
-                fitMode: computed(() => 'width'),
+                fitMode: computed(() => fitMode.value),
                 viewMode: computed(() => viewMode.value),
                 continuousScroll: computed(() => input.continuousScroll ?? true),
                 bufferPages: computed(() => input.bufferPages ?? 3),
-                isActive: computed(() => true),
+                isActive: computed(() => isActive.value),
                 isResizing: computed(() => false),
                 requestedCurrentPage: ref(undefined),
                 outputScale,
@@ -166,7 +170,7 @@ function createViewportFixture(input: {
                     isPlacingComment: ref(false),
                     isSelectionMarkupToolActive: computed(() => false),
                     isTextSelectionModeActive: computed(() => false),
-                    fitMode: computed(() => 'width'),
+                    fitMode: computed(() => fitMode.value),
                     zoomMode: computed(() => zoomMode.value),
                     resizeTransitionVisible: ref(false),
                     zoomSnapSuppressed: ref(false),
@@ -194,6 +198,8 @@ function createViewportFixture(input: {
         container,
         documentSession,
         emittedPages,
+        fitMode,
+        isActive,
         outputScale,
         viewport,
         viewMode,
@@ -784,6 +790,66 @@ describe('PdfViewportSession behavior', () => {
             await vi.waitFor(() => expect(surface.snapshot.value.committedViewport?.pageNumber).toBe(1));
         } finally {
             metrics.resolve(true);
+            fixture.app.unmount();
+        }
+    });
+
+    it('cancels an old viewport intent when its document generation is invalidated', async () => {
+        const fixture = createViewportFixture({pageCount: 10});
+        const metrics = Promise.withResolvers<boolean>();
+        try {
+            fixture.viewport.markPageMounted(1);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+            const intent = fixture.viewport.singlePageScroll.submitViewportStateIntent('fit');
+            await vi.waitFor(() => expect(
+                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value,
+            ).not.toBeNull());
+
+            await fixture.documentSession.emit(transition('invalidated', {
+                isReload: false,
+                isSelectiveReload: false,
+                pagesToInvalidate: null,
+                preserveVisibleContent: false,
+                preservePageStructure: false,
+            }));
+
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
+            await expect(intent).resolves.toMatchObject({outcome: 'cancelled'});
+        } finally {
+            metrics.resolve(true);
+            fixture.app.unmount();
+        }
+    });
+
+    it('does not let ambient viewport echoes veto an opening surface generation', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: 'ambient-opening.pdf',
+            documentRevision: 'revision-1',
+        });
+        const fixture = createViewportFixture({
+            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            pageCount: 10,
+        });
+        try {
+            const submitViewportStateIntent = vi.spyOn(
+                fixture.viewport.singlePageScroll,
+                'submitViewportStateIntent',
+            );
+
+            fixture.viewport.submitZoomViewportStateIntent(1.25);
+            fixture.fitMode.value = 'height';
+            fixture.viewMode.value = 'facing';
+            fixture.outputScale.value = 2;
+            fixture.isActive.value = false;
+            await nextTick();
+            fixture.isActive.value = true;
+            await nextTick();
+
+            expect(surface.viewportSession.value.lifecycle).toBe('opening');
+            expect(submitViewportStateIntent).not.toHaveBeenCalled();
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
+        } finally {
             fixture.app.unmount();
         }
     });

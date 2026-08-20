@@ -885,7 +885,21 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         anchoredZoomAlreadySubmitted = null;
-        void singlePageScroll.submitViewportStateIntent('zoom', { zoom: value });
+        submitAmbientViewportStateIntent('zoom', { zoom: value });
+    }
+    function submitAmbientViewportStateIntent(
+        kind: 'zoom' | 'fit' | 'view-mode' | 'dpr' | 'activation',
+        state: Parameters<typeof singlePageScroll.submitViewportStateIntent>[1] = {},
+    ) {
+        // Opening placement is owned by the shared surface generation. A
+        // reactive fit/DPR/activation echo must not create a local intent that
+        // can outlive that generation and veto the staged canvas->viewport
+        // commit. Explicit navigation and anchored user zoom use the controller
+        // directly and remain authoritative.
+        if (chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening') {
+            return;
+        }
+        void singlePageScroll.submitViewportStateIntent(kind, state);
     }
     function reconcileIdleOpenSurfaceViewport() {
         const surface = chassisAuthority?.openSurface;
@@ -931,19 +945,19 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         () => chassisAuthority?.openSurface.snapshot.value.committedViewport,
         viewportLayoutMetrics,
     ], reconcileIdleOpenSurfaceViewport, {flush: 'post'});
-    watch(options.fitMode, () => { void singlePageScroll.submitViewportStateIntent('fit'); });
+    watch(options.fitMode, () => submitAmbientViewportStateIntent('fit'));
     watch(options.viewMode, value => {
-        void singlePageScroll.submitViewportStateIntent('view-mode', { viewMode: value });
+        submitAmbientViewportStateIntent('view-mode', { viewMode: value });
     });
     watch(options.outputScale, value => {
-        void singlePageScroll.submitViewportStateIntent('dpr', { dpr: value });
+        submitAmbientViewportStateIntent('dpr', { dpr: value });
     });
     watch(options.isActive, (active) => {
         if (!active) {
             singlePageScroll.viewportAuthority.suspend();
             return;
         }
-        void singlePageScroll.submitViewportStateIntent('activation');
+        submitAmbientViewportStateIntent('activation');
     });
     let activeDocumentPlacement: IPdfViewportReloadPlacement | null = null;
     async function applyReadyDocumentTransition(transition: IPdfDocumentTransition) {
@@ -1067,6 +1081,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         if (transition.phase === 'invalidated') {
+            singlePageScroll.viewportAuthority.suspend();
             activeDocumentPlacement = null;
             cancelMandatoryRaster();
             const preserved = activePreservedVisibleContent;
