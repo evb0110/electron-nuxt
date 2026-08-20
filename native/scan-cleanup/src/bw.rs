@@ -1856,10 +1856,18 @@ fn measure_binarization_diagnostics(
 }
 
 /// Resolves a symmetric spread candidate first, then keeps each leaf's own
-/// route/threshold scale whenever the evidence is materially different. The
-/// joint route is evidence from the whole spread, not a left-leaf tie-breaker;
-/// it is only allowed to control both leaves after the leaf agreement gates
-/// pass.
+/// route/threshold scale whenever the evidence is materially different. On a
+/// shared plan the joint measurement (taken on the illumination-normalized
+/// spread) and the leaf measurements (taken on the raw canonical crops) can
+/// disagree about the route, and neither reading is authoritative: the joint
+/// override sent low-contrast register pages from Otsu into Wolf, while the
+/// leaf vote sent photo-plate pages the other way. Both failures embolden
+/// individual words, because the local thresholders re-normalize contrast per
+/// window. A disagreement therefore means the routing evidence is marginal,
+/// and the shared plan resolves it toward the global thresholder: Otsu wins
+/// whenever either reading proposes it, and only a disagreement between two
+/// local routes keeps the leaf reading. The joint route always survives as a
+/// reported candidate.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_spread_binarization_plans(
     routing_joint: &GrayImage,
@@ -1983,14 +1991,20 @@ pub(crate) fn resolve_spread_binarization_plans(
                 decision,
             }
         };
+    let shared_route =
+        if left_route == BinarizationMode::Otsu || joint_route == BinarizationMode::Otsu {
+            BinarizationMode::Otsu
+        } else {
+            left_route
+        };
     let shared_plan = SpreadBinarizationPlan {
-        route: joint_route,
+        route: shared_route,
         threshold_anchor: shared_anchor,
         threshold_radius: threshold_radius_for_x_height(shared_x_height, options, calibration),
         x_height_anchor_px: shared_x_height,
         route_diagnostics: left_candidate,
         diagnostics: common_diagnostics(
-            joint_route,
+            shared_route,
             shared_anchor,
             threshold_radius_for_x_height(shared_x_height, options, calibration),
             shared_x_height,
@@ -4396,6 +4410,170 @@ mod tests {
             right_diagnostics.spread_plan.unwrap().threshold_radius,
             plans.right.threshold_radius
         );
+    }
+
+    #[test]
+    fn shared_spread_plan_prefers_otsu_when_the_joint_reading_disagrees() {
+        let options = CleanupOptions {
+            dpi: 300.0,
+            binarization: BinarizationMode::Auto,
+            normalize_illumination: false,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+        let mut leaf = GrayImage::new(256, 256, 242);
+        for y in 32..224 {
+            for x in 24..232 {
+                if (x / 12 + y / 18) % 5 == 0 {
+                    leaf.set(x, y, 54);
+                }
+            }
+        }
+        // The joint reading is taken on a differently prepared raster; a dark
+        // scanner border on it is enough to push the spread-level route off
+        // Otsu while both leaves remain flat-lit text.
+        let mut joint = GrayImage::new(512, 256, 242);
+        for y in 0..256 {
+            for x in 0..256 {
+                joint.set(x, y, leaf.get(x, y));
+                joint.set(x + 256, y, leaf.get(x, y));
+            }
+        }
+        for y in 0..256 {
+            for x in 0..512 {
+                if !(40..472).contains(&x) || !(24..232).contains(&y) {
+                    joint.set(x, y, 12);
+                }
+            }
+        }
+        let leaf_route = resolve_route_for_diagnostics(
+            &measure_binarization_diagnostics(&leaf, &options),
+            &options,
+        );
+        let joint_route = resolve_route_for_diagnostics(
+            &measure_binarization_diagnostics(&joint, &options),
+            &options,
+        );
+        assert_eq!(
+            leaf_route,
+            BinarizationMode::Otsu,
+            "fixture leaf must route Otsu"
+        );
+        assert_ne!(
+            joint_route,
+            BinarizationMode::Otsu,
+            "fixture joint must disagree"
+        );
+
+        let calibration =
+            PageCalibration::estimate(&joint, options.dpi, CalibrationConfig::default());
+        let plans = resolve_spread_binarization_plans(
+            &joint,
+            &leaf,
+            &leaf,
+            &leaf,
+            &leaf,
+            None,
+            None,
+            options.dpi,
+            &options,
+            calibration,
+            Some(2.5),
+            Some(18.0),
+        );
+
+        assert_eq!(
+            plans.left.diagnostics.decision,
+            SpreadBinarizationPlanDecision::SharedJoint
+        );
+        assert_eq!(plans.left.route, BinarizationMode::Otsu);
+        assert_eq!(plans.right.route, BinarizationMode::Otsu);
+        assert_eq!(plans.left.diagnostics.route, BinarizationMode::Otsu);
+        assert_eq!(plans.left.diagnostics.joint_candidate_route, joint_route);
+    }
+
+    #[test]
+    fn shared_spread_plan_prefers_otsu_when_the_leaves_disagree_with_it() {
+        let options = CleanupOptions {
+            dpi: 300.0,
+            binarization: BinarizationMode::Auto,
+            normalize_illumination: false,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+        // The mirror image of the register failure: photo-plate leaves carry a
+        // dark border that pushes their own reading off Otsu, while the
+        // normalized joint still reads as flat-lit text. The global
+        // thresholder must win this disagreement too.
+        let mut leaf = GrayImage::new(256, 256, 242);
+        for y in 32..224 {
+            for x in 24..232 {
+                if (x / 12 + y / 18) % 5 == 0 {
+                    leaf.set(x, y, 54);
+                }
+            }
+        }
+        for y in 0..256 {
+            for x in 0..256 {
+                if !(20..236).contains(&x) || !(12..244).contains(&y) {
+                    leaf.set(x, y, 12);
+                }
+            }
+        }
+        let mut joint = GrayImage::new(512, 256, 242);
+        for y in 32..224 {
+            for x in 24..232 {
+                if (x / 12 + y / 18) % 5 == 0 {
+                    let value = 54;
+                    joint.set(x + 16, y, value);
+                    joint.set(x + 272, y, value);
+                }
+            }
+        }
+        let leaf_route = resolve_route_for_diagnostics(
+            &measure_binarization_diagnostics(&leaf, &options),
+            &options,
+        );
+        let joint_route = resolve_route_for_diagnostics(
+            &measure_binarization_diagnostics(&joint, &options),
+            &options,
+        );
+        assert_ne!(
+            leaf_route,
+            BinarizationMode::Otsu,
+            "fixture leaves must route off Otsu"
+        );
+        assert_eq!(
+            joint_route,
+            BinarizationMode::Otsu,
+            "fixture joint must read Otsu"
+        );
+
+        let calibration =
+            PageCalibration::estimate(&joint, options.dpi, CalibrationConfig::default());
+        let plans = resolve_spread_binarization_plans(
+            &joint,
+            &leaf,
+            &leaf,
+            &leaf,
+            &leaf,
+            None,
+            None,
+            options.dpi,
+            &options,
+            calibration,
+            Some(2.5),
+            Some(18.0),
+        );
+
+        assert_eq!(
+            plans.left.diagnostics.decision,
+            SpreadBinarizationPlanDecision::SharedJoint
+        );
+        assert_eq!(plans.left.route, BinarizationMode::Otsu);
+        assert_eq!(plans.right.route, BinarizationMode::Otsu);
+        assert_eq!(plans.left.diagnostics.joint_candidate_route, joint_route);
+        assert_eq!(plans.left.diagnostics.left_candidate_route, leaf_route);
     }
 
     #[test]
