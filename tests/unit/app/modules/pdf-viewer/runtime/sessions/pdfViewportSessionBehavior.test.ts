@@ -76,6 +76,7 @@ function createDocumentFixture(pageCount = 100) {
     })));
     const pageMetricsVersion = ref(0);
     const document = {numPages: pageCount} as PDFDocumentProxy;
+    const loadToken = ref(1);
     const fixture = {
         pdfDocument: shallowRef<PDFDocumentProxy | null>(document),
         numPages: ref(pageCount),
@@ -88,11 +89,12 @@ function createDocumentFixture(pageCount = 100) {
         ensurePageMetricsInRange: vi.fn(async () => true),
         hasExactPageGeometry: vi.fn(() => true),
         captureFence: () => ({
-            loadToken: 1,
+            loadToken: loadToken.value,
             documentVersion: 1,
             documentRevision: 'revision-1',
             openSurfaceGeneration: 1,
         }),
+        loadToken,
         getRenderVersion: () => 1,
         subscribe(callback: (transition: IPdfDocumentTransition) => void | Promise<void>) {
             subscribers.push(callback);
@@ -749,7 +751,7 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('leaves staged opening authority with the active viewport intent until it settles', async () => {
+    it('preserves a current-generation viewport intent until it settles', async () => {
         const surface = createDocumentOpenSurfaceSession();
         const generation = surface.begin({
             documentId: 'intent-owned-open.pdf',
@@ -784,10 +786,145 @@ describe('PdfViewportSession behavior', () => {
             expect(surface.commitCanvas(renderFence!)).toBe(true);
             await nextTick();
             expect(surface.snapshot.value.committedViewport).toBeNull();
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).not.toBeNull();
 
             metrics.resolve(true);
-            await intent;
+            await expect(intent).resolves.toMatchObject({outcome: 'settled'});
             await vi.waitFor(() => expect(surface.snapshot.value.committedViewport?.pageNumber).toBe(1));
+        } finally {
+            metrics.resolve(true);
+            fixture.app.unmount();
+        }
+    });
+
+    it('retires a stale viewport intent when opening reconciliation observes a newer revision', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: 'stale-intent-open.pdf',
+            documentRevision: 'revision-1',
+        });
+        surface.metadataReady(10);
+        expect(surface.commitGeometry(generation, {
+            width: 600,
+            height: 900,
+            margin: 20,
+        })).toBe(true);
+        const fixture = createViewportFixture({
+            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            pageCount: 10,
+        });
+        const metrics = Promise.withResolvers<boolean>();
+        try {
+            fixture.viewport.markPageMounted(1);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+            const intent = fixture.viewport.singlePageScroll.submitViewportStateIntent('fit');
+            await vi.waitFor(() => expect(
+                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.documentRevision,
+            ).toBe(1));
+
+            fixture.documentSession.loadToken.value = 2;
+            const renderFence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 5,
+                pageNumber: 1,
+            });
+            expect(renderFence).not.toBeNull();
+            expect(surface.commitCanvas(renderFence!)).toBe(true);
+
+            await vi.waitFor(() => expect(surface.snapshot.value.committedViewport?.pageNumber).toBe(1));
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
+            await expect(intent).resolves.toMatchObject({outcome: 'cancelled'});
+        } finally {
+            metrics.resolve(true);
+            fixture.app.unmount();
+        }
+    });
+
+    it('preserves destination navigation while the matching opening canvas waits for it', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: 'navigation-owned-open.pdf',
+            documentRevision: 'revision-1',
+        });
+        surface.metadataReady(10);
+        expect(surface.commitGeometry(generation, {
+            width: 600,
+            height: 900,
+            margin: 20,
+        })).toBe(true);
+        const fixture = createViewportFixture({
+            chassisAuthority: cast<IDocumentViewerChassisAuthority>({
+                navigate: (page: number) => surface.requestNavigation(page),
+                openSurface: surface,
+            }),
+            pageCount: 10,
+        });
+        const metrics = Promise.withResolvers<boolean>();
+        try {
+            fixture.viewport.markPageMounted(2);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(2)).toBe(true);
+            await vi.waitFor(() => expect(
+                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.navigation,
+            ).toBeDefined());
+            const navigationIntentId = fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.id;
+            const renderFence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 5,
+                pageNumber: 2,
+            });
+            expect(renderFence).not.toBeNull();
+            expect(surface.commitCanvas(renderFence!)).toBe(true);
+            await nextTick();
+
+            expect(surface.snapshot.value.committedViewport).toBeNull();
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.id)
+                .toBe(navigationIntentId);
+        } finally {
+            fixture.viewport.singlePageScroll.viewportAuthority.suspend();
+            metrics.resolve(true);
+            fixture.app.unmount();
+        }
+    });
+
+    it('cancels a stale navigation intent when document loading advances the revision', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: 'stale-navigation.pdf',
+            documentRevision: 'revision-1',
+        });
+        const fixture = createViewportFixture({
+            chassisAuthority: cast<IDocumentViewerChassisAuthority>({
+                navigate: (page: number) => surface.requestNavigation(page),
+                openSurface: surface,
+            }),
+            pageCount: 10,
+        });
+        const metrics = Promise.withResolvers<boolean>();
+        try {
+            fixture.viewport.markPageMounted(2);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(2)).toBe(true);
+            await vi.waitFor(() => expect(
+                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.navigation,
+            ).toBeDefined());
+            const staleIntentId = fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value!.id;
+
+            await fixture.documentSession.emit(transition('loading', {
+                isReload: false,
+                isSelectiveReload: false,
+                pagesToInvalidate: null,
+                preserveVisibleContent: false,
+                preservePageStructure: false,
+            }));
+
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.getTerminalOutcome(staleIntentId))
+                .toBe('cancelled');
         } finally {
             metrics.resolve(true);
             fixture.app.unmount();

@@ -52,6 +52,10 @@ import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/ru
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import {
+    resolvePdfOpeningViewportCommit,
+    suspendStalePdfViewportIntent,
+} from '@app/modules/pdf-viewer/runtime/viewport/resolvePdfOpeningViewportCommit';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
@@ -903,14 +907,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     function reconcileIdleOpenSurfaceViewport() {
         const surface = chassisAuthority?.openSurface;
-        const committedRender = surface?.snapshot.value.committedRender;
-        if (
-            !surface
-            || !committedRender
-            || surface.snapshot.value.committedViewport
-            || surface.viewportSession.value.requestedPage !== committedRender.pageNumber
-            || singlePageScroll.viewportAuthority.activeIntent.value !== null
-        ) {
+        if (!surface) {
+            return false;
+        }
+        const committedRender = resolvePdfOpeningViewportCommit(
+            surface,
+            singlePageScroll.viewportAuthority.activeIntent.value,
+            documentSession.captureFence().loadToken,
+            singlePageScroll.viewportAuthority.suspend,
+        );
+        if (!committedRender) {
             return false;
         }
         const committed = singlePageScroll.commitCurrentViewportIfSettled(committedRender.pageNumber)
@@ -1077,6 +1083,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         if (transition.phase === 'loading') {
+            suspendStalePdfViewportIntent(
+                singlePageScroll.viewportAuthority.activeIntent.value,
+                transition.fence.loadToken,
+                singlePageScroll.viewportAuthority.suspend,
+            );
             activeDocumentPlacement = beginReloadPlacement(transition);
             return;
         }
