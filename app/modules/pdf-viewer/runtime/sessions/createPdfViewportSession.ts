@@ -659,7 +659,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             scale.scaledMargin.value,
             scrollOptions,
         );
-        singlePageScroll.commitCurrentViewportPosition(
+        return singlePageScroll.commitCurrentViewportPosition(
             pageNumber,
             `reload-viewport-${String(documentSession.captureFence().loadToken)}-${String(pageNumber)}`,
         );
@@ -894,11 +894,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             !surface
             || !committedRender
             || surface.snapshot.value.committedViewport
+            || surface.viewportSession.value.requestedPage !== committedRender.pageNumber
             || singlePageScroll.viewportAuthority.activeIntent.value !== null
         ) {
             return false;
         }
-        const committed = singlePageScroll.commitCurrentViewportIfSettled(committedRender.pageNumber);
+        const committed = singlePageScroll.commitCurrentViewportIfSettled(committedRender.pageNumber)
+            || (
+                surface.viewportSession.value.lifecycle === 'opening'
+                && applyReloadViewport(committedRender.pageNumber)
+            );
         if (committed) {
             navigationCommittedSignal.value = {
                 revision: navigationCommittedSignal.value.revision + 1,

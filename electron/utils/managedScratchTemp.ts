@@ -164,7 +164,15 @@ export async function sweepStaleManagedScratchTempDirs(
                 continue;
             }
 
-            const lastTouchedAt = Math.max(marker.createdAt, scratchStat.mtimeMs, scratchStat.ctimeMs);
+            // Date.now() has integer-millisecond precision, while filesystem
+            // timestamps can retain a fractional millisecond. Compare both
+            // clocks at the same precision so a zero-age sweep does not treat
+            // a same-millisecond directory timestamp as slightly in the future.
+            const lastTouchedAt = Math.floor(Math.max(
+                marker.createdAt,
+                scratchStat.mtimeMs,
+                scratchStat.ctimeMs,
+            ));
             if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
                 continue;
             }

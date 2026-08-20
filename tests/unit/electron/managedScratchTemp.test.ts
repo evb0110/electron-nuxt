@@ -12,6 +12,7 @@ import {
     rmSync,
 } from 'fs';
 import {
+    lstat,
     mkdir,
     readFile,
     readdir,
@@ -44,6 +45,7 @@ describe('managed scratch temp cleanup', () => {
     });
 
     afterEach(() => {
+        vi.restoreAllMocks();
         rmSync(mocks.appTempDir, {
             force: true,
             recursive: true,
@@ -97,6 +99,11 @@ describe('managed scratch temp cleanup', () => {
             pid: 2_147_483_647,
             prefix: 'qpdfOutput-',
         })}\n`, 'utf8');
+        const deadMarkedStat = await lstat(deadMarkedPath);
+        vi.spyOn(Date, 'now').mockReturnValue(Math.floor(Math.max(
+            deadMarkedStat.mtimeMs,
+            deadMarkedStat.ctimeMs,
+        )));
 
         await expect(sweepStaleManagedScratchTempDirs(0, 1)).resolves.toBe(1);
 

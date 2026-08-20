@@ -1,9 +1,11 @@
 import {
     afterAll,
+    afterEach,
     describe,
     expect,
     it,
 } from 'vitest';
+import type {CDPSession} from 'puppeteer-core';
 import {
     readFile,
     stat,
@@ -91,6 +93,7 @@ const LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS = {sampleCanvasPixels: false} as co
 const DJVU_FIRST_VISUAL_BUDGET_MS = 5_000;
 const DJVU_READY_AFTER_VISUAL_BUDGET_MS = 1_000;
 const PDF_NAVIGATION_SKELETON_DEBOUNCE_MS = 150;
+const CDP_CLEANUP_TIMEOUT_MS = 5_000;
 const djvuBlockingFixture = resolveDjvuFixturePath();
 const runDjvuBlockingOrSkip = selectFixtureDescribe(describe, djvuBlockingFixture);
 
@@ -794,6 +797,87 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         sessionName: 'e2e-pr-blocking-smoke',
         timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS,
     });
+    let viewportLifecycleCpuThrottleClient: CDPSession | null = null;
+    let viewportLifecycleCpuThrottleRelease: Promise<void> | null = null;
+    async function runBoundedCdpCleanup(
+        label: string,
+        cleanup: () => Promise<unknown>,
+        timeoutMs = CDP_CLEANUP_TIMEOUT_MS,
+    ) {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+            await Promise.race([
+                cleanup(),
+                new Promise<never>((_resolve, reject) => {
+                    timeout = setTimeout(() => reject(new Error(
+                        `${label} did not complete within ${String(timeoutMs)}ms`,
+                    )), timeoutMs);
+                }),
+            ]);
+        } finally {
+            if (timeout !== undefined) {
+                clearTimeout(timeout);
+            }
+        }
+    }
+    async function releaseViewportLifecycleCpuThrottle() {
+        if (viewportLifecycleCpuThrottleRelease) {
+            return viewportLifecycleCpuThrottleRelease;
+        }
+        const client = viewportLifecycleCpuThrottleClient;
+        if (!client) {
+            return;
+        }
+        const release = (async () => {
+            const errors: unknown[] = [];
+            try {
+                await runBoundedCdpCleanup('CPU throttle reset', () => (
+                    client.send('Emulation.setCPUThrottlingRate', {rate: 1})
+                ));
+            } catch (error) {
+                errors.push(error);
+            }
+            try {
+                await runBoundedCdpCleanup('CPU throttle CDP detach', () => client.detach());
+            } catch (error) {
+                errors.push(error);
+            }
+            if (errors.length > 0) {
+                throw new AggregateError(errors, 'Failed to release viewport lifecycle CPU throttling');
+            }
+        })();
+        viewportLifecycleCpuThrottleRelease = release;
+        try {
+            await release;
+            if (viewportLifecycleCpuThrottleClient === client) {
+                viewportLifecycleCpuThrottleClient = null;
+            }
+        } finally {
+            if (viewportLifecycleCpuThrottleRelease === release) {
+                viewportLifecycleCpuThrottleRelease = null;
+            }
+        }
+    }
+    afterEach(async () => {
+        try {
+            await releaseViewportLifecycleCpuThrottle();
+        } catch (error) {
+            console.warn('[E2E cleanup] CDP throttle reset failed; replacing the owning renderer session', error);
+            try {
+                await runBoundedCdpCleanup('CPU throttle renderer replacement', () => (
+                    sessionFixture.restart({
+                        clean: true,
+                        hard: true,
+                        keepNuxt: true,
+                        sessionName: 'e2e-pr-blocking-timeout-recovery',
+                    })
+                ), 45_000);
+            } finally {
+                viewportLifecycleCpuThrottleClient = null;
+                viewportLifecycleCpuThrottleRelease = null;
+            }
+        }
+    }, 60_000);
     afterAll(() => cleanupRunFixtures(PR_BLOCKING_FIXTURE_OWNER));
 
     it('reports the canonical 0.1.x application version from the real Electron runtime', async () => {
@@ -1385,6 +1469,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const client = await runPdfDiagnosticStage(session.page, 'late:create-cdp-session', () => (
             session.page.createCDPSession()
         ));
+        viewportLifecycleCpuThrottleClient = client;
         let zoomReplacementTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
         let slowNavigationTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
         try {
@@ -1480,6 +1565,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 waitForAnimationFrames(session.page, 12)
             ));
         } finally {
+            await runPdfDiagnosticStage(session.page, 'late:disable-cpu-throttling', () => (
+                releaseViewportLifecycleCpuThrottle()
+            ));
             const remainingTrace = await runPdfDiagnosticStage(
                 session.page,
                 'late:stop-remaining-sampler',
@@ -1488,10 +1576,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             if (slowNavigationTrace.frames.length === 0) {
                 slowNavigationTrace = remainingTrace;
             }
-            await runPdfDiagnosticStage(session.page, 'late:disable-cpu-throttling', () => (
-                client.send('Emulation.setCPUThrottlingRate', {rate: 1})
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:detach-cdp-session', () => client.detach());
         }
         const zoomPageFrames = zoomReplacementTrace.frames.filter(frame => (
             frame.interactionCheckpoint === 'zoom-replacement'

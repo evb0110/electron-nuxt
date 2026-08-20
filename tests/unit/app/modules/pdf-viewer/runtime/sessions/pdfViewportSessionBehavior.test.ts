@@ -676,6 +676,7 @@ describe('PdfViewportSession behavior', () => {
             await nextTick();
             expect(surface.snapshot.value.committedViewport).toBeNull();
 
+            fixture.container.scrollTop = 4_000;
             fixture.documentSession.numPages.value = 10;
             fixture.documentSession.pageMetrics.value = Array.from({length: 10}, () => ({
                 width: 600,
@@ -688,6 +689,55 @@ describe('PdfViewportSession behavior', () => {
                 pageNumber: 1,
                 viewportIntentId: renderFence!.viewportIntentId,
             }));
+            expect(fixture.container.scrollTop).toBe(0);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('does not restore a staged opening page after navigation supersedes it', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: 'superseded-open.pdf',
+            documentRevision: 'revision-1',
+        });
+        surface.metadataReady(10);
+        expect(surface.commitGeometry(generation, {
+            width: 600,
+            height: 900,
+            margin: 20,
+        })).toBe(true);
+        const fixture = createViewportFixture({
+            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            pageCount: 0,
+        });
+        try {
+            const renderFence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 4,
+                pageNumber: 1,
+            });
+            expect(renderFence).not.toBeNull();
+            expect(surface.commitCanvas(renderFence!)).toBe(true);
+            await nextTick();
+            expect(surface.snapshot.value.committedViewport).toBeNull();
+
+            fixture.container.scrollTop = 4_000;
+            expect(surface.requestNavigation(2, 0)).toBe(2);
+            expect(surface.viewportSession.value.requestedPage).toBe(2);
+            fixture.documentSession.numPages.value = 10;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 10}, () => ({
+                width: 600,
+                height: 900,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+
+            expect(surface.snapshot.value.committedViewport).toBeNull();
+            expect(surface.viewportSession.value.requestedPage).toBe(2);
+            expect(fixture.container.scrollTop).toBe(4_000);
         } finally {
             fixture.app.unmount();
         }

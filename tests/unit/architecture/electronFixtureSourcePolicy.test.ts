@@ -85,6 +85,34 @@ describe('Electron E2E fixture source policy', () => {
         expect(resetBlock).toContain('waitForRendererReady(page)');
     });
 
+    it('keeps blocking-smoke CPU throttling independently recoverable after a test timeout', async () => {
+        const smokeSource = await readSource('tests/e2e/electron/prBlockingSmoke.e2e.test.ts');
+        const releaseStart = smokeSource.indexOf('async function releaseViewportLifecycleCpuThrottle()');
+        const releaseEnd = smokeSource.indexOf('\n    afterEach(async () =>', releaseStart);
+        const releaseBlock = smokeSource.slice(releaseStart, releaseEnd);
+        const cleanupHookStart = releaseEnd + 1;
+        const cleanupHookEnd = smokeSource.indexOf('\n    afterAll(', cleanupHookStart);
+        const cleanupHookBlock = smokeSource.slice(cleanupHookStart, cleanupHookEnd);
+        const testFinallyStart = smokeSource.indexOf('        } finally {', smokeSource.indexOf(
+            'it(\'serializes early Recent navigation and owns every viewport frame\'',
+        ));
+        const testFinallyEnd = smokeSource.indexOf('\n        }', testFinallyStart) + '\n        }'.length;
+        const testFinallyBlock = smokeSource.slice(testFinallyStart, testFinallyEnd);
+
+        expect(releaseBlock).toContain('client.send(\'Emulation.setCPUThrottlingRate\', {rate: 1})');
+        expect(releaseBlock).toContain('runBoundedCdpCleanup');
+        expect(releaseBlock).toContain('if (viewportLifecycleCpuThrottleRelease)');
+        expect(releaseBlock).toContain('return viewportLifecycleCpuThrottleRelease;');
+        expect(releaseBlock).toContain('viewportLifecycleCpuThrottleRelease = release;');
+        expect(releaseBlock.indexOf('client.send(\'Emulation.setCPUThrottlingRate\', {rate: 1})'))
+            .toBeLessThan(releaseBlock.indexOf('client.detach()'));
+        expect(cleanupHookBlock).toContain('await releaseViewportLifecycleCpuThrottle();');
+        expect(cleanupHookBlock).toContain('sessionName: \'e2e-pr-blocking-timeout-recovery\'');
+        expect(cleanupHookBlock).toContain('runBoundedCdpCleanup(\'CPU throttle renderer replacement\'');
+        expect(testFinallyBlock.indexOf('releaseViewportLifecycleCpuThrottle()'))
+            .toBeLessThan(testFinallyBlock.indexOf('stopCommittedSurfaceSampler(session.page)'));
+    });
+
     it('keeps full-source document matching and single-owner direct-open readiness', async () => {
         const commandHandler = await readSource('scripts/electron-run/createCommandHandler.ts');
         const viewerCore = await readSource('tests/e2e/electron/helpers/viewerCore.ts');
