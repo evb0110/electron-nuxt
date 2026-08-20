@@ -26,7 +26,7 @@ interface IOcrJobStorageBudgetOptions {
     cleanupCheckpoint?: () => Promise<void>;
 }
 
-export interface IOcrStorageSnapshot {
+interface IOcrStorageSnapshot {
     availableBytes: number;
     usedBytes: number;
 }
@@ -55,7 +55,7 @@ function isMissingPathError(error: unknown) {
     return !!error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT';
 }
 
-export function isDiskCapacityMessage(message: string | undefined) {
+function isDiskCapacityMessage(message: string | undefined) {
     return message !== undefined && /(?:no space left|disk (?:full|quota)|quota exceeded|enospc|edquot)/iu.test(message);
 }
 

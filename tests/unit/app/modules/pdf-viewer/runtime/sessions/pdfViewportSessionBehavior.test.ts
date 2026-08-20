@@ -606,12 +606,14 @@ describe('PdfViewportSession behavior', () => {
                 await vi.waitFor(() => {
                     const mandatory = fixture.viewport.demand.value.mandatoryRaster;
                     expect(mandatory).not.toBeNull();
+                    expect(mandatory?.options.suppressResidentRasterDemand).toBe(true);
                     rasterId = mandatory!.id;
                 });
                 fixture.viewport.settleMandatoryRaster(rasterId);
                 await vi.waitFor(() => {
                     const mandatory = fixture.viewport.demand.value.mandatoryRaster;
                     expect(mandatory?.id).toBeGreaterThan(rasterId);
+                    expect(mandatory?.options.suppressResidentRasterDemand).toBe(true);
                     rasterId = mandatory!.id;
                 });
                 fixture.viewport.settleMandatoryRaster(rasterId);

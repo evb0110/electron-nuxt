@@ -15,7 +15,7 @@ interface IBrowserWorkspaceRecoveryRecord {
     updatedAt: number;
 }
 
-export interface IBrowserWorkspaceRecoverySnapshot {
+interface IBrowserWorkspaceRecoverySnapshot {
     ownerId: string;
     generation: number;
     checkpoint: IWorkspaceCheckpoint;
@@ -115,89 +115,77 @@ export async function loadBrowserWorkspaceRecoveryLeasedRefs() {
     return new Set((await loadBrowserWorkspaceRecoveries()).flatMap(record => record.snapshotRefs));
 }
 
+async function mutateBrowserWorkspaceRecovery(
+    ownerId: string,
+    expectedGeneration: number,
+    mutate: (
+        store: IDBObjectStore,
+        id: string,
+        current: IBrowserWorkspaceRecoverySnapshot | null,
+        currentGeneration: number,
+    ) => number,
+) {
+    if (!isValidOwnerId(ownerId) || !Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0) {
+        throw new TypeError('Browser recovery owner and generation must be valid.');
+    }
+    const id = getRecoveryRecordId(ownerId);
+    const outcome = await runObjectStoreTransaction<TBrowserWorkspaceRecoveryMutationResult>(
+        WORKSPACE_RECOVERY_STORE,
+        'readwrite',
+        (store, setResult) => {
+            const read = store.get(id);
+            read.onsuccess = () => {
+                const current = decodeRecoveryRecord(read.result);
+                const currentGeneration = current?.generation ?? 0;
+                if (currentGeneration !== expectedGeneration) {
+                    setResult({
+                        saved: false,
+                        generation: currentGeneration,
+                    });
+                    return;
+                }
+                setResult({
+                    saved: true,
+                    generation: mutate(store, id, current, currentGeneration),
+                });
+            };
+        },
+    );
+    if (!outcome) {
+        throw new Error('IndexedDB browser recovery mutation did not commit.');
+    }
+    return outcome;
+}
+
 export async function saveBrowserWorkspaceRecovery(
     ownerId: string,
     expectedGeneration: number,
     checkpoint: IWorkspaceCheckpoint,
     snapshotRefs: string[],
 ): Promise<TBrowserWorkspaceRecoveryMutationResult> {
-    if (!isValidOwnerId(ownerId) || !Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0) {
-        throw new TypeError('Browser recovery owner and generation must be valid.');
-    }
-    const id = getRecoveryRecordId(ownerId);
-    const outcome = await runObjectStoreTransaction<TBrowserWorkspaceRecoveryMutationResult>(
-        WORKSPACE_RECOVERY_STORE,
-        'readwrite',
-        (store, setResult) => {
-            const read = store.get(id);
-            read.onsuccess = () => {
-                const current = decodeRecoveryRecord(read.result);
-                const currentGeneration = current?.generation ?? 0;
-                if (currentGeneration !== expectedGeneration) {
-                    setResult({
-                        saved: false,
-                        generation: currentGeneration,
-                    });
-                    return;
-                }
-                const generation = currentGeneration + 1;
-                const record: IBrowserWorkspaceRecoveryRecord = {
-                    id,
-                    ownerId,
-                    generation,
-                    checkpoint,
-                    snapshotRefs: Array.from(new Set(snapshotRefs)),
-                    updatedAt: Date.now(),
-                };
-                store.put(record);
-                setResult({
-                    saved: true,
-                    generation,
-                });
-            };
-        },
-    );
-    if (!outcome) {
-        throw new Error('IndexedDB browser recovery checkpoint write did not commit.');
-    }
-    return outcome;
+    return mutateBrowserWorkspaceRecovery(ownerId, expectedGeneration, (store, id, _current, currentGeneration) => {
+        const generation = currentGeneration + 1;
+        const record: IBrowserWorkspaceRecoveryRecord = {
+            id,
+            ownerId,
+            generation,
+            checkpoint,
+            snapshotRefs: Array.from(new Set(snapshotRefs)),
+            updatedAt: Date.now(),
+        };
+        store.put(record);
+        return generation;
+    });
 }
 
 export async function clearBrowserWorkspaceRecovery(
     ownerId: string,
     expectedGeneration: number,
 ): Promise<TBrowserWorkspaceRecoveryMutationResult> {
-    if (!isValidOwnerId(ownerId) || !Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0) {
-        throw new TypeError('Browser recovery owner and generation must be valid.');
-    }
-    const id = getRecoveryRecordId(ownerId);
-    const outcome = await runObjectStoreTransaction<TBrowserWorkspaceRecoveryMutationResult>(
-        WORKSPACE_RECOVERY_STORE,
-        'readwrite',
-        (store, setResult) => {
-            const read = store.get(id);
-            read.onsuccess = () => {
-                const current = decodeRecoveryRecord(read.result);
-                const currentGeneration = current?.generation ?? 0;
-                if (currentGeneration !== expectedGeneration) {
-                    setResult({
-                        saved: false,
-                        generation: currentGeneration,
-                    });
-                    return;
-                }
-                if (current) store.delete(id);
-                setResult({
-                    saved: true,
-                    generation: 0,
-                });
-            };
-        },
-    );
-    if (!outcome) {
-        throw new Error('IndexedDB browser recovery checkpoint delete did not commit.');
-    }
-    return outcome;
+    return mutateBrowserWorkspaceRecovery(ownerId, expectedGeneration, (store, id, current) => {
+        if (current) store.delete(id);
+        return 0;
+    });
 }
 
 export async function claimBrowserWorkspaceRecoveryOwner(

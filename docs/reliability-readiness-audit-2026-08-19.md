@@ -536,7 +536,9 @@ preserved as the historical audit of the shipped v0.1.426 release; statuses here
 describe the current working tree, not that public release. At the time of this
 update the remediation diff has completed its final local gates and two bounded
 CodeRabbit CLI passes. Production-impact findings from both passes were assessed
-and the valid findings were fixed; commit and push remain pending.
+and the valid findings were fixed. The main remediation was pushed to `main` as
+`072406368baded0218e2a65c94c5ddff475c1d2c`; the CI follow-up described below was
+validated locally before publication.
 
 Status meanings:
 
@@ -595,7 +597,7 @@ mirror health probe is still outstanding.
 
 | Check | Remediation result |
 |---|---|
-| Full unit/coverage suite | Passed: 7,600 tests; coverage ratchet and 164-file zero-execution tripwire passed |
+| Full unit/coverage suite | Passed: 7,633 tests; coverage ratchet and 164-file zero-execution tripwire passed |
 | TypeScript typecheck | Passed |
 | Full lint and architecture/import policy | Passed |
 | Browser integration | Passed: 4/4 |
@@ -623,5 +625,4 @@ The following items must not be confused with defects left silently unfixed:
 
 Accordingly, the implementation campaign has closed the known code-level P0/P1
 failure paths, but the acquisition recommendation remains conditional until the
-review is complete and newly signed/portable artifacts have passed the external
-installation matrix.
+newly signed/portable artifacts have passed the external installation matrix.

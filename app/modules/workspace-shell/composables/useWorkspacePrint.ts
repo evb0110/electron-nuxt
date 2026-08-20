@@ -412,6 +412,29 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         throwIfPrintAborted(signal);
     }
 
+    function installAfterPrintCleanup(frameWindow: Window, owner: number) {
+        const afterPrint = () => {
+            cleanupPrintFrame(owner);
+        };
+        window.addEventListener('afterprint', afterPrint, {once: true});
+        removeAfterPrintListener = () => {
+            window.removeEventListener('afterprint', afterPrint);
+        };
+        try {
+            frameWindow.addEventListener('afterprint', afterPrint, {once: true});
+            removeAfterPrintListener = () => {
+                window.removeEventListener('afterprint', afterPrint);
+                frameWindow.removeEventListener('afterprint', afterPrint);
+            };
+        } catch (error) {
+            if (!isCrossOriginFrameAccessError(error)) {
+                cleanupPrintFrame(owner);
+                throw error;
+            }
+        }
+        browserPrintCleanupTimer = window.setTimeout(afterPrint, BROWSER_PRINT_CLEANUP_TIMEOUT_MS);
+    }
+
     async function printRenderedContentInHiddenFrame(
         renderContent: (
             targetDocument: IBrowserPrintDocument,
@@ -436,26 +459,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         await renderContent(frameWindow.document, signal);
         throwIfPrintAborted(signal);
 
-        const afterPrint = () => {
-            cleanupPrintFrame(owner);
-        };
-        window.addEventListener('afterprint', afterPrint, { once: true });
-        removeAfterPrintListener = () => {
-            window.removeEventListener('afterprint', afterPrint);
-        };
-        try {
-            frameWindow.addEventListener('afterprint', afterPrint, { once: true });
-            removeAfterPrintListener = () => {
-                window.removeEventListener('afterprint', afterPrint);
-                frameWindow.removeEventListener('afterprint', afterPrint);
-            };
-        } catch (error) {
-            if (!isCrossOriginFrameAccessError(error)) {
-                cleanupPrintFrame(owner);
-                throw error;
-            }
-        }
-        browserPrintCleanupTimer = window.setTimeout(afterPrint, BROWSER_PRINT_CLEANUP_TIMEOUT_MS);
+        installAfterPrintCleanup(frameWindow, owner);
 
         try {
             await waitForPrintFrameReady(frameWindow, signal);
@@ -533,25 +537,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 throw new Error('Missing print frame window');
             }
 
-            const afterPrint = () => {
-                cleanupPrintFrame(owner);
-            };
-            window.addEventListener('afterprint', afterPrint, { once: true });
-            removeAfterPrintListener = () => {
-                window.removeEventListener('afterprint', afterPrint);
-            };
-            try {
-                frameWindow.addEventListener('afterprint', afterPrint, { once: true });
-                removeAfterPrintListener = () => {
-                    window.removeEventListener('afterprint', afterPrint);
-                    frameWindow.removeEventListener('afterprint', afterPrint);
-                };
-            } catch (error) {
-                if (!isCrossOriginFrameAccessError(error)) {
-                    throw error;
-                }
-            }
-            browserPrintCleanupTimer = window.setTimeout(afterPrint, BROWSER_PRINT_CLEANUP_TIMEOUT_MS);
+            installAfterPrintCleanup(frameWindow, owner);
 
             await waitForPrintFrameReady(frameWindow, signal);
             closePrintDialogForSystemDialog();

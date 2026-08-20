@@ -290,71 +290,62 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         }
     }
 
-    async function runImageExport(pageNumbers?: number[]) {
+    function acceptRasterExportPreflight(
+        identity: NonNullable<ReturnType<typeof captureExportIdentity>>,
+        isFreshForRead: boolean,
+        showFreshReadFailure: () => void,
+    ) {
+        if (!isFreshForRead || !ownsExportSource(identity)) {
+            setExportOverlay(null);
+            if (isFreshForRead === false && ownsExportSource(identity)) {
+                showFreshReadFailure();
+            }
+            return false;
+        }
+        return true;
+    }
+
+    function beginRasterExportPreflight(generation: number) {
+        const identity = captureExportIdentity(generation);
+        if (!identity) {
+            return null;
+        }
+        return {
+            identity,
+            isFreshForRead: identity.sourceKind === 'pdf' && ensureWorkingCopyFreshForRead
+                ? ensureWorkingCopyFreshForRead()
+                : true,
+        };
+    }
+
+    async function runRasterExport(
+        pageNumbers: number[] | undefined,
+        showFreshReadFailure: () => void,
+        task: (generation: number, selectedPageCount: number) => Promise<void>,
+        handleFailure: (error: unknown) => void,
+    ) {
         if (!sourcePath.value || isExportInProgress.value) {
             return;
         }
-
         const selectedPageCount = getSelectedPageCount(pageNumbers);
         const generation = ++exportGeneration;
         isExportInProgress.value = true;
         try {
-            const preflightIdentity = captureExportIdentity(generation);
-            if (!preflightIdentity) {
+            const preflight = beginRasterExportPreflight(generation);
+            if (!preflight) {
                 return;
             }
-            const isFreshForRead = preflightIdentity.sourceKind === 'pdf' && ensureWorkingCopyFreshForRead
-                ? await ensureWorkingCopyFreshForRead()
-                : true;
-            if (!isFreshForRead || !ownsExportSource(preflightIdentity)) {
-                setExportOverlay(null);
-                if (isFreshForRead === false && ownsExportSource(preflightIdentity)) {
-                    showFreshReadFailureToast();
-                }
+            const isFreshForRead = typeof preflight.isFreshForRead === 'boolean'
+                ? preflight.isFreshForRead
+                : await preflight.isFreshForRead;
+            if (!acceptRasterExportPreflight(preflight.identity, isFreshForRead, showFreshReadFailure)) {
                 return;
             }
-            await runWithDocumentOperationLease('raster-export', async () => {
-                const identity = captureExportIdentity(generation);
-                if (!identity || !ownsExportIdentity(identity)) {
-                    setExportOverlay(null);
-                    return;
-                }
-
-                showExportRunning('images', selectedPageCount);
-                const documentWorkingCopy = getDocumentWorkingCopyCapability();
-                const imageExport = getImageExportCapability();
-                const requestId = createExportRequestId();
-                subscribeExportProgress(imageExport, requestId, 'images');
-                const startedAt = Date.now();
-                const result = await imageExport.exportPdfToImages(
-                    identity.sourcePath,
-                    pageNumbers,
-                    requestId,
-                    identity.sourceKind,
-                );
-                if (!ownsExportIdentity(identity)) {
-                    await cleanupExportedOutputRefs(documentWorkingCopy, result.outputPaths ?? []);
-                    if (generation === exportGeneration && !isDisposed) {
-                        setExportOverlay(null);
-                    }
-                    return;
-                }
-                if (result.success || result.canceled) {
-                    trackExportCompleted({
-                        startedAt,
-                        format: 'images',
-                        outputCount: result.outputPaths?.length ?? 0,
-                        selectedPageCount,
-                        status: result.success ? 'success' : 'canceled',
-                    });
-                }
-                await handleImageExportResult(documentWorkingCopy, result, selectedPageCount);
-            });
+            await task(generation, selectedPageCount);
         } catch (error) {
             if (generation === exportGeneration && !isDisposed) {
                 setExportOverlay(null);
-                BrowserLogger.error('workspace', 'export images failed', error);
-                showImageExportFailureToast(getErrorMessage(error));
+                handleFailure(error);
             }
         } finally {
             if (generation === exportGeneration) {
@@ -364,92 +355,120 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         }
     }
 
-    async function runMultiPageTiffExport(pageNumbers?: number[]) {
-        if (!sourcePath.value || isExportInProgress.value) {
-            return;
-        }
+    function runImageExport(pageNumbers?: number[]) {
+        return runRasterExport(
+            pageNumbers,
+            showFreshReadFailureToast,
+            async (generation, selectedPageCount) => {
+                await runWithDocumentOperationLease('raster-export', async () => {
+                    const identity = captureExportIdentity(generation);
+                    if (!identity || !ownsExportIdentity(identity)) {
+                        setExportOverlay(null);
+                        return;
+                    }
 
-        const selectedPageCount = getSelectedPageCount(pageNumbers);
-        const generation = ++exportGeneration;
-        isExportInProgress.value = true;
-        try {
-            const preflightIdentity = captureExportIdentity(generation);
-            if (!preflightIdentity) {
-                return;
-            }
-            const isFreshForRead = preflightIdentity.sourceKind === 'pdf' && ensureWorkingCopyFreshForRead
-                ? await ensureWorkingCopyFreshForRead()
-                : true;
-            if (!isFreshForRead || !ownsExportSource(preflightIdentity)) {
-                setExportOverlay(null);
-                if (isFreshForRead === false && ownsExportSource(preflightIdentity)) {
-                    toast.add({
-                        color: 'error',
-                        title: t('errors.export.multiPageTiff'),
-                        description: t('errors.file.save'),
-                    });
-                }
-                return;
-            }
-            await runWithDocumentOperationLease('raster-export', async () => {
-                const identity = captureExportIdentity(generation);
-                if (!identity || !ownsExportIdentity(identity)) {
-                    setExportOverlay(null);
-                    return;
-                }
+                    showExportRunning('images', selectedPageCount);
+                    const documentWorkingCopy = getDocumentWorkingCopyCapability();
+                    const imageExport = getImageExportCapability();
+                    const requestId = createExportRequestId();
+                    subscribeExportProgress(imageExport, requestId, 'images');
+                    const startedAt = Date.now();
+                    const result = await imageExport.exportPdfToImages(
+                        identity.sourcePath,
+                        pageNumbers,
+                        requestId,
+                        identity.sourceKind,
+                    );
+                    if (!ownsExportIdentity(identity)) {
+                        await cleanupExportedOutputRefs(documentWorkingCopy, result.outputPaths ?? []);
+                        if (generation === exportGeneration && !isDisposed) {
+                            setExportOverlay(null);
+                        }
+                        return;
+                    }
+                    if (result.success || result.canceled) {
+                        trackExportCompleted({
+                            startedAt,
+                            format: 'images',
+                            outputCount: result.outputPaths?.length ?? 0,
+                            selectedPageCount,
+                            status: result.success ? 'success' : 'canceled',
+                        });
+                    }
+                    await handleImageExportResult(documentWorkingCopy, result, selectedPageCount);
+                });
+            },
+            (error) => {
+                BrowserLogger.error('workspace', 'export images failed', error);
+                showImageExportFailureToast(getErrorMessage(error));
+            },
+        );
+    }
 
-                showExportRunning('multipage-tiff', selectedPageCount);
-                const documentWorkingCopy = getDocumentWorkingCopyCapability();
-                const imageExport = getImageExportCapability();
-                const requestId = createExportRequestId();
-                subscribeExportProgress(imageExport, requestId, 'multipage-tiff');
-                const startedAt = Date.now();
-                const result = await imageExport.exportPdfToMultiPageTiff(
-                    identity.sourcePath,
-                    pageNumbers,
-                    requestId,
-                    identity.sourceKind,
-                );
-                const outputPaths = result.outputPaths ?? (result.outputPath ? [result.outputPath] : []);
-                if (!ownsExportIdentity(identity)) {
-                    await cleanupExportedOutputRefs(documentWorkingCopy, outputPaths);
-                    if (generation === exportGeneration && !isDisposed) {
+    function runMultiPageTiffExport(pageNumbers?: number[]) {
+        return runRasterExport(
+            pageNumbers,
+            () => {
+                toast.add({
+                    color: 'error',
+                    title: t('errors.export.multiPageTiff'),
+                    description: t('errors.file.save'),
+                });
+            },
+            async (generation, selectedPageCount) => {
+                await runWithDocumentOperationLease('raster-export', async () => {
+                    const identity = captureExportIdentity(generation);
+                    if (!identity || !ownsExportIdentity(identity)) {
+                        setExportOverlay(null);
+                        return;
+                    }
+
+                    showExportRunning('multipage-tiff', selectedPageCount);
+                    const documentWorkingCopy = getDocumentWorkingCopyCapability();
+                    const imageExport = getImageExportCapability();
+                    const requestId = createExportRequestId();
+                    subscribeExportProgress(imageExport, requestId, 'multipage-tiff');
+                    const startedAt = Date.now();
+                    const result = await imageExport.exportPdfToMultiPageTiff(
+                        identity.sourcePath,
+                        pageNumbers,
+                        requestId,
+                        identity.sourceKind,
+                    );
+                    const outputPaths = result.outputPaths ?? (result.outputPath ? [result.outputPath] : []);
+                    if (!ownsExportIdentity(identity)) {
+                        await cleanupExportedOutputRefs(documentWorkingCopy, outputPaths);
+                        if (generation === exportGeneration && !isDisposed) {
+                            setExportOverlay(null);
+                        }
+                        return;
+                    }
+                    if (result.success || result.canceled) {
+                        trackExportCompleted({
+                            startedAt,
+                            format: 'multipage_tiff',
+                            outputCount: outputPaths.length,
+                            selectedPageCount,
+                            status: result.success ? 'success' : 'canceled',
+                        });
+                    }
+                    if (result.success && outputPaths.length > 0) {
+                        await cleanupExportedOutputRefs(documentWorkingCopy, outputPaths);
+                        showExportSuccess('multipage-tiff', selectedPageCount);
+                    } else {
                         setExportOverlay(null);
                     }
-                    return;
-                }
-                if (result.success || result.canceled) {
-                    trackExportCompleted({
-                        startedAt,
-                        format: 'multipage_tiff',
-                        outputCount: outputPaths.length,
-                        selectedPageCount,
-                        status: result.success ? 'success' : 'canceled',
-                    });
-                }
-                if (result.success && outputPaths.length > 0) {
-                    await cleanupExportedOutputRefs(documentWorkingCopy, outputPaths);
-                    showExportSuccess('multipage-tiff', selectedPageCount);
-                } else {
-                    setExportOverlay(null);
-                }
-            });
-        } catch (error) {
-            if (generation === exportGeneration && !isDisposed) {
-                setExportOverlay(null);
+                });
+            },
+            (error) => {
                 BrowserLogger.error('workspace', 'export multi-page tiff failed', error);
                 toast.add({
                     color: 'error',
                     title: t('errors.export.multiPageTiff'),
                     description: getErrorMessage(error),
                 });
-            }
-        } finally {
-            if (generation === exportGeneration) {
-                clearExportProgressSubscription();
-                isExportInProgress.value = false;
-            }
-        }
+            },
+        );
     }
 
     async function handleExportImages(selectedPages: number[] = []) {

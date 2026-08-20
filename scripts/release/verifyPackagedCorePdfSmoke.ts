@@ -14,6 +14,7 @@ import {PDFDocument} from 'pdf-lib';
 import puppeteer from 'puppeteer-core';
 import type {Page} from 'puppeteer-core';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
+import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
 import {
     findFreePort,
     isProcessAlive,
@@ -64,25 +65,6 @@ async function createFixturePdf(filePath: string) {
         });
     }
     await writeFile(filePath, await document.save());
-}
-
-async function waitForCdpEndpoint(port: number) {
-    const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        try {
-            const response = await fetch(`http://127.0.0.1:${port}/json/version`);
-            if (response.ok) {
-                const payload = await response.json() as {webSocketDebuggerUrl?: string};
-                if (payload.webSocketDebuggerUrl) {
-                    return payload.webSocketDebuggerUrl;
-                }
-            }
-        } catch {
-            // Packaged Electron is still starting.
-        }
-        await delay(250);
-    }
-    throw new Error(`Packaged Electron did not expose CDP on port ${port}`);
 }
 
 async function waitForSaveEnabled(page: Page) {
@@ -167,7 +149,11 @@ async function run() {
 
     let browser: TConnectedBrowser | null = null;
     try {
-        const browserWSEndpoint = await waitForCdpEndpoint(cdpPort);
+        const browserWSEndpoint = await waitForPackagedCdpEndpoint(
+            cdpPort,
+            STARTUP_TIMEOUT_MS,
+            'Packaged Electron',
+        );
         browser = await puppeteer.connect({
             browserWSEndpoint,
             defaultViewport: null,

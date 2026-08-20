@@ -10,7 +10,6 @@ export class MemoryStorage {
     }
 
     // Required by the Storage-shaped object consumed structurally by the browser capabilities.
-    // fallow-ignore-next-line unused-class-member
     public getItem(key: string) {
         return this.data.get(key) ?? null;
     }
@@ -193,13 +192,22 @@ class FakeTransaction {
     public onerror: (() => void) | null = null;
     public oncomplete: (() => void) | null = null;
 
-    public constructor(private readonly store: FakeObjectStore) {}
+    private completionScheduled = false;
 
-    public objectStore(_name: string) {
-        queueMicrotask(() => {
-            this.oncomplete?.();
-        });
-        return cast<IDBObjectStore>(this.store);
+    public constructor(private readonly stores: Map<string, FakeObjectStore>) {}
+
+    public objectStore(name: string) {
+        const store = this.stores.get(name);
+        if (!store) {
+            throw new Error(`Unknown IndexedDB test store: ${name}`);
+        }
+        if (!this.completionScheduled) {
+            this.completionScheduled = true;
+            queueMicrotask(() => {
+                queueMicrotask(() => this.oncomplete?.());
+            });
+        }
+        return cast<IDBObjectStore>(store);
     }
 }
 
@@ -220,14 +228,24 @@ class FakeDatabase {
         return cast<IDBObjectStore>(new FakeObjectStore(store));
     }
 
-    public transaction(name: string, _mode: IDBTransactionMode) {
-        const store = this.storesByName.get(name) ?? {
-            records: new Map<string, unknown>(),
-            keyPath: 'ref',
-            indexes: new Map<string, string>(),
-        };
-        this.storesByName.set(name, store);
-        return cast<IDBTransaction>(new FakeTransaction(new FakeObjectStore(store)));
+    public transaction(nameOrNames: string | string[], _mode: IDBTransactionMode) {
+        const names = Array.isArray(nameOrNames) ? nameOrNames : [nameOrNames];
+        if (names.length === 0) {
+            throw new Error('The IndexedDB test double requires at least one store name.');
+        }
+        const stores = new Map(names.map((name) => {
+            const store = this.storesByName.get(name) ?? {
+                records: new Map<string, unknown>(),
+                keyPath: 'ref',
+                indexes: new Map<string, string>(),
+            };
+            this.storesByName.set(name, store);
+            return [
+                name,
+                new FakeObjectStore(store),
+            ];
+        }));
+        return cast<IDBTransaction>(new FakeTransaction(stores));
     }
 
     public getStoreRecords(name: string) {
@@ -239,7 +257,7 @@ class FakeDatabase {
 
     public rejectNextTransaction(error: Error) {
         const transaction = this.transaction.bind(this);
-        this.transaction = ((_name: string, _mode: IDBTransactionMode) => {
+        this.transaction = ((_nameOrNames: string | string[], _mode: IDBTransactionMode) => {
             this.transaction = transaction;
             throw error;
         }) as typeof this.transaction;

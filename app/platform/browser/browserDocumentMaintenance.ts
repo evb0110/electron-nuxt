@@ -235,7 +235,7 @@ export async function sweepBrowserDocumentMaintenance(
         },
     );
     if (!deletedRefs) {
-        return;
+        throw new Error('IndexedDB document delete did not commit.');
     }
     deletedRefs.forEach(ref => entries.delete(ref));
     if (deletedRefs.size > 0) {

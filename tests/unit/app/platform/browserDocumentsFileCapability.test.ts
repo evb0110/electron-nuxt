@@ -318,7 +318,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
 
         await expect(capability.openDocumentDialog()).rejects.toMatchObject({
-            code: 'browser-file-picker-setup-denied',
+            message: 'browser-file-picker-setup-denied',
             name: 'BrowserFilePickerSetupDeniedError',
         });
         const fallbackResult = await capability.openDocumentDialog();

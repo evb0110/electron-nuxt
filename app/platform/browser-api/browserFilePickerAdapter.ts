@@ -143,8 +143,6 @@ function rememberInputOpenPickerMode() {
 const BROWSER_FILE_PICKER_SETUP_DENIED_CODE = 'browser-file-picker-setup-denied';
 
 export class BrowserFilePickerSetupDeniedError extends Error {
-    public readonly code = BROWSER_FILE_PICKER_SETUP_DENIED_CODE;
-
     public constructor() {
         super(BROWSER_FILE_PICKER_SETUP_DENIED_CODE);
         this.name = 'BrowserFilePickerSetupDeniedError';

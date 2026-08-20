@@ -938,7 +938,6 @@ export async function triggerManualUpdateCheck() {
     return { started: true };
 }
 
-// fallow-ignore-next-line unused-export
 export function getUpdateStatus() {
     if (status.version !== null) {
         return status;

@@ -177,6 +177,7 @@ describe('zero-execution coverage tripwire', () => {
 
         expect(await collectZeroExecutionTripwireTargets(projectRoot)).toEqual(targetFiles);
         const result = await runZeroExecutionCoverage({
+            changedFiles: [],
             projectRoot,
             summaryPath,
         });
@@ -310,6 +311,7 @@ describe('zero-execution coverage tripwire', () => {
 
         try {
             const result = await runZeroExecutionCoverage({
+                changedFiles: [],
                 projectRoot,
                 summaryPath,
             });

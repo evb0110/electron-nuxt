@@ -142,6 +142,7 @@ function createRenderingFixture(fixtureOptions: {
     autoResolve?: boolean;
     bufferPages?: number;
     clampBufferedPages?: readonly number[];
+    residentPages?: readonly number[];
     withChassisAuthority?: boolean;
 } = {}) {
     const subscribers: Array<(transition: IPdfDocumentTransition) => void | Promise<void>> = [];
@@ -154,9 +155,9 @@ function createRenderingFixture(fixtureOptions: {
             end: 3,
         },
         requiredPages: [3],
-        nearbyPages: [],
-        residentPages: [3],
-        mountedPages: [3],
+        nearbyPages: fixtureOptions.residentPages?.filter(page => page !== 3) ?? [],
+        residentPages: fixtureOptions.residentPages ?? [3],
+        mountedPages: fixtureOptions.residentPages ?? [3],
         currentPage: 3,
         destinationPage: null,
         operational: true,
@@ -166,7 +167,10 @@ function createRenderingFixture(fixtureOptions: {
                 start: 3,
                 end: 3,
             },
-            options: {bufferOverride: 0},
+            options: {
+                bufferOverride: 0,
+                suppressResidentRasterDemand: true,
+            },
         },
     });
     const cancelRasterRevision = ref(0);
@@ -921,6 +925,32 @@ describe('PdfRenderingSession behavior', () => {
             fixture.renderTasks[0]!.resolve();
             await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('settles mandatory raster without waiting for unrelated resident pages', async () => {
+        const fixture = createRenderingFixture({
+            autoResolve: false,
+            residentPages: [
+                3,
+                4,
+            ],
+        });
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(3, 'render-cache');
+            expect(fixture.documentSession.leasePage).not.toHaveBeenCalledWith(4, 'render-cache');
+
+            fixture.renderTasks[0]!.resolve();
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                mandatoryRaster: null,
+            };
+            await vi.waitFor(() => expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(4, 'render-cache'));
         } finally {
             await fixture.dispose();
         }

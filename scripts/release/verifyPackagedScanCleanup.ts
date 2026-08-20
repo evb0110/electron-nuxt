@@ -37,6 +37,7 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
 
 const STARTUP_TIMEOUT_MS = 90_000;
 const DETECTION_TIMEOUT_MS = 30 * 60_000;
@@ -267,25 +268,6 @@ function parseArguments(argv: string[]): IArguments {
         );
     }
     return result;
-}
-
-async function waitForCdpEndpoint(port: number) {
-    const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        try {
-            const response = await fetch(`http://127.0.0.1:${port}/json/version`);
-            if (response.ok) {
-                const payload = await response.json() as {webSocketDebuggerUrl?: string};
-                if (payload.webSocketDebuggerUrl) {
-                    return payload.webSocketDebuggerUrl;
-                }
-            }
-        } catch {
-            // The packaged application is still starting.
-        }
-        await delay(250);
-    }
-    throw new Error(`Packaged EVB Viewer did not expose CDP on port ${port}`);
 }
 
 async function waitForProcessExit(pid: number, timeoutMs: number) {
@@ -814,7 +796,11 @@ async function run() {
 
     let browser: Browser | null = null;
     try {
-        const browserWSEndpoint = await waitForCdpEndpoint(cdpPort);
+        const browserWSEndpoint = await waitForPackagedCdpEndpoint(
+            cdpPort,
+            STARTUP_TIMEOUT_MS,
+            'Packaged EVB Viewer',
+        );
         browser = await puppeteer.connect({
             browserWSEndpoint,
             defaultViewport: null,

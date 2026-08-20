@@ -67,7 +67,7 @@ export interface IDjvuArtifactVerification {
     sha256: string;
 }
 
-export class DjvuDiskQuotaError extends Error {
+class DjvuDiskQuotaError extends Error {
     constructor(message: string) {
         super(`DjVu disk quota exceeded: ${message}`);
         this.name = 'DjvuDiskQuotaError';
@@ -79,7 +79,7 @@ export const DJVU_ARTIFACT_MAX_TOTAL_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_DJVU_ARTIFACT_MAX_TOTAL_MB ?? '4096', 10);
     return (Number.isFinite(parsed) && parsed >= 128 ? parsed : 4096) * 1024 * 1024;
 })();
-export const DJVU_ARTIFACT_FREE_SPACE_RESERVE_BYTES = 128 * 1024 * 1024;
+const DJVU_ARTIFACT_FREE_SPACE_RESERVE_BYTES = 128 * 1024 * 1024;
 const activeFingerprintTails = new Map<string, Promise<void>>();
 
 async function ensureJobRoot() {

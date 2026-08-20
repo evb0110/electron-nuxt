@@ -592,6 +592,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 range,
                 options: {
                     ...renderOptions,
+                    suppressResidentRasterDemand: true,
                     bufferOverride: renderOptions.bufferOverride ?? 0,
                     preserveInFlightRequiredPages: renderOptions.preserveInFlightRequiredPages ?? true,
                     preserveRenderedPages: renderOptions.preserveRenderedPages ?? true,

@@ -63,7 +63,7 @@ describe('Electron E2E fixture source policy', () => {
         expect(fixtureSource).toContain('captureFailureArtifacts');
         expect(fixtureSource).toContain('preserveArtifacts: preserveFailureArtifacts');
         expect(fixtureSource).toContain('await previousSession.stop');
-        expect(fixtureSource).toContain('if (clean)');
+        expect(fixtureSource).toContain('if (clean && !hard)');
         expect(fixtureSource).toContain('await stopSingleSession(previousSession.name, {keepNuxt})');
         expect(sessionSource).toContain('page.screenshot');
         expect(sessionSource).toContain('createSessionDiagnostics(sessionName)');
@@ -169,7 +169,10 @@ describe('Electron E2E fixture source policy', () => {
         expect(interactionTestStart).toBeGreaterThan(cumulativeTestStart);
         expect(cumulativeTestSource).toContain('retry: 0');
         expect(cumulativeTestSource).toContain('timeout: 240_000');
-        expect(interactionTestSource.match(/waitForAnimationFrames\(session\.page, 10\)/gu)).toHaveLength(4);
+        expect(
+            interactionTestSource.match(/await waitForCommittedSurfaceSamples\(session\.page, \{/gu) ?? [],
+        ).toHaveLength(4);
+        expect(interactionTestSource.match(/minimumSamples: 10/gu) ?? []).toHaveLength(4);
         expect(interactionTestSource).toContain('horizontalOverflowCheckpoint: \'high-zoom-transition\'');
         expect(blockingSource).not.toContain('createLargeMultiPageTextFixturePdf');
     });
