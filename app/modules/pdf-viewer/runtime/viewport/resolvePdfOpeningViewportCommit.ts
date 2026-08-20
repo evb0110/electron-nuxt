@@ -4,6 +4,22 @@ import type {
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IPdfViewportIntent } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 
+export type TPdfOpeningViewportRejectionReason =
+    | 'requested-page-mismatch'
+    | 'surface-not-opening'
+    | 'active-current-intent'
+    | 'stale-intent-retirement-race'
+    | 'viewport-commit-rejected';
+
+interface IPdfOpeningViewportReconcileOptions {
+    activeIntent: Readonly<Pick<IPdfViewportIntent, 'documentRevision' | 'id' | 'kind'>> | null;
+    applyReloadViewport(pageNumber: number): boolean;
+    commitCurrentViewportIfSettled(pageNumber: number): boolean;
+    currentDocumentRevision: number;
+    surface: IDocumentOpenSurfaceSession;
+    suspendActiveIntent(): void;
+}
+
 export function suspendStalePdfViewportIntent(
     activeIntent: Readonly<Pick<IPdfViewportIntent, 'documentRevision'>> | null,
     currentDocumentRevision: number,
@@ -52,4 +68,55 @@ export function resolvePdfOpeningViewportCommit(
         return null;
     }
     return committedRender;
+}
+
+export function reconcilePdfOpeningViewportCommit(
+    options: IPdfOpeningViewportReconcileOptions,
+    observeRejection: (reason: TPdfOpeningViewportRejectionReason | null) => void,
+): IDocumentOpenSurfaceRenderFence | null {
+    const snapshot = options.surface.snapshot.value;
+    const viewport = options.surface.viewportSession.value;
+    if (!snapshot.committedRender || snapshot.committedViewport) {
+        observeRejection(null);
+        return null;
+    }
+    const committedRender = resolvePdfOpeningViewportCommit(
+        options.surface,
+        options.activeIntent,
+        options.currentDocumentRevision,
+        options.suspendActiveIntent,
+    );
+    if (!committedRender) {
+        observeRejection(viewport.lifecycle === 'opening'
+            ? resolveOpeningViewportRejectionReason(options)
+            : null);
+        return null;
+    }
+    const observedCommit = options.commitCurrentViewportIfSettled(committedRender.pageNumber);
+    const reloadCommit = !observedCommit && viewport.lifecycle === 'opening'
+        ? options.applyReloadViewport(committedRender.pageNumber)
+        : false;
+    if (!observedCommit && !reloadCommit) {
+        observeRejection(viewport.lifecycle === 'opening' ? 'viewport-commit-rejected' : null);
+        return null;
+    }
+    observeRejection(null);
+    return committedRender;
+}
+
+function resolveOpeningViewportRejectionReason(
+    options: IPdfOpeningViewportReconcileOptions,
+): TPdfOpeningViewportRejectionReason {
+    const snapshot = options.surface.snapshot.value;
+    const viewport = options.surface.viewportSession.value;
+    if (viewport.requestedPage !== snapshot.committedRender?.pageNumber) {
+        return 'requested-page-mismatch';
+    }
+    if (viewport.lifecycle !== 'opening') {
+        return 'surface-not-opening';
+    }
+    if (options.activeIntent?.documentRevision === options.currentDocumentRevision) {
+        return 'active-current-intent';
+    }
+    return 'stale-intent-retirement-race';
 }

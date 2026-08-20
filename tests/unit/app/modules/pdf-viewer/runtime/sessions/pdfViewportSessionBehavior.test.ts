@@ -22,7 +22,9 @@ import type {
 import { createPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 import { cast } from '@tests/helpers/cast';
 
@@ -243,6 +245,63 @@ function transition(
 }
 
 describe('PdfViewportSession behavior', () => {
+    it('reports an opening viewport stall once after five seconds and resets after cancellation', () => {
+        vi.useFakeTimers();
+        const warn = vi.mocked(BrowserLogger.warn);
+        warn.mockClear();
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: 'diagnostic-stall.pdf',
+            documentRevision: 'revision-1',
+        });
+        surface.metadataReady(1);
+        surface.commitGeometry(generation, {
+            width: 600,
+            height: 900,
+            margin: 20,
+        });
+        surface.commitCanvas(surface.createRenderFence({
+            generation,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        })!);
+        const diagnostic = createPdfOpeningViewportStallDiagnostic({
+            captureCommitDiagnostics: () => ({hasContainer: false}),
+            getActiveIntent: () => null,
+            getAuthorityPhase: () => 'idle',
+            getCurrentDocumentRevision: () => 2,
+            getLayoutRevision: () => 4,
+            getSurface: () => surface,
+        });
+        try {
+            diagnostic.observe('active-current-intent');
+            vi.advanceTimersByTime(4_999);
+            expect(warn).not.toHaveBeenCalled();
+
+            diagnostic.observe('viewport-commit-rejected');
+            vi.advanceTimersByTime(1);
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(warn).toHaveBeenLastCalledWith(
+                'pdf-viewer',
+                'PDF opening viewport reconciliation remained blocked',
+                expect.objectContaining({rejectionReason: 'viewport-commit-rejected'}),
+            );
+            vi.advanceTimersByTime(10_000);
+            expect(warn).toHaveBeenCalledTimes(1);
+
+            diagnostic.observe(null);
+            diagnostic.observe('active-current-intent');
+            diagnostic.cancel();
+            vi.advanceTimersByTime(5_000);
+            expect(warn).toHaveBeenCalledTimes(1);
+        } finally {
+            diagnostic.cancel();
+            vi.useRealTimers();
+        }
+    });
+
     it('does not duplicate an anchored wheel-zoom viewport intent', () => {
         const fixture = createViewportFixture({zoomMode: 'custom'});
         try {

@@ -857,6 +857,37 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return commitCurrentViewportPosition(page, `viewport-observed-${String(++intentSequence)}`);
     }
 
+    function captureViewportCommitDiagnostics(pageNumber: number) {
+        const container = options.viewerContainer.value;
+        const layout = options.getPageLayoutMetrics?.() ?? null;
+        const snapshot = container && layout
+            ? createPdfViewportGeometryFromLayout(layout, {
+                width: container.clientWidth,
+                height: container.clientHeight,
+            }, options.getGeometryRevision())
+            : null;
+        const page = clamp(Math.trunc(pageNumber), 1, Math.max(1, options.numPages.value));
+        const expected = snapshot
+            ? resolveScrollForViewport(snapshot, getRequestAnchor(undefined, page))
+            : null;
+        return {
+            hasContainer: container !== null,
+            containerConnected: container?.isConnected ?? false,
+            hasLayout: layout !== null,
+            hasGeometry: snapshot !== null,
+            actualLeft: container?.scrollLeft ?? null,
+            actualTop: container?.scrollTop ?? null,
+            expectedLeft: expected?.left ?? null,
+            expectedTop: expected?.top ?? null,
+            clientWidth: container?.clientWidth ?? null,
+            clientHeight: container?.clientHeight ?? null,
+            scrollWidth: container?.scrollWidth ?? null,
+            scrollHeight: container?.scrollHeight ?? null,
+            layoutTotalPages: layout?.base.totalPages ?? null,
+            layoutScale: layout?.scale ?? null,
+        };
+    }
+
     function cancelProgrammaticNavigation(reason = 'explicit-cancel') {
         wheelFlipGate.reset();
         logPdfRenderTrace('navigation-retained-anchor-cleared', () => ({
@@ -1130,6 +1161,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         applyResizeAnchorPreview,
         commitCurrentViewportPosition,
         commitCurrentViewportIfSettled,
+        captureViewportCommitDiagnostics,
         navigationAnchorPage,
         pagedNavigationTargetPage: navigationAnchorPage,
         continuousNavigationTargetPage: computed(() => null),

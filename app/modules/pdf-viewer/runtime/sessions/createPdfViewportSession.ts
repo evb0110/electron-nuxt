@@ -53,9 +53,10 @@ import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runti
 import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import {
-    resolvePdfOpeningViewportCommit,
+    reconcilePdfOpeningViewportCommit,
     suspendStalePdfViewportIntent,
 } from '@app/modules/pdf-viewer/runtime/viewport/resolvePdfOpeningViewportCommit';
+import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
@@ -895,42 +896,40 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         kind: 'zoom' | 'fit' | 'view-mode' | 'dpr' | 'activation',
         state: Parameters<typeof singlePageScroll.submitViewportStateIntent>[1] = {},
     ) {
-        // Opening placement is owned by the shared surface generation. A
-        // reactive fit/DPR/activation echo must not create a local intent that
-        // can outlive that generation and veto the staged canvas->viewport
-        // commit. Explicit navigation and anchored user zoom use the controller
-        // directly and remain authoritative.
         if (chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening') {
             return;
         }
         void singlePageScroll.submitViewportStateIntent(kind, state);
     }
+    const openingViewportStallDiagnostic = createPdfOpeningViewportStallDiagnostic({
+        getSurface: () => chassisAuthority?.openSurface ?? null,
+        getActiveIntent: () => singlePageScroll.viewportAuthority.activeIntent.value,
+        getAuthorityPhase: () => singlePageScroll.viewportAuthority.phase.value,
+        getCurrentDocumentRevision: () => documentSession.captureFence().loadToken,
+        getLayoutRevision: () => pageMetricsVersion.value,
+        captureCommitDiagnostics: singlePageScroll.captureViewportCommitDiagnostics,
+    });
     function reconcileIdleOpenSurfaceViewport() {
         const surface = chassisAuthority?.openSurface;
         if (!surface) {
             return false;
         }
-        const committedRender = resolvePdfOpeningViewportCommit(
+        const committedRender = reconcilePdfOpeningViewportCommit({
             surface,
-            singlePageScroll.viewportAuthority.activeIntent.value,
-            documentSession.captureFence().loadToken,
-            singlePageScroll.viewportAuthority.suspend,
-        );
+            activeIntent: singlePageScroll.viewportAuthority.activeIntent.value,
+            currentDocumentRevision: documentSession.captureFence().loadToken,
+            suspendActiveIntent: singlePageScroll.viewportAuthority.suspend,
+            commitCurrentViewportIfSettled: singlePageScroll.commitCurrentViewportIfSettled,
+            applyReloadViewport,
+        }, openingViewportStallDiagnostic.observe);
         if (!committedRender) {
             return false;
         }
-        const committed = singlePageScroll.commitCurrentViewportIfSettled(committedRender.pageNumber)
-            || (
-                surface.viewportSession.value.lifecycle === 'opening'
-                && applyReloadViewport(committedRender.pageNumber)
-            );
-        if (committed) {
-            navigationCommittedSignal.value = {
-                revision: navigationCommittedSignal.value.revision + 1,
-                pageNumber: committedRender.pageNumber,
-            };
-        }
-        return committed;
+        navigationCommittedSignal.value = {
+            revision: navigationCommittedSignal.value.revision + 1,
+            pageNumber: committedRender.pageNumber,
+        };
+        return true;
     }
     watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent, previousIntent) => {
         if (activeIntent === null && previousIntent !== null) {
@@ -1092,6 +1091,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         if (transition.phase === 'invalidated') {
+            openingViewportStallDiagnostic.cancel();
             singlePageScroll.viewportAuthority.suspend();
             activeDocumentPlacement = null;
             cancelMandatoryRaster();
@@ -1125,6 +1125,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
     });
     documentSession.registerDisposable(() => {
+        openingViewportStallDiagnostic.cancel();
         mountedVisibilityProjectionDisposed = true;
         cancelMountedVisibilityProjection();
         unsubscribeDocumentTransitions();
