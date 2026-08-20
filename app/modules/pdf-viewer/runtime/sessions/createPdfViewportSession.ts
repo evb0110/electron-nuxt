@@ -52,10 +52,7 @@ import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/ru
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
-import {
-    reconcilePdfOpeningViewportCommit,
-    suspendStalePdfViewportIntent,
-} from '@app/modules/pdf-viewer/runtime/viewport/resolvePdfOpeningViewportCommit';
+import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
@@ -918,7 +915,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             surface,
             activeIntent: singlePageScroll.viewportAuthority.activeIntent.value,
             currentDocumentRevision: documentSession.captureFence().loadToken,
-            suspendActiveIntent: singlePageScroll.viewportAuthority.suspend,
+            suspendActiveIntent: () => singlePageScroll.retireStaleViewportIntent(
+                documentSession.captureFence().loadToken,
+            ),
             commitCurrentViewportIfSettled: singlePageScroll.commitCurrentViewportIfSettled,
             applyReloadViewport,
         }, openingViewportStallDiagnostic.observe);
@@ -1082,11 +1081,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         if (transition.phase === 'loading') {
-            suspendStalePdfViewportIntent(
-                singlePageScroll.viewportAuthority.activeIntent.value,
-                transition.fence.loadToken,
-                singlePageScroll.viewportAuthority.suspend,
-            );
+            singlePageScroll.retireStaleViewportIntent(transition.fence.loadToken);
             activeDocumentPlacement = beginReloadPlacement(transition);
             return;
         }

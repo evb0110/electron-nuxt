@@ -175,6 +175,7 @@ export function shouldSubmitRequestedCurrentPage(
  */
 export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageNavigationControllerOptions) => {
     let intentSequence = 0;
+    let navigationIntentSequence = 0;
     let resizePreviewWriteSequence = 0;
     let activeNavigationSequence: number | null = null;
     const retainedNavigationAnchorPage = ref<number | null>(null);
@@ -487,15 +488,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return request;
     }
 
-    async function submitNavigationIntent(
-        request: IPdfNavigationRequest,
-        sequence: number,
-    ) {
+    async function submitNavigationIntent(request: IPdfNavigationRequest) {
         const submittedDocumentRevision = options.getDocumentRevision();
         const submittedGeometryRevision = options.getGeometryRevision();
         refreshGeometry();
         const result = await viewportAuthority.submit({
-            id: `viewport-navigation-${sequence}`,
+            // Replays retain queue ownership but require a fresh authority ID.
+            id: `viewport-navigation-${String(++navigationIntentSequence)}`,
             kind: request.source === 'search' ? 'search' : request.source === 'wheel' ? 'wheel-page' : 'navigate',
             documentRevision: submittedDocumentRevision,
             geometryRevision: submittedGeometryRevision,
@@ -510,7 +509,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         activeNavigationSequence = sequence;
         runGuardedTask(async () => {
             try {
-                await submitNavigationIntent(request, sequence);
+                await submitNavigationIntent(request);
             } finally {
                 if (activeNavigationSequence === sequence) {
                     activeNavigationSequence = null;
@@ -939,6 +938,28 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             viewportAuthority.suspend();
         }
     }
+    function retireStaleViewportIntent(currentDocumentRevision: number) {
+        const activeIntent = viewportAuthority.activeIntent.value;
+        if (
+            activeIntent === null
+            || activeIntent.documentRevision === currentDocumentRevision
+        ) {
+            return false;
+        }
+        if (activeIntent.navigation !== undefined) {
+            const staleNavigationSequence = activeNavigationSequence;
+            if (
+                staleNavigationSequence !== null
+                && queuedNavigation?.sequence === staleNavigationSequence
+            ) {
+                clearQueuedNavigation();
+            }
+            // Preserve only a genuinely newer queued request for replay.
+            activeNavigationSequence = null;
+        }
+        viewportAuthority.suspend();
+        return true;
+    }
 
     function handleWheel(event: IPdfSinglePageWheelEvent) {
         if (
@@ -1153,6 +1174,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         endSearchNavigation: () => undefined,
         cancelProgrammaticNavigation,
         cancelDestinationNavigationTarget,
+        retireStaleViewportIntent,
         resetContinuousScrollState,
         viewportAuthority,
         submitNavigationRequest,

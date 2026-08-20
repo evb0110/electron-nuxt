@@ -984,6 +984,11 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
             expect(fixture.viewport.singlePageScroll.viewportAuthority.getTerminalOutcome(staleIntentId))
                 .toBe('cancelled');
+            await nextTick();
+            await Promise.resolve();
+            await nextTick();
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
+            expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledTimes(1);
         } finally {
             metrics.resolve(true);
             fixture.app.unmount();

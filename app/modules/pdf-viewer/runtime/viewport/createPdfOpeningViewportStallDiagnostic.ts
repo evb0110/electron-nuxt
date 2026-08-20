@@ -1,5 +1,5 @@
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { TPdfOpeningViewportRejectionReason } from '@app/modules/pdf-viewer/runtime/viewport/resolvePdfOpeningViewportCommit';
+import type { TPdfOpeningViewportRejectionReason } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const OPENING_VIEWPORT_STALL_WARNING_MS = 5_000;

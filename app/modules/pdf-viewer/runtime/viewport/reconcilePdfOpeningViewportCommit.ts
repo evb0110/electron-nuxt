@@ -20,7 +20,7 @@ interface IPdfOpeningViewportReconcileOptions {
     suspendActiveIntent(): void;
 }
 
-export function suspendStalePdfViewportIntent(
+function suspendStalePdfViewportIntent(
     activeIntent: Readonly<Pick<IPdfViewportIntent, 'documentRevision'>> | null,
     currentDocumentRevision: number,
     suspendActiveIntent: () => void,
@@ -32,7 +32,7 @@ export function suspendStalePdfViewportIntent(
     return true;
 }
 
-export function resolvePdfOpeningViewportCommit(
+function resolvePdfOpeningViewportCommit(
     surface: IDocumentOpenSurfaceSession,
     activeIntent: Readonly<Pick<IPdfViewportIntent, 'documentRevision'>> | null,
     currentDocumentRevision: number,
